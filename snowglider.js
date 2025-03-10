@@ -21,13 +21,26 @@ function createTerrain() {
   const geometry = new THREE.PlaneGeometry(200, 200, 100, 100);
   geometry.rotateX(-Math.PI / 2);
   const vertices = geometry.attributes.position.array;
+  
+  // Create Perlin noise for natural terrain variation
+  const perlin = new SimplexNoise();
+  
   for (let i = 0; i < vertices.length; i += 3) {
     const x = vertices[i], z = vertices[i + 2];
     const distance = Math.sqrt(x * x + z * z);
+    
+    // Base mountain shape
     let y = 40 * Math.exp(-distance / 40);
+    
+    // Add perlin noise for natural terrain roughness
+    // Less noise near the peak, more at the sides
+    const noiseScale = 0.05;
+    const noiseStrength = 2.0 * (1 - Math.exp(-distance / 60));
+    y += perlin.noise(x * noiseScale, z * noiseScale) * noiseStrength;
     
     // Create a smoother ski path along x=0
     if (Math.abs(x) < 8) {
+      // Make the ski path smoother but still with some texture
       y = y * 0.9 + (z + 100) * 0.1 + Math.sin(z / 3) * 0.3;
       
       // Add fewer, smaller moguls along the path
@@ -51,6 +64,15 @@ function createTerrain() {
             }
           }
         }
+      }
+    } else {
+      // Add more extreme variation away from the ski path
+      // Add some small ridges and folds to simulate mountain texture
+      y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 1.5;
+      
+      // Add some random smaller bumps
+      if (Math.random() > 0.7) {
+        y += perlin.noise(x * 0.1 + 100, z * 0.1 + 100) * 2.0;
       }
     }
     
@@ -96,10 +118,189 @@ function createTerrain() {
   terrain.receiveShadow = true;
   scene.add(terrain);
   
+  // Add rocks to make the mountain more realistic
+  addRocks();
+  
   // Add trees to make the slope more visible
   addTrees();
   
   return terrain;
+}
+
+// Add rocks to create a more realistic mountain environment
+function addRocks() {
+  // Create rock positions with higher density on steeper parts of mountain
+  const rockPositions = [];
+  
+  // Add rocks scattered across the mountain
+  for(let z = -90; z < 90; z += 10) {
+    for(let x = -80; x < 80; x += 10) {
+      // Avoid placing rocks on or very near the ski path
+      if(Math.abs(x) < 15) continue;
+      
+      // Random offset for natural placement
+      const xPos = x + (Math.random() * 8 - 4);
+      const zPos = z + (Math.random() * 8 - 4);
+      
+      // Get terrain information at this position
+      const y = getTerrainHeight(xPos, zPos);
+      const gradient = getTerrainGradient(xPos, zPos);
+      const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
+      
+      // Higher probability of rocks on steeper slopes, but still some randomness
+      if(Math.random() < 0.1 + steepness * 0.5) {
+        rockPositions.push({x: xPos, y: y, z: zPos, size: 0.5 + Math.random() * 2.5});
+      }
+    }
+  }
+  
+  // Create rock instances
+  rockPositions.forEach(pos => {
+    const rock = createRock(pos.size);
+    rock.position.set(pos.x, pos.y, pos.z);
+    
+    // Random rotation for natural look
+    rock.rotation.y = Math.random() * Math.PI * 2;
+    rock.rotation.z = Math.random() * 0.3;
+    
+    // Align rock to terrain slope
+    const gradient = getTerrainGradient(pos.x, pos.z);
+    rock.rotation.x = Math.atan(gradient.z) * 0.8;
+    rock.rotation.z = -Math.atan(gradient.x) * 0.8;
+    
+    scene.add(rock);
+  });
+}
+
+// Create a rock with variable size
+function createRock(size) {
+  // Use dodecahedron as base shape for rocks
+  const geometry = new THREE.DodecahedronGeometry(size, 1);
+  
+  // Deform vertices slightly for more natural rock shape
+  const positions = geometry.attributes.position.array;
+  for (let i = 0; i < positions.length; i += 3) {
+    const noise = Math.random() * 0.2;
+    positions[i] *= (1 + noise);
+    positions[i+1] *= (1 + noise);
+    positions[i+2] *= (1 + noise);
+  }
+  geometry.computeVertexNormals();
+  
+  // Create rock material with varying colors
+  const grayness = 0.4 + Math.random() * 0.3;
+  const rockColor = new THREE.Color(grayness, grayness, grayness);
+  
+  const rockMaterial = new THREE.MeshStandardMaterial({
+    color: rockColor,
+    roughness: 0.8,
+    metalness: 0.2,
+    flatShading: true
+  });
+  
+  const rock = new THREE.Mesh(geometry, rockMaterial);
+  rock.castShadow = true;
+  rock.receiveShadow = true;
+  
+  return rock;
+}
+
+// SimplexNoise implementation (or you could use an existing library)
+class SimplexNoise {
+  constructor() {
+    this.grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0], 
+                 [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1], 
+                 [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]]; 
+    this.p = [];
+    for (let i = 0; i < 256; i++) {
+      this.p[i] = Math.floor(Math.random() * 256);
+    }
+    
+    // To remove the need for index wrapping, double the permutation table length 
+    this.perm = new Array(512); 
+    this.gradP = new Array(512); 
+    
+    // Populate permutation table
+    for(let i = 0; i < 512; i++) { 
+      this.perm[i] = this.p[i & 255]; 
+      this.gradP[i] = this.grad3[this.perm[i] % 12]; 
+    } 
+  }
+  
+  noise(xin, yin) {
+    // Simple 2D noise implementation - produces values between -1 and 1
+    let n0, n1, n2; // Noise contributions from the three corners
+    
+    // Skew the input space to determine which simplex cell we're in
+    const F2 = 0.5 * (Math.sqrt(3) - 1);
+    const s = (xin + yin) * F2; // Hairy factor for 2D
+    const i = Math.floor(xin + s);
+    const j = Math.floor(yin + s);
+    
+    const G2 = (3 - Math.sqrt(3)) / 6;
+    const t = (i + j) * G2;
+    const X0 = i - t; // Unskew the cell origin back to (x,y) space
+    const Y0 = j - t;
+    const x0 = xin - X0; // The x,y distances from the cell origin
+    const y0 = yin - Y0;
+    
+    // For the 2D case, the simplex shape is an equilateral triangle.
+    // Determine which simplex we are in.
+    let i1, j1; // Offsets for second (middle) corner of simplex in (i,j) coords
+    if (x0 > y0) {
+      i1 = 1; j1 = 0; // lower triangle, XY order: (0,0)->(1,0)->(1,1)
+    } else {
+      i1 = 0; j1 = 1; // upper triangle, YX order: (0,0)->(0,1)->(1,1)
+    }
+    
+    // A step of (1,0) in (i,j) means a step of (1-c,-c) in (x,y), and
+    // a step of (0,1) in (i,j) means a step of (-c,1-c) in (x,y), where
+    // c = (3-sqrt(3))/6
+    const x1 = x0 - i1 + G2; // Offsets for middle corner in (x,y) unskewed coords
+    const y1 = y0 - j1 + G2;
+    const x2 = x0 - 1 + 2 * G2; // Offsets for last corner in (x,y) unskewed coords
+    const y2 = y0 - 1 + 2 * G2;
+    
+    // Work out the hashed gradient indices of the three simplex corners
+    const ii = i & 255;
+    const jj = j & 255;
+    
+    // Calculate the contribution from the three corners
+    let t0 = 0.5 - x0*x0-y0*y0;
+    if (t0 < 0) {
+      n0 = 0;
+    } else {
+      t0 *= t0;
+      const gi0 = this.perm[ii+this.perm[jj]] % 12;
+      n0 = t0 * t0 * this.dot(this.gradP[gi0], x0, y0);
+    }
+    
+    let t1 = 0.5 - x1*x1-y1*y1;
+    if (t1 < 0) {
+      n1 = 0;
+    } else {
+      t1 *= t1;
+      const gi1 = this.perm[ii+i1+this.perm[jj+j1]] % 12;
+      n1 = t1 * t1 * this.dot(this.gradP[gi1], x1, y1);
+    }
+    
+    let t2 = 0.5 - x2*x2-y2*y2;
+    if (t2 < 0) {
+      n2 = 0;
+    } else {
+      t2 *= t2;
+      const gi2 = this.perm[ii+1+this.perm[jj+1]] % 12;
+      n2 = t2 * t2 * this.dot(this.gradP[gi2], x2, y2);
+    }
+    
+    // Add contributions from each corner to get the final noise value.
+    // The result is scaled to return values in the interval [-1,1].
+    return 70 * (n0 + n1 + n2);
+  }
+  
+  dot(g, x, y) {
+    return g[0]*x + g[1]*y;
+  }
 }
 
 // Add trees to make the scene more interesting and provide depth cues
@@ -254,9 +455,19 @@ const snowman = createSnowman();
 function getTerrainHeight(x, z) {
   const distance = Math.sqrt(x * x + z * z);
   let y = 40 * Math.exp(-distance / 40);
+  
+  // Add simplified version of the noise and terrain details
+  // Need to keep this in sync with the full version for physics to work properly
+  const perlin = 1.5 * Math.sin(x * 0.05) * Math.cos(z * 0.05); // Simplified noise approximation
+  y += perlin * (1 - Math.exp(-distance / 60));
+  
   if (Math.abs(x) < 8) {
     y = y * 0.9 + (z + 100) * 0.1 + Math.sin(z / 3) * 0.3;
+  } else {
+    // Add simplified version of the ridges outside the ski path
+    y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 0.8;
   }
+  
   return y;
 }
 
