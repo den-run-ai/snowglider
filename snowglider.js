@@ -212,11 +212,11 @@ function getDownhillDirection(x, z) {
 }
 
 // --- Snowman Position & Reset ---
-let pos = { x: 0, z: -85, y: getTerrainHeight(0, -85) };
+let pos = { x: 0, z: -40, y: getTerrainHeight(0, -40) };
 let velocity = { x: 0, z: 0 }; // Define velocity object
 
 function resetSnowman() {
-  pos = { x: 0, z: -85, y: getTerrainHeight(0, -85) };
+  pos = { x: 0, z: -40, y: getTerrainHeight(0, -40) };
   // Give the snowman a small initial push for smooth start
   velocity = { x: 0, z: -3.0 }; 
   snowman.position.set(pos.x, pos.y, pos.z);
@@ -390,14 +390,15 @@ function updateSnowman(delta) {
   snowman.rotation.x = gradZ * 0.5;
   snowman.rotation.z = -gradX * 0.5 - turnTilt;
   
-  // Make the slope infinite: If snowman reaches the bottom, move back to top
-  if (pos.z < -100) {
-    // Simply reset the snowman to the starting position
+  // Check if snowman is off the terrain or falling
+  // This compares actual position to expected terrain height
+  const terrainHeightAtPosition = getTerrainHeight(pos.x, pos.z);
+  const fallThreshold = 0.5; // How far below terrain to allow before reset
+  
+  // Reset if: reaches end of slope, goes off sides, or falls off terrain
+  if (pos.z < -100 || Math.abs(pos.x) > 70 || pos.y < terrainHeightAtPosition - fallThreshold) {
     resetSnowman();
   }
-  
-  // Reset if goes off the sides or below terrain
-  if (Math.abs(pos.x) > 50 || pos.y < 1) resetSnowman();
   
   document.getElementById('info').textContent =
     `Pos: ${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)} | Speed: ${currentSpeed.toFixed(1)}`;
@@ -442,21 +443,4 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// Make canvas focusable and get focus when clicked
-renderer.domElement.tabIndex = 1;
-renderer.domElement.addEventListener('click', () => {
-  renderer.domElement.focus();
-});
-
-// Add visual indicator for focus state
-renderer.domElement.addEventListener('focus', () => {
-  document.getElementById('controlsInfo').style.color = '#0066cc';
-  document.getElementById('controlsInfo').innerHTML = '⌨️ Controls ACTIVE: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake';
-});
-
-renderer.domElement.addEventListener('blur', () => {
-  document.getElementById('controlsInfo').style.color = '#333';
-  document.getElementById('controlsInfo').innerHTML = '⌨️ Click on game to activate controls: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake';
 });
