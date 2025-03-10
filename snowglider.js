@@ -183,6 +183,43 @@ function createSnowman() {
   nose.rotation.x = Math.PI / 2;
   group.add(nose);
   
+  // Add skis
+  const skiMaterial = new THREE.MeshStandardMaterial({ color: 0xFF0000 }); // Bright red
+  
+  // Left ski
+  const leftSki = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.2, 6), 
+    skiMaterial
+  );
+  leftSki.position.set(-1, 0.1, 1);
+  leftSki.castShadow = true;
+  // Add ski tip (angled front)
+  const leftSkiTip = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.4, 1),
+    skiMaterial
+  );
+  leftSkiTip.position.set(0, 0.2, 3);
+  leftSkiTip.rotation.x = Math.PI / 8; // Angle up slightly
+  leftSki.add(leftSkiTip);
+  group.add(leftSki);
+  
+  // Right ski
+  const rightSki = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.2, 6),
+    skiMaterial
+  );
+  rightSki.position.set(1, 0.1, 1);
+  rightSki.castShadow = true;
+  // Add ski tip (angled front)
+  const rightSkiTip = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.4, 1),
+    skiMaterial
+  );
+  rightSkiTip.position.set(0, 0.2, 3);
+  rightSkiTip.rotation.x = Math.PI / 8; // Angle up slightly
+  rightSki.add(rightSkiTip);
+  group.add(rightSki);
+  
   scene.add(group);
   return group;
 }
