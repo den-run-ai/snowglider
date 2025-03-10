@@ -443,3 +443,20 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// Make canvas focusable and get focus when clicked
+renderer.domElement.tabIndex = 1;
+renderer.domElement.addEventListener('click', () => {
+  renderer.domElement.focus();
+});
+
+// Add visual indicator for focus state
+renderer.domElement.addEventListener('focus', () => {
+  document.getElementById('controlsInfo').style.color = '#0066cc';
+  document.getElementById('controlsInfo').innerHTML = '⌨️ Controls ACTIVE: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake';
+});
+
+renderer.domElement.addEventListener('blur', () => {
+  document.getElementById('controlsInfo').style.color = '#333';
+  document.getElementById('controlsInfo').innerHTML = '⌨️ Click on game to activate controls: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake';
+});
