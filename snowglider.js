@@ -335,27 +335,156 @@ function addTrees() {
   });
 }
 
-// Create a simple tree
+// Create a more realistic tree with visible branches and variability
 function createTree() {
   const group = new THREE.Group();
   
-  // Tree trunk
-  const trunkGeometry = new THREE.CylinderGeometry(0.5, 0.7, 4, 8);
-  const trunkMaterial = new THREE.MeshStandardMaterial({color: 0x8B4513});
+  // Add randomization factors for variety
+  const heightScale = 0.8 + Math.random() * 0.4; // 0.8-1.2 height variation
+  const widthScale = 0.85 + Math.random() * 0.3; // 0.85-1.15 width variation
+  const branchDensity = 3 + Math.floor(Math.random() * 3); // 3-5 branch layers
+  
+  // Tree trunk with some natural variation
+  const trunkHeight = 4 * heightScale;
+  const trunkTopRadius = 0.4 * widthScale;
+  const trunkBottomRadius = 0.6 * widthScale;
+  const trunkGeometry = new THREE.CylinderGeometry(
+    trunkTopRadius, trunkBottomRadius, trunkHeight, 8
+  );
+  
+  // Trunk color variation
+  const trunkHue = 0.08 + Math.random() * 0.04; // Brown hue variations
+  const trunkMaterial = new THREE.MeshStandardMaterial({
+    color: new THREE.Color().setHSL(trunkHue, 0.5, 0.3),
+    roughness: 0.9
+  });
+  
   const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-  trunk.position.y = 2;
+  trunk.position.y = trunkHeight / 2;
   trunk.castShadow = true;
   group.add(trunk);
   
-  // Tree top (cone)
-  const coneGeometry = new THREE.ConeGeometry(2, 6, 8);
-  const coneMaterial = new THREE.MeshStandardMaterial({color: 0x2E8B57});
-  const cone = new THREE.Mesh(coneGeometry, coneMaterial);
-  cone.position.y = 6;
-  cone.castShadow = true;
-  group.add(cone);
+  // Create multiple branch layers
+  const baseHeight = trunkHeight;
+  let layerHeight = baseHeight;
+  
+  for (let i = 0; i < branchDensity; i++) {
+    // Larger at bottom, smaller at top
+    const layerScale = 1 - (i / branchDensity) * 0.7;
+    const coneHeight = 2.5 * heightScale * layerScale;
+    const coneRadius = 2.2 * widthScale * layerScale;
+    
+    const coneGeometry = new THREE.ConeGeometry(coneRadius, coneHeight, 8);
+    
+    // Green color variations for branches
+    const greenHue = 0.35 + Math.random() * 0.07; // Green hue variations
+    const greenSaturation = 0.6 + Math.random() * 0.3;
+    const greenLightness = 0.2 + Math.random() * 0.1;
+    
+    const coneMaterial = new THREE.MeshStandardMaterial({
+      color: new THREE.Color().setHSL(greenHue, greenSaturation, greenLightness),
+      roughness: 0.8
+    });
+    
+    const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+    
+    // Position with slight random offset for natural look
+    const xTilt = (Math.random() - 0.5) * 0.1; // Slight random tilt
+    const zTilt = (Math.random() - 0.5) * 0.1;
+    cone.rotation.x = xTilt;
+    cone.rotation.z = zTilt;
+    
+    // Position branches with overlap
+    layerHeight += coneHeight * 0.6;
+    cone.position.y = layerHeight;
+    cone.castShadow = true;
+    group.add(cone);
+    
+    // Add visible branches coming out of each cone layer
+    addBranchesAtLayer(cone, coneRadius, coneMaterial);
+  }
+  
+  // Add some snow on the branches for winter effect
+  addSnowCaps(group, layerHeight, widthScale);
   
   return group;
+}
+
+// Add visible branches sticking out of the main cone shape
+function addBranchesAtLayer(cone, radius, material) {
+  // Number of branches depends on radius
+  const branchCount = Math.floor(3 + Math.random() * 3); // 3-5 visible branches
+  
+  for (let i = 0; i < branchCount; i++) {
+    // Create branch
+    const branchLength = radius * (0.7 + Math.random() * 0.5);
+    const branchThickness = 0.1 + Math.random() * 0.1;
+    
+    const branchGeometry = new THREE.CylinderGeometry(
+      branchThickness, branchThickness, branchLength, 4
+    );
+    branchGeometry.rotateZ(Math.PI / 2); // Rotate to stick out horizontally
+    
+    const branch = new THREE.Mesh(branchGeometry, material);
+    
+    // Position branch at random angle around cone
+    const angle = (i / branchCount) * Math.PI * 2 + Math.random() * 0.5;
+    const height = Math.random() * 0.5; // Vertical position variation
+    
+    branch.position.set(
+      Math.cos(angle) * (radius * 0.5),
+      height,
+      Math.sin(angle) * (radius * 0.5)
+    );
+    
+    // Random rotation for natural variation
+    branch.rotation.y = angle;
+    branch.rotation.x = (Math.random() - 0.5) * 0.3;
+    branch.rotation.z += (Math.random() - 0.5) * 0.1;
+    
+    branch.castShadow = true;
+    cone.add(branch);
+  }
+}
+
+// Add snow caps on top of tree
+function addSnowCaps(tree, treeHeight, widthScale) {
+  // Add some snow on top
+  const snowCapGeometry = new THREE.SphereGeometry(widthScale * 0.8, 8, 4, 0, Math.PI * 2, 0, Math.PI / 3);
+  const snowMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.8
+  });
+  
+  const snowCap = new THREE.Mesh(snowCapGeometry, snowMaterial);
+  snowCap.position.y = treeHeight + 0.2;
+  snowCap.scale.y = 0.5;
+  tree.add(snowCap);
+  
+  // Maybe add snow on some branches
+  if (Math.random() > 0.4) {
+    const smallSnowGeometry = new THREE.SphereGeometry(widthScale * 0.4, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2);
+    
+    for (let i = 0; i < 2 + Math.random() * 3; i++) {
+      const snowPatch = new THREE.Mesh(smallSnowGeometry, snowMaterial);
+      // Random position on the tree
+      const angle = Math.random() * Math.PI * 2;
+      const radius = widthScale * (0.8 + Math.random() * 0.8);
+      const height = 2 + Math.random() * (treeHeight - 3);
+      
+      snowPatch.position.set(
+        Math.cos(angle) * radius,
+        height,
+        Math.sin(angle) * radius
+      );
+      
+      snowPatch.scale.y = 0.3;
+      snowPatch.rotation.x = Math.random() * Math.PI / 4;
+      snowPatch.rotation.z = Math.random() * Math.PI / 4;
+      
+      tree.add(snowPatch);
+    }
+  }
 }
 
 // Calculate terrain gradient for physics and tree placement
