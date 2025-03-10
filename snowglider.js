@@ -380,15 +380,25 @@ function updateSnowman(delta) {
     snowman.rotation.y = Math.atan2(movementDir.x, movementDir.z);
   }
   
-  // Calculate a tilt based on the slope and turning
+  // Calculate a tilt based on the slope and turning with improved smoothing
   const gradX = (getTerrainHeight(pos.x + 0.1, pos.z) - getTerrainHeight(pos.x - 0.1, pos.z)) / 0.2;
   const gradZ = (getTerrainHeight(pos.x, pos.z + 0.1) - getTerrainHeight(pos.x, pos.z - 0.1)) / 0.2;
   
-  // Add more pronounced turning tilt (lean heavily into turns)
-  const turnTilt = velocity.x * 0.8;
+  // Add more controlled turning tilt with speed-based scaling
+  const turnTiltFactor = Math.min(0.5, currentSpeed / 20); // Less tilt at lower speeds
+  const turnTilt = velocity.x * turnTiltFactor;
   
-  snowman.rotation.x = gradZ * 0.5;
-  snowman.rotation.z = -gradX * 0.5 - turnTilt;
+  // Limit maximum tilt angles to prevent unrealistic leaning
+  const maxTiltAngle = 0.3; // About 17 degrees maximum tilt
+  
+  // Apply smoothing and clamping to rotation values
+  const targetRotX = gradZ * 0.4;
+  const targetRotZ = -gradX * 0.4 - turnTilt;
+  
+  // Smooth transition to target rotation (lerp)
+  const rotationSmoothing = 6.0 * delta; // Higher values = faster transitions
+  snowman.rotation.x += (Math.max(-maxTiltAngle, Math.min(maxTiltAngle, targetRotX)) - snowman.rotation.x) * rotationSmoothing;
+  snowman.rotation.z += (Math.max(-maxTiltAngle, Math.min(maxTiltAngle, targetRotZ)) - snowman.rotation.z) * rotationSmoothing;
   
   // Check if snowman is off the terrain or falling
   // This compares actual position to expected terrain height
