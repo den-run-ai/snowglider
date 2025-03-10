@@ -25,10 +25,35 @@ function createTerrain() {
     const x = vertices[i], z = vertices[i + 2];
     const distance = Math.sqrt(x * x + z * z);
     let y = 40 * Math.exp(-distance / 40);
+    
     // Create a smoother ski path along x=0
     if (Math.abs(x) < 8) {
       y = y * 0.9 + (z + 100) * 0.1 + Math.sin(z / 3) * 0.3;
+      
+      // Add fewer, smaller moguls along the path
+      if (Math.abs(x) < 5) {
+        // Less frequent moguls (using higher frequency in the sine)
+        if (Math.abs(Math.sin(z * 0.2)) > 0.7) { // Only create bumps at certain intervals
+          y += Math.sin(z * 0.8) * Math.cos(x * 0.3) * 0.8; // Reduced height (0.8 instead of 1.5)
+        }
+        
+        // Add just a few well-defined jump ramps at specific positions
+        const jumpPositions = [-80, -40, 0]; // Fewer, more spread out jumps
+        for (const jumpZ of jumpPositions) {
+          // Create a ramp near this z position
+          const distToJump = Math.abs(z - jumpZ);
+          if (distToJump < 5) {
+            // Shape of the jump: rise up and then drop
+            if (z > jumpZ) {
+              y += (5 - distToJump) * 0.8; // Steeper ramp up (0.8 instead of 0.6)
+            } else if (z > jumpZ - 1) {
+              y += (5 - distToJump) * 0.3; // Shorter plateau
+            }
+          }
+        }
+      }
     }
+    
     vertices[i + 1] = y;
   }
   geometry.computeVertexNormals();
@@ -266,7 +291,7 @@ document.getElementById('resetBtn').addEventListener('click', resetSnowman);
 const resetBtn = document.getElementById('resetBtn');
 const controlsInfo = document.createElement('div');
 controlsInfo.id = 'controlsInfo';
-controlsInfo.innerHTML = '⌨️ Controls: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake';
+controlsInfo.innerHTML = '⌨️ Controls: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake | Space to jump';
 controlsInfo.style.display = 'inline-block';
 controlsInfo.style.marginLeft = '10px';
 controlsInfo.style.fontFamily = 'Arial, sans-serif';
@@ -285,7 +310,8 @@ let keyboardControls = {
   left: false,
   right: false,
   up: false,
-  down: false
+  down: false,
+  jump: false  // New jump control
 };
 
 // Add keyboard event listeners
@@ -310,6 +336,9 @@ window.addEventListener('keydown', (event) => {
     case 's':
     case 'S':
       keyboardControls.down = true;
+      break;
+    case ' ':  // Spacebar
+      keyboardControls.jump = true;
       break;
   }
 });
@@ -336,11 +365,48 @@ window.addEventListener('keyup', (event) => {
     case 'S':
       keyboardControls.down = false;
       break;
+    case ' ':  // Spacebar
+      keyboardControls.jump = false;
+      break;
   }
 });
 
+// Add jump-related variables
+let isInAir = false;
+let verticalVelocity = 0;
+let jumpCooldown = 0;
+let lastTerrainHeight = 0;
+let airTime = 0;
+
 // --- Update Snowman: Physics-based Movement ---
 function updateSnowman(delta) {
+  // Update jump cooldown
+  if (jumpCooldown > 0) {
+    jumpCooldown -= delta;
+  }
+  
+  // Get current terrain height at position
+  const terrainHeightAtPosition = getTerrainHeight(pos.x, pos.z);
+  
+  // Check for landing
+  if (isInAir && pos.y <= terrainHeightAtPosition) {
+    isInAir = false;
+    pos.y = terrainHeightAtPosition;
+    
+    // More dramatic landing impact based on air time and height
+    const landingImpact = Math.min(0.5, airTime * 0.15);
+    const currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
+    
+    // Reduce speed on landing, more reduction for longer jumps
+    velocity.x *= (1 - landingImpact);
+    velocity.z *= (1 - landingImpact);
+    
+    // Reset jump-related variables
+    verticalVelocity = 0;
+    airTime = 0;
+    jumpCooldown = 0.3; // Short cooldown after landing
+  }
+  
   // Calculate the downhill direction
   const dir = getDownhillDirection(pos.x, pos.z);
   
@@ -348,70 +414,117 @@ function updateSnowman(delta) {
   const gradient = getTerrainGradient(pos.x, pos.z);
   const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
   
-  // Update velocity based on gravity, gradient, and a simple friction model
-  const gravity = 9.8;
-  const friction = 0.04; // Slightly reduced friction for higher speeds
+  // Detect natural jumps from terrain (like going over moguls)
+  const heightDifference = terrainHeightAtPosition - lastTerrainHeight;
+  const currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
+  const movingFast = currentSpeed > 12; // Higher threshold for auto-jumps
   
-  // Apply forces to velocity (gravity pulls along slope direction)
-  velocity.x += dir.x * steepness * gravity * delta;
-  velocity.z += dir.z * steepness * gravity * delta;
-  
-  // Handle keyboard input for steering - doubled turn force
-  const keyboardTurnForce = 16.0; // How strong keyboard turning is
-  
-  if (keyboardControls.left) {
-    velocity.x -= keyboardTurnForce * delta;
-  }
-  if (keyboardControls.right) {
-    velocity.x += keyboardTurnForce * delta;
+  // Auto-jump when going downhill after a steep uphill section
+  if (!isInAir && heightDifference < -0.8 && movingFast && jumpCooldown <= 0) {
+    // Natural jump from terrain - more powerful
+    verticalVelocity = 6 + (currentSpeed * 0.3);
+    isInAir = true;
   }
   
-  // Handle forward/backward input - doubled acceleration
-  const accelerationForce = 10.0;
-  if (keyboardControls.up) {
-    velocity.z -= accelerationForce * delta;
-  }
-  if (keyboardControls.down) {
-    velocity.z += accelerationForce * delta * 0.5; // Braking is less powerful
+  // Manual jump with spacebar - much higher jumps
+  if (keyboardControls.jump && !isInAir && jumpCooldown <= 0) {
+    // Jump strength increases with current speed, more dramatically
+    verticalVelocity = 10 + (currentSpeed * 0.5);
+    isInAir = true;
+    jumpCooldown = 0.5; // Prevent jump spam
   }
   
-  // Only use automatic turning if no keyboard input
-  if (!keyboardControls.left && !keyboardControls.right) {
-    // Update turn phase and apply automatic turning
-    turnPhase += delta;
-    turnChangeCooldown -= delta;
+  // Update vertical position and velocity when in air
+  if (isInAir) {
+    // Track time in air
+    airTime += delta;
     
-    // Make more dramatic turn direction changes
-    if (turnChangeCooldown <= 0) {
-      // Use more extreme values (-1 or 1) for sharper turns
-      currentTurnDirection = Math.random() > 0.5 ? 1 : -1;
-      // Shorter intervals between direction changes
-      turnChangeCooldown = 2 + Math.random() * 3; // Random cooldown between 2-5 seconds
+    // Apply gravity to vertical velocity (slightly reduced for more "hang time")
+    verticalVelocity -= 16 * delta; // Reduced gravity for more air time
+    
+    // Update vertical position
+    pos.y += verticalVelocity * delta;
+    
+    // Better air control
+    if (keyboardControls.left) {
+      velocity.x -= 5.0 * delta; // Improved air control
+    }
+    if (keyboardControls.right) {
+      velocity.x += 5.0 * delta; // Improved air control
     }
     
-    // Apply much stronger turning force (pronounced carving effect)
-    const speed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
-    const turnIntensity = 2.5 * Math.min(speed, 10) / 10; // Adjusted for higher speeds
+    // Less friction in air
+    velocity.x *= (1 - 0.01);
+    velocity.z *= (1 - 0.01);
+  } else {
+    // Update velocity based on gravity, gradient, and a simple friction model
+    const gravity = 9.8;
+    const friction = 0.04; // Slightly reduced friction for higher speeds
     
-    // Apply sine wave turning + random direction change for more dramatic movement
-    velocity.x += Math.sin(turnPhase * 0.5) * turnAmplitude * delta * turnIntensity * currentTurnDirection;
+    // Apply forces to velocity (gravity pulls along slope direction)
+    velocity.x += dir.x * steepness * gravity * delta;
+    velocity.z += dir.z * steepness * gravity * delta;
+    
+    // Handle keyboard input for steering - doubled turn force
+    const keyboardTurnForce = 16.0; // How strong keyboard turning is
+    
+    if (keyboardControls.left) {
+      velocity.x -= keyboardTurnForce * delta;
+    }
+    if (keyboardControls.right) {
+      velocity.x += keyboardTurnForce * delta;
+    }
+    
+    // Handle forward/backward input - doubled acceleration
+    const accelerationForce = 10.0;
+    if (keyboardControls.up) {
+      velocity.z -= accelerationForce * delta;
+    }
+    if (keyboardControls.down) {
+      velocity.z += accelerationForce * delta * 0.5; // Braking is less powerful
+    }
+    
+    // Only use automatic turning if no keyboard input
+    if (!keyboardControls.left && !keyboardControls.right) {
+      // Update turn phase and apply automatic turning
+      turnPhase += delta;
+      turnChangeCooldown -= delta;
+      
+      // Make more dramatic turn direction changes
+      if (turnChangeCooldown <= 0) {
+        // Use more extreme values (-1 or 1) for sharper turns
+        currentTurnDirection = Math.random() > 0.5 ? 1 : -1;
+        // Shorter intervals between direction changes
+        turnChangeCooldown = 2 + Math.random() * 3; // Random cooldown between 2-5 seconds
+      }
+      
+      // Apply much stronger turning force (pronounced carving effect)
+      const turnIntensity = 2.5 * Math.min(currentSpeed, 10) / 10; // Adjusted for higher speeds
+      
+      // Apply sine wave turning + random direction change for more dramatic movement
+      velocity.x += Math.sin(turnPhase * 0.5) * turnAmplitude * delta * turnIntensity * currentTurnDirection;
+    }
+    
+    // Apply simple friction to slow down
+    velocity.x *= (1 - friction);
+    velocity.z *= (1 - friction);
+    
+    // Update y position to terrain height when not in air
+    pos.y = terrainHeightAtPosition;
   }
-  
-  // Apply simple friction to slow down
-  velocity.x *= (1 - friction);
-  velocity.z *= (1 - friction);
   
   // Apply velocity to position
   pos.x += velocity.x * delta;
   pos.z += velocity.z * delta;
-  pos.y = getTerrainHeight(pos.x, pos.z);
+  
+  // Store current terrain height for next frame
+  lastTerrainHeight = terrainHeightAtPosition;
   
   // Update snowman position and rotation
   snowman.position.set(pos.x, pos.y, pos.z);
   
   // Rotate the snowman to face the movement direction
   const movementDir = { x: velocity.x, z: velocity.z };
-  const currentSpeed = Math.sqrt(movementDir.x*movementDir.x + movementDir.z*movementDir.z);
   
   if (currentSpeed > 0.1) { // Only rotate if moving with significant speed
     snowman.rotation.y = Math.atan2(movementDir.x, movementDir.z);
@@ -421,6 +534,19 @@ function updateSnowman(delta) {
   const gradX = (getTerrainHeight(pos.x + 0.1, pos.z) - getTerrainHeight(pos.x - 0.1, pos.z)) / 0.2;
   const gradZ = (getTerrainHeight(pos.x, pos.z + 0.1) - getTerrainHeight(pos.x, pos.z - 0.1)) / 0.2;
   
+  // Add more dramatic jump rotation - lean forward during jumps
+  let jumpTilt = 0;
+  if (isInAir) {
+    // More dramatic tilt during jumps, especially on takeoff
+    if (verticalVelocity > 0) {
+      // Lean back on ascent
+      jumpTilt = -Math.min(0.5, verticalVelocity * 0.04);
+    } else {
+      // Lean forward on descent, more as you fall faster
+      jumpTilt = Math.min(0.6, -verticalVelocity * 0.03);
+    }
+  }
+  
   // Add more controlled turning tilt with speed-based scaling
   const turnTiltFactor = Math.min(0.5, currentSpeed / 20); // Less tilt at lower speeds
   const turnTilt = velocity.x * turnTiltFactor;
@@ -429,26 +555,25 @@ function updateSnowman(delta) {
   const maxTiltAngle = 0.3; // About 17 degrees maximum tilt
   
   // Apply smoothing and clamping to rotation values
-  const targetRotX = gradZ * 0.4;
+  const targetRotX = gradZ * 0.4 + jumpTilt; // Add jump tilt to X rotation
   const targetRotZ = -gradX * 0.4 - turnTilt;
   
   // Smooth transition to target rotation (lerp)
-  const rotationSmoothing = 6.0 * delta; // Higher values = faster transitions
+  const rotationSmoothing = isInAir ? 3.0 * delta : 6.0 * delta; // Slower transitions in air
   snowman.rotation.x += (Math.max(-maxTiltAngle, Math.min(maxTiltAngle, targetRotX)) - snowman.rotation.x) * rotationSmoothing;
   snowman.rotation.z += (Math.max(-maxTiltAngle, Math.min(maxTiltAngle, targetRotZ)) - snowman.rotation.z) * rotationSmoothing;
   
   // Check if snowman is off the terrain or falling
-  // This compares actual position to expected terrain height
-  const terrainHeightAtPosition = getTerrainHeight(pos.x, pos.z);
   const fallThreshold = 0.5; // How far below terrain to allow before reset
   
   // Reset if: reaches end of slope, goes off sides, or falls off terrain
-  if (pos.z < -100 || Math.abs(pos.x) > 70 || pos.y < terrainHeightAtPosition - fallThreshold) {
+  if (pos.z < -100 || Math.abs(pos.x) > 70 || (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold)) {
     resetSnowman();
   }
   
+  // Update info display with jump status
   document.getElementById('info').textContent =
-    `Pos: ${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)} | Speed: ${currentSpeed.toFixed(1)}`;
+    `Pos: ${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)} | Speed: ${currentSpeed.toFixed(1)} | ${isInAir ? "Jumping!" : "On ground"}`;
 }
 
 // --- Update Camera: Follow the Snowman ---
