@@ -597,6 +597,87 @@ function updateCamera() {
 camera.position.set(0, 20, 0);
 camera.lookAt(0, 0, -40);
 
+// --- Snow Particle System ---
+const snowflakes = [];
+const snowflakeCount = 1000;
+const snowflakeSpread = 100; // Spread area around player
+const snowflakeHeight = 50; // Height above player
+const snowflakeFallSpeed = 5;
+
+function createSnowflakes() {
+  // Create a simple white circle texture for snowflakes
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d');
+  
+  // Draw a soft, white circle
+  const gradient = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 16, 16);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ 
+    map: texture,
+    transparent: true
+  });
+  
+  // Create individual snowflakes
+  for (let i = 0; i < snowflakeCount; i++) {
+    const snowflake = new THREE.Sprite(material);
+    
+    // Random size (smaller snowflakes to look more realistic)
+    const size = 0.2 + Math.random() * 0.4;
+    snowflake.scale.set(size, size, size);
+    
+    // Random positions in a box above the player
+    resetSnowflakePosition(snowflake);
+    
+    // Random speeds for natural variation
+    snowflake.userData.speed = (0.7 + Math.random() * 0.6) * snowflakeFallSpeed;
+    snowflake.userData.wobble = Math.random() * 0.1;
+    snowflake.userData.wobbleSpeed = 0.5 + Math.random() * 1.5;
+    snowflake.userData.wobblePos = Math.random() * Math.PI * 2;
+    
+    scene.add(snowflake);
+    snowflakes.push(snowflake);
+  }
+}
+
+function resetSnowflakePosition(snowflake) {
+  // Position snowflakes randomly in a box above the player
+  snowflake.position.x = pos.x + (Math.random() * snowflakeSpread - snowflakeSpread/2);
+  snowflake.position.z = pos.z + (Math.random() * snowflakeSpread - snowflakeSpread/2);
+  snowflake.position.y = pos.y + Math.random() * snowflakeHeight;
+}
+
+function updateSnowflakes(delta) {
+  snowflakes.forEach(snowflake => {
+    // Apply falling movement
+    snowflake.position.y -= snowflake.userData.speed * delta;
+    
+    // Add some gentle sideways wobble for realism
+    snowflake.userData.wobblePos += snowflake.userData.wobbleSpeed * delta;
+    snowflake.position.x += Math.sin(snowflake.userData.wobblePos) * snowflake.userData.wobble;
+    
+    // Check if snowflake has fallen below the terrain or is too far from player
+    const terrainHeight = getTerrainHeight(snowflake.position.x, snowflake.position.z);
+    const distanceToPlayer = Math.sqrt(
+      Math.pow(snowflake.position.x - pos.x, 2) + 
+      Math.pow(snowflake.position.z - pos.z, 2)
+    );
+    
+    if (snowflake.position.y < terrainHeight || distanceToPlayer > snowflakeSpread) {
+      resetSnowflakePosition(snowflake);
+    }
+  });
+}
+
+// Create snowflakes when the game starts
+createSnowflakes();
+
 // --- Animation Loop ---
 let lastTime = 0;
 function animate(time) {
@@ -605,6 +686,7 @@ function animate(time) {
   lastTime = time;
   
   updateSnowman(delta);
+  updateSnowflakes(delta);
   updateCamera();
   renderer.render(scene, camera);
 }
