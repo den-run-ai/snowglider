@@ -217,8 +217,8 @@ let velocity = { x: 0, z: 0 }; // Define velocity object
 
 function resetSnowman() {
   pos = { x: 0, z: -40, y: getTerrainHeight(0, -40) };
-  // Give the snowman a small initial push for smooth start
-  velocity = { x: 0, z: -3.0 }; 
+  // Give the snowman a small initial push for smooth start - doubled for speed
+  velocity = { x: 0, z: -6.0 }; 
   snowman.position.set(pos.x, pos.y, pos.z);
   snowman.rotation.set(0, Math.PI, 0);
 }
@@ -313,14 +313,14 @@ function updateSnowman(delta) {
   
   // Update velocity based on gravity, gradient, and a simple friction model
   const gravity = 9.8;
-  const friction = 0.05;
+  const friction = 0.04; // Slightly reduced friction for higher speeds
   
   // Apply forces to velocity (gravity pulls along slope direction)
   velocity.x += dir.x * steepness * gravity * delta;
   velocity.z += dir.z * steepness * gravity * delta;
   
-  // Handle keyboard input for steering
-  const keyboardTurnForce = 8.0; // How strong keyboard turning is
+  // Handle keyboard input for steering - doubled turn force
+  const keyboardTurnForce = 16.0; // How strong keyboard turning is
   
   if (keyboardControls.left) {
     velocity.x -= keyboardTurnForce * delta;
@@ -329,8 +329,8 @@ function updateSnowman(delta) {
     velocity.x += keyboardTurnForce * delta;
   }
   
-  // Handle forward/backward input
-  const accelerationForce = 5.0;
+  // Handle forward/backward input - doubled acceleration
+  const accelerationForce = 10.0;
   if (keyboardControls.up) {
     velocity.z -= accelerationForce * delta;
   }
@@ -354,7 +354,7 @@ function updateSnowman(delta) {
     
     // Apply much stronger turning force (pronounced carving effect)
     const speed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
-    const turnIntensity = 2.5 * Math.min(speed, 5) / 5; // Increased scaling with speed
+    const turnIntensity = 2.5 * Math.min(speed, 10) / 10; // Adjusted for higher speeds
     
     // Apply sine wave turning + random direction change for more dramatic movement
     velocity.x += Math.sin(turnPhase * 0.5) * turnAmplitude * delta * turnIntensity * currentTurnDirection;
