@@ -225,11 +225,82 @@ function resetSnowman() {
 resetSnowman();
 document.getElementById('resetBtn').addEventListener('click', resetSnowman);
 
+// Add control information display next to reset button
+const resetBtn = document.getElementById('resetBtn');
+const controlsInfo = document.createElement('div');
+controlsInfo.id = 'controlsInfo';
+controlsInfo.innerHTML = '⌨️ Controls: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake';
+controlsInfo.style.display = 'inline-block';
+controlsInfo.style.marginLeft = '10px';
+controlsInfo.style.fontFamily = 'Arial, sans-serif';
+controlsInfo.style.fontSize = '14px';
+controlsInfo.style.color = '#333';
+resetBtn.parentNode.insertBefore(controlsInfo, resetBtn.nextSibling);
+
 // --- Variables for automatic turning ---
 let turnPhase = 0;
 let currentTurnDirection = 0;
 let turnChangeCooldown = 0;
 let turnAmplitude = 3.0; // Increased amplitude for more visible turns
+
+// Add keyboard control variables
+let keyboardControls = {
+  left: false,
+  right: false,
+  up: false,
+  down: false
+};
+
+// Add keyboard event listeners
+window.addEventListener('keydown', (event) => {
+  switch(event.key) {
+    case 'ArrowLeft':
+    case 'a':
+    case 'A':
+      keyboardControls.left = true;
+      break;
+    case 'ArrowRight':
+    case 'd':
+    case 'D':
+      keyboardControls.right = true;
+      break;
+    case 'ArrowUp':
+    case 'w':
+    case 'W':
+      keyboardControls.up = true;
+      break;
+    case 'ArrowDown':
+    case 's':
+    case 'S':
+      keyboardControls.down = true;
+      break;
+  }
+});
+
+window.addEventListener('keyup', (event) => {
+  switch(event.key) {
+    case 'ArrowLeft':
+    case 'a':
+    case 'A':
+      keyboardControls.left = false;
+      break;
+    case 'ArrowRight':
+    case 'd':
+    case 'D':
+      keyboardControls.right = false;
+      break;
+    case 'ArrowUp':
+    case 'w':
+    case 'W':
+      keyboardControls.up = false;
+      break;
+    case 'ArrowDown':
+    case 's':
+    case 'S':
+      keyboardControls.down = false;
+      break;
+  }
+});
 
 // --- Update Snowman: Physics-based Movement ---
 function updateSnowman(delta) {
@@ -248,24 +319,46 @@ function updateSnowman(delta) {
   velocity.x += dir.x * steepness * gravity * delta;
   velocity.z += dir.z * steepness * gravity * delta;
   
-  // Update turn phase and apply automatic turning
-  turnPhase += delta;
-  turnChangeCooldown -= delta;
+  // Handle keyboard input for steering
+  const keyboardTurnForce = 8.0; // How strong keyboard turning is
   
-  // Make more dramatic turn direction changes
-  if (turnChangeCooldown <= 0) {
-    // Use more extreme values (-1 or 1) for sharper turns
-    currentTurnDirection = Math.random() > 0.5 ? 1 : -1;
-    // Shorter intervals between direction changes
-    turnChangeCooldown = 2 + Math.random() * 3; // Random cooldown between 2-5 seconds
+  if (keyboardControls.left) {
+    velocity.x -= keyboardTurnForce * delta;
+  }
+  if (keyboardControls.right) {
+    velocity.x += keyboardTurnForce * delta;
   }
   
-  // Apply much stronger turning force (pronounced carving effect)
-  const speed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
-  const turnIntensity = 2.5 * Math.min(speed, 5) / 5; // Increased scaling with speed
+  // Handle forward/backward input
+  const accelerationForce = 5.0;
+  if (keyboardControls.up) {
+    velocity.z -= accelerationForce * delta;
+  }
+  if (keyboardControls.down) {
+    velocity.z += accelerationForce * delta * 0.5; // Braking is less powerful
+  }
   
-  // Apply sine wave turning + random direction change for more dramatic movement
-  velocity.x += Math.sin(turnPhase * 0.5) * turnAmplitude * delta * turnIntensity * currentTurnDirection;
+  // Only use automatic turning if no keyboard input
+  if (!keyboardControls.left && !keyboardControls.right) {
+    // Update turn phase and apply automatic turning
+    turnPhase += delta;
+    turnChangeCooldown -= delta;
+    
+    // Make more dramatic turn direction changes
+    if (turnChangeCooldown <= 0) {
+      // Use more extreme values (-1 or 1) for sharper turns
+      currentTurnDirection = Math.random() > 0.5 ? 1 : -1;
+      // Shorter intervals between direction changes
+      turnChangeCooldown = 2 + Math.random() * 3; // Random cooldown between 2-5 seconds
+    }
+    
+    // Apply much stronger turning force (pronounced carving effect)
+    const speed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
+    const turnIntensity = 2.5 * Math.min(speed, 5) / 5; // Increased scaling with speed
+    
+    // Apply sine wave turning + random direction change for more dramatic movement
+    velocity.x += Math.sin(turnPhase * 0.5) * turnAmplitude * delta * turnIntensity * currentTurnDirection;
+  }
   
   // Apply simple friction to slow down
   velocity.x *= (1 - friction);
