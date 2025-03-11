@@ -37,6 +37,16 @@ gameOverMessage.style.fontSize = '48px';
 gameOverMessage.style.marginBottom = '20px';
 gameOverOverlay.appendChild(gameOverMessage);
 
+// Game over stats container
+const gameOverStats = document.createElement('div');
+gameOverStats.id = 'gameOverStats';
+gameOverStats.style.color = 'white';
+gameOverStats.style.fontFamily = 'Arial, sans-serif';
+gameOverStats.style.fontSize = '20px';
+gameOverStats.style.marginBottom = '20px';
+gameOverStats.style.textAlign = 'center';
+gameOverOverlay.appendChild(gameOverStats);
+
 // Detailed message (shows reason for game over)
 const gameOverDetail = document.createElement('p');
 gameOverDetail.id = 'gameOverDetail';
@@ -70,6 +80,40 @@ document.body.appendChild(gameOverOverlay);
 
 // Game state
 let gameActive = true;
+let gameStartTime = 0;
+let currentTime = 0;
+let bestTime = localStorage.getItem('bestTime') ? parseFloat(localStorage.getItem('bestTime')) : null;
+let maxSpeed = 0;
+
+// Add score display
+const scoreDisplay = document.createElement('div');
+scoreDisplay.id = 'scoreDisplay';
+scoreDisplay.style.position = 'fixed';
+scoreDisplay.style.top = '10px';
+scoreDisplay.style.right = '10px';
+scoreDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+scoreDisplay.style.color = 'white';
+scoreDisplay.style.padding = '10px';
+scoreDisplay.style.borderRadius = '5px';
+scoreDisplay.style.fontFamily = 'Arial, sans-serif';
+scoreDisplay.style.fontSize = '16px';
+scoreDisplay.style.zIndex = '100';
+document.body.appendChild(scoreDisplay);
+
+// Function to update the score display
+function updateScoreDisplay() {
+  if (!gameActive) return;
+  
+  const timeString = currentTime.toFixed(2) + 's';
+  const bestTimeString = bestTime ? bestTime.toFixed(2) + 's' : 'None';
+  const maxSpeedString = maxSpeed.toFixed(1);
+  
+  scoreDisplay.innerHTML = `
+    Time: ${timeString}<br>
+    Best: ${bestTimeString}<br>
+    Max Speed: ${maxSpeedString}
+  `;
+}
 
 // --- Lighting ---
 scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -146,6 +190,11 @@ function resetSnowman() {
   velocity = { x: 0, z: -6.0 }; 
   snowman.position.set(pos.x, pos.y, pos.z);
   snowman.rotation.set(0, Math.PI, 0);
+  
+  // Reset timer and max speed
+  gameStartTime = performance.now();
+  currentTime = 0;
+  maxSpeed = 0;
 }
 resetSnowman();
 document.getElementById('resetBtn').addEventListener('click', resetSnowman);
@@ -230,6 +279,12 @@ window.addEventListener('keyup', (event) => {
 
 // --- Update Snowman: Physics-based Movement ---
 function updateSnowman(delta) {
+  // Update time
+  if (gameActive) {
+    currentTime = (performance.now() - gameStartTime) / 1000;
+    updateScoreDisplay();
+  }
+  
   // Update jump cooldown
   if (jumpCooldown > 0) {
     jumpCooldown -= delta;
@@ -245,7 +300,7 @@ function updateSnowman(delta) {
     
     // Landing impact based on air time and height
     const landingImpact = Math.min(0.5, airTime * 0.15);
-    const currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
+    let currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
     
     // Reduce speed on landing
     velocity.x *= (1 - landingImpact);
@@ -266,7 +321,7 @@ function updateSnowman(delta) {
   
   // Detect natural jumps from terrain (like going over moguls)
   const heightDifference = terrainHeightAtPosition - lastTerrainHeight;
-  const currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
+  let currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
   const movingFast = currentSpeed > 12;
   
   // Auto-jump when going downhill after a steep uphill section
@@ -409,6 +464,12 @@ function updateSnowman(delta) {
   snowman.rotation.x += (Math.max(-maxTiltAngle, Math.min(maxTiltAngle, targetRotX)) - snowman.rotation.x) * rotationSmoothing;
   snowman.rotation.z += (Math.max(-maxTiltAngle, Math.min(maxTiltAngle, targetRotZ)) - snowman.rotation.z) * rotationSmoothing;
   
+  // Calculate current speed and update max speed if needed
+  currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
+  if (currentSpeed > maxSpeed) {
+    maxSpeed = currentSpeed;
+  }
+  
   // Check if snowman is off the terrain or falling
   const fallThreshold = 0.5; // How far below terrain to allow before reset
   
@@ -430,18 +491,26 @@ function updateSnowman(delta) {
     if (gameActive) {
       // Determine the reason for game over
       let reason = "You crashed!";
+      let victory = false;
       
       if (collision) {
         reason = "BANG!!! You hit a tree!";
       } else if (pos.z < -100) {
-        reason = "You reached the end of the slope!";
+        reason = "You reached the bottom of the mountain!";
+        victory = true;
+        
+        // Check if this is a new best time
+        if (victory && (bestTime === null || currentTime < bestTime)) {
+          bestTime = currentTime;
+          localStorage.setItem('bestTime', bestTime.toString());
+        }
       } else if (Math.abs(pos.x) > 70) {
         reason = "You went off the mountain!";
       } else if (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) {
         reason = "You fell off the terrain!";
       }
       
-      showGameOver(reason);
+      showGameOver(reason, victory);
     }
   }
   
@@ -486,6 +555,8 @@ function animate(time) {
     animationRunning = false;
   }
 }
+// Initialize the first time
+gameStartTime = performance.now();
 animate(0);
 
 // --- Handle Window Resize ---
@@ -496,8 +567,29 @@ window.addEventListener('resize', () => {
 });
 
 // Add these functions for game over handling
-function showGameOver(reason) {
+function showGameOver(reason, victory = false) {
   gameActive = false;
+  
+  // Update stats on game over screen
+  gameOverStats.innerHTML = `
+    Time: ${currentTime.toFixed(2)}s<br>
+    Best Time: ${bestTime ? bestTime.toFixed(2) + 's' : 'None'}<br>
+    Max Speed: ${maxSpeed.toFixed(1)}
+  `;
+  
+  // Set message based on victory or defeat
+  if (victory) {
+    gameOverMessage.textContent = 'FINISH!';
+    gameOverMessage.style.color = '#4CAF50';
+    
+    if (bestTime === currentTime) {
+      gameOverStats.innerHTML += '<br><span style="color:#FFD700;font-weight:bold">NEW RECORD!</span>';
+    }
+  } else {
+    gameOverMessage.textContent = 'GAME OVER';
+    gameOverMessage.style.color = 'white';
+  }
+  
   gameOverDetail.textContent = reason;
   gameOverOverlay.style.display = 'flex';
 }
@@ -506,6 +598,7 @@ function restartGame() {
   gameOverOverlay.style.display = 'none';
   gameActive = true;
   resetSnowman();
+  
   // Reset animation if it was stopped
   if (!animationRunning) {
     animationRunning = true;
