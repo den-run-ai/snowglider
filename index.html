@@ -33,6 +33,22 @@
   <div id="info">Skiing Snowman</div>
   <button id="resetBtn">Reset</button>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="snowglider.js"></script>
+  <<script>
+    // This block ensures scripts load in the right order
+    document.addEventListener('DOMContentLoaded', function() {
+        // First load utils.js
+        const utilsScript = document.createElement('script');
+        utilsScript.src = 'utils.js';
+        
+        // Then load main.js after utils.js has loaded
+        utilsScript.onload = function() {
+            const mainScript = document.createElement('script');
+            mainScript.src = 'snowglider.js';
+            document.body.appendChild(mainScript);
+        };
+        
+        document.body.appendChild(utilsScript);
+    });
+</script>
 </body>
 </html>
