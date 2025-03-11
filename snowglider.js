@@ -11,6 +11,66 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
+// Create game over overlay
+const gameOverOverlay = document.createElement('div');
+gameOverOverlay.id = 'gameOverOverlay';
+gameOverOverlay.style.position = 'fixed';
+gameOverOverlay.style.top = '0';
+gameOverOverlay.style.left = '0';
+gameOverOverlay.style.width = '100%';
+gameOverOverlay.style.height = '100%';
+gameOverOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+gameOverOverlay.style.display = 'flex';
+gameOverOverlay.style.flexDirection = 'column';
+gameOverOverlay.style.alignItems = 'center';
+gameOverOverlay.style.justifyContent = 'center';
+gameOverOverlay.style.zIndex = '1000';
+gameOverOverlay.style.display = 'none'; // Initially hidden
+
+// Game over message
+const gameOverMessage = document.createElement('h1');
+gameOverMessage.id = 'gameOverMessage';
+gameOverMessage.textContent = 'GAME OVER';
+gameOverMessage.style.color = 'white';
+gameOverMessage.style.fontFamily = 'Arial, sans-serif';
+gameOverMessage.style.fontSize = '48px';
+gameOverMessage.style.marginBottom = '20px';
+gameOverOverlay.appendChild(gameOverMessage);
+
+// Detailed message (shows reason for game over)
+const gameOverDetail = document.createElement('p');
+gameOverDetail.id = 'gameOverDetail';
+gameOverDetail.textContent = '';
+gameOverDetail.style.color = 'white';
+gameOverDetail.style.fontFamily = 'Arial, sans-serif';
+gameOverDetail.style.fontSize = '24px';
+gameOverDetail.style.marginBottom = '30px';
+gameOverOverlay.appendChild(gameOverDetail);
+
+// Restart button
+const restartButton = document.createElement('button');
+restartButton.textContent = 'RESTART';
+restartButton.style.padding = '10px 20px';
+restartButton.style.fontSize = '20px';
+restartButton.style.backgroundColor = '#ff4136';
+restartButton.style.color = 'white';
+restartButton.style.border = 'none';
+restartButton.style.borderRadius = '5px';
+restartButton.style.cursor = 'pointer';
+restartButton.addEventListener('mouseenter', () => {
+  restartButton.style.backgroundColor = '#ff725c';
+});
+restartButton.addEventListener('mouseleave', () => {
+  restartButton.style.backgroundColor = '#ff4136';
+});
+gameOverOverlay.appendChild(restartButton);
+
+// Add to document
+document.body.appendChild(gameOverOverlay);
+
+// Game state
+let gameActive = true;
+
 // --- Lighting ---
 scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -22,6 +82,47 @@ scene.add(directionalLight);
 
 // --- Create main game objects ---
 const terrain = Utils.createTerrain(scene);
+// We can't call Utils.addTrees directly, so let's create a global array
+let treePositions = [];
+
+// Manually add trees and store their positions
+function addTreesWithPositions(scene) {
+  // Copy the addTrees function implementation here
+  const positions = [];
+  // Add trees on both sides of the ski path
+  for(let z = -80; z < 80; z += 10) {
+    for(let x = -60; x < 60; x += 10) {
+      // Skip the ski path
+      if(Math.abs(x) < 10) continue;
+      
+      // Random offset
+      const xPos = x + (Math.random() * 5 - 2.5);
+      const zPos = z + (Math.random() * 5 - 2.5);
+      
+      // Only place trees on suitable slopes (not too steep)
+      const y = Utils.getTerrainHeight(xPos, zPos);
+      const gradient = Utils.getTerrainGradient(xPos, zPos);
+      const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
+      
+      if(steepness < 0.5 && Math.random() > 0.7) {
+        positions.push({x: xPos, y: y, z: zPos});
+      }
+    }
+  }
+  
+  // Create tree instances using the createTree function from utils
+  positions.forEach(pos => {
+    const tree = createTree(); // This would need the createTree function
+    tree.position.set(pos.x, pos.y, pos.z);
+    scene.add(tree);
+  });
+  
+  return positions;
+}
+
+// Call it and store the positions
+treePositions = addTreesWithPositions(scene);
+
 const snowman = Utils.createSnowman(scene);
 Utils.createSnowflakes(scene);
 
@@ -311,9 +412,37 @@ function updateSnowman(delta) {
   // Check if snowman is off the terrain or falling
   const fallThreshold = 0.5; // How far below terrain to allow before reset
   
-  // Reset if: reaches end of slope, goes off sides, or falls off terrain
-  if (pos.z < -100 || Math.abs(pos.x) > 70 || (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold)) {
-    resetSnowman();
+  // Check for tree collisions
+  const treeCollisionRadius = 2.5; // Collision distance for trees
+  const collision = treePositions.some(treePos => {
+    const dx = pos.x - treePos.x;
+    const dz = pos.z - treePos.z;
+    const distance = Math.sqrt(dx*dx + dz*dz);
+    return distance < treeCollisionRadius;
+  });
+  
+  // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
+  if (pos.z < -100 || 
+      Math.abs(pos.x) > 70 || 
+      (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||
+      collision) {
+    
+    if (gameActive) {
+      // Determine the reason for game over
+      let reason = "You crashed!";
+      
+      if (collision) {
+        reason = "BANG!!! You hit a tree!";
+      } else if (pos.z < -100) {
+        reason = "You reached the end of the slope!";
+      } else if (Math.abs(pos.x) > 70) {
+        reason = "You went off the mountain!";
+      } else if (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) {
+        reason = "You fell off the terrain!";
+      }
+      
+      showGameOver(reason);
+    }
   }
   
   // Update info display with jump status
@@ -344,14 +473,18 @@ camera.lookAt(0, 0, -40);
 // --- Animation Loop ---
 let lastTime = 0;
 function animate(time) {
-  requestAnimationFrame(animate);
-  const delta = Math.min((time - lastTime) / 1000, 0.1); // Cap delta to avoid jumps
-  lastTime = time;
-  
-  updateSnowman(delta);
-  Utils.updateSnowflakes(delta, pos, scene);
-  updateCamera();
-  renderer.render(scene, camera);
+  if (gameActive) {
+    requestAnimationFrame(animate);
+    const delta = Math.min((time - lastTime) / 1000, 0.1); // Cap delta to avoid jumps
+    lastTime = time;
+    
+    updateSnowman(delta);
+    Utils.updateSnowflakes(delta, pos, scene);
+    updateCamera();
+    renderer.render(scene, camera);
+  } else if (animationRunning) {
+    animationRunning = false;
+  }
 }
 animate(0);
 
@@ -361,3 +494,28 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// Add these functions for game over handling
+function showGameOver(reason) {
+  gameActive = false;
+  gameOverDetail.textContent = reason;
+  gameOverOverlay.style.display = 'flex';
+}
+
+function restartGame() {
+  gameOverOverlay.style.display = 'none';
+  gameActive = true;
+  resetSnowman();
+  // Reset animation if it was stopped
+  if (!animationRunning) {
+    animationRunning = true;
+    lastTime = performance.now();
+    animate(lastTime);
+  }
+}
+
+// Add event listener to restart button
+restartButton.addEventListener('click', restartGame);
+
+// Animation state tracking
+let animationRunning = true;

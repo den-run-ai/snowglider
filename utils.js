@@ -143,6 +143,40 @@ function getDownhillDirection(x, z) {
 
 // --- Object creation functions ---
 
+// Add trees to make the scene more interesting
+function addTrees(scene) {
+  const treePositions = [];
+  // Add trees on both sides of the ski path
+  for(let z = -80; z < 80; z += 10) {
+    for(let x = -60; x < 60; x += 10) {
+      // Skip the ski path
+      if(Math.abs(x) < 10) continue;
+      
+      // Random offset
+      const xPos = x + (Math.random() * 5 - 2.5);
+      const zPos = z + (Math.random() * 5 - 2.5);
+      
+      // Only place trees on suitable slopes (not too steep)
+      const y = getTerrainHeight(xPos, zPos);
+      const gradient = getTerrainGradient(xPos, zPos);
+      const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
+      
+      if(steepness < 0.5 && Math.random() > 0.7) {
+        treePositions.push({x: xPos, y: y, z: zPos});
+      }
+    }
+  }
+  
+  // Create tree instances
+  treePositions.forEach(pos => {
+    const tree = createTree();
+    tree.position.set(pos.x, pos.y, pos.z);
+    scene.add(tree);
+  });
+  
+  return treePositions;
+}
+
 // Create Terrain (Mountain with Ski Slope)
 function createTerrain(scene) {
   const geometry = new THREE.PlaneGeometry(200, 200, 100, 100);
@@ -249,9 +283,9 @@ function createTerrain(scene) {
   addRocks(scene);
   
   // Add trees to make the slope more visible
-  addTrees(scene);
+  const treePositions = addTrees(scene);
   
-  return terrain;
+  return { terrain, treePositions };
 }
 
 // Add rocks to create a more realistic mountain environment
@@ -330,38 +364,6 @@ function createRock(size) {
   rock.receiveShadow = true;
   
   return rock;
-}
-
-// Add trees to make the scene more interesting
-function addTrees(scene) {
-  const treePositions = [];
-  // Add trees on both sides of the ski path
-  for(let z = -80; z < 80; z += 10) {
-    for(let x = -60; x < 60; x += 10) {
-      // Skip the ski path
-      if(Math.abs(x) < 10) continue;
-      
-      // Random offset
-      const xPos = x + (Math.random() * 5 - 2.5);
-      const zPos = z + (Math.random() * 5 - 2.5);
-      
-      // Only place trees on suitable slopes (not too steep)
-      const y = getTerrainHeight(xPos, zPos);
-      const gradient = getTerrainGradient(xPos, zPos);
-      const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
-      
-      if(steepness < 0.5 && Math.random() > 0.7) {
-        treePositions.push({x: xPos, y: y, z: zPos});
-      }
-    }
-  }
-  
-  // Create tree instances
-  treePositions.forEach(pos => {
-    const tree = createTree();
-    tree.position.set(pos.x, pos.y, pos.z);
-    scene.add(tree);
-  });
 }
 
 // Create a more realistic tree with visible branches and variability
@@ -691,5 +693,5 @@ const Utils = {
 // export { 
 //   SimplexNoise, getTerrainHeight, getTerrainGradient,
 //   getDownhillDirection, createTerrain, createSnowman, 
-//   createSnowflakes, updateSnowflakes 
+//   createSnowflakes, updateSnowflakes
 // };
