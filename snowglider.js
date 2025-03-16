@@ -142,11 +142,39 @@ let currentTurnDirection = 0;
 let turnChangeCooldown = 0;
 let turnAmplitude = 3.0;
 
+// Add timer and best time tracking
+let startTime = 0;
+let bestTime = localStorage.getItem('snowgliderBestTime') ? parseFloat(localStorage.getItem('snowgliderBestTime')) : Infinity;
+let timerDisplay = document.createElement('div');
+timerDisplay.id = 'timerDisplay';
+timerDisplay.style.position = 'fixed';
+timerDisplay.style.top = '10px';
+timerDisplay.style.right = '10px';
+timerDisplay.style.padding = '8px 12px';
+timerDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+timerDisplay.style.color = 'white';
+timerDisplay.style.fontFamily = 'Arial, sans-serif';
+timerDisplay.style.fontSize = '24px';
+timerDisplay.style.borderRadius = '5px';
+document.body.appendChild(timerDisplay);
+
+// Add best time to game over overlay
+const bestTimeDisplay = document.createElement('p');
+bestTimeDisplay.id = 'bestTimeDisplay';
+bestTimeDisplay.textContent = bestTime !== Infinity ? `Best Time: ${bestTime.toFixed(2)}s` : 'No best time yet';
+bestTimeDisplay.style.color = 'white';
+bestTimeDisplay.style.fontFamily = 'Arial, sans-serif';
+bestTimeDisplay.style.fontSize = '20px';
+bestTimeDisplay.style.marginBottom = '20px';
+gameOverOverlay.insertBefore(bestTimeDisplay, restartButton);
+
 function resetSnowman() {
   pos = { x: 0, z: -40, y: Utils.getTerrainHeight(0, -40) };
   velocity = { x: 0, z: -6.0 }; 
   snowman.position.set(pos.x, pos.y, pos.z);
   snowman.rotation.set(0, Math.PI, 0);
+  startTime = performance.now(); // Reset the timer when starting a new run
+  updateTimerDisplay();
 }
 resetSnowman();
 document.getElementById('resetBtn').addEventListener('click', resetSnowman);
@@ -482,6 +510,7 @@ function animate(time) {
     updateSnowman(delta);
     Utils.updateSnowflakes(delta, pos, scene);
     updateCamera();
+    updateTimerDisplay(); // Update the timer display
     renderer.render(scene, camera);
   } else if (animationRunning) {
     animationRunning = false;
@@ -500,6 +529,25 @@ window.addEventListener('resize', () => {
 function showGameOver(reason) {
   gameActive = false;
   gameOverDetail.textContent = reason;
+  
+  // If player reached the end successfully, update best time
+  if (reason === "You reached the end of the slope!") {
+    const currentTime = (performance.now() - startTime) / 1000;
+    
+    if (currentTime < bestTime) {
+      bestTime = currentTime;
+      localStorage.setItem('snowgliderBestTime', bestTime);
+      bestTimeDisplay.textContent = `New Best Time: ${bestTime.toFixed(2)}s`;
+      bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
+    } else {
+      bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${bestTime.toFixed(2)}s)`;
+      bestTimeDisplay.style.color = 'white';
+    }
+  } else {
+    bestTimeDisplay.textContent = bestTime !== Infinity ? `Best Time: ${bestTime.toFixed(2)}s` : 'No best time yet';
+    bestTimeDisplay.style.color = 'white';
+  }
+  
   gameOverOverlay.style.display = 'flex';
 }
 
@@ -520,3 +568,11 @@ restartButton.addEventListener('click', restartGame);
 
 // Animation state tracking
 let animationRunning = true;
+
+// Update timer display during gameplay
+function updateTimerDisplay() {
+  if (gameActive) {
+    const currentTime = (performance.now() - startTime) / 1000;
+    timerDisplay.textContent = `Time: ${currentTime.toFixed(2)}s`;
+  }
+}
