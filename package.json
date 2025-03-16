@@ -1,0 +1,14 @@
+{
+  "name": "snowglider",
+  "version": "1.0.0",
+  "description": "A cheerful snowman shredding mountain snow powder in a playful Three.js animation.",
+  "main": "snowglider.js",
+  "scripts": {
+    "test": "npm run test:terrain && npm run test:physics",
+    "test:terrain": "node tests/terrain-tests.js",
+    "test:physics": "node tests/physics-tests.js"
+  },
+  "dependencies": {
+    "three": "^0.128.0"
+  }
+}

@@ -33,7 +33,7 @@
   <div id="info">Skiing Snowman</div>
   <button id="resetBtn">Reset</button>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <<script>
+  <script>
     // This block ensures scripts load in the right order
     document.addEventListener('DOMContentLoaded', function() {
         // First load utils.js
@@ -44,6 +44,17 @@
         utilsScript.onload = function() {
             const mainScript = document.createElement('script');
             mainScript.src = 'snowglider.js';
+            
+            // Finally load tests script if needed
+            mainScript.onload = function() {
+                // Only load tests if test param is present
+                if (window.location.search.includes('test=true')) {
+                    const testsScript = document.createElement('script');
+                    testsScript.src = 'tests/browser-tests.js';
+                    document.body.appendChild(testsScript);
+                }
+            };
+            
             document.body.appendChild(mainScript);
         };
         
