@@ -156,8 +156,9 @@ function addTreesWithPositions(scene) {
   
   // Create tree instances using the createTree function from utils
   positions.forEach(pos => {
-    const tree = createTree(); // This would need the createTree function
-    tree.position.set(pos.x, pos.y, pos.z);
+    const tree = Utils.createTree();
+    // Trees need to sink about 0.5 units into terrain to appear properly planted
+    tree.position.set(pos.x, pos.y - 0.5, pos.z);
     scene.add(tree);
   });
   

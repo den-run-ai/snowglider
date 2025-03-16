@@ -318,7 +318,8 @@ function addRocks(scene) {
   // Create rock instances
   rockPositions.forEach(pos => {
     const rock = createRock(pos.size);
-    rock.position.set(pos.x, pos.y, pos.z);
+    // Sink the rock slightly into the terrain for better visual placement
+    rock.position.set(pos.x, pos.y - pos.size * 0.2, pos.z);
     
     // Random rotation for natural look
     rock.rotation.y = Math.random() * Math.PI * 2;
@@ -391,6 +392,7 @@ function createTree() {
   });
   
   const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+  // Position the trunk so its base is at y=0 instead of its center
   trunk.position.y = trunkHeight / 2;
   trunk.castShadow = true;
   group.add(trunk);
@@ -686,12 +688,19 @@ const Utils = {
   createTerrain,
   createSnowman,
   createSnowflakes,
-  updateSnowflakes
+  updateSnowflakes,
+  createTree,
+  createRock,
+  addTrees,
+  addRocks,
+  addBranchesAtLayer,
+  addSnowCaps
 };
 
 // In a module environment, you would use:
 // export { 
 //   SimplexNoise, getTerrainHeight, getTerrainGradient,
 //   getDownhillDirection, createTerrain, createSnowman, 
-//   createSnowflakes, updateSnowflakes
+//   createSnowflakes, updateSnowflakes, createTree, createRock,
+//   addTrees, addRocks, addBranchesAtLayer, addSnowCaps
 // };
