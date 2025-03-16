@@ -92,10 +92,10 @@ function addTreesWithPositions(scene) {
   // Add trees on both sides of the ski path
   for(let z = -80; z < 80; z += 10) {
     for(let x = -60; x < 60; x += 10) {
-      // Skip the ski path
-      if(Math.abs(x) < 10) continue;
+      // Skip the wider ski path
+      if(Math.abs(x) < 18) continue;
       
-      // Random offset
+      // Random offset with more natural clustering
       const xPos = x + (Math.random() * 5 - 2.5);
       const zPos = z + (Math.random() * 5 - 2.5);
       
@@ -106,6 +106,18 @@ function addTreesWithPositions(scene) {
       
       if(steepness < 0.5 && Math.random() > 0.7) {
         positions.push({x: xPos, y: y, z: zPos});
+        
+        // 25% chance to add a clustered tree nearby for more natural grouping
+        if(Math.random() < 0.25) {
+          const clusterX = xPos + (Math.random() * 4 - 2);
+          const clusterZ = zPos + (Math.random() * 4 - 2);
+          
+          // Only if the clustered tree is also off the path
+          if(Math.abs(clusterX) >= 18) {
+            const clusterY = Utils.getTerrainHeight(clusterX, clusterZ);
+            positions.push({x: clusterX, y: clusterY, z: clusterZ});
+          }
+        }
       }
     }
   }
@@ -169,7 +181,8 @@ bestTimeDisplay.style.marginBottom = '20px';
 gameOverOverlay.insertBefore(bestTimeDisplay, restartButton);
 
 function resetSnowman() {
-  pos = { x: 0, z: -40, y: Utils.getTerrainHeight(0, -40) };
+  // Start higher up the mountain (z=-20 instead of -40 for a longer run)
+  pos = { x: 0, z: -20, y: Utils.getTerrainHeight(0, -20) };
   velocity = { x: 0, z: -6.0 }; 
   snowman.position.set(pos.x, pos.y, pos.z);
   snowman.rotation.set(0, Math.PI, 0);
@@ -451,8 +464,9 @@ function updateSnowman(delta) {
   });
   
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
-  if (pos.z < -100 || 
-      Math.abs(pos.x) > 70 || 
+  // Allow slightly wider boundaries to match the wider ski path and longer run
+  if (pos.z < -95 || // Just slightly before the terrain edge at -100 for safety
+      Math.abs(pos.x) > 80 || // Increased from 70 to 80 to accommodate wider path
       (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||
       collision) {
     
@@ -462,9 +476,9 @@ function updateSnowman(delta) {
       
       if (collision) {
         reason = "BANG!!! You hit a tree!";
-      } else if (pos.z < -100) {
+      } else if (pos.z < -95) {
         reason = "You reached the end of the slope!";
-      } else if (Math.abs(pos.x) > 70) {
+      } else if (Math.abs(pos.x) > 80) {
         reason = "You went off the mountain!";
       } else if (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) {
         reason = "You fell off the terrain!";
@@ -497,7 +511,7 @@ function updateCamera() {
 
 // --- Initial Camera Setup ---
 camera.position.set(0, 20, 0);
-camera.lookAt(0, 0, -40);
+camera.lookAt(0, 0, -20); // Look at the new starting position
 
 // --- Animation Loop ---
 let lastTime = 0;
