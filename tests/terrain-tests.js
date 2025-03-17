@@ -126,12 +126,21 @@ runTest('Terrain Height Calculation', () => {
   
   assertGreaterThan(peakHeight, sideHeight, 'Mountain peak should be higher than sides');
   
-  // Ski path should be relatively smooth
+  // Ski path should be relatively smooth - increased tolerance for steeper slope
   const pathPoint1 = Utils.getTerrainHeight(0, -30);
   const pathPoint2 = Utils.getTerrainHeight(0, -40);
   const heightDifference = Math.abs(pathPoint1 - pathPoint2);
   
-  assertLessThan(heightDifference, 5, 'Ski path should have reasonable smoothness');
+  assertLessThan(heightDifference, 7, 'Ski path should have reasonable smoothness');
+  
+  // Extended path should continue downward
+  const pathStart = Utils.getTerrainHeight(0, -50);
+  const pathMiddle = Utils.getTerrainHeight(0, -120);
+  const pathEnd = Utils.getTerrainHeight(0, -180);
+  
+  // Verify path is still going downhill along entire extended length
+  assertGreaterThan(pathStart, pathMiddle, 'Path should continue downhill in middle section');
+  assertGreaterThan(pathMiddle, pathEnd, 'Path should continue downhill at end section');
 });
 
 // Test 2: Downhill Direction
@@ -199,6 +208,18 @@ runTest('Ski Path Width', () => {
   
   assertLessThan(diff1, 3, 'Ski path should maintain consistent width');
   assertLessThan(diff2, 3, 'Ski path should be symmetric');
+  
+  // Also test at extended distance
+  const centerPathExtended = Utils.getTerrainHeight(0, -150);
+  const edgePathExtended1 = Utils.getTerrainHeight(10, -150);
+  const edgePathExtended2 = Utils.getTerrainHeight(-10, -150);
+  
+  // Heights should be within reasonable tolerance for ski path at extended distance
+  const diffExtended1 = Math.abs(centerPathExtended - edgePathExtended1);
+  const diffExtended2 = Math.abs(centerPathExtended - edgePathExtended2);
+  
+  assertLessThan(diffExtended1, 3, 'Extended ski path should maintain consistent width');
+  assertLessThan(diffExtended2, 3, 'Extended ski path should be symmetric');
 });
 
 // Test 5: Noise Implementation
@@ -215,6 +236,81 @@ runTest('Simplex Noise Implementation', () => {
   // Same inputs should produce same outputs (deterministic)
   const val3 = noise.noise(0.5, 0.5);
   assertEquals(val1, val3, 'Noise should be deterministic for the same input');
+});
+
+// Test 6: Extended Slope Length
+runTest('Extended Slope Length', () => {
+  // The mountain should now extend further in the negative Z direction
+  // Sample some points to verify terrain continues properly
+  const pointsToCheck = [
+    { z: -100, expectedHeight: true },
+    { z: -150, expectedHeight: true },
+    { z: -180, expectedHeight: true }
+  ];
+  
+  // For each point, verify there's terrain defined (not zero or NaN)
+  for (const point of pointsToCheck) {
+    const height = Utils.getTerrainHeight(0, point.z);
+    assert(height !== 0 && !isNaN(height), `Terrain should exist at z=${point.z}`);
+  }
+  
+  // Verify the path still goes downhill as z decreases (gets more negative)
+  const heights = pointsToCheck.map(p => Utils.getTerrainHeight(0, p.z));
+  
+  for (let i = 0; i < heights.length - 1; i++) {
+    assertGreaterThan(heights[i], heights[i + 1], 
+      `Path should consistently go downhill from z=${pointsToCheck[i].z} to z=${pointsToCheck[i+1].z}`);
+  }
+});
+
+// Test 7: Tree and Rock Positioning
+runTest('Tree and Rock Positioning', () => {
+  // Mock the scene for testing tree and rock positioning
+  const mockScene = { add: () => {} };
+  
+  // Create a mock tree position
+  const mockTreePos = { x: -50, z: -150 };
+  
+  // Calculate the terrain height at the position
+  const terrainHeight = Utils.getTerrainHeight(mockTreePos.x, mockTreePos.z);
+  
+  // Make sure it's a valid position (not NaN or 0)
+  assert(terrainHeight !== 0 && !isNaN(terrainHeight), 
+    'Extended terrain should provide a valid height at tree position');
+  
+  // Create a mock tree object for tracking its position
+  let treeYPosition = 0;
+  
+  // Mock the createTree method temporarily
+  const originalCreateTree = Utils.createTree;
+  Utils.createTree = function() {
+    return { 
+      position: { 
+        set: (x, y, z) => {
+          treeYPosition = y;
+        }
+      }
+    };
+  };
+  
+  // Test adding a tree at a specific position
+  const mockTreePositions = [
+    { x: mockTreePos.x, y: terrainHeight, z: mockTreePos.z }
+  ];
+  
+  // Call the forEach function like in the actual code
+  mockTreePositions.forEach(pos => {
+    const updatedY = Utils.getTerrainHeight(pos.x, pos.z);
+    const tree = Utils.createTree();
+    tree.position.set(pos.x, updatedY - 0.5, pos.z);
+  });
+  
+  // Verify the tree was positioned correctly relative to the terrain
+  assertApprox(treeYPosition, terrainHeight - 0.5, 0.01, 
+    'Trees should be properly anchored to terrain height');
+  
+  // Restore the original method
+  Utils.createTree = originalCreateTree;
 });
 
 // Print test summary

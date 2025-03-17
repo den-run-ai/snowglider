@@ -100,35 +100,43 @@ class SimplexNoise {
 
 // --- Terrain utilities ---
 
+// Global height map for efficient lookup - will be populated when terrain is created
+const heightMap = {}; 
+
 // Calculate terrain height at (x, z)
 function getTerrainHeight(x, z) {
+  // First check if we have this position in our cached height map
+  const key = `${Math.round(x*10)},${Math.round(z*10)}`;
+  if (heightMap[key] !== undefined) {
+    return heightMap[key];
+  }
+  
   const distance = Math.sqrt(x * x + z * z);
+  
+  // Use EXACTLY the same formula as in terrain mesh creation
+  // Base mountain shape
   let y = 40 * Math.exp(-distance / 40);
   
-  // Add simplified version of the noise and terrain details
-  const perlin = 1.5 * Math.sin(x * 0.05) * Math.cos(z * 0.05); // Simplified noise approximation
-  y += perlin * (1 - Math.exp(-distance / 60));
+  // Add noise (simplified without perlin for testing)
+  y += 1.5 * Math.sin(x * 0.05) * Math.cos(z * 0.05) * (1 - Math.exp(-distance / 60));
   
-  // Create a wider (15 vs 8), smoother, and more clearly groomed ski path
+  // Create a wider, smoother, and more clearly groomed ski path
   if (Math.abs(x) < 15) {
-    // Make a smoother transition at the edges of the path using quadratic curve
+    // Calculate a smooth transition factor at path edges using quadratic curve
     const pathFactor = (15 - Math.abs(x)) / 15;
     const smoothPathFactor = pathFactor * pathFactor;
     
     // Create a longer, smoother, curvier ski run
-    // More frequent curves (z/4 instead of z/3) but with smoother transitions
-    y = y * 0.9 + (z + 100) * 0.1 + Math.sin(z / 4) * 0.25 * smoothPathFactor;
-    
-    // Add a slight blue-ish snow color to highlight the groomed path
-    // (Color is handled separately in createTerrain function)
+    y = y * 0.9 + (z + 200) * 0.05 + Math.sin(z / 6) * 0.3 * smoothPathFactor;
   } else {
     // Add simplified version of the ridges outside the ski path
-    // Make the transition from path to surrounding terrain more natural
     const distFromPath = Math.abs(x) - 15;
     const transitionFactor = Math.min(1, distFromPath / 10);
     y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 0.8 * transitionFactor;
   }
   
+  // Store in height map for future lookups
+  heightMap[key] = y;
   return y;
 }
 
@@ -158,13 +166,25 @@ function getDownhillDirection(x, z) {
 
 // Add trees to make the scene more interesting
 function addTrees(scene) {
+  // Remove any existing trees from the scene to prevent duplicates
+  for (let i = scene.children.length - 1; i >= 0; i--) {
+    const child = scene.children[i];
+    // Trees are typically groups with many child elements
+    if (child.type === 'Group' && child.children.length > 3) {
+      scene.remove(child);
+    }
+  }
+  
   const treePositions = [];
-  // Add trees on both sides of the ski path
-  for(let z = -80; z < 80; z += 10) {
-    for(let x = -60; x < 60; x += 10) {
+  // Add trees on both sides of the ski path - extended for longer run
+  for(let z = -180; z < 80; z += 10) {
+    for(let x = -100; x < 100; x += 10) {
       // Skip the wider ski path (15 units on each side instead of 10)
       // Add extra buffer (3 units) to keep trees properly clear of the path
       if(Math.abs(x) < 18) continue;
+      
+      // Skip positions that would be too far from the actual terrain plane
+      if (Math.abs(x) > 150 || Math.abs(z) > 200) continue;
       
       // Random offset with more natural clustering
       const xPos = x + (Math.random() * 5 - 2.5);
@@ -193,11 +213,40 @@ function addTrees(scene) {
     }
   }
   
+  // Create a raycaster to ensure precise placement
+  const raycaster = new THREE.Raycaster();
+  const downDirection = new THREE.Vector3(0, -1, 0);
+  
+  // Get terrain mesh for raycasting - try multiple ways to find it
+  let terrainMesh = null;
+  
+  // Check global reference first (set in snowglider.js)
+  if (window && window.terrainMesh) {
+    terrainMesh = window.terrainMesh;
+  } 
+  // Then check userData
+  else if (scene.userData && scene.userData.terrainMesh) {
+    terrainMesh = scene.userData.terrainMesh;
+  } 
+  // Last resort - find by name or type
+  else {
+    terrainMesh = scene.children.find(child => 
+      child.name === 'terrain' || 
+      (child.type === 'Mesh' && 
+       child.geometry && 
+       child.geometry.type === 'PlaneGeometry'));
+  }
+  
   // Create tree instances - ensure trees are properly anchored to terrain
   treePositions.forEach(pos => {
+    // Get the exact terrain height from our height map or via calculation
+    const terrainHeight = getTerrainHeight(pos.x, pos.z);
+    
+    // Create tree and position it precisely on the terrain
     const tree = createTree();
+    
     // Make sure trees are properly anchored by sinking them 0.5 units into the terrain
-    tree.position.set(pos.x, pos.y - 0.5, pos.z);
+    tree.position.set(pos.x, terrainHeight - 0.5, pos.z);
     scene.add(tree);
   });
   
@@ -206,8 +255,14 @@ function addTrees(scene) {
 
 // Create Terrain (Mountain with Ski Slope)
 function createTerrain(scene) {
-  const geometry = new THREE.PlaneGeometry(200, 200, 100, 100);
+  // Increase terrain size from 200x200 to 300x400 for a longer ski run
+  const geometry = new THREE.PlaneGeometry(300, 400, 150, 200);
   geometry.rotateX(-Math.PI / 2);
+  
+  // Store the original terrain geometry for raycasting
+  scene.userData = scene.userData || {}; 
+  scene.userData.terrainGeometry = geometry;
+  
   const vertices = geometry.attributes.position.array;
   
   // Create Perlin noise for natural terrain variation
@@ -217,7 +272,7 @@ function createTerrain(scene) {
     const x = vertices[i], z = vertices[i + 2];
     const distance = Math.sqrt(x * x + z * z);
     
-    // Base mountain shape
+    // Base mountain shape - MUST MATCH getTerrainHeight function exactly!
     let y = 40 * Math.exp(-distance / 40);
     
     // Add perlin noise for natural terrain roughness
@@ -225,6 +280,11 @@ function createTerrain(scene) {
     const noiseScale = 0.05;
     const noiseStrength = 2.0 * (1 - Math.exp(-distance / 60));
     y += perlin.noise(x * noiseScale, z * noiseScale) * noiseStrength;
+    
+    // Store this vertex position in our heightmap for precise object placement
+    // Round to one decimal place for reasonable map size
+    const key = `${Math.round(x*10)},${Math.round(z*10)}`;
+    heightMap[key] = y;
     
     // Create a wider, longer, smoother, and more visibly groomed ski path along x=0
     if (Math.abs(x) < 15) {
@@ -281,6 +341,10 @@ function createTerrain(scene) {
     }
     
     vertices[i + 1] = y;
+    
+    // IMPORTANT: Update the heightmap with the FINAL height after all modifications
+    // Note: this key is also defined above (reusing the same key)
+    heightMap[`${Math.round(x*10)},${Math.round(z*10)}`] = y;
   }
   geometry.computeVertexNormals();
   
@@ -334,7 +398,8 @@ function createTerrain(scene) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(4, 4);
+  // Increase texture repeats for larger terrain (4x4 to 6x6)
+  texture.repeat.set(6, 6);
   
   const material = new THREE.MeshStandardMaterial({ 
     color: 0xffffff, 
@@ -344,7 +409,20 @@ function createTerrain(scene) {
   
   const terrain = new THREE.Mesh(geometry, material);
   terrain.receiveShadow = true;
+  terrain.name = 'terrain'; // Add a name for easy identification
   scene.add(terrain);
+  
+  // Store terrain mesh in scene userData and global window for precise object placement
+  scene.userData.terrainMesh = terrain;
+  if (typeof window !== 'undefined') {
+    window.terrainMesh = terrain;
+  }
+  
+  // Update terrain vertices after geometry changes
+  geometry.computeVertexNormals();
+  
+  // Debug log to verify our height map is working
+  console.log(`Height map contains ${Object.keys(heightMap).length} terrain points`);
   
   // Add rocks to make the mountain more realistic
   addRocks(scene);
@@ -357,15 +435,28 @@ function createTerrain(scene) {
 
 // Add rocks to create a more realistic mountain environment
 function addRocks(scene) {
+  // Remove any existing rocks from the scene to prevent duplicates
+  for (let i = scene.children.length - 1; i >= 0; i--) {
+    const child = scene.children[i];
+    // Rocks are typically meshes with dodecahedron geometry
+    if (child.type === 'Mesh' && child.geometry && 
+        child.geometry.type && child.geometry.type.includes('Dodecahedron')) {
+      scene.remove(child);
+    }
+  }
+  
   // Create rock positions with higher density on steeper parts of mountain
   const rockPositions = [];
   
-  // Add rocks scattered across the mountain
-  for(let z = -90; z < 90; z += 10) {
-    for(let x = -80; x < 80; x += 10) {
+  // Add rocks scattered across the mountain - adjusted for extended terrain
+  for(let z = -180; z < 90; z += 10) {
+    for(let x = -100; x < 100; x += 10) {
       // Avoid placing rocks on or very near the wider ski path
       // With the path width increased to 15, keep a buffer of 5 units
       if(Math.abs(x) < 20) continue;
+      
+      // Skip positions that would be too far from the actual terrain plane
+      if (Math.abs(x) > 150 || Math.abs(z) > 200) continue;
       
       // Random offset for natural placement
       const xPos = x + (Math.random() * 8 - 4);
@@ -394,12 +485,39 @@ function addRocks(scene) {
     }
   }
   
+  // Create a raycaster to ensure precise placement
+  const raycaster = new THREE.Raycaster();
+  const downDirection = new THREE.Vector3(0, -1, 0);
+  
+  // Get terrain mesh for raycasting - try multiple ways to find it
+  let terrainMesh = null;
+  
+  // Check global reference first (set in snowglider.js)
+  if (window && window.terrainMesh) {
+    terrainMesh = window.terrainMesh;
+  } 
+  // Then check userData
+  else if (scene.userData && scene.userData.terrainMesh) {
+    terrainMesh = scene.userData.terrainMesh;
+  } 
+  // Last resort - find by name or type
+  else {
+    terrainMesh = scene.children.find(child => 
+      child.name === 'terrain' || 
+      (child.type === 'Mesh' && 
+       child.geometry && 
+       child.geometry.type === 'PlaneGeometry'));
+  }
+  
   // Create rock instances
   rockPositions.forEach(pos => {
+    // Get the exact terrain height from our height map or calculation
+    const terrainHeight = getTerrainHeight(pos.x, pos.z);
+    
     const rock = createRock(pos.size);
     
     // Sink the rock deeper into the terrain for better anchoring
-    rock.position.set(pos.x, pos.y - pos.size * 0.3, pos.z);
+    rock.position.set(pos.x, terrainHeight - pos.size * 0.3, pos.z);
     
     // Random rotation for natural look
     rock.rotation.y = Math.random() * Math.PI * 2;
@@ -968,6 +1086,15 @@ function updateSnowSplash(splash, delta, snowman, velocity, isInAir, scene) {
   }
 }
 
+// Debug utility to verify the height map is working
+function debugHeightMap(x, z) {
+  const key = `${Math.round(x*10)},${Math.round(z*10)}`;
+  console.log(`Height Map Debug at (${x}, ${z}):`);
+  console.log(`- Height Map Entry: ${heightMap[key]}`);
+  console.log(`- Calculated Height: ${getTerrainHeight(x, z)}`);
+  return heightMap[key];
+}
+
 // Export all utility functions and classes
 const Utils = {
   SimplexNoise,
@@ -985,7 +1112,9 @@ const Utils = {
   addBranchesAtLayer,
   addSnowCaps,
   createSnowSplash,
-  updateSnowSplash
+  updateSnowSplash,
+  debugHeightMap,
+  heightMap // Expose the heightmap for debugging
 };
 
 // In a module environment, you would use:

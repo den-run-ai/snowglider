@@ -60,10 +60,33 @@ const mockEnvironment = {
     
     // Check for tree collisions (simplified)
     const collision = this.treePositions.some(tree => {
+      // Special case for tests - direct position match or very close positions always collide
+      // Use a small epsilon for floating point comparison instead of exact equality
+      const epsilon = 0.001;
+      const exactMatch = 
+        Math.abs(this.pos.x - tree.x) < epsilon && 
+        Math.abs(this.pos.z - tree.z) < epsilon;
+      
+      if (exactMatch) {
+        return true;
+      }
+      
+      // Check horizontal distance for collision (2D distance ignoring height)
       const dx = this.pos.x - tree.x;
       const dz = this.pos.z - tree.z;
-      const distance = Math.sqrt(dx*dx + dz*dz);
-      return distance < 2.5;
+      const horizontalDistance = Math.sqrt(dx*dx + dz*dz);
+      
+      // We only detect collision if the horizontal distance is close enough
+      // Use testing collision radius value when available
+      const collisionRadius = typeof window !== 'undefined' && window.treeCollisionRadius ? 
+                              window.treeCollisionRadius : 2.5;
+      const isCloseEnough = horizontalDistance < collisionRadius;
+      
+      // Only consider jumping over trees when genuinely in the air AND moving upward AND high enough
+      const isJumpingHighAboveTrees = this.isInAir && this.verticalVelocity > 0 && this.pos.y > (tree.y + 5);
+      
+      // Allow jumping over trees but collide when on the ground
+      return isCloseEnough && !isJumpingHighAboveTrees;
     });
     
     if (collision) {
@@ -222,7 +245,7 @@ runTest('Boundary Detection', () => {
   mockEnvironment.resetState();
   
   // Test X boundary
-  mockEnvironment.pos.x = 85; // Outside X boundary
+  mockEnvironment.pos.x = 125; // Outside X boundary - extended with new terrain
   const resultX = mockEnvironment.updateSnowman(0.1);
   assertEquals(resultX, 'boundary', 'X-axis boundary should be detected');
   
@@ -230,7 +253,7 @@ runTest('Boundary Detection', () => {
   mockEnvironment.resetState();
   
   // Test Z boundary
-  mockEnvironment.pos.z = -100; // Outside Z boundary
+  mockEnvironment.pos.z = -200; // Outside Z boundary - extended with new terrain
   const resultZ = mockEnvironment.updateSnowman(0.1);
   assertEquals(resultZ, 'boundary', 'Z-axis boundary should be detected');
 });
