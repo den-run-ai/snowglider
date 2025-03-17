@@ -650,7 +650,7 @@ function showGameOver(reason) {
   gameActive = false;
   gameOverDetail.textContent = reason;
   
-  // If player reached the end successfully, update best time
+  // Only update best time if player reached the end successfully
   if (reason === "You reached the end of the slope!") {
     const currentTime = (performance.now() - startTime) / 1000;
     
@@ -664,6 +664,7 @@ function showGameOver(reason) {
       bestTimeDisplay.style.color = 'white';
     }
   } else {
+    // For failures (tree collision, falling, etc.), don't record or update best time
     bestTimeDisplay.textContent = bestTime !== Infinity ? `Best Time: ${bestTime.toFixed(2)}s` : 'No best time yet';
     bestTimeDisplay.style.color = 'white';
   }

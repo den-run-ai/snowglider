@@ -387,6 +387,98 @@
       }
     }
     
+    // Test 8: Best Time Update Logic
+    function testBestTimeUpdateLogic() {
+      // Save original values we'll modify
+      const originalShowGameOver = window.showGameOver;
+      const originalGameActive = gameActive;
+      const originalPosition = { x: pos.x, y: pos.y, z: pos.z };
+      const originalVelocity = { x: velocity.x, z: velocity.z };
+      const originalBestTime = bestTime;
+      const originalLocalStorage = {};
+      
+      // Mock localStorage to track when bestTime is set
+      const originalSetItem = localStorage.setItem;
+      let bestTimeUpdated = false;
+      
+      localStorage.setItem = function(key, value) {
+        if (key === 'snowgliderBestTime') {
+          bestTimeUpdated = true;
+          originalLocalStorage.snowgliderBestTime = value;
+        }
+        return originalSetItem.call(localStorage, key, value);
+      };
+
+      // 1. Test tree collision does not update best time
+      resetSnowman();
+      gameActive = true;
+      bestTimeUpdated = false;
+      
+      // Make sure we're using a fresh timer 
+      startTime = performance.now() - 5000; // 5 seconds elapsed
+      
+      // Position snowman away from ski path where trees might be
+      pos.x = 30;
+      pos.z = -40;
+      pos.y = Utils.getTerrainHeight(pos.x, pos.z);
+      
+      // Mock showGameOver to track what happens
+      window.showGameOver = function(reason) {
+        console.log("BEST TIME TEST: showGameOver called with reason: " + reason);
+        // Call the original function but intercept to check behavior
+        originalShowGameOver.call(window, reason);
+      };
+      
+      // Force a tree collision
+      if (window.testHooks && window.testHooks.forceTreeCollision) {
+        console.log("BEST TIME TEST: Using test hook to force tree collision");
+        window.testHooks.forceTreeCollision();
+      } else {
+        console.error("BEST TIME TEST: Test hook not available");
+      }
+      
+      // Check that best time was not updated on tree collision
+      assert(!bestTimeUpdated, 'Best Time - Tree Collision', 
+        !bestTimeUpdated ? 'Correctly did not update best time on tree collision' : 
+        'Incorrectly updated best time on tree collision');
+      
+      // 2. Test reaching end of slope updates best time
+      resetSnowman();
+      gameActive = true;
+      bestTimeUpdated = false;
+      
+      // Set time to be better than current best time
+      startTime = performance.now() - 5000; // 5 seconds elapsed
+      
+      // Simulate reaching the end of the slope
+      pos.x = 0; // Stay on the ski path
+      pos.z = -196; // Just past the finish line at z=-195
+      
+      // Manually call showGameOver with "reached the end" message
+      window.showGameOver("You reached the end of the slope!");
+      
+      // Check that best time was updated when reaching the end
+      assert(bestTimeUpdated, 'Best Time - Reaching End', 
+        bestTimeUpdated ? 'Correctly updated best time on reaching end of slope' : 
+        'Failed to update best time on reaching end of slope');
+      
+      // Restore original functions and state
+      localStorage.setItem = originalSetItem;
+      window.showGameOver = originalShowGameOver;
+      gameActive = originalGameActive;
+      pos.x = originalPosition.x;
+      pos.y = originalPosition.y;
+      pos.z = originalPosition.z;
+      velocity.x = originalVelocity.x;
+      velocity.z = originalVelocity.z;
+      bestTime = originalBestTime;
+      
+      // Restore any localStorage changes
+      if (originalLocalStorage.snowgliderBestTime !== undefined) {
+        localStorage.setItem('snowgliderBestTime', originalBestTime);
+      }
+    }
+
     // Run all tests
     try {
       testSnowmanPhysics();
@@ -396,6 +488,7 @@
       testJumpMechanics();
       testExtendedSlope();
       testTreeRockPositioning();
+      testBestTimeUpdateLogic();
       
       // Show test summary
       const summary = document.createElement('div');
