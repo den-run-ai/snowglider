@@ -192,6 +192,30 @@ runTest('Collision Detection', () => {
   mockEnvironment.treePositions = [];
 });
 
+// Test 6: Collision Detection with Snow Effects
+runTest('Collision Detection with Snow Effects', () => {
+  // Reset the environment
+  mockEnvironment.resetState();
+  
+  // Add a tree directly in front of the snowman
+  mockEnvironment.treePositions = [
+    { x: mockEnvironment.pos.x, y: 0, z: mockEnvironment.pos.z - 2 }
+  ];
+  
+  // Enable snow splash effect simulation
+  mockEnvironment.hasSnowSplashEffect = true;
+  
+  // Move toward the tree
+  mockEnvironment.velocity.z = -5;
+  const result = mockEnvironment.updateSnowman(0.1);
+  
+  assertEquals(result, 'collision', 'Tree collision should be detected even with snow effects');
+  
+  // Clean up
+  mockEnvironment.treePositions = [];
+  mockEnvironment.hasSnowSplashEffect = false;
+});
+
 // Test 4: Boundary Detection
 runTest('Boundary Detection', () => {
   // Reset the environment

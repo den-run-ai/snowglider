@@ -915,10 +915,15 @@ function updateSnowSplash(splash, delta, snowman, velocity, isInAir, scene) {
         const randomY = Math.random() * 0.2;
         const randomZ = (Math.random() - 0.5) * 1.0;
         
-        // Position at ski
-        particle.position.x = snowman.position.x + skiOffset.x + randomX;
-        particle.position.y = snowman.position.y + skiOffset.y + randomY;
-        particle.position.z = snowman.position.z + skiOffset.z + randomZ;
+        // Position at ski - use a new Vector3 to avoid modifying snowman's position
+        const snowmanPos = new THREE.Vector3(
+          snowman.position.x,
+          snowman.position.y,
+          snowman.position.z
+        );
+        particle.position.x = snowmanPos.x + skiOffset.x + randomX;
+        particle.position.y = snowmanPos.y + skiOffset.y + randomY;
+        particle.position.z = snowmanPos.z + skiOffset.z + randomZ;
         
         // Generate random speed components
         // Side velocity gives more spread

@@ -528,8 +528,18 @@ function animate(time) {
     updateSnowman(delta);
     Utils.updateSnowflakes(delta, pos, scene);
     
+    // Save player position before snow splash effect updates
+    const playerPosBefore = { 
+      x: snowman.position.x, 
+      y: snowman.position.y, 
+      z: snowman.position.z 
+    };
+    
     // Update snow splash particles - pass all required parameters
     Utils.updateSnowSplash(snowSplash, delta, snowman, velocity, isInAir, scene);
+    
+    // Ensure snowman position wasn't affected by particles
+    snowman.position.set(playerPosBefore.x, playerPosBefore.y, playerPosBefore.z);
     
     updateCamera();
     updateTimerDisplay(); // Update the timer display
