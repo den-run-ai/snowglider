@@ -139,6 +139,10 @@ treePositions = addTreesWithPositions(scene);
 const snowman = Utils.createSnowman(scene);
 Utils.createSnowflakes(scene);
 
+// Create snow splash particle system for ski effects using sprites
+// like the snowflakes for better visibility
+const snowSplash = Utils.createSnowSplash();
+
 // --- Snowman Position & Reset ---
 let pos = { x: 0, z: -40, y: Utils.getTerrainHeight(0, -40) };
 let velocity = { x: 0, z: 0 }; 
@@ -523,6 +527,10 @@ function animate(time) {
     
     updateSnowman(delta);
     Utils.updateSnowflakes(delta, pos, scene);
+    
+    // Update snow splash particles - pass all required parameters
+    Utils.updateSnowSplash(snowSplash, delta, snowman, velocity, isInAir, scene);
+    
     updateCamera();
     updateTimerDisplay(); // Update the timer display
     renderer.render(scene, camera);
