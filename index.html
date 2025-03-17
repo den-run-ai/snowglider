@@ -47,11 +47,25 @@
             
             // Finally load tests script if needed
             mainScript.onload = function() {
-                // Only load tests if test param is present
+                // Load appropriate tests based on URL parameters
                 if (window.location.search.includes('test=true')) {
                     const testsScript = document.createElement('script');
                     testsScript.src = 'tests/browser-tests.js';
                     document.body.appendChild(testsScript);
+                }
+                
+                // Load regression tests if regression param is present
+                if (window.location.search.includes('test=regression')) {
+                    const regressionTestsScript = document.createElement('script');
+                    regressionTestsScript.src = 'tests/browser-regression-tests.js';
+                    document.body.appendChild(regressionTestsScript);
+                }
+                
+                // Load tree-specific tests if trees param is present
+                if (window.location.search.includes('test=trees')) {
+                    const treeTestsScript = document.createElement('script');
+                    treeTestsScript.src = 'tests/browser-tree-tests.js';
+                    document.body.appendChild(treeTestsScript);
                 }
             };
             

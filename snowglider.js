@@ -89,54 +89,19 @@ window.terrainMesh = terrain;
 // We can't call Utils.addTrees directly, so let's create a global array
 let treePositions = [];
 
-// Manually add trees and store their positions
+// Instead of duplicating the tree placement logic, use Utils.addTrees
+// and store its returned positions for collision detection
 function addTreesWithPositions(scene) {
-  // Copy the addTrees function implementation here
-  const positions = [];
-  // Add trees on both sides of the ski path
-  for(let z = -80; z < 80; z += 10) {
-    for(let x = -60; x < 60; x += 10) {
-      // Skip the wider ski path
-      if(Math.abs(x) < 18) continue;
-      
-      // Random offset with more natural clustering
-      const xPos = x + (Math.random() * 5 - 2.5);
-      const zPos = z + (Math.random() * 5 - 2.5);
-      
-      // Only place trees on suitable slopes (not too steep)
-      const y = Utils.getTerrainHeight(xPos, zPos);
-      const gradient = Utils.getTerrainGradient(xPos, zPos);
-      const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
-      
-      if(steepness < 0.5 && Math.random() > 0.7) {
-        // Store proper height for collision detection (no adjustment needed)
-        // Actual tree mesh will be positioned at y - 0.5 to sink it into terrain
-        positions.push({x: xPos, y: y, z: zPos});
-        
-        // 25% chance to add a clustered tree nearby for more natural grouping
-        if(Math.random() < 0.25) {
-          const clusterX = xPos + (Math.random() * 4 - 2);
-          const clusterZ = zPos + (Math.random() * 4 - 2);
-          
-          // Only if the clustered tree is also off the path
-          if(Math.abs(clusterX) >= 18) {
-            const clusterY = Utils.getTerrainHeight(clusterX, clusterZ);
-            positions.push({x: clusterX, y: clusterY, z: clusterZ});
-          }
-        }
-      }
-    }
-  }
+  // The addTrees function in Utils now handles all tree placement and rendering
+  // It returns an array of all tree positions that we can use for collision detection
   
-  // Create tree instances using the createTree function from utils
-  positions.forEach(pos => {
-    const tree = Utils.createTree();
-    // Trees need to sink about 0.5 units into terrain to appear properly planted
-    tree.position.set(pos.x, pos.y - 0.5, pos.z);
-    scene.add(tree);
-  });
+  // Extended range to match utils.js implementation
+  // Using the same ranges as in utils.js:
+  // - Z range from -180 to 80 (extended run)
+  // - X range from -100 to 100 (wider area)
   
-  return positions;
+  // Let Utils.addTrees handle the actual tree creation and return positions
+  return Utils.addTrees(scene);
 }
 
 // Call it and store the positions
