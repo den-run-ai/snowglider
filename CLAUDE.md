@@ -1,37 +1,43 @@
 # CLAUDE.md - Coding Assistant Guidelines
 
 ## Project Overview
-SnowGlider is a simple Three.js animation/game project with HTML/JS implementation. The core files are:
+SnowGlider is a Three.js animation/game project with HTML/JS implementation. The core files are:
 - `index.html` - Main entry point and UI
 - `snowglider.js` - Game logic and Three.js implementation
 - `utils.js` - Utility functions and helpers
-- `tests/` - Test files for terrain, physics, and browser interactions
-
-## Recent Updates
-- **Testing Framework**: Added automated tests for terrain, physics, and browser interactions
-- **Ski Run Enhancements**: Wider paths, smoother transitions, improved terrain details
-- **Performance Improvements**: Bug fixes for timing and recording best scores
+- `tests/` - Test files for terrain, physics, camera, and collision detection
 
 ## Commands
 - Run locally: Open `index.html` in a browser or use a simple HTTP server
-- Run tests: `npm test` (all tests) or `npm run test:terrain`, `npm run test:physics` (specific tests)
-- Browser tests: Open `index.html?test=true` in a browser
+- Run all tests: `npm test`
+- Run specific tests: 
+  - `npm run test:terrain` - Terrain generation tests
+  - `npm run test:physics` - Physics simulation tests
+  - `npm run test:regression` - Regression tests
+  - `npm run test:tree-collision` - Tree collision tests
+- Browser tests: 
+  - All tests: `index.html?test=unified`
+  - Camera tests: `index.html?test=camera`
+  - Gameplay tests: `index.html?test=true`
+  - Tree tests: `index.html?test=trees`
+  - Regression tests: `index.html?test=regression`
 
 ## Code Style Guidelines
 - **Indentation**: 2 spaces
 - **Semicolons**: Required at end of statements
-- **Naming**: camelCase for variables, functions, methods
+- **Naming**: camelCase for variables/functions/methods, PascalCase for classes
 - **Functions**: Use function declarations with descriptive names
-- **Documentation**: JSDoc-style comments for functions
-- **Classes**: ES6 class syntax
-- **Dependencies**: Three.js loaded via CDN in browser, npm package for testing
-- **Error Handling**: Simple validation with boundary checks
-- **Performance**: Use delta time capping, optimize collision detection
+- **Documentation**: JSDoc-style comments for public functions
+- **Classes**: ES6 class syntax with clear method responsibilities
+- **Dependencies**: Three.js loaded via CDN (r128)
+- **Error Handling**: Validation with boundary checks, meaningful console logging
+- **Testing**: Browser-based with visual feedback, unified test runner
 
 ## Best Practices
-- Separate concerns between main logic and utilities
-- Use descriptive function/variable names
-- Follow established patterns in existing code
-- Maintain game state consistently
-- Properly clean up Three.js objects when no longer needed
-- Write tests for new functionality where appropriate
+- Follow existing patterns in the codebase
+- Keep camera position and animation logic separate
+- Use THREE.Vector3 for position calculations
+- Include tolerances in position-based tests
+- Properly clean up THREE.js objects when no longer needed
+- Maintain test isolation to prevent state interference
+- Signal test completion using callbacks

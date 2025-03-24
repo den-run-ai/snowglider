@@ -2,8 +2,8 @@
 // Run with: open index.html?test=true in browser
 
 (function() {
-  // Only run tests if ?test=true is in the URL
-  if (window.location.search.includes('test=true')) {
+  // Only run tests if ?test=true is in the URL and not running through the unified test runner
+  if (window.location.search.includes('test=true') && !window.location.search.includes('unified=true') && !window._unifiedTestRunnerActive) {
     // Wait for game to initialize
     window.addEventListener('load', function() {
       // Give the game a moment to fully initialize
@@ -11,24 +11,42 @@
     });
   }
 
+  // Expose the test runner for the unified test system
+  window.runGameTests = runTests;
+
   function runTests() {
     console.log('=== STARTING SNOWGLIDER TESTS ===');
     
-    // Create test results container
-    const resultsDiv = document.createElement('div');
-    resultsDiv.id = 'test-results';
-    resultsDiv.style.position = 'absolute';
-    resultsDiv.style.top = '10px';
-    resultsDiv.style.left = '10px';
-    resultsDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-    resultsDiv.style.color = 'white';
-    resultsDiv.style.padding = '10px';
-    resultsDiv.style.fontFamily = 'monospace';
-    resultsDiv.style.fontSize = '14px';
-    resultsDiv.style.zIndex = '9999';
-    resultsDiv.style.maxHeight = '80%';
-    resultsDiv.style.overflow = 'auto';
-    document.body.appendChild(resultsDiv);
+    // Create or use test results container
+    let resultsDiv;
+    if (window._unifiedTestResults) {
+      resultsDiv = window._unifiedTestResults;
+      
+      // Add section header
+      const sectionHeader = document.createElement('div');
+      sectionHeader.style.fontWeight = 'bold';
+      sectionHeader.style.fontSize = '16px';
+      sectionHeader.style.marginTop = '15px';
+      sectionHeader.style.marginBottom = '10px';
+      sectionHeader.style.borderBottom = '1px solid white';
+      sectionHeader.textContent = 'CORE GAMEPLAY TESTS';
+      resultsDiv.appendChild(sectionHeader);
+    } else {
+      resultsDiv = document.createElement('div');
+      resultsDiv.id = 'test-results';
+      resultsDiv.style.position = 'absolute';
+      resultsDiv.style.top = '10px';
+      resultsDiv.style.left = '10px';
+      resultsDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+      resultsDiv.style.color = 'white';
+      resultsDiv.style.padding = '10px';
+      resultsDiv.style.fontFamily = 'monospace';
+      resultsDiv.style.fontSize = '14px';
+      resultsDiv.style.zIndex = '9999';
+      resultsDiv.style.maxHeight = '80%';
+      resultsDiv.style.overflow = 'auto';
+      document.body.appendChild(resultsDiv);
+    }
     
     let testsPassed = 0;
     let testsFailed = 0;
@@ -447,8 +465,13 @@
       gameActive = true;
       bestTimeUpdated = false;
       
+      // Make sure bestTime has a value that can be beaten
+      if (bestTime === Infinity) {
+        bestTime = 10; // Set a beatable best time
+      }
+      
       // Set time to be better than current best time
-      startTime = performance.now() - 5000; // 5 seconds elapsed
+      startTime = performance.now() - (bestTime * 500); // Half the current best time
       
       // Simulate reaching the end of the slope
       pos.x = 0; // Stay on the ski path
@@ -496,16 +519,34 @@
       summary.style.borderTop = '1px solid white';
       summary.style.marginTop = '10px';
       summary.style.paddingTop = '10px';
-      summary.textContent = `Tests completed: ${testsPassed} passed, ${testsFailed} failed`;
+      
+      // Only update the global test counts if we're in the unified test runner
+      if (window._unifiedTestCounts) {
+        console.log(`Game tests reporting ${testsPassed} passed, ${testsFailed} failed to unified test runner`);
+        window._unifiedTestCounts.passed += testsPassed;
+        window._unifiedTestCounts.failed += testsFailed;
+      }
+      
+      summary.textContent = `Game tests completed: ${testsPassed} passed, ${testsFailed} failed`;
       resultsDiv.appendChild(summary);
       
-      console.log(`=== TESTING COMPLETE: ${testsPassed} passed, ${testsFailed} failed ===`);
+      console.log(`=== GAME TESTING COMPLETE: ${testsPassed} passed, ${testsFailed} failed ===`);
+      
+      // Signal completion to unified runner if applicable
+      if (window._testCompleteCallback) {
+        console.log('Game tests completed, signaling to unified test runner');
+        window._testCompleteCallback('gameplay'); // Change to match expected name in unified-test-runner.js
+      }
     } catch (e) {
       console.error('Test error:', e);
       const errorDiv = document.createElement('div');
       errorDiv.textContent = `ERROR: ${e.message}`;
       errorDiv.style.color = 'red';
       resultsDiv.appendChild(errorDiv);
+      
+      if (window._testCompleteCallback) {
+        window._testCompleteCallback('game', e);
+      }
     }
   }
 })();

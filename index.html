@@ -47,26 +47,69 @@
             
             // Finally load tests script if needed
             mainScript.onload = function() {
-                // Load appropriate tests based on URL parameters
-                if (window.location.search.includes('test=true')) {
-                    const testsScript = document.createElement('script');
-                    testsScript.src = 'tests/browser-tests.js';
-                    document.body.appendChild(testsScript);
-                }
+                // Always load all test scripts for the unified runner to work
+                // But they will only execute if their specific URL parameter is present
+                const loadTests = function() {
+                    // Determine which tests to load based on URL parameters
+                    let testsScripts = [];
+                    
+                    // Always load camera tests if ?test=camera is in URL
+                    if (window.location.search.includes('test=camera')) {
+                        console.log("Loading only camera tests");
+                        testsScripts = [
+                            { src: 'tests/camera-tests.js', loaded: false }
+                        ];
+                    } 
+                    // Load all tests for unified tests or when other test parameters are present
+                    else if (window.location.search.includes('test=')) {
+                        console.log("Loading all test scripts");
+                        testsScripts = [
+                            { src: 'tests/browser-tests.js', loaded: false },
+                            { src: 'tests/browser-regression-tests.js', loaded: false },
+                            { src: 'tests/browser-tree-tests.js', loaded: false },
+                            { src: 'tests/camera-tests.js', loaded: false }
+                        ];
+                    }
+                    
+                    // If no test scripts to load, skip the rest
+                    if (testsScripts.length === 0) {
+                        console.log("No test scripts to load");
+                        return;
+                    }
+                    
+                    let totalLoaded = 0;
+                    
+                    // Function to check if all scripts are loaded
+                    const checkAllLoaded = function() {
+                        totalLoaded++;
+                        if (totalLoaded === testsScripts.length) {
+                            // All individual test scripts are loaded
+                            // Now load the unified test runner if needed
+                            if (window.location.search.includes('test=unified')) {
+                                console.log("Loading unified test runner...");
+                                const unifiedRunner = document.createElement('script');
+                                unifiedRunner.src = 'tests/unified-test-runner.js';
+                                unifiedRunner.onload = function() {
+                                    console.log("Unified test runner loaded successfully");
+                                };
+                                document.body.appendChild(unifiedRunner);
+                            } else {
+                                console.log("Skipping unified test runner (use test=unified in URL to load it)");
+                            }
+                        }
+                    };
+                    
+                    // Load all test scripts
+                    testsScripts.forEach(function(script) {
+                        const scriptElement = document.createElement('script');
+                        scriptElement.src = script.src;
+                        scriptElement.onload = checkAllLoaded;
+                        document.body.appendChild(scriptElement);
+                    });
+                };
                 
-                // Load regression tests if regression param is present
-                if (window.location.search.includes('test=regression')) {
-                    const regressionTestsScript = document.createElement('script');
-                    regressionTestsScript.src = 'tests/browser-regression-tests.js';
-                    document.body.appendChild(regressionTestsScript);
-                }
-                
-                // Load tree-specific tests if trees param is present
-                if (window.location.search.includes('test=trees')) {
-                    const treeTestsScript = document.createElement('script');
-                    treeTestsScript.src = 'tests/browser-tree-tests.js';
-                    document.body.appendChild(treeTestsScript);
-                }
+                // Start loading the tests
+                loadTests();
             };
             
             document.body.appendChild(mainScript);

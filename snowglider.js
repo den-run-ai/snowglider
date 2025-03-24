@@ -2,6 +2,25 @@
 // Note: In a real application, you would use: import * as Utils from './utils.js';
 // But for demonstration we assume Utils is globally available
 
+// Keyboard control state - Initialize at the top level before any function uses it
+let keyboardControls = {
+  left: false,
+  right: false,
+  up: false,
+  down: false,
+  jump: false
+};
+
+// Initialize camera vectors immediately to avoid access errors
+let cameraSmoothingVectors = {
+  lastPosition: new THREE.Vector3(),
+  targetPosition: new THREE.Vector3(),
+  lookAtPosition: new THREE.Vector3()
+};
+
+// Keep keyboard controls but remove the camera smoothing variables
+// We'll use a simpler camera approach
+
 // --- Scene, Camera, Renderer ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
@@ -155,13 +174,52 @@ bestTimeDisplay.style.fontSize = '20px';
 bestTimeDisplay.style.marginBottom = '20px';
 gameOverOverlay.insertBefore(bestTimeDisplay, restartButton);
 
+// Removed easing function and startup tracking variables - simplifying for debugging
+
 function resetSnowman() {
   // Start higher up the mountain (z=-20 instead of -40 for a longer run)
   // With extended terrain, we can start even higher up at z=-15
   pos = { x: 0, z: -15, y: Utils.getTerrainHeight(0, -15) };
-  velocity = { x: 0, z: -6.0 }; 
+  
+  // Smoother initial velocity - reduce the starting velocity to avoid the initial jolt
+  velocity = { x: 0, z: -3.0 }; 
+  
+  // Reset user data for smooth motion if it exists
+  if (snowman.userData) {
+    snowman.userData.targetRotationY = Math.PI; // Default facing downhill
+    snowman.userData.currentRotX = 0;
+    snowman.userData.currentRotZ = 0;
+  }
+  
+  // Force all rotations to be explicit - avoid any chance of NaN or unexpected values
   snowman.position.set(pos.x, pos.y, pos.z);
   snowman.rotation.set(0, Math.PI, 0);
+  
+  // Explicitly reset the rotation tracking for snowman tilt
+  snowman.rotation.x = 0;
+  snowman.rotation.z = 0;
+  
+  // Reset camera position and smoothing variables
+  // Use base camera distance for reset - will dynamically adjust during gameplay
+  const offset = new THREE.Vector3(0, 8, 15);
+  cameraSmoothingVectors.targetPosition.copy(snowman.position).add(offset);
+  cameraSmoothingVectors.lastPosition.copy(cameraSmoothingVectors.targetPosition);
+  cameraSmoothingVectors.lookAtPosition.copy(snowman.position);
+  
+  // Reset automatic turning variables to avoid initial random turns
+  turnPhase = 0;
+  currentTurnDirection = 0;
+  turnChangeCooldown = 3.0; // Longer initial cooldown to prevent immediate turns
+  
+  // Reset lastTerrainHeight to current height to avoid fake jumps
+  lastTerrainHeight = Utils.getTerrainHeight(0, -15);
+  
+  // Reset air state variables
+  isInAir = false;
+  verticalVelocity = 0;
+  jumpCooldown = 0;
+  airTime = 0;
+  
   startTime = performance.now(); // Reset the timer when starting a new run
   updateTimerDisplay();
 }
@@ -179,15 +237,6 @@ controlsInfo.style.fontFamily = 'Arial, sans-serif';
 controlsInfo.style.fontSize = '14px';
 controlsInfo.style.color = '#333';
 resetBtn.parentNode.insertBefore(controlsInfo, resetBtn.nextSibling);
-
-// Keyboard control state
-let keyboardControls = {
-  left: false,
-  right: false,
-  up: false,
-  down: false,
-  jump: false
-};
 
 // Add keyboard event listeners
 window.addEventListener('keydown', (event) => {
@@ -252,6 +301,8 @@ function updateSnowman(delta) {
   if (jumpCooldown > 0) {
     jumpCooldown -= delta;
   }
+  
+  // Remove startup acceleration logic to simplify debugging
   
   // Get current terrain height at position
   const terrainHeightAtPosition = Utils.getTerrainHeight(pos.x, pos.z);
@@ -323,11 +374,17 @@ function updateSnowman(delta) {
     velocity.x *= (1 - 0.01);
     velocity.z *= (1 - 0.01);
   } else {
-    // Update velocity based on gravity, gradient, and a simple friction model
+    // Update velocity based on gravity, gradient, and an improved friction model
     const gravity = 9.8;
-    const friction = 0.04;
     
-    // Apply forces to velocity (gravity pulls along slope direction)
+    // Dynamic friction based on speed - less friction at lower speeds for smoother acceleration
+    // This prevents the jittery start by reducing initial resistance
+    const speedFactor = Math.min(1, currentSpeed / 8);
+    const baseFriction = 0.015; // Lower base friction for smoother starts
+    const friction = baseFriction + (0.025 * speedFactor); // Maximum 0.04 at high speeds
+    
+    // Apply forces to velocity (gravity pulls along slope direction) with smoother acceleration
+    // Use a ramp-up factor for the first few frames to avoid sudden forces
     velocity.x += dir.x * steepness * gravity * delta;
     velocity.z += dir.z * steepness * gravity * delta;
     
@@ -353,20 +410,36 @@ function updateSnowman(delta) {
     // Only use automatic turning if no keyboard input
     if (!keyboardControls.left && !keyboardControls.right) {
       // Update turn phase and apply automatic turning
-      turnPhase += delta;
+      turnPhase += delta * 0.5; // Slower phase advancement for gentler turning
       turnChangeCooldown -= delta;
       
-      // Make more dramatic turn direction changes
+      // More gradual turn direction changes
       if (turnChangeCooldown <= 0) {
-        currentTurnDirection = Math.random() > 0.5 ? 1 : -1;
-        turnChangeCooldown = 2 + Math.random() * 3;
+        // Instead of completely random direction, bias toward centered movement
+        // Higher probability of returning to center line when far from center
+        const centeringBias = Math.min(1, Math.abs(pos.x) / 20) * 0.7;
+        const randomFactor = Math.random();
+        
+        if (pos.x > 5 && randomFactor < (0.6 + centeringBias)) {
+          // If we're right of center, bias toward turning left
+          currentTurnDirection = -1;
+        } else if (pos.x < -5 && randomFactor < (0.6 + centeringBias)) {
+          // If we're left of center, bias toward turning right
+          currentTurnDirection = 1;
+        } else {
+          // Otherwise random direction with smooth transition
+          currentTurnDirection = Math.random() > 0.5 ? 1 : -1;
+        }
+        
+        // Longer cooldown for smoother movement
+        turnChangeCooldown = 3 + Math.random() * 2;
       }
       
-      // Apply turning force
-      const turnIntensity = 2.5 * Math.min(currentSpeed, 10) / 10;
+      // Scale turn intensity with speed, but with much gentler effect at low speeds
+      const turnIntensity = Math.min(currentSpeed, 10) / 10;
       
-      // Apply sine wave turning + random direction change
-      velocity.x += Math.sin(turnPhase * 0.5) * turnAmplitude * delta * turnIntensity * currentTurnDirection;
+      // Use eased sine wave for smoother turning - using 0.3 for smoother transition
+      velocity.x += Math.sin(turnPhase * 0.3) * (turnAmplitude * 0.7) * delta * turnIntensity * currentTurnDirection;
     }
     
     // Apply simple friction to slow down
@@ -387,16 +460,48 @@ function updateSnowman(delta) {
   // Update snowman position and rotation
   snowman.position.set(pos.x, pos.y, pos.z);
   
-  // Rotate the snowman to face the movement direction
+  // More sophisticated rotation handling with smoothing
   const movementDir = { x: velocity.x, z: velocity.z };
   
-  if (currentSpeed > 0.1) { // Only rotate if moving with significant speed
-    snowman.rotation.y = Math.atan2(movementDir.x, movementDir.z);
+  // Add persistent rotation value for smoother transitions
+  if (!snowman.userData) snowman.userData = {};
+  if (snowman.userData.targetRotationY === undefined) {
+    snowman.userData.targetRotationY = Math.PI; // Default facing downhill
+    snowman.userData.currentRotX = 0;
+    snowman.userData.currentRotZ = 0;
   }
   
+  if (currentSpeed > 0.5) { // Only rotate if moving with significant speed
+    // Calculate target rotation - keep existing if below threshold
+    snowman.userData.targetRotationY = Math.atan2(movementDir.x, movementDir.z);
+  }
+  
+  // Apply rotation with smoothing - more stability at higher speeds
+  const rotationSmoothingY = Math.min(1, Math.max(0.05, delta * 2.5));
+  
+  // Interpolate toward target rotation - never rotate more than 15 degrees at once
+  const currentRotY = snowman.rotation.y;
+  const targetRotY = snowman.userData.targetRotationY;
+  
+  // Determine the shortest rotation direction (handle wrapping at 2π)
+  let deltaRotation = targetRotY - currentRotY;
+  if (deltaRotation > Math.PI) deltaRotation -= Math.PI * 2;
+  if (deltaRotation < -Math.PI) deltaRotation += Math.PI * 2;
+  
+  // Apply smoothed rotation with a max rate to prevent spinning
+  const maxRotationRate = delta * 3; // Max ~180° per second
+  const appliedDelta = Math.max(-maxRotationRate, Math.min(maxRotationRate, deltaRotation * rotationSmoothingY));
+  snowman.rotation.y += appliedDelta;
+  
+  // Normalize rotation to 0-2π range
+  snowman.rotation.y = snowman.rotation.y % (Math.PI * 2);
+  if (snowman.rotation.y < 0) snowman.rotation.y += Math.PI * 2;
+  
   // Calculate a tilt based on the slope and turning with improved smoothing
-  const gradX = (Utils.getTerrainHeight(pos.x + 0.1, pos.z) - Utils.getTerrainHeight(pos.x - 0.1, pos.z)) / 0.2;
-  const gradZ = (Utils.getTerrainHeight(pos.x, pos.z + 0.1) - Utils.getTerrainHeight(pos.x, pos.z - 0.1)) / 0.2;
+  // Use wider sample points for more stable gradients
+  const sampleDist = 0.4; // Even wider sampling for stability
+  const gradX = (Utils.getTerrainHeight(pos.x + sampleDist, pos.z) - Utils.getTerrainHeight(pos.x - sampleDist, pos.z)) / (2 * sampleDist);
+  const gradZ = (Utils.getTerrainHeight(pos.x, pos.z + sampleDist) - Utils.getTerrainHeight(pos.x, pos.z - sampleDist)) / (2 * sampleDist);
   
   // Add more dramatic jump rotation - lean forward during jumps
   let jumpTilt = 0;
@@ -404,28 +509,38 @@ function updateSnowman(delta) {
     // More dramatic tilt during jumps, especially on takeoff
     if (verticalVelocity > 0) {
       // Lean back on ascent
-      jumpTilt = -Math.min(0.5, verticalVelocity * 0.04);
+      jumpTilt = -Math.min(0.4, verticalVelocity * 0.03);
     } else {
       // Lean forward on descent, more as you fall faster
-      jumpTilt = Math.min(0.6, -verticalVelocity * 0.03);
+      jumpTilt = Math.min(0.5, -verticalVelocity * 0.025);
     }
   }
   
   // Add more controlled turning tilt with speed-based scaling
-  const turnTiltFactor = Math.min(0.5, currentSpeed / 20); // Less tilt at lower speeds
+  const turnTiltFactor = Math.min(0.3, currentSpeed / 25); // Less tilt at lower speeds
   const turnTilt = velocity.x * turnTiltFactor;
   
   // Limit maximum tilt angles to prevent unrealistic leaning
-  const maxTiltAngle = 0.3; // About 17 degrees maximum tilt
+  const maxTiltAngle = 0.25; // Reduced to about 14 degrees maximum tilt
   
   // Apply smoothing and clamping to rotation values
-  const targetRotX = gradZ * 0.4 + jumpTilt; // Add jump tilt to X rotation
-  const targetRotZ = -gradX * 0.4 - turnTilt;
+  const targetRotX = gradZ * 0.3 + jumpTilt; // Add jump tilt to X rotation
+  const targetRotZ = -gradX * 0.3 - turnTilt;
   
-  // Smooth transition to target rotation (lerp)
-  const rotationSmoothing = isInAir ? 3.0 * delta : 6.0 * delta; // Slower transitions in air
-  snowman.rotation.x += (Math.max(-maxTiltAngle, Math.min(maxTiltAngle, targetRotX)) - snowman.rotation.x) * rotationSmoothing;
-  snowman.rotation.z += (Math.max(-maxTiltAngle, Math.min(maxTiltAngle, targetRotZ)) - snowman.rotation.z) * rotationSmoothing;
+  // Significantly improve tilt smoothing
+  const tiltSmoothing = isInAir ? 0.05 : 0.08; // Lower values for smoother transitions
+  
+  // Use lerp for smooth rotation
+  snowman.userData.currentRotX = snowman.userData.currentRotX || 0;
+  snowman.userData.currentRotZ = snowman.userData.currentRotZ || 0;
+  
+  // Smoothly transition current rotations toward target
+  snowman.userData.currentRotX += (targetRotX - snowman.userData.currentRotX) * tiltSmoothing;
+  snowman.userData.currentRotZ += (targetRotZ - snowman.userData.currentRotZ) * tiltSmoothing;
+  
+  // Apply clamped rotations 
+  snowman.rotation.x = Math.max(-maxTiltAngle, Math.min(maxTiltAngle, snowman.userData.currentRotX));
+  snowman.rotation.z = Math.max(-maxTiltAngle, Math.min(maxTiltAngle, snowman.userData.currentRotZ));
   
   // Check if snowman is off the terrain or falling
   const fallThreshold = 0.5; // How far below terrain to allow before reset
@@ -551,9 +666,26 @@ function updateSnowman(delta) {
 }
 
 // --- Update Camera: Follow the Snowman ---
+// Add smoothing state variables for camera
+const cameraSmoothing = 0.08; // Lower value for smoother camera (0.1 to 0.05)
+
 function updateCamera() {
-  // Position camera above and behind the snowman
-  const offset = new THREE.Vector3(0, 8, 15);
+  // Use a more stable camera smoothing approach that doesn't swing wildly
+  
+  // Calculate current speed for dynamic camera positioning
+  const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+  
+  // Scale camera distance based on speed - increase distance at higher speeds
+  // Base distance of 15 increases up to 25 at high speeds
+  const minDistance = 15;
+  const maxDistance = 25;
+  const speedThreshold = 20; // Speed at which we reach max distance
+  
+  // Calculate dynamic distance based on speed
+  const dynamicDistance = minDistance + Math.min(1.0, currentSpeed / speedThreshold) * (maxDistance - minDistance);
+  
+  // Position camera above and behind the snowman with dynamic distance
+  const offset = new THREE.Vector3(0, 8, dynamicDistance);
   const angle = snowman.rotation.y;
   
   const camOffset = new THREE.Vector3(
@@ -562,21 +694,102 @@ function updateCamera() {
     Math.cos(angle) * offset.z
   );
   
-  camera.position.copy(snowman.position).add(camOffset);
-  camera.lookAt(snowman.position);
+  // Calculate target position
+  cameraSmoothingVectors.targetPosition.copy(snowman.position).add(camOffset);
+  
+  // Use normal smoothing from the beginning since we're starting in the correct position
+  // For the first 2 frames, use a higher smoothing factor to quickly snap to position if needed
+  let effectiveSmoothingFactor = cameraSmoothing;
+  if (frameCount <= 2) {
+    effectiveSmoothingFactor = 0.5; // Quick correction in first frames if needed
+  }
+  
+  // Apply smoothing - interpolate current position toward target
+  camera.position.lerp(cameraSmoothingVectors.targetPosition, effectiveSmoothingFactor);
+  
+  // Maintain minimum height above terrain to prevent camera from going below ground
+  const terrainHeightAtCamera = Utils.getTerrainHeight(camera.position.x, camera.position.z);
+  if (camera.position.y < terrainHeightAtCamera + 5) {
+    camera.position.y = terrainHeightAtCamera + 5;
+  }
+  
+  // Also smooth the lookAt point, focusing slightly ahead of the snowman in movement direction
+  cameraSmoothingVectors.lookAtPosition.copy(snowman.position);
+  
+  // Add a small forward offset based on speed vector to look ahead slightly
+  const speedMagnitude = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+  if (speedMagnitude > 1) {
+    const lookAheadFactor = Math.min(5, speedMagnitude * 0.3);
+    cameraSmoothingVectors.lookAtPosition.x += (velocity.x / speedMagnitude) * lookAheadFactor;
+    cameraSmoothingVectors.lookAtPosition.z += (velocity.z / speedMagnitude) * lookAheadFactor;
+  }
+  
+  camera.lookAt(cameraSmoothingVectors.lookAtPosition);
+  
+  // Save current position for next frame
+  cameraSmoothingVectors.lastPosition.copy(camera.position);
 }
 
 // --- Initial Camera Setup ---
-camera.position.set(0, 20, 0);
-camera.lookAt(0, 0, -20); // Look at the new starting position
+// Calculate the exact, final position where the camera should be
+const angle = Math.PI; // Snowman starts facing down the mountain (π radians)
+// Start with the base distance of 15 - will adjust dynamically during gameplay
+const offset = new THREE.Vector3(0, 8, 15);
+const camOffset = new THREE.Vector3(
+  Math.sin(angle) * offset.z,
+  offset.y,
+  Math.cos(angle) * offset.z
+);
+
+// Place camera exactly where it should be in its final position
+const initialPos = new THREE.Vector3(pos.x, pos.y, pos.z).add(camOffset);
+camera.position.copy(initialPos);
+camera.lookAt(pos.x, pos.y, pos.z);
+
+// Initialize smoothing vectors exactly matching the final position
+cameraSmoothingVectors.targetPosition.copy(initialPos);
+cameraSmoothingVectors.lastPosition.copy(initialPos);
+cameraSmoothingVectors.lookAtPosition.set(pos.x, pos.y, pos.z);
 
 // --- Animation Loop ---
-let lastTime = 0;
+let lastTime = 0; // Original initialization
+let isFirstFrame = true; // Flag to initialize camera on first frame
+let frameCount = 0; // Count frames for initial smoothing
 function animate(time) {
   if (gameActive) {
     requestAnimationFrame(animate);
     const delta = Math.min((time - lastTime) / 1000, 0.1); // Cap delta to avoid jumps
     lastTime = time;
+    
+    // Track frames for smoothing transitions
+    frameCount++;
+    
+    // Special handling for the first frame to ensure proper initialization
+    if (isFirstFrame) {
+      isFirstFrame = false;
+      frameCount = 0;
+      
+      // Calculate the exact position where the camera should be based on the snowman's rotation
+      const angle = snowman.rotation.y;
+      const offset = new THREE.Vector3(0, 8, 15);
+      const camOffset = new THREE.Vector3(
+        Math.sin(angle) * offset.z,
+        offset.y,
+        Math.cos(angle) * offset.z
+      );
+      
+      // Set camera directly to its final position
+      const camPos = new THREE.Vector3().copy(snowman.position).add(camOffset);
+      camera.position.copy(camPos);
+      
+      // Ensure all vectors are properly set to match this position
+      cameraSmoothingVectors.lastPosition.copy(camPos);
+      cameraSmoothingVectors.targetPosition.copy(camPos);
+      cameraSmoothingVectors.lookAtPosition.copy(snowman.position);
+      
+      // Look at the snowman
+      camera.lookAt(snowman.position);
+    }
     
     updateSnowman(delta);
     Utils.updateSnowflakes(delta, pos, scene);
@@ -641,10 +854,33 @@ function restartGame() {
   gameOverOverlay.style.display = 'none';
   gameActive = true;
   resetSnowman();
+  
+  // Calculate the exact position where the camera should be based on the snowman's rotation
+  const angle = snowman.rotation.y;
+  // Start with base camera distance - will adjust dynamically during gameplay
+  const offset = new THREE.Vector3(0, 8, 15);
+  const camOffset = new THREE.Vector3(
+    Math.sin(angle) * offset.z,
+    offset.y,
+    Math.cos(angle) * offset.z
+  );
+  
+  // Place camera exactly in its final position
+  const camPos = new THREE.Vector3().copy(snowman.position).add(camOffset);
+  camera.position.copy(camPos);
+  
+  // Reset all camera vectors to match this position exactly
+  cameraSmoothingVectors.lastPosition.copy(camPos);
+  cameraSmoothingVectors.targetPosition.copy(camPos);
+  cameraSmoothingVectors.lookAtPosition.copy(snowman.position);
+  
   // Reset animation if it was stopped
   if (!animationRunning) {
     animationRunning = true;
     lastTime = performance.now();
+    // Force first frame logic again
+    isFirstFrame = true;
+    frameCount = 0; // Reset frame counter for smooth transitions
     animate(lastTime);
   }
 }
