@@ -356,6 +356,10 @@ function addTrees(scene) {
   }
   
   const treePositions = [];
+  
+  // IMPORTANT: Log the ranges we're using to create trees for debugging
+  console.log("Mountains.addTrees: Creating trees in X range -100 to 100, Z range -180 to 80");
+  
   // Add trees on both sides of the ski path - extended for longer run
   for(let z = -180; z < 80; z += 10) {
     for(let x = -100; x < 100; x += 10) {
@@ -392,6 +396,13 @@ function addTrees(scene) {
       }
     }
   }
+  
+  // Log the tree positions array size
+  console.log(`Mountains.addTrees: Created ${treePositions.length} tree positions for collision detection`);
+  
+  // Check if we have any trees in the extended terrain (z < -80)
+  const extendedTrees = treePositions.filter(tree => tree.z < -80).length;
+  console.log(`Mountains.addTrees: ${extendedTrees} trees in extended terrain area (z < -80)`);
   
   // Create a raycaster to ensure precise placement
   const raycaster = new THREE.Raycaster();

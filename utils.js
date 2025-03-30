@@ -10,86 +10,7 @@ const snowflakeSpread = 100; // Spread area around player
 const snowflakeHeight = 50; // Height above player
 const snowflakeFallSpeed = 5;
 
-// Create Snowman (Three Spheres)
-function createSnowman(scene) {
-  const group = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
-  
-  // Bottom sphere
-  const bottom = new THREE.Mesh(new THREE.SphereGeometry(2, 24, 24), material);
-  bottom.position.y = 2;
-  bottom.castShadow = true;
-  group.add(bottom);
-  
-  // Middle sphere
-  const middle = new THREE.Mesh(new THREE.SphereGeometry(1.5, 24, 24), material);
-  middle.position.y = 5;
-  middle.castShadow = true;
-  group.add(middle);
-  
-  // Head sphere
-  const head = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 24), material);
-  head.position.y = 7.5;
-  head.castShadow = true;
-  group.add(head);
-  
-  // Eyes
-  const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
-  const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 12), eyeMaterial);
-  leftEye.position.set(0.4, 7.7, 0.8);
-  group.add(leftEye);
-  
-  const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 12), eyeMaterial);
-  rightEye.position.set(-0.4, 7.7, 0.8);
-  group.add(rightEye);
-  
-  // Carrot nose
-  const noseMaterial = new THREE.MeshStandardMaterial({ color: 0xFF6600 });
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1, 12), noseMaterial);
-  nose.position.set(0, 7.5, 1);
-  nose.rotation.x = Math.PI / 2;
-  group.add(nose);
-  
-  // Add skis
-  const skiMaterial = new THREE.MeshStandardMaterial({ color: 0xFF0000 }); // Bright red
-  
-  // Left ski
-  const leftSki = new THREE.Mesh(
-    new THREE.BoxGeometry(0.8, 0.2, 6), 
-    skiMaterial
-  );
-  leftSki.position.set(-1, 0.1, 1);
-  leftSki.castShadow = true;
-  // Add ski tip (angled front)
-  const leftSkiTip = new THREE.Mesh(
-    new THREE.BoxGeometry(0.8, 0.4, 1),
-    skiMaterial
-  );
-  leftSkiTip.position.set(0, 0.2, 3);
-  leftSkiTip.rotation.x = Math.PI / 8; // Angle up slightly
-  leftSki.add(leftSkiTip);
-  group.add(leftSki);
-  
-  // Right ski
-  const rightSki = new THREE.Mesh(
-    new THREE.BoxGeometry(0.8, 0.2, 6),
-    skiMaterial
-  );
-  rightSki.position.set(1, 0.1, 1);
-  rightSki.castShadow = true;
-  // Add ski tip (angled front)
-  const rightSkiTip = new THREE.Mesh(
-    new THREE.BoxGeometry(0.8, 0.4, 1),
-    skiMaterial
-  );
-  rightSkiTip.position.set(0, 0.2, 3);
-  rightSkiTip.rotation.x = Math.PI / 8; // Angle up slightly
-  rightSki.add(rightSkiTip);
-  group.add(rightSki);
-  
-  scene.add(group);
-  return group;
-}
+// Snowman code moved to snowman.js
 
 function createSnowflakes(scene) {
   // Create a simple white circle texture for snowflakes
@@ -390,8 +311,7 @@ const Utils = {
   debugHeightMap: Mountains.debugHeightMap,
   heightMap: Mountains.heightMap,
   
-  // Snowman and snow effects (still in this file)
-  createSnowman,
+  // Snow effects (snowman code moved to snowman.js)
   createSnowflakes,
   updateSnowflakes,
   createSnowSplash,

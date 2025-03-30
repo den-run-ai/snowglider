@@ -50,10 +50,15 @@
                 const cameraScript = document.createElement('script');
                 cameraScript.src = 'camera.js';
                 
-                // Finally load main.js after camera.js has loaded
+                // Load snowman.js after camera.js
                 cameraScript.onload = function() {
-                    const mainScript = document.createElement('script');
-                    mainScript.src = 'snowglider.js';
+                    const snowmanScript = document.createElement('script');
+                    snowmanScript.src = 'snowman.js';
+                    
+                    // Finally load main.js after snowman.js has loaded
+                    snowmanScript.onload = function() {
+                        const mainScript = document.createElement('script');
+                        mainScript.src = 'snowglider.js';
                     
                     // Finally load tests script if needed
                     mainScript.onload = function() {
@@ -123,6 +128,9 @@
             };
             
             document.body.appendChild(mainScript);
+        };
+        
+        document.body.appendChild(snowmanScript);
         };
         
         document.body.appendChild(cameraScript);
