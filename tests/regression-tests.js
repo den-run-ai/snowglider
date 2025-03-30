@@ -5,7 +5,7 @@
  * based on the git history and codebase analysis.
  */
 
-// Require the utils module and THREE.js
+// Require the utils and mountains modules plus THREE.js
 const fs = require('fs');
 const path = require('path');
 const THREE = require('three');
@@ -20,10 +20,12 @@ THREE.CanvasTexture = function() {
   };
 };
 
-// Load Utils.js content (since it's not a module, we need to evaluate it)
+// Load Mountains.js content first (since it's not a module, we need to evaluate it)
+const mountainsContent = fs.readFileSync(path.join(__dirname, '..', 'mountains.js'), 'utf8');
+// Then load Utils.js content which depends on Mountains
 const utilsContent = fs.readFileSync(path.join(__dirname, '..', 'utils.js'), 'utf8');
 
-// Create a function to execute the utils content and return the Utils global
+// Create a function to execute the content and return the Utils global
 function loadUtils() {
   // Create a sandbox environment
   const sandbox = {
@@ -52,9 +54,10 @@ function loadUtils() {
     THREE: THREE
   };
   
-  // Create a function to evaluate the utilsContent in the sandbox
+  // Create a function to evaluate the mountainsContent first, then utilsContent in the sandbox
   const fn = new Function('sandbox', `
     with (sandbox) {
+      ${mountainsContent}
       ${utilsContent}
       return Utils;
     }

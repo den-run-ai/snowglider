@@ -49,4 +49,4 @@ console.log('This fix ensures snow effects don\'t interfere with collision detec
 
 console.log('\n=====================================');
 console.log('Summary: 3 passed, 0 failed');
-console.log('Primary issue: Trees rendered by utils.addTrees() in areas not covered by collision detection');
+console.log('Primary issue: Trees rendered by Mountains.addTrees() (previously utils.addTrees()) in areas not covered by collision detection');

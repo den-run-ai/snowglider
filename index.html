@@ -36,17 +36,22 @@
   <script>
     // This block ensures scripts load in the right order
     document.addEventListener('DOMContentLoaded', function() {
-        // First load utils.js
-        const utilsScript = document.createElement('script');
-        utilsScript.src = 'utils.js';
+        // First load mountains.js
+        const mountainsScript = document.createElement('script');
+        mountainsScript.src = 'mountains.js';
         
-        // Then load main.js after utils.js has loaded
-        utilsScript.onload = function() {
-            const mainScript = document.createElement('script');
-            mainScript.src = 'snowglider.js';
+        // Then load utils.js after mountains.js has loaded
+        mountainsScript.onload = function() {
+            const utilsScript = document.createElement('script');
+            utilsScript.src = 'utils.js';
             
-            // Finally load tests script if needed
-            mainScript.onload = function() {
+            // Finally load main.js after utils.js has loaded
+            utilsScript.onload = function() {
+                const mainScript = document.createElement('script');
+                mainScript.src = 'snowglider.js';
+                
+                // Finally load tests script if needed
+                mainScript.onload = function() {
                 // Always load all test scripts for the unified runner to work
                 // But they will only execute if their specific URL parameter is present
                 const loadTests = function() {
@@ -116,6 +121,9 @@
         };
         
         document.body.appendChild(utilsScript);
+    };
+    
+    document.body.appendChild(mountainsScript);
     });
 </script>
 </body>
