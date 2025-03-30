@@ -4,11 +4,12 @@
   "description": "A cheerful snowman shredding mountain snow powder in a playful Three.js animation.",
   "main": "snowglider.js",
   "scripts": {
-    "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision",
+    "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:controls",
     "test:terrain": "node tests/terrain-tests.js",
     "test:physics": "node tests/physics-tests.js",
     "test:regression": "node tests/regression-tests.js",
     "test:tree-collision": "node tests/tree-collision-tests.js",
+    "test:controls": "echo 'Controls tests require browser - use index.html?test=controls'",
     "start": "http-server -p 8080 -c-1"
   },
   "dependencies": {

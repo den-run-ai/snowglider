@@ -72,6 +72,7 @@
     
     // The test suites to run
     const testSuites = [
+      { name: 'controls', runner: window.runControlsTests, started: false, completed: false },
       { name: 'camera', runner: window.runCameraTests, started: false, completed: false },
       { name: 'gameplay', runner: window.runGameTests, started: false, completed: false },
       { name: 'tree', runner: window.runTreeTests, started: false, completed: false },

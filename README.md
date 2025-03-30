@@ -29,7 +29,11 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 
 ## Controls
 - **Arrow Keys / WASD**: Control snowman direction
-- **Space**: Jump
+  - **Left Arrow / A**: Turn left
+  - **Right Arrow / D**: Turn right
+  - **Up Arrow / W**: Increase speed
+  - **Down Arrow / S**: Slow down
+- **Space**: Jump over obstacles
 - **Reset Button**: Start a new run
 
 ## Testing

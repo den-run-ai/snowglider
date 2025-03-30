@@ -4,14 +4,8 @@
 // require('./utils.js');
 // require('./snowman.js');
 
-// Keyboard control state - Initialize at the top level before any function uses it
-let keyboardControls = {
-  left: false,
-  right: false,
-  up: false,
-  down: false,
-  jump: false
-};
+// Get keyboard controls from the Controls module
+Controls.setupControls();
 
 // --- Scene, Renderer and Camera ---
 const scene = new THREE.Scene();
@@ -204,6 +198,9 @@ function resetSnowman() {
   jumpCooldown = 0;
   airTime = 0;
   
+  // Reset keyboard controls
+  Controls.resetControls();
+  
   // Initialize test hooks immediately after reset
   Snowman.addTestHooks(pos, showGameOver, Utils.getTerrainHeight);
   
@@ -236,62 +233,7 @@ controlsInfo.style.fontSize = '14px';
 controlsInfo.style.color = '#333';
 resetBtn.parentNode.insertBefore(controlsInfo, resetBtn.nextSibling);
 
-// Add keyboard event listeners
-window.addEventListener('keydown', (event) => {
-  switch(event.key) {
-    case 'ArrowLeft':
-    case 'a':
-    case 'A':
-      keyboardControls.left = true;
-      break;
-    case 'ArrowRight':
-    case 'd':
-    case 'D':
-      keyboardControls.right = true;
-      break;
-    case 'ArrowUp':
-    case 'w':
-    case 'W':
-      keyboardControls.up = true;
-      break;
-    case 'ArrowDown':
-    case 's':
-    case 'S':
-      keyboardControls.down = true;
-      break;
-    case ' ':  // Spacebar
-      keyboardControls.jump = true;
-      break;
-  }
-});
-
-window.addEventListener('keyup', (event) => {
-  switch(event.key) {
-    case 'ArrowLeft':
-    case 'a':
-    case 'A':
-      keyboardControls.left = false;
-      break;
-    case 'ArrowRight':
-    case 'd':
-    case 'D':
-      keyboardControls.right = false;
-      break;
-    case 'ArrowUp':
-    case 'w':
-    case 'W':
-      keyboardControls.up = false;
-      break;
-    case 'ArrowDown':
-    case 's':
-    case 'S':
-      keyboardControls.down = false;
-      break;
-    case ' ':  // Spacebar
-      keyboardControls.jump = false;
-      break;
-  }
-});
+// Keyboard event listeners now managed by the Controls module
 
 // --- Update Snowman: Physics-based Movement ---
 function updateSnowman(delta) {
@@ -301,7 +243,7 @@ function updateSnowman(delta) {
   // Update snowman using the Snowman module function
   const result = Snowman.updateSnowman(
     snowman, delta, pos, velocity, isInAir, verticalVelocity, 
-    lastTerrainHeight, airTime, jumpCooldown, keyboardControls, 
+    lastTerrainHeight, airTime, jumpCooldown, Controls.getControls(), 
     turnPhase, currentTurnDirection, turnChangeCooldown, turnAmplitude,
     Utils.getTerrainHeight, Utils.getTerrainGradient, Utils.getDownhillDirection, 
     treePositions, gameActive, showGameOver

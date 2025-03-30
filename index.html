@@ -376,128 +376,144 @@
                             const snowmanScript = document.createElement('script');
                             snowmanScript.src = 'snowman.js';
                             
-                            // Finally load main.js after snowman.js has loaded
+                            // Load controls.js after snowman.js
                             snowmanScript.onload = function() {
-                                const mainScript = document.createElement('script');
-                                mainScript.src = 'snowglider.js';
-                            
-                                // Finally load tests script if needed
-                                mainScript.onload = function() {
-                                    // Always load all test scripts for the unified runner to work
-                                    // But they will only execute if their specific URL parameter is present
-                                    const loadTests = function() {
-                                        // Determine which tests to load based on URL parameters
-                                        let testsScripts = [];
-                                        
-                                        // Always load camera tests if ?test=camera is in URL
-                                        if (window.location.search.includes('test=camera')) {
-                                            console.log("Loading only camera tests");
-                                            testsScripts = [
-                                                { src: 'tests/camera-tests.js', loaded: false }
-                                            ];
-                                        } 
-                                        // Load all tests for unified tests or when other test parameters are present
-                                        else if (window.location.search.includes('test=')) {
-                                            console.log("Loading all test scripts");
-                                            testsScripts = [
-                                                { src: 'tests/browser-tests.js', loaded: false },
-                                                { src: 'tests/browser-regression-tests.js', loaded: false },
-                                                { src: 'tests/browser-tree-tests.js', loaded: false },
-                                                { src: 'tests/camera-tests.js', loaded: false }
-                                            ];
-                                        }
-                                        
-                                        // If no test scripts to load, skip the rest
-                                        if (testsScripts.length === 0) {
-                                            console.log("No test scripts to load");
-                                            return;
-                                        }
-                                        
-                                        let totalLoaded = 0;
-                                        
-                                        // Function to check if all scripts are loaded
-                                        const checkAllLoaded = function() {
-                                            totalLoaded++;
-                                            if (totalLoaded === testsScripts.length) {
-                                                // All individual test scripts are loaded
-                                                // Now load the unified test runner if needed
-                                                if (window.location.search.includes('test=unified')) {
-                                                    console.log("Loading unified test runner...");
-                                                    const unifiedRunner = document.createElement('script');
-                                                    unifiedRunner.src = 'tests/unified-test-runner.js';
-                                                    unifiedRunner.onload = function() {
-                                                        console.log("Unified test runner loaded successfully");
-                                                    };
-                                                    document.body.appendChild(unifiedRunner);
-                                                } else {
-                                                    console.log("Skipping unified test runner (use test=unified in URL to load it)");
-                                                }
+                                const controlsScript = document.createElement('script');
+                                controlsScript.src = 'controls.js';
+                                
+                                // Finally load snowglider.js after controls.js
+                                controlsScript.onload = function() {
+                                    const mainScript = document.createElement('script');
+                                    mainScript.src = 'snowglider.js';
+                                
+                                    // Finally load tests script if needed
+                                    mainScript.onload = function() {
+                                        // Always load all test scripts for the unified runner to work
+                                        // But they will only execute if their specific URL parameter is present
+                                        const loadTests = function() {
+                                            // Determine which tests to load based on URL parameters
+                                            let testsScripts = [];
+                                            
+                                            // Always load camera tests if ?test=camera is in URL
+                                            if (window.location.search.includes('test=camera')) {
+                                                console.log("Loading only camera tests");
+                                                testsScripts = [
+                                                    { src: 'tests/camera-tests.js', loaded: false }
+                                                ];
+                                            } 
+                                            // Load specific controls tests if ?test=controls is in URL
+                                            else if (window.location.search.includes('test=controls')) {
+                                                console.log("Loading only controls tests");
+                                                testsScripts = [
+                                                    { src: 'tests/controls-tests.js', loaded: false }
+                                                ];
                                             }
+                                            // Load all tests for unified tests or when other test parameters are present
+                                            else if (window.location.search.includes('test=')) {
+                                                console.log("Loading all test scripts");
+                                                testsScripts = [
+                                                    { src: 'tests/browser-tests.js', loaded: false },
+                                                    { src: 'tests/browser-regression-tests.js', loaded: false },
+                                                    { src: 'tests/browser-tree-tests.js', loaded: false },
+                                                    { src: 'tests/camera-tests.js', loaded: false },
+                                                    { src: 'tests/controls-tests.js', loaded: false }
+                                                ];
+                                            }
+                                            
+                                            // If no test scripts to load, skip the rest
+                                            if (testsScripts.length === 0) {
+                                                console.log("No test scripts to load");
+                                                return;
+                                            }
+                                            
+                                            let totalLoaded = 0;
+                                            
+                                            // Function to check if all scripts are loaded
+                                            const checkAllLoaded = function() {
+                                                totalLoaded++;
+                                                if (totalLoaded === testsScripts.length) {
+                                                    // All individual test scripts are loaded
+                                                    // Now load the unified test runner if needed
+                                                    if (window.location.search.includes('test=unified')) {
+                                                        console.log("Loading unified test runner...");
+                                                        const unifiedRunner = document.createElement('script');
+                                                        unifiedRunner.src = 'tests/unified-test-runner.js';
+                                                        unifiedRunner.onload = function() {
+                                                            console.log("Unified test runner loaded successfully");
+                                                        };
+                                                        document.body.appendChild(unifiedRunner);
+                                                    } else {
+                                                        console.log("Skipping unified test runner (use test=unified in URL to load it)");
+                                                    }
+                                                }
+                                            };
+                                            
+                                            // Load all test scripts
+                                            testsScripts.forEach(function(script) {
+                                                const scriptElement = document.createElement('script');
+                                                scriptElement.src = script.src;
+                                                scriptElement.onload = checkAllLoaded;
+                                                document.body.appendChild(scriptElement);
+                                            });
                                         };
                                         
-                                        // Load all test scripts
-                                        testsScripts.forEach(function(script) {
-                                            const scriptElement = document.createElement('script');
-                                            scriptElement.src = script.src;
-                                            scriptElement.onload = checkAllLoaded;
-                                            document.body.appendChild(scriptElement);
-                                        });
-                                    };
-                                    
-                                    // Start loading the tests
-                                    loadTests();
-                                    
-                                    // Firebase configuration
-                                    const firebaseConfig = {
-                                        apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
-                                        authDomain: "sn0wglider.firebaseapp.com",
-                                        projectId: "sn0wglider",
-                                        storageBucket: "sn0wglider.appspot.com",
-                                        messagingSenderId: "504681218869",
-                                        appId: "1:504681218869:web:5abbba6825691006d6027c",
-                                        measurementId: "G-GYQC13R6MZ"
-                                    };
-                                    
-                                    // For local development (file:// protocol), show a warning about Firebase limitations
-                                    if (window.location.protocol === 'file:') {
-                                      console.warn('⚠️ Running Firebase on local file:// protocol has limitations. Some features may not work correctly.');
-                                      console.warn('For full functionality, use a local web server instead (like http-server, Python\'s SimpleHTTPServer, etc).');
-                                    }
-                                    
-                                    // Ensure Firebase is properly initialized before proceeding
-                                    setTimeout(() => {
-                                        try {
-                                            // Check if Firebase app is already initialized
-                                            if (window.firebaseModules && window.firebaseModules.app) {
-                                                console.log("Using existing Firebase app instance from module script");
-                                                
-                                                // Initialize Auth module with existing Firebase instance
-                                                if (window.AuthModule && typeof window.AuthModule.initializeAuth === 'function') {
-                                                    console.log("Initializing AuthModule with existing Firebase config");
-                                                    window.AuthModule.initializeAuth(firebaseConfig);
+                                        // Start loading the tests
+                                        loadTests();
+                                        
+                                        // Firebase configuration
+                                        const firebaseConfig = {
+                                            apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
+                                            authDomain: "sn0wglider.firebaseapp.com",
+                                            projectId: "sn0wglider",
+                                            storageBucket: "sn0wglider.appspot.com",
+                                            messagingSenderId: "504681218869",
+                                            appId: "1:504681218869:web:5abbba6825691006d6027c",
+                                            measurementId: "G-GYQC13R6MZ"
+                                        };
+                                        
+                                        // For local development (file:// protocol), show a warning about Firebase limitations
+                                        if (window.location.protocol === 'file:') {
+                                          console.warn('⚠️ Running Firebase on local file:// protocol has limitations. Some features may not work correctly.');
+                                          console.warn('For full functionality, use a local web server instead (like http-server, Python\'s SimpleHTTPServer, etc).');
+                                        }
+                                        
+                                        // Ensure Firebase is properly initialized before proceeding
+                                        setTimeout(() => {
+                                            try {
+                                                // Check if Firebase app is already initialized
+                                                if (window.firebaseModules && window.firebaseModules.app) {
+                                                    console.log("Using existing Firebase app instance from module script");
                                                     
-                                                    // Log Firebase services status
-                                                    if (window.AuthModule.isFirebaseAvailable) {
-                                                        const status = window.AuthModule.isFirebaseAvailable();
-                                                        console.log("Firebase services status:", 
-                                                            "Auth:", status.auth ? "Available" : "Unavailable",
-                                                            "Firestore:", status.firestore ? "Available" : "Unavailable",
-                                                            "Analytics:", status.analytics ? "Available" : "Unavailable"
-                                                        );
+                                                    // Initialize Auth module with existing Firebase instance
+                                                    if (window.AuthModule && typeof window.AuthModule.initializeAuth === 'function') {
+                                                        console.log("Initializing AuthModule with existing Firebase config");
+                                                        window.AuthModule.initializeAuth(firebaseConfig);
+                                                        
+                                                        // Log Firebase services status
+                                                        if (window.AuthModule.isFirebaseAvailable) {
+                                                            const status = window.AuthModule.isFirebaseAvailable();
+                                                            console.log("Firebase services status:", 
+                                                                "Auth:", status.auth ? "Available" : "Unavailable",
+                                                                "Firestore:", status.firestore ? "Available" : "Unavailable",
+                                                                "Analytics:", status.analytics ? "Available" : "Unavailable"
+                                                            );
+                                                        }
+                                                    } else {
+                                                        console.error("AuthModule not found or initializeAuth is not a function. Check auth.js implementation.");
                                                     }
                                                 } else {
-                                                    console.error("AuthModule not found or initializeAuth is not a function. Check auth.js implementation.");
+                                                    console.warn("Firebase not initialized in head section, authentication features may not work correctly");
                                                 }
-                                            } else {
-                                                console.warn("Firebase not initialized in head section, authentication features may not work correctly");
+                                            } catch (e) {
+                                                console.error("Firebase initialization error in main script:", e.message);
                                             }
-                                        } catch (e) {
-                                            console.error("Firebase initialization error in main script:", e.message);
-                                        }
-                                    }, 500); // Short delay to ensure auth.js is fully loaded
+                                        }, 500); // Short delay to ensure auth.js is fully loaded
+                                    };
+                                    
+                                    document.body.appendChild(mainScript);
                                 };
                                 
-                                document.body.appendChild(mainScript);
+                                document.body.appendChild(controlsScript);
                             };
                             
                             document.body.appendChild(snowmanScript);
@@ -515,6 +531,6 @@
             document.body.appendChild(mountainsScript);
         });
     });
-</script>
+  </script>
 </body>
 </html>
