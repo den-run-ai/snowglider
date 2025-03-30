@@ -45,13 +45,18 @@
             const utilsScript = document.createElement('script');
             utilsScript.src = 'utils.js';
             
-            // Finally load main.js after utils.js has loaded
+            // Load camera.js after utils.js
             utilsScript.onload = function() {
-                const mainScript = document.createElement('script');
-                mainScript.src = 'snowglider.js';
+                const cameraScript = document.createElement('script');
+                cameraScript.src = 'camera.js';
                 
-                // Finally load tests script if needed
-                mainScript.onload = function() {
+                // Finally load main.js after camera.js has loaded
+                cameraScript.onload = function() {
+                    const mainScript = document.createElement('script');
+                    mainScript.src = 'snowglider.js';
+                    
+                    // Finally load tests script if needed
+                    mainScript.onload = function() {
                 // Always load all test scripts for the unified runner to work
                 // But they will only execute if their specific URL parameter is present
                 const loadTests = function() {
@@ -120,7 +125,10 @@
             document.body.appendChild(mainScript);
         };
         
-        document.body.appendChild(utilsScript);
+        document.body.appendChild(cameraScript);
+    };
+    
+    document.body.appendChild(utilsScript);
     };
     
     document.body.appendChild(mountainsScript);

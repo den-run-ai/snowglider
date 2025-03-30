@@ -11,24 +11,18 @@ let keyboardControls = {
   jump: false
 };
 
-// Initialize camera vectors immediately to avoid access errors
-let cameraSmoothingVectors = {
-  lastPosition: new THREE.Vector3(),
-  targetPosition: new THREE.Vector3(),
-  lookAtPosition: new THREE.Vector3()
-};
-
-// Keep keyboard controls but remove the camera smoothing variables
-// We'll use a simpler camera approach
-
-// --- Scene, Camera, Renderer ---
+// --- Scene, Renderer and Camera ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
+
+// Initialize camera manager
+const cameraManager = new Camera(scene);
+// Use the camera manager's camera for rendering
+const camera = cameraManager.getCamera();
 
 // Create game over overlay
 const gameOverOverlay = document.createElement('div');
@@ -199,12 +193,8 @@ function resetSnowman() {
   snowman.rotation.x = 0;
   snowman.rotation.z = 0;
   
-  // Reset camera position and smoothing variables
-  // Use base camera distance for reset - will dynamically adjust during gameplay
-  const offset = new THREE.Vector3(0, 8, 15);
-  cameraSmoothingVectors.targetPosition.copy(snowman.position).add(offset);
-  cameraSmoothingVectors.lastPosition.copy(cameraSmoothingVectors.targetPosition);
-  cameraSmoothingVectors.lookAtPosition.copy(snowman.position);
+  // Reset camera using the camera manager
+  cameraManager.initialize(snowman.position, snowman.rotation);
   
   // Reset automatic turning variables to avoid initial random turns
   turnPhase = 0;
@@ -666,130 +656,30 @@ function updateSnowman(delta) {
 }
 
 // --- Update Camera: Follow the Snowman ---
-// Add smoothing state variables for camera
-const cameraSmoothing = 0.08; // Lower value for smoother camera (0.1 to 0.05)
-
 function updateCamera() {
-  // Use a more stable camera smoothing approach that doesn't swing wildly
-  
-  // Calculate current speed for dynamic camera positioning
-  const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
-  
-  // Scale camera distance based on speed - increase distance at higher speeds
-  // Base distance of 15 increases up to 25 at high speeds
-  const minDistance = 15;
-  const maxDistance = 25;
-  const speedThreshold = 20; // Speed at which we reach max distance
-  
-  // Calculate dynamic distance based on speed
-  const dynamicDistance = minDistance + Math.min(1.0, currentSpeed / speedThreshold) * (maxDistance - minDistance);
-  
-  // Position camera above and behind the snowman with dynamic distance
-  const offset = new THREE.Vector3(0, 8, dynamicDistance);
-  const angle = snowman.rotation.y;
-  
-  const camOffset = new THREE.Vector3(
-    Math.sin(angle) * offset.z,
-    offset.y,
-    Math.cos(angle) * offset.z
+  // Simply delegate to the camera manager
+  cameraManager.update(
+    snowman.position,
+    snowman.rotation,
+    velocity,
+    Utils.getTerrainHeight
   );
-  
-  // Calculate target position
-  cameraSmoothingVectors.targetPosition.copy(snowman.position).add(camOffset);
-  
-  // Use normal smoothing from the beginning since we're starting in the correct position
-  // For the first 2 frames, use a higher smoothing factor to quickly snap to position if needed
-  let effectiveSmoothingFactor = cameraSmoothing;
-  if (frameCount <= 2) {
-    effectiveSmoothingFactor = 0.5; // Quick correction in first frames if needed
-  }
-  
-  // Apply smoothing - interpolate current position toward target
-  camera.position.lerp(cameraSmoothingVectors.targetPosition, effectiveSmoothingFactor);
-  
-  // Maintain minimum height above terrain to prevent camera from going below ground
-  const terrainHeightAtCamera = Utils.getTerrainHeight(camera.position.x, camera.position.z);
-  if (camera.position.y < terrainHeightAtCamera + 5) {
-    camera.position.y = terrainHeightAtCamera + 5;
-  }
-  
-  // Also smooth the lookAt point, focusing slightly ahead of the snowman in movement direction
-  cameraSmoothingVectors.lookAtPosition.copy(snowman.position);
-  
-  // Add a small forward offset based on speed vector to look ahead slightly
-  const speedMagnitude = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
-  if (speedMagnitude > 1) {
-    const lookAheadFactor = Math.min(5, speedMagnitude * 0.3);
-    cameraSmoothingVectors.lookAtPosition.x += (velocity.x / speedMagnitude) * lookAheadFactor;
-    cameraSmoothingVectors.lookAtPosition.z += (velocity.z / speedMagnitude) * lookAheadFactor;
-  }
-  
-  camera.lookAt(cameraSmoothingVectors.lookAtPosition);
-  
-  // Save current position for next frame
-  cameraSmoothingVectors.lastPosition.copy(camera.position);
 }
 
 // --- Initial Camera Setup ---
-// Calculate the exact, final position where the camera should be
-const angle = Math.PI; // Snowman starts facing down the mountain (π radians)
-// Start with the base distance of 15 - will adjust dynamically during gameplay
-const offset = new THREE.Vector3(0, 8, 15);
-const camOffset = new THREE.Vector3(
-  Math.sin(angle) * offset.z,
-  offset.y,
-  Math.cos(angle) * offset.z
+// Initialize camera with the snowman's position and rotation
+cameraManager.initialize(
+  new THREE.Vector3(pos.x, pos.y, pos.z),
+  new THREE.Euler(0, Math.PI, 0) // Snowman starts facing down the mountain (π radians)
 );
-
-// Place camera exactly where it should be in its final position
-const initialPos = new THREE.Vector3(pos.x, pos.y, pos.z).add(camOffset);
-camera.position.copy(initialPos);
-camera.lookAt(pos.x, pos.y, pos.z);
-
-// Initialize smoothing vectors exactly matching the final position
-cameraSmoothingVectors.targetPosition.copy(initialPos);
-cameraSmoothingVectors.lastPosition.copy(initialPos);
-cameraSmoothingVectors.lookAtPosition.set(pos.x, pos.y, pos.z);
 
 // --- Animation Loop ---
 let lastTime = 0; // Original initialization
-let isFirstFrame = true; // Flag to initialize camera on first frame
-let frameCount = 0; // Count frames for initial smoothing
 function animate(time) {
   if (gameActive) {
     requestAnimationFrame(animate);
     const delta = Math.min((time - lastTime) / 1000, 0.1); // Cap delta to avoid jumps
     lastTime = time;
-    
-    // Track frames for smoothing transitions
-    frameCount++;
-    
-    // Special handling for the first frame to ensure proper initialization
-    if (isFirstFrame) {
-      isFirstFrame = false;
-      frameCount = 0;
-      
-      // Calculate the exact position where the camera should be based on the snowman's rotation
-      const angle = snowman.rotation.y;
-      const offset = new THREE.Vector3(0, 8, 15);
-      const camOffset = new THREE.Vector3(
-        Math.sin(angle) * offset.z,
-        offset.y,
-        Math.cos(angle) * offset.z
-      );
-      
-      // Set camera directly to its final position
-      const camPos = new THREE.Vector3().copy(snowman.position).add(camOffset);
-      camera.position.copy(camPos);
-      
-      // Ensure all vectors are properly set to match this position
-      cameraSmoothingVectors.lastPosition.copy(camPos);
-      cameraSmoothingVectors.targetPosition.copy(camPos);
-      cameraSmoothingVectors.lookAtPosition.copy(snowman.position);
-      
-      // Look at the snowman
-      camera.lookAt(snowman.position);
-    }
     
     updateSnowman(delta);
     Utils.updateSnowflakes(delta, pos, scene);
@@ -818,8 +708,7 @@ animate(0);
 
 // --- Handle Window Resize ---
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+  cameraManager.handleResize();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
@@ -855,32 +744,13 @@ function restartGame() {
   gameActive = true;
   resetSnowman();
   
-  // Calculate the exact position where the camera should be based on the snowman's rotation
-  const angle = snowman.rotation.y;
-  // Start with base camera distance - will adjust dynamically during gameplay
-  const offset = new THREE.Vector3(0, 8, 15);
-  const camOffset = new THREE.Vector3(
-    Math.sin(angle) * offset.z,
-    offset.y,
-    Math.cos(angle) * offset.z
-  );
-  
-  // Place camera exactly in its final position
-  const camPos = new THREE.Vector3().copy(snowman.position).add(camOffset);
-  camera.position.copy(camPos);
-  
-  // Reset all camera vectors to match this position exactly
-  cameraSmoothingVectors.lastPosition.copy(camPos);
-  cameraSmoothingVectors.targetPosition.copy(camPos);
-  cameraSmoothingVectors.lookAtPosition.copy(snowman.position);
+  // Initialize camera with the snowman's position and rotation
+  cameraManager.initialize(snowman.position, snowman.rotation);
   
   // Reset animation if it was stopped
   if (!animationRunning) {
     animationRunning = true;
     lastTime = performance.now();
-    // Force first frame logic again
-    isFirstFrame = true;
-    frameCount = 0; // Reset frame counter for smooth transitions
     animate(lastTime);
   }
 }

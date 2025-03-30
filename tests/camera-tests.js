@@ -158,13 +158,13 @@
         lookAtMarker,
         line,
         updatePositions: function() {
-          targetMarker.position.copy(cameraSmoothingVectors.targetPosition);
-          lookAtMarker.position.copy(cameraSmoothingVectors.lookAtPosition);
+          targetMarker.position.copy(cameraManager.smoothingVectors.targetPosition);
+          lookAtMarker.position.copy(cameraManager.smoothingVectors.lookAtPosition);
           
           // Update line points
           const points = [
             camera.position.clone(),
-            cameraSmoothingVectors.targetPosition.clone()
+            cameraManager.smoothingVectors.targetPosition.clone()
           ];
           lineGeometry.setFromPoints(points);
         }
@@ -457,10 +457,10 @@
       
       // Camera smoothing vectors should all be initialized (not undefined)
       const vectorsExist = (
-        cameraSmoothingVectors &&
-        cameraSmoothingVectors.lastPosition instanceof THREE.Vector3 &&
-        cameraSmoothingVectors.targetPosition instanceof THREE.Vector3 &&
-        cameraSmoothingVectors.lookAtPosition instanceof THREE.Vector3
+        cameraManager.smoothingVectors &&
+        cameraManager.smoothingVectors.lastPosition instanceof THREE.Vector3 &&
+        cameraManager.smoothingVectors.targetPosition instanceof THREE.Vector3 &&
+        cameraManager.smoothingVectors.lookAtPosition instanceof THREE.Vector3
       );
       
       assert(vectorsExist, 'Camera Vector Initialization', 
@@ -470,9 +470,9 @@
       // Vectors should have valid values (not NaN)
       let hasValidValues = true;
       const vectors = [
-        cameraSmoothingVectors.lastPosition,
-        cameraSmoothingVectors.targetPosition,
-        cameraSmoothingVectors.lookAtPosition
+        cameraManager.smoothingVectors.lastPosition,
+        cameraManager.smoothingVectors.targetPosition,
+        cameraManager.smoothingVectors.lookAtPosition
       ];
       
       for (const vector of vectors) {
