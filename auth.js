@@ -294,24 +294,46 @@ function syncUserData(user) {
       return;
     }
     
-    // Create or update user document with error handling
-    try {
-      const userDocRef = doc(firestore, 'users', user.uid);
-      setDoc(userDocRef, {
-        displayName: user.displayName,
-        email: user.email,
-        photoURL: user.photoURL,
-        lastLogin: serverTimestamp()
-      }, { merge: true })
+    // First, test the Firestore connection before trying operations
+    const testDocRef = doc(firestore, 'connection_test', 'test_doc');
+    getDoc(testDocRef)
+      .then(() => {
+        // Connection works, proceed with user data operations
+        proceedWithUserDataSync(user);
+      })
       .catch(error => {
-        console.error("Error saving user data:", error);
-        // Continue game functionality without Firestore if there's an error
+        console.error("Firestore connection test failed:", error);
+        console.warn("Disabling Firestore operations due to connection issues");
+        // Disable Firestore for this session to prevent further errors
+        firestore = null;
       });
-    } catch (firestoreError) {
-      console.error("Firestore operation failed:", firestoreError);
-      // Do not attempt further Firestore operations
-      return;
-    }
+  } catch (error) {
+    console.error("Error in syncUserData:", error);
+    // Continue with game functionality even if Firebase fails
+    firestore = null;
+  }
+}
+
+// Separate function to handle user data sync after connection test
+function proceedWithUserDataSync(user) {
+  try {
+    // Create or update user document with error handling
+    const userDocRef = doc(firestore, 'users', user.uid);
+    setDoc(userDocRef, {
+      displayName: user.displayName,
+      email: user.email,
+      photoURL: user.photoURL,
+      lastLogin: serverTimestamp()
+    }, { merge: true })
+    .catch(error => {
+      console.error("Error saving user data:", error);
+      // Disable Firestore if we get critical errors
+      if (error.code === 'permission-denied' || error.code === 'unavailable' || 
+          error.code === 'failed-precondition' || error.message.includes('400')) {
+        console.warn("Disabling Firestore due to critical error");
+        firestore = null;
+      }
+    });
     
     // Sync best time from localStorage if it exists
     const localBestTime = localStorage.getItem('snowgliderBestTime');
@@ -320,8 +342,8 @@ function syncUserData(user) {
       updateUserBestTime(user.uid, bestTime);
     }
   } catch (error) {
-    console.error("Error in syncUserData:", error);
-    // Continue with game functionality even if Firebase fails
+    console.error("Error in proceedWithUserDataSync:", error);
+    firestore = null;
   }
 }
 
@@ -388,9 +410,16 @@ function updateLeaderboard(userId, time) {
     })
     .catch(error => {
       console.error("Error updating leaderboard:", error);
+      // Disable Firestore for critical errors
+      if (error.code === 'permission-denied' || error.code === 'unavailable' || 
+          error.code === 'failed-precondition' || error.message.includes('400')) {
+        console.warn("Disabling Firestore due to critical error in leaderboard update");
+        firestore = null;
+      }
     });
   } catch (error) {
     console.error("Error in updateLeaderboard:", error);
+    firestore = null;
   }
 }
 
