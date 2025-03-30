@@ -113,8 +113,8 @@
       const originalIsInAir = isInAir;
       const originalVerticalVelocity = verticalVelocity;
       
-      // Place the snowman FAR from the ski path (which is around x=0)
-      pos.x = 30; // Well away from ski path
+      // Place the snowman away from the center (x=0)
+      pos.x = 30; // Away from the center
       pos.z = -40;
       pos.y = Utils.getTerrainHeight(pos.x, pos.z);
       
@@ -276,14 +276,14 @@
         peakHeight > sideHeight ? 'Mountain peak is correctly higher than sides' :
         'Terrain height calculation error: peak not higher than sides');
       
-      // Ski path should be relatively smooth - increased tolerance for extended mountain
+      // Terrain should be relatively smooth for skiing - increased tolerance for natural terrain
       const pathPoint1 = Utils.getTerrainHeight(0, -30);
       const pathPoint2 = Utils.getTerrainHeight(0, -40);
       const heightDifference = Math.abs(pathPoint1 - pathPoint2);
       
-      assert(heightDifference < 7, 'Ski Path Smoothness', 
-        heightDifference < 7 ? 'Ski path has acceptable smoothness' :
-        'Ski path is too rough for gameplay');
+      assert(heightDifference < 7, 'Terrain Smoothness', 
+        heightDifference < 7 ? 'Terrain has acceptable smoothness for skiing' :
+        'Terrain is too rough for gameplay');
     }
     
     // Test 4: Game Over Logic
@@ -316,8 +316,8 @@
       isInAir = false;
       verticalVelocity = 0;
       
-      // Position the snowman AWAY from ski path
-      pos.x = 30; // Far from ski path
+      // Position the snowman away from the center
+      pos.x = 30; // Away from the center
       pos.z = -40;
       pos.y = Utils.getTerrainHeight(pos.x, pos.z);
       

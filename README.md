@@ -10,7 +10,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 
 ## Features
 - Smooth snowman skiing with realistic physics and terrain interaction
-- Procedurally generated mountain with dynamic terrain features
+- Procedurally generated backcountry mountain terrain with natural features
 - Tree obstacle detection with collision physics
 - Snow particle effects that respond to speed and turning
 - Tracking camera that follows the snowman's movements
@@ -41,6 +41,9 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=unified` - Run all tests
 
 ## Recent Improvements
+- Converted terrain from groomed ski run to natural backcountry mountain
+- Distributed trees and rocks throughout the entire mountain terrain
+- Enhanced downhill gradient for consistent skiing experience
 - Refactored tree functionality into separate trees.js module
 - Separated snowman functionality into its own module
 - Fixed tree collision detection in extended terrain areas

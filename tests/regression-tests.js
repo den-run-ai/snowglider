@@ -362,37 +362,33 @@ runTest('Snow Splash Effect Interference', () => {
     "Snow splash particles should be created when snowman is moving on ground");
 });
 
-// Test 5: Extended Ski Path Width
-// Verifies the extended ski path maintains consistent width
-runTest('Extended Ski Path Width Consistency', () => {
-  // Check ski path width at different Z positions
+// Test 5: Natural Terrain Variation
+// Verifies backcountry terrain has natural variation
+runTest('Natural Terrain Variation', () => {
+  // Check terrain variation at different Z positions
   const zPositions = [-30, -80, -120, -160];
   
   for (const z of zPositions) {
-    // Check width by measuring height at center and edges
-    const centerHeight = Utils.getTerrainHeight(0, z);
+    // Sample multiple points along the mountain at this z-level
+    const heights = [];
+    for (let x = -40; x <= 40; x += 10) {
+      heights.push(Utils.getTerrainHeight(x, z));
+    }
     
-    // Check points 10 units to the left and right (ski path should be about 15 units wide)
-    const leftHeight = Utils.getTerrainHeight(-10, z);
-    const rightHeight = Utils.getTerrainHeight(10, z);
+    // Calculate standard deviation to ensure terrain has variation
+    const average = heights.reduce((sum, h) => sum + h, 0) / heights.length;
+    const variance = heights.reduce((sum, h) => sum + Math.pow(h - average, 2), 0) / heights.length;
+    const stdDev = Math.sqrt(variance);
     
-    // Path should be relatively flat (similar heights within tolerance)
-    const leftDiff = Math.abs(centerHeight - leftHeight);
-    const rightDiff = Math.abs(centerHeight - rightHeight);
+    // Natural terrain should have some height variation - use lower threshold for farther distances
+    const variationThreshold = z <= -120 ? 0.2 : 0.5;
+    assert(stdDev > variationThreshold, `Terrain at z=${z} should have natural height variation`);
     
-    assert(leftDiff < 2, `Ski path at z=${z} should maintain consistent width to the left`);
-    assert(rightDiff < 2, `Ski path at z=${z} should maintain consistent width to the right`);
-    
-    // Check the edge of the path (should start to slope up/down)
-    const farLeftHeight = Utils.getTerrainHeight(-20, z);
-    const farRightHeight = Utils.getTerrainHeight(20, z);
-    
-    // At least one side should have different height (not flat) beyond the path edge
-    const farLeftDiff = Math.abs(centerHeight - farLeftHeight);
-    const farRightDiff = Math.abs(centerHeight - farRightHeight);
-    
-    assert(farLeftDiff > 1 || farRightDiff > 1, 
-      `Ski path at z=${z} should have terrain variation beyond path edges`);
+    // Check that terrain has downhill direction
+    if (z < -30) {
+      const downhillDir = Utils.getDownhillDirection(0, z);
+      assert(downhillDir.z < 0, `Terrain at z=${z} should have downhill direction`);
+    }
   }
 });
 

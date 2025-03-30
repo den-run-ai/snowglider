@@ -144,21 +144,21 @@ runTest('Terrain Height Calculation', () => {
   
   assertGreaterThan(peakHeight, sideHeight, 'Mountain peak should be higher than sides');
   
-  // Ski path should be relatively smooth - increased tolerance for steeper slope
+  // Terrain should be relatively smooth for skiing - increased tolerance for natural terrain
   const pathPoint1 = Utils.getTerrainHeight(0, -30);
   const pathPoint2 = Utils.getTerrainHeight(0, -40);
   const heightDifference = Math.abs(pathPoint1 - pathPoint2);
   
-  assertLessThan(heightDifference, 7, 'Ski path should have reasonable smoothness');
+  assertLessThan(heightDifference, 7, 'Terrain should have reasonable smoothness for skiing');
   
-  // Extended path should continue downward
-  const pathStart = Utils.getTerrainHeight(0, -50);
-  const pathMiddle = Utils.getTerrainHeight(0, -120);
-  const pathEnd = Utils.getTerrainHeight(0, -180);
+  // Extended terrain should continue downward
+  const terrainStart = Utils.getTerrainHeight(0, -50);
+  const terrainMiddle = Utils.getTerrainHeight(0, -120);
+  const terrainEnd = Utils.getTerrainHeight(0, -180);
   
-  // Verify path is still going downhill along entire extended length
-  assertGreaterThan(pathStart, pathMiddle, 'Path should continue downhill in middle section');
-  assertGreaterThan(pathMiddle, pathEnd, 'Path should continue downhill at end section');
+  // Verify terrain is still going downhill along entire extended length
+  assertGreaterThan(terrainStart, terrainMiddle, 'Terrain should continue downhill in middle section');
+  assertGreaterThan(terrainMiddle, terrainEnd, 'Terrain should continue downhill at end section');
 });
 
 // Test 2: Downhill Direction
@@ -213,31 +213,30 @@ runTest('Terrain Gradient', () => {
   assertLessThan(gradOnSide.x, 0, 'Side gradient should point toward center');
 });
 
-// Test 4: Ski Path Width
-runTest('Ski Path Width', () => {
-  // Points on the ski path should have similar height
-  const centerPath = Utils.getTerrainHeight(0, -30);
-  const edgePath1 = Utils.getTerrainHeight(10, -30);
-  const edgePath2 = Utils.getTerrainHeight(-10, -30);
+// Test 4: Natural Terrain Features
+runTest('Natural Terrain Features', () => {
+  // Test the natural variation across the terrain
+  const center = Utils.getTerrainHeight(0, -30);
+  const side1 = Utils.getTerrainHeight(30, -30);
+  const side2 = Utils.getTerrainHeight(-30, -30);
   
-  // Heights should be within reasonable tolerance for ski path
-  const diff1 = Math.abs(centerPath - edgePath1);
-  const diff2 = Math.abs(centerPath - edgePath2);
+  // Verify center is higher than sides (mountain shape)
+  assertGreaterThan(center, side1, 'Mountain center should be higher than sides');
+  assertGreaterThan(center, side2, 'Mountain center should be higher than sides');
   
-  assertLessThan(diff1, 3, 'Ski path should maintain consistent width');
-  assertLessThan(diff2, 3, 'Ski path should be symmetric');
+  // Also test downhill gradient at extended distance
+  const upperPoint = Utils.getTerrainHeight(0, -120);
+  const lowerPoint = Utils.getTerrainHeight(0, -170);
   
-  // Also test at extended distance
-  const centerPathExtended = Utils.getTerrainHeight(0, -150);
-  const edgePathExtended1 = Utils.getTerrainHeight(10, -150);
-  const edgePathExtended2 = Utils.getTerrainHeight(-10, -150);
+  // Verify the downhill slope continues
+  assertGreaterThan(upperPoint, lowerPoint, 'Terrain should maintain downhill slope');
   
-  // Heights should be within reasonable tolerance for ski path at extended distance
-  const diffExtended1 = Math.abs(centerPathExtended - edgePathExtended1);
-  const diffExtended2 = Math.abs(centerPathExtended - edgePathExtended2);
+  // Check that terrain has natural variation
+  const point1 = Utils.getTerrainHeight(20, -150);
+  const point2 = Utils.getTerrainHeight(40, -150);
   
-  assertLessThan(diffExtended1, 3, 'Extended ski path should maintain consistent width');
-  assertLessThan(diffExtended2, 3, 'Extended ski path should be symmetric');
+  // Points at different x values should have different heights
+  assert(Math.abs(point1 - point2) > 0.2, 'Natural terrain should have variation across x-axis');
 });
 
 // Test 5: Noise Implementation

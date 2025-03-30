@@ -275,7 +275,7 @@
       // Find a tree to collide with
       let testTree = null;
       for (let i = 0; i < treePositions.length; i++) {
-        if (Math.abs(treePositions[i].x) >= 20) { // Away from ski path
+        if (Math.abs(treePositions[i].x) >= 20) { // Away from the center
           testTree = treePositions[i];
           break;
         }

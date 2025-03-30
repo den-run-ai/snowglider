@@ -1,12 +1,12 @@
 # CLAUDE.md - Coding Assistant Guidelines
 
 ## Project Overview
-SnowGlider is a Three.js animation/game project with HTML/JS implementation. The core files are:
+SnowGlider is a Three.js animation/game project with HTML/JS implementation featuring a snowman skiing on natural backcountry mountain terrain. The core files are:
 - `index.html` - Main entry point and UI
 - `snowglider.js` - Game logic and Three.js implementation
 - `utils.js` - Utility functions and helpers
-- `mountains.js` - Terrain generation code
-- `trees.js` - Tree creation and placement
+- `mountains.js` - Natural backcountry terrain generation code
+- `trees.js` - Tree creation and placement throughout the mountain
 - `camera.js` - Camera management system
 - `snowman.js` - Snowman model and physics
 - `tests/` - Test files for terrain, physics, camera, and collision detection
@@ -46,4 +46,7 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation. The
 - Properly clean up THREE.js objects when no longer needed
 - Maintain test isolation to prevent state interference
 - Signal test completion using callbacks
+- Ensure consistent terrain height calculation between functions
+- Maintain natural terrain variation while keeping it skiable
+- Include downhill gradient for proper skiing experience
 - Avoid duplicating tree position logic between files

@@ -1,12 +1,12 @@
 // trees.js - Tree creation and management for snowglider
 
 // Create a more realistic tree with visible branches and variability
-function createTree() {
+function createTree(scale = 1.0) {
   const group = new THREE.Group();
   
   // Add randomization factors for variety
-  const heightScale = 0.8 + Math.random() * 0.4; // 0.8-1.2 height variation
-  const widthScale = 0.85 + Math.random() * 0.3; // 0.85-1.15 width variation
+  const heightScale = (0.8 + Math.random() * 0.4) * scale; // 0.8-1.2 height variation with scaling
+  const widthScale = (0.85 + Math.random() * 0.3) * scale; // 0.85-1.15 width variation with scaling
   const branchDensity = 3 + Math.floor(Math.random() * 3); // 3-5 branch layers
   
   // Tree trunk with some natural variation
@@ -169,12 +169,21 @@ function addTrees(scene) {
   // IMPORTANT: Log the ranges we're using to create trees for debugging
   console.log("Trees.addTrees: Creating trees in X range -100 to 100, Z range -180 to 80");
   
-  // Add trees on both sides of the ski path - extended for longer run
+  // Add trees across the mountain - extended for longer run
   for(let z = -180; z < 80; z += 10) {
     for(let x = -100; x < 100; x += 10) {
-      // Skip the wider ski path (15 units on each side instead of 10)
-      // Add extra buffer (3 units) to keep trees properly clear of the path
-      if(Math.abs(x) < 18) continue;
+      // Special handling for center area (former ski path)
+      // Keep very center (±3 units) clear for minimal navigation while adding more trees elsewhere
+      if(Math.abs(x) < 3) continue;
+      
+      // For the area that was previously the ski path (between 3-18 units from center),
+      // add trees with increasing density from center
+      // - Inner zone (3-8 units): Medium density (50% chance to skip)
+      // - Middle zone (8-13 units): Higher density (30% chance to skip)
+      // - Outer zone (13-18 units): Full density (10% chance to skip)
+      if(Math.abs(x) >= 3 && Math.abs(x) < 8 && Math.random() < 0.5) continue;
+      if(Math.abs(x) >= 8 && Math.abs(x) < 13 && Math.random() < 0.3) continue;
+      if(Math.abs(x) >= 13 && Math.abs(x) < 18 && Math.random() < 0.1) continue;
       
       // Skip positions that would be too far from the actual terrain plane
       if (Math.abs(x) > 150 || Math.abs(z) > 200) continue;
@@ -188,21 +197,101 @@ function addTrees(scene) {
       const gradient = getTerrainGradient(xPos, zPos);
       const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
       
-      if(steepness < 0.5 && Math.random() > 0.7) {
-        treePositions.push({x: xPos, y: y, z: zPos});
+      // Different tree density based on location and size variation by zone
+      // Define zones from center outward
+      const innerZone = Math.abs(x) >= 3 && Math.abs(x) < 8;
+      const middleZone = Math.abs(x) >= 8 && Math.abs(x) < 13;
+      const outerZone = Math.abs(x) >= 13 && Math.abs(x) < 18;
+      const centerArea = innerZone || middleZone || outerZone;
+      
+      // Adjust placement chance based on location
+      const treeChance = centerArea ? 0.65 : 0.7;  // Increased chance in center area
+      
+      if(steepness < 0.5 && Math.random() > treeChance) {
+        // Size variation by zone - smaller trees closer to the center path
+        let sizeVariation = 1.0;
+        if (innerZone) sizeVariation = 0.7;  // Very small trees in inner zone
+        else if (middleZone) sizeVariation = 0.8; // Smaller trees in middle zone
+        else if (outerZone) sizeVariation = 0.9; // Slightly smaller trees in outer zone
+        treePositions.push({x: xPos, y: y, z: zPos, scale: sizeVariation});
         
         // 25% chance to add a clustered tree nearby for more natural grouping
         if(Math.random() < 0.25) {
           const clusterX = xPos + (Math.random() * 4 - 2);
           const clusterZ = zPos + (Math.random() * 4 - 2);
           
-          // Only if the clustered tree is also off the path
-          if(Math.abs(clusterX) >= 18) {
+          // For clustered trees, use the same criteria but add even more trees in center area
+          // Keep only the very center (±3 units) clear for minimal navigation
+          if(Math.abs(clusterX) >= 3) {
             const clusterY = getTerrainHeight(clusterX, clusterZ);
-            treePositions.push({x: clusterX, y: clusterY, z: clusterZ});
+            
+            // Determine which zone the cluster tree falls in
+            const clusterInnerZone = Math.abs(clusterX) >= 3 && Math.abs(clusterX) < 8;
+            const clusterMiddleZone = Math.abs(clusterX) >= 8 && Math.abs(clusterX) < 13;
+            const clusterOuterZone = Math.abs(clusterX) >= 13 && Math.abs(clusterX) < 18;
+            
+            // Adjust size based on zone for clustered trees too
+            let clusterSizeVariation = sizeVariation; // Default to parent tree size
+            
+            // Further randomize cluster tree sizes for natural variation
+            if (clusterInnerZone) clusterSizeVariation = 0.7 * (0.9 + Math.random() * 0.2);
+            else if (clusterMiddleZone) clusterSizeVariation = 0.8 * (0.9 + Math.random() * 0.2);
+            else if (clusterOuterZone) clusterSizeVariation = 0.9 * (0.9 + Math.random() * 0.2);
+            
+            treePositions.push({x: clusterX, y: clusterY, z: clusterZ, scale: clusterSizeVariation});
           }
         }
       }
+    }
+  }
+  
+  // Add additional trees specifically in the former ski path area with variable density
+  // This creates a more natural backcountry feel with randomly placed trees
+  const additionalTrees = 60; // Add 60 more trees in the center area
+  
+  for (let i = 0; i < additionalTrees; i++) {
+    // Position trees in the former ski path area with random placement
+    // Each tree has a random position within the ski path width
+    const zoneChoice = Math.random();
+    let xRange;
+    let sizeVar;
+    
+    if (zoneChoice < 0.2) {
+      // 20% in inner zone (3-8 units from center) - smallest trees
+      xRange = 5;
+      const side = Math.random() < 0.5 ? 1 : -1; // Randomly choose side
+      const x = (3 + Math.random() * 5) * side; // 3-8 units from center
+      sizeVar = 0.6 + Math.random() * 0.2; // 0.6-0.8 scale (very small)
+      
+      // Range between -180 and 80 for z
+      const z = -180 + Math.random() * 260;
+      const y = getTerrainHeight(x, z);
+      
+      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
+    }
+    else if (zoneChoice < 0.5) {
+      // 30% in middle zone (8-13 units from center) - small trees
+      const side = Math.random() < 0.5 ? 1 : -1;
+      const x = (8 + Math.random() * 5) * side; // 8-13 units from center
+      sizeVar = 0.7 + Math.random() * 0.2; // 0.7-0.9 scale (small)
+      
+      // Range between -180 and 80 for z
+      const z = -180 + Math.random() * 260;
+      const y = getTerrainHeight(x, z);
+      
+      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
+    }
+    else {
+      // 50% in outer zone (13-18 units from center) - medium trees
+      const side = Math.random() < 0.5 ? 1 : -1;
+      const x = (13 + Math.random() * 5) * side; // 13-18 units from center
+      sizeVar = 0.8 + Math.random() * 0.15; // 0.8-0.95 scale (medium)
+      
+      // Range between -180 and 80 for z
+      const z = -180 + Math.random() * 260;
+      const y = getTerrainHeight(x, z);
+      
+      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
     }
   }
   
@@ -242,8 +331,10 @@ function addTrees(scene) {
     // Get the exact terrain height from our height map or via calculation
     const terrainHeight = getTerrainHeight(pos.x, pos.z);
     
-    // Create tree and position it precisely on the terrain
-    const tree = createTree();
+    // Create tree with optional scale and position it precisely on the terrain
+    // Use the scale from the position data or default to 1.0
+    const treeScale = pos.scale || 1.0;
+    const tree = createTree(treeScale);
     
     // Make sure trees are properly anchored by sinking them 0.5 units into the terrain
     tree.position.set(pos.x, terrainHeight - 0.5, pos.z);

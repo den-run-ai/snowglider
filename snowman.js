@@ -456,7 +456,7 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
   });
   
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
-  // Allow wider boundaries to match the extended ski path and longer run
+  // Allow wider boundaries to match the extended mountain terrain
   if (pos.z < -195 || // Extended from -95 to -195 for longer run
       Math.abs(pos.x) > 120 || // Increased from 80 to 120 to accommodate wider terrain
       (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||

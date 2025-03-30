@@ -167,7 +167,7 @@
       isInAir = false;
       
       // Position near a tree
-      pos.x = 30; // Away from ski path
+      pos.x = 30; // Away from the center
       pos.z = -40;
       pos.y = Utils.getTerrainHeight(pos.x, pos.z);
       
@@ -210,9 +210,9 @@
       gameActive = originalGameActive;
     }
     
-    // Test 3: Extended Ski Run Navigation
-    // Tests the extended ski run from commit 0c3a64c
-    function testExtendedSkiRun() {
+    // Test 3: Extended Mountain Navigation
+    // Tests navigation on the extended terrain from commit 0c3a64c
+    function testExtendedMountainRun() {
       // Save original state
       const originalPos = {x: pos.x, y: pos.y, z: pos.z};
       const originalVelocity = {x: velocity.x, z: velocity.z};
@@ -244,7 +244,7 @@
       while (frames < maxFrames && gameActive && pos.z > -195) {
         // Periodically correct course to stay on path
         if (frames % 20 === 0) {
-          // Re-center on ski path
+          // Re-center on mountain
           pos.x = pos.x * 0.8; // Gradually move back to center (x=0)
           velocity.x = velocity.x * 0.5; // Reduce side velocity
           velocity.z = Math.min(-15, velocity.z); // Maintain minimum downhill speed
@@ -267,16 +267,16 @@
       const completedRun = pos.z <= -195;
       const reachedAllCheckpoints = zCheckpoints.every(cp => reachedCheckpoints[cp]);
       
-      assert(reachedAllCheckpoints, 'Extended Ski Run Checkpoints', 
-        reachedAllCheckpoints ? 'Successfully navigated extended ski run checkpoints' : 
+      assert(reachedAllCheckpoints, 'Extended Mountain Run Checkpoints', 
+        reachedAllCheckpoints ? 'Successfully navigated extended mountain checkpoints' : 
         `Only reached checkpoints: ${Object.entries(reachedCheckpoints)
           .filter(([, reached]) => reached)
           .map(([cp]) => cp)
           .join(', ')}`);
       
-      assert(completedRun, 'Extended Ski Run Completion', 
-        completedRun ? `Successfully completed full extended ski run in ${frames} frames` : 
-        `Failed to complete ski run, reached z=${pos.z.toFixed(1)}`);
+      assert(completedRun, 'Extended Mountain Run Completion', 
+        completedRun ? `Successfully completed full extended mountain run in ${frames} frames` : 
+        `Failed to complete mountain run, reached z=${pos.z.toFixed(1)}`);
       
       // Restore original state
       pos.x = originalPos.x;
@@ -364,7 +364,7 @@
     try {
       testBestTimeFixRegression();
       testTreeCollisionWithSnowEffects();
-      testExtendedSkiRun();
+      testExtendedMountainRun();
       testTreeJumping();
       
       // Show test summary

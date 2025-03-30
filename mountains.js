@@ -117,22 +117,16 @@ function getTerrainHeight(x, z) {
   // Base mountain shape
   let y = 40 * Math.exp(-distance / 40);
   
-  // Add noise (simplified without perlin for testing)
+  // Add noise for natural backcountry terrain
   y += 1.5 * Math.sin(x * 0.05) * Math.cos(z * 0.05) * (1 - Math.exp(-distance / 60));
   
-  // Create a wider, smoother, and more clearly groomed ski path
-  if (Math.abs(x) < 15) {
-    // Calculate a smooth transition factor at path edges using quadratic curve
-    const pathFactor = (15 - Math.abs(x)) / 15;
-    const smoothPathFactor = pathFactor * pathFactor;
-    
-    // Create a longer, smoother, curvier ski run
-    y = y * 0.9 + (z + 200) * 0.05 + Math.sin(z / 6) * 0.3 * smoothPathFactor;
-  } else {
-    // Add simplified version of the ridges outside the ski path
-    const distFromPath = Math.abs(x) - 15;
-    const transitionFactor = Math.min(1, distFromPath / 10);
-    y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 0.8 * transitionFactor;
+  // Add additional terrain features and ridges
+  y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 0.8;
+  
+  // Ensure downhill gradient in extended sections - create a consistent downhill slope
+  // This factor increases the further (more negative) z gets, creating a gradual slope
+  if (z < -30) {
+    y += (z + 30) * 0.06; // This creates a consistent downhill gradient
   }
   
   // Store in height map for future lookups
@@ -164,9 +158,9 @@ function getDownhillDirection(x, z) {
 
 // --- Terrain creation functions ---
 
-// Create Terrain (Mountain with Ski Slope)
+// Create Terrain (Natural Mountain)
 function createTerrain(scene) {
-  // Increase terrain size from 200x200 to 300x400 for a longer ski run
+  // Create a large natural mountain terrain
   const geometry = new THREE.PlaneGeometry(300, 400, 150, 200);
   geometry.rotateX(-Math.PI / 2);
   
@@ -193,68 +187,26 @@ function createTerrain(scene) {
     y += perlin.noise(x * noiseScale, z * noiseScale) * noiseStrength;
     
     // Store this vertex position in our heightmap for precise object placement
-    // Round to one decimal place for reasonable map size
     const key = `${Math.round(x*10)},${Math.round(z*10)}`;
     heightMap[key] = y;
     
-    // Create a wider, longer, smoother, and more visibly groomed ski path along x=0
-    if (Math.abs(x) < 15) {
-      // Calculate a smooth transition factor at path edges using quadratic curve
-      const pathFactor = (15 - Math.abs(x)) / 15;
-      const smoothPathFactor = pathFactor * pathFactor;
-      
-      // Make the ski path smoother with longer, more graceful curves
-      y = y * 0.9 + (z + 100) * 0.1 + Math.sin(z / 4) * 0.25 * smoothPathFactor;
-      
-      // Core of the path is extra smooth and groomed
-      if (Math.abs(x) < 10) {
-        // Create well-defined parallel grooves in the snow for a groomed look
-        // Only in the center part of the path
-        if (Math.abs(x) > 1) { // Avoid center line
-          // Subtle grooves running along the path (parallel to z-axis)
-          y += Math.sin(x * 3) * 0.06; // Very subtle height variation for grooved appearance
-        }
-        
-        // Add just a few well-defined jump ramps at specific positions, with smoother transitions
-        const jumpPositions = [-80, -40, 0]; // Spread out jumps for a longer run
-        for (const jumpZ of jumpPositions) {
-          // Create a ramp near this z position with smooth transitions
-          const distToJump = Math.abs(z - jumpZ);
-          if (distToJump < 6) { // Wider jumps for a smoother experience
-            // Shape of the jump: smoother rise and drop
-            if (z > jumpZ) {
-              // Use quadratic curve for smoother ramp
-              const rampFactor = (6 - distToJump) / 6;
-              y += rampFactor * rampFactor * 0.7;
-            } else if (z > jumpZ - 2) {
-              // Longer, smoother plateau
-              y += (6 - distToJump) * 0.2;
-            }
-          }
-        }
-      }
-      
-      // Create a subtle blue-tinted white color for the groomed path
-      // (This will be applied in the material section below)
-    } else {
-      // Add more extreme variation away from the ski path
-      // Create a smoother transition at the edges of the path
-      const distFromPath = Math.abs(x) - 15;
-      const transitionFactor = Math.min(1, distFromPath / 10);
-      
-      // Add terrain features outside the path with a smooth transition
-      y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 1.5 * transitionFactor;
-      
-      // Add some random smaller bumps
-      if (Math.random() > 0.7) {
-        y += perlin.noise(x * 0.1 + 100, z * 0.1 + 100) * 2.0 * transitionFactor;
-      }
+    // Add natural terrain features and ridges
+    y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 1.5;
+    
+    // Ensure downhill gradient in extended sections - create a consistent downhill slope
+    // Must match getTerrainHeight implementation exactly!
+    if (z < -30) {
+      y += (z + 30) * 0.06;
+    }
+    
+    // Add some random smaller bumps for natural backcountry terrain
+    if (Math.random() > 0.6) {
+      y += perlin.noise(x * 0.1 + 100, z * 0.1 + 100) * 2.0;
     }
     
     vertices[i + 1] = y;
     
     // IMPORTANT: Update the heightmap with the FINAL height after all modifications
-    // Note: this key is also defined above (reusing the same key)
     heightMap[`${Math.round(x*10)},${Math.round(z*10)}`] = y;
   }
   geometry.computeVertexNormals();
@@ -267,25 +219,7 @@ function createTerrain(scene) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, 512, 512);
   
-  // Create a faint blue-ish tint in the center for the groomed ski path
-  const grd = ctx.createLinearGradient(156, 0, 356, 0);
-  grd.addColorStop(0, 'rgba(255, 255, 255, 1)');
-  grd.addColorStop(0.5, 'rgba(220, 240, 255, 1)'); // Subtle blue tint
-  grd.addColorStop(1, 'rgba(255, 255, 255, 1)');
-  ctx.fillStyle = grd;
-  ctx.fillRect(156, 0, 200, 512);
-  
-  // Add subtle grooming lines along the ski path (vertical)
-  ctx.strokeStyle = 'rgba(230, 240, 255, 0.7)';
-  ctx.lineWidth = 2;
-  for (let i = 176; i < 336; i += 10) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, 512);
-    ctx.stroke();
-  }
-  
-  // Draw regular grid outside the path
+  // Draw regular grid for the entire terrain
   ctx.strokeStyle = '#cccccc';
   ctx.lineWidth = 1;
   
@@ -297,13 +231,11 @@ function createTerrain(scene) {
     ctx.lineTo(512, i);
     ctx.stroke();
     
-    // Vertical lines - skip over the ski path to avoid cluttering the groomed path
-    if (i < 156 || i > 356) {
-      ctx.beginPath();
-      ctx.moveTo(i, 0);
-      ctx.lineTo(i, 512);
-      ctx.stroke();
-    }
+    // Vertical lines
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, 512);
+    ctx.stroke();
   }
   
   const texture = new THREE.CanvasTexture(canvas);
@@ -364,13 +296,9 @@ function addRocks(scene) {
   // Create rock positions with higher density on steeper parts of mountain
   const rockPositions = [];
   
-  // Add rocks scattered across the mountain - adjusted for extended terrain
+  // Add rocks scattered across the entire mountain
   for(let z = -180; z < 90; z += 10) {
-    for(let x = -100; x < 100; x += 10) {
-      // Avoid placing rocks on or very near the wider ski path
-      // With the path width increased to 15, keep a buffer of 5 units
-      if(Math.abs(x) < 20) continue;
-      
+    for(let x = -140; x < 140; x += 10) {
       // Skip positions that would be too far from the actual terrain plane
       if (Math.abs(x) > 150 || Math.abs(z) > 200) continue;
       
@@ -386,17 +314,6 @@ function addRocks(scene) {
       // Higher probability of rocks on steeper slopes, but still some randomness
       if(Math.random() < 0.1 + steepness * 0.5) {
         rockPositions.push({x: xPos, y: y, z: zPos, size: 0.5 + Math.random() * 2.5});
-        
-        // Occasionally add rocks at the edge of the ski path for visual interest
-        if(Math.random() < 0.15 && Math.abs(x) >= 20 && Math.abs(x) <= 25) {
-          // Place smaller rocks near the path edges
-          const pathEdgeX = (x > 0) ? 18 + Math.random() * 3 : -18 - Math.random() * 3;
-          const pathEdgeZ = zPos + Math.random() * 4 - 2;
-          const pathEdgeY = getTerrainHeight(pathEdgeX, pathEdgeZ);
-          
-          // Smaller rocks along the path edge
-          rockPositions.push({x: pathEdgeX, y: pathEdgeY, z: pathEdgeZ, size: 0.3 + Math.random() * 1.0});
-        }
       }
     }
   }
