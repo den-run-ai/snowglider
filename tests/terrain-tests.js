@@ -51,10 +51,25 @@ function loadUtils() {
     THREE: THREE
   };
   
-  // Create a function to evaluate the mountainsContent first, then utilsContent in the sandbox
+  // Create trees.js mock since tests only use Mountains directly
+  const treesMock = `
+    // Mock Trees for testing
+    const Trees = {
+      createTree: function() {},
+      addTrees: function() { return []; },
+      addBranchesAtLayer: function() {},
+      addSnowCaps: function() {}
+    };
+    if (typeof window !== 'undefined') {
+      window.Trees = Trees;
+    }
+  `;
+
+  // Create a function to evaluate the mountainsContent first, trees mock, then utilsContent in the sandbox
   const fn = new Function('sandbox', `
     with (sandbox) {
       ${mountainsContent}
+      ${treesMock}
       ${utilsContent}
       return Utils;
     }

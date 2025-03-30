@@ -40,106 +40,114 @@
         const mountainsScript = document.createElement('script');
         mountainsScript.src = 'mountains.js';
         
-        // Then load utils.js after mountains.js has loaded
+        // Then load trees.js after mountains.js has loaded
         mountainsScript.onload = function() {
-            const utilsScript = document.createElement('script');
-            utilsScript.src = 'utils.js';
+            const treesScript = document.createElement('script');
+            treesScript.src = 'trees.js';
             
-            // Load camera.js after utils.js
-            utilsScript.onload = function() {
-                const cameraScript = document.createElement('script');
-                cameraScript.src = 'camera.js';
+            // Then load utils.js after trees.js has loaded
+            treesScript.onload = function() {
+                const utilsScript = document.createElement('script');
+                utilsScript.src = 'utils.js';
                 
-                // Load snowman.js after camera.js
-                cameraScript.onload = function() {
-                    const snowmanScript = document.createElement('script');
-                    snowmanScript.src = 'snowman.js';
+                // Load camera.js after utils.js
+                utilsScript.onload = function() {
+                    const cameraScript = document.createElement('script');
+                    cameraScript.src = 'camera.js';
                     
-                    // Finally load main.js after snowman.js has loaded
-                    snowmanScript.onload = function() {
-                        const mainScript = document.createElement('script');
-                        mainScript.src = 'snowglider.js';
-                    
-                    // Finally load tests script if needed
-                    mainScript.onload = function() {
-                // Always load all test scripts for the unified runner to work
-                // But they will only execute if their specific URL parameter is present
-                const loadTests = function() {
-                    // Determine which tests to load based on URL parameters
-                    let testsScripts = [];
-                    
-                    // Always load camera tests if ?test=camera is in URL
-                    if (window.location.search.includes('test=camera')) {
-                        console.log("Loading only camera tests");
-                        testsScripts = [
-                            { src: 'tests/camera-tests.js', loaded: false }
-                        ];
-                    } 
-                    // Load all tests for unified tests or when other test parameters are present
-                    else if (window.location.search.includes('test=')) {
-                        console.log("Loading all test scripts");
-                        testsScripts = [
-                            { src: 'tests/browser-tests.js', loaded: false },
-                            { src: 'tests/browser-regression-tests.js', loaded: false },
-                            { src: 'tests/browser-tree-tests.js', loaded: false },
-                            { src: 'tests/camera-tests.js', loaded: false }
-                        ];
-                    }
-                    
-                    // If no test scripts to load, skip the rest
-                    if (testsScripts.length === 0) {
-                        console.log("No test scripts to load");
-                        return;
-                    }
-                    
-                    let totalLoaded = 0;
-                    
-                    // Function to check if all scripts are loaded
-                    const checkAllLoaded = function() {
-                        totalLoaded++;
-                        if (totalLoaded === testsScripts.length) {
-                            // All individual test scripts are loaded
-                            // Now load the unified test runner if needed
-                            if (window.location.search.includes('test=unified')) {
-                                console.log("Loading unified test runner...");
-                                const unifiedRunner = document.createElement('script');
-                                unifiedRunner.src = 'tests/unified-test-runner.js';
-                                unifiedRunner.onload = function() {
-                                    console.log("Unified test runner loaded successfully");
+                    // Load snowman.js after camera.js
+                    cameraScript.onload = function() {
+                        const snowmanScript = document.createElement('script');
+                        snowmanScript.src = 'snowman.js';
+                        
+                        // Finally load main.js after snowman.js has loaded
+                        snowmanScript.onload = function() {
+                            const mainScript = document.createElement('script');
+                            mainScript.src = 'snowglider.js';
+                            
+                            // Finally load tests script if needed
+                            mainScript.onload = function() {
+                                // Always load all test scripts for the unified runner to work
+                                // But they will only execute if their specific URL parameter is present
+                                const loadTests = function() {
+                                    // Determine which tests to load based on URL parameters
+                                    let testsScripts = [];
+                                    
+                                    // Always load camera tests if ?test=camera is in URL
+                                    if (window.location.search.includes('test=camera')) {
+                                        console.log("Loading only camera tests");
+                                        testsScripts = [
+                                            { src: 'tests/camera-tests.js', loaded: false }
+                                        ];
+                                    } 
+                                    // Load all tests for unified tests or when other test parameters are present
+                                    else if (window.location.search.includes('test=')) {
+                                        console.log("Loading all test scripts");
+                                        testsScripts = [
+                                            { src: 'tests/browser-tests.js', loaded: false },
+                                            { src: 'tests/browser-regression-tests.js', loaded: false },
+                                            { src: 'tests/browser-tree-tests.js', loaded: false },
+                                            { src: 'tests/camera-tests.js', loaded: false }
+                                        ];
+                                    }
+                                    
+                                    // If no test scripts to load, skip the rest
+                                    if (testsScripts.length === 0) {
+                                        console.log("No test scripts to load");
+                                        return;
+                                    }
+                                    
+                                    let totalLoaded = 0;
+                                    
+                                    // Function to check if all scripts are loaded
+                                    const checkAllLoaded = function() {
+                                        totalLoaded++;
+                                        if (totalLoaded === testsScripts.length) {
+                                            // All individual test scripts are loaded
+                                            // Now load the unified test runner if needed
+                                            if (window.location.search.includes('test=unified')) {
+                                                console.log("Loading unified test runner...");
+                                                const unifiedRunner = document.createElement('script');
+                                                unifiedRunner.src = 'tests/unified-test-runner.js';
+                                                unifiedRunner.onload = function() {
+                                                    console.log("Unified test runner loaded successfully");
+                                                };
+                                                document.body.appendChild(unifiedRunner);
+                                            } else {
+                                                console.log("Skipping unified test runner (use test=unified in URL to load it)");
+                                            }
+                                        }
+                                    };
+                                    
+                                    // Load all test scripts
+                                    testsScripts.forEach(function(script) {
+                                        const scriptElement = document.createElement('script');
+                                        scriptElement.src = script.src;
+                                        scriptElement.onload = checkAllLoaded;
+                                        document.body.appendChild(scriptElement);
+                                    });
                                 };
-                                document.body.appendChild(unifiedRunner);
-                            } else {
-                                console.log("Skipping unified test runner (use test=unified in URL to load it)");
-                            }
-                        }
+                                
+                                // Start loading the tests
+                                loadTests();
+                            };
+                            
+                            document.body.appendChild(mainScript);
+                        };
+                        
+                        document.body.appendChild(snowmanScript);
                     };
                     
-                    // Load all test scripts
-                    testsScripts.forEach(function(script) {
-                        const scriptElement = document.createElement('script');
-                        scriptElement.src = script.src;
-                        scriptElement.onload = checkAllLoaded;
-                        document.body.appendChild(scriptElement);
-                    });
+                    document.body.appendChild(cameraScript);
                 };
                 
-                // Start loading the tests
-                loadTests();
+                document.body.appendChild(utilsScript);
             };
             
-            document.body.appendChild(mainScript);
+            document.body.appendChild(treesScript);
         };
         
-        document.body.appendChild(snowmanScript);
-        };
-        
-        document.body.appendChild(cameraScript);
-    };
-    
-    document.body.appendChild(utilsScript);
-    };
-    
-    document.body.appendChild(mountainsScript);
+        document.body.appendChild(mountainsScript);
     });
 </script>
 </body>
