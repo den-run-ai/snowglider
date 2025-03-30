@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Auth Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+        }
+        .card {
+            background: #f5f5f5;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background-color: #4285F4;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #3367D6;
+        }
+        #profileUI {
+            display: none;
+        }
+        #authUI {
+            display: flex;
+            align-items: center;
+        }
+        #profileAvatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        pre {
+            background: #eee;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+    
+    <!-- Firebase SDK - Modular approach -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+        import { getAuth } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
+        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
+        
+        // Make modules available globally
+        window.firebaseModules = {
+            initializeApp,
+            getAuth,
+            getFirestore,
+            getAnalytics
+        };
+    </script>
+</head>
+<body>
+    <h1>Firebase Authentication Test Page</h1>
+    
+    <div class="card">
+        <h2>Authentication Status</h2>
+        <div id="authUI">
+            <button id="loginBtn">Login with Google</button>
+        </div>
+        <div id="profileUI">
+            <img id="profileAvatar" src="" alt="Profile">
+            <span id="profileName"></span>
+            <button id="logoutBtn">Logout</button>
+        </div>
+        <div id="status" class="status"></div>
+    </div>
+    
+    <div class="card">
+        <h2>Firebase Configuration</h2>
+        <pre id="configDisplay"></pre>
+        <button id="testConfigBtn">Test Configuration</button>
+    </div>
+    
+    <div class="card">
+        <h2>Debugging Tools</h2>
+        <button id="clearCacheBtn">Clear Firebase Cache</button>
+        <button id="testAnalyticsBtn">Test Analytics</button>
+        <button id="testFirestoreBtn">Test Firestore</button>
+    </div>
+    
+    <script src="auth.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+        import { getAuth } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+        import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // Firebase configuration
+            const firebaseConfig = {
+                apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
+                authDomain: "sn0wglider.firebaseapp.com",
+                projectId: "sn0wglider",
+                storageBucket: "sn0wglider.appspot.com",
+                messagingSenderId: "504681218869",
+                appId: "1:504681218869:web:5abbba6825691006d6027c",
+                measurementId: "G-GYQC13R6MZ"
+            };
+            
+            // Display config (masking API key for security)
+            const configCopy = {...firebaseConfig};
+            configCopy.apiKey = configCopy.apiKey.substring(0, 8) + "...";
+            document.getElementById('configDisplay').textContent = JSON.stringify(configCopy, null, 2);
+
+            // Initialize Firebase directly
+            let app, auth, firestore, analytics;
+            
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                firestore = getFirestore(app);
+                analytics = getAnalytics(app);
+                
+                // Store modules for auth.js to use
+                window.firebaseModules = {
+                    app,
+                    getAuth: () => auth,
+                    getFirestore: () => firestore,
+                    getAnalytics: () => analytics
+                };
+                
+                console.log("Firebase initialized in auth.html");
+            } catch (error) {
+                console.error("Firebase initialization error:", error);
+            }
+            
+            // Initialize Firebase Auth after Firebase is initialized
+            if (window.AuthModule) {
+                window.AuthModule.initializeAuth(firebaseConfig);
+            } else {
+                console.error("AuthModule not loaded yet - ensure auth.js is imported correctly");
+            }
+            
+            // Test configuration button
+            document.getElementById('testConfigBtn').addEventListener('click', function() {
+                const statusElement = document.getElementById('status');
+                
+                try {
+                    // Check if Firebase is initialized
+                    if (app) {
+                        statusElement.textContent = "Firebase is properly initialized!";
+                        statusElement.className = "status success";
+                    } else {
+                        statusElement.textContent = "Firebase is NOT initialized.";
+                        statusElement.className = "status error";
+                    }
+                } catch (e) {
+                    statusElement.textContent = "Error testing Firebase: " + e.message;
+                    statusElement.className = "status error";
+                }
+            });
+            
+            // Clear cache button
+            document.getElementById('clearCacheBtn').addEventListener('click', function() {
+                const statusElement = document.getElementById('status');
+                
+                try {
+                    // Clear Firebase cache by reloading the page 
+                    // (Can't delete app with modular SDK in the same way)
+                    statusElement.textContent = "Clearing cache... refresh the page to complete.";
+                    statusElement.className = "status success";
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                } catch (e) {
+                    statusElement.textContent = "Error clearing cache: " + e.message;
+                    statusElement.className = "status error";
+                }
+            });
+            
+            // Test Analytics button
+            document.getElementById('testAnalyticsBtn').addEventListener('click', function() {
+                const statusElement = document.getElementById('status');
+                
+                try {
+                    if (analytics) {
+                        logEvent(analytics, 'test_event', {
+                            test_param: 'test_value',
+                            timestamp: new Date().toISOString()
+                        });
+                        statusElement.textContent = "Analytics event sent! Check Firebase console.";
+                        statusElement.className = "status success";
+                    } else {
+                        statusElement.textContent = "Analytics is not available.";
+                        statusElement.className = "status error";
+                    }
+                } catch (e) {
+                    statusElement.textContent = "Error testing Analytics: " + e.message;
+                    statusElement.className = "status error";
+                }
+            });
+            
+            // Test Firestore button
+            document.getElementById('testFirestoreBtn').addEventListener('click', function() {
+                const statusElement = document.getElementById('status');
+                
+                try {
+                    if (firestore) {
+                        const docRef = doc(collection(firestore, 'test_collection'), 'test_document');
+                        setDoc(docRef, {
+                            test: true,
+                            timestamp: serverTimestamp()
+                        })
+                        .then(() => {
+                            statusElement.textContent = "Firestore test document created!";
+                            statusElement.className = "status success";
+                        })
+                        .catch(error => {
+                            statusElement.textContent = "Firestore error: " + error.message;
+                            statusElement.className = "status error";
+                        });
+                    } else {
+                        statusElement.textContent = "Firestore is not available.";
+                        statusElement.className = "status error";
+                    }
+                } catch (e) {
+                    statusElement.textContent = "Error testing Firestore: " + e.message;
+                    statusElement.className = "status error";
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -167,7 +167,7 @@ let bestTime = localStorage.getItem('snowgliderBestTime') ? parseFloat(localStor
 let timerDisplay = document.createElement('div');
 timerDisplay.id = 'timerDisplay';
 timerDisplay.style.position = 'fixed';
-timerDisplay.style.top = '10px';
+timerDisplay.style.top = '60px'; // Positioned below the auth container
 timerDisplay.style.right = '10px';
 timerDisplay.style.padding = '8px 12px';
 timerDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
@@ -209,6 +209,17 @@ function resetSnowman() {
   
   startTime = performance.now(); // Reset the timer when starting a new run
   updateTimerDisplay();
+  
+  // Track game reset in Analytics if available
+  try {
+    // Only try to use analytics when properly initialized with modular SDK
+    if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function' && window.location.protocol !== 'file:') {
+      // Using the direct logEvent function
+      window.firebaseModules.logEvent('game_reset');
+    }
+  } catch (e) {
+    console.log("Analytics tracking skipped:", e.message);
+  }
 }
 resetSnowman();
 document.getElementById('resetBtn').addEventListener('click', resetSnowman);
@@ -379,23 +390,90 @@ function showGameOver(reason) {
   gameActive = false;
   gameOverDetail.textContent = reason;
   
-  // Only update best time if player reached the end successfully
+  // Only update times if player reached the end successfully
   if (reason === "You reached the end of the slope!") {
     const currentTime = (performance.now() - startTime) / 1000;
     
+    // Show appropriate message based on time
     if (currentTime < bestTime) {
       bestTime = currentTime;
       localStorage.setItem('snowgliderBestTime', bestTime);
       bestTimeDisplay.textContent = `New Best Time: ${bestTime.toFixed(2)}s`;
       bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
+      
+      // Record to Firebase if user is logged in
+      if (window.AuthModule && window.AuthModule.getCurrentUser()) {
+        window.AuthModule.recordScore(currentTime);
+      }
     } else {
       bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${bestTime.toFixed(2)}s)`;
       bestTimeDisplay.style.color = 'white';
+      
+      // Still record to Firebase even if not a personal best
+      if (window.AuthModule && window.AuthModule.getCurrentUser()) {
+        window.AuthModule.recordScore(currentTime);
+      }
+    }
+    
+    // Show login prompt if not logged in
+    if (window.AuthModule && !window.AuthModule.getCurrentUser()) {
+      const loginPrompt = document.createElement('p');
+      loginPrompt.textContent = 'Log in to save your score and see the leaderboard!';
+      loginPrompt.style.color = '#4285F4';
+      loginPrompt.style.fontStyle = 'italic';
+      loginPrompt.style.margin = '10px 0';
+      
+      // Insert before restart button
+      if (!document.getElementById('loginPrompt')) {
+        loginPrompt.id = 'loginPrompt';
+        gameOverOverlay.insertBefore(loginPrompt, restartButton);
+      }
+    }
+    
+    // Track successful run in Analytics
+    try {
+      // Only try to use analytics when properly initialized with modular SDK
+      if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
+        // Using the direct logEvent function
+        window.firebaseModules.logEvent('complete_game', {
+          time: currentTime
+        });
+      }
+    } catch (e) {
+      console.log("Analytics tracking skipped:", e.message);
     }
   } else {
     // For failures (tree collision, falling, etc.), don't record or update best time
     bestTimeDisplay.textContent = bestTime !== Infinity ? `Best Time: ${bestTime.toFixed(2)}s` : 'No best time yet';
     bestTimeDisplay.style.color = 'white';
+    
+    // Track game over reason in Analytics
+    try {
+      // Only try to use analytics when properly initialized with modular SDK
+      if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
+        // Using the direct logEvent function
+        window.firebaseModules.logEvent('game_over', {
+          reason: reason
+        });
+      }
+    } catch (e) {
+      console.log("Analytics tracking skipped:", e.message);
+    }
+  }
+  
+  // Get leaderboard if user is logged in
+  if (window.AuthModule && window.AuthModule.getCurrentUser()) {
+    // Get the leaderboard element
+    const leaderboardElement = document.getElementById('leaderboard');
+    
+    // Add to game over overlay if not already there
+    if (leaderboardElement.parentNode !== gameOverOverlay) {
+      gameOverOverlay.insertBefore(leaderboardElement, restartButton);
+      leaderboardElement.style.display = 'block';
+    }
+    
+    // Display leaderboard
+    window.AuthModule.displayLeaderboard();
   }
   
   gameOverOverlay.style.display = 'flex';

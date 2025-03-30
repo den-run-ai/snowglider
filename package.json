@@ -8,9 +8,14 @@
     "test:terrain": "node tests/terrain-tests.js",
     "test:physics": "node tests/physics-tests.js",
     "test:regression": "node tests/regression-tests.js",
-    "test:tree-collision": "node tests/tree-collision-tests.js"
+    "test:tree-collision": "node tests/tree-collision-tests.js",
+    "start": "http-server -p 8080 -c-1"
   },
   "dependencies": {
+    "firebase": "^11.5.0",
     "three": "^0.128.0"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
   }
 }

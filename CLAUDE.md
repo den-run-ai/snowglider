@@ -9,10 +9,12 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - `trees.js` - Tree creation and placement throughout the mountain
 - `camera.js` - Camera management system
 - `snowman.js` - Snowman model and physics
+- `auth.js` / `auth.html` - Firebase authentication implementation
 - `tests/` - Test files for terrain, physics, camera, and collision detection
 
 ## Commands
-- Run locally: Open `index.html` in a browser or use a simple HTTP server
+- Run development server: `npm start` (uses http-server on port 8080)
+- Open locally: `open index.html` or use URL parameters for tests
 - Run all tests: `npm test`
 - Run specific tests: 
   - `npm run test:terrain` - Terrain generation tests
@@ -33,10 +35,11 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - **Functions**: Use function declarations with descriptive names
 - **Documentation**: JSDoc-style comments for public functions
 - **Classes**: ES6 class syntax with clear method responsibilities
-- **Dependencies**: Three.js loaded via CDN (r128)
+- **Dependencies**: Three.js loaded via CDN (r128), Firebase v11.5.0
 - **Imports**: Use ES6 module imports when adding new functionality
 - **Error Handling**: Validation with boundary checks, meaningful console logging
 - **Testing**: Browser-based with visual feedback, unified test runner
+- **Firebase**: Authentication and leaderboard implementation via Firebase
 
 ## Best Practices
 - Follow existing patterns in the codebase

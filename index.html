@@ -10,11 +10,12 @@
     #info {
       position: absolute;
       top: 10px;
-      width: 100%;
+      width: calc(100% - 250px); /* Reduced width to avoid overlap with auth container */
       text-align: center;
       color: white;
       font-family: Arial, sans-serif;
       text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+      left: 125px; /* Center the element with the reduced width */
     }
     #resetBtn {
       position: absolute;
@@ -27,127 +28,492 @@
       color: white;
       cursor: pointer;
     }
+    /* Auth UI styles */
+    #authContainer {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 5px;
+      background-color: rgba(0, 0, 0, 0.5);
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      z-index: 100;
+      max-width: 220px; /* Limit width to prevent overflow */
+    }
+    #authUI {
+      display: flex;
+      align-items: center;
+    }
+    #loginBtn {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+    }
+    #loginBtn:hover {
+      background-color: #3367D6;
+    }
+    #profileUI {
+      display: none;
+      align-items: center;
+      color: white;
+    }
+    #profileAvatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+    #profileName {
+      font-size: 14px;
+      margin-right: 8px;
+      max-width: 90px; /* Prevent long names from causing overflow */
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #logoutBtn {
+      background-color: transparent;
+      color: white;
+      border: 1px solid white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    #logoutBtn:hover {
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+    /* Leaderboard styles */
+    #leaderboard {
+      margin-top: 20px;
+      max-height: 200px;
+      overflow-y: auto;
+      color: white;
+      text-align: center;
+    }
+    #leaderboard table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    #leaderboard th, #leaderboard td {
+      padding: 5px;
+      text-align: left;
+    }
+    #leaderboard th {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    }
+    .mini-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
   </style>
+  <!-- Firebase SDK - Using modern modular SDK -->
+  <script>
+    // Check for local file protocol first before trying to use import
+    const isFileProtocol = window.location.protocol === 'file:';
+    const isLocalDevelopment = isFileProtocol || 
+                             window.location.hostname.includes('localhost') || 
+                             window.location.hostname.includes('127.0.0.1');
+    
+    // Add a special notice for users on localhost
+    document.addEventListener('DOMContentLoaded', () => {
+      const notice = document.createElement('div');
+      notice.style.position = 'fixed';
+      notice.style.bottom = '10px';
+      notice.style.right = '10px';
+      notice.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+      notice.style.color = 'white';
+      notice.style.padding = '8px 12px';
+      notice.style.borderRadius = '4px';
+      notice.style.fontSize = '12px';
+      notice.style.fontFamily = 'Arial, sans-serif';
+      notice.style.zIndex = '1000';
+      
+      if (isFileProtocol) {
+        notice.innerHTML = '🏠 Local File Mode: Firebase disabled';
+      } else if (isLocalDevelopment) {
+        notice.innerHTML = '🛠️ Local Dev Mode: Firestore disabled';
+      }
+      
+      document.body.appendChild(notice);
+    });
+    
+    // Create mock Firebase modules for file:// protocol
+    if (isFileProtocol) {
+      console.log("File protocol detected - using mock Firebase implementation");
+      
+      // Mock Firebase modules
+      window.firebaseModules = {
+        app: null,
+        auth: null,
+        firestore: null,
+        analytics: null,
+        getAuth: () => null,
+        getFirestore: () => null,
+        getAnalytics: () => null,
+        logEvent: (eventName, params) => {
+          console.log("Analytics not available in local file mode - would log:", eventName, params);
+        }
+      };
+      
+      console.log("Mock Firebase services initialized for local file mode");
+    } else {
+      // For HTTP/HTTPS, load Firebase normally via a module script
+      const firebaseScript = document.createElement('script');
+      firebaseScript.type = 'module';
+      firebaseScript.textContent = `
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+        import { getAuth } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
+        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
+        import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
+        
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+          apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
+          authDomain: "sn0wglider.firebaseapp.com",
+          projectId: "sn0wglider",
+          storageBucket: "sn0wglider.appspot.com",
+          messagingSenderId: "504681218869",
+          appId: "1:504681218869:web:5abbba6825691006d6027c",
+          measurementId: "G-GYQC13R6MZ"
+        };
+    
+        try {
+          // Initialize Firebase
+          const app = initializeApp(firebaseConfig);
+          const auth = getAuth(app);
+          
+          // Only initialize Firestore on remote hosts
+          let firestore = null;
+          const isLocalDevelopment = window.location.hostname.includes('localhost') || 
+                                    window.location.hostname.includes('127.0.0.1');
+          
+          if (!isLocalDevelopment) {
+            try {
+              firestore = getFirestore(app);
+              console.log("Firestore initialized for remote host");
+            } catch (firestoreError) {
+              console.warn("Firestore initialization failed:", firestoreError.message);
+            }
+          } else {
+            console.log("Skipping Firestore initialization in local environment");
+          }
+          
+          // Initialize analytics
+          let analytics = null;
+          try {
+            analytics = getAnalytics(app);
+          } catch (analyticsError) {
+            console.warn("Analytics initialization failed:", analyticsError.message);
+          }
+          
+          // Expose Firebase modules to window for easy access
+          window.firebaseModules = {
+            app,
+            auth,
+            firestore,
+            analytics,
+            getAuth: () => auth,
+            getFirestore: () => firestore,
+            getAnalytics: () => analytics,
+            // Add direct access to logEvent function
+            logEvent: (eventName, params) => {
+              if (analytics) {
+                logEvent(analytics, eventName, params);
+              } else {
+                console.log("Analytics not available - would log:", eventName, params);
+              }
+            }
+          };
+          
+          console.log("Firebase services initialized in index.html");
+        } catch (error) {
+          console.error("Error initializing Firebase in index.html:", error.message);
+          // Create a placeholder if initialization fails
+          window.firebaseModules = {
+            app: null,
+            auth: null,
+            firestore: null,
+            analytics: null,
+            getAuth: () => null,
+            getFirestore: () => null,
+            getAnalytics: () => null,
+            logEvent: () => console.log("Analytics not available")
+          };
+        }
+      `;
+      
+      document.head.appendChild(firebaseScript);
+    }
+  </script>
 </head>
 <body>
   <div id="info">Skiing Snowman</div>
   <button id="resetBtn">Reset</button>
+  
+  <!-- Auth Container -->
+  <div id="authContainer">
+    <div id="authUI">
+      <button id="loginBtn">
+        <span>Login with Google</span>
+      </button>
+    </div>
+    <div id="profileUI">
+      <img id="profileAvatar" src="" alt="Profile">
+      <span id="profileName"></span>
+      <button id="logoutBtn">Logout</button>
+    </div>
+  </div>
+  
+  <!-- Leaderboard Container (will be added to game over overlay) -->
+  <div id="leaderboard" style="display:none;"></div>
+  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
     // This block ensures scripts load in the right order
     document.addEventListener('DOMContentLoaded', function() {
-        // First load mountains.js
-        const mountainsScript = document.createElement('script');
-        mountainsScript.src = 'mountains.js';
+        // First detect if we're using file:// protocol for special handling
+        const isFileProtocol = window.location.protocol === 'file:';
         
-        // Then load trees.js after mountains.js has loaded
-        mountainsScript.onload = function() {
-            const treesScript = document.createElement('script');
-            treesScript.src = 'trees.js';
+        // Handle auth.js loading based on protocol
+        let authLoaded = false;
+        let authLoadPromise;
+        
+        // For file:// protocol, we'll use an inline auth script that skips module imports
+        if (isFileProtocol) {
+            console.log("File protocol detected - using inline auth implementation");
+            // Create a simplified auth module directly in the page
+            window.AuthModule = {
+                initializeAuth: function(config) {
+                    console.log("Auth initialized in local mode (simplified)");
+                },
+                recordScore: function(time) {
+                    localStorage.setItem('snowgliderBestTime', time);
+                    console.log("Score recorded locally:", time);
+                },
+                displayLeaderboard: function() {
+                    console.log("Leaderboard not available in local mode");
+                    const leaderboardElement = document.getElementById('leaderboard');
+                    if (leaderboardElement) {
+                        leaderboardElement.innerHTML = '<h3>Leaderboard unavailable in local mode</h3>';
+                    }
+                },
+                getCurrentUser: function() { return null; },
+                isUserSignedIn: function() { return false; },
+                getUserIdToken: function() { return Promise.reject("Not available in local mode"); },
+                signOut: function() { return Promise.resolve(); },
+                getAuthState: function() { return { user: null, isSignedIn: false }; },
+                isFirebaseAvailable: function() { 
+                    return { auth: false, firestore: false, analytics: false }; 
+                }
+            };
+            authLoaded = true;
+            authLoadPromise = Promise.resolve();
             
-            // Then load utils.js after trees.js has loaded
-            treesScript.onload = function() {
-                const utilsScript = document.createElement('script');
-                utilsScript.src = 'utils.js';
+            // Update UI to show local mode
+            const authUI = document.getElementById('authUI');
+            const profileUI = document.getElementById('profileUI');
+            
+            if (authUI) authUI.style.display = 'none';
+            if (profileUI) profileUI.style.display = 'none';
+            
+            // Add local mode notice
+            const authContainer = document.getElementById('authContainer');
+            if (authContainer) {
+                const localModeNotice = document.createElement('div');
+                localModeNotice.style.color = 'white';
+                localModeNotice.style.padding = '8px';
+                localModeNotice.style.textAlign = 'center';
+                localModeNotice.innerHTML = '🏠 Local Mode<br>Auth disabled';
+                authContainer.appendChild(localModeNotice);
+            }
+        } else {
+            // Regular loading for http/https protocol
+            const authScript = document.createElement('script');
+            authScript.src = 'auth.js';
+            authScript.type = 'module';
+            
+            authLoadPromise = new Promise(resolve => {
+                authScript.onload = function() {
+                    authLoaded = true;
+                    resolve();
+                };
+                document.body.appendChild(authScript);
+            });
+        }
+        
+        // Proceed with loading other scripts once auth is handled
+        authLoadPromise.then(() => {
+            const mountainsScript = document.createElement('script');
+            mountainsScript.src = 'mountains.js';
+            
+            // Then load trees.js after mountains.js has loaded
+            mountainsScript.onload = function() {
+                const treesScript = document.createElement('script');
+                treesScript.src = 'trees.js';
                 
-                // Load camera.js after utils.js
-                utilsScript.onload = function() {
-                    const cameraScript = document.createElement('script');
-                    cameraScript.src = 'camera.js';
+                // Then load utils.js after trees.js has loaded
+                treesScript.onload = function() {
+                    const utilsScript = document.createElement('script');
+                    utilsScript.src = 'utils.js';
                     
-                    // Load snowman.js after camera.js
-                    cameraScript.onload = function() {
-                        const snowmanScript = document.createElement('script');
-                        snowmanScript.src = 'snowman.js';
+                    // Load camera.js after utils.js
+                    utilsScript.onload = function() {
+                        const cameraScript = document.createElement('script');
+                        cameraScript.src = 'camera.js';
                         
-                        // Finally load main.js after snowman.js has loaded
-                        snowmanScript.onload = function() {
-                            const mainScript = document.createElement('script');
-                            mainScript.src = 'snowglider.js';
+                        // Load snowman.js after camera.js
+                        cameraScript.onload = function() {
+                            const snowmanScript = document.createElement('script');
+                            snowmanScript.src = 'snowman.js';
                             
-                            // Finally load tests script if needed
-                            mainScript.onload = function() {
-                                // Always load all test scripts for the unified runner to work
-                                // But they will only execute if their specific URL parameter is present
-                                const loadTests = function() {
-                                    // Determine which tests to load based on URL parameters
-                                    let testsScripts = [];
-                                    
-                                    // Always load camera tests if ?test=camera is in URL
-                                    if (window.location.search.includes('test=camera')) {
-                                        console.log("Loading only camera tests");
-                                        testsScripts = [
-                                            { src: 'tests/camera-tests.js', loaded: false }
-                                        ];
-                                    } 
-                                    // Load all tests for unified tests or when other test parameters are present
-                                    else if (window.location.search.includes('test=')) {
-                                        console.log("Loading all test scripts");
-                                        testsScripts = [
-                                            { src: 'tests/browser-tests.js', loaded: false },
-                                            { src: 'tests/browser-regression-tests.js', loaded: false },
-                                            { src: 'tests/browser-tree-tests.js', loaded: false },
-                                            { src: 'tests/camera-tests.js', loaded: false }
-                                        ];
-                                    }
-                                    
-                                    // If no test scripts to load, skip the rest
-                                    if (testsScripts.length === 0) {
-                                        console.log("No test scripts to load");
-                                        return;
-                                    }
-                                    
-                                    let totalLoaded = 0;
-                                    
-                                    // Function to check if all scripts are loaded
-                                    const checkAllLoaded = function() {
-                                        totalLoaded++;
-                                        if (totalLoaded === testsScripts.length) {
-                                            // All individual test scripts are loaded
-                                            // Now load the unified test runner if needed
-                                            if (window.location.search.includes('test=unified')) {
-                                                console.log("Loading unified test runner...");
-                                                const unifiedRunner = document.createElement('script');
-                                                unifiedRunner.src = 'tests/unified-test-runner.js';
-                                                unifiedRunner.onload = function() {
-                                                    console.log("Unified test runner loaded successfully");
-                                                };
-                                                document.body.appendChild(unifiedRunner);
-                                            } else {
-                                                console.log("Skipping unified test runner (use test=unified in URL to load it)");
-                                            }
+                            // Finally load main.js after snowman.js has loaded
+                            snowmanScript.onload = function() {
+                                const mainScript = document.createElement('script');
+                                mainScript.src = 'snowglider.js';
+                            
+                                // Finally load tests script if needed
+                                mainScript.onload = function() {
+                                    // Always load all test scripts for the unified runner to work
+                                    // But they will only execute if their specific URL parameter is present
+                                    const loadTests = function() {
+                                        // Determine which tests to load based on URL parameters
+                                        let testsScripts = [];
+                                        
+                                        // Always load camera tests if ?test=camera is in URL
+                                        if (window.location.search.includes('test=camera')) {
+                                            console.log("Loading only camera tests");
+                                            testsScripts = [
+                                                { src: 'tests/camera-tests.js', loaded: false }
+                                            ];
+                                        } 
+                                        // Load all tests for unified tests or when other test parameters are present
+                                        else if (window.location.search.includes('test=')) {
+                                            console.log("Loading all test scripts");
+                                            testsScripts = [
+                                                { src: 'tests/browser-tests.js', loaded: false },
+                                                { src: 'tests/browser-regression-tests.js', loaded: false },
+                                                { src: 'tests/browser-tree-tests.js', loaded: false },
+                                                { src: 'tests/camera-tests.js', loaded: false }
+                                            ];
                                         }
+                                        
+                                        // If no test scripts to load, skip the rest
+                                        if (testsScripts.length === 0) {
+                                            console.log("No test scripts to load");
+                                            return;
+                                        }
+                                        
+                                        let totalLoaded = 0;
+                                        
+                                        // Function to check if all scripts are loaded
+                                        const checkAllLoaded = function() {
+                                            totalLoaded++;
+                                            if (totalLoaded === testsScripts.length) {
+                                                // All individual test scripts are loaded
+                                                // Now load the unified test runner if needed
+                                                if (window.location.search.includes('test=unified')) {
+                                                    console.log("Loading unified test runner...");
+                                                    const unifiedRunner = document.createElement('script');
+                                                    unifiedRunner.src = 'tests/unified-test-runner.js';
+                                                    unifiedRunner.onload = function() {
+                                                        console.log("Unified test runner loaded successfully");
+                                                    };
+                                                    document.body.appendChild(unifiedRunner);
+                                                } else {
+                                                    console.log("Skipping unified test runner (use test=unified in URL to load it)");
+                                                }
+                                            }
+                                        };
+                                        
+                                        // Load all test scripts
+                                        testsScripts.forEach(function(script) {
+                                            const scriptElement = document.createElement('script');
+                                            scriptElement.src = script.src;
+                                            scriptElement.onload = checkAllLoaded;
+                                            document.body.appendChild(scriptElement);
+                                        });
                                     };
                                     
-                                    // Load all test scripts
-                                    testsScripts.forEach(function(script) {
-                                        const scriptElement = document.createElement('script');
-                                        scriptElement.src = script.src;
-                                        scriptElement.onload = checkAllLoaded;
-                                        document.body.appendChild(scriptElement);
-                                    });
+                                    // Start loading the tests
+                                    loadTests();
+                                    
+                                    // Firebase configuration
+                                    const firebaseConfig = {
+                                        apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
+                                        authDomain: "sn0wglider.firebaseapp.com",
+                                        projectId: "sn0wglider",
+                                        storageBucket: "sn0wglider.appspot.com",
+                                        messagingSenderId: "504681218869",
+                                        appId: "1:504681218869:web:5abbba6825691006d6027c",
+                                        measurementId: "G-GYQC13R6MZ"
+                                    };
+                                    
+                                    // For local development (file:// protocol), show a warning about Firebase limitations
+                                    if (window.location.protocol === 'file:') {
+                                      console.warn('⚠️ Running Firebase on local file:// protocol has limitations. Some features may not work correctly.');
+                                      console.warn('For full functionality, use a local web server instead (like http-server, Python\'s SimpleHTTPServer, etc).');
+                                    }
+                                    
+                                    // Ensure Firebase is properly initialized before proceeding
+                                    setTimeout(() => {
+                                        try {
+                                            // Check if Firebase app is already initialized
+                                            if (window.firebaseModules && window.firebaseModules.app) {
+                                                console.log("Using existing Firebase app instance from module script");
+                                                
+                                                // Initialize Auth module with existing Firebase instance
+                                                if (window.AuthModule && typeof window.AuthModule.initializeAuth === 'function') {
+                                                    console.log("Initializing AuthModule with existing Firebase config");
+                                                    window.AuthModule.initializeAuth(firebaseConfig);
+                                                    
+                                                    // Log Firebase services status
+                                                    if (window.AuthModule.isFirebaseAvailable) {
+                                                        const status = window.AuthModule.isFirebaseAvailable();
+                                                        console.log("Firebase services status:", 
+                                                            "Auth:", status.auth ? "Available" : "Unavailable",
+                                                            "Firestore:", status.firestore ? "Available" : "Unavailable",
+                                                            "Analytics:", status.analytics ? "Available" : "Unavailable"
+                                                        );
+                                                    }
+                                                } else {
+                                                    console.error("AuthModule not found or initializeAuth is not a function. Check auth.js implementation.");
+                                                }
+                                            } else {
+                                                console.warn("Firebase not initialized in head section, authentication features may not work correctly");
+                                            }
+                                        } catch (e) {
+                                            console.error("Firebase initialization error in main script:", e.message);
+                                        }
+                                    }, 500); // Short delay to ensure auth.js is fully loaded
                                 };
                                 
-                                // Start loading the tests
-                                loadTests();
+                                document.body.appendChild(mainScript);
                             };
                             
-                            document.body.appendChild(mainScript);
+                            document.body.appendChild(snowmanScript);
                         };
                         
-                        document.body.appendChild(snowmanScript);
+                        document.body.appendChild(cameraScript);
                     };
                     
-                    document.body.appendChild(cameraScript);
+                    document.body.appendChild(utilsScript);
                 };
                 
-                document.body.appendChild(utilsScript);
+                document.body.appendChild(treesScript);
             };
             
-            document.body.appendChild(treesScript);
-        };
-        
-        document.body.appendChild(mountainsScript);
+            document.body.appendChild(mountainsScript);
+        });
     });
 </script>
 </body>
