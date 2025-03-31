@@ -110,6 +110,9 @@ function setupTouchControls() {
   // Only create visual indicators if we're on a mobile device
   if (isMobileDevice()) {
     touchState.showVisualControls = true;
+    
+    // Add touch event handlers for reset and restart buttons
+    setupButtonTouchHandlers();
   }
   
   // Calculate and update touch regions based on screen dimensions
@@ -404,6 +407,68 @@ const Controls = {
     return touchState.showVisualControls;
   }
 };
+
+// Function to add explicit touch handlers for game buttons
+function setupButtonTouchHandlers() {
+  // Add touch handlers to the reset button
+  const resetBtn = document.getElementById('resetBtn');
+  if (resetBtn) {
+    resetBtn.addEventListener('touchstart', (event) => {
+      event.preventDefault();
+      // Call the resetSnowman function directly from the global scope
+      if (typeof window.resetSnowman === 'function') {
+        window.resetSnowman();
+      }
+    }, { passive: false });
+  }
+  
+  // For the restart button, we need to set up an observer since it's dynamically created
+  // when the game over screen appears
+  const gameOverObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.type === 'attributes' && 
+          mutation.attributeName === 'style' && 
+          mutation.target.id === 'gameOverOverlay' &&
+          mutation.target.style.display === 'flex') {
+        
+        // Game over overlay is now visible, add touch handler to restart button
+        const restartButton = document.querySelector('#gameOverOverlay button');
+        if (restartButton && !restartButton.getAttribute('touch-handler-added')) {
+          restartButton.addEventListener('touchstart', (event) => {
+            event.preventDefault();
+            // Call the restartGame function directly from the global scope
+            if (typeof window.restartGame === 'function') {
+              window.restartGame();
+            }
+          }, { passive: false });
+          
+          // Mark button as having touch handler to avoid duplicates
+          restartButton.setAttribute('touch-handler-added', 'true');
+        }
+      }
+    });
+  });
+  
+  // Start observing the game over overlay
+  const gameOverOverlay = document.getElementById('gameOverOverlay');
+  if (gameOverOverlay) {
+    gameOverObserver.observe(gameOverOverlay, {
+      attributes: true,
+      attributeFilter: ['style']
+    });
+  } else {
+    // If game over overlay doesn't exist yet, wait a bit and try again
+    setTimeout(() => {
+      const delayedOverlay = document.getElementById('gameOverOverlay');
+      if (delayedOverlay) {
+        gameOverObserver.observe(delayedOverlay, {
+          attributes: true,
+          attributeFilter: ['style']
+        });
+      }
+    }, 1000);
+  }
+}
 
 // Make Controls available globally
 if (typeof window !== 'undefined') {

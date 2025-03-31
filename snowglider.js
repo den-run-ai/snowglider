@@ -59,13 +59,17 @@ gameOverOverlay.appendChild(gameOverDetail);
 // Restart button
 const restartButton = document.createElement('button');
 restartButton.textContent = 'RESTART';
-restartButton.style.padding = '10px 20px';
-restartButton.style.fontSize = '20px';
+restartButton.style.padding = '15px 30px';
+restartButton.style.fontSize = '22px';
 restartButton.style.backgroundColor = '#ff4136';
 restartButton.style.color = 'white';
 restartButton.style.border = 'none';
-restartButton.style.borderRadius = '5px';
+restartButton.style.borderRadius = '8px';
 restartButton.style.cursor = 'pointer';
+restartButton.style.minWidth = '200px';
+restartButton.style.webkitTapHighlightColor = 'rgba(255, 255, 255, 0.5)';
+restartButton.style.touchAction = 'manipulation'; // Removes delay on mobile devices
+restartButton.style.userSelect = 'none';
 restartButton.addEventListener('mouseenter', () => {
   restartButton.style.backgroundColor = '#ff725c';
 });
@@ -218,6 +222,9 @@ function resetSnowman() {
     console.log("Analytics tracking skipped:", e.message);
   }
 }
+// Make resetSnowman accessible globally for touch handler
+window.resetSnowman = resetSnowman;
+
 resetSnowman();
 document.getElementById('resetBtn').addEventListener('click', resetSnowman);
 
@@ -436,6 +443,8 @@ function restartGame() {
     animate(lastTime);
   }
 }
+// Make restartGame accessible globally for touch handler
+window.restartGame = restartGame;
 
 // Initialize test hooks explicitly to ensure they're available immediately
 // This is important for browser tests that run soon after page load
