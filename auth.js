@@ -78,6 +78,10 @@ function initializeAuth(firebaseConfig) {
       firebaseConfig.storageBucket = "sn0wglider.appspot.com";
     }
     
+    // Set up cross-window/cross-tab auth state synchronization
+    // This is especially important for mobile redirect flow
+    setupAuthStateSynchronization();
+    
     // Check if Firebase is already initialized in the window object
     let app;
     if (window.firebaseModules && window.firebaseModules.app) {
@@ -204,8 +208,17 @@ function initializeAuth(firebaseConfig) {
               try {
                 localStorage.removeItem('authRedirectAttempts');
                 localStorage.removeItem('authRedirectTimestamp');
+                
+                // Signal auth success to other tabs/windows via localStorage
+                // This helps mobile browsers sync auth state between windows
+                localStorage.setItem('snowglider_auth_event', JSON.stringify({
+                  type: 'login_success',
+                  timestamp: Date.now(),
+                  uid: result.user.uid
+                }));
               } catch (e) {
                 // Ignore storage errors
+                console.error("Error updating localStorage after auth:", e);
               }
               
               // Update UI to show signed-in state
@@ -561,6 +574,16 @@ function setupAuthButtons() {
       firebaseSignOut(auth)
         .then(() => {
           console.log("Successfully signed out");
+          
+          // Signal logout to other windows/tabs via localStorage
+          try {
+            localStorage.setItem('snowglider_auth_event', JSON.stringify({
+              type: 'logout_success',
+              timestamp: Date.now()
+            }));
+          } catch (e) {
+            console.error("Error updating localStorage after logout:", e);
+          }
         })
         .catch(error => {
           console.error("Logout error:", error);
@@ -1007,6 +1030,89 @@ function logDebugInfo(message, data) {
     // Auto-scroll to bottom
     debugOverlay.scrollTop = debugOverlay.scrollHeight;
   }
+}
+
+// Set up storage event listener for cross-window auth synchronization
+function setupAuthStateSynchronization() {
+  console.log("Setting up cross-window auth synchronization");
+  if (typeof logDebugInfo === 'function') {
+    logDebugInfo("Setting up cross-window auth sync", {
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    });
+  }
+  
+  // Listen for auth events from other windows/tabs
+  window.addEventListener('storage', function(event) {
+    // Only react to our specific auth events
+    if (event.key === 'snowglider_auth_event') {
+      try {
+        const authEvent = JSON.parse(event.newValue);
+        const timestamp = authEvent.timestamp;
+        const now = Date.now();
+        const timeDiff = now - timestamp;
+        
+        // Only process recent events (within last 30 seconds)
+        if (timeDiff <= 30000) {
+          console.log(`Auth event received from another window: ${authEvent.type}`, timeDiff + 'ms ago');
+          
+          if (typeof logDebugInfo === 'function') {
+            logDebugInfo("Cross-window auth event", {
+              type: authEvent.type,
+              timeDiff: timeDiff + 'ms',
+              source: 'storage event'
+            });
+          }
+          
+          // Handle different auth event types
+          if (authEvent.type === 'login_success') {
+            // Force a re-check of authentication state for login
+            if (auth) {
+              console.log("Forcing auth state refresh based on cross-window login");
+              // We don't need to do anything here as onAuthStateChanged will handle it,
+              // but we can notify the user that we're syncing
+              
+              // Update UI to reflect that we're syncing auth state
+              const loginBtn = document.getElementById('loginBtn');
+              if (loginBtn) {
+                loginBtn.textContent = 'Syncing...';
+                loginBtn.disabled = true;
+                
+                // After a short delay, return to normal state
+                setTimeout(() => {
+                  // onAuthStateChanged should have already updated UI by now
+                  // but just in case, reset the button
+                  if (!currentUser) {
+                    loginBtn.textContent = 'Login with Google';
+                    loginBtn.disabled = false;
+                  }
+                }, 1500);
+              }
+            }
+          } else if (authEvent.type === 'logout_success') {
+            // Handle logout from another window
+            console.log("Detected logout from another window");
+            
+            // Update UI to reflect logged-out state
+            if (currentUser) {
+              // This handles the case where this window thinks the user is still logged in
+              // but they've logged out in another window
+              console.log("Syncing logout state from another window");
+              
+              // onAuthStateChanged should catch this eventually, but we can update the UI immediately
+              updateUIForLoggedOutUser();
+              
+              // Don't set currentUser to null here - let onAuthStateChanged handle that
+              // to ensure consistency with actual Firebase state
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Error processing auth event from another window:", e);
+      }
+    }
+  });
+  
+  console.log("Cross-window auth synchronization set up");
 }
 
 // Export the module functions
