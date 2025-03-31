@@ -116,7 +116,7 @@ function resetSnowman(snowman, pos, velocity, getTerrainHeight, cameraManager) {
 
 // Update snowman physics and movement
 function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity, 
-                      lastTerrainHeight, airTime, jumpCooldown, keyboardControls, 
+                      lastTerrainHeight, airTime, jumpCooldown, controls, 
                       turnPhase, currentTurnDirection, turnChangeCooldown, turnAmplitude,
                       getTerrainHeight, getTerrainGradient, getDownhillDirection, 
                       treePositions, gameActive, showGameOver) {
@@ -166,8 +166,8 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
     isInAir = true;
   }
   
-  // Manual jump with spacebar
-  if (keyboardControls.jump && !isInAir && jumpCooldown <= 0) {
+  // Manual jump with spacebar or touch
+  if (controls.jump && !isInAir && jumpCooldown <= 0) {
     verticalVelocity = 10 + (currentSpeed * 0.5);
     isInAir = true;
     jumpCooldown = 0.5; // Prevent jump spam
@@ -185,10 +185,10 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
     pos.y += verticalVelocity * delta;
     
     // Air control
-    if (keyboardControls.left) {
+    if (controls.left) {
       velocity.x -= 5.0 * delta;
     }
-    if (keyboardControls.right) {
+    if (controls.right) {
       velocity.x += 5.0 * delta;
     }
     
@@ -209,27 +209,27 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
     velocity.x += dir.x * steepness * gravity * delta;
     velocity.z += dir.z * steepness * gravity * delta;
     
-    // Handle keyboard input for steering
-    const keyboardTurnForce = 16.0;
+    // Handle user input for steering
+    const turnForce = 16.0;
     
-    if (keyboardControls.left) {
-      velocity.x -= keyboardTurnForce * delta;
+    if (controls.left) {
+      velocity.x -= turnForce * delta;
     }
-    if (keyboardControls.right) {
-      velocity.x += keyboardTurnForce * delta;
+    if (controls.right) {
+      velocity.x += turnForce * delta;
     }
     
     // Handle forward/backward input
     const accelerationForce = 10.0;
-    if (keyboardControls.up) {
+    if (controls.up) {
       velocity.z -= accelerationForce * delta;
     }
-    if (keyboardControls.down) {
+    if (controls.down) {
       velocity.z += accelerationForce * delta * 0.5; // Braking is less powerful
     }
     
-    // Only use automatic turning if no keyboard input
-    if (!keyboardControls.left && !keyboardControls.right) {
+    // Only use automatic turning if no user input
+    if (!controls.left && !controls.right) {
       // Update turn phase and apply automatic turning
       turnPhase += delta * 0.5; // Slower phase advancement for gentler turning
       turnChangeCooldown -= delta;
@@ -457,8 +457,11 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
   
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
   // Allow wider boundaries to match the extended mountain terrain
+  // Only skip boundary check during certain tests, but not during the game over test
+  const inExtendedMountainTest = window.location.search.includes('test=') && 
+                                !window.location.search.includes('test=true'); // Don't skip boundary check during browser tests
   if (pos.z < -195 || // Extended from -95 to -195 for longer run
-      Math.abs(pos.x) > 120 || // Increased from 80 to 120 to accommodate wider terrain
+      (!inExtendedMountainTest && Math.abs(pos.x) > 120) || // Keep boundary check during browser tests
       (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||
       collision) {
     

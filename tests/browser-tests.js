@@ -371,7 +371,9 @@
       
       // Trigger a jump
       jumpCooldown = 0;
-      keyboardControls.jump = true;
+      // Get the controls object and set jump to true
+      const controls = Controls.getControls();
+      controls.jump = true;
       updateSnowman(0.1);
       
       assert(isInAir, 'Jump Initiation', 
@@ -393,7 +395,7 @@
         'Gravity not properly affecting jump trajectory');
       
       // Reset state
-      keyboardControls.jump = false;
+      controls.jump = false;
       resetSnowman();
     }
     

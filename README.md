@@ -28,6 +28,8 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `tests/` - Testing framework for game components
 
 ## Controls
+
+### Keyboard Controls (Desktop)
 - **Arrow Keys / WASD**: Control snowman direction
   - **Left Arrow / A**: Turn left
   - **Right Arrow / D**: Turn right
@@ -35,6 +37,16 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
   - **Down Arrow / S**: Slow down
 - **Space**: Jump over obstacles
 - **Reset Button**: Start a new run
+
+### Touch Controls (Mobile)
+- **Left Side of Screen**: Turn left
+- **Right Side of Screen**: Turn right
+- **Top of Screen**: Increase speed
+- **Bottom of Screen**: Slow down
+- **Center of Screen**: Jump
+- **Reset Button**: Start a new run
+
+The game automatically detects mobile devices and enables touch controls with visual indicators for easier gameplay.
 
 ## Testing
 The game includes a comprehensive testing framework. Run tests by appending URL parameters:
@@ -45,6 +57,9 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=unified` - Run all tests
 
 ## Recent Improvements
+- Added mobile-friendly touch controls with visual indicators for touchscreen devices
+- Implemented adaptive control layout that adjusts to screen size and orientation
+- Added automatic detection of mobile devices to enable appropriate controls
 - Added Firebase authentication and user account system
 - Implemented global leaderboard with top 10 player times
 - Automatic score syncing between local storage and Firebase

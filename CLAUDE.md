@@ -9,6 +9,7 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - `trees.js` - Tree creation and placement throughout the mountain
 - `camera.js` - Camera management system
 - `snowman.js` - Snowman model and physics
+- `controls.js` - Keyboard and touch controls implementation
 - `auth.js` / `auth.html` - Firebase authentication implementation
 - `tests/` - Test files for terrain, physics, camera, and collision detection
 
@@ -53,3 +54,7 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - Maintain natural terrain variation while keeping it skiable
 - Include downhill gradient for proper skiing experience
 - Avoid duplicating tree position logic between files
+- Maintain compatibility between keyboard and touch controls
+- Use standard touch event handlers with { passive: false }
+- Provide visual feedback for touch controls on mobile devices
+- Automatically detect device type to enable appropriate controls
