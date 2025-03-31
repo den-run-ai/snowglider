@@ -257,7 +257,14 @@ cameraToggleBtn.style.fontSize = '16px';
 cameraToggleBtn.style.webkitTapHighlightColor = 'rgba(255, 255, 255, 0.5)';
 cameraToggleBtn.style.touchAction = 'manipulation'; // Removes delay on mobile devices
 cameraToggleBtn.style.userSelect = 'none';
+
+// Add both click and touchend events to ensure cross-platform compatibility
 cameraToggleBtn.addEventListener('click', toggleCameraView);
+cameraToggleBtn.addEventListener('touchend', function(event) {
+  event.preventDefault();
+  toggleCameraView();
+}, { passive: false });
+
 document.body.appendChild(cameraToggleBtn);
 
 // Keyboard event listeners now managed by the Controls module

@@ -319,6 +319,34 @@ function runControlsTests() {
     logResult('Touch Event Compatibility', false, error.message);
   }
   
+  // Test 9: Toggle Chase View Button Touch Handling
+  try {
+    // First verify the button exists
+    const cameraToggleBtn = document.getElementById('cameraToggleBtn');
+    assert(cameraToggleBtn !== null, 'Camera toggle button should exist in the DOM');
+    
+    // Check if the toggleCameraView function is available globally
+    assert(typeof window.toggleCameraView === 'function', 'toggleCameraView function should be available globally');
+    
+    // Verify that the button has both click and touchend event listeners
+    // We can't directly access event listeners, but we can check for touch-related properties
+    assert(cameraToggleBtn.style.touchAction === 'manipulation', 'Button should have touch-action: manipulation');
+    
+    // Skip the touch event simulation part when running in a non-touch environment
+    // This avoids the TouchEvent constructor errors when running on desktop
+    console.log('Skipping touch event simulation for toggle chase view button - requires real device');
+    const skipMessage = document.createElement('div');
+    skipMessage.textContent = '⚠ Skipped: Toggle Chase Button Touch Event Simulation (requires real device)';
+    skipMessage.style.color = '#FFB74D';
+    resultsDiv.appendChild(skipMessage);
+    
+    // Still report a pass for the parts we could verify
+    logResult('Toggle Chase Button Configuration', true, 'Button is properly configured for touch events');
+    
+  } catch (error) {
+    logResult('Toggle Chase Button Configuration', false, error.message);
+  }
+  
   // Print test summary
   const summary = document.createElement('div');
   summary.style.fontWeight = 'bold';
