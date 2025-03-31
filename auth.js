@@ -204,6 +204,12 @@ function initializeAuth(firebaseConfig) {
                 });
               }
               
+              // Explicitly set currentUser to ensure UI updates correctly
+              currentUser = result.user;
+              
+              // Force UI update immediately
+              updateUIForLoggedInUser(result.user);
+              
               // Clear redirect attempt tracking
               try {
                 localStorage.removeItem('authRedirectAttempts');
@@ -216,6 +222,9 @@ function initializeAuth(firebaseConfig) {
                   timestamp: Date.now(),
                   uid: result.user.uid
                 }));
+                
+                // Also update the sign-in timestamp to help with polling detection
+                localStorage.setItem('snowglider_last_signin', Date.now().toString());
               } catch (e) {
                 // Ignore storage errors
                 console.error("Error updating localStorage after auth:", e);
@@ -1041,6 +1050,114 @@ function setupAuthStateSynchronization() {
     });
   }
   
+  // Mobile-specific periodic auth check for redirects
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if (isMobile) {
+    // For mobile devices, set up a periodic auth state check
+    console.log("Setting up mobile-specific auth state polling");
+    if (typeof logDebugInfo === 'function') {
+      logDebugInfo("Setting up mobile auth state polling");
+    }
+    
+    // Check for active redirect attempts in localStorage
+    const redirectAttempted = parseInt(localStorage.getItem('authRedirectAttempts') || '0') > 0;
+    const redirectTimestamp = parseInt(localStorage.getItem('authRedirectTimestamp') || '0');
+    const timeSinceRedirect = Date.now() - redirectTimestamp;
+    
+    // If we've had a recent redirect attempt (within last 5 minutes)
+    if (redirectAttempted && timeSinceRedirect < 5 * 60 * 1000) {
+      console.log("Detected recent redirect attempt, setting up auth refresh intervals");
+      if (typeof logDebugInfo === 'function') {
+        logDebugInfo("Recent redirect detected", {
+          timeSinceRedirect: Math.round(timeSinceRedirect / 1000) + 's',
+          attempts: parseInt(localStorage.getItem('authRedirectAttempts') || '0')
+        });
+      }
+      
+      // Set up a polling mechanism to check authentication state periodically
+      // This helps in cases where storage events might not work reliably on mobile
+      
+      // Quick intervals for first 30 seconds after page load
+      for (let i = 1; i <= 6; i++) {
+        setTimeout(() => {
+          forceAuthStateRefresh();
+        }, i * 5000); // Check every 5 seconds for first 30 seconds
+      }
+      
+      // Longer intervals for next 5 minutes
+      for (let i = 1; i <= 10; i++) {
+        setTimeout(() => {
+          forceAuthStateRefresh();
+        }, 30000 + i * 30000); // Check every 30 seconds for next 5 minutes
+      }
+    }
+  }
+  
+  // Function to force an auth state refresh
+  function forceAuthStateRefresh() {
+    if (!auth) return;
+    
+    console.log("Forcing auth state refresh check");
+    if (typeof logDebugInfo === 'function') {
+      logDebugInfo("Forcing auth state refresh");
+    }
+    
+    // Force a token refresh to trigger auth state change listeners
+    if (auth.currentUser) {
+      auth.currentUser.getIdToken(true)
+        .then(token => {
+          console.log("Token refreshed successfully");
+          if (typeof logDebugInfo === 'function') {
+            logDebugInfo("Token refreshed successfully");
+          }
+        })
+        .catch(error => {
+          console.error("Token refresh error:", error);
+          if (typeof logDebugInfo === 'function') {
+            logDebugInfo("Token refresh error", { message: error.message });
+          }
+        });
+    } else {
+      // If no current user, check for redirect result again
+      try {
+        getRedirectResult(auth)
+          .then(result => {
+            if (result && result.user) {
+              console.log("Redirect result found on refresh check");
+              if (typeof logDebugInfo === 'function') {
+                logDebugInfo("Redirect result found on refresh", {
+                  uid: result.user.uid
+                });
+              }
+              
+              // Clear redirect attempts counter
+              try {
+                localStorage.removeItem('authRedirectAttempts');
+                localStorage.removeItem('authRedirectTimestamp');
+              } catch (e) {
+                console.error("Error clearing localStorage after auth:", e);
+              }
+              
+              // Update UI to show signed-in state
+              currentUser = result.user;
+              updateUIForLoggedInUser(result.user);
+            }
+          })
+          .catch(error => {
+            console.error("Refresh redirect result check error:", error);
+            if (typeof logDebugInfo === 'function') {
+              logDebugInfo("Refresh redirect result error", {
+                code: error.code,
+                message: error.message
+              });
+            }
+          });
+      } catch (error) {
+        console.error("Error checking redirect result:", error);
+      }
+    }
+  }
+  
   // Listen for auth events from other windows/tabs
   window.addEventListener('storage', function(event) {
     // Only react to our specific auth events
@@ -1068,25 +1185,28 @@ function setupAuthStateSynchronization() {
             // Force a re-check of authentication state for login
             if (auth) {
               console.log("Forcing auth state refresh based on cross-window login");
-              // We don't need to do anything here as onAuthStateChanged will handle it,
-              // but we can notify the user that we're syncing
               
               // Update UI to reflect that we're syncing auth state
               const loginBtn = document.getElementById('loginBtn');
               if (loginBtn) {
                 loginBtn.textContent = 'Syncing...';
                 loginBtn.disabled = true;
-                
-                // After a short delay, return to normal state
-                setTimeout(() => {
-                  // onAuthStateChanged should have already updated UI by now
-                  // but just in case, reset the button
-                  if (!currentUser) {
+              }
+              
+              // Force an immediate auth state refresh
+              forceAuthStateRefresh();
+              
+              // After a short delay, return to normal state if needed
+              setTimeout(() => {
+                // If still not signed in after the refresh, reset button
+                if (!currentUser) {
+                  const loginBtn = document.getElementById('loginBtn');
+                  if (loginBtn) {
                     loginBtn.textContent = 'Login with Google';
                     loginBtn.disabled = false;
                   }
-                }, 1500);
-              }
+                }
+              }, 1500);
             }
           } else if (authEvent.type === 'logout_success') {
             // Handle logout from another window
