@@ -3,7 +3,8 @@ A cheerful snowman shredding mountain snow powder in a playful Three.js animatio
 
 www.snowglider.ai
 
-![SnowGlider Game](https://github.com/user-attachments/assets/b40a1f51-0b57-4d7f-8980-b810a0c179ea)
+https://github.com/user-attachments/assets/699d795e-7c79-40b4-8a15-d7ab6cc27660
+
 
 ## Overview
 SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a procedurally generated mountain. The game includes realistic physics, terrain generation, tree obstacles, and specialized camera tracking.
