@@ -1,5 +1,10 @@
 // auth.js - Firebase Authentication module for SnowGlider
 // Uses Firebase modular SDK
+
+// Prevent Firebase from trying to auto-init via init.json that gives 404 on GitHub Pages
+window.FIREBASE_MANUAL_INIT = true;
+window.__FIREBASE_DEFAULTS__ = {};
+
 /**
  * Firebase Authentication Module for SnowGlider
  * 
@@ -268,6 +273,17 @@ function setupAuthButtons() {
       // Detect if mobile device
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       console.log("Device detection:", isMobile ? "Mobile" : "Desktop");
+      
+      // Explicitly set host for GitHub Pages to handle custom domain
+      const isCustomDomain = window.location.hostname !== 'sn0wglider.firebaseapp.com' && 
+                            !window.location.hostname.includes('github.io');
+      if (isCustomDomain) {
+        console.log("Custom domain detected, manually setting auth redirect domain");
+        provider.setCustomParameters({
+          'prompt': 'select_account',
+          'auth_domain': 'sn0wglider.firebaseapp.com'
+        });
+      }
       
       if (isMobile) {
         // Track redirect attempt with more detailed information
