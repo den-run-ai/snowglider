@@ -56,6 +56,13 @@ function setupKeyboardControls() {
       case ' ':  // Spacebar
         gameControls.jump = true;
         break;
+      case 'v':  // Toggle camera view
+      case 'V':
+        // This will be handled in the main game code
+        if (typeof window.toggleCameraView === 'function') {
+          window.toggleCameraView();
+        }
+        break;
     }
   };
   
@@ -418,6 +425,18 @@ function setupButtonTouchHandlers() {
       // Call the resetSnowman function directly from the global scope
       if (typeof window.resetSnowman === 'function') {
         window.resetSnowman();
+      }
+    }, { passive: false });
+  }
+  
+  // Add touch handler to camera toggle button
+  const cameraToggleBtn = document.getElementById('cameraToggleBtn');
+  if (cameraToggleBtn) {
+    cameraToggleBtn.addEventListener('touchstart', (event) => {
+      event.preventDefault();
+      // Call the toggleCameraView function directly from the global scope
+      if (typeof window.toggleCameraView === 'function') {
+        window.toggleCameraView();
       }
     }, { passive: false });
   }

@@ -232,13 +232,33 @@ document.getElementById('resetBtn').addEventListener('click', resetSnowman);
 const resetBtn = document.getElementById('resetBtn');
 const controlsInfo = document.createElement('div');
 controlsInfo.id = 'controlsInfo';
-controlsInfo.innerHTML = '⌨️ Controls: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake | Space to jump';
+controlsInfo.innerHTML = '⌨️ Controls: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake | Space to jump | V to toggle chase view';
 controlsInfo.style.display = 'inline-block';
 controlsInfo.style.marginLeft = '10px';
 controlsInfo.style.fontFamily = 'Arial, sans-serif';
 controlsInfo.style.fontSize = '14px';
 controlsInfo.style.color = '#333';
 resetBtn.parentNode.insertBefore(controlsInfo, resetBtn.nextSibling);
+
+// Add camera toggle button
+const cameraToggleBtn = document.createElement('button');
+cameraToggleBtn.id = 'cameraToggleBtn';
+cameraToggleBtn.textContent = 'Toggle Chase View';
+cameraToggleBtn.style.position = 'absolute';
+cameraToggleBtn.style.bottom = '20px';
+cameraToggleBtn.style.left = '170px'; // Position it next to reset button
+cameraToggleBtn.style.padding = '15px 20px';
+cameraToggleBtn.style.border = 'none';
+cameraToggleBtn.style.borderRadius = '8px';
+cameraToggleBtn.style.backgroundColor = '#4a69bd'; // Different color from reset button
+cameraToggleBtn.style.color = 'white';
+cameraToggleBtn.style.cursor = 'pointer';
+cameraToggleBtn.style.fontSize = '16px';
+cameraToggleBtn.style.webkitTapHighlightColor = 'rgba(255, 255, 255, 0.5)';
+cameraToggleBtn.style.touchAction = 'manipulation'; // Removes delay on mobile devices
+cameraToggleBtn.style.userSelect = 'none';
+cameraToggleBtn.addEventListener('click', toggleCameraView);
+document.body.appendChild(cameraToggleBtn);
 
 // Keyboard event listeners now managed by the Controls module
 
@@ -445,6 +465,33 @@ function restartGame() {
 }
 // Make restartGame accessible globally for touch handler
 window.restartGame = restartGame;
+
+// Toggle between first-person and third-person camera views
+function toggleCameraView() {
+  // Call the camera manager's toggle method
+  const newMode = cameraManager.toggleCameraMode();
+  
+  // Reset camera initialization with current snowman position and rotation
+  cameraManager.initialize(snowman.position, snowman.rotation);
+  
+  // Update the controls info to show the current camera mode
+  const controlsInfo = document.getElementById('controlsInfo');
+  if (controlsInfo) {
+    controlsInfo.innerHTML = `⌨️ Controls: ←/A, →/D to steer | ↑/W accelerate | ↓/S brake | Space to jump | V to toggle ${newMode === 'thirdPerson' ? 'chase' : 'normal'} view`;
+  }
+  
+  // Update the toggle button text
+  const cameraToggleBtn = document.getElementById('cameraToggleBtn');
+  if (cameraToggleBtn) {
+    cameraToggleBtn.textContent = `Toggle ${newMode === 'thirdPerson' ? 'Chase' : 'Normal'} View`;
+  }
+  
+  // Return the new mode (useful for tests)
+  return newMode;
+}
+
+// Make toggleCameraView accessible globally for the keyboard handler in controls.js
+window.toggleCameraView = toggleCameraView;
 
 // Initialize test hooks explicitly to ensure they're available immediately
 // This is important for browser tests that run soon after page load
