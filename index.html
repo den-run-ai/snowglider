@@ -235,6 +235,11 @@
         // Prevent Firebase auto-init as we'll handle it manually
         window.FIREBASE_MANUAL_INIT = true;
         
+        // Prevent init.json fetch attempts
+        if (!window.__FIREBASE_DEFAULTS__) {
+          window.__FIREBASE_DEFAULTS__ = {};
+        }
+        
         // Your web app's Firebase configuration
         const firebaseConfig = {
           apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
@@ -244,6 +249,12 @@
           messagingSenderId: "504681218869",
           appId: "1:504681218869:web:5abbba6825691006d6027c",
           measurementId: "G-GYQC13R6MZ"
+        };
+        
+        // Set defaults to prevent auto-init attempts
+        window.__FIREBASE_DEFAULTS__ = { 
+          config: firebaseConfig,
+          _authTokenSyncURL: null  // Prevent token sync attempts
         };
     
         try {
@@ -341,6 +352,24 @@
   <script>
     // Prevent Firebase auto-init that attempts to fetch init.json
     window.FIREBASE_MANUAL_INIT = true;
+    
+    // Completely prevent init.json fetch by intercepting the network request
+    if (!window.__FIREBASE_DEFAULTS__) {
+      window.__FIREBASE_DEFAULTS__ = {};
+    }
+    
+    // Override fetch to prevent Firebase from fetching init.json
+    const originalFetch = window.fetch;
+    window.fetch = function(url, options) {
+      if (url && typeof url === 'string' && url.includes('/__/firebase/init.json')) {
+        console.log('Intercepted Firebase init.json fetch request');
+        return Promise.resolve(new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }));
+      }
+      return originalFetch.apply(this, arguments);
+    };
   </script>
   <script>
     // This block ensures scripts load in the right order
@@ -534,6 +563,14 @@
                                             appId: "1:504681218869:web:5abbba6825691006d6027c",
                                             measurementId: "G-GYQC13R6MZ"
                                         };
+                                        
+                                        // Ensure __FIREBASE_DEFAULTS__ is set to prevent auto-init attempts
+                                        if (!window.__FIREBASE_DEFAULTS__) {
+                                            window.__FIREBASE_DEFAULTS__ = { 
+                                                config: firebaseConfig,
+                                                _authTokenSyncURL: null  // Prevent token sync attempts
+                                            };
+                                        }
                                         
                                         // For local development (file:// protocol), show a warning about Firebase limitations
                                         if (window.location.protocol === 'file:') {
