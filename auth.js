@@ -36,6 +36,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   setPersistence,
@@ -146,6 +147,25 @@ function initializeAuth(firebaseConfig) {
       if (auth) {
         setPersistence(auth, browserLocalPersistence);
         console.log("Auth persistence set to local");
+        
+        // Set up auth state change handling for redirects
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        if (isMobile) {
+          console.log("Mobile device detected, checking for redirect result");
+          import("https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js").then(module => {
+            if (module.getRedirectResult) {
+              module.getRedirectResult(auth).then((result) => {
+                if (result && result.user) {
+                  console.log("User signed in via redirect");
+                }
+              }).catch((error) => {
+                console.error("Redirect result error:", error);
+              });
+            }
+          }).catch(error => {
+            console.error("Failed to load getRedirectResult:", error);
+          });
+        }
       } else {
         console.warn("Cannot set auth persistence - auth is not initialized");
       }
@@ -238,7 +258,14 @@ function setupAuthButtons() {
   // Login button
   const loginBtn = document.getElementById('loginBtn');
   if (loginBtn) {
-    loginBtn.addEventListener('click', () => {
+    // Prevent default for touch events to avoid double-tap issues on mobile
+    loginBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+    
+    loginBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      
       // Show a loading indicator or disable the button
       loginBtn.textContent = 'Signing In...';
       loginBtn.disabled = true;
@@ -246,24 +273,56 @@ function setupAuthButtons() {
       // Use Google Auth Provider
       const provider = new GoogleAuthProvider();
       
-      // Sign in with popup
-      signInWithPopup(auth, provider)
-        .then((result) => {
-          console.log("User signed in successfully");
-        })
-        .catch((error) => {
-          console.error("Sign in error:", error);
-          // Reset the button
-          loginBtn.textContent = 'Login with Google';
-          loginBtn.disabled = false;
-        });
+      // Detect if mobile device
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        // Use redirect for mobile devices
+        signInWithRedirect(auth, provider)
+          .catch((error) => {
+            console.error("Sign in redirect error:", error);
+            // Reset the button
+            loginBtn.textContent = 'Login with Google';
+            loginBtn.disabled = false;
+          });
+      } else {
+        // Use popup for desktop
+        signInWithPopup(auth, provider)
+          .then((result) => {
+            console.log("User signed in successfully");
+          })
+          .catch((error) => {
+            console.error("Sign in popup error:", error);
+            // If popup blocked, try redirect as fallback
+            if (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user') {
+              console.log("Popup blocked, trying redirect method instead");
+              signInWithRedirect(auth, provider).catch(redirectError => {
+                console.error("Redirect fallback failed:", redirectError);
+                // Reset the button
+                loginBtn.textContent = 'Login with Google';
+                loginBtn.disabled = false;
+              });
+            } else {
+              // Reset the button for other errors
+              loginBtn.textContent = 'Login with Google';
+              loginBtn.disabled = false;
+            }
+          });
+      }
     });
   }
   
   // Logout button
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
+    // Prevent default for touch events to avoid double-tap issues on mobile
+    logoutBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+    
+    logoutBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      
       // Show loading state
       logoutBtn.textContent = 'Signing Out...';
       logoutBtn.disabled = true;

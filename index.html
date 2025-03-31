@@ -58,9 +58,15 @@
       font-size: 14px;
       display: flex;
       align-items: center;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation; /* Better touch response */
     }
     #loginBtn:hover {
       background-color: #3367D6;
+    }
+    #loginBtn:active {
+      background-color: #2A56C6; /* Feedback for touch action */
+      transform: scale(0.98); /* Visual feedback */
     }
     #profileUI {
       display: none;
@@ -89,9 +95,15 @@
       border-radius: 4px;
       cursor: pointer;
       font-size: 12px;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation; /* Better touch response */
     }
     #logoutBtn:hover {
       background-color: rgba(255, 255, 255, 0.2);
+    }
+    #logoutBtn:active {
+      background-color: rgba(255, 255, 255, 0.3);
+      transform: scale(0.98); /* Visual feedback */
     }
     /* Leaderboard styles */
     #leaderboard {
