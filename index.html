@@ -232,6 +232,9 @@
         import { getFirestore } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
         import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
         
+        // Prevent Firebase auto-init as we'll handle it manually
+        window.FIREBASE_MANUAL_INIT = true;
+        
         // Your web app's Firebase configuration
         const firebaseConfig = {
           apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
@@ -334,6 +337,11 @@
   <div id="leaderboard" style="display:none;"></div>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Prevent Firebase auto-init via init.json -->
+  <script>
+    // Prevent Firebase auto-init that attempts to fetch init.json
+    window.FIREBASE_MANUAL_INIT = true;
+  </script>
   <script>
     // This block ensures scripts load in the right order
     document.addEventListener('DOMContentLoaded', function() {
@@ -553,6 +561,22 @@
                                                                 "Firestore:", status.firestore ? "Available" : "Unavailable",
                                                                 "Analytics:", status.analytics ? "Available" : "Unavailable"
                                                             );
+                                                        }
+                                                        
+                                                        // Check if this page load might be after a mobile redirect authentication
+                                                        const redirectPending = localStorage.getItem('snowglider_auth_redirect_pending');
+                                                        if (redirectPending === 'true') {
+                                                            console.log("Detected pending redirect authentication, checking auth state...");
+                                                            // Force an immediate auth check for mobile redirects
+                                                            setTimeout(() => {
+                                                                if (window.AuthModule.isUserSignedIn()) {
+                                                                    console.log("User is signed in after redirect");
+                                                                    localStorage.removeItem('snowglider_auth_redirect_pending');
+                                                                } else {
+                                                                    console.log("User is still not signed in after redirect");
+                                                                    // Keep pending flag for now, will be cleared after timeout
+                                                                }
+                                                            }, 1000);
                                                         }
                                                     } else {
                                                         console.error("AuthModule not found or initializeAuth is not a function. Check auth.js implementation.");
