@@ -7,7 +7,10 @@
  * score tracking, and leaderboard functionality using Firebase services.
  * 
  * Features:
- * - Google authentication with popup sign-in
+ * - Google authentication with adaptive sign-in (popup for desktop, redirect for mobile)
+ * - Enhanced mobile authentication with improved touchscreen responsiveness
+ * - Robust error handling and recovery for authentication issues
+ * - Debug mode with visual overlay for troubleshooting (add ?debug=auth to URL)
  * - User profile management
  * - Best time tracking with Firebase Firestore
  * - Global leaderboard
@@ -19,10 +22,18 @@
  * - All operations gracefully fall back to localStorage
  * - Authentication still works for testing
  * 
+ * Mobile Authentication:
+ * - Automatically detects mobile devices and uses redirect-based authentication
+ * - Provides visual feedback during authentication process
+ * - Tracks redirect attempts in localStorage to help diagnose authentication issues
+ * - Offers retry mechanism for recoverable authentication errors
+ * - Debug overlay available by adding ?debug=auth to the URL
+ * 
  * Usage:
  * - Call window.AuthModule.initializeAuth(firebaseConfig) to initialize
  * - Game automatically logs scores with recordScore(time)
  * - Leaderboard is displayed with displayLeaderboard()
+ * - For debugging issues: window.AuthModule.debugAuth()
  */
 
 // Service instances initialized by initializeAuth
@@ -40,7 +51,8 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
   setPersistence,
-  browserLocalPersistence
+  browserLocalPersistence,
+  getRedirectResult
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
 import { 
   getFirestore,
@@ -148,23 +160,142 @@ function initializeAuth(firebaseConfig) {
         setPersistence(auth, browserLocalPersistence);
         console.log("Auth persistence set to local");
         
-        // Set up auth state change handling for redirects
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        if (isMobile) {
-          console.log("Mobile device detected, checking for redirect result");
-          import("https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js").then(module => {
-            if (module.getRedirectResult) {
-              module.getRedirectResult(auth).then((result) => {
-                if (result && result.user) {
-                  console.log("User signed in via redirect");
-                }
-              }).catch((error) => {
-                console.error("Redirect result error:", error);
+        // Enhanced redirect result handling for all devices (not just mobile)
+        console.log("Setting up redirect result handling");
+        try {
+          // Use imported getRedirectResult function directly
+          console.log("Checking for authentication redirect result");
+          
+          // Check for redirect attempts from localStorage
+          let redirectAttempted = false;
+          try {
+            const attempts = parseInt(localStorage.getItem('authRedirectAttempts') || '0');
+            const timestamp = parseInt(localStorage.getItem('authRedirectTimestamp') || '0');
+            const timeSinceRedirect = Date.now() - timestamp;
+            
+            // Consider a redirect was attempted if we have any attempts recorded in the last 5 minutes
+            redirectAttempted = attempts > 0 && timeSinceRedirect < 5 * 60 * 1000;
+            
+            if (typeof logDebugInfo === 'function') {
+              logDebugInfo("Checking redirect history", {
+                attempts,
+                timestamp,
+                timeSinceRedirect: Math.round(timeSinceRedirect / 1000) + 's',
+                redirectAttempted
               });
             }
-          }).catch(error => {
-            console.error("Failed to load getRedirectResult:", error);
+          } catch (storageError) {
+            console.error("Error checking localStorage for redirect attempts:", storageError);
+          }
+          
+          // Use the getRedirectResult method to get the authentication result
+          getRedirectResult(auth).then((result) => {
+            if (result && result.user) {
+              console.log("User successfully signed in via redirect:", result.user.displayName || result.user.email);
+              if (typeof logDebugInfo === 'function') {
+                logDebugInfo("Successful redirect sign-in", {
+                  uid: result.user.uid,
+                  provider: result.providerId,
+                  displayName: result.user.displayName || 'not set'
+                });
+              }
+              
+              // Clear redirect attempt tracking
+              try {
+                localStorage.removeItem('authRedirectAttempts');
+                localStorage.removeItem('authRedirectTimestamp');
+              } catch (e) {
+                // Ignore storage errors
+              }
+              
+              // Update UI to show signed-in state
+              const loginBtn = document.getElementById('loginBtn');
+              if (loginBtn) {
+                loginBtn.textContent = 'Login with Google';
+                loginBtn.disabled = false;
+                loginBtn.classList.remove('signing-in');
+              }
+              
+              // Trigger analytics event for successful sign-in via redirect
+              if (analytics) {
+                logEvent(analytics, 'login_redirect_success', {
+                  method: 'google.com',
+                  user_id: result.user.uid
+                });
+              }
+            } else {
+              console.log("No redirect result found or user not authenticated");
+              if (typeof logDebugInfo === 'function') {
+                logDebugInfo("No redirect result found", { redirectAttempted });
+                
+                // If we believe a redirect was attempted but no result found, this indicates a potential error
+                if (redirectAttempted) {
+                  logDebugInfo("POTENTIAL ERROR: Redirect was attempted but no result returned", {
+                    possibleCauses: [
+                      "User canceled auth",
+                      "Cookie/storage restrictions",
+                      "Network error during redirect",
+                      "Browser privacy/tracking prevention",
+                      "Firebase redirect flow interrupted"
+                    ]
+                  });
+                }
+              }
+            }
+          }).catch((error) => {
+            console.error("Redirect result error:", error.code, error.message);
+            
+            if (typeof logDebugInfo === 'function') {
+              logDebugInfo("Redirect result error", {
+                code: error.code,
+                message: error.message,
+                redirectAttempted: redirectAttempted,
+                stack: error.stack
+              });
+            }
+            
+            // Provide a fallback mechanism for common redirect errors
+            if (error.code === 'auth/network-request-failed' || 
+                error.code === 'auth/timeout' || 
+                error.code === 'auth/web-storage-unsupported' ||
+                error.code === 'auth/operation-not-supported-in-this-environment') {
+              
+              console.log("Detected redirect error that might be fixed by retrying");
+              if (typeof logDebugInfo === 'function') {
+                logDebugInfo("Will prompt user to retry auth due to fixable error");
+              }
+              
+              // Add a retry button
+              setTimeout(() => {
+                const loginBtn = document.getElementById('loginBtn');
+                if (loginBtn) {
+                  loginBtn.textContent = 'Retry Login';
+                  loginBtn.disabled = false;
+                  loginBtn.classList.remove('signing-in');
+                  loginBtn.classList.add('retry-auth');
+                }
+              }, 500);
+            } else {
+              // Reset login button state if there was an error
+              const loginBtn = document.getElementById('loginBtn');
+              if (loginBtn) {
+                loginBtn.textContent = 'Login with Google';
+                loginBtn.disabled = false;
+                loginBtn.classList.remove('signing-in');
+              }
+            }
+            
+            // Log redirect errors to analytics
+            if (analytics) {
+              logEvent(analytics, 'login_redirect_error', {
+                error_code: error.code,
+                error_message: error.message,
+                redirectAttempted: redirectAttempted
+              });
+            }
           });
+        } catch (error) {
+          console.error("Error setting up redirect result handling:", error);
         }
       } else {
         console.warn("Cannot set auth persistence - auth is not initialized");
@@ -258,35 +389,126 @@ function setupAuthButtons() {
   // Login button
   const loginBtn = document.getElementById('loginBtn');
   if (loginBtn) {
-    // Prevent default for touch events to avoid double-tap issues on mobile
-    loginBtn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-    }, { passive: false });
-    
-    loginBtn.addEventListener('click', (e) => {
+    // Function to handle sign-in process - shared between touchstart and click
+    const handleSignIn = (e) => {
+      // Always prevent default to avoid double events on mobile
       e.preventDefault();
       
       // Show a loading indicator or disable the button
       loginBtn.textContent = 'Signing In...';
       loginBtn.disabled = true;
       
+      // Add visual feedback
+      loginBtn.classList.add('signing-in');
+      
+      // Enhanced logging with debug support
+      console.log("Sign-in initiated via", e.type);
+      if (typeof logDebugInfo === 'function') {
+        logDebugInfo(`Sign-in initiated via ${e.type}`, {
+          timestamp: new Date().toISOString(),
+          eventType: e.type,
+          target: e.target.id,
+          position: {
+            clientX: e.touches ? e.touches[0].clientX : (e.clientX || 'N/A'),
+            clientY: e.touches ? e.touches[0].clientY : (e.clientY || 'N/A')
+          }
+        });
+      }
+      
       // Use Google Auth Provider
       const provider = new GoogleAuthProvider();
       
       // Detect if mobile device
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      console.log("Device detection:", isMobile ? "Mobile" : "Desktop");
+      if (typeof logDebugInfo === 'function') {
+        logDebugInfo("Device detection", {
+          isMobile: isMobile,
+          userAgent: navigator.userAgent,
+          windowWidth: window.innerWidth,
+          windowHeight: window.innerHeight,
+          pixelRatio: window.devicePixelRatio || 1
+        });
+      }
       
       if (isMobile) {
         // Use redirect for mobile devices
-        signInWithRedirect(auth, provider)
-          .catch((error) => {
-            console.error("Sign in redirect error:", error);
-            // Reset the button
-            loginBtn.textContent = 'Login with Google';
-            loginBtn.disabled = false;
+        console.log("Using redirect auth flow for mobile device");
+        if (typeof logDebugInfo === 'function') {
+          logDebugInfo("Using mobile auth redirect flow");
+        }
+        
+        try {
+          // Set additional scopes if needed
+          provider.addScope('profile');
+          provider.addScope('email');
+          
+          // Force re-authentication to help with potential cookie/cache issues
+          provider.setCustomParameters({
+            'prompt': 'select_account'
           });
+          
+          if (typeof logDebugInfo === 'function') {
+            logDebugInfo("Preparing to call signInWithRedirect", {
+              authInitialized: !!auth,
+              provider: 'google.com',
+              hasScopes: true
+            });
+          }
+          
+          // Add a timeout to ensure UI has time to update before redirect
+          setTimeout(() => {
+            // Add an attempt counter to localStorage to track redirect attempts
+            try {
+              const currentAttempts = parseInt(localStorage.getItem('authRedirectAttempts') || '0');
+              localStorage.setItem('authRedirectAttempts', (currentAttempts + 1).toString());
+              localStorage.setItem('authRedirectTimestamp', Date.now().toString());
+              
+              if (typeof logDebugInfo === 'function') {
+                logDebugInfo("Stored redirect attempt data", {
+                  attempts: currentAttempts + 1,
+                  timestamp: Date.now()
+                });
+              }
+            } catch (storageError) {
+              console.error("Error accessing localStorage:", storageError);
+            }
+            
+            // Perform the redirect
+            signInWithRedirect(auth, provider)
+              .catch((error) => {
+                console.error("Sign in redirect error:", error);
+                if (typeof logDebugInfo === 'function') {
+                  logDebugInfo("Sign in redirect error", {
+                    code: error.code,
+                    message: error.message,
+                    stack: error.stack
+                  });
+                }
+                
+                // Reset the button
+                loginBtn.textContent = 'Login with Google';
+                loginBtn.disabled = false;
+                loginBtn.classList.remove('signing-in');
+              });
+          }, 300); // Short delay to update UI before redirect
+          
+        } catch (error) {
+          console.error("Error during signInWithRedirect setup:", error);
+          if (typeof logDebugInfo === 'function') {
+            logDebugInfo("Error during signInWithRedirect setup", {
+              code: error.code,
+              message: error.message,
+              stack: error.stack
+            });
+          }
+          loginBtn.textContent = 'Login with Google';
+          loginBtn.disabled = false;
+          loginBtn.classList.remove('signing-in');
+        }
       } else {
         // Use popup for desktop
+        console.log("Using popup auth flow for desktop device");
         signInWithPopup(auth, provider)
           .then((result) => {
             console.log("User signed in successfully");
@@ -301,15 +523,23 @@ function setupAuthButtons() {
                 // Reset the button
                 loginBtn.textContent = 'Login with Google';
                 loginBtn.disabled = false;
+                loginBtn.classList.remove('signing-in');
               });
             } else {
               // Reset the button for other errors
               loginBtn.textContent = 'Login with Google';
               loginBtn.disabled = false;
+              loginBtn.classList.remove('signing-in');
             }
           });
       }
-    });
+    };
+    
+    // Add touchstart listener with the actual sign-in process
+    loginBtn.addEventListener('touchstart', handleSignIn, { passive: false });
+    
+    // Regular click handler for non-touch devices
+    loginBtn.addEventListener('click', handleSignIn);
   }
   
   // Logout button
@@ -714,6 +944,71 @@ function getUserIdToken(forceRefresh = false) {
   });
 }
 
+/**
+ * Debug logger function for mobile authentication debugging
+ * 
+ * Usage:
+ * - Add ?debug=auth to the URL to enable debug overlay
+ * - Debug information will appear at the bottom of the screen
+ * - Real-time auth operations and errors will be displayed
+ * 
+ * This is especially useful for troubleshooting mobile authentication issues
+ * as it shows detailed information about the redirect flow and any errors.
+ */
+function logDebugInfo(message, data) {
+  console.log(`[Auth Debug] ${message}`, data || '');
+  
+  // Check if in debug mode (via URL param)
+  if (window.location.search.includes('debug=auth')) {
+    // Create or update debug overlay if it doesn't exist
+    let debugOverlay = document.getElementById('authDebugOverlay');
+    
+    if (!debugOverlay) {
+      debugOverlay = document.createElement('div');
+      debugOverlay.id = 'authDebugOverlay';
+      debugOverlay.style.position = 'fixed';
+      debugOverlay.style.bottom = '60px';
+      debugOverlay.style.left = '10px';
+      debugOverlay.style.right = '10px';
+      debugOverlay.style.maxHeight = '200px';
+      debugOverlay.style.overflowY = 'auto';
+      debugOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+      debugOverlay.style.color = '#4CAF50';
+      debugOverlay.style.fontFamily = 'monospace';
+      debugOverlay.style.fontSize = '10px';
+      debugOverlay.style.padding = '5px';
+      debugOverlay.style.borderRadius = '4px';
+      debugOverlay.style.zIndex = '9999';
+      document.body.appendChild(debugOverlay);
+    }
+    
+    // Add message to debug overlay
+    const logEntry = document.createElement('div');
+    logEntry.textContent = `${new Date().toISOString().substring(11, 19)} - ${message}`;
+    if (data) {
+      let dataText;
+      try {
+        dataText = typeof data === 'object' ? JSON.stringify(data) : data.toString();
+        if (dataText.length > 100) {
+          dataText = dataText.substring(0, 97) + '...';
+        }
+      } catch (e) {
+        dataText = '[Object]';
+      }
+      logEntry.textContent += `: ${dataText}`;
+    }
+    debugOverlay.appendChild(logEntry);
+    
+    // Limit number of entries to prevent memory issues
+    while (debugOverlay.childNodes.length > 20) {
+      debugOverlay.removeChild(debugOverlay.firstChild);
+    }
+    
+    // Auto-scroll to bottom
+    debugOverlay.scrollTop = debugOverlay.scrollHeight;
+  }
+}
+
 // Export the module functions
 window.AuthModule = {
   initializeAuth,
@@ -739,5 +1034,46 @@ window.AuthModule = {
     auth: !!auth,
     firestore: !!firestore,
     analytics: !!analytics
-  })
+  }),
+  // Debug helper for mobile troubleshooting
+  debugAuth: () => {
+    logDebugInfo('Auth debug requested');
+    
+    // Create debug panel if in debug mode
+    if (!window.location.search.includes('debug=auth')) {
+      // Add debug parameter to URL
+      const newUrl = window.location.href + 
+        (window.location.search ? '&' : '?') + 'debug=auth';
+      logDebugInfo('Debug mode not enabled. To enable, visit:', newUrl);
+      return { 
+        enabled: false,
+        enableUrl: newUrl
+      };
+    }
+    
+    // Collect and display auth state information
+    const debugData = {
+      userAgent: navigator.userAgent,
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+      protocol: window.location.protocol,
+      hostname: window.location.hostname,
+      services: {
+        auth: !!auth,
+        firestore: !!firestore,
+        analytics: !!analytics
+      },
+      user: currentUser ? {
+        uid: currentUser.uid,
+        email: currentUser.email,
+        isAnonymous: currentUser.isAnonymous,
+        providerId: currentUser.providerId
+      } : null
+    };
+    
+    logDebugInfo('Auth state', debugData);
+    return {
+      enabled: true,
+      data: debugData
+    };
+  }
 };
