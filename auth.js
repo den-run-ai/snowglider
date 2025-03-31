@@ -112,8 +112,11 @@ function initializeAuth(firebaseConfig) {
       
       // Check for redirect authentication result
       try {
+        console.log("Checking for redirect authentication result...");
         getRedirectResult(auth)
           .then(result => {
+            console.log("Redirect result received:", result ? "has result" : "null result");
+            
             if (result && result.user) {
               console.log("User signed in via redirect:", result.user.displayName || result.user.email);
               currentUser = result.user;
@@ -121,18 +124,49 @@ function initializeAuth(firebaseConfig) {
               // Clear all redirect related flags
               localStorage.removeItem('authRedirectAttempts');
               localStorage.removeItem('snowglider_auth_redirect_pending');
+              localStorage.removeItem('snowglider_auth_redirect_time');
               localStorage.setItem('snowglider_auth_last_signin', Date.now().toString());
+              localStorage.setItem('snowglider_auth_success', 'true');
+              
+              // Force UI update again
+              setTimeout(() => {
+                if (currentUser) {
+                  updateUIForLoggedInUser(currentUser);
+                }
+              }, 500);
             } else {
+              console.log("No user from redirect result");
+              
               // Check if a redirect was attempted but no result
               const redirectPending = localStorage.getItem('snowglider_auth_redirect_pending');
               if (redirectPending === 'true') {
                 console.log("A redirect auth was previously attempted but no user result returned");
-                // Only clear if it's been more than 2 minutes since redirect
                 const redirectTime = parseInt(localStorage.getItem('snowglider_auth_redirect_time') || '0');
-                if (Date.now() - redirectTime > 120000) { // 2 minutes timeout
+                const timeSinceRedirect = Date.now() - redirectTime;
+                console.log("Time since redirect attempt:", Math.round(timeSinceRedirect / 1000), "seconds");
+                
+                // For mobile devices: if the redirect was very recent (< 10 seconds), we might still be processing
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                
+                if (isMobile && timeSinceRedirect < 10000) {
+                  console.log("Recent mobile redirect, waiting for auth state to update...");
+                  // Try again in 2 seconds for mobile
+                  setTimeout(() => {
+                    if (!currentUser) {
+                      console.log("Still no user after waiting, resetting login state");
+                      resetLoginButton();
+                      localStorage.removeItem('snowglider_auth_redirect_pending');
+                      localStorage.removeItem('snowglider_auth_redirect_time');
+                    }
+                  }, 2000);
+                } else if (timeSinceRedirect > 120000) { // 2 minutes timeout for non-recent attempts
+                  console.log("Clearing stale redirect pending flags (> 2 min)");
                   localStorage.removeItem('snowglider_auth_redirect_pending');
                   localStorage.removeItem('snowglider_auth_redirect_time');
+                  resetLoginButton();
                 }
+              } else {
+                resetLoginButton();
               }
             }
           })
@@ -141,10 +175,21 @@ function initializeAuth(firebaseConfig) {
             resetLoginButton();
             // Clean up redirect indicators on error
             localStorage.removeItem('snowglider_auth_redirect_pending');
+            localStorage.removeItem('snowglider_auth_redirect_time');
+            
+            // Add retry button for mobile users
+            const loginBtn = document.getElementById('loginBtn');
+            if (loginBtn && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+              loginBtn.textContent = 'Retry Login';
+              loginBtn.classList.add('retry-auth');
+            }
           });
       } catch (e) {
         console.error("Error checking redirect result:", e);
-        // We continue normal flow even if there's an error here
+        resetLoginButton();
+        // Clean up on uncaught errors too
+        localStorage.removeItem('snowglider_auth_redirect_pending');
+        localStorage.removeItem('snowglider_auth_redirect_time');
       }
     }
     
@@ -241,6 +286,31 @@ function resetLoginButton() {
     loginBtn.textContent = 'Login with Google';
     loginBtn.disabled = false;
     loginBtn.classList.remove('signing-in');
+    loginBtn.classList.remove('retry-auth');
+    
+    console.log("Login button reset to default state");
+    
+    // For mobile devices, check if we should show a "Retry" button instead
+    const redirectFailed = localStorage.getItem('snowglider_auth_redirect_pending') === 'true';
+    const redirectTime = parseInt(localStorage.getItem('snowglider_auth_redirect_time') || '0');
+    const isRecent = (Date.now() - redirectTime) < 300000; // 5 minutes
+    
+    if (redirectFailed && isRecent && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+      console.log("Recent failed mobile auth detected, showing retry button");
+      loginBtn.textContent = 'Retry Login';
+      loginBtn.classList.add('retry-auth');
+      
+      // Auto-cleanup after 5 minutes of showing retry
+      if (!window._retryCleanupTimer) {
+        window._retryCleanupTimer = setTimeout(() => {
+          console.log("Auto-cleaning redirect pending state after timeout");
+          localStorage.removeItem('snowglider_auth_redirect_pending');
+          localStorage.removeItem('snowglider_auth_redirect_time');
+          resetLoginButton();
+          window._retryCleanupTimer = null;
+        }, 300000); // 5 minutes
+      }
+    }
   }
 }
 
@@ -288,25 +358,73 @@ function setupAuthButtons() {
       if (isMobile) {
         // Track redirect attempt with more detailed information
         try {
-          localStorage.setItem('authRedirectAttempts', '1');
+          const attempts = parseInt(localStorage.getItem('authRedirectAttempts') || '0') + 1;
+          localStorage.setItem('authRedirectAttempts', attempts.toString());
           localStorage.setItem('snowglider_auth_redirect_pending', 'true');
           localStorage.setItem('snowglider_auth_redirect_time', Date.now().toString());
+          console.log("Starting mobile redirect authentication (attempt #" + attempts + ")");
         } catch (e) {
           console.error("Error accessing localStorage:", e);
         }
         
-        // Use redirect for mobile
-        signInWithRedirect(auth, provider)
-          .catch(error => {
-            console.error("Sign in redirect error:", error);
-            resetLoginButton();
-            // Clean up redirect indicators on error
-            try {
-              localStorage.removeItem('snowglider_auth_redirect_pending');
-            } catch (e) {
-              console.error("Error cleaning localStorage:", e);
+        // Check for Chrome on iOS which needs special handling
+        const isIOSChrome = /CriOS/i.test(navigator.userAgent);
+        const isAndroidChrome = /Android.*Chrome\/[.0-9]*/.test(navigator.userAgent);
+        
+        if (isIOSChrome || isAndroidChrome) {
+          console.log(`Detected ${isIOSChrome ? 'iOS Chrome' : 'Android Chrome'} - using special handling`);
+          // For Chrome on mobile, we might need some extra handling
+          // First, clear any previous auth state
+          try {
+            if (auth.currentUser) {
+              console.log("Signing out current user first to ensure clean state");
+              firebaseSignOut(auth).then(() => {
+                console.log("Successfully signed out, now redirecting");
+                // Add a slight delay to ensure clean state
+                setTimeout(() => {
+                  signInWithRedirect(auth, provider)
+                    .catch(error => {
+                      console.error("Sign in redirect error (Chrome mobile):", error);
+                      resetLoginButton();
+                      localStorage.removeItem('snowglider_auth_redirect_pending');
+                    });
+                }, 300);
+              });
+            } else {
+              // No user, proceed directly
+              signInWithRedirect(auth, provider)
+                .catch(error => {
+                  console.error("Sign in redirect error (Chrome mobile):", error);
+                  resetLoginButton();
+                  localStorage.removeItem('snowglider_auth_redirect_pending');
+                });
             }
-          });
+          } catch (e) {
+            console.error("Error in Chrome mobile special handling:", e);
+            // Fallback to regular redirect
+            signInWithRedirect(auth, provider)
+              .catch(error => {
+                console.error("Sign in redirect error (fallback):", error);
+                resetLoginButton();
+                localStorage.removeItem('snowglider_auth_redirect_pending');
+              });
+          }
+        } else {
+          // Regular mobile redirect for non-Chrome browsers
+          console.log("Using standard redirect for mobile device");
+          signInWithRedirect(auth, provider)
+            .catch(error => {
+              console.error("Sign in redirect error:", error);
+              resetLoginButton();
+              // Clean up redirect indicators on error
+              try {
+                localStorage.removeItem('snowglider_auth_redirect_pending');
+                localStorage.removeItem('snowglider_auth_redirect_time');
+              } catch (e) {
+                console.error("Error cleaning localStorage:", e);
+              }
+            });
+        }
       } else {
         // Use popup for desktop
         signInWithPopup(auth, provider)
