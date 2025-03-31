@@ -117,13 +117,10 @@
         <button id="testFirestoreBtn">Test Firestore</button>
     </div>
     
-    <script src="auth.js"></script>
+    <!-- Load auth.js as a module -->
+    <script src="auth.js" type="module"></script>
+    
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
-        import { getAuth } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
-        import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
-        
         document.addEventListener('DOMContentLoaded', function() {
             // Firebase configuration
             const firebaseConfig = {
@@ -135,125 +132,79 @@
                 appId: "1:504681218869:web:5abbba6825691006d6027c",
                 measurementId: "G-GYQC13R6MZ"
             };
-            
+
             // Display config (masking API key for security)
             const configCopy = {...firebaseConfig};
             configCopy.apiKey = configCopy.apiKey.substring(0, 8) + "...";
             document.getElementById('configDisplay').textContent = JSON.stringify(configCopy, null, 2);
 
-            // Initialize Firebase directly
-            let app, auth, firestore, analytics;
-            
-            try {
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                firestore = getFirestore(app);
-                analytics = getAnalytics(app);
-                
-                // Store modules for auth.js to use
-                window.firebaseModules = {
-                    app,
-                    getAuth: () => auth,
-                    getFirestore: () => firestore,
-                    getAnalytics: () => analytics
-                };
-                
-                console.log("Firebase initialized in auth.html");
-            } catch (error) {
-                console.error("Firebase initialization error:", error);
-            }
-            
-            // Initialize Firebase Auth after Firebase is initialized
-            if (window.AuthModule) {
-                window.AuthModule.initializeAuth(firebaseConfig);
+            // Initialize Firebase Auth via AuthModule
+            if (window.AuthModule && typeof window.AuthModule.initializeAuth === 'function') {
+                try {
+                    console.log("Calling AuthModule.initializeAuth from auth.html...");
+                    window.AuthModule.initializeAuth(firebaseConfig);
+                    console.log("AuthModule.initializeAuth called.");
+
+                    // Add explanation text about the authentication approach
+                    const statusElement = document.getElementById('status');
+                    if (statusElement) {
+                        // Note: Popup is now used exclusively by auth.js
+                        statusElement.innerHTML = `<p>Authentication uses the <strong>popup</strong> flow.</p>
+                            <p>Clicking login will open a popup window for authentication.</p>`;
+                        statusElement.className = "status"; // Clear any previous error/success classes
+                    }
+                } catch (e) {
+                     console.error("Error calling AuthModule.initializeAuth:", e.message, e.stack);
+                     const statusElement = document.getElementById('status');
+                     if (statusElement) {
+                         statusElement.textContent = "Error initializing AuthModule: " + e.message;
+                         statusElement.className = "status error";
+                     }
+                }
             } else {
                 console.error("AuthModule not loaded yet - ensure auth.js is imported correctly");
+                const statusElement = document.getElementById('status');
+                if (statusElement) {
+                    statusElement.textContent = "Error: AuthModule failed to load.";
+                    statusElement.className = "status error";
+                }
             }
-            
+
             // Test configuration button
             document.getElementById('testConfigBtn').addEventListener('click', function() {
                 const statusElement = document.getElementById('status');
-                
                 try {
-                    // Check if Firebase is initialized
-                    if (app) {
-                        statusElement.textContent = "Firebase is properly initialized!";
-                        statusElement.className = "status success";
+                    // Check if AuthModule reported successful initialization
+                    if (window.AuthModule && window.AuthModule.isFirebaseAvailable) {
+                         const fbStatus = window.AuthModule.isFirebaseAvailable();
+                         if (fbStatus.auth) { // Check if auth service specifically is available
+                            statusElement.textContent = "AuthModule initialized successfully (Auth service available).";
+                            statusElement.className = "status success";
+                         } else {
+                            statusElement.textContent = "AuthModule initialized, but Auth service failed to load. Check console.";
+                            statusElement.className = "status error";
+                         }
                     } else {
-                        statusElement.textContent = "Firebase is NOT initialized.";
+                        statusElement.textContent = "AuthModule is not available or failed to initialize.";
                         statusElement.className = "status error";
                     }
                 } catch (e) {
-                    statusElement.textContent = "Error testing Firebase: " + e.message;
+                    statusElement.textContent = "Error testing configuration: " + e.message;
                     statusElement.className = "status error";
                 }
             });
-            
-            // Clear cache button
+
+            // Clear cache button (Reload logic is fine)
             document.getElementById('clearCacheBtn').addEventListener('click', function() {
                 const statusElement = document.getElementById('status');
-                
                 try {
-                    // Clear Firebase cache by reloading the page 
-                    // (Can't delete app with modular SDK in the same way)
-                    statusElement.textContent = "Clearing cache... refresh the page to complete.";
+                    statusElement.textContent = "Reloading page to clear state...";
                     statusElement.className = "status success";
                     setTimeout(() => {
                         window.location.reload();
-                    }, 1500);
+                    }, 1000);
                 } catch (e) {
-                    statusElement.textContent = "Error clearing cache: " + e.message;
-                    statusElement.className = "status error";
-                }
-            });
-            
-            // Test Analytics button
-            document.getElementById('testAnalyticsBtn').addEventListener('click', function() {
-                const statusElement = document.getElementById('status');
-                
-                try {
-                    if (analytics) {
-                        logEvent(analytics, 'test_event', {
-                            test_param: 'test_value',
-                            timestamp: new Date().toISOString()
-                        });
-                        statusElement.textContent = "Analytics event sent! Check Firebase console.";
-                        statusElement.className = "status success";
-                    } else {
-                        statusElement.textContent = "Analytics is not available.";
-                        statusElement.className = "status error";
-                    }
-                } catch (e) {
-                    statusElement.textContent = "Error testing Analytics: " + e.message;
-                    statusElement.className = "status error";
-                }
-            });
-            
-            // Test Firestore button
-            document.getElementById('testFirestoreBtn').addEventListener('click', function() {
-                const statusElement = document.getElementById('status');
-                
-                try {
-                    if (firestore) {
-                        const docRef = doc(collection(firestore, 'test_collection'), 'test_document');
-                        setDoc(docRef, {
-                            test: true,
-                            timestamp: serverTimestamp()
-                        })
-                        .then(() => {
-                            statusElement.textContent = "Firestore test document created!";
-                            statusElement.className = "status success";
-                        })
-                        .catch(error => {
-                            statusElement.textContent = "Firestore error: " + error.message;
-                            statusElement.className = "status error";
-                        });
-                    } else {
-                        statusElement.textContent = "Firestore is not available.";
-                        statusElement.className = "status error";
-                    }
-                } catch (e) {
-                    statusElement.textContent = "Error testing Firestore: " + e.message;
+                    statusElement.textContent = "Error during reload attempt: " + e.message;
                     statusElement.className = "status error";
                 }
             });

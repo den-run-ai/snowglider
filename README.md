@@ -58,8 +58,9 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=unified` - Run all tests
 
 ## Recent Improvements
-- Enhanced mobile authentication with improved touchscreen responsiveness
-- Added robust redirect-based authentication for mobile devices
+- Fixed mobile authentication in Chrome with improved popup handling
+- Enhanced error recovery for popup blocking and user cancellation
+- Added optimized authentication flow for mobile browsers
 - Implemented detailed debug mode for troubleshooting auth issues (add `?debug=auth` to URL)
 - Added responsive visual feedback for authentication actions on mobile
 - Added recovery mechanism for authentication errors with automatic retry options
@@ -153,7 +154,7 @@ The application uses the following Firestore collections:
   - Add `?debug=auth` to the URL to enable the authentication debug overlay
   - Check the debug overlay for specific error messages and authentication status
   - Console logs will provide additional details about the authentication process
-- Mobile devices now use redirect-based authentication (rather than popup) for better compatibility
+- Mobile devices now use popup-based authentication for better compatibility with Chrome and other mobile browsers
 
 ### CORS Errors When Opening Directly
 - If you previously saw CORS errors when opening the game directly with `file://` protocol, this has been fixed

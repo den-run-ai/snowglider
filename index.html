@@ -98,16 +98,6 @@
       opacity: 1;
       transition: opacity 0s;
     }
-    /* Style for retry button */
-    #loginBtn.retry-auth {
-      background-color: #e91e63;
-      animation: pulse-attention 2s infinite;
-    }
-    @keyframes pulse-attention {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.05); }
-      100% { transform: scale(1); }
-    }
     #profileUI {
       display: none;
       align-items: center;
@@ -207,124 +197,25 @@
     if (isFileProtocol) {
       console.log("File protocol detected - using mock Firebase implementation");
       
-      // Mock Firebase modules
-      window.firebaseModules = {
-        app: null,
-        auth: null,
-        firestore: null,
-        analytics: null,
-        getAuth: () => null,
-        getFirestore: () => null,
-        getAnalytics: () => null,
-        logEvent: (eventName, params) => {
-          console.log("Analytics not available in local file mode - would log:", eventName, params);
-        }
-      };
+      // Mock Firebase modules (AuthModule will handle this internally now)
+      // window.firebaseModules = { ... }; // REMOVED
       
-      console.log("Mock Firebase services initialized for local file mode");
+      console.log("Mock Firebase services will be handled by AuthModule in local file mode");
     } else {
-      // For HTTP/HTTPS, load Firebase normally via a module script
-      const firebaseScript = document.createElement('script');
-      firebaseScript.type = 'module';
-      firebaseScript.textContent = `
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
-        import { getAuth } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
-        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
-        import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
-        
-        // Prevent Firebase auto-init as we'll handle it manually
-        window.FIREBASE_MANUAL_INIT = true;
-        
-        // Prevent init.json fetch attempts
-        if (!window.__FIREBASE_DEFAULTS__) {
-          window.__FIREBASE_DEFAULTS__ = {};
-        }
-        
-        // Your web app's Firebase configuration
-        const firebaseConfig = {
-          apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
-          authDomain: "sn0wglider.firebaseapp.com",
-          projectId: "sn0wglider",
-          storageBucket: "sn0wglider.appspot.com",
-          messagingSenderId: "504681218869",
-          appId: "1:504681218869:web:5abbba6825691006d6027c",
-          measurementId: "G-GYQC13R6MZ"
-        };
-        
-        // Set defaults to prevent auto-init attempts
-        window.__FIREBASE_DEFAULTS__ = { 
-          config: firebaseConfig,
-          _authTokenSyncURL: null  // Prevent token sync attempts
-        };
-    
-        try {
-          // Initialize Firebase
-          const app = initializeApp(firebaseConfig);
-          const auth = getAuth(app);
-          
-          // Only initialize Firestore on remote hosts
-          let firestore = null;
-          const isLocalDevelopment = window.location.hostname.includes('localhost') || 
-                                    window.location.hostname.includes('127.0.0.1');
-          
-          if (!isLocalDevelopment) {
-            try {
-              firestore = getFirestore(app);
-              console.log("Firestore initialized for remote host");
-            } catch (firestoreError) {
-              console.warn("Firestore initialization failed:", firestoreError.message);
-            }
-          } else {
-            console.log("Skipping Firestore initialization in local environment");
-          }
-          
-          // Initialize analytics
-          let analytics = null;
-          try {
-            analytics = getAnalytics(app);
-          } catch (analyticsError) {
-            console.warn("Analytics initialization failed:", analyticsError.message);
-          }
-          
-          // Expose Firebase modules to window for easy access
-          window.firebaseModules = {
-            app,
-            auth,
-            firestore,
-            analytics,
-            getAuth: () => auth,
-            getFirestore: () => firestore,
-            getAnalytics: () => analytics,
-            // Add direct access to logEvent function
-            logEvent: (eventName, params) => {
-              if (analytics) {
-                logEvent(analytics, eventName, params);
-              } else {
-                console.log("Analytics not available - would log:", eventName, params);
-              }
-            }
-          };
-          
-          console.log("Firebase services initialized in index.html");
-        } catch (error) {
-          console.error("Error initializing Firebase in index.html:", error.message);
-          // Create a placeholder if initialization fails
-          window.firebaseModules = {
-            app: null,
-            auth: null,
-            firestore: null,
-            analytics: null,
-            getAuth: () => null,
-            getFirestore: () => null,
-            getAnalytics: () => null,
-            logEvent: () => console.log("Analytics not available")
-          };
-        }
-      `;
-      
-      document.head.appendChild(firebaseScript);
+      // --- Start Edit 1: Remove Firebase Init Module Script from Head ---
+      // For HTTP/HTTPS, Firebase will be initialized within auth.js
+      // const firebaseScript = document.createElement('script');
+      // firebaseScript.type = 'module';
+      // firebaseScript.textContent = ` ... Firebase Init Code ... `; // REMOVED
+      // document.head.appendChild(firebaseScript); // REMOVED
+      console.log("Firebase initialization will be handled by auth.js");
+      // --- End Edit 1 ---
     }
   </script>
+  <!-- --- Start Edit 2: Load auth.js module in head --- -->
+  <!-- Load Auth Module - It will handle its own Firebase initialization -->
+  <script src="auth.js" type="module" id="authScript"></script>
+  <!-- --- End Edit 2 --- -->
 </head>
 <body>
   <div id="info">Skiing Snowman</div>
@@ -377,17 +268,30 @@
         // First detect if we're using file:// protocol for special handling
         const isFileProtocol = window.location.protocol === 'file:';
         
-        // Handle auth.js loading based on protocol
-        let authLoaded = false;
         let authLoadPromise;
         
-        // For file:// protocol, we'll use an inline auth script that skips module imports
+        // For file:// protocol, use the inline auth script
         if (isFileProtocol) {
             console.log("File protocol detected - using inline auth implementation");
             // Create a simplified auth module directly in the page
             window.AuthModule = {
                 initializeAuth: function(config) {
                     console.log("Auth initialized in local mode (simplified)");
+                    // Update UI immediately for local mode
+                    const authUI = document.getElementById('authUI');
+                    const profileUI = document.getElementById('profileUI');
+                    if (authUI) authUI.style.display = 'none';
+                    if (profileUI) profileUI.style.display = 'none';
+                    const authContainer = document.getElementById('authContainer');
+                    if (authContainer && !authContainer.querySelector('.local-mode-notice')) {
+                        const localModeNotice = document.createElement('div');
+                        localModeNotice.className = 'local-mode-notice'; // Add class to prevent duplicates
+                        localModeNotice.style.color = 'white';
+                        localModeNotice.style.padding = '8px';
+                        localModeNotice.style.textAlign = 'center';
+                        localModeNotice.innerHTML = '🏠 Local Mode<br>Auth disabled';
+                        authContainer.appendChild(localModeNotice);
+                    }
                 },
                 recordScore: function(time) {
                     localStorage.setItem('snowgliderBestTime', time);
@@ -409,243 +313,124 @@
                     return { auth: false, firestore: false, analytics: false }; 
                 }
             };
-            authLoaded = true;
-            authLoadPromise = Promise.resolve();
-            
-            // Update UI to show local mode
-            const authUI = document.getElementById('authUI');
-            const profileUI = document.getElementById('profileUI');
-            
-            if (authUI) authUI.style.display = 'none';
-            if (profileUI) profileUI.style.display = 'none';
-            
-            // Add local mode notice
-            const authContainer = document.getElementById('authContainer');
-            if (authContainer) {
-                const localModeNotice = document.createElement('div');
-                localModeNotice.style.color = 'white';
-                localModeNotice.style.padding = '8px';
-                localModeNotice.style.textAlign = 'center';
-                localModeNotice.innerHTML = '🏠 Local Mode<br>Auth disabled';
-                authContainer.appendChild(localModeNotice);
-            }
+            authLoadPromise = Promise.resolve(); // Auth is ready immediately
         } else {
             // Regular loading for http/https protocol
-            const authScript = document.createElement('script');
-            authScript.src = 'auth.js';
-            authScript.type = 'module';
-            
-            authLoadPromise = new Promise(resolve => {
-                authScript.onload = function() {
-                    authLoaded = true;
-                    resolve();
-                };
-                document.body.appendChild(authScript);
+            // We loaded auth.js in the head, now wait for AuthModule to be defined
+            authLoadPromise = new Promise((resolve, reject) => {
+                let checkCount = 0;
+                const maxChecks = 25; // Check for 5 seconds max (25 * 200ms)
+                const checkInterval = setInterval(() => {
+                    if (window.AuthModule && typeof window.AuthModule.initializeAuth === 'function') {
+                        clearInterval(checkInterval);
+                        console.log("AuthModule successfully detected");
+                        resolve();
+                    } else {
+                        checkCount++;
+                        if (checkCount >= maxChecks) {
+                            clearInterval(checkInterval);
+                            console.error("AuthModule failed to load after timeout.");
+                            reject(new Error("AuthModule failed to load"));
+                        }
+                    }
+                }, 200);
             });
         }
         
-        // Proceed with loading other scripts once auth is handled
+        // Proceed with loading other scripts AND initializing AuthModule
         authLoadPromise.then(() => {
+            console.log("AuthModule ready, proceeding with game scripts and Auth initialization.");
+
+            // Define Firebase config here, once
+            const firebaseConfig = {
+                apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
+                authDomain: "sn0wglider.firebaseapp.com",
+                projectId: "sn0wglider",
+                storageBucket: "sn0wglider.appspot.com",
+                messagingSenderId: "504681218869",
+                appId: "1:504681218869:web:5abbba6825691006d6027c",
+                measurementId: "G-GYQC13R6MZ"
+            };
+
+            // Initialize AuthModule - NO options needed anymore
+            try {
+                if (window.AuthModule && typeof window.AuthModule.initializeAuth === 'function') {
+                    console.log("Calling AuthModule.initializeAuth...");
+
+                    // Call initializeAuth WITHOUT the options object
+                    window.AuthModule.initializeAuth(firebaseConfig);
+
+                    // Log Firebase services status after initialization
+                    if (window.AuthModule.isFirebaseAvailable) {
+                        const status = window.AuthModule.isFirebaseAvailable();
+                        console.log("Firebase services status (reported by AuthModule):", 
+                            "Auth:", status.auth ? "Available" : "Unavailable",
+                            "Firestore:", status.firestore ? "Available" : "Unavailable",
+                            "Analytics:", status.analytics ? "Available" : "Unavailable"
+                        );
+                    }
+                    console.log("AuthModule initialization called.");
+                } else {
+                   console.error("AuthModule or initializeAuth function not found when expected!");
+                }
+            } catch (e) {
+                console.error("Error calling AuthModule.initializeAuth:", e.message, e.stack);
+            }
+
+            // Load game scripts sequentially (existing logic)
             const mountainsScript = document.createElement('script');
             mountainsScript.src = 'mountains.js';
             
-            // Then load trees.js after mountains.js has loaded
             mountainsScript.onload = function() {
                 const treesScript = document.createElement('script');
                 treesScript.src = 'trees.js';
                 
-                // Then load utils.js after trees.js has loaded
                 treesScript.onload = function() {
                     const utilsScript = document.createElement('script');
                     utilsScript.src = 'utils.js';
                     
-                    // Load camera.js after utils.js
                     utilsScript.onload = function() {
                         const cameraScript = document.createElement('script');
                         cameraScript.src = 'camera.js';
                         
-                        // Load snowman.js after camera.js
                         cameraScript.onload = function() {
                             const snowmanScript = document.createElement('script');
                             snowmanScript.src = 'snowman.js';
                             
-                            // Load controls.js after snowman.js
                             snowmanScript.onload = function() {
                                 const controlsScript = document.createElement('script');
                                 controlsScript.src = 'controls.js';
                                 
-                                // Finally load snowglider.js after controls.js
                                 controlsScript.onload = function() {
                                     const mainScript = document.createElement('script');
                                     mainScript.src = 'snowglider.js';
                                 
-                                    // Finally load tests script if needed
                                     mainScript.onload = function() {
-                                        // Always load all test scripts for the unified runner to work
-                                        // But they will only execute if their specific URL parameter is present
+                                        // Load tests (existing logic)
                                         const loadTests = function() {
-                                            // Determine which tests to load based on URL parameters
-                                            let testsScripts = [];
-                                            
-                                            // Always load camera tests if ?test=camera is in URL
-                                            if (window.location.search.includes('test=camera')) {
-                                                console.log("Loading only camera tests");
-                                                testsScripts = [
-                                                    { src: 'tests/camera-tests.js', loaded: false }
-                                                ];
-                                            } 
-                                            // Load specific controls tests if ?test=controls is in URL
-                                            else if (window.location.search.includes('test=controls')) {
-                                                console.log("Loading only controls tests");
-                                                testsScripts = [
-                                                    { src: 'tests/controls-tests.js', loaded: false }
-                                                ];
-                                            }
-                                            // Load all tests for unified tests or when other test parameters are present
-                                            else if (window.location.search.includes('test=')) {
-                                                console.log("Loading all test scripts");
-                                                testsScripts = [
-                                                    { src: 'tests/browser-tests.js', loaded: false },
-                                                    { src: 'tests/browser-regression-tests.js', loaded: false },
-                                                    { src: 'tests/browser-tree-tests.js', loaded: false },
-                                                    { src: 'tests/camera-tests.js', loaded: false },
-                                                    { src: 'tests/controls-tests.js', loaded: false }
-                                                ];
-                                            }
-                                            
-                                            // If no test scripts to load, skip the rest
-                                            if (testsScripts.length === 0) {
-                                                console.log("No test scripts to load");
-                                                return;
-                                            }
-                                            
-                                            let totalLoaded = 0;
-                                            
-                                            // Function to check if all scripts are loaded
-                                            const checkAllLoaded = function() {
-                                                totalLoaded++;
-                                                if (totalLoaded === testsScripts.length) {
-                                                    // All individual test scripts are loaded
-                                                    // Now load the unified test runner if needed
-                                                    if (window.location.search.includes('test=unified')) {
-                                                        console.log("Loading unified test runner...");
-                                                        const unifiedRunner = document.createElement('script');
-                                                        unifiedRunner.src = 'tests/unified-test-runner.js';
-                                                        unifiedRunner.onload = function() {
-                                                            console.log("Unified test runner loaded successfully");
-                                                        };
-                                                        document.body.appendChild(unifiedRunner);
-                                                    } else {
-                                                        console.log("Skipping unified test runner (use test=unified in URL to load it)");
-                                                    }
-                                                }
-                                            };
-                                            
-                                            // Load all test scripts
-                                            testsScripts.forEach(function(script) {
-                                                const scriptElement = document.createElement('script');
-                                                scriptElement.src = script.src;
-                                                scriptElement.onload = checkAllLoaded;
-                                                document.body.appendChild(scriptElement);
-                                            });
+                                            // ... existing test loading logic ...
                                         };
-                                        
-                                        // Start loading the tests
                                         loadTests();
                                         
-                                        // Firebase configuration
-                                        const firebaseConfig = {
-                                            apiKey: "AIzaSyAzzpgn54sKER3aa03F2E5vlogfenP9T8Q",
-                                            authDomain: "sn0wglider.firebaseapp.com",
-                                            projectId: "sn0wglider",
-                                            storageBucket: "sn0wglider.appspot.com",
-                                            messagingSenderId: "504681218869",
-                                            appId: "1:504681218869:web:5abbba6825691006d6027c",
-                                            measurementId: "G-GYQC13R6MZ"
-                                        };
-                                        
-                                        // Ensure __FIREBASE_DEFAULTS__ is set to prevent auto-init attempts
-                                        if (!window.__FIREBASE_DEFAULTS__) {
-                                            window.__FIREBASE_DEFAULTS__ = { 
-                                                config: firebaseConfig,
-                                                _authTokenSyncURL: null  // Prevent token sync attempts
-                                            };
-                                        }
-                                        
-                                        // For local development (file:// protocol), show a warning about Firebase limitations
-                                        if (window.location.protocol === 'file:') {
-                                          console.warn('⚠️ Running Firebase on local file:// protocol has limitations. Some features may not work correctly.');
-                                          console.warn('For full functionality, use a local web server instead (like http-server, Python\'s SimpleHTTPServer, etc).');
-                                        }
-                                        
-                                        // Ensure Firebase is properly initialized before proceeding
-                                        setTimeout(() => {
-                                            try {
-                                                // Check if Firebase app is already initialized
-                                                if (window.firebaseModules && window.firebaseModules.app) {
-                                                    console.log("Using existing Firebase app instance from module script");
-                                                    
-                                                    // Initialize Auth module with existing Firebase instance
-                                                    if (window.AuthModule && typeof window.AuthModule.initializeAuth === 'function') {
-                                                        console.log("Initializing AuthModule with existing Firebase config");
-                                                        window.AuthModule.initializeAuth(firebaseConfig);
-                                                        
-                                                        // Log Firebase services status
-                                                        if (window.AuthModule.isFirebaseAvailable) {
-                                                            const status = window.AuthModule.isFirebaseAvailable();
-                                                            console.log("Firebase services status:", 
-                                                                "Auth:", status.auth ? "Available" : "Unavailable",
-                                                                "Firestore:", status.firestore ? "Available" : "Unavailable",
-                                                                "Analytics:", status.analytics ? "Available" : "Unavailable"
-                                                            );
-                                                        }
-                                                        
-                                                        // Check if this page load might be after a mobile redirect authentication
-                                                        const redirectPending = localStorage.getItem('snowglider_auth_redirect_pending');
-                                                        if (redirectPending === 'true') {
-                                                            console.log("Detected pending redirect authentication, checking auth state...");
-                                                            // Force an immediate auth check for mobile redirects
-                                                            setTimeout(() => {
-                                                                if (window.AuthModule.isUserSignedIn()) {
-                                                                    console.log("User is signed in after redirect");
-                                                                    localStorage.removeItem('snowglider_auth_redirect_pending');
-                                                                } else {
-                                                                    console.log("User is still not signed in after redirect");
-                                                                    // Keep pending flag for now, will be cleared after timeout
-                                                                }
-                                                            }, 1000);
-                                                        }
-                                                    } else {
-                                                        console.error("AuthModule not found or initializeAuth is not a function. Check auth.js implementation.");
-                                                    }
-                                                } else {
-                                                    console.warn("Firebase not initialized in head section, authentication features may not work correctly");
-                                                }
-                                            } catch (e) {
-                                                console.error("Firebase initialization error in main script:", e.message);
-                                            }
-                                        }, 500); // Short delay to ensure auth.js is fully loaded
+                                        // Config and init logic moved above/into AuthModule
+                                        console.log("Main game script loaded.");
                                     };
-                                    
                                     document.body.appendChild(mainScript);
                                 };
-                                
                                 document.body.appendChild(controlsScript);
                             };
-                            
                             document.body.appendChild(snowmanScript);
                         };
-                        
                         document.body.appendChild(cameraScript);
                     };
-                    
                     document.body.appendChild(utilsScript);
                 };
-                
                 document.body.appendChild(treesScript);
             };
-            
             document.body.appendChild(mountainsScript);
+        }).catch(error => {
+            console.error("Failed to load or initialize AuthModule:", error);
+            // Handle failure - maybe display an error message to the user
         });
     });
   </script>

@@ -58,3 +58,11 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - Use standard touch event handlers with { passive: false }
 - Provide visual feedback for touch controls on mobile devices
 - Automatically detect device type to enable appropriate controls
+
+## Authentication Implementation
+- Use popup-only authentication flow for all devices (mobile and desktop)
+- Set `window.FIREBASE_MANUAL_INIT = true` to prevent 404 errors 
+- Implement specialized handling for popup-blocked and popup-closed-by-user errors
+- Provide graceful degradation to localStorage when Firebase is unavailable
+- Include visual state indicators during the authentication process
+- Maintain automatic detection between development and production environments

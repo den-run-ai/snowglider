@@ -1,18 +1,18 @@
 // auth.js - Firebase Authentication module for SnowGlider
-// Uses Firebase modular SDK
+// Uses Firebase modular SDK (Popup-only Google Sign-In)
 
 // Prevent Firebase from trying to auto-init via init.json that gives 404 on GitHub Pages
 window.FIREBASE_MANUAL_INIT = true;
-window.__FIREBASE_DEFAULTS__ = {};
+window.__FIREBASE_DEFAULTS__ = {}; // Ensure this exists early
 
 /**
  * Firebase Authentication Module for SnowGlider
- * 
- * This module handles user authentication, profile management,
+ *
+ * This module handles user authentication (Google Popup), profile management,
  * and score tracking using Firebase services.
- * 
+ *
  * Features:
- * - Google authentication with adaptive sign-in (popup for desktop, redirect for mobile)
+ * - Google authentication with signInWithPopup
  * - User profile management
  * - Best time tracking with Firebase Firestore
  * - Global leaderboard
@@ -24,26 +24,25 @@ let auth;
 let firestore;
 let analytics;
 let currentUser = null;
+let firebaseApp = null; // Keep track of the app instance
 
 // Import Firebase modules
-import { 
+import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
+  signInWithPopup, // Using popup exclusively
   signOut as firebaseSignOut,
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
-  getRedirectResult
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
-import { 
+import {
   getFirestore,
   doc,
-  setDoc, 
+  setDoc,
   getDoc,
   updateDoc,
-  collection, 
+  collection,
   orderBy,
   query,
   limit,
@@ -56,216 +55,163 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebas
 // Initialize Firebase Auth
 function initializeAuth(firebaseConfig) {
   try {
-    // Fix potential storage bucket mismatch
+    // Fix potential storage bucket mismatch (keep this utility)
     if (firebaseConfig.storageBucket === "sn0wglider.firebasestorage.app") {
       firebaseConfig.storageBucket = "sn0wglider.appspot.com";
+      console.log("Adjusted storageBucket to:", firebaseConfig.storageBucket);
     }
-    
+
     // Initialize Firebase app and services
-    let app;
-    if (window.firebaseModules && window.firebaseModules.app) {
-      console.log("Using existing Firebase app instance");
-      app = window.firebaseModules.app;
-    } else {
-      console.log("Initializing new Firebase app instance");
-      app = initializeApp(firebaseConfig);
+    console.log("Initializing new Firebase app instance in AuthModule");
+    // Ensure __FIREBASE_DEFAULTS__ is set to prevent auto-init attempts
+    if (!window.__FIREBASE_DEFAULTS__) {
+        window.__FIREBASE_DEFAULTS__ = {};
     }
-    
+    window.__FIREBASE_DEFAULTS__.config = firebaseConfig;
+    window.__FIREBASE_DEFAULTS__._authTokenSyncURL = null; // Prevent token sync attempts
+
+    firebaseApp = initializeApp(firebaseConfig);
+    console.log("Firebase App initialized successfully.");
+
     // Initialize services with error handling
     try {
-      auth = getAuth(app);
+      auth = getAuth(firebaseApp);
+      console.log("Firebase Auth service obtained.");
     } catch (e) {
       console.error("Failed to initialize Auth:", e);
-      auth = null;
+      auth = null; // Ensure auth is null if initialization fails
     }
-    
+
     // Initialize Firestore (skip on localhost/file protocol)
-    const isLocalhost = window.location.protocol === 'file:' || 
-                       window.location.hostname.includes('localhost') || 
-                       window.location.hostname.includes('127.0.0.1');
-    
-    if (!isLocalhost) {
+    const isTrulyLocal = window.location.protocol === 'file:' ||
+                         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    console.log(`Environment Check: Protocol=${window.location.protocol}, Hostname=${window.location.hostname}, isTrulyLocal=${isTrulyLocal}`);
+
+    if (!isTrulyLocal && auth) { // Only init Firestore if not local AND auth succeeded
       try {
-        firestore = getFirestore(app);
+        firestore = getFirestore(firebaseApp);
         console.log("Firestore initialized for remote host");
       } catch (e) {
         console.error("Failed to initialize Firestore:", e);
-        firestore = null;
+        firestore = null; // Ensure firestore is null if initialization fails
       }
     } else {
-      console.warn("Skipping Firestore on local environment");
+      console.warn(`Skipping Firestore: ${isTrulyLocal ? 'Local environment' : 'Auth failed'}`);
       firestore = null;
     }
-    
-    // Initialize Analytics
-    try {
-      analytics = getAnalytics(app);
-    } catch (e) {
-      console.error("Failed to initialize Analytics:", e);
-      analytics = null;
-    }
-    
-    // Set up auth persistence
-    if (auth) {
-      setPersistence(auth, browserLocalPersistence)
-        .catch(e => console.error("Error setting persistence:", e));
-      
-      // Check for redirect authentication result
+
+    // Initialize Analytics (only if not local AND auth succeeded)
+    if (!isTrulyLocal && auth) {
       try {
-        console.log("Checking for redirect authentication result...");
-        getRedirectResult(auth)
-          .then(result => {
-            console.log("Redirect result received:", result ? "has result" : "null result");
-            
-            if (result && result.user) {
-              console.log("User signed in via redirect:", result.user.displayName || result.user.email);
-              currentUser = result.user;
-              updateUIForLoggedInUser(result.user);
-              // Clear all redirect related flags
-              localStorage.removeItem('authRedirectAttempts');
-              localStorage.removeItem('snowglider_auth_redirect_pending');
-              localStorage.removeItem('snowglider_auth_redirect_time');
-              localStorage.setItem('snowglider_auth_last_signin', Date.now().toString());
-              localStorage.setItem('snowglider_auth_success', 'true');
-              
-              // Force UI update again
-              setTimeout(() => {
-                if (currentUser) {
-                  updateUIForLoggedInUser(currentUser);
-                }
-              }, 500);
-            } else {
-              console.log("No user from redirect result");
-              
-              // Check if a redirect was attempted but no result
-              const redirectPending = localStorage.getItem('snowglider_auth_redirect_pending');
-              if (redirectPending === 'true') {
-                console.log("A redirect auth was previously attempted but no user result returned");
-                const redirectTime = parseInt(localStorage.getItem('snowglider_auth_redirect_time') || '0');
-                const timeSinceRedirect = Date.now() - redirectTime;
-                console.log("Time since redirect attempt:", Math.round(timeSinceRedirect / 1000), "seconds");
-                
-                // For mobile devices: if the redirect was very recent (< 10 seconds), we might still be processing
-                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                
-                if (isMobile && timeSinceRedirect < 10000) {
-                  console.log("Recent mobile redirect, waiting for auth state to update...");
-                  // Try again in 2 seconds for mobile
-                  setTimeout(() => {
-                    if (!currentUser) {
-                      console.log("Still no user after waiting, resetting login state");
-                      resetLoginButton();
-                      localStorage.removeItem('snowglider_auth_redirect_pending');
-                      localStorage.removeItem('snowglider_auth_redirect_time');
-                    }
-                  }, 2000);
-                } else if (timeSinceRedirect > 120000) { // 2 minutes timeout for non-recent attempts
-                  console.log("Clearing stale redirect pending flags (> 2 min)");
-                  localStorage.removeItem('snowglider_auth_redirect_pending');
-                  localStorage.removeItem('snowglider_auth_redirect_time');
-                  resetLoginButton();
-                }
-              } else {
-                resetLoginButton();
-              }
-            }
-          })
-          .catch(error => {
-            console.error("Redirect result error:", error.code, error.message);
-            resetLoginButton();
-            // Clean up redirect indicators on error
-            localStorage.removeItem('snowglider_auth_redirect_pending');
-            localStorage.removeItem('snowglider_auth_redirect_time');
-            
-            // Add retry button for mobile users
-            const loginBtn = document.getElementById('loginBtn');
-            if (loginBtn && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-              loginBtn.textContent = 'Retry Login';
-              loginBtn.classList.add('retry-auth');
-            }
-          });
+        analytics = getAnalytics(firebaseApp);
+        console.log("Firebase Analytics service obtained.");
       } catch (e) {
-        console.error("Error checking redirect result:", e);
-        resetLoginButton();
-        // Clean up on uncaught errors too
-        localStorage.removeItem('snowglider_auth_redirect_pending');
-        localStorage.removeItem('snowglider_auth_redirect_time');
+        console.error("Failed to initialize Analytics:", e);
+        analytics = null; // Ensure analytics is null if initialization fails
       }
+    } else {
+        console.warn(`Skipping Analytics: ${isTrulyLocal ? 'Local environment' : 'Auth failed'}`);
+        analytics = null;
     }
-    
-    // Set up auth state observer
+
+    // Set up auth persistence and state observer
     if (auth) {
+      console.log("Setting auth persistence...");
+      setPersistence(auth, browserLocalPersistence)
+        .then(() => console.log("Auth persistence set to browserLocalPersistence."))
+        .catch(e => console.error("Error setting persistence:", e));
+
+      // Set up auth state observer - This handles UI updates after login/logout
+      console.log("Attaching onAuthStateChanged listener..."); // Log before attaching
       onAuthStateChanged(auth, user => {
+        // --- Edit 1: Add detailed logging inside the callback ---
+        console.log(">>> onAuthStateChanged triggered <<<"); // Log entry into the callback
         if (user) {
           // User is signed in
-          console.log("Auth state changed: User is signed in", user.uid);
+          console.log("Auth state changed: User IS signed in", user.uid, user.email);
           currentUser = user;
+          console.log("Calling updateUIForLoggedInUser..."); // Log before UI update
           updateUIForLoggedInUser(user);
-          
-          // For mobile redirect authentication, update redirect status
-          const redirectPending = localStorage.getItem('snowglider_auth_redirect_pending');
-          if (redirectPending === 'true') {
-            console.log("Clearing redirect pending flag after successful sign-in");
-            localStorage.removeItem('snowglider_auth_redirect_pending');
-            localStorage.removeItem('snowglider_auth_redirect_time');
-            localStorage.setItem('snowglider_auth_success', 'true');
-          }
-          
           if (firestore) {
-            syncUserData(user);
+            console.log("Calling syncUserData..."); // Log before sync
+            syncUserData(user); // Sync data if firestore is available
           }
-          
-          // Log analytics event
-          if (analytics) {
-            logEvent(analytics, 'login', {
-              method: user.providerData && user.providerData.length > 0 ? 
-                      user.providerData[0].providerId : 'Unknown'
-            });
-          }
+          console.log("Calling resetLoginButton..."); // Log before reset
+          resetLoginButton(); // Ensure button is in default state after successful login
+          console.log("Finished processing signed-in state in onAuthStateChanged."); // Log completion
         } else {
           // User is signed out
-          console.log("Auth state changed: User is signed out");
+          console.log("Auth state changed: User IS signed out");
           currentUser = null;
+          console.log("Calling updateUIForLoggedOutUser..."); // Log before UI update
           updateUIForLoggedOutUser();
+          console.log("Calling resetLoginButton..."); // Log before reset
+          resetLoginButton(); // Ensure button is in default state after logout
+          console.log("Finished processing signed-out state in onAuthStateChanged."); // Log completion
         }
+        // --- End Edit 1 ---
       });
+      console.log("onAuthStateChanged listener attached successfully."); // Confirm attachment
     } else {
-      updateUIForLoggedOutUser();
+      // Handle case where auth failed to initialize
+      console.error("Auth service failed to initialize. Auth features disabled.");
+      updateUIForLoggedOutUser(); // Show logged-out state
+      resetLoginButton(); // Ensure button is usable (though login will fail)
     }
   } catch (e) {
-    console.error("Firebase setup failed:", e.message);
+    // Catch errors during initializeApp or other setup steps
+    console.error("Firebase setup failed:", e.message, e.stack);
+    auth = firestore = analytics = null; // Ensure services are null on failure
+    updateUIForLoggedOutUser();
+    resetLoginButton();
   }
-  
-  // Set up login/logout buttons
+
+  // Set up login/logout buttons (even if auth failed, to avoid errors)
   setupAuthButtons();
 }
 
 // Update UI when user is logged in
 function updateUIForLoggedInUser(user) {
+  // --- Edit 2: Add logging inside UI update function ---
+  console.log("updateUIForLoggedInUser: Attempting to update UI for", user?.email);
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
   const profileName = document.getElementById('profileName');
   const profileAvatar = document.getElementById('profileAvatar');
-  
-  if (!authUI || !profileUI) return;
-  
+
+  if (!authUI || !profileUI) {
+    console.error("updateUIForLoggedInUser: Could not find authUI or profileUI elements!");
+    return;
+  }
+  console.log("updateUIForLoggedInUser: Found UI elements.");
+
   // Update display
   authUI.style.display = 'none';
   profileUI.style.display = 'flex';
-  
+  console.log("updateUIForLoggedInUser: Set authUI display=none, profileUI display=flex");
+
   if (profileName) {
     profileName.textContent = user.displayName || user.email;
+    console.log("updateUIForLoggedInUser: Set profile name to", profileName.textContent);
+  } else {
+    console.warn("updateUIForLoggedInUser: profileName element not found.");
   }
-  
+
   // Set profile image if available
   if (profileAvatar) {
     if (user.photoURL) {
       profileAvatar.src = user.photoURL;
       profileAvatar.style.display = 'block';
+      console.log("updateUIForLoggedInUser: Set profile avatar src to", user.photoURL);
     } else {
       profileAvatar.style.display = 'none';
+      console.log("updateUIForLoggedInUser: Hiding profile avatar (no photoURL).");
     }
+  } else {
+     console.warn("updateUIForLoggedInUser: profileAvatar element not found.");
   }
+  console.log("updateUIForLoggedInUser: UI update complete.");
+  // --- End Edit 2 ---
 }
 
 // Update UI when user is logged out
@@ -286,31 +232,8 @@ function resetLoginButton() {
     loginBtn.textContent = 'Login with Google';
     loginBtn.disabled = false;
     loginBtn.classList.remove('signing-in');
+    // No longer need 'retry-auth' class related to redirect failures
     loginBtn.classList.remove('retry-auth');
-    
-    console.log("Login button reset to default state");
-    
-    // For mobile devices, check if we should show a "Retry" button instead
-    const redirectFailed = localStorage.getItem('snowglider_auth_redirect_pending') === 'true';
-    const redirectTime = parseInt(localStorage.getItem('snowglider_auth_redirect_time') || '0');
-    const isRecent = (Date.now() - redirectTime) < 300000; // 5 minutes
-    
-    if (redirectFailed && isRecent && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-      console.log("Recent failed mobile auth detected, showing retry button");
-      loginBtn.textContent = 'Retry Login';
-      loginBtn.classList.add('retry-auth');
-      
-      // Auto-cleanup after 5 minutes of showing retry
-      if (!window._retryCleanupTimer) {
-        window._retryCleanupTimer = setTimeout(() => {
-          console.log("Auto-cleaning redirect pending state after timeout");
-          localStorage.removeItem('snowglider_auth_redirect_pending');
-          localStorage.removeItem('snowglider_auth_redirect_time');
-          resetLoginButton();
-          window._retryCleanupTimer = null;
-        }, 300000); // 5 minutes
-      }
-    }
   }
 }
 
@@ -319,157 +242,97 @@ function setupAuthButtons() {
   // Login button
   const loginBtn = document.getElementById('loginBtn');
   if (loginBtn) {
-    // Function to handle sign-in process
+    // Function to handle sign-in process using Popup
     const handleSignIn = (e) => {
-      e.preventDefault();
-      
+      e.preventDefault(); // Prevent default button action
+
+      // Check if auth is available before attempting login
+      if (!auth) {
+          console.error("Auth service not available. Cannot sign in.");
+          alert("Authentication service is currently unavailable. Please try again later.");
+          resetLoginButton(); // Reset button state
+          return;
+      }
+
       // Update button state
       loginBtn.textContent = 'Signing In...';
       loginBtn.disabled = true;
       loginBtn.classList.add('signing-in');
-      
-      // Log the sign-in attempt
+
       console.log("Sign-in initiated via", e.type);
-      
+
       const provider = new GoogleAuthProvider();
       provider.addScope('profile');
       provider.addScope('email');
-      
-      // Force re-authentication
-      provider.setCustomParameters({
-        'prompt': 'select_account'
-      });
-      
-      // Detect if mobile device
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      console.log("Device detection:", isMobile ? "Mobile" : "Desktop");
-      
-      // Explicitly set host for GitHub Pages to handle custom domain
-      const isCustomDomain = window.location.hostname !== 'sn0wglider.firebaseapp.com' && 
-                            !window.location.hostname.includes('github.io');
-      if (isCustomDomain) {
-        console.log("Custom domain detected, manually setting auth redirect domain");
-        provider.setCustomParameters({
-          'prompt': 'select_account',
-          'auth_domain': 'sn0wglider.firebaseapp.com'
-        });
-      }
-      
-      if (isMobile) {
-        // Track redirect attempt with more detailed information
-        try {
-          const attempts = parseInt(localStorage.getItem('authRedirectAttempts') || '0') + 1;
-          localStorage.setItem('authRedirectAttempts', attempts.toString());
-          localStorage.setItem('snowglider_auth_redirect_pending', 'true');
-          localStorage.setItem('snowglider_auth_redirect_time', Date.now().toString());
-          console.log("Starting mobile redirect authentication (attempt #" + attempts + ")");
-        } catch (e) {
-          console.error("Error accessing localStorage:", e);
-        }
-        
-        // Check for Chrome on iOS which needs special handling
-        const isIOSChrome = /CriOS/i.test(navigator.userAgent);
-        const isAndroidChrome = /Android.*Chrome\/[.0-9]*/.test(navigator.userAgent);
-        
-        if (isIOSChrome || isAndroidChrome) {
-          console.log(`Detected ${isIOSChrome ? 'iOS Chrome' : 'Android Chrome'} - using special handling`);
-          // For Chrome on mobile, we might need some extra handling
-          // First, clear any previous auth state
-          try {
-            if (auth.currentUser) {
-              console.log("Signing out current user first to ensure clean state");
-              firebaseSignOut(auth).then(() => {
-                console.log("Successfully signed out, now redirecting");
-                // Add a slight delay to ensure clean state
-                setTimeout(() => {
-                  signInWithRedirect(auth, provider)
-                    .catch(error => {
-                      console.error("Sign in redirect error (Chrome mobile):", error);
-                      resetLoginButton();
-                      localStorage.removeItem('snowglider_auth_redirect_pending');
-                    });
-                }, 300);
-              });
-            } else {
-              // No user, proceed directly
-              signInWithRedirect(auth, provider)
-                .catch(error => {
-                  console.error("Sign in redirect error (Chrome mobile):", error);
-                  resetLoginButton();
-                  localStorage.removeItem('snowglider_auth_redirect_pending');
-                });
-            }
-          } catch (e) {
-            console.error("Error in Chrome mobile special handling:", e);
-            // Fallback to regular redirect
-            signInWithRedirect(auth, provider)
-              .catch(error => {
-                console.error("Sign in redirect error (fallback):", error);
-                resetLoginButton();
-                localStorage.removeItem('snowglider_auth_redirect_pending');
-              });
+      provider.setCustomParameters({ 'prompt': 'select_account' }); // Prompt user to select account
+
+      console.log("Using signInWithPopup for authentication.");
+      signInWithPopup(auth, provider)
+        .then(result => {
+          // Success is primarily handled by onAuthStateChanged listener
+          console.log("Popup sign-in successful for:", result.user.email);
+          if (analytics) {
+            logEvent(analytics, 'login', { method: 'GooglePopup' });
           }
-        } else {
-          // Regular mobile redirect for non-Chrome browsers
-          console.log("Using standard redirect for mobile device");
-          signInWithRedirect(auth, provider)
-            .catch(error => {
-              console.error("Sign in redirect error:", error);
-              resetLoginButton();
-              // Clean up redirect indicators on error
-              try {
-                localStorage.removeItem('snowglider_auth_redirect_pending');
-                localStorage.removeItem('snowglider_auth_redirect_time');
-              } catch (e) {
-                console.error("Error cleaning localStorage:", e);
-              }
-            });
-        }
-      } else {
-        // Use popup for desktop
-        signInWithPopup(auth, provider)
-          .catch(error => {
-            console.error("Sign in popup error:", error);
-            
-            // If popup blocked, try redirect
-            if (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user') {
-              console.log("Popup blocked, trying redirect instead");
-              signInWithRedirect(auth, provider)
-                .catch(e => {
-                  console.error("Redirect fallback failed:", e);
-                  resetLoginButton();
-                });
-            } else {
-              resetLoginButton();
-            }
-          });
-      }
+          // No need to reset button here; onAuthStateChanged will update UI
+        })
+        .catch(error => {
+          console.error("signInWithPopup error:", error.code, error.message);
+          // Provide user feedback for common errors
+          if (error.code === 'auth/popup-blocked') {
+             alert('Popup blocked by browser. Please allow popups for this site and try again.');
+          } else if (error.code === 'auth/popup-closed-by-user') {
+             console.log('Sign-in cancelled: Popup closed by user.');
+             // Optionally provide non-alert feedback (e.g., update a status div)
+          } else {
+             // Generic error message for other issues
+             alert(`Error during sign-in: ${error.message}`);
+          }
+          // Reset button on any popup error to allow retry
+          resetLoginButton();
+        });
     };
-    
-    // Add listeners with improved mobile support
+
+    // Add listeners for both touch and click for broad compatibility
     loginBtn.addEventListener('touchstart', handleSignIn, { passive: false });
     loginBtn.addEventListener('click', handleSignIn);
   }
-  
+
   // Logout button
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) {
+    // Prevent default touch behavior if needed
     logoutBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
     }, { passive: false });
-    
+
     logoutBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      
-      // Update button state
+
+      // Check if auth is available before attempting logout
+      if (!auth) {
+          console.error("Auth service not available. Cannot sign out.");
+          // UI should already reflect signed-out state if auth failed init
+          return;
+      }
+
+      // Update button state during sign-out
       logoutBtn.textContent = 'Signing Out...';
       logoutBtn.disabled = true;
-      
-      // Sign out
+
+      // Sign out using Firebase function
       firebaseSignOut(auth)
-        .then(() => console.log("Successfully signed out"))
-        .catch(error => console.error("Logout error:", error))
+        .then(() => {
+            // Success is primarily handled by onAuthStateChanged listener
+            console.log("Successfully signed out via button click.");
+        })
+        .catch(error => {
+            console.error("Logout error:", error);
+            alert(`Error signing out: ${error.message}`); // Inform user of logout error
+        })
         .finally(() => {
+          // Reset button state regardless of success/failure
+          // Note: onAuthStateChanged will also trigger UI updates
           logoutBtn.disabled = false;
           logoutBtn.textContent = 'Logout';
         });
@@ -477,310 +340,438 @@ function setupAuthButtons() {
   }
 }
 
-// Sync user data with Firestore
+// Sync user data with Firestore (only if firestore is available)
 function syncUserData(user) {
-  if (!firestore || !user) return;
-  
+  if (!firestore || !user) {
+      console.log("Skipping user data sync (Firestore unavailable or no user).");
+      return;
+  }
+
   try {
-    // Create or update user document
     const userDocRef = doc(firestore, 'users', user.uid);
+    // Use setDoc with merge:true to create or update user profile
     setDoc(userDocRef, {
       displayName: user.displayName,
       email: user.email,
       photoURL: user.photoURL,
-      lastLogin: serverTimestamp()
+      lastLogin: serverTimestamp() // Record last login time
     }, { merge: true })
+    .then(() => {
+        console.log("User data synced/updated in Firestore for:", user.uid);
+        // Sync best time from localStorage after user data is confirmed/created
+        const localBestTime = localStorage.getItem('snowgliderBestTime');
+        if (localBestTime) {
+            const bestTime = parseFloat(localBestTime);
+            console.log("Found local best time, attempting to sync:", bestTime);
+            updateUserBestTime(user.uid, bestTime); // Pass user ID
+        }
+    })
     .catch(error => {
-      console.error("Error saving user data:", error);
-      if (error.code === 'permission-denied' || error.code === 'unavailable' || 
+      console.error("Error saving user data to Firestore:", error);
+      // Handle potential Firestore unavailability errors
+      if (error.code === 'permission-denied' || error.code === 'unavailable' ||
           error.code === 'failed-precondition') {
-        firestore = null;
+        console.warn("Firestore became unavailable during user data sync. Disabling Firestore features.");
+        firestore = null; // Disable Firestore for subsequent operations
+        displayLeaderboard(); // Update leaderboard display to show unavailable state
       }
     });
-    
-    // Sync best time from localStorage if it exists
-    const localBestTime = localStorage.getItem('snowgliderBestTime');
-    if (localBestTime) {
-      const bestTime = parseFloat(localBestTime);
-      updateUserBestTime(user.uid, bestTime);
-    }
   } catch (error) {
-    console.error("Error in syncUserData:", error);
-    firestore = null;
+    // Catch synchronous errors, though unlikely here
+    console.error("Unexpected error in syncUserData:", error);
+    firestore = null; // Assume Firestore is problematic
+    displayLeaderboard();
   }
 }
 
-// Update user's best time in Firestore
+// Update user's best time in Firestore (only if firestore is available)
 function updateUserBestTime(userId, time) {
-  if (!userId || !firestore) return;
-  
+  // Guard clauses
+  if (!firestore) {
+      console.log("Skipping best time update (Firestore unavailable).");
+      return;
+  }
+  if (!userId) {
+      console.warn("Skipping best time update (User ID missing).");
+      return;
+  }
+  if (typeof time !== 'number' || isNaN(time)) {
+      console.warn("Skipping best time update (Invalid time value):", time);
+      return;
+  }
+
   try {
     const userDocRef = doc(firestore, 'users', userId);
     getDoc(userDocRef)
       .then(docSnap => {
+        let shouldUpdate = false;
         if (docSnap.exists()) {
           const userData = docSnap.data();
-          // Only update if time is better than stored time or no time exists
+          // Update only if new time is better or no time exists yet
           if (!userData.bestTime || time < userData.bestTime) {
-            updateDoc(userDocRef, {
-              bestTime: time,
-              updatedAt: serverTimestamp()
-            })
-            .catch(error => console.error("Error updating best time:", error));
-            
-            // Update leaderboard
-            updateLeaderboard(userId, time);
+            shouldUpdate = true;
           }
         } else {
-          // If document doesn't exist, create it with the time
-          setDoc(userDocRef, {
+          // If user document doesn't exist (should be rare after syncUserData),
+          // assume this is the first time, so update.
+          console.warn("User document not found for best time update, will create/set time.");
+          shouldUpdate = true; // Treat as a new best time
+        }
+
+        if (shouldUpdate) {
+          console.log(`Updating best time for user ${userId} to ${time}`);
+          // Use updateDoc if exists, setDoc if not (though setDoc with merge in syncUserData should handle creation)
+          // Using updateDoc is slightly safer if we only want to add/modify bestTime fields
+          updateDoc(userDocRef, {
             bestTime: time,
-            updatedAt: serverTimestamp()
+            updatedAt: serverTimestamp() // Track when the best time was updated
           })
-          .catch(error => console.error("Error creating user best time document:", error));
-          updateLeaderboard(userId, time);
+          .then(() => {
+              console.log("Best time updated successfully in user document.");
+              updateLeaderboard(userId, time); // Update leaderboard only after successful user doc update
+          })
+          .catch(error => {
+              console.error("Error updating best time in user document:", error);
+              // Handle potential Firestore unavailability
+              if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
+                  console.warn("Firestore became unavailable during best time update.");
+                  firestore = null;
+                  displayLeaderboard();
+              }
+          });
+        } else {
+            console.log(`New time (${time}) is not better than existing best time. No update needed.`);
         }
       })
-      .catch(error => console.error("Error reading user data:", error));
+      .catch(error => {
+        console.error("Error reading user data for best time comparison:", error);
+        if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
+            console.warn("Firestore became unavailable reading user data.");
+            firestore = null;
+            displayLeaderboard();
+        }
+      });
   } catch (error) {
-    console.error("Error in updateUserBestTime:", error);
+    console.error("Unexpected error in updateUserBestTime:", error);
+    firestore = null; // Assume Firestore is problematic
+    displayLeaderboard();
   }
 }
 
-// Update global leaderboard
+// Update global leaderboard (only if firestore is available)
 function updateLeaderboard(userId, time) {
-  if (!firestore) return;
-  
+  // Guard clauses
+  if (!firestore) {
+      console.log("Skipping leaderboard update (Firestore unavailable).");
+      return;
+  }
+   if (!userId) {
+      console.warn("Skipping leaderboard update (User ID missing).");
+      return;
+  }
+   if (typeof time !== 'number' || isNaN(time)) {
+      console.warn("Skipping leaderboard update (Invalid time value):", time);
+      return;
+  }
+
   try {
+    // Reference to the user document (used as a foreign key in leaderboard)
     const userDocRef = doc(firestore, 'users', userId);
+    // Use the user's UID as the document ID in the leaderboard collection
     const leaderboardDocRef = doc(firestore, 'leaderboard', userId);
-    
-    // Add entry to leaderboard
+
+    console.log(`Updating leaderboard entry for user ${userId} with time ${time}`);
+    // Use setDoc to create or overwrite the user's entry in the leaderboard
     setDoc(leaderboardDocRef, {
-      user: userDocRef,
+      user: userDocRef, // Store a reference to the user document
       time: time,
-      achievedAt: serverTimestamp()
+      achievedAt: serverTimestamp() // Record when this score was achieved/updated
+    })
+    .then(() => {
+        console.log("Leaderboard updated successfully for user:", userId);
     })
     .catch(error => {
       console.error("Error updating leaderboard:", error);
-      if (error.code === 'permission-denied' || error.code === 'unavailable' || 
+      // Handle potential Firestore unavailability
+      if (error.code === 'permission-denied' || error.code === 'unavailable' ||
           error.code === 'failed-precondition') {
+        console.warn("Firestore became unavailable during leaderboard update.");
         firestore = null;
+        displayLeaderboard(); // Update UI to reflect unavailability
       }
     });
   } catch (error) {
-    console.error("Error in updateLeaderboard:", error);
-    firestore = null;
+    console.error("Unexpected error in updateLeaderboard:", error);
+    firestore = null; // Assume Firestore is problematic
+    displayLeaderboard();
   }
 }
 
 // Get leaderboard data (top 10 scores)
 function getLeaderboard() {
   if (!firestore) {
-    return Promise.resolve([]); // Return empty array
+    console.log("Cannot get leaderboard (Firestore unavailable).");
+    return Promise.resolve([]); // Return empty array immediately
   }
-  
+
   try {
     const leaderboardRef = collection(firestore, 'leaderboard');
+    // Query for top 10 scores, ordered by time ascending
     const q = query(leaderboardRef, orderBy('time', 'asc'), limit(10));
-    
+
+    console.log("Fetching leaderboard data...");
     return getDocs(q)
       .then(snapshot => {
         const scores = [];
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
-          scores.push({
-            userId: docSnap.id,
-            time: data.time,
-            user: data.user
-          });
+          // Ensure data has expected fields before pushing
+          if (data && typeof data.time === 'number' && data.user) {
+              scores.push({
+                userId: docSnap.id, // The user ID is the document ID
+                time: data.time,
+                userRef: data.user // Store the DocumentReference to the user
+              });
+          } else {
+              console.warn("Skipping invalid leaderboard entry:", docSnap.id, data);
+          }
         });
+        console.log("Leaderboard data fetched:", scores.length, "entries");
         return scores;
       })
       .catch(error => {
         console.error("Error fetching leaderboard:", error);
+        // Handle potential Firestore unavailability
+        if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
+            console.warn("Firestore became unavailable fetching leaderboard.");
+            firestore = null;
+        }
         return []; // Return empty array on error
       });
   } catch (error) {
-    console.error("Error in getLeaderboard:", error);
-    return Promise.resolve([]); 
+    console.error("Unexpected error in getLeaderboard:", error);
+    firestore = null; // Assume Firestore is problematic
+    return Promise.resolve([]); // Return empty array
   }
 }
 
 // Display leaderboard in game over overlay
 function displayLeaderboard() {
   const leaderboardElement = document.getElementById('leaderboard');
-  if (!leaderboardElement) return;
-  
-  leaderboardElement.innerHTML = '<h3>Loading Leaderboard...</h3>';
-  
+  if (!leaderboardElement) return; // Exit if element doesn't exist
+
+  leaderboardElement.innerHTML = '<h3>Loading Leaderboard...</h3>'; // Initial state
+
   if (!firestore) {
     leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+    console.log("Displaying leaderboard unavailable message.");
     return;
   }
-  
+
   getLeaderboard()
     .then(scores => {
+      if (!firestore) { // Check again in case firestore became unavailable during getLeaderboard
+          leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+          return;
+      }
       if (scores.length === 0) {
         leaderboardElement.innerHTML = '<h3>No scores recorded yet!</h3>';
         return;
       }
-      
+
       let html = '<h3>Top 10 Times</h3><table>';
       html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
-      
-      // Get user data for each score
+
+      // Fetch user data for each score using the stored DocumentReference
       const userPromises = scores.map(score => {
-        if (!score.user) {
-          return Promise.resolve({
-            displayName: 'Unknown',
-            photoURL: null
-          });
+        // Check if userRef is a valid DocumentReference
+        if (!score.userRef || typeof score.userRef.path !== 'string') {
+            console.warn("Invalid user reference in leaderboard score for:", score.userId);
+            return Promise.resolve({ displayName: 'Unknown User', photoURL: null }); // Default data
         }
-        
-        return getDoc(score.user)
+        return getDoc(score.userRef)
           .then(docSnap => {
-            if (!docSnap.exists()) {
-              return { displayName: 'Unknown Player', photoURL: null };
+            if (docSnap.exists()) {
+              const userData = docSnap.data();
+              return {
+                // Use display name, fallback to 'Anonymous' if empty/missing
+                displayName: userData.displayName || 'Anonymous',
+                photoURL: userData.photoURL || null // Ensure photoURL is null if missing
+              };
+            } else {
+              // Handle case where user document was deleted but leaderboard entry remains
+              console.warn("User document not found for leaderboard entry:", score.userId);
+              return { displayName: 'Unknown User', photoURL: null };
             }
-            const userData = docSnap.data();
-            return {
-              displayName: userData.displayName || 'Anonymous',
-              photoURL: userData.photoURL
-            };
           })
-          .catch(() => ({ displayName: 'Unknown', photoURL: null }));
+          .catch(error => {
+            console.error("Error fetching user data for leaderboard entry:", score.userId, error);
+            // Handle potential Firestore unavailability during user data fetch
+            if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
+                console.warn("Firestore became unavailable fetching user data for leaderboard.");
+                firestore = null; // Disable Firestore
+                // We might want to re-render the leaderboard as unavailable here,
+                // but for simplicity, we'll just show 'Error' for this user.
+            }
+            return { displayName: 'Error Loading', photoURL: null }; // Indicate error fetching this user
+          });
       });
-      
+
+      // Wait for all user data fetches to complete
       Promise.all(userPromises)
         .then(users => {
+          // Check firestore status again before rendering
+          if (!firestore) {
+              leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+              return;
+          }
           scores.forEach((score, index) => {
-            const user = users[index] || { displayName: 'Unknown', photoURL: null };
+            const user = users[index]; // Get the resolved user data
             html += `<tr>
               <td>${index + 1}</td>
               <td>
                 ${user.photoURL ? `<img src="${user.photoURL}" alt="" class="mini-avatar">` : ''}
                 ${user.displayName}
               </td>
-              <td>${typeof score.time === 'number' ? score.time.toFixed(2) : '??'}s</td>
+              <td>${score.time.toFixed(2)}s</td>
             </tr>`;
           });
-          
+
           html += '</table>';
           leaderboardElement.innerHTML = html;
+          console.log("Leaderboard display updated.");
         })
         .catch(error => {
-          console.error("Error processing user data:", error);
-          leaderboardElement.innerHTML = '<h3>Error loading user data</h3>';
+          // This catch is for Promise.all itself, unlikely unless there's a programming error
+          console.error("Error processing leaderboard user data:", error);
+          leaderboardElement.innerHTML = '<h3>Error displaying leaderboard user data</h3>';
         });
     })
     .catch(error => {
-      console.error("Error getting leaderboard:", error);
+      // Catch errors from the initial getLeaderboard() call
+      console.error("Failed to get leaderboard data for display:", error);
       leaderboardElement.innerHTML = '<h3>Failed to load leaderboard</h3>';
+       // If firestore became null during getLeaderboard, update message
+       if (!firestore) {
+           leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+       }
     });
 }
 
 // Record a completed run score
 function recordScore(time) {
-  if (!currentUser) return;
-  
+  // Always store locally first as a fallback and for immediate personal best tracking
   try {
-    // Always store locally first
-    const localBestTime = localStorage.getItem('snowgliderBestTime');
-    const isNewPersonalBest = !localBestTime || time < parseFloat(localBestTime);
-    
-    // Update local storage
+    const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
+    const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
+    const isNewPersonalBest = localBestTime === null || time < localBestTime;
+
     if (isNewPersonalBest) {
-      localStorage.setItem('snowgliderBestTime', time);
+      localStorage.setItem('snowgliderBestTime', time.toString());
+      console.log("New local best time recorded:", time);
+    } else {
+      console.log("Score recorded, but not a new local best time:", time);
     }
-    
-    // Track completion in Analytics
+
+    // Track completion in Analytics (if available)
     if (analytics) {
       logEvent(analytics, 'complete_run', { time: time });
     }
-    
-    // Update user's best time in Firestore only if it's a new personal best
-    if (isNewPersonalBest && firestore) {
-      updateUserBestTime(currentUser.uid, time);
-      
-      // Track new best time in Analytics
+
+    // Update Firestore only if user is signed in, Firestore is available, AND it's a new personal best
+    if (currentUser && firestore && isNewPersonalBest) {
+      console.log("Attempting to update Firestore with new best time:", time);
+      updateUserBestTime(currentUser.uid, time); // This function now handles leaderboard update too
+
+      // Track new best time in Analytics (if available)
       if (analytics) {
         logEvent(analytics, 'new_high_score', { time: time });
       }
+    } else {
+        if (!currentUser) console.log("Skipping Firestore update: User not signed in.");
+        if (!firestore) console.log("Skipping Firestore update: Firestore not available.");
+        if (!isNewPersonalBest) console.log("Skipping Firestore update: Not a new personal best.");
     }
+
   } catch (error) {
     console.error("Error in recordScore:", error);
-    
-    // Ensure local storage is updated even if there's an error
+    // Attempt to save locally even if other parts fail
     try {
-      localStorage.setItem('snowgliderBestTime', time);
+      localStorage.setItem('snowgliderBestTime', time.toString());
     } catch (e) {
-      console.error("LocalStorage error:", e);
+      console.error("LocalStorage error during fallback save:", e);
     }
   }
 }
 
 /**
- * Gets the currently signed-in user
- * @returns {Object|null} The current user object or null if not signed in
+ * Gets the currently signed-in user object from Firebase Auth.
+ * @returns {firebase.User|null} The current user object or null.
  */
 function getCurrentUser() {
   return currentUser;
 }
 
 /**
- * Check if a user is currently signed in
- * @returns {boolean} True if a user is signed in, false otherwise
+ * Checks if a user is currently signed in.
+ * @returns {boolean} True if a user is signed in, false otherwise.
  */
 function isUserSignedIn() {
   return !!currentUser;
 }
 
 /**
- * Get the user's ID token for server authentication
- * @param {boolean} forceRefresh Whether to force a token refresh
- * @returns {Promise<string>} Promise that resolves with the ID token
+ * Gets the user's ID token for server authentication (if needed).
+ * @param {boolean} [forceRefresh=false] - Whether to force a token refresh.
+ * @returns {Promise<string|null>} Promise resolving with the ID token, or null if no user. Rejects on error.
  */
 function getUserIdToken(forceRefresh = false) {
-  return new Promise((resolve, reject) => {
     if (!currentUser) {
-      reject(new Error('No user is signed in'));
-      return;
+      console.log("Cannot get ID token: No user signed in.");
+      return Promise.resolve(null); // Resolve with null instead of rejecting
     }
-    
-    currentUser.getIdToken(forceRefresh)
-      .then(idToken => resolve(idToken))
+
+    return currentUser.getIdToken(forceRefresh)
+      .then(idToken => {
+          console.log("ID token retrieved successfully.");
+          return idToken;
+      })
       .catch(error => {
         console.error('Error getting ID token:', error);
-        reject(error);
+        throw error; // Re-throw the error for the caller to handle
       });
-  });
 }
 
-// Export the module functions
-window.AuthModule = {
+// --- AuthModule Export ---
+const AuthModule = {
   initializeAuth,
   recordScore,
   displayLeaderboard,
   getCurrentUser,
   isUserSignedIn,
   getUserIdToken,
-  
-  // Export utilities for testing and debugging
-  signOut: () => {
+
+  // Export utilities for debugging or potential external use
+  signOut: () => { // Provide a direct way to sign out if needed
     if (auth) {
       return firebaseSignOut(auth);
     }
-    return Promise.resolve();
+    console.warn("Cannot sign out: Auth service not available.");
+    return Promise.resolve(); // Resolve immediately if auth isn't available
   },
-  getAuthState: () => ({
-    user: currentUser, 
+  getAuthState: () => ({ // Get current auth state synchronously
+    user: currentUser,
     isSignedIn: !!currentUser
   }),
-  // Add function to check if Firebase services are available
-  isFirebaseAvailable: () => ({
+  isFirebaseAvailable: () => ({ // Check availability of services
     auth: !!auth,
     firestore: !!firestore,
     analytics: !!analytics
   })
 };
+
+// Export as both a module and a global for flexibility
+export default AuthModule;
+window.AuthModule = AuthModule;
+
+console.log("Auth module (popup-only) successfully loaded and exported");
