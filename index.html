@@ -406,9 +406,46 @@
                                     mainScript.src = 'snowglider.js';
                                 
                                     mainScript.onload = function() {
-                                        // Load tests (existing logic)
+                                        // Load tests if needed
                                         const loadTests = function() {
-                                            // ... existing test loading logic ...
+                                            const urlParams = new URLSearchParams(window.location.search);
+                                            const testParam = urlParams.get('test');
+                                            
+                                            if (testParam) {
+                                                console.log(`Loading test scripts for test parameter: ${testParam}`);
+                                                
+                                                // Test utilities first
+                                                const testUtils = document.createElement('script');
+                                                testUtils.src = 'tests/unified-test-runner.js';
+                                                document.body.appendChild(testUtils);
+                                                
+                                                // Load specific test scripts based on parameter
+                                                const loadSpecificTest = (scriptName) => {
+                                                    const testScript = document.createElement('script');
+                                                    testScript.src = `tests/${scriptName}.js`;
+                                                    document.body.appendChild(testScript);
+                                                };
+                                                
+                                                if (testParam === 'true' || testParam === 'all' || testParam === 'unified') {
+                                                    loadSpecificTest('browser-tests');
+                                                }
+                                                
+                                                if (testParam === 'camera' || testParam === 'all' || testParam === 'unified') {
+                                                    loadSpecificTest('camera-tests');
+                                                }
+                                                
+                                                if (testParam === 'trees' || testParam === 'all' || testParam === 'unified') {
+                                                    loadSpecificTest('browser-tree-tests');
+                                                }
+                                                
+                                                if (testParam === 'regression' || testParam === 'all' || testParam === 'unified') {
+                                                    loadSpecificTest('browser-regression-tests');
+                                                }
+                                                
+                                                if (testParam === 'controls' || testParam === 'all' || testParam === 'unified') {
+                                                    loadSpecificTest('controls-tests');
+                                                }
+                                            }
                                         };
                                         loadTests();
                                         
