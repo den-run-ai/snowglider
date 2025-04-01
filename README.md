@@ -26,6 +26,8 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `trees.js` - Tree creation and placement
 - `camera.js` - Camera management and tracking
 - `snow.js` - Utility functions and snow effects
+- `auth.js` - Firebase authentication and user management
+- `scores.js` - User scoring and leaderboard functionality
 - `tests/` - Testing framework for game components
 
 ## Controls
@@ -58,6 +60,10 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=unified` - Run all tests
 
 ## Recent Improvements
+- Split user scoring and leaderboard functionality into separate scores.js module
+- Improved code organization with clearer separation of concerns
+- Maintained backward compatibility with existing interfaces
+- Enhanced error handling and service availability management
 - Fixed mobile authentication in Chrome with improved popup handling
 - Enhanced error recovery for popup blocking and user cancellation
 - Added optimized authentication flow for mobile browsers
@@ -112,7 +118,7 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 2. Enable Google Authentication in the Firebase console
 3. Create a Firestore database in the Firebase console
 4. Register your web app in Firebase to get configuration keys
-5. Update the Firebase configuration in `index.html` and `auth.html`:
+5. Update the Firebase configuration in `index.html`:
 
 ```javascript
 const firebaseConfig = {

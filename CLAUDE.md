@@ -11,6 +11,7 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - `snowman.js` - Snowman model and physics
 - `controls.js` - Keyboard and touch controls implementation
 - `auth.js` / `auth.html` - Firebase authentication implementation
+- `scores.js` - User scoring and leaderboard functionality
 - `tests/` - Test files for terrain, physics, camera, and collision detection
 
 ## Commands
@@ -66,3 +67,14 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - Provide graceful degradation to localStorage when Firebase is unavailable
 - Include visual state indicators during the authentication process
 - Maintain automatic detection between development and production environments
+
+## Scoring and Leaderboard Implementation
+- User scoring and leaderboard functionality is managed by the ScoresModule in `scores.js`
+- AuthModule delegates to ScoresModule for all score-related operations
+- Both modules maintain backward compatibility with existing code
+- Best times are stored locally in localStorage by default
+- When authenticated, best times are synced to Firebase Firestore
+- Leaderboard displays top 10 fastest times from all players
+- ScoresModule handles Firebase service availability gracefully
+- Supports local development mode with localStorage fallback
+- Auth and Scores modules initialize in the correct dependency order

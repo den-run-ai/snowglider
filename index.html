@@ -212,10 +212,11 @@
       // --- End Edit 1 ---
     }
   </script>
-  <!-- --- Start Edit 2: Load auth.js module in head --- -->
-  <!-- Load Auth Module - It will handle its own Firebase initialization -->
+  <!-- Load Scripts in head -->
+  <!-- Load Scores Module first (auth.js depends on it) -->
+  <script src="scores.js" type="module" id="scoresScript"></script>
+  <!-- Load Auth Module - It will handle Firebase initialization -->
   <script src="auth.js" type="module" id="authScript"></script>
-  <!-- --- End Edit 2 --- -->
 </head>
 <body>
   <div id="info">Skiing Snowman</div>
@@ -294,14 +295,24 @@
                     }
                 },
                 recordScore: function(time) {
-                    localStorage.setItem('snowgliderBestTime', time);
-                    console.log("Score recorded locally:", time);
+                    // Forward to ScoresModule if it exists, otherwise fallback to local storage
+                    if (window.ScoresModule && typeof window.ScoresModule.recordScore === 'function') {
+                        window.ScoresModule.recordScore(time);
+                    } else {
+                        localStorage.setItem('snowgliderBestTime', time);
+                        console.log("Score recorded locally:", time);
+                    }
                 },
                 displayLeaderboard: function() {
-                    console.log("Leaderboard not available in local mode");
-                    const leaderboardElement = document.getElementById('leaderboard');
-                    if (leaderboardElement) {
-                        leaderboardElement.innerHTML = '<h3>Leaderboard unavailable in local mode</h3>';
+                    // Forward to ScoresModule if it exists, otherwise show unavailable message
+                    if (window.ScoresModule && typeof window.ScoresModule.displayLeaderboard === 'function') {
+                        window.ScoresModule.displayLeaderboard();
+                    } else {
+                        console.log("Leaderboard not available in local mode");
+                        const leaderboardElement = document.getElementById('leaderboard');
+                        if (leaderboardElement) {
+                            leaderboardElement.innerHTML = '<h3>Leaderboard unavailable in local mode</h3>';
+                        }
                     }
                 },
                 getCurrentUser: function() { return null; },

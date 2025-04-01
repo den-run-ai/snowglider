@@ -8,15 +8,13 @@ window.__FIREBASE_DEFAULTS__ = {}; // Ensure this exists early
 /**
  * Firebase Authentication Module for SnowGlider
  *
- * This module handles user authentication (Google Popup), profile management,
- * and score tracking using Firebase services.
+ * This module handles user authentication (Google Popup) and profile management.
+ * Score tracking and leaderboard functionality have been moved to scores.js.
  *
  * Features:
  * - Google authentication with signInWithPopup
  * - User profile management
- * - Best time tracking with Firebase Firestore
- * - Global leaderboard
- * - Graceful fallback to localStorage when Firestore is unavailable
+ * - Integration with ScoresModule for best time tracking
  */
 
 // Service instances initialized by initializeAuth
@@ -40,17 +38,11 @@ import {
   getFirestore,
   doc,
   setDoc,
-  getDoc,
-  updateDoc,
-  collection,
-  orderBy,
-  query,
-  limit,
-  getDocs,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+import ScoresModule from "./scores.js";
 
 // Initialize Firebase Auth
 function initializeAuth(firebaseConfig) {
@@ -114,6 +106,9 @@ function initializeAuth(firebaseConfig) {
         analytics = null;
     }
 
+    // Initialize ScoresModule with Firestore and Analytics instances
+    ScoresModule.initializeScores(firestore, analytics);
+
     // Set up auth persistence and state observer
     if (auth) {
       console.log("Setting auth persistence...");
@@ -132,6 +127,10 @@ function initializeAuth(firebaseConfig) {
           currentUser = user;
           console.log("Calling updateUIForLoggedInUser..."); // Log before UI update
           updateUIForLoggedInUser(user);
+          
+          // Update user in ScoresModule
+          ScoresModule.setCurrentUser(user);
+          
           if (firestore) {
             console.log("Calling syncUserData..."); // Log before sync
             syncUserData(user); // Sync data if firestore is available
@@ -143,6 +142,10 @@ function initializeAuth(firebaseConfig) {
           // User is signed out
           console.log("Auth state changed: User IS signed out");
           currentUser = null;
+          
+          // Clear user in ScoresModule
+          ScoresModule.setCurrentUser(null);
+          
           console.log("Calling updateUIForLoggedOutUser..."); // Log before UI update
           updateUIForLoggedOutUser();
           console.log("Calling resetLoginButton..."); // Log before reset
@@ -343,8 +346,8 @@ function setupAuthButtons() {
 // Sync user data with Firestore (only if firestore is available)
 function syncUserData(user) {
   if (!firestore || !user) {
-      console.log("Skipping user data sync (Firestore unavailable or no user).");
-      return;
+    console.log("Skipping user data sync (Firestore unavailable or no user).");
+    return;
   }
 
   try {
@@ -357,14 +360,15 @@ function syncUserData(user) {
       lastLogin: serverTimestamp() // Record last login time
     }, { merge: true })
     .then(() => {
-        console.log("User data synced/updated in Firestore for:", user.uid);
-        // Sync best time from localStorage after user data is confirmed/created
-        const localBestTime = localStorage.getItem('snowgliderBestTime');
-        if (localBestTime) {
-            const bestTime = parseFloat(localBestTime);
-            console.log("Found local best time, attempting to sync:", bestTime);
-            updateUserBestTime(user.uid, bestTime); // Pass user ID
-        }
+      console.log("User data synced/updated in Firestore for:", user.uid);
+      // Sync best time from localStorage after user data is confirmed/created
+      const localBestTime = localStorage.getItem('snowgliderBestTime');
+      if (localBestTime) {
+        const bestTime = parseFloat(localBestTime);
+        console.log("Found local best time, attempting to sync:", bestTime);
+        // Use ScoresModule to update best time
+        ScoresModule.updateUserBestTime(user.uid, bestTime);
+      }
     })
     .catch(error => {
       console.error("Error saving user data to Firestore:", error);
@@ -373,334 +377,19 @@ function syncUserData(user) {
           error.code === 'failed-precondition') {
         console.warn("Firestore became unavailable during user data sync. Disabling Firestore features.");
         firestore = null; // Disable Firestore for subsequent operations
-        displayLeaderboard(); // Update leaderboard display to show unavailable state
+        // Update ScoresModule about Firestore unavailability
+        ScoresModule.initializeScores(null, analytics);
+        // Display leaderboard with unavailable message
+        ScoresModule.displayLeaderboard();
       }
     });
   } catch (error) {
     // Catch synchronous errors, though unlikely here
     console.error("Unexpected error in syncUserData:", error);
     firestore = null; // Assume Firestore is problematic
-    displayLeaderboard();
-  }
-}
-
-// Update user's best time in Firestore (only if firestore is available)
-function updateUserBestTime(userId, time) {
-  // Guard clauses
-  if (!firestore) {
-      console.log("Skipping best time update (Firestore unavailable).");
-      return;
-  }
-  if (!userId) {
-      console.warn("Skipping best time update (User ID missing).");
-      return;
-  }
-  if (typeof time !== 'number' || isNaN(time)) {
-      console.warn("Skipping best time update (Invalid time value):", time);
-      return;
-  }
-
-  try {
-    const userDocRef = doc(firestore, 'users', userId);
-    getDoc(userDocRef)
-      .then(docSnap => {
-        let shouldUpdate = false;
-        if (docSnap.exists()) {
-          const userData = docSnap.data();
-          // Update only if new time is better or no time exists yet
-          if (!userData.bestTime || time < userData.bestTime) {
-            shouldUpdate = true;
-          }
-        } else {
-          // If user document doesn't exist (should be rare after syncUserData),
-          // assume this is the first time, so update.
-          console.warn("User document not found for best time update, will create/set time.");
-          shouldUpdate = true; // Treat as a new best time
-        }
-
-        if (shouldUpdate) {
-          console.log(`Updating best time for user ${userId} to ${time}`);
-          // Use updateDoc if exists, setDoc if not (though setDoc with merge in syncUserData should handle creation)
-          // Using updateDoc is slightly safer if we only want to add/modify bestTime fields
-          updateDoc(userDocRef, {
-            bestTime: time,
-            updatedAt: serverTimestamp() // Track when the best time was updated
-          })
-          .then(() => {
-              console.log("Best time updated successfully in user document.");
-              updateLeaderboard(userId, time); // Update leaderboard only after successful user doc update
-          })
-          .catch(error => {
-              console.error("Error updating best time in user document:", error);
-              // Handle potential Firestore unavailability
-              if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-                  console.warn("Firestore became unavailable during best time update.");
-                  firestore = null;
-                  displayLeaderboard();
-              }
-          });
-        } else {
-            console.log(`New time (${time}) is not better than existing best time. No update needed.`);
-        }
-      })
-      .catch(error => {
-        console.error("Error reading user data for best time comparison:", error);
-        if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-            console.warn("Firestore became unavailable reading user data.");
-            firestore = null;
-            displayLeaderboard();
-        }
-      });
-  } catch (error) {
-    console.error("Unexpected error in updateUserBestTime:", error);
-    firestore = null; // Assume Firestore is problematic
-    displayLeaderboard();
-  }
-}
-
-// Update global leaderboard (only if firestore is available)
-function updateLeaderboard(userId, time) {
-  // Guard clauses
-  if (!firestore) {
-      console.log("Skipping leaderboard update (Firestore unavailable).");
-      return;
-  }
-   if (!userId) {
-      console.warn("Skipping leaderboard update (User ID missing).");
-      return;
-  }
-   if (typeof time !== 'number' || isNaN(time)) {
-      console.warn("Skipping leaderboard update (Invalid time value):", time);
-      return;
-  }
-
-  try {
-    // Reference to the user document (used as a foreign key in leaderboard)
-    const userDocRef = doc(firestore, 'users', userId);
-    // Use the user's UID as the document ID in the leaderboard collection
-    const leaderboardDocRef = doc(firestore, 'leaderboard', userId);
-
-    console.log(`Updating leaderboard entry for user ${userId} with time ${time}`);
-    // Use setDoc to create or overwrite the user's entry in the leaderboard
-    setDoc(leaderboardDocRef, {
-      user: userDocRef, // Store a reference to the user document
-      time: time,
-      achievedAt: serverTimestamp() // Record when this score was achieved/updated
-    })
-    .then(() => {
-        console.log("Leaderboard updated successfully for user:", userId);
-    })
-    .catch(error => {
-      console.error("Error updating leaderboard:", error);
-      // Handle potential Firestore unavailability
-      if (error.code === 'permission-denied' || error.code === 'unavailable' ||
-          error.code === 'failed-precondition') {
-        console.warn("Firestore became unavailable during leaderboard update.");
-        firestore = null;
-        displayLeaderboard(); // Update UI to reflect unavailability
-      }
-    });
-  } catch (error) {
-    console.error("Unexpected error in updateLeaderboard:", error);
-    firestore = null; // Assume Firestore is problematic
-    displayLeaderboard();
-  }
-}
-
-// Get leaderboard data (top 10 scores)
-function getLeaderboard() {
-  if (!firestore) {
-    console.log("Cannot get leaderboard (Firestore unavailable).");
-    return Promise.resolve([]); // Return empty array immediately
-  }
-
-  try {
-    const leaderboardRef = collection(firestore, 'leaderboard');
-    // Query for top 10 scores, ordered by time ascending
-    const q = query(leaderboardRef, orderBy('time', 'asc'), limit(10));
-
-    console.log("Fetching leaderboard data...");
-    return getDocs(q)
-      .then(snapshot => {
-        const scores = [];
-        snapshot.forEach(docSnap => {
-          const data = docSnap.data();
-          // Ensure data has expected fields before pushing
-          if (data && typeof data.time === 'number' && data.user) {
-              scores.push({
-                userId: docSnap.id, // The user ID is the document ID
-                time: data.time,
-                userRef: data.user // Store the DocumentReference to the user
-              });
-          } else {
-              console.warn("Skipping invalid leaderboard entry:", docSnap.id, data);
-          }
-        });
-        console.log("Leaderboard data fetched:", scores.length, "entries");
-        return scores;
-      })
-      .catch(error => {
-        console.error("Error fetching leaderboard:", error);
-        // Handle potential Firestore unavailability
-        if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-            console.warn("Firestore became unavailable fetching leaderboard.");
-            firestore = null;
-        }
-        return []; // Return empty array on error
-      });
-  } catch (error) {
-    console.error("Unexpected error in getLeaderboard:", error);
-    firestore = null; // Assume Firestore is problematic
-    return Promise.resolve([]); // Return empty array
-  }
-}
-
-// Display leaderboard in game over overlay
-function displayLeaderboard() {
-  const leaderboardElement = document.getElementById('leaderboard');
-  if (!leaderboardElement) return; // Exit if element doesn't exist
-
-  leaderboardElement.innerHTML = '<h3>Loading Leaderboard...</h3>'; // Initial state
-
-  if (!firestore) {
-    leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-    console.log("Displaying leaderboard unavailable message.");
-    return;
-  }
-
-  getLeaderboard()
-    .then(scores => {
-      if (!firestore) { // Check again in case firestore became unavailable during getLeaderboard
-          leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-          return;
-      }
-      if (scores.length === 0) {
-        leaderboardElement.innerHTML = '<h3>No scores recorded yet!</h3>';
-        return;
-      }
-
-      let html = '<h3>Top 10 Times</h3><table>';
-      html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
-
-      // Fetch user data for each score using the stored DocumentReference
-      const userPromises = scores.map(score => {
-        // Check if userRef is a valid DocumentReference
-        if (!score.userRef || typeof score.userRef.path !== 'string') {
-            console.warn("Invalid user reference in leaderboard score for:", score.userId);
-            return Promise.resolve({ displayName: 'Unknown User', photoURL: null }); // Default data
-        }
-        return getDoc(score.userRef)
-          .then(docSnap => {
-            if (docSnap.exists()) {
-              const userData = docSnap.data();
-              return {
-                // Use display name, fallback to 'Anonymous' if empty/missing
-                displayName: userData.displayName || 'Anonymous',
-                photoURL: userData.photoURL || null // Ensure photoURL is null if missing
-              };
-            } else {
-              // Handle case where user document was deleted but leaderboard entry remains
-              console.warn("User document not found for leaderboard entry:", score.userId);
-              return { displayName: 'Unknown User', photoURL: null };
-            }
-          })
-          .catch(error => {
-            console.error("Error fetching user data for leaderboard entry:", score.userId, error);
-            // Handle potential Firestore unavailability during user data fetch
-            if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-                console.warn("Firestore became unavailable fetching user data for leaderboard.");
-                firestore = null; // Disable Firestore
-                // We might want to re-render the leaderboard as unavailable here,
-                // but for simplicity, we'll just show 'Error' for this user.
-            }
-            return { displayName: 'Error Loading', photoURL: null }; // Indicate error fetching this user
-          });
-      });
-
-      // Wait for all user data fetches to complete
-      Promise.all(userPromises)
-        .then(users => {
-          // Check firestore status again before rendering
-          if (!firestore) {
-              leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-              return;
-          }
-          scores.forEach((score, index) => {
-            const user = users[index]; // Get the resolved user data
-            html += `<tr>
-              <td>${index + 1}</td>
-              <td>
-                ${user.photoURL ? `<img src="${user.photoURL}" alt="" class="mini-avatar">` : ''}
-                ${user.displayName}
-              </td>
-              <td>${score.time.toFixed(2)}s</td>
-            </tr>`;
-          });
-
-          html += '</table>';
-          leaderboardElement.innerHTML = html;
-          console.log("Leaderboard display updated.");
-        })
-        .catch(error => {
-          // This catch is for Promise.all itself, unlikely unless there's a programming error
-          console.error("Error processing leaderboard user data:", error);
-          leaderboardElement.innerHTML = '<h3>Error displaying leaderboard user data</h3>';
-        });
-    })
-    .catch(error => {
-      // Catch errors from the initial getLeaderboard() call
-      console.error("Failed to get leaderboard data for display:", error);
-      leaderboardElement.innerHTML = '<h3>Failed to load leaderboard</h3>';
-       // If firestore became null during getLeaderboard, update message
-       if (!firestore) {
-           leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-       }
-    });
-}
-
-// Record a completed run score
-function recordScore(time) {
-  // Always store locally first as a fallback and for immediate personal best tracking
-  try {
-    const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
-    const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
-    const isNewPersonalBest = localBestTime === null || time < localBestTime;
-
-    if (isNewPersonalBest) {
-      localStorage.setItem('snowgliderBestTime', time.toString());
-      console.log("New local best time recorded:", time);
-    } else {
-      console.log("Score recorded, but not a new local best time:", time);
-    }
-
-    // Track completion in Analytics (if available)
-    if (analytics) {
-      logEvent(analytics, 'complete_run', { time: time });
-    }
-
-    // Update Firestore only if user is signed in, Firestore is available, AND it's a new personal best
-    if (currentUser && firestore && isNewPersonalBest) {
-      console.log("Attempting to update Firestore with new best time:", time);
-      updateUserBestTime(currentUser.uid, time); // This function now handles leaderboard update too
-
-      // Track new best time in Analytics (if available)
-      if (analytics) {
-        logEvent(analytics, 'new_high_score', { time: time });
-      }
-    } else {
-        if (!currentUser) console.log("Skipping Firestore update: User not signed in.");
-        if (!firestore) console.log("Skipping Firestore update: Firestore not available.");
-        if (!isNewPersonalBest) console.log("Skipping Firestore update: Not a new personal best.");
-    }
-
-  } catch (error) {
-    console.error("Error in recordScore:", error);
-    // Attempt to save locally even if other parts fail
-    try {
-      localStorage.setItem('snowgliderBestTime', time.toString());
-    } catch (e) {
-      console.error("LocalStorage error during fallback save:", e);
-    }
+    // Update ScoresModule about Firestore unavailability
+    ScoresModule.initializeScores(null, analytics);
+    ScoresModule.displayLeaderboard();
   }
 }
 
@@ -745,12 +434,14 @@ function getUserIdToken(forceRefresh = false) {
 // --- AuthModule Export ---
 const AuthModule = {
   initializeAuth,
-  recordScore,
-  displayLeaderboard,
   getCurrentUser,
   isUserSignedIn,
   getUserIdToken,
 
+  // Delegated methods to ScoresModule 
+  recordScore: (time) => ScoresModule.recordScore(time),
+  displayLeaderboard: () => ScoresModule.displayLeaderboard(),
+  
   // Export utilities for debugging or potential external use
   signOut: () => { // Provide a direct way to sign out if needed
     if (auth) {
