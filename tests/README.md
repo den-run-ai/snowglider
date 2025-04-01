@@ -89,7 +89,7 @@ open index.html?test=trees
 - **Browser tests** run in the actual game environment to test integrated behavior.
 - **Regression tests** focus on specific fixes identified in the git history to prevent regressions.
 - **Tree collision tests** specifically target tree collision detection issues:
-  - Mismatch between tree positions in `snowglider.js` and `utils.js`
+  - Mismatch between tree positions in `snowglider.js` and `snow.js`
   - Tree collision in extended ski run areas (z < -80)
   - Snow splash effect interference with collision detection (fixed in commit a6d88c5)
   - Testing edge cases like jumping over trees
@@ -100,7 +100,7 @@ Based on git history analysis, the tree collision detection issue stems from:
 
 1. **Code Duplication**: There are two functions that place trees:
    - `addTreesWithPositions()` in `snowglider.js` (places trees from z=-80 to z=80)
-   - `addTrees()` in `utils.js` (places trees from z=-180 to z=80)
+   - `addTrees()` in `snow.js` (places trees from z=-180 to z=80)
 
 2. **Position Mismatch**: The visual trees and collision detection trees have different ranges:
    - Visual trees exist in the extended ski run (z < -80), but collision detection doesn't check there
@@ -108,7 +108,7 @@ Based on git history analysis, the tree collision detection issue stems from:
 
 3. **Coordinate Range Differences**:
    - `snowglider.js` uses x-range of ±60 units
-   - `utils.js` uses x-range of ±100 units
+   - `snow.js` uses x-range of ±100 units
    - This causes inconsistent tree placement
 
 4. **Snow Effect Interference**: Fixed in commit a6d88c5, but requires testing to ensure it stays fixed
@@ -117,9 +117,9 @@ Based on git history analysis, the tree collision detection issue stems from:
 
 The tree collision detection issue has been fixed by:
 
-1. **Eliminating Code Duplication**: The `addTreesWithPositions()` function in `snowglider.js` now directly calls `Utils.addTrees()` instead of duplicating the logic with different parameters.
+1. **Eliminating Code Duplication**: The `addTreesWithPositions()` function in `snowglider.js` now directly calls `Snow.addTrees()` instead of duplicating the logic with different parameters.
 
-2. **Using a Single Source of Truth**: Instead of maintaining separate tree position arrays for visuals and collision detection, we now use the tree positions returned by `Utils.addTrees()` for both purposes.
+2. **Using a Single Source of Truth**: Instead of maintaining separate tree position arrays for visuals and collision detection, we now use the tree positions returned by `Snow.addTrees()` for both purposes.
 
 3. **Ensuring Complete Coverage**: All visible trees now have proper collision detection, including trees in the extended ski run (z < -80) and wider terrain (beyond x=±60).
 

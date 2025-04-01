@@ -386,10 +386,10 @@
                 treesScript.src = 'trees.js';
                 
                 treesScript.onload = function() {
-                    const utilsScript = document.createElement('script');
-                    utilsScript.src = 'utils.js';
+                    const snowScript = document.createElement('script');
+                    snowScript.src = 'snow.js';
                     
-                    utilsScript.onload = function() {
+                    snowScript.onload = function() {
                         const cameraScript = document.createElement('script');
                         cameraScript.src = 'camera.js';
                         
@@ -423,7 +423,7 @@
                         };
                         document.body.appendChild(cameraScript);
                     };
-                    document.body.appendChild(utilsScript);
+                    document.body.appendChild(snowScript);
                 };
                 document.body.appendChild(treesScript);
             };

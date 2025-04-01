@@ -4,7 +4,7 @@
 SnowGlider is a Three.js animation/game project with HTML/JS implementation featuring a snowman skiing on natural backcountry mountain terrain. The core files are:
 - `index.html` - Main entry point and UI
 - `snowglider.js` - Game logic and Three.js implementation
-- `utils.js` - Utility functions and helpers
+- `snow.js` - Utility functions and snow effects
 - `mountains.js` - Natural backcountry terrain generation code
 - `trees.js` - Tree creation and placement throughout the mountain
 - `camera.js` - Camera management system

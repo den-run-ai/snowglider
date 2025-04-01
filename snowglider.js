@@ -1,7 +1,7 @@
 // --- Import utilities ---
-// Note: In a real application, you would use: import * as Utils from './utils.js';
-// But for demonstration we assume Utils and Snowman are globally available
-// require('./utils.js');
+// Note: In a real application, you would use: import * as Snow from './snow.js';
+// But for demonstration we assume Snow and Snowman are globally available
+// require('./snow.js');
 // require('./snowman.js');
 
 // Get keyboard controls from the Controls module
@@ -95,17 +95,17 @@ scene.add(directionalLight);
 
 // --- Create main game objects ---
 // Store terrain in a global for precise object positioning
-const terrainResult = Utils.createTerrain(scene);
+const terrainResult = Snow.createTerrain(scene);
 const terrain = terrainResult.terrain;
 // Store terrain reference in global for later object placement
 window.terrainMesh = terrain;
-// We can't call Utils.addTrees directly, so let's create a global array
+// We can't call Snow.addTrees directly, so let's create a global array
 let treePositions = [];
 
-// Instead of duplicating the tree placement logic, use Utils.addTrees
+// Instead of duplicating the tree placement logic, use Snow.addTrees
 // and store its returned positions for collision detection
 function addTreesWithPositions(scene) {
-  // The addTrees function in Utils now handles all tree placement and rendering
+  // The addTrees function in Snow now handles all tree placement and rendering
   // It returns an array of all tree positions that we can use for collision detection
   
   // Extended range to match mountains.js implementation
@@ -113,8 +113,8 @@ function addTreesWithPositions(scene) {
   // - Z range from -180 to 80 (extended run)
   // - X range from -100 to 100 (wider area)
   
-  // Let Utils.addTrees handle the actual tree creation and return positions
-  return Utils.addTrees(scene);
+  // Let Snow.addTrees handle the actual tree creation and return positions
+  return Snow.addTrees(scene);
 }
 
 // Call it and store the positions
@@ -138,14 +138,14 @@ window.treePositions = treePositions;
 window.isTestMode = window.location.search.includes('test');
 
 const snowman = Snowman.createSnowman(scene);
-Utils.createSnowflakes(scene);
+Snow.createSnowflakes(scene);
 
 // Create snow splash particle system for ski effects using sprites
 // like the snowflakes for better visibility
-const snowSplash = Utils.createSnowSplash();
+const snowSplash = Snow.createSnowSplash();
 
 // --- Snowman Position & Reset ---
-let pos = { x: 0, z: -40, y: Utils.getTerrainHeight(0, -40) };
+let pos = { x: 0, z: -40, y: Snow.getTerrainHeight(0, -40) };
 let velocity = { x: 0, z: 0 }; 
 let isInAir = false;
 let verticalVelocity = 0;
@@ -189,7 +189,7 @@ gameOverOverlay.insertBefore(bestTimeDisplay, restartButton);
 
 function resetSnowman() {
   // Reset snowman using the Snowman module function
-  lastTerrainHeight = Snowman.resetSnowman(snowman, pos, velocity, Utils.getTerrainHeight, cameraManager);
+  lastTerrainHeight = Snowman.resetSnowman(snowman, pos, velocity, Snow.getTerrainHeight, cameraManager);
   
   // Reset automatic turning variables to avoid initial random turns
   turnPhase = 0;
@@ -206,7 +206,7 @@ function resetSnowman() {
   Controls.resetControls();
   
   // Initialize test hooks immediately after reset
-  Snowman.addTestHooks(pos, showGameOver, Utils.getTerrainHeight);
+  Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
   
   startTime = performance.now(); // Reset the timer when starting a new run
   updateTimerDisplay();
@@ -279,7 +279,7 @@ function updateSnowman(delta) {
     snowman, delta, pos, velocity, isInAir, verticalVelocity, 
     lastTerrainHeight, airTime, jumpCooldown, Controls.getControls(), 
     turnPhase, currentTurnDirection, turnChangeCooldown, turnAmplitude,
-    Utils.getTerrainHeight, Utils.getTerrainGradient, Utils.getDownhillDirection, 
+    Snow.getTerrainHeight, Snow.getTerrainGradient, Snow.getDownhillDirection, 
     treePositions, gameActive, showGameOver
   );
   
@@ -305,7 +305,7 @@ function updateCamera() {
     snowman.position,
     snowman.rotation,
     velocity,
-    Utils.getTerrainHeight
+    Snow.getTerrainHeight
   );
 }
 
@@ -327,11 +327,11 @@ function animate(time) {
     // Only set up test hooks if they're missing
     if (!window.testHooks) {
       console.log("Test hooks missing in animation loop, reinstalling");
-      Snowman.addTestHooks(pos, showGameOver, gameActive, Utils.getTerrainHeight);
+      Snowman.addTestHooks(pos, showGameOver, gameActive, Snow.getTerrainHeight);
     }
     
     updateSnowman(delta);
-    Utils.updateSnowflakes(delta, pos, scene);
+    Snow.updateSnowflakes(delta, pos, scene);
     
     // Save player position before snow splash effect updates
     const playerPosBefore = { 
@@ -341,7 +341,7 @@ function animate(time) {
     };
     
     // Update snow splash particles - pass all required parameters
-    Utils.updateSnowSplash(snowSplash, delta, snowman, velocity, isInAir, scene);
+    Snow.updateSnowSplash(snowSplash, delta, snowman, velocity, isInAir, scene);
     
     // Ensure snowman position wasn't affected by particles
     snowman.position.set(playerPosBefore.x, playerPosBefore.y, playerPosBefore.z);
@@ -503,7 +503,7 @@ window.toggleCameraView = toggleCameraView;
 // Initialize test hooks explicitly to ensure they're available immediately
 // This is important for browser tests that run soon after page load
 console.log("Initializing test hooks on startup");
-Snowman.addTestHooks(pos, showGameOver, Utils.getTerrainHeight);
+Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
 
 // Add event listener to restart button
 restartButton.addEventListener('click', restartGame);
@@ -525,7 +525,7 @@ function updateTimerDisplay() {
 setTimeout(() => {
   // Always reinitialize test hooks to ensure they have the latest pos and showGameOver references
   console.log("Refreshing test hooks for browser tests (delayed setup)");
-  Snowman.addTestHooks(pos, showGameOver, Utils.getTerrainHeight);
+  Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
   if (window.testHooks) {
     console.log("Test hooks available:", Object.keys(window.testHooks).join(", "));
   }
