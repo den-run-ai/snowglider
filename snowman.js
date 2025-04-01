@@ -133,13 +133,13 @@ function createSnowman(scene) {
   // --- End Stick Arms ---
   
   // Hat
-  const hatBase = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.2, 24), hatMaterial);
+  const hatBase = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.2, 24), hatMaterial);
   hatBase.position.y = 8.0; // Adjusted Y based on new head position: 7.1 (head_y) + 1.0 (head_r) - 0.1
   hatBase.castShadow = true;
   group.add(hatBase);
   
-  const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1.5, 24), hatMaterial);
-  hatTop.position.y = 8.85; // Adjusted Y: 8.0 (base_y) + 0.1 (base_half_h) + 0.75 (top_half_h)
+  const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.9, 24), hatMaterial);
+  hatTop.position.y = 8.55; // Adjusted Y: 8.0 (base_y) + 0.1 (base_half_h) + 0.45 (new_top_half_h)
   hatTop.castShadow = true;
   group.add(hatTop);
   
