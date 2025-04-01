@@ -193,30 +193,71 @@
       document.body.appendChild(notice);
     });
     
-    // Create mock Firebase modules for file:// protocol
     if (isFileProtocol) {
       console.log("File protocol detected - using mock Firebase implementation");
-      
-      // Mock Firebase modules (AuthModule will handle this internally now)
-      // window.firebaseModules = { ... }; // REMOVED
-      
       console.log("Mock Firebase services will be handled by AuthModule in local file mode");
+      
+      // Create inline ScoresModule for file:// protocol first
+      window.ScoresModule = {
+        initializeScores: function(firestoreInstance, analyticsInstance) {
+          console.log("ScoresModule initialized in local mode (simplified)");
+        },
+        setCurrentUser: function(user) { 
+          console.log("ScoresModule: setCurrentUser called in local mode"); 
+        },
+        recordScore: function(time) {
+          // Store in localStorage
+          const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
+          const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
+          const isNewPersonalBest = localBestTime === null || time < localBestTime;
+
+          if (isNewPersonalBest) {
+            localStorage.setItem('snowgliderBestTime', time.toString());
+            console.log("New local best time recorded:", time);
+          } else {
+            console.log("Score recorded, but not a new local best time:", time);
+          }
+        },
+        displayLeaderboard: function() {
+          console.log("Leaderboard not available in local file mode");
+          const leaderboardElement = document.getElementById('leaderboard');
+          if (leaderboardElement) {
+            leaderboardElement.innerHTML = '<h3>Leaderboard unavailable in local file mode</h3>';
+          }
+        },
+        getLeaderboard: function() { return Promise.resolve([]); },
+        updateUserBestTime: function(userId, time) { 
+          console.log("updateUserBestTime not available in local file mode"); 
+        },
+        updateLeaderboard: function(userId, time) { 
+          console.log("updateLeaderboard not available in local file mode"); 
+        },
+        isFirestoreAvailable: function() { return false; }
+      };
+
+      // Do not include the module scripts at all in file:// mode
     } else {
-      // --- Start Edit 1: Remove Firebase Init Module Script from Head ---
-      // For HTTP/HTTPS, Firebase will be initialized within auth.js
-      // const firebaseScript = document.createElement('script');
-      // firebaseScript.type = 'module';
-      // firebaseScript.textContent = ` ... Firebase Init Code ... `; // REMOVED
-      // document.head.appendChild(firebaseScript); // REMOVED
       console.log("Firebase initialization will be handled by auth.js");
-      // --- End Edit 1 ---
+      
+      // Dynamically add the module scripts only for non-file:// protocol
+      const head = document.getElementsByTagName('head')[0];
+      
+      // Load Scores Module
+      const scoresScript = document.createElement('script');
+      scoresScript.type = 'module';
+      scoresScript.id = 'scoresScript';
+      scoresScript.src = 'scores.js';
+      head.appendChild(scoresScript);
+      
+      // Load Auth Module
+      const authScript = document.createElement('script');
+      authScript.type = 'module';
+      authScript.id = 'authScript';
+      authScript.src = 'auth.js';
+      head.appendChild(authScript);
     }
   </script>
-  <!-- Load Scripts in head -->
-  <!-- Load Scores Module first (auth.js depends on it) -->
-  <script src="scores.js" type="module" id="scoresScript"></script>
-  <!-- Load Auth Module - It will handle Firebase initialization -->
-  <script src="auth.js" type="module" id="authScript"></script>
+  <!-- Load Scripts in head - REMOVED AND REPLACED WITH DYNAMIC LOADING ABOVE -->
 </head>
 <body>
   <div id="info">Skiing Snowman</div>
@@ -295,7 +336,7 @@
                     }
                 },
                 recordScore: function(time) {
-                    // Forward to ScoresModule if it exists, otherwise fallback to local storage
+                    // Forward to ScoresModule which we've already defined above
                     if (window.ScoresModule && typeof window.ScoresModule.recordScore === 'function') {
                         window.ScoresModule.recordScore(time);
                     } else {
@@ -304,7 +345,7 @@
                     }
                 },
                 displayLeaderboard: function() {
-                    // Forward to ScoresModule if it exists, otherwise show unavailable message
+                    // Forward to ScoresModule
                     if (window.ScoresModule && typeof window.ScoresModule.displayLeaderboard === 'function') {
                         window.ScoresModule.displayLeaderboard();
                     } else {
