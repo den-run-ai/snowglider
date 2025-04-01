@@ -23,22 +23,22 @@ function createSnowman(scene) {
   
   // Head sphere
   const head = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 24), snowMaterial);
-  head.position.y = 7.1; // Adjusted head position slightly upwards since scarf is gone
+  head.position.y = 7.0; // Lowered head to sit on middle sphere (4.5 + 1.5 + 1.0)
   head.castShadow = true;
   group.add(head);
   
   // Eyes
   const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 12), blackMaterial);
-  leftEye.position.set(0.4, 7.3, 0.8); // Adjusted Y based on new head position
+  leftEye.position.set(0.4, 7.2, 0.8); // Adjusted Y based on new head position
   group.add(leftEye);
   
   const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 12), blackMaterial);
-  rightEye.position.set(-0.4, 7.3, 0.8); // Adjusted Y based on new head position
+  rightEye.position.set(-0.4, 7.2, 0.8); // Adjusted Y based on new head position
   group.add(rightEye);
   
   // Carrot nose
   const nose = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1, 12), carrotMaterial);
-  nose.position.set(0, 7.1, 1); // Adjusted Y based on new head position
+  nose.position.set(0, 7.0, 1); // Adjusted Y based on new head position
   nose.rotation.x = Math.PI / 2;
   group.add(nose);
   
@@ -134,12 +134,12 @@ function createSnowman(scene) {
   
   // Hat
   const hatBase = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.2, 24), hatMaterial);
-  hatBase.position.y = 8.0; // Adjusted Y based on new head position: 7.1 (head_y) + 1.0 (head_r) - 0.1
+  hatBase.position.y = 7.9; // Adjusted Y based on new head position: 7.0 (head_y) + 1.0 (head_r) - 0.1
   hatBase.castShadow = true;
   group.add(hatBase);
   
   const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.9, 24), hatMaterial);
-  hatTop.position.y = 8.55; // Adjusted Y: 8.0 (base_y) + 0.1 (base_half_h) + 0.45 (new_top_half_h)
+  hatTop.position.y = 8.45; // Adjusted Y: 7.9 (base_y) + 0.1 (base_half_h) + 0.45 (new_top_half_h)
   hatTop.castShadow = true;
   group.add(hatTop);
   
