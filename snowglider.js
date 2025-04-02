@@ -205,6 +205,11 @@ function resetSnowman() {
   // Reset keyboard controls
   Controls.resetControls();
   
+  // Ensure audio is playing if not muted
+  if (window.AudioModule) {
+    AudioModule.enableSound(true);
+  }
+  
   // Initialize test hooks immediately after reset
   Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
   
@@ -316,6 +321,13 @@ cameraManager.initialize(
   new THREE.Euler(0, Math.PI, 0) // Snowman starts facing down the mountain (π radians)
 );
 
+// Initialize audio and connect to camera
+AudioModule.init(scene);
+// Make sure to attach audio listener to the camera
+AudioModule.addAudioListener(camera);
+// Set up the audio UI
+AudioModule.setupUI();
+
 // --- Animation Loop ---
 let lastTime = 0; // Original initialization
 function animate(time) {
@@ -365,6 +377,11 @@ window.addEventListener('resize', () => {
 function showGameOver(reason) {
   gameActive = false;
   gameOverDetail.textContent = reason;
+  
+  // Pause audio on game over
+  if (window.AudioModule) {
+    AudioModule.enableSound(false);
+  }
   
   // Only update times if player reached the end successfully
   if (reason === "You reached the end of the slope!") {
@@ -462,6 +479,11 @@ function restartGame() {
   
   // Initialize camera with the snowman's position and rotation
   cameraManager.initialize(snowman.position, snowman.rotation);
+  
+  // Resume audio
+  if (window.AudioModule) {
+    AudioModule.enableSound(true);
+  }
   
   // Reset animation if it was stopped
   if (!animationRunning) {

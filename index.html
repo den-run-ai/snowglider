@@ -32,6 +32,38 @@
       touch-action: manipulation; /* Removes delay on mobile devices */
       user-select: none;
     }
+    #audioControlBtn {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 40px;
+      height: 40px;
+      border: none;
+      border-radius: 50%;
+      background-color: rgba(0, 0, 0, 0.5);
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: rgba(255, 255, 255, 0.5);
+      touch-action: manipulation;
+      user-select: none;
+      z-index: 1001;
+    }
+    #audioSelect {
+      position: absolute;
+      bottom: 70px;
+      right: 20px;
+      padding: 8px;
+      background-color: rgba(0, 0, 0, 0.5);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-family: Arial, sans-serif;
+      z-index: 1001;
+    }
     /* Auth UI styles */
     #authContainer {
       position: absolute;
@@ -281,6 +313,9 @@
   <div id="leaderboard" style="display:none;"></div>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Audio resources -->
+  <audio id="audio-drum" preload="auto" src="./assets/drum_loop_are_you_heaven.wav" style="display: none;"></audio>
+  <audio id="audio-beat" preload="auto" src="./assets/skullbeatz_bad_cat.mp3" style="display: none;"></audio>
   <!-- Prevent Firebase auto-init via init.json -->
   <script>
     // Prevent Firebase auto-init that attempts to fetch init.json
@@ -450,63 +485,69 @@
                             snowmanScript.src = 'snowman.js';
                             
                             snowmanScript.onload = function() {
-                                const controlsScript = document.createElement('script');
-                                controlsScript.src = 'controls.js';
+                                const audioScript = document.createElement('script');
+                                audioScript.src = 'audio.js';
                                 
-                                controlsScript.onload = function() {
-                                    const mainScript = document.createElement('script');
-                                    mainScript.src = 'snowglider.js';
-                                
-                                    mainScript.onload = function() {
-                                        // Load tests if needed
-                                        const loadTests = function() {
-                                            const urlParams = new URLSearchParams(window.location.search);
-                                            const testParam = urlParams.get('test');
-                                            
-                                            if (testParam) {
-                                                console.log(`Loading test scripts for test parameter: ${testParam}`);
-                                                
-                                                // Test utilities first
-                                                const testUtils = document.createElement('script');
-                                                testUtils.src = 'tests/unified-test-runner.js';
-                                                document.body.appendChild(testUtils);
-                                                
-                                                // Load specific test scripts based on parameter
-                                                const loadSpecificTest = (scriptName) => {
-                                                    const testScript = document.createElement('script');
-                                                    testScript.src = `tests/${scriptName}.js`;
-                                                    document.body.appendChild(testScript);
-                                                };
-                                                
-                                                if (testParam === 'true' || testParam === 'all' || testParam === 'unified') {
-                                                    loadSpecificTest('browser-tests');
-                                                }
-                                                
-                                                if (testParam === 'camera' || testParam === 'all' || testParam === 'unified') {
-                                                    loadSpecificTest('camera-tests');
-                                                }
-                                                
-                                                if (testParam === 'trees' || testParam === 'all' || testParam === 'unified') {
-                                                    loadSpecificTest('browser-tree-tests');
-                                                }
-                                                
-                                                if (testParam === 'regression' || testParam === 'all' || testParam === 'unified') {
-                                                    loadSpecificTest('browser-regression-tests');
-                                                }
-                                                
-                                                if (testParam === 'controls' || testParam === 'all' || testParam === 'unified') {
-                                                    loadSpecificTest('controls-tests');
-                                                }
-                                            }
-                                        };
-                                        loadTests();
+                                audioScript.onload = function() {
+                                    const controlsScript = document.createElement('script');
+                                    controlsScript.src = 'controls.js';
+                                    
+                                    controlsScript.onload = function() {
+                                        const mainScript = document.createElement('script');
+                                        mainScript.src = 'snowglider.js';
                                         
-                                        // Config and init logic moved above/into AuthModule
-                                        console.log("Main game script loaded.");
+                                        mainScript.onload = function() {
+                                            // Load tests if needed
+                                            const loadTests = function() {
+                                                const urlParams = new URLSearchParams(window.location.search);
+                                                const testParam = urlParams.get('test');
+                                                
+                                                if (testParam) {
+                                                    console.log(`Loading test scripts for test parameter: ${testParam}`);
+                                                    
+                                                    // Test utilities first
+                                                    const testUtils = document.createElement('script');
+                                                    testUtils.src = 'tests/unified-test-runner.js';
+                                                    document.body.appendChild(testUtils);
+                                                    
+                                                    // Load specific test scripts based on parameter
+                                                    const loadSpecificTest = (scriptName) => {
+                                                        const testScript = document.createElement('script');
+                                                        testScript.src = `tests/${scriptName}.js`;
+                                                        document.body.appendChild(testScript);
+                                                    };
+                                                    
+                                                    if (testParam === 'true' || testParam === 'all' || testParam === 'unified') {
+                                                        loadSpecificTest('browser-tests');
+                                                    }
+                                                    
+                                                    if (testParam === 'camera' || testParam === 'all' || testParam === 'unified') {
+                                                        loadSpecificTest('camera-tests');
+                                                    }
+                                                    
+                                                    if (testParam === 'trees' || testParam === 'all' || testParam === 'unified') {
+                                                        loadSpecificTest('browser-tree-tests');
+                                                    }
+                                                    
+                                                    if (testParam === 'regression' || testParam === 'all' || testParam === 'unified') {
+                                                        loadSpecificTest('browser-regression-tests');
+                                                    }
+                                                    
+                                                    if (testParam === 'controls' || testParam === 'all' || testParam === 'unified') {
+                                                        loadSpecificTest('controls-tests');
+                                                    }
+                                                }
+                                            };
+                                            loadTests();
+                                            
+                                            // Config and init logic moved above/into AuthModule
+                                            console.log("Main game script loaded.");
+                                        };
+                                        document.body.appendChild(mainScript);
                                     };
-                                    document.body.appendChild(mainScript);
+                                    document.body.appendChild(controlsScript);
                                 };
-                                document.body.appendChild(controlsScript);
+                                document.body.appendChild(audioScript);
                             };
                             document.body.appendChild(snowmanScript);
                         };

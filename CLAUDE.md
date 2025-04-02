@@ -10,6 +10,7 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - `camera.js` - Camera management system
 - `snowman.js` - Snowman model and physics
 - `controls.js` - Keyboard and touch controls implementation
+- `audio.js` - Background music and audio controls
 - `auth.js` / `auth.html` - Firebase authentication implementation
 - `scores.js` - User scoring and leaderboard functionality
 - `tests/` - Test files for terrain, physics, camera, and collision detection
@@ -59,6 +60,8 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - Use standard touch event handlers with { passive: false }
 - Provide visual feedback for touch controls on mobile devices
 - Automatically detect device type to enable appropriate controls
+- Use THREE.AudioListener and THREE.Audio for game sound effects
+- Store audio preferences in localStorage for persistence
 
 ## Authentication Implementation
 - Use popup-only authentication flow for all devices (mobile and desktop)

@@ -15,6 +15,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - Tree obstacle detection with collision physics
 - Snow particle effects that respond to speed and turning
 - Tracking camera that follows the snowman's movements
+- Background music with selectable audio tracks
 - Timer with best time tracking
 - Comprehensive test suite for verifying game mechanics
 
@@ -26,6 +27,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `trees.js` - Tree creation and placement
 - `camera.js` - Camera management and tracking
 - `snow.js` - Utility functions and snow effects
+- `audio.js` - Background music and sound control system
 - `auth.js` - Firebase authentication and user management
 - `scores.js` - User scoring and leaderboard functionality
 - `tests/` - Testing framework for game components
@@ -39,6 +41,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
   - **Up Arrow / W**: Increase speed
   - **Down Arrow / S**: Slow down
 - **Space**: Jump over obstacles
+- **V**: Toggle camera view
 - **Reset Button**: Start a new run
 
 ### Touch Controls (Mobile)
@@ -47,6 +50,8 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - **Top of Screen**: Increase speed
 - **Bottom of Screen**: Slow down
 - **Center of Screen**: Jump
+- **Camera Toggle Button**: Switch camera view
+- **Audio Button**: Toggle music or change tracks
 - **Reset Button**: Start a new run
 
 The game automatically detects mobile devices and enables touch controls with visual indicators for easier gameplay.
@@ -60,6 +65,9 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=unified` - Run all tests
 
 ## Recent Improvements
+- Added background music system with selectable audio tracks
+- Implemented audio controls with mute/unmute functionality
+- Added audio preference storage in localStorage
 - Split user scoring and leaderboard functionality into separate scores.js module
 - Improved code organization with clearer separation of concerns
 - Maintained backward compatibility with existing interfaces
