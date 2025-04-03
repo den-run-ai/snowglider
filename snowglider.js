@@ -13,7 +13,11 @@ scene.background = new THREE.Color(0x87CEEB);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-document.body.appendChild(renderer.domElement);
+// Update to assign renderer to a specific div with an ID
+const rendererContainer = document.createElement('div');
+rendererContainer.id = 'gameCanvas';
+document.body.appendChild(rendererContainer);
+rendererContainer.appendChild(renderer.domElement);
 
 // Initialize camera manager
 const cameraManager = new Camera(scene);
@@ -81,8 +85,18 @@ gameOverOverlay.appendChild(restartButton);
 // Add to document
 document.body.appendChild(gameOverOverlay);
 
-// Game state
-let gameActive = true;
+// --- Initialize audio early, but don't start playing until user interaction ---
+// Initialize audio and connect to camera
+AudioModule.init(scene);
+// Make sure to attach audio listener to the camera
+AudioModule.addAudioListener(camera);
+// Set up the audio UI
+AudioModule.setupUI();
+
+// --- Game state ---
+let gameActive = false; // Start inactive until user clicks start button
+let animationRunning = false; // Track if animation loop is running
+let gameInitialized = false; // Track if game has been initialized
 
 // --- Lighting ---
 scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -185,8 +199,6 @@ bestTimeDisplay.style.fontSize = '20px';
 bestTimeDisplay.style.marginBottom = '20px';
 gameOverOverlay.insertBefore(bestTimeDisplay, restartButton);
 
-// Removed easing function and startup tracking variables - simplifying for debugging
-
 function resetSnowman() {
   // Reset snowman using the Snowman module function
   lastTerrainHeight = Snowman.resetSnowman(snowman, pos, velocity, Snow.getTerrainHeight, cameraManager);
@@ -205,14 +217,6 @@ function resetSnowman() {
   // Reset keyboard controls
   Controls.resetControls();
   
-  // Ensure audio is playing if not muted
-  if (window.AudioModule) {
-    AudioModule.enableSound(true);
-  }
-  
-  // Initialize test hooks immediately after reset
-  Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
-  
   startTime = performance.now(); // Reset the timer when starting a new run
   updateTimerDisplay();
   
@@ -230,7 +234,7 @@ function resetSnowman() {
 // Make resetSnowman accessible globally for touch handler
 window.resetSnowman = resetSnowman;
 
-resetSnowman();
+// Initialize controls but don't reset the snowman yet
 document.getElementById('resetBtn').addEventListener('click', resetSnowman);
 
 // Add control information display
@@ -271,8 +275,6 @@ cameraToggleBtn.addEventListener('touchend', function(event) {
 }, { passive: false });
 
 document.body.appendChild(cameraToggleBtn);
-
-// Keyboard event listeners now managed by the Controls module
 
 // --- Update Snowman: Physics-based Movement ---
 function updateSnowman(delta) {
@@ -321,15 +323,8 @@ cameraManager.initialize(
   new THREE.Euler(0, Math.PI, 0) // Snowman starts facing down the mountain (π radians)
 );
 
-// Initialize audio and connect to camera
-AudioModule.init(scene);
-// Make sure to attach audio listener to the camera
-AudioModule.addAudioListener(camera);
-// Set up the audio UI
-AudioModule.setupUI();
-
 // --- Animation Loop ---
-let lastTime = 0; // Original initialization
+let lastTime = 0;
 function animate(time) {
   if (gameActive) {
     requestAnimationFrame(animate);
@@ -365,7 +360,6 @@ function animate(time) {
     animationRunning = false;
   }
 }
-animate(0);
 
 // --- Handle Window Resize ---
 window.addEventListener('resize', () => {
@@ -530,9 +524,6 @@ Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
 // Add event listener to restart button
 restartButton.addEventListener('click', restartGame);
 
-// Animation state tracking
-let animationRunning = true;
-
 // Update timer display during gameplay
 function updateTimerDisplay() {
   if (gameActive) {
@@ -541,14 +532,76 @@ function updateTimerDisplay() {
   }
 }
 
-// Make sure test hooks are always available for tests
-// This is crucial for browser tests that need to verify tree collisions
-// Run this setup again after a short delay to ensure tests can find them
-setTimeout(() => {
-  // Always reinitialize test hooks to ensure they have the latest pos and showGameOver references
-  console.log("Refreshing test hooks for browser tests (delayed setup)");
+// Function to initialize the game with audio - called from the start button
+window.initializeGameWithAudio = function() {
+  console.log("Initializing game with audio...");
+  
+  // Start the audio
+  AudioModule.startAudio();
+  
+  // Reset the snowman to starting position
+  resetSnowman();
+  
+  // Make sure test hooks are available
   Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
-  if (window.testHooks) {
-    console.log("Test hooks available:", Object.keys(window.testHooks).join(", "));
+  
+  // Display a short loading message if this is the first initialization
+  if (!gameInitialized) {
+    // Show a loading indicator while THREE.js initializes
+    AudioModule.showMessage("Loading game...", 1500);
+    gameInitialized = true;
+    
+    // Short delay to allow for visual transition
+    setTimeout(() => {
+      // Activate the game after a short delay for visual feedback
+      gameActive = true;
+      animationRunning = true;
+      
+      // Start animation loop
+      lastTime = performance.now();
+      animate(lastTime);
+      
+      // Show a "Get Ready" message
+      setTimeout(() => {
+        AudioModule.showMessage("Get Ready!", 1000);
+      }, 1500);
+    }, 1800);
+  } else {
+    // If already initialized once, just restart immediately
+    gameActive = true;
+    animationRunning = true;
+    
+    // Start animation loop
+    lastTime = performance.now();
+    animate(lastTime);
   }
-}, 300);
+  
+  console.log("Game started successfully!");
+  
+  // Track game start in analytics if available
+  try {
+    if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
+      window.firebaseModules.logEvent('game_start');
+    }
+  } catch (e) {
+    console.log("Analytics tracking skipped:", e.message);
+  }
+  
+  return true;
+};
+
+// If this is a test environment, auto-start the game
+if (window.isTestMode) {
+  console.log("Test mode detected, auto-starting game...");
+  setTimeout(() => {
+    // Hide the start button container
+    const startContainer = document.getElementById('startGameContainer');
+    if (startContainer) startContainer.style.display = 'none';
+    
+    // Show the game canvas
+    document.getElementById('gameCanvas').style.display = 'block';
+    
+    // Initialize the game
+    window.initializeGameWithAudio();
+  }, 100);
+}

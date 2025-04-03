@@ -63,6 +63,7 @@
       border-radius: 4px;
       font-family: Arial, sans-serif;
       z-index: 1001;
+      display: none; /* Initially hidden */
     }
     /* Auth UI styles */
     #authContainer {
@@ -193,6 +194,202 @@
       margin-right: 5px;
       vertical-align: middle;
     }
+    /* Enhanced Start Game Container styles */
+    #startGameContainer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background-color: rgba(0, 0, 0, 0.8);
+      z-index: 2000;
+      color: white;
+      font-family: 'Arial', sans-serif;
+      padding: 10px; /* Add padding to ensure content doesn't touch the edge */
+      overflow-y: auto; /* Allow scrolling if needed */
+    }
+    
+    #gameTitle {
+      font-size: 42px; /* Slightly reduced from 48px */
+      color: #ffffff;
+      text-shadow: 0 0 10px #87CEEB, 0 0 20px #4CAF50;
+      margin-bottom: 10px; /* Reduced from 20px */
+      letter-spacing: 2px;
+      animation: pulse 2s infinite;
+      text-align: center;
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    
+    #gameDescription {
+      font-size: 16px; /* Reduced from 18px */
+      max-width: 600px;
+      text-align: center;
+      margin-bottom: 15px; /* Reduced from 30px */
+      line-height: 1.4; /* Slightly reduced from 1.5 */
+    }
+    
+    #controlsGuide {
+      background-color: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 10px 20px; /* Reduced from 15px 25px */
+      margin-bottom: 15px; /* Reduced from 30px */
+      max-width: 500px;
+      text-align: left;
+      max-height: 180px; /* Add max height */
+      overflow-y: auto; /* Make scrollable if needed */
+    }
+    
+    #controlsGuide h3 {
+      text-align: center;
+      margin-top: 0;
+      margin-bottom: 8px; /* Reduced from 10px */
+      font-size: 16px; /* Added smaller font size */
+    }
+    
+    .control-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 6px 0; /* Reduced from 8px */
+      font-size: 14px; /* Added smaller font size */
+    }
+    
+    .key {
+      background-color: rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      padding: 1px 6px; /* Reduced from 2px 8px */
+      font-family: monospace;
+      font-weight: bold;
+    }
+    
+    #startMenu {
+      display: flex;
+      flex-direction: column;
+      gap: 10px; /* Reduced from 15px */
+      align-items: center;
+      margin-bottom: 10px; /* Reduced from 20px */
+      width: 280px;
+    }
+    
+    .menu-button {
+      padding: 12px 20px; /* Reduced from 15px 30px */
+      font-size: 16px; /* Reduced from 20px */
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background-color 0.3s, transform 0.2s;
+      min-width: 220px; /* Reduced from 250px */
+      text-align: center;
+    }
+    
+    .menu-button.start {
+      background-color: #4CAF50;
+    }
+    
+    .menu-button.options {
+      background-color: #4a69bd;
+    }
+    
+    .menu-button.about {
+      background-color: #ff7979;
+    }
+    
+    .menu-button:hover {
+      background-color: #45a049;
+      transform: scale(1.05);
+    }
+    
+    .menu-button.options:hover {
+      background-color: #3c58b0;
+    }
+    
+    .menu-button.about:hover {
+      background-color: #ff6b6b;
+    }
+    
+    .menu-button:active {
+      transform: scale(0.98);
+    }
+    
+    #aboutGamePanel {
+      display: none;
+      background-color: rgba(0, 0, 0, 0.7);
+      border-radius: 10px;
+      padding: 15px; /* Reduced from 20px */
+      margin-top: 10px; /* Reduced from 20px */
+      margin-bottom: 10px; /* Reduced from 20px */
+      max-width: 600px;
+      text-align: center;
+      font-size: 14px; /* Added smaller font size */
+    }
+    
+    #aboutGamePanel h3 {
+      margin-top: 0;
+      margin-bottom: 10px; /* Reduced from 15px */
+      color: #ff7979;
+      font-size: 18px; /* Added smaller font size */
+    }
+    
+    #aboutGamePanel p {
+      margin-bottom: 8px; /* Reduced from 10px */
+      line-height: 1.4; /* Slightly reduced from 1.5 */
+    }
+    
+    #keyboardHint {
+      font-style: italic;
+      opacity: 0.8;
+      margin-top: 8px; /* Reduced from 15px */
+      font-size: 14px; /* Added smaller font size */
+    }
+    #gameCanvas {
+      display: none; /* Initially hidden until game starts */
+    }
+    
+    @media (max-height: 650px) {
+      /* Adjustments for smaller height screens */
+      #gameTitle {
+        font-size: 32px;
+        margin-bottom: 5px;
+      }
+      
+      #gameDescription {
+        font-size: 14px;
+        margin-bottom: 10px;
+        max-width: 90%;
+      }
+      
+      #controlsGuide {
+        max-height: 120px;
+        margin-bottom: 10px;
+      }
+      
+      .menu-button {
+        padding: 8px 16px;
+        font-size: 14px;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      /* Adjustments for mobile screens */
+      #gameTitle {
+        font-size: 28px;
+      }
+      
+      #controlsGuide {
+        padding: 8px 15px;
+        max-width: 90%;
+      }
+    }
   </style>
   <!-- Firebase SDK - Using modern modular SDK -->
   <script>
@@ -292,6 +489,56 @@
   <!-- Load Scripts in head - REMOVED AND REPLACED WITH DYNAMIC LOADING ABOVE -->
 </head>
 <body>
+  <!-- Start Game Container and Button -->
+  <div id="startGameContainer">
+    <h1 id="gameTitle">❄️ 🎿 ⛰️ SnowGlider ☃️ ❄️</h1>
+    <p id="gameDescription">Race down the mountain as a snowman, dodge trees, perform jumps and try to reach the bottom with the fastest time!</p>
+    
+    <div id="controlsGuide">
+      <h3>Controls</h3>
+      <div class="control-row">
+        <span><span class="key">←</span> <span class="key">A</span></span>
+        <span>Turn Left</span>
+      </div>
+      <div class="control-row">
+        <span><span class="key">→</span> <span class="key">D</span></span>
+        <span>Turn Right</span>
+      </div>
+      <div class="control-row">
+        <span><span class="key">↑</span> <span class="key">W</span></span>
+        <span>Accelerate</span>
+      </div>
+      <div class="control-row">
+        <span><span class="key">↓</span> <span class="key">S</span></span>
+        <span>Brake</span>
+      </div>
+      <div class="control-row">
+        <span><span class="key">Space</span></span>
+        <span>Jump</span>
+      </div>
+      <div class="control-row">
+        <span><span class="key">V</span></span>
+        <span>Toggle Chase View</span>
+      </div>
+    </div>
+    
+    <div id="startMenu">
+      <button id="startGameButton" class="menu-button start">Start Game with Music</button>
+      <button id="aboutGameButton" class="menu-button about">About Game</button>
+    </div>
+    
+    <div id="aboutGamePanel">
+      <h3>About SnowGlider</h3>
+      <p>SnowGlider is a 3D skiing game where you control a snowman racing down a mountain.</p>
+      <p>Your goal is to reach the bottom of the slope as fast as possible while avoiding trees and obstacles.</p>
+      <p>Perform jumps off slopes, control your speed, and try to set new personal best times!</p>
+      <p>Made with Three.js and a lot of love for winter sports.</p>
+      <button id="closeAboutButton" class="menu-button">Close</button>
+    </div>
+    
+    <p id="keyboardHint">Press <span class="key">Enter</span> or <span class="key">Space</span> to start the game</p>
+  </div>
+
   <div id="info">Skiing Snowman</div>
   <button id="resetBtn">Reset</button>
   
@@ -314,8 +561,8 @@
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- Audio resources -->
-  <audio id="audio-drum" preload="auto" src="./assets/drum_loop_are_you_heaven.wav" style="display: none;"></audio>
-  <audio id="audio-beat" preload="auto" src="./assets/skullbeatz_bad_cat.mp3" style="display: none;"></audio>
+  <audio id="audio-drum" preload="auto" src="./assets/drum_loop_are_you_heaven.wav" style="display: none;" muted></audio>
+  <audio id="audio-beat" preload="auto" src="./assets/skullbeatz_bad_cat.mp3" style="display: none;" muted></audio>
   <!-- Prevent Firebase auto-init via init.json -->
   <script>
     // Prevent Firebase auto-init that attempts to fetch init.json
@@ -562,6 +809,73 @@
             console.error("Failed to load or initialize AuthModule:", error);
             // Handle failure - maybe display an error message to the user
         });
+
+        // Add start game button handler
+        document.getElementById('startGameButton').addEventListener('click', function() {
+            startGame();
+        });
+        
+        // Add about game button handler
+        document.getElementById('aboutGameButton').addEventListener('click', function() {
+            const aboutPanel = document.getElementById('aboutGamePanel');
+            const controlsGuide = document.getElementById('controlsGuide');
+            const startMenu = document.getElementById('startMenu');
+            const keyboardHint = document.getElementById('keyboardHint');
+            
+            aboutPanel.style.display = 'block';
+            controlsGuide.style.display = 'none';
+            startMenu.style.display = 'none';
+            keyboardHint.style.display = 'none';
+        });
+        
+        // Add close about button handler
+        document.getElementById('closeAboutButton').addEventListener('click', function() {
+            const aboutPanel = document.getElementById('aboutGamePanel');
+            const controlsGuide = document.getElementById('controlsGuide');
+            const startMenu = document.getElementById('startMenu');
+            const keyboardHint = document.getElementById('keyboardHint');
+            
+            aboutPanel.style.display = 'none';
+            controlsGuide.style.display = 'block';
+            startMenu.style.display = 'flex';
+            keyboardHint.style.display = 'block';
+        });
+        
+        // Add keyboard handlers for starting the game
+        document.addEventListener('keydown', function(event) {
+            // Check if the start container is visible and about panel is hidden
+            const startContainer = document.getElementById('startGameContainer');
+            const aboutPanel = document.getElementById('aboutGamePanel');
+            
+            if (startContainer && 
+                startContainer.style.display !== 'none' && 
+                aboutPanel.style.display !== 'block') {
+                
+                // Start game on Enter or Space
+                if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+                    startGame();
+                }
+            } else if (aboutPanel && aboutPanel.style.display === 'block') {
+                // Close about panel on Escape
+                if (event.key === 'Escape') {
+                    document.getElementById('closeAboutButton').click();
+                }
+            }
+        });
+        
+        // Function to start the game
+        function startGame() {
+            // Hide the start button container
+            document.getElementById('startGameContainer').style.display = 'none';
+            
+            // Show the game canvas
+            document.getElementById('gameCanvas').style.display = 'block';
+            
+            // Initialize the game
+            if (typeof window.initializeGameWithAudio === 'function') {
+                window.initializeGameWithAudio();
+            }
+        }
     });
   </script>
 </body>
