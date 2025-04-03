@@ -8,15 +8,311 @@
     body { margin: 0; overflow: hidden; background-color: #87CEEB; }
     canvas { display: block; }
     #info {
-      position: absolute;
-      top: 10px;
-      width: calc(100% - 250px); /* Reduced width to avoid overlap with auth container */
+      position: fixed;
+      top: 10px; /* Position at top instead of 180px */
+      width: auto; /* Auto width for content */
+      min-width: 200px; /* Minimum width */
+      max-width: 90%; /* Max width relative to viewport */
       text-align: center;
       color: white;
       font-family: Arial, sans-serif;
       text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-      left: 125px; /* Center the element with the reduced width */
+      left: 50%; /* Center horizontally */
+      transform: translateX(-50%); /* Center perfectly */
+      background-color: rgba(0, 0, 0, 0.5); /* Darker background for better visibility */
+      padding: 8px 12px;
+      border-radius: 5px;
+      z-index: 100; /* Ensure it appears above other elements */
+      white-space: nowrap; /* Keep content on one line if possible */
+      overflow: hidden;
+      text-overflow: ellipsis; /* Add ellipsis if content overflows */
     }
+    
+    /* Controls Info Panel Styles */
+    #controlsContainer {
+      position: fixed; /* Change to fixed for consistent positioning */
+      top: 10px;
+      left: 10px;
+      width: 270px; /* Set specific width for stability */
+      max-width: 80vw; /* Max width relative to viewport */
+      z-index: 200; /* Higher than info to be on top */
+      font-family: Arial, sans-serif;
+      transition: all 0.3s ease;
+    }
+    
+    #controlsInfo {
+      display: flex;
+      flex-direction: column;
+      background-color: rgba(0, 0, 0, 0.6);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      color: white;
+      transition: all 0.3s ease;
+      max-height: 300px; /* Height when expanded */
+      overflow-y: auto; /* Allow scrolling */
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); /* Add shadow for better visibility */
+    }
+    
+    #controlsInfo.collapsed {
+      max-height: 40px; /* Height when collapsed */
+      overflow: hidden;
+    }
+    
+    #controlsHeader {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      margin-bottom: 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+      user-select: none; /* Prevent text selection */
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+    }
+    
+    /* Add swipe indicator for mobile */
+    #controlsHeader::after {
+      content: "⟷";
+      position: absolute;
+      right: 30px;
+      font-size: 14px;
+      opacity: 0.6;
+      color: #ffff99;
+    }
+    
+    /* Show swipe indicator only on touch devices */
+    @media (hover: none) and (pointer: coarse) {
+      #controlsHeader::after {
+        display: block;
+      }
+    }
+    
+    @media (hover: hover) and (pointer: fine) {
+      #controlsHeader::after {
+        display: none;
+      }
+    }
+    
+    /* When collapsed, show a subtle glow to indicate expandability */
+    #controlsInfo.collapsed #controlsHeader {
+      border-bottom-color: transparent;
+      padding-bottom: 0;
+      margin-bottom: 0;
+    }
+    
+    #controlsInfo.collapsed #controlsHeader::after {
+      content: "⟷";
+      transform: rotate(90deg);
+    }
+    
+    #controlsHeader h3 {
+      margin: 0;
+      font-size: 16px;
+      color: #ffffff;
+    }
+    
+    .control-item {
+      display: flex;
+      align-items: center;
+      margin: 6px 0;
+      line-height: 1.5;
+    }
+    
+    .key-badge {
+      background-color: #4a69bd;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-right: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      min-width: 45px;
+      text-align: center;
+    }
+    
+    #toggleControls {
+      background: none;
+      border: none;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0;
+      color: white;
+    }
+    
+    /* Add timer display responsive styling */
+    #timerDisplay {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 8px 12px;
+      background-color: rgba(0, 0, 0, 0.5);
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 24px;
+      border-radius: 5px;
+      z-index: 10;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Auth UI styles - improved positioning */
+    #authContainer {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 5px;
+      background-color: rgba(0, 0, 0, 0.5);
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      z-index: 999; /* Higher z-index to ensure it's above other elements */
+      max-width: 220px; /* Limit width to prevent overflow */
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Make sure auth container and timer don't overlap */
+    body.game-active #authContainer {
+      top: 50px; /* Move below timer during gameplay */
+    }
+    
+    /* Mobile/responsive adjustments */
+    @media (max-width: 768px) {
+      #info {
+        top: 60px; /* Move below controls in tablet view */
+        font-size: 14px;
+        min-width: 180px;
+        max-width: 80%;
+        padding: 6px 10px;
+      }
+      
+      #controlsInfo {
+        max-width: 250px;
+        font-size: 13px;
+      }
+      
+      #timerDisplay {
+        font-size: 20px;
+        top: 10px;
+      }
+      
+      body.game-active #authContainer {
+        top: 45px; /* Adjusted for smaller timer */
+      }
+    }
+    
+    @media (max-width: 480px) {
+      #info {
+        top: 55px; /* Slightly adjust for mobile phones */
+        font-size: 12px;
+        min-width: 150px;
+        padding: 5px 8px;
+      }
+      
+      #controlsContainer {
+        width: 220px; /* Smaller on mobile */
+      }
+      
+      #controlsInfo.collapsed {
+        max-height: 36px;
+      }
+      
+      #controlsHeader h3 {
+        font-size: 14px;
+      }
+      
+      .key-badge {
+        min-width: 38px;
+        font-size: 12px;
+      }
+      
+      #timerDisplay {
+        font-size: 16px;
+        top: 10px;
+        right: 10px;
+      }
+      
+      /* Move auth container to top-right corner */
+      #authContainer {
+        top: 10px;
+        right: 10px;
+        max-width: 160px; /* Smaller on mobile */
+        padding: 3px;
+      }
+      
+      body.game-active #authContainer {
+        top: 40px; /* Adjusted for even smaller timer */
+      }
+      
+      /* Make login button smaller on mobile */
+      #loginBtn {
+        font-size: 12px;
+        padding: 4px 8px;
+      }
+      
+      /* Make the profile UI smaller on mobile */
+      #profileUI {
+        font-size: 12px;
+      }
+      
+      #profileAvatar {
+        width: 24px;
+        height: 24px;
+      }
+    }
+    
+    /* Fix for very small screens in landscape */
+    @media (max-height: 400px) and (orientation: landscape) {
+      #info {
+        top: 40px; /* Make sure it's visible on very small screens */
+      }
+      
+      #timerDisplay {
+        padding: 4px 8px;
+        font-size: 14px;
+      }
+      
+      #controlsInfo.collapsed {
+        max-height: 30px; /* Even smaller when collapsed */
+      }
+    }
+    
+    /* Landscape mode specific adjustments */
+    @media (orientation: landscape) and (max-height: 500px) {
+      #info {
+        top: 50px; /* Lower position in landscape */
+      }
+      
+      #controlsContainer {
+        width: 240px;
+      }
+      
+      #controlsInfo.collapsed {
+        max-height: 34px; /* Even smaller when collapsed */
+      }
+      
+      #controlsInfo {
+        max-height: 180px; /* Limit height in landscape to prevent overflow */
+      }
+      
+      #timerDisplay {
+        font-size: 16px;
+        padding: 5px 8px;
+      }
+    }
+    
+    /* Portrait mode specific adjustments */
+    @media (orientation: portrait) {
+      #info {
+        top: 55px; /* Position below controls */
+        max-width: 70%;
+      }
+      
+      #controlsInfo {
+        max-width: 280px; /* Wider on portrait */
+      }
+    }
+    
     #resetBtn {
       position: absolute;
       bottom: 20px;
@@ -64,18 +360,6 @@
       font-family: Arial, sans-serif;
       z-index: 1001;
       display: none; /* Initially hidden */
-    }
-    /* Auth UI styles */
-    #authContainer {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      padding: 5px;
-      background-color: rgba(0, 0, 0, 0.5);
-      border-radius: 5px;
-      font-family: Arial, sans-serif;
-      z-index: 999; /* Higher z-index to ensure it's above other elements */
-      max-width: 220px; /* Limit width to prevent overflow */
     }
     #authUI {
       display: flex;
@@ -540,6 +824,41 @@
   </div>
 
   <div id="info">Skiing Snowman</div>
+  
+  <!-- Controls Container -->
+  <div id="controlsContainer">
+    <div id="controlsInfo">
+      <div id="controlsHeader">
+        <h3>⌨️ Game Controls</h3>
+        <button id="toggleControls">▲</button>
+      </div>
+      <div class="control-item">
+        <span class="key-badge">←/A</span> 
+        <span>Turn Left</span>
+      </div>
+      <div class="control-item">
+        <span class="key-badge">→/D</span>
+        <span>Turn Right</span>
+      </div>
+      <div class="control-item">
+        <span class="key-badge">↑/W</span>
+        <span>Accelerate</span>
+      </div>
+      <div class="control-item">
+        <span class="key-badge">↓/S</span>
+        <span>Brake</span>
+      </div>
+      <div class="control-item">
+        <span class="key-badge">Space</span>
+        <span>Jump</span>
+      </div>
+      <div class="control-item">
+        <span class="key-badge">V</span>
+        <span>Toggle Camera View</span>
+      </div>
+    </div>
+  </div>
+  
   <button id="resetBtn">Reset</button>
   
   <!-- Auth Container -->
@@ -875,6 +1194,77 @@
             if (typeof window.initializeGameWithAudio === 'function') {
                 window.initializeGameWithAudio();
             }
+        }
+
+        // Add controls toggle functionality right away, not waiting for game initialization
+        const controlsInfo = document.getElementById('controlsInfo');
+        const toggleButton = document.getElementById('toggleControls');
+        const controlsHeader = document.getElementById('controlsHeader');
+        
+        if (controlsInfo && toggleButton && controlsHeader) {
+            // Setup the toggle functionality
+            const toggleControls = function() {
+                controlsInfo.classList.toggle('collapsed');
+                toggleButton.textContent = controlsInfo.classList.contains('collapsed') ? '▼' : '▲';
+            };
+            
+            // Add click listener to both the button and header
+            toggleButton.addEventListener('click', function(e) {
+                e.stopPropagation(); // Prevent triggering the header click
+                toggleControls();
+            });
+            
+            controlsHeader.addEventListener('click', toggleControls);
+            
+            // Add touch events for better mobile experience
+            controlsHeader.addEventListener('touchend', function(e) {
+                e.preventDefault(); // Prevent default touch behavior
+                toggleControls();
+            }, { passive: false });
+            
+            // Auto-collapse on small screens
+            const handleScreenSizeChange = () => {
+                if (window.innerWidth <= 480 || 
+                    (window.innerWidth <= 768 && window.innerHeight <= 500)) {
+                    // Auto-collapse on small screens and landscape mobile
+                    if (!controlsInfo.classList.contains('collapsed')) {
+                        controlsInfo.classList.add('collapsed');
+                        toggleButton.textContent = '▼';
+                    }
+                }
+            };
+            
+            // Check on resize
+            window.addEventListener('resize', handleScreenSizeChange);
+            
+            // Check on initial load
+            handleScreenSizeChange();
+            
+            // Add a swipe handler for the controls
+            let touchStartY = 0;
+            
+            controlsHeader.addEventListener('touchstart', function(e) {
+                touchStartY = e.touches[0].clientY;
+            }, { passive: true });
+            
+            controlsHeader.addEventListener('touchmove', function(e) {
+                const touchY = e.touches[0].clientY;
+                const diff = touchY - touchStartY;
+                
+                // If swiping down and controls expanded, collapse them
+                if (diff > 20 && !controlsInfo.classList.contains('collapsed')) {
+                    controlsInfo.classList.add('collapsed');
+                    toggleButton.textContent = '▼';
+                    e.preventDefault();
+                }
+                
+                // If swiping up and controls collapsed, expand them
+                if (diff < -20 && controlsInfo.classList.contains('collapsed')) {
+                    controlsInfo.classList.remove('collapsed');
+                    toggleButton.textContent = '▲';
+                    e.preventDefault();
+                }
+            }, { passive: false });
         }
     });
   </script>
