@@ -853,7 +853,14 @@ function updateTimerDisplay() {
 window.initializeGameWithAudio = function() {
   console.log("Initializing game with audio...");
   
-  // Start the audio
+  // Explicitly try to resume audio context first to address mobile audio issues
+  AudioModule.resumeAudioContext().then(() => {
+    console.log("Audio context resumed successfully");
+  }).catch(err => {
+    console.warn("Audio context resume attempt failed:", err);
+  });
+  
+  // Start the audio (will work better on mobile now that we've attempted to resume)
   AudioModule.startAudio();
   
   // Reset the snowman to starting position

@@ -1068,9 +1068,9 @@
   <div id="leaderboard" style="display:none;"></div>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- Audio resources -->
-  <audio id="audio-drum" preload="auto" src="./assets/drum_loop_are_you_heaven.wav" style="display: none;" muted></audio>
-  <audio id="audio-beat" preload="auto" src="./assets/skullbeatz_bad_cat.mp3" style="display: none;" muted></audio>
+  <!-- Audio resources - removed HTML audio elements in favor of THREE.js AudioLoader -->
+  <!-- We no longer use HTML audio elements as they have inconsistent behavior on mobile -->
+  <!-- THREE.js AudioLoader with WebAudio API provides better cross-platform support -->
   <!-- Prevent Firebase auto-init via init.json -->
   <script>
     // Prevent Firebase auto-init that attempts to fetch init.json
@@ -1099,6 +1099,39 @@
     document.addEventListener('DOMContentLoaded', function() {
         // First detect if we're using file:// protocol for special handling
         const isFileProtocol = window.location.protocol === 'file:';
+        
+        // Add event listeners to initialize audio context on various user interactions
+        const initAudioContext = () => {
+            if (window.AudioContext || window.webkitAudioContext) {
+                try {
+                    // Create a temporary audio context just to unlock audio on iOS/mobile
+                    const tempContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const tempOscillator = tempContext.createOscillator();
+                    const tempGain = tempContext.createGain();
+                    tempGain.gain.value = 0.001; // Nearly silent
+                    tempOscillator.connect(tempGain);
+                    tempGain.connect(tempContext.destination);
+                    tempOscillator.start(0);
+                    tempOscillator.stop(0.001);
+                    
+                    console.log("Audio context initialized early via user interaction");
+                    
+                    // Resume the context if needed (for Chrome)
+                    if (tempContext.state === 'suspended') {
+                        tempContext.resume().then(() => {
+                            console.log("Temporary audio context resumed successfully");
+                        });
+                    }
+                } catch (e) {
+                    console.warn("Early audio context initialization failed:", e);
+                }
+            }
+        };
+        
+        // Add listeners to multiple event types to ensure we catch the first interaction
+        document.addEventListener('click', initAudioContext, { once: false, passive: true });
+        document.addEventListener('touchstart', initAudioContext, { once: false, passive: true });
+        document.addEventListener('keydown', initAudioContext, { once: false, passive: true });
         
         let authLoadPromise;
         
@@ -1320,6 +1353,8 @@
 
         // Add start game button handler
         document.getElementById('startGameButton').addEventListener('click', function() {
+            // Try to initialize audio context again just before starting game
+            initAudioContext();
             startGame();
         });
         

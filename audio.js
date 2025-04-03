@@ -16,6 +16,8 @@ const AudioModule = (function() {
   let soundEnabled = true;
   let hasPlayedAudio = false;
   let startupMessage = null;
+  let audioInitialized = false; // Flag for context state
+  let audioLoaded = false;      // Flag for buffer loaded
   
   // Private methods
   function initAudio(scene) {
@@ -112,6 +114,29 @@ const AudioModule = (function() {
     }, duration);
   }
   
+  // Function to wait for user interaction to unlock audio context
+  async function startAudioExperience() {
+    if (!audioInitialized && audioListener && audioListener.context.state === 'suspended') {
+      try {
+        await audioListener.context.resume();
+        console.log("AudioContext resumed!");
+        audioInitialized = true; // Mark context as ready
+      } catch (e) {
+        console.error("Error resuming AudioContext:", e);
+        return; // Don't proceed if resume failed
+      }
+    } else if (audioListener && audioListener.context.state === 'running') {
+      audioInitialized = true; // Already running
+    }
+
+    // Now you can play the sound (if loaded)
+    if (audioLoaded && !isMuted && soundEnabled && music && !music.isPlaying) {
+      console.log("Playing sound after interaction");
+      music.play();
+      hasPlayedAudio = true;
+    }
+  }
+
   function loadAudio(audioName) {
     if (!isInitialized || !audioFiles[audioName]) return;
     
@@ -146,11 +171,16 @@ const AudioModule = (function() {
             currentAudio = audioName;
             localStorage.setItem('snowgliderAudioTrack', audioName);
             
-            // Only play if not muted and sound is enabled
-            if (!isMuted && soundEnabled) {
+            // Mark buffer as loaded
+            audioLoaded = true;
+            
+            // Only play if not muted, sound is enabled, and audio context is initialized
+            if (!isMuted && soundEnabled && audioInitialized) {
               music.play();
               hasPlayedAudio = true;
               console.log("Audio is now playing:", audioName);
+            } else {
+              console.log("Audio loaded but waiting for context initialization or unmute");
             }
             
             // Update UI
@@ -297,6 +327,17 @@ const AudioModule = (function() {
     setupUI: function() {
       createAudioUI();
       updateUI();
+      
+      // Add event listeners for unlocking audio on first user interaction
+      const unlockAudio = () => {
+        startAudioExperience();
+        // Don't remove these listeners immediately since some browsers need multiple interactions
+      };
+      
+      // Add to multiple event types to ensure we catch the first interaction
+      document.addEventListener('click', unlockAudio, { passive: true });
+      document.addEventListener('touchstart', unlockAudio, { passive: true });
+      document.addEventListener('keydown', unlockAudio, { passive: true });
     },
     toggleMute: toggleMute,
     changeTrack: function(trackName) {
@@ -313,6 +354,9 @@ const AudioModule = (function() {
         return false;
       }
       
+      // Try to initialize audio context first
+      startAudioExperience();
+      
       // Show a welcome message
       showStartupMessage("Welcome to SnowGlider!", 2000);
       
@@ -328,9 +372,13 @@ const AudioModule = (function() {
     enableSound: function(enable) {
       soundEnabled = enable;
       if (enable && !isMuted && music) {
-        if (!music.isPlaying) {
+        if (!music.isPlaying && audioInitialized) {
           music.play();
           hasPlayedAudio = true;
+        } else if (!audioInitialized) {
+          // If trying to enable sound but context not initialized,
+          // try to resume it (this will require user interaction)
+          startAudioExperience();
         }
       } else if (!enable && music && music.isPlaying) {
         music.pause();
@@ -342,7 +390,9 @@ const AudioModule = (function() {
         currentTrack: currentAudio,
         muted: isMuted,
         playing: music ? music.isPlaying : false,
-        hasPlayedBefore: hasPlayedAudio
+        hasPlayedBefore: hasPlayedAudio,
+        contextReady: audioInitialized,
+        bufferLoaded: audioLoaded
       };
     },
     addAudioListener: function(camera) {
@@ -352,6 +402,10 @@ const AudioModule = (function() {
     },
     showMessage: function(message, duration) {
       showStartupMessage(message, duration);
+    },
+    // New method to explicitly request audio context resume
+    resumeAudioContext: async function() {
+      return startAudioExperience();
     }
   };
 })();
