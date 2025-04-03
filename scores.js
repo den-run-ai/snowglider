@@ -33,26 +33,25 @@ import {
 import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 
 // Module state
-let firestore = null;
+let firestore = null; // Local cache of firestore instance, updated by initializeScores
 let analytics = null;
 let currentUser = null;
 
 /**
  * Initialize the scores module with Firebase services
- * @param {Object} firestoreInstance - Initialized Firestore instance
- * @param {Object} analyticsInstance - Initialized Analytics instance
+ * @param {Object|null} firestoreInstance - Initialized Firestore instance (or null)
+ * @param {Object|null} analyticsInstance - Initialized Analytics instance (or null)
  */
 function initializeScores(firestoreInstance, analyticsInstance) {
-  firestore = firestoreInstance;
+  firestore = firestoreInstance; // Update local cache
   analytics = analyticsInstance;
-  console.log("Scores module initialized:", 
+  console.log("Scores module initialized/updated:",
     { firestore: !!firestore, analytics: !!analytics });
-    
-  // Log additional details to help diagnose issues
+
   if (!firestore) {
-    console.warn("Firestore is null during ScoresModule initialization");
+    console.warn("ScoresModule received null Firestore instance.");
   } else {
-    console.log("Firestore successfully initialized in ScoresModule");
+    console.log("ScoresModule received valid Firestore instance.");
   }
 }
 
@@ -147,18 +146,19 @@ function updateUserBestTime(userId, time) {
  * @param {number} time - Run completion time in seconds
  */
 function updateLeaderboard(userId, time) {
-  // Guard clauses
+  // Check AuthModule first for availability
+  if (!window.AuthModule?.isFirebaseAvailable?.().firestore) {
+    console.log("Skipping leaderboard update (Firestore unavailable according to AuthModule).");
+    if (firestore) {
+        console.warn("updateLeaderboard: AuthModule reports unavailable, clearing local Firestore instance.");
+        firestore = null; // Ensure local state matches AuthModule if it became unavailable
+    }
+    return;
+  }
+  // If AuthModule thinks it's available, but we don't have it locally, log warning.
+  // The operation might fail, and the catch block will handle setting local firestore to null.
   if (!firestore) {
-    console.log("Skipping leaderboard update (Firestore unavailable).");
-    return;
-  }
-  if (!userId) {
-    console.warn("Skipping leaderboard update (User ID missing).");
-    return;
-  }
-  if (typeof time !== 'number' || isNaN(time)) {
-    console.warn("Skipping leaderboard update (Invalid time value):", time);
-    return;
+      console.warn("updateLeaderboard: AuthModule reports Firestore available, but local instance is null. Proceeding cautiously.");
   }
 
   try {
@@ -179,18 +179,14 @@ function updateLeaderboard(userId, time) {
     })
     .catch(error => {
       console.error("Error updating leaderboard:", error);
-      // Handle potential Firestore unavailability
-      if (error.code === 'permission-denied' || error.code === 'unavailable' ||
-          error.code === 'failed-precondition') {
-        console.warn("Firestore became unavailable during leaderboard update.");
-        firestore = null;
-        displayLeaderboard(); // Update UI to reflect unavailability
+      if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
+        console.warn("Firestore became unavailable during leaderboard update. Clearing local instance.");
+        firestore = null; // Set local instance to null
       }
     });
   } catch (error) {
     console.error("Unexpected error in updateLeaderboard:", error);
     firestore = null; // Assume Firestore is problematic
-    displayLeaderboard();
   }
 }
 
@@ -199,17 +195,19 @@ function updateLeaderboard(userId, time) {
  * @returns {Promise<Array>} Promise resolving to array of score objects
  */
 function getLeaderboard() {
-  if (!firestore) {
-    console.log("Cannot get leaderboard (Firestore unavailable).");
-    return Promise.resolve([]); // Return empty array immediately
-  }
-  
-  // Double-check that we haven't lost connection since the function was called
-  if (!window.navigator.onLine) {
-    console.log("Device appears to be offline, can't load leaderboard.");
-    firestore = null; // Update local state since we're offline
+  // Check AuthModule first for availability
+   if (!window.AuthModule?.isFirebaseAvailable?.().firestore) {
+    console.log("Cannot get leaderboard (Firestore unavailable according to AuthModule).");
+     if (firestore) {
+        console.warn("getLeaderboard: AuthModule reports unavailable, clearing local Firestore instance.");
+        firestore = null; // Ensure local state matches AuthModule
+    }
     return Promise.resolve([]);
   }
+   // If AuthModule thinks it's available, but we don't have it locally, log warning.
+   if (!firestore) {
+       console.warn("getLeaderboard: AuthModule reports Firestore available, but local instance is null. Attempting fetch anyway.");
+   }
 
   try {
     const leaderboardRef = collection(firestore, 'leaderboard');
@@ -238,10 +236,9 @@ function getLeaderboard() {
       })
       .catch(error => {
         console.error("Error fetching leaderboard:", error);
-        // Handle potential Firestore unavailability
         if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-          console.warn("Firestore became unavailable fetching leaderboard.");
-          firestore = null;
+          console.warn("Firestore became unavailable fetching leaderboard. Clearing local instance.");
+          firestore = null; // Set local instance to null
         }
         return []; // Return empty array on error
       });
@@ -257,124 +254,166 @@ function getLeaderboard() {
  */
 function displayLeaderboard() {
   const leaderboardElement = document.getElementById('leaderboard');
-  if (!leaderboardElement) return; // Exit if element doesn't exist
+  if (!leaderboardElement) return;
 
-  leaderboardElement.innerHTML = '<h3>Loading Leaderboard...</h3>'; // Initial state
+  leaderboardElement.innerHTML = '<h3>Loading Leaderboard...</h3>';
 
-  // Retry Firebase connection if previously lost
   if (!window.navigator.onLine) {
-    console.log("Device is offline. Leaderboard unavailable.");
     leaderboardElement.innerHTML = '<h3>Leaderboard unavailable (offline)</h3>';
     return;
   }
 
-  // Use ScoresModule.isFirestoreAvailable() for status check
-  // This ensures we're using the most up-to-date status
-  if (!isFirestoreAvailable()) {
-    console.log("Displaying leaderboard unavailable message - firestore not available");
-    // Try to reinitialize if we have app instance in parent AuthModule
-    if (window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
-      console.log("Attempting to reinitialize Firestore connection...");
-      window.AuthModule.reinitializeFirestore();
-      // If reinitialization restored Firestore, continue; otherwise show unavailable
-      if (!isFirestoreAvailable()) {
+  // --- Revised Logic ---
+  let firestoreIsAvailable = window.AuthModule?.isFirebaseAvailable?.().firestore ?? false;
+
+  // Function to attempt fetching and rendering the leaderboard
+  const attemptFetchAndRender = () => {
+    // Double-check AuthModule status AND local instance before fetching
+    if (!window.AuthModule?.isFirebaseAvailable?.().firestore || !firestore) {
+        console.warn("attemptFetchAndRender: Pre-fetch check failed. Firestore unavailable.");
         leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-        return;
-      }
-    } else {
-      leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-      return;
+        return; // Stop if unavailable before starting fetch
     }
-  }
 
-  getLeaderboard()
-    .then(scores => {
-      if (!firestore) { // Check again in case firestore became unavailable during getLeaderboard
-        leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-        return;
-      }
-      if (scores.length === 0) {
-        leaderboardElement.innerHTML = '<h3>No scores recorded yet!</h3>';
-        return;
-      }
-
-      let html = '<h3>Top 10 Times</h3><table>';
-      html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
-
-      // Fetch user data for each score using the stored DocumentReference
-      const userPromises = scores.map(score => {
-        // Check if userRef is a valid DocumentReference
-        if (!score.userRef || typeof score.userRef.path !== 'string') {
-          console.warn("Invalid user reference in leaderboard score for:", score.userId);
-          return Promise.resolve({ displayName: 'Unknown User', photoURL: null }); // Default data
+    console.log("attemptFetchAndRender: Firestore available, fetching leaderboard...");
+    getLeaderboard()
+      .then(scores => {
+        // Check availability *after* the async call, primarily the local instance
+        // as getLeaderboard's catch block should have nulled it on error.
+        if (!firestore) {
+          console.warn("displayLeaderboard: Firestore became unavailable during getLeaderboard fetch.");
+          leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+          return;
         }
-        return getDoc(score.userRef)
-          .then(docSnap => {
-            if (docSnap.exists()) {
-              const userData = docSnap.data();
-              return {
-                // Use display name, fallback to 'Anonymous' if empty/missing
-                displayName: userData.displayName || 'Anonymous',
-                photoURL: userData.photoURL || null // Ensure photoURL is null if missing
-              };
-            } else {
-              // Handle case where user document was deleted but leaderboard entry remains
-              console.warn("User document not found for leaderboard entry:", score.userId);
-              return { displayName: 'Unknown User', photoURL: null };
-            }
-          })
-          .catch(error => {
-            console.error("Error fetching user data for leaderboard entry:", score.userId, error);
-            // Handle potential Firestore unavailability during user data fetch
-            if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-              console.warn("Firestore became unavailable fetching user data for leaderboard.");
-              firestore = null; // Disable Firestore
-              // We might want to re-render the leaderboard as unavailable here,
-              // but for simplicity, we'll just show 'Error' for this user.
-            }
-            return { displayName: 'Error Loading', photoURL: null }; // Indicate error fetching this user
-          });
-      });
 
-      // Wait for all user data fetches to complete
-      Promise.all(userPromises)
-        .then(users => {
-          // Check firestore status again before rendering
-          if (!firestore) {
+        if (scores.length === 0) {
+          leaderboardElement.innerHTML = '<h3>No scores recorded yet!</h3>';
+          return;
+        }
+
+        let html = '<h3>Top 10 Times</h3><table>';
+        html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
+
+        // Fetch user data only if firestore is still available
+        const userPromises = scores.map(score => {
+          if (!firestore) { // Check before each user fetch
+              console.warn("displayLeaderboard: Firestore became unavailable before fetching user data for", score.userId);
+              return Promise.resolve({ displayName: 'Error Loading', photoURL: null });
+          }
+          if (!score.userRef || typeof score.userRef.path !== 'string') {
+            console.warn("Invalid user reference in leaderboard score for:", score.userId);
+            return Promise.resolve({ displayName: 'Unknown User', photoURL: null });
+          }
+
+          return getDoc(score.userRef)
+            .then(docSnap => {
+              if (docSnap.exists()) {
+                const userData = docSnap.data();
+                return {
+                  displayName: userData.displayName || 'Anonymous',
+                  photoURL: userData.photoURL || null
+                };
+              } else {
+                console.warn("User document not found for leaderboard entry:", score.userId);
+                return { displayName: 'Unknown User', photoURL: null };
+              }
+            })
+            .catch(error => {
+              console.error("Error fetching user data for leaderboard entry:", score.userId, error);
+              if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
+                console.warn("Firestore became unavailable fetching user data. Clearing local instance.");
+                firestore = null; // Set local instance to null
+              }
+              return { displayName: 'Error Loading', photoURL: null };
+            });
+        });
+
+        return Promise.all(userPromises).then(users => ({ scores, users })); // Pass both scores and users
+      })
+      .then(result => {
+        // Handle the case where getLeaderboard resolved but Firestore became unavailable during user fetches
+        if (!result) return; // Exit if previous step returned nothing (e.g., Firestore became unavailable)
+        if (!firestore) {
+            console.warn("displayLeaderboard: Firestore became unavailable during user data fetches.");
             leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
             return;
-          }
-          scores.forEach((score, index) => {
-            const user = users[index]; // Get the resolved user data
-            html += `<tr>
-              <td>${index + 1}</td>
-              <td>
-                ${user.photoURL ? `<img src="${user.photoURL}" alt="" class="mini-avatar">` : ''}
-                ${user.displayName}
-              </td>
-              <td>${score.time.toFixed(2)}s</td>
-            </tr>`;
-          });
+        }
 
-          html += '</table>';
-          leaderboardElement.innerHTML = html;
-          console.log("Leaderboard display updated.");
-        })
-        .catch(error => {
-          // This catch is for Promise.all itself, unlikely unless there's a programming error
-          console.error("Error processing leaderboard user data:", error);
-          leaderboardElement.innerHTML = '<h3>Error displaying leaderboard user data</h3>';
+        const { scores, users } = result;
+        let html = '<h3>Top 10 Times</h3><table>';
+        html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
+
+        scores.forEach((score, index) => {
+          const user = users[index];
+          html += `<tr>
+            <td>${index + 1}</td>
+            <td>
+              ${user.photoURL ? `<img src="${user.photoURL}" alt="" class="mini-avatar">` : ''}
+              ${user.displayName}
+            </td>
+            <td>${score.time.toFixed(2)}s</td>
+          </tr>`;
         });
-    })
-    .catch(error => {
-      // Catch errors from the initial getLeaderboard() call
-      console.error("Failed to get leaderboard data for display:", error);
-      leaderboardElement.innerHTML = '<h3>Failed to load leaderboard</h3>';
-      // If firestore became null during getLeaderboard, update message
-      if (!firestore) {
+
+        html += '</table>';
+        leaderboardElement.innerHTML = html;
+        console.log("Leaderboard display updated successfully.");
+      })
+      .catch(error => {
+        // Catch errors from getLeaderboard() OR Promise.all()
+        console.error("Failed during leaderboard display process:", error);
+        // Check local firestore status after the error
+        if (!firestore) {
+          leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+        } else {
+          // Firestore might still be technically available, but some other error occurred
+          leaderboardElement.innerHTML = '<h3>Failed to load leaderboard data</h3>';
+        }
+      });
+  }; // End of attemptFetchAndRender
+
+  // --- Control Flow ---
+  if (firestoreIsAvailable) {
+    // If AuthModule says Firestore is available, ensure our local instance is synced.
+    // initializeScores should have been called by AuthModule if it just became available.
+    if (!firestore) {
+        console.warn("displayLeaderboard: AuthModule reports Firestore available, but local instance is null. Attempting reinitialization first.");
+        // Try re-initializing via AuthModule, which should call initializeScores on success
+        if (window.AuthModule?.reinitializeFirestore?.()) {
+            console.log("displayLeaderboard: Reinitialization successful via AuthModule. Fetching leaderboard.");
+            // Re-check local instance after re-init attempt
+            if (firestore) {
+                attemptFetchAndRender();
+            } else {
+                 console.error("displayLeaderboard: Reinitialization reported success, but local Firestore still null. Leaderboard unavailable.");
+                 leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+            }
+        } else {
+            console.error("displayLeaderboard: Reinitialization failed or AuthModule unavailable. Leaderboard unavailable.");
+            leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+        }
+    } else {
+        // AuthModule reports available AND we have a local instance.
+        console.log("displayLeaderboard: Firestore available. Proceeding to fetch.");
+        attemptFetchAndRender();
+    }
+  } else {
+    console.log("displayLeaderboard: Firestore initially unavailable. Attempting reinitialization.");
+    // Try to reinitialize if Firestore isn't available
+    if (window.AuthModule?.reinitializeFirestore?.()) {
+        console.log("displayLeaderboard: Reinitialization successful via AuthModule. Fetching leaderboard.");
+         // Re-check local instance after re-init attempt
+        if (firestore) {
+            attemptFetchAndRender();
+        } else {
+             console.error("displayLeaderboard: Reinitialization reported success, but local Firestore still null. Leaderboard unavailable.");
+             leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+        }
+    } else {
+        console.error("displayLeaderboard: Reinitialization failed or AuthModule unavailable. Leaderboard unavailable.");
         leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-      }
-    });
+    }
+  }
 }
 
 /**
@@ -447,11 +486,15 @@ function recordScore(time) {
 }
 
 /**
- * Get the Firestore instance status
- * @returns {boolean} True if Firestore is available
+ * Check if Firestore is currently considered available.
+ * Primarily checks AuthModule's status.
+ * @returns {boolean}
  */
 function isFirestoreAvailable() {
-  return !!firestore;
+  // Trust AuthModule as the primary source of truth
+  const authFirestoreAvailable = window.AuthModule?.isFirebaseAvailable?.().firestore ?? false;
+  // Also check our local instance hasn't been nulled due to a recent error
+  return authFirestoreAvailable && !!firestore;
 }
 
 // Export ScoresModule
