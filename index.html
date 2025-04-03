@@ -574,6 +574,27 @@
       transition: background-color 0.3s, transform 0.2s;
       min-width: 220px; /* Reduced from 250px */
       text-align: center;
+      -webkit-tap-highlight-color: transparent; /* Remove default mobile highlight */
+      touch-action: manipulation; /* Improve touch response */
+      position: relative; /* For touch feedback effect */
+    }
+    
+    .menu-button::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.2);
+      opacity: 0;
+      transition: opacity 0.1s;
+      border-radius: 8px;
+    }
+    
+    .menu-button:active::after,
+    .menu-button.touch-active::after {
+      opacity: 1;
     }
     
     .menu-button.start {
@@ -672,6 +693,14 @@
       #controlsGuide {
         padding: 8px 15px;
         max-width: 90%;
+      }
+    }
+    
+    /* Increase touch target size for mobile */
+    @media (max-width: 768px) {
+      .menu-button {
+        min-height: 44px; /* Apple's recommended minimum touch target size */
+        padding: 12px 24px;
       }
     }
   </style>
@@ -1265,6 +1294,26 @@
                     e.preventDefault();
                 }
             }, { passive: false });
+        }
+
+        // Enhance the start button with better mobile support
+        const startGameButton = document.getElementById('startGameButton');
+        if (startGameButton) {
+            // Add touchstart/touchend events for more responsive mobile interaction
+            startGameButton.addEventListener('touchstart', function(e) {
+                e.preventDefault(); // Prevent default touch behavior
+                this.classList.add('touch-active'); // Add visual feedback class
+            }, { passive: false });
+            
+            startGameButton.addEventListener('touchend', function(e) {
+                e.preventDefault(); // Prevent default touch behavior
+                this.classList.remove('touch-active');
+                startGame(); // Start the game
+            }, { passive: false });
+            
+            startGameButton.addEventListener('touchcancel', function(e) {
+                this.classList.remove('touch-active');
+            }, { passive: true });
         }
     });
   </script>
