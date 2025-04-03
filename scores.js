@@ -179,9 +179,13 @@ function updateLeaderboard(userId, time) {
     })
     .catch(error => {
       console.error("Error updating leaderboard:", error);
-      if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
+      // Only disable Firestore for connectivity issues, not permissions
+      if (error.code === 'unavailable' || error.code === 'failed-precondition') {
         console.warn("Firestore became unavailable during leaderboard update. Clearing local instance.");
         firestore = null; // Set local instance to null
+      } else if (error.code === 'permission-denied') {
+        console.warn("Permission issues updating leaderboard. Continuing with limited functionality.");
+        // Don't disable Firestore entirely for permission issues
       }
     });
   } catch (error) {
@@ -236,9 +240,13 @@ function getLeaderboard() {
       })
       .catch(error => {
         console.error("Error fetching leaderboard:", error);
-        if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
+        // Only set Firestore to null for serious connectivity issues, not permissions
+        if (error.code === 'unavailable' || error.code === 'failed-precondition') {
           console.warn("Firestore became unavailable fetching leaderboard. Clearing local instance.");
           firestore = null; // Set local instance to null
+        } else if (error.code === 'permission-denied') {
+          console.warn("Permission issues with Firestore leaderboard access. Continuing with limited functionality.");
+          // Don't disable Firestore entirely for permission issues
         }
         return []; // Return empty array on error
       });
@@ -298,13 +306,22 @@ function displayLeaderboard() {
         const userPromises = scores.map(score => {
           if (!firestore) { // Check before each user fetch
               console.warn("displayLeaderboard: Firestore became unavailable before fetching user data for", score.userId);
-              return Promise.resolve({ displayName: 'Error Loading', photoURL: null });
+              return Promise.resolve({ displayName: 'Anonymous Player', photoURL: null });
           }
           if (!score.userRef || typeof score.userRef.path !== 'string') {
             console.warn("Invalid user reference in leaderboard score for:", score.userId);
-            return Promise.resolve({ displayName: 'Unknown User', photoURL: null });
+            return Promise.resolve({ displayName: 'Anonymous Player', photoURL: null });
           }
 
+          // Don't try to fetch user data for leaderboard entries - this appears to be causing permission issues
+          // Instead, just use a generic player name with their position
+          return Promise.resolve({ 
+            displayName: 'Player',
+            photoURL: null,
+            userId: score.userId
+          });
+          
+          /* Previous implementation with permissions issues:
           return getDoc(score.userRef)
             .then(docSnap => {
               if (docSnap.exists()) {
@@ -326,6 +343,7 @@ function displayLeaderboard() {
               }
               return { displayName: 'Error Loading', photoURL: null };
             });
+          */
         });
 
         return Promise.all(userPromises).then(users => ({ scores, users })); // Pass both scores and users
@@ -333,11 +351,9 @@ function displayLeaderboard() {
       .then(result => {
         // Handle the case where getLeaderboard resolved but Firestore became unavailable during user fetches
         if (!result) return; // Exit if previous step returned nothing (e.g., Firestore became unavailable)
-        if (!firestore) {
-            console.warn("displayLeaderboard: Firestore became unavailable during user data fetches.");
-            leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-            return;
-        }
+        
+        // Continue showing leaderboard even if there were some user data issues
+        // This ensures the leaderboard is displayed even with permissions problems
 
         const { scores, users } = result;
         let html = '<h3>Top 10 Times</h3><table>';
@@ -345,11 +361,17 @@ function displayLeaderboard() {
 
         scores.forEach((score, index) => {
           const user = users[index];
-          html += `<tr>
+          // Show current user differently (match by userId)
+          const isCurrentUser = currentUser && score.userId === currentUser.uid;
+          const displayName = isCurrentUser ? 
+            (currentUser.displayName || 'You') : 
+            `${user.displayName} ${index + 1}`;
+            
+          html += `<tr class="${isCurrentUser ? 'current-user-score' : ''}">
             <td>${index + 1}</td>
             <td>
               ${user.photoURL ? `<img src="${user.photoURL}" alt="" class="mini-avatar">` : ''}
-              ${user.displayName}
+              ${displayName}
             </td>
             <td>${score.time.toFixed(2)}s</td>
           </tr>`;
