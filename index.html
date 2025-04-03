@@ -159,9 +159,10 @@
     /* Game Stats Window - Combined stats and timer */
     #gameStatsContainer {
       position: fixed;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
+      top: 70px; /* Positioned below authContainer */
+      right: 10px; /* Aligned with authContainer */
+      left: auto; /* Remove left positioning */
+      transform: none; /* Remove horizontal centering */
       padding: 8px 12px;
       background-color: rgba(0, 0, 0, 0.6);
       color: white;
@@ -300,6 +301,7 @@
       #gameStatsContainer {
         font-size: 14px;
         padding: 6px 10px;
+        top: 60px; /* Adjusted for mobile */
       }
       
       .stat-value {
@@ -337,6 +339,8 @@
       #gameStatsContainer {
         font-size: 12px;
         padding: 5px 8px;
+        top: 55px; /* Adjusted for smaller mobile screens */
+        max-width: 160px; /* Keep it compact on small screens */
       }
       
       #gameStatsHeader h3 {
