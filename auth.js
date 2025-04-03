@@ -128,12 +128,16 @@ function initializeAuth(firebaseConfig) {
           console.log("Calling updateUIForLoggedInUser..."); // Log before UI update
           updateUIForLoggedInUser(user);
           
-          // Update user in ScoresModule
+          // Update user in ScoresModule AFTER UI updates to ensure proper sequence
+          console.log("Updating ScoresModule with current user..."); // Log before update
           ScoresModule.setCurrentUser(user);
           
           if (firestore) {
-            console.log("Calling syncUserData..."); // Log before sync
-            syncUserData(user); // Sync data if firestore is available
+            // Use setTimeout to ensure auth state is fully stabilized before syncing
+            setTimeout(() => {
+              console.log("Calling syncUserData with delay..."); // Log before sync
+              syncUserData(user); // Sync data if firestore is available
+            }, 100); // Small delay to ensure auth state stabilizes
           }
           console.log("Calling resetLoginButton..."); // Log before reset
           resetLoginButton(); // Ensure button is in default state after successful login
@@ -431,12 +435,62 @@ function getUserIdToken(forceRefresh = false) {
       });
 }
 
+/**
+ * Attempts to reinitialize Firestore connection if it was lost
+ * @returns {boolean} True if Firestore is now available, false otherwise
+ */
+function reinitializeFirestore() {
+  console.log("Attempting to reinitialize Firestore connection...");
+  
+  if (!firebaseApp) {
+    console.warn("Cannot reinitialize Firestore: No Firebase app instance");
+    return false;
+  }
+  
+  if (firestore) {
+    console.log("Firestore is already available, no need to reinitialize");
+    return true;
+  }
+  
+  try {
+    // Initialize Firestore (skip on localhost/file protocol)
+    const isTrulyLocal = window.location.protocol === 'file:' ||
+                         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
+    if (!isTrulyLocal && auth) {
+      try {
+        firestore = getFirestore(firebaseApp);
+        console.log("Firestore successfully reinitialized");
+        
+        // Update ScoresModule with new Firestore instance
+        if (ScoresModule && typeof ScoresModule.initializeScores === 'function') {
+          ScoresModule.initializeScores(firestore, analytics);
+          console.log("ScoresModule updated with reinitialized Firestore");
+        }
+        
+        return true;
+      } catch (e) {
+        console.error("Failed to reinitialize Firestore:", e);
+        firestore = null;
+        return false;
+      }
+    } else {
+      console.warn(`Cannot reinitialize Firestore: ${isTrulyLocal ? 'Local environment' : 'Auth failed'}`);
+      return false;
+    }
+  } catch (error) {
+    console.error("Error in reinitializeFirestore:", error);
+    return false;
+  }
+}
+
 // --- AuthModule Export ---
 const AuthModule = {
   initializeAuth,
   getCurrentUser,
   isUserSignedIn,
   getUserIdToken,
+  reinitializeFirestore, // Add the new function
 
   // Delegated methods to ScoresModule 
   recordScore: (time) => ScoresModule.recordScore(time),

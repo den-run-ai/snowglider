@@ -47,6 +47,13 @@ function initializeScores(firestoreInstance, analyticsInstance) {
   analytics = analyticsInstance;
   console.log("Scores module initialized:", 
     { firestore: !!firestore, analytics: !!analytics });
+    
+  // Log additional details to help diagnose issues
+  if (!firestore) {
+    console.warn("Firestore is null during ScoresModule initialization");
+  } else {
+    console.log("Firestore successfully initialized in ScoresModule");
+  }
 }
 
 /**
@@ -196,6 +203,13 @@ function getLeaderboard() {
     console.log("Cannot get leaderboard (Firestore unavailable).");
     return Promise.resolve([]); // Return empty array immediately
   }
+  
+  // Double-check that we haven't lost connection since the function was called
+  if (!window.navigator.onLine) {
+    console.log("Device appears to be offline, can't load leaderboard.");
+    firestore = null; // Update local state since we're offline
+    return Promise.resolve([]);
+  }
 
   try {
     const leaderboardRef = collection(firestore, 'leaderboard');
@@ -247,10 +261,30 @@ function displayLeaderboard() {
 
   leaderboardElement.innerHTML = '<h3>Loading Leaderboard...</h3>'; // Initial state
 
-  if (!firestore) {
-    leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
-    console.log("Displaying leaderboard unavailable message.");
+  // Retry Firebase connection if previously lost
+  if (!window.navigator.onLine) {
+    console.log("Device is offline. Leaderboard unavailable.");
+    leaderboardElement.innerHTML = '<h3>Leaderboard unavailable (offline)</h3>';
     return;
+  }
+
+  // Use ScoresModule.isFirestoreAvailable() for status check
+  // This ensures we're using the most up-to-date status
+  if (!isFirestoreAvailable()) {
+    console.log("Displaying leaderboard unavailable message - firestore not available");
+    // Try to reinitialize if we have app instance in parent AuthModule
+    if (window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
+      console.log("Attempting to reinitialize Firestore connection...");
+      window.AuthModule.reinitializeFirestore();
+      // If reinitialization restored Firestore, continue; otherwise show unavailable
+      if (!isFirestoreAvailable()) {
+        leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+        return;
+      }
+    } else {
+      leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
+      return;
+    }
   }
 
   getLeaderboard()
@@ -366,18 +400,38 @@ function recordScore(time) {
       logEvent(analytics, 'complete_run', { time: time });
     }
 
+    // Create a local copy of the user reference to prevent race conditions
+    const userAtTimeOfRecord = currentUser ? {...currentUser} : null;
+    
+    // If Firestore isn't available but should be, try to reinitialize it
+    if (userAtTimeOfRecord && !firestore && window.navigator.onLine && 
+        window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
+      console.log("Firestore unavailable but user is online. Attempting to reinitialize...");
+      window.AuthModule.reinitializeFirestore();
+    }
+    
     // Update Firestore only if user is signed in, Firestore is available, AND it's a new personal best
-    if (currentUser && firestore && isNewPersonalBest) {
+    if (userAtTimeOfRecord && firestore && isNewPersonalBest) {
       console.log("Attempting to update Firestore with new best time:", time);
-      updateUserBestTime(currentUser.uid, time); // This function handles leaderboard update too
+      // Use the snapshot of user data captured at function start time
+      updateUserBestTime(userAtTimeOfRecord.uid, time); // This function handles leaderboard update too
 
       // Track new best time in Analytics (if available)
       if (analytics) {
         logEvent(analytics, 'new_high_score', { time: time });
       }
     } else {
-      if (!currentUser) console.log("Skipping Firestore update: User not signed in.");
-      if (!firestore) console.log("Skipping Firestore update: Firestore not available.");
+      // Log reasons why Firestore update was skipped
+      if (!userAtTimeOfRecord) console.log("Skipping Firestore update: User not signed in.");
+      if (!firestore) {
+        console.log("Skipping Firestore update: Firestore not available.");
+        // Log additional diagnostic information
+        if (window.navigator.onLine) {
+          console.log("Device is online, but Firestore connection is unavailable. Authentication may have issues.");
+        } else {
+          console.log("Device appears to be offline. Check internet connection.");
+        }
+      }
       if (!isNewPersonalBest) console.log("Skipping Firestore update: Not a new personal best.");
     }
 
