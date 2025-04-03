@@ -49,14 +49,33 @@
       font-size: 14px;
       color: white;
       transition: all 0.3s ease;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); /* Add shadow for better visibility */
+      width: auto;
+    }
+    
+    #controlsContent {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
       max-height: 300px; /* Height when expanded */
       overflow-y: auto; /* Allow scrolling */
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); /* Add shadow for better visibility */
+      transition: all 0.3s ease;
+      overflow: hidden;
     }
     
     #controlsInfo.collapsed {
-      max-height: 40px; /* Height when collapsed */
-      overflow: hidden;
+      width: auto;
+      max-width: 180px;
+    }
+    
+    #controlsInfo.collapsed #controlsContent {
+      max-height: 0;
+      margin-top: 0;
+      margin-bottom: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      opacity: 0;
     }
     
     #controlsHeader {
@@ -96,16 +115,11 @@
       }
     }
     
-    /* When collapsed, show a subtle glow to indicate expandability */
+    /* When collapsed, remove bottom border */
     #controlsInfo.collapsed #controlsHeader {
       border-bottom-color: transparent;
       padding-bottom: 0;
       margin-bottom: 0;
-    }
-    
-    #controlsInfo.collapsed #controlsHeader::after {
-      content: "⟷";
-      transform: rotate(90deg);
     }
     
     #controlsHeader h3 {
@@ -142,22 +156,123 @@
       color: white;
     }
     
-    /* Add timer display responsive styling */
-    #timerDisplay {
+    /* Game Stats Window - Combined stats and timer */
+    #gameStatsContainer {
       position: fixed;
       top: 10px;
-      right: 10px;
+      left: 50%;
+      transform: translateX(-50%);
       padding: 8px 12px;
-      background-color: rgba(0, 0, 0, 0.5);
+      background-color: rgba(0, 0, 0, 0.6);
       color: white;
       font-family: Arial, sans-serif;
-      font-size: 24px;
+      font-size: 16px;
       border-radius: 5px;
-      z-index: 10;
+      z-index: 100;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+      transition: all 0.3s ease;
+      overflow: hidden;
+      max-width: 90%;
+      width: auto;
     }
     
-    /* Auth UI styles - improved positioning */
+    #gameStatsHeader {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+      padding-bottom: 4px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+    }
+    
+    /* Add horizontal swipe indicator */
+    #gameStatsHeader::after {
+      content: "⟷";
+      position: absolute;
+      right: 30px;
+      font-size: 14px;
+      opacity: 0.6;
+      color: #ffff99;
+    }
+    
+    /* Show swipe indicator only on touch devices */
+    @media (hover: none) and (pointer: coarse) {
+      #gameStatsHeader::after {
+        display: block;
+      }
+    }
+    
+    @media (hover: hover) and (pointer: fine) {
+      #gameStatsHeader::after {
+        display: none;
+      }
+    }
+    
+    #gameStatsHeader h3 {
+      margin: 0;
+      font-size: 16px;
+      color: #ffffff;
+    }
+    
+    #toggleStats {
+      background: none;
+      border: none;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0;
+      color: white;
+    }
+    
+    #gameStatsContent {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      transition: all 0.3s ease;
+      max-height: 100px;
+      overflow: hidden;
+    }
+    
+    #gameStatsContainer.collapsed {
+      width: auto;
+      max-width: 160px;
+    }
+    
+    #gameStatsContainer.collapsed #gameStatsContent {
+      max-height: 0;
+      margin-top: 0;
+      margin-bottom: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      opacity: 0;
+    }
+    
+    #gameStatsContainer.collapsed #gameStatsHeader {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+    
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 80px;
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+    
+    .stat-value {
+      font-size: 16px;
+      font-weight: bold;
+    }
+    
+    /* Auth UI styles - positioned at top right */
     #authContainer {
       position: absolute;
       top: 10px;
@@ -171,19 +286,10 @@
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     }
     
-    /* Make sure auth container and timer don't overlap */
-    body.game-active #authContainer {
-      top: 50px; /* Move below timer during gameplay */
-    }
-    
     /* Mobile/responsive adjustments */
     @media (max-width: 768px) {
       #info {
-        top: 60px; /* Move below controls in tablet view */
-        font-size: 14px;
-        min-width: 180px;
-        max-width: 80%;
-        padding: 6px 10px;
+        display: none; /* Hidden as it's replaced by gameStats */
       }
       
       #controlsInfo {
@@ -191,30 +297,32 @@
         font-size: 13px;
       }
       
-      #timerDisplay {
-        font-size: 20px;
-        top: 10px;
+      #gameStatsContainer {
+        font-size: 14px;
+        padding: 6px 10px;
       }
       
-      body.game-active #authContainer {
-        top: 45px; /* Adjusted for smaller timer */
+      .stat-value {
+        font-size: 14px;
+      }
+      
+      .stat-label {
+        font-size: 11px;
       }
     }
     
     @media (max-width: 480px) {
-      #info {
-        top: 55px; /* Slightly adjust for mobile phones */
-        font-size: 12px;
-        min-width: 150px;
-        padding: 5px 8px;
-      }
-      
       #controlsContainer {
         width: 220px; /* Smaller on mobile */
       }
       
       #controlsInfo.collapsed {
-        max-height: 36px;
+        max-width: 150px;
+      }
+      
+      #controlsInfo.collapsed #controlsContent {
+        max-height: 0;
+        opacity: 0;
       }
       
       #controlsHeader h3 {
@@ -226,10 +334,21 @@
         font-size: 12px;
       }
       
-      #timerDisplay {
-        font-size: 16px;
-        top: 10px;
-        right: 10px;
+      #gameStatsContainer {
+        font-size: 12px;
+        padding: 5px 8px;
+      }
+      
+      #gameStatsHeader h3 {
+        font-size: 14px;
+      }
+      
+      .stat-value {
+        font-size: 13px;
+      }
+      
+      .stat-item {
+        min-width: 60px;
       }
       
       /* Move auth container to top-right corner */
@@ -238,10 +357,6 @@
         right: 10px;
         max-width: 160px; /* Smaller on mobile */
         padding: 3px;
-      }
-      
-      body.game-active #authContainer {
-        top: 40px; /* Adjusted for even smaller timer */
       }
       
       /* Make login button smaller on mobile */
@@ -267,13 +382,18 @@
         top: 40px; /* Make sure it's visible on very small screens */
       }
       
-      #timerDisplay {
+      #gameStatsContainer {
         padding: 4px 8px;
-        font-size: 14px;
+        max-width: 80%;
       }
       
       #controlsInfo.collapsed {
-        max-height: 30px; /* Even smaller when collapsed */
+        max-width: 140px;
+      }
+      
+      #controlsInfo.collapsed #controlsContent {
+        max-height: 0;
+        opacity: 0;
       }
     }
     
@@ -288,16 +408,22 @@
       }
       
       #controlsInfo.collapsed {
-        max-height: 34px; /* Even smaller when collapsed */
+        max-width: 160px;
+      }
+      
+      #controlsInfo.collapsed #controlsContent {
+        max-height: 0;
+        opacity: 0;
       }
       
       #controlsInfo {
         max-height: 180px; /* Limit height in landscape to prevent overflow */
       }
       
-      #timerDisplay {
-        font-size: 16px;
+      #gameStatsContainer {
+        font-size: 14px;
         padding: 5px 8px;
+        max-width: 85%;
       }
     }
     
@@ -852,7 +978,35 @@
     <p id="keyboardHint">Press <span class="key">Enter</span> or <span class="key">Space</span> to start the game</p>
   </div>
 
-  <div id="info">Skiing Snowman</div>
+  <!-- Game Stats Container - Combined stats window -->
+  <div id="gameStatsContainer">
+    <div id="gameStatsHeader">
+      <h3>📊 Game Stats</h3>
+      <button id="toggleStats">▲</button>
+    </div>
+    <div id="gameStatsContent">
+      <div class="stat-item">
+        <span class="stat-label">Current Time</span>
+        <span id="currentTime" class="stat-value">0.00s</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Best Time</span>
+        <span id="bestTimeValue" class="stat-value">--</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Speed</span>
+        <span id="speedValue" class="stat-value">0.0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Position</span>
+        <span id="positionValue" class="stat-value">0,0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Status</span>
+        <span id="groundStatus" class="stat-value">⛷️ Ground</span>
+      </div>
+    </div>
+  </div>
   
   <!-- Controls Container -->
   <div id="controlsContainer">
@@ -861,29 +1015,31 @@
         <h3>⌨️ Game Controls</h3>
         <button id="toggleControls">▲</button>
       </div>
-      <div class="control-item">
-        <span class="key-badge">←/A</span> 
-        <span>Turn Left</span>
-      </div>
-      <div class="control-item">
-        <span class="key-badge">→/D</span>
-        <span>Turn Right</span>
-      </div>
-      <div class="control-item">
-        <span class="key-badge">↑/W</span>
-        <span>Accelerate</span>
-      </div>
-      <div class="control-item">
-        <span class="key-badge">↓/S</span>
-        <span>Brake</span>
-      </div>
-      <div class="control-item">
-        <span class="key-badge">Space</span>
-        <span>Jump</span>
-      </div>
-      <div class="control-item">
-        <span class="key-badge">V</span>
-        <span>Toggle Camera View</span>
+      <div id="controlsContent">
+        <div class="control-item">
+          <span class="key-badge">←/A</span> 
+          <span>Turn Left</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">→/D</span>
+          <span>Turn Right</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">↑/W</span>
+          <span>Accelerate</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">↓/S</span>
+          <span>Brake</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">Space</span>
+          <span>Jump</span>
+        </div>
+        <div class="control-item">
+          <span class="key-badge">V</span>
+          <span>Toggle Camera View</span>
+        </div>
       </div>
     </div>
   </div>
@@ -1225,76 +1381,9 @@
             }
         }
 
-        // Add controls toggle functionality right away, not waiting for game initialization
-        const controlsInfo = document.getElementById('controlsInfo');
-        const toggleButton = document.getElementById('toggleControls');
-        const controlsHeader = document.getElementById('controlsHeader');
-        
-        if (controlsInfo && toggleButton && controlsHeader) {
-            // Setup the toggle functionality
-            const toggleControls = function() {
-                controlsInfo.classList.toggle('collapsed');
-                toggleButton.textContent = controlsInfo.classList.contains('collapsed') ? '▼' : '▲';
-            };
-            
-            // Add click listener to both the button and header
-            toggleButton.addEventListener('click', function(e) {
-                e.stopPropagation(); // Prevent triggering the header click
-                toggleControls();
-            });
-            
-            controlsHeader.addEventListener('click', toggleControls);
-            
-            // Add touch events for better mobile experience
-            controlsHeader.addEventListener('touchend', function(e) {
-                e.preventDefault(); // Prevent default touch behavior
-                toggleControls();
-            }, { passive: false });
-            
-            // Auto-collapse on small screens
-            const handleScreenSizeChange = () => {
-                if (window.innerWidth <= 480 || 
-                    (window.innerWidth <= 768 && window.innerHeight <= 500)) {
-                    // Auto-collapse on small screens and landscape mobile
-                    if (!controlsInfo.classList.contains('collapsed')) {
-                        controlsInfo.classList.add('collapsed');
-                        toggleButton.textContent = '▼';
-                    }
-                }
-            };
-            
-            // Check on resize
-            window.addEventListener('resize', handleScreenSizeChange);
-            
-            // Check on initial load
-            handleScreenSizeChange();
-            
-            // Add a swipe handler for the controls
-            let touchStartY = 0;
-            
-            controlsHeader.addEventListener('touchstart', function(e) {
-                touchStartY = e.touches[0].clientY;
-            }, { passive: true });
-            
-            controlsHeader.addEventListener('touchmove', function(e) {
-                const touchY = e.touches[0].clientY;
-                const diff = touchY - touchStartY;
-                
-                // If swiping down and controls expanded, collapse them
-                if (diff > 20 && !controlsInfo.classList.contains('collapsed')) {
-                    controlsInfo.classList.add('collapsed');
-                    toggleButton.textContent = '▼';
-                    e.preventDefault();
-                }
-                
-                // If swiping up and controls collapsed, expand them
-                if (diff < -20 && controlsInfo.classList.contains('collapsed')) {
-                    controlsInfo.classList.remove('collapsed');
-                    toggleButton.textContent = '▲';
-                    e.preventDefault();
-                }
-            }, { passive: false });
-        }
+        // Game Controls toggle functionality
+        // This is intentionally left empty - the toggleControls functionality
+        // is now fully implemented in snowglider.js's initializeControlsToggle function
 
         // Enhance the start button with better mobile support
         const startGameButton = document.getElementById('startGameButton');

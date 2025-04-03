@@ -176,9 +176,88 @@ let turnAmplitude = 3.0;
 // Add timer and best time tracking
 let startTime = 0;
 let bestTime = localStorage.getItem('snowgliderBestTime') ? parseFloat(localStorage.getItem('snowgliderBestTime')) : Infinity;
-let timerDisplay = document.createElement('div');
-timerDisplay.id = 'timerDisplay';
-document.body.appendChild(timerDisplay);
+
+// Initialize game stats functionality
+function initializeGameStats() {
+  console.log("Initializing game stats");
+  const bestTimeElement = document.getElementById('bestTimeValue');
+  if (bestTimeElement) {
+    bestTimeElement.textContent = bestTime !== Infinity ? `${bestTime.toFixed(2)}s` : '--';
+  }
+  
+  // Add game stats toggle functionality
+  const statsContainer = document.getElementById('gameStatsContainer');
+  const toggleStatsBtn = document.getElementById('toggleStats');
+  const statsHeader = document.getElementById('gameStatsHeader');
+  
+  if (statsContainer && toggleStatsBtn && statsHeader) {
+    console.log("Setting up game stats toggle");
+    // Function to toggle stats visibility
+    const toggleStats = function() {
+      console.log("Toggle stats called, current state:", statsContainer.classList.contains('collapsed'));
+      statsContainer.classList.toggle('collapsed');
+      toggleStatsBtn.textContent = statsContainer.classList.contains('collapsed') ? '▼' : '▲';
+    };
+    
+    // Add click and touch event listeners
+    toggleStatsBtn.addEventListener('click', function(e) {
+      console.log("Toggle button clicked");
+      e.stopPropagation();
+      toggleStats();
+    });
+    
+    statsHeader.addEventListener('click', function(e) {
+      console.log("Stats header clicked");
+      toggleStats();
+    });
+    
+    statsHeader.addEventListener('touchend', function(e) {
+      console.log("Stats header touch end");
+      e.preventDefault();
+      toggleStats();
+    }, { passive: false });
+    
+    // Add horizontal swipe handler for the stats window
+    let touchStartX = 0;
+    
+    statsHeader.addEventListener('touchstart', function(e) {
+      touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    
+    statsHeader.addEventListener('touchmove', function(e) {
+      const touchX = e.touches[0].clientX;
+      const diff = touchX - touchStartX;
+      
+      // If swiping left and stats expanded, collapse them
+      if (diff < -30 && !statsContainer.classList.contains('collapsed')) {
+        console.log("Swipe left detected, collapsing");
+        statsContainer.classList.add('collapsed');
+        toggleStatsBtn.textContent = '▼';
+        e.preventDefault();
+      }
+      
+      // If swiping right and stats collapsed, expand them
+      if (diff > 30 && statsContainer.classList.contains('collapsed')) {
+        console.log("Swipe right detected, expanding");
+        statsContainer.classList.remove('collapsed');
+        toggleStatsBtn.textContent = '▲';
+        e.preventDefault();
+      }
+    }, { passive: false });
+  } else {
+    console.warn("Game stats elements not found:", {
+      statsContainer: !!statsContainer,
+      toggleStatsBtn: !!toggleStatsBtn,
+      statsHeader: !!statsHeader
+    });
+  }
+}
+
+// Initialize the stats display when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+  console.log("DOM content loaded, initializing game stats");
+  initializeGameStats();
+});
 
 // Add best time to game over overlay
 const bestTimeDisplay = document.createElement('p');
@@ -279,64 +358,44 @@ function updateSnowman(delta) {
   currentTurnDirection = result.currentTurnDirection;
   turnChangeCooldown = result.turnChangeCooldown;
   
-  // Update info display with jump status - simplified for better mobile display
-  const infoElement = document.getElementById('info');
-  if (infoElement) {
-    // Create more responsive info display
-    const formatInfo = () => {
-      // Get screen width for responsive content
-      const screenWidth = window.innerWidth;
-      
-      // Format speed with color based on value
-      const speed = result.currentSpeed.toFixed(1);
-      let speedColor = '#FFFFFF'; // Default white
-      
-      // Color code speed (green for slow, yellow for medium, red for fast)
-      if (result.currentSpeed > 20) {
-        speedColor = '#FF5252'; // Red for fast
-      } else if (result.currentSpeed > 12) {
-        speedColor = '#FFD700'; // Yellow for medium
-      } else if (result.currentSpeed > 5) {
-        speedColor = '#4CAF50'; // Green for good speed
-      }
-      
-      // Jump indicator with emoji
-      const jumpStatus = isInAir 
-        ? '<span style="color:#00FFFF">🚀 JUMP!</span>' 
-        : '<span style="color:#AAFFAA">⛷️ Ground</span>';
-      
-      // For smallest screens (mobile portrait)
-      if (screenWidth <= 360) {
-        return `<span style="color:${speedColor}">${speed}</span> | ${isInAir ? '🚀' : '⛷️'}`;
-      }
-      
-      // For medium small screens
-      if (screenWidth <= 480) {
-        return `Speed: <span style="color:${speedColor}">${speed}</span> | ${jumpStatus}`;
-      }
-      
-      // For medium screens
-      if (screenWidth <= 768) {
-        return `Speed: <span style="color:${speedColor}">${speed}</span> | Pos: ${pos.x.toFixed(0)},${pos.z.toFixed(0)} | ${jumpStatus}`;
-      }
-      
-      // For large screens, show full details
-      return `Position: ${pos.x.toFixed(0)},${pos.z.toFixed(0)} | Speed: <span style="color:${speedColor}">${speed}</span> | ${jumpStatus}`;
-    };
-    
-    // Update the info display
-    infoElement.innerHTML = formatInfo();
-    
-    // Add event listener for screen resize to update info format
-    if (!infoElement.hasScreenResizeListener) {
-      window.addEventListener('resize', () => {
-        if (infoElement) {
-          infoElement.innerHTML = formatInfo();
-        }
-      });
-      infoElement.hasScreenResizeListener = true;
+  // Update game stats display
+  // Format speed with color based on value
+  const speed = result.currentSpeed.toFixed(1);
+  let speedColor = '#FFFFFF'; // Default white
+  
+  // Color code speed (green for slow, yellow for medium, red for fast)
+  if (result.currentSpeed > 20) {
+    speedColor = '#FF5252'; // Red for fast
+  } else if (result.currentSpeed > 12) {
+    speedColor = '#FFD700'; // Yellow for medium
+  } else if (result.currentSpeed > 5) {
+    speedColor = '#4CAF50'; // Green for good speed
+  }
+  
+  // Update individual stat elements
+  const speedElement = document.getElementById('speedValue');
+  if (speedElement) {
+    speedElement.textContent = speed;
+    speedElement.style.color = speedColor;
+  }
+  
+  const positionElement = document.getElementById('positionValue');
+  if (positionElement) {
+    positionElement.textContent = `${pos.x.toFixed(0)},${pos.z.toFixed(0)}`;
+  }
+  
+  const groundElement = document.getElementById('groundStatus');
+  if (groundElement) {
+    if (isInAir) {
+      groundElement.innerHTML = '🚀 JUMP!';
+      groundElement.style.color = '#00FFFF';
+    } else {
+      groundElement.innerHTML = '⛷️ Ground';
+      groundElement.style.color = '#AAFFAA';
     }
   }
+  
+  // Update timer in the updateTimerDisplay function which is called separately
 }
 
 // --- Update Camera: Follow the Snowman ---
@@ -415,6 +474,20 @@ function showGameOver(reason) {
     AudioModule.enableSound(false);
   }
   
+  // Hide or collapse game stats container on game over
+  const gameStatsContainer = document.getElementById('gameStatsContainer');
+  if (gameStatsContainer) {
+    // Option 1: Collapse the stats
+    gameStatsContainer.classList.add('collapsed');
+    const toggleBtn = document.getElementById('toggleStats');
+    if (toggleBtn) {
+      toggleBtn.textContent = '▼';
+    }
+    
+    // Option 2 (alternative): Hide the stats completely
+    // gameStatsContainer.style.display = 'none';
+  }
+  
   // Only update times if player reached the end successfully
   if (reason === "You reached the end of the slope!") {
     const currentTime = (performance.now() - startTime) / 1000;
@@ -425,6 +498,13 @@ function showGameOver(reason) {
       localStorage.setItem('snowgliderBestTime', bestTime);
       bestTimeDisplay.textContent = `New Best Time: ${bestTime.toFixed(2)}s`;
       bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
+      
+      // Update the best time in the game stats window too
+      const bestTimeElement = document.getElementById('bestTimeValue');
+      if (bestTimeElement) {
+        bestTimeElement.textContent = `${bestTime.toFixed(2)}s`;
+        bestTimeElement.style.color = '#ffff00'; // Highlight new record
+      }
       
       // Record to Firebase if user is logged in
       if (window.AuthModule && window.AuthModule.getCurrentUser()) {
@@ -511,6 +591,22 @@ function restartGame() {
   // Add game-active class to body for styling
   document.body.classList.add('game-active');
   
+  // Show and reset game stats
+  const gameStatsContainer = document.getElementById('gameStatsContainer');
+  if (gameStatsContainer) {
+    gameStatsContainer.classList.remove('collapsed');
+    const toggleBtn = document.getElementById('toggleStats');
+    if (toggleBtn) {
+      toggleBtn.textContent = '▲';
+    }
+    
+    // Reset colors for best time display
+    const bestTimeElement = document.getElementById('bestTimeValue');
+    if (bestTimeElement) {
+      bestTimeElement.style.color = ''; // Reset to default color
+    }
+  }
+  
   resetSnowman();
   
   // Initialize camera with the snowman's position and rotation
@@ -540,7 +636,7 @@ function toggleCameraView() {
   cameraManager.initialize(snowman.position, snowman.rotation);
   
   // Update the camera mode text in the controls info
-  const viewControlItem = document.querySelector('#controlsInfo .control-item:last-child');
+  const viewControlItem = document.querySelector('#controlsContent .control-item:last-child');
   if (viewControlItem) {
     const keyBadge = viewControlItem.querySelector('.key-badge');
     const textSpan = viewControlItem.querySelector('span:last-child');
@@ -604,84 +700,152 @@ Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
 // Add event listener to restart button
 restartButton.addEventListener('click', restartGame);
 
-// Add controls toggle functionality
-document.addEventListener('DOMContentLoaded', function() {
+// Function to initialize controls toggle
+function initializeControlsToggle() {
+  console.log("Initializing controls toggle");
   const controlsInfo = document.getElementById('controlsInfo');
   const toggleButton = document.getElementById('toggleControls');
   const controlsHeader = document.getElementById('controlsHeader');
+  const controlsContent = document.getElementById('controlsContent');
   
   if (controlsInfo && toggleButton && controlsHeader) {
-    // Setup the toggle functionality
-    const toggleControls = function() {
-      controlsInfo.classList.toggle('collapsed');
-      toggleButton.textContent = controlsInfo.classList.contains('collapsed') ? '▼' : '▲';
-    };
+    console.log("Setting up controls toggle");
     
-    // Add click listener to both the button and header
-    toggleButton.addEventListener('click', function(e) {
-      e.stopPropagation(); // Prevent triggering the header click
-      toggleControls();
-    });
-    
-    controlsHeader.addEventListener('click', toggleControls);
-    
-    // Add touch events for better mobile experience
-    controlsHeader.addEventListener('touchend', function(e) {
-      e.preventDefault(); // Prevent default touch behavior
-      toggleControls();
-    }, { passive: false });
-    
-    // Auto-collapse on small screens
-    const handleScreenSizeChange = () => {
-      if (window.innerWidth <= 480 || 
-          (window.innerWidth <= 768 && window.innerHeight <= 500)) {
-        // Auto-collapse on small screens and landscape mobile
-        if (!controlsInfo.classList.contains('collapsed')) {
+    // Ensure previous event listeners are removed (if possible)
+    try {
+      controlsHeader.replaceWith(controlsHeader.cloneNode(true));
+      const newControlsHeader = document.getElementById('controlsHeader');
+      const newToggleButton = document.getElementById('toggleControls');
+      
+      // Setup the toggle functionality
+      const toggleControls = function() {
+        console.log("Toggle controls called, current state:", controlsInfo.classList.contains('collapsed'));
+        if (controlsInfo.classList.contains('collapsed')) {
+          controlsInfo.classList.remove('collapsed');
+          newToggleButton.textContent = '▲';
+        } else {
+          controlsInfo.classList.add('collapsed');
+          newToggleButton.textContent = '▼';
+        }
+      };
+      
+      // Add click listener to both the button and header
+      newToggleButton.addEventListener('click', function(e) {
+        console.log("Controls toggle button clicked");
+        e.stopPropagation(); // Prevent triggering the header click
+        toggleControls();
+      });
+      
+      newControlsHeader.addEventListener('click', function(e) {
+        console.log("Controls header clicked");
+        toggleControls();
+      });
+      
+      // Add touch events for better mobile experience
+      newControlsHeader.addEventListener('touchend', function(e) {
+        console.log("Controls header touch end");
+        e.preventDefault(); // Prevent default touch behavior
+        toggleControls();
+      }, { passive: false });
+      
+      // Auto-collapse on small screens
+      const handleScreenSizeChange = () => {
+        if (window.innerWidth <= 480 || 
+            (window.innerWidth <= 768 && window.innerHeight <= 500)) {
+          // Auto-collapse on small screens and landscape mobile
+          if (!controlsInfo.classList.contains('collapsed')) {
+            console.log("Auto-collapsing controls for small screen");
+            controlsInfo.classList.add('collapsed');
+            newToggleButton.textContent = '▼';
+          }
+        }
+      };
+      
+      // Check on resize
+      window.addEventListener('resize', handleScreenSizeChange);
+      
+      // Check on initial load
+      handleScreenSizeChange();
+      
+      // Add horizontal swipe handler for the controls (like Game Stats)
+      let touchStartX = 0;
+      
+      newControlsHeader.addEventListener('touchstart', function(e) {
+        touchStartX = e.touches[0].clientX;
+      }, { passive: true });
+      
+      newControlsHeader.addEventListener('touchmove', function(e) {
+        const touchX = e.touches[0].clientX;
+        const diff = touchX - touchStartX;
+        
+        // If swiping left and controls expanded, collapse them
+        if (diff < -30 && !controlsInfo.classList.contains('collapsed')) {
+          console.log("Swipe left detected, collapsing controls");
+          controlsInfo.classList.add('collapsed');
+          newToggleButton.textContent = '▼';
+          e.preventDefault();
+        }
+        
+        // If swiping right and controls collapsed, expand them
+        if (diff > 30 && controlsInfo.classList.contains('collapsed')) {
+          console.log("Swipe right detected, expanding controls");
+          controlsInfo.classList.remove('collapsed');
+          newToggleButton.textContent = '▲';
+          e.preventDefault();
+        }
+      }, { passive: false });
+    } catch (e) {
+      console.error("Error setting up controls toggle:", e);
+      
+      // Fall back to simple toggle without cloning
+      const toggleControls = function() {
+        if (controlsInfo.classList.contains('collapsed')) {
+          controlsInfo.classList.remove('collapsed');
+          toggleButton.textContent = '▲';
+        } else {
           controlsInfo.classList.add('collapsed');
           toggleButton.textContent = '▼';
         }
-      }
-    };
-    
-    // Check on resize
-    window.addEventListener('resize', handleScreenSizeChange);
-    
-    // Check on initial load
-    handleScreenSizeChange();
-    
-    // Add a swipe handler for the controls (swipe up to expand, down to collapse)
-    let touchStartY = 0;
-    
-    controlsHeader.addEventListener('touchstart', function(e) {
-      touchStartY = e.touches[0].clientY;
-    }, { passive: true });
-    
-    controlsHeader.addEventListener('touchmove', function(e) {
-      const touchY = e.touches[0].clientY;
-      const diff = touchY - touchStartY;
+      };
       
-      // If swiping down and controls expanded, collapse them
-      if (diff > 20 && !controlsInfo.classList.contains('collapsed')) {
-        controlsInfo.classList.add('collapsed');
-        toggleButton.textContent = '▼';
-        e.preventDefault();
-      }
+      toggleButton.addEventListener('click', function(e) {
+        e.stopPropagation();
+        toggleControls();
+      });
       
-      // If swiping up and controls collapsed, expand them
-      if (diff < -20 && controlsInfo.classList.contains('collapsed')) {
-        controlsInfo.classList.remove('collapsed');
-        toggleButton.textContent = '▲';
-        e.preventDefault();
-      }
-    }, { passive: false });
+      controlsHeader.addEventListener('click', toggleControls);
+    }
+  } else {
+    console.warn("Controls elements not found:", {
+      controlsInfo: !!controlsInfo,
+      toggleButton: !!toggleButton,
+      controlsHeader: !!controlsHeader
+    });
   }
+}
+
+// Initialize controls toggle when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+  console.log("DOM content loaded, initializing controls toggle");
+  initializeControlsToggle();
 });
 
 // Update timer display during gameplay
 function updateTimerDisplay() {
   if (gameActive) {
     const currentTime = (performance.now() - startTime) / 1000;
-    timerDisplay.textContent = `Time: ${currentTime.toFixed(2)}s`;
+    
+    // Update the current time element in game stats
+    const currentTimeElement = document.getElementById('currentTime');
+    if (currentTimeElement) {
+      currentTimeElement.textContent = `${currentTime.toFixed(2)}s`;
+    }
+    
+    // Keep best time updated
+    const bestTimeElement = document.getElementById('bestTimeValue');
+    if (bestTimeElement) {
+      bestTimeElement.textContent = bestTime !== Infinity ? `${bestTime.toFixed(2)}s` : '--';
+    }
   }
 }
 
@@ -697,6 +861,48 @@ window.initializeGameWithAudio = function() {
   
   // Make sure test hooks are available
   Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
+  
+  // Make sure game stats and controls are properly initialized and visible
+  initializeGameStats();
+  initializeControlsToggle();
+  
+  // Initialize Game Stats
+  const gameStatsContainer = document.getElementById('gameStatsContainer');
+  if (gameStatsContainer) {
+    console.log("Game start: ensuring stats are expanded");
+    // Make sure stats are visible when game starts
+    gameStatsContainer.classList.remove('collapsed');
+    const toggleBtn = document.getElementById('toggleStats');
+    if (toggleBtn) {
+      toggleBtn.textContent = '▲';
+    }
+    
+    // Update initial values
+    updateTimerDisplay();
+  }
+  
+  // Initialize Controls
+  const controlsInfo = document.getElementById('controlsInfo');
+  if (controlsInfo) {
+    console.log("Game start: ensuring controls are in right state");
+    // Auto-collapse controls on smaller screens, expand on larger screens
+    const shouldCollapse = window.innerWidth <= 480 || 
+                           (window.innerWidth <= 768 && window.innerHeight <= 500);
+    
+    if (shouldCollapse) {
+      controlsInfo.classList.add('collapsed');
+      const toggleBtn = document.getElementById('toggleControls');
+      if (toggleBtn) {
+        toggleBtn.textContent = '▼';
+      }
+    } else {
+      controlsInfo.classList.remove('collapsed');
+      const toggleBtn = document.getElementById('toggleControls');
+      if (toggleBtn) {
+        toggleBtn.textContent = '▲';
+      }
+    }
+  }
   
   // Display a short loading message if this is the first initialization
   if (!gameInitialized) {

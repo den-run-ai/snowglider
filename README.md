@@ -65,6 +65,9 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=unified` - Run all tests
 
 ## Recent Improvements
+- Enhanced UI with collapsible game controls panel matching the game stats panel behavior
+- Improved touch interactions with consistent left/right swipe gestures for collapsing panels
+- Fixed collapsible panels to ensure they work properly across all device types
 - Added background music system with selectable audio tracks
 - Implemented audio controls with mute/unmute functionality
 - Added audio preference storage in localStorage
