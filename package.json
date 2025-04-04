@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "firebase": "^11.5.0",
-    "three": "^0.128.0"
+    "three": "^0.134.0"
   },
   "devDependencies": {
     "http-server": "^14.1.1"
