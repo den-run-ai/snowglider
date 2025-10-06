@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="build-id" content="2025.10.06-mobile-audio-v3">
   <title>Skiing Snowman</title>
   <style>
     body { margin: 0; overflow: hidden; background-color: #87CEEB; }
@@ -762,6 +763,17 @@
       transform: scale(0.98);
     }
     
+    .build-badge {
+      margin-left: .5rem; 
+      padding: .15rem .4rem; 
+      border-radius: .35rem;
+      font: 500 11px system-ui; 
+      background: #eef; 
+      border: 1px solid #ccd;
+      color: #333;
+      white-space: nowrap;
+    }
+    
     #aboutGamePanel {
       display: none;
       background-color: rgba(0, 0, 0, 0.7);
@@ -1105,6 +1117,14 @@
     document.addEventListener('DOMContentLoaded', function() {
         // First detect if we're using file:// protocol for special handling
         const isFileProtocol = window.location.protocol === 'file:';
+        
+        // Add build badge to start button
+        const build = document.querySelector('meta[name="build-id"]')?.content ||
+                     new Date().toISOString().slice(0,16).replace('T',' ');
+        const btn = document.getElementById('startGameButton');
+        if (btn) {
+          btn.innerHTML = `Start Game with Music <span class="build-badge">${build}</span>`;
+        }
         
         // Add event listeners to initialize audio context on various user interactions
         const initAudioContext = () => {

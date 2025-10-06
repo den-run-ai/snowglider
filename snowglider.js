@@ -860,6 +860,23 @@ window.initializeGameWithAudio = function() {
     console.warn("Audio context resume attempt failed:", err);
   });
   
+  // Monitor audio status on mobile and show retry if needed
+  const checkAudioStatus = () => {
+    const status = AudioModule.getStatus();
+    
+    // If audio buffer is loaded and context is ready, but not playing 2 seconds after game start
+    if (!status.playing && status.bufferLoaded && status.contextReady) {
+      console.warn('[AUDIO] Ready but not playing — showing retry UI');
+      AudioModule.showAudioRetryPrompt();
+    } else if (status.contextState === 'interrupted' || status.contextState === 'suspended') {
+      console.warn('[AUDIO] Context in unusual state:', status.contextState, '— showing retry UI');
+      AudioModule.showAudioRetryPrompt();
+    }
+  };
+  
+  // Check audio status 2 seconds after game starts
+  setTimeout(checkAudioStatus, 2000);
+  
   // Start the audio (will work better on mobile now that we've attempted to resume)
   AudioModule.startAudio();
   

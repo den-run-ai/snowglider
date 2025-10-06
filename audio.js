@@ -223,6 +223,9 @@ const AudioModule = (function() {
         audioPath = audioPath.substring(2);
       }
       
+      // Apply cache-busting
+      audioPath = withVersion(audioPath);
+      
       console.log("Pre-loading audio track:", audioName, "from path:", audioPath);
       
       audioLoader.load(
@@ -280,6 +283,86 @@ const AudioModule = (function() {
     }
     
     return false;
+  }
+  
+  // Helper: add cache-busting to asset URLs
+  function withVersion(url) {
+    try {
+      const build = document.querySelector('meta[name="build-id"]')?.content || Date.now();
+      const u = new URL(url, location.href);
+      if (!u.searchParams.has('v')) u.searchParams.set('v', build);
+      return u.href;
+    } catch { 
+      return url; 
+    }
+  }
+  
+  // NEW: visible retry UI
+  function showAudioRetryPrompt() {
+    if (document.getElementById('audioRetryPrompt')) return;
+
+    const prompt = document.createElement('button');
+    prompt.id = 'audioRetryPrompt';
+    Object.assign(prompt.style, {
+      position: 'fixed', 
+      bottom: '80px', 
+      right: '20px', 
+      zIndex: '1002',
+      padding: '10px 14px', 
+      borderRadius: '8px', 
+      border: '0',
+      background: 'rgba(255,165,0,0.95)', 
+      color: '#111',
+      fontSize: '14px', 
+      boxShadow: '0 2px 8px rgba(0,0,0,.2)', 
+      cursor: 'pointer',
+      fontFamily: 'Arial, sans-serif',
+      fontWeight: 'bold'
+    });
+
+    const maybeInterrupted =
+      (audioListener && audioListener.context.state === 'interrupted'); // WebKit-specific
+    prompt.textContent = maybeInterrupted
+      ? '🔇 Tap to enable audio (check iPhone silent switch)'
+      : '🔇 Tap to enable audio';
+
+    prompt.addEventListener('click', async () => {
+      try {
+        const st1 = audioListener ? audioListener.context.state : 'unknown';
+        console.log('[AUDIO] Retry button clicked, context state:', st1);
+        
+        if (st1 !== 'running' && audioListener) {
+          await audioListener.context.resume();
+          console.log('[AUDIO] Context resumed via retry, new state:', audioListener.context.state);
+        }
+        
+        const ok = playPreloadedAudio();
+        if (ok) {
+          prompt.remove();
+          showStartupMessage('Audio enabled! 🎵', 2000);
+        } else {
+          prompt.textContent = '🔇 Audio still unavailable';
+          setTimeout(() => {
+            if (prompt.parentNode) prompt.remove();
+          }, 3000);
+        }
+      } catch (e) {
+        console.error('[AUDIO] Retry failed:', e);
+        prompt.textContent = 'Audio unavailable';
+        setTimeout(() => {
+          if (prompt.parentNode) prompt.remove();
+        }, 3000);
+      }
+    });
+
+    document.body.appendChild(prompt);
+    
+    // Auto-hide after 10 seconds
+    setTimeout(() => {
+      if (prompt.parentNode) {
+        prompt.remove();
+      }
+    }, 10000);
   }
   
   function toggleMute() {
@@ -411,6 +494,7 @@ const AudioModule = (function() {
     },
     preloadAudio: preloadAudio,
     playPreloadedAudio: playPreloadedAudio,
+    showAudioRetryPrompt: showAudioRetryPrompt,
     toggleMute: toggleMute,
     changeTrack: function(trackName) {
       if (audioFiles[trackName]) {
