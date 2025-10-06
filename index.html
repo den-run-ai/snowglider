@@ -1336,6 +1336,19 @@
                                             
                                             // Config and init logic moved above/into AuthModule
                                             console.log("Main game script loaded.");
+                                            
+                                            // Pre-load audio as soon as possible (but don't play yet)
+                                            setTimeout(() => {
+                                              if (window.AudioModule && typeof window.AudioModule.preloadAudio === 'function') {
+                                                window.AudioModule.preloadAudio('drum_loop')
+                                                  .then(() => {
+                                                    console.log("Audio pre-loaded and ready for user interaction");
+                                                  })
+                                                  .catch(err => {
+                                                    console.warn("Could not pre-load audio:", err);
+                                                  });
+                                              }
+                                            }, 500);
                                         };
                                         document.body.appendChild(mainScript);
                                     };
@@ -1358,9 +1371,26 @@
         });
 
         // Add start game button handler
-        document.getElementById('startGameButton').addEventListener('click', function() {
+        document.getElementById('startGameButton').addEventListener('click', async function() {
+            console.log("Start button clicked - attempting audio unlock");
+            
             // Try to initialize audio context again just before starting game
             initAudioContext();
+            
+            // Step 1: Resume AudioContext in THIS user gesture
+            if (window.AudioModule) {
+              try {
+                await window.AudioModule.resumeAudioContext();
+                console.log("AudioContext resumed in click handler");
+              } catch (e) {
+                console.warn("Could not resume AudioContext:", e);
+              }
+              
+              // Step 2: Play pre-loaded audio immediately (still in user gesture context)
+              window.AudioModule.playPreloadedAudio();
+            }
+            
+            // Step 3: Start the game
             startGame();
         });
         
@@ -1439,10 +1469,28 @@
                 this.classList.add('touch-active'); // Add visual feedback class
             }, { passive: false });
             
-            startGameButton.addEventListener('touchend', function(e) {
+            startGameButton.addEventListener('touchend', async function(e) {
                 e.preventDefault(); // Prevent default touch behavior
                 this.classList.remove('touch-active');
-                startGame(); // Start the game
+                
+                // IMPORTANT: Do audio unlock HERE in the touch event
+                console.log("Touch end - attempting audio unlock");
+                
+                if (window.AudioModule) {
+                  try {
+                    // Resume audio context in THIS touch gesture
+                    await window.AudioModule.resumeAudioContext();
+                    console.log("AudioContext resumed in touch handler");
+                    
+                    // Play pre-loaded audio immediately (still in touch gesture context)
+                    window.AudioModule.playPreloadedAudio();
+                  } catch (e) {
+                    console.warn("Audio unlock in touch failed:", e);
+                  }
+                }
+                
+                // Start the game
+                startGame();
             }, { passive: false });
             
             startGameButton.addEventListener('touchcancel', function(e) {

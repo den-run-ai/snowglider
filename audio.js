@@ -212,6 +212,76 @@ const AudioModule = (function() {
     }
   }
   
+  // New function to pre-load audio without playing
+  function preloadAudio(audioName) {
+    if (!isInitialized || !audioFiles[audioName]) return Promise.reject('Not initialized');
+    
+    return new Promise((resolve, reject) => {
+      const audioInfo = audioFiles[audioName];
+      let audioPath = audioInfo.path;
+      if (audioPath.startsWith('./')) {
+        audioPath = audioPath.substring(2);
+      }
+      
+      console.log("Pre-loading audio track:", audioName, "from path:", audioPath);
+      
+      audioLoader.load(
+        audioPath,
+        function(buffer) {
+          // Set up the audio buffer but DON'T play yet
+          music.setBuffer(buffer);
+          music.setLoop(true);
+          music.setVolume(0.5);
+          
+          currentAudio = audioName;
+          audioLoaded = true;
+          
+          console.log("Audio pre-loaded successfully:", audioName);
+          resolve(buffer);
+        },
+        function(xhr) {
+          console.log((xhr.loaded / xhr.total * 100) + '% pre-loaded');
+        },
+        function(err) {
+          console.error("Error pre-loading audio track:", audioName, err);
+          reject(err);
+        }
+      );
+    });
+  }
+  
+  // New function to play pre-loaded audio (must be called in user gesture)
+  function playPreloadedAudio() {
+    if (!audioLoaded) {
+      console.warn("Audio not loaded yet, cannot play");
+      return false;
+    }
+    
+    if (isMuted || !soundEnabled) {
+      console.log("Audio muted or sound disabled");
+      return false;
+    }
+    
+    if (!audioInitialized) {
+      console.error("Audio context not initialized");
+      return false;
+    }
+    
+    if (music && !music.isPlaying) {
+      try {
+        music.play();
+        hasPlayedAudio = true;
+        console.log("Pre-loaded audio now playing");
+        return true;
+      } catch (e) {
+        console.error("Error playing pre-loaded audio:", e);
+        return false;
+      }
+    }
+    
+    return false;
+  }
+  
   function toggleMute() {
     isMuted = !isMuted;
     
@@ -339,6 +409,8 @@ const AudioModule = (function() {
       document.addEventListener('touchstart', unlockAudio, { passive: true });
       document.addEventListener('keydown', unlockAudio, { passive: true });
     },
+    preloadAudio: preloadAudio,
+    playPreloadedAudio: playPreloadedAudio,
     toggleMute: toggleMute,
     changeTrack: function(trackName) {
       if (audioFiles[trackName]) {
@@ -392,7 +464,8 @@ const AudioModule = (function() {
         playing: music ? music.isPlaying : false,
         hasPlayedBefore: hasPlayedAudio,
         contextReady: audioInitialized,
-        bufferLoaded: audioLoaded
+        bufferLoaded: audioLoaded,
+        contextState: audioListener ? audioListener.context.state : 'unknown'
       };
     },
     addAudioListener: function(camera) {
