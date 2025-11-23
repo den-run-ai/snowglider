@@ -1,18 +1,16 @@
-// audio.js - Handle game audio using Three.js audio system
+// audio.js - Handle game audio using Howler.js for better mobile compatibility
 
 // AudioModule - Global module for managing game audio
 const AudioModule = (function() {
   // Private variables
-  let audioListener;
   let music = null;
   let audioFiles = {
-    'drum_loop': { path: './assets/drum_loop_are_you_heaven.wav', type: 'audio/wav' },
-    'skullbeatz': { path: './assets/skullbeatz_bad_cat.mp3', type: 'audio/mp3' }
+    'drum_loop': { path: './assets/drum_loop_are_you_heaven.wav' },
+    'skullbeatz': { path: './assets/skullbeatz_bad_cat.mp3' }
   };
   let currentAudio = 'drum_loop';
   let isMuted = false;
   let isInitialized = false;
-  let audioLoader;
   let soundEnabled = true;
   let hasPlayedAudio = false;
   let startupMessage = null;
@@ -23,29 +21,7 @@ const AudioModule = (function() {
   function initAudio(scene) {
     if (isInitialized) return;
     
-    console.log("Initializing audio system");
-    
-    // Create an audio listener and add it to the camera
-    audioListener = new THREE.AudioListener();
-    
-    // Create audio loader
-    audioLoader = new THREE.AudioLoader();
-    
-    // Add listener to the scene camera
-    if (scene.camera) {
-      scene.camera.add(audioListener);
-    } else {
-      // If no camera directly on scene, find the camera
-      scene.traverse(object => {
-        if (object instanceof THREE.Camera) {
-          object.add(audioListener);
-          return;
-        }
-      });
-    }
-    
-    // Create the music source
-    music = new THREE.Audio(audioListener);
+    console.log("Initializing audio system with Howler.js");
     
     // Check local storage for previous sound settings
     const storedMute = localStorage.getItem('snowgliderMuted');
@@ -65,8 +41,7 @@ const AudioModule = (function() {
     isInitialized = true;
     
     return {
-      listener: audioListener,
-      music: music
+      initialized: true
     };
   }
   
@@ -116,21 +91,22 @@ const AudioModule = (function() {
   
   // Function to wait for user interaction to unlock audio context
   async function startAudioExperience() {
-    if (!audioInitialized && audioListener && audioListener.context.state === 'suspended') {
+    // Howler.js handles audio context automatically, but we can force resume
+    if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'suspended') {
       try {
-        await audioListener.context.resume();
-        console.log("AudioContext resumed!");
-        audioInitialized = true; // Mark context as ready
+        await Howler.ctx.resume();
+        console.log("AudioContext resumed via Howler!");
+        audioInitialized = true;
       } catch (e) {
         console.error("Error resuming AudioContext:", e);
-        return; // Don't proceed if resume failed
+        return;
       }
-    } else if (audioListener && audioListener.context.state === 'running') {
-      audioInitialized = true; // Already running
+    } else if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'running') {
+      audioInitialized = true;
     }
 
     // Now you can play the sound (if loaded)
-    if (audioLoaded && !isMuted && soundEnabled && music && !music.isPlaying) {
+    if (audioLoaded && !isMuted && soundEnabled && music && !music.playing()) {
       console.log("Playing sound after interaction");
       music.play();
       hasPlayedAudio = true;
@@ -142,7 +118,7 @@ const AudioModule = (function() {
     
     try {
       // Stop current audio if playing
-      if (music.isPlaying) {
+      if (music && music.playing()) {
         music.stop();
       }
       
@@ -160,41 +136,33 @@ const AudioModule = (function() {
       // Show loading status in UI if needed
       updateUI();
       
-      audioLoader.load(
-        audioPath,
-        function(buffer) {
-          try {
-            music.setBuffer(buffer);
-            music.setLoop(true);
-            music.setVolume(0.5);
-            
-            currentAudio = audioName;
-            localStorage.setItem('snowgliderAudioTrack', audioName);
-            
-            // Mark buffer as loaded
-            audioLoaded = true;
-            
-            // Only play if not muted, sound is enabled, and audio context is initialized
-            if (!isMuted && soundEnabled && audioInitialized) {
-              music.play();
-              hasPlayedAudio = true;
-              console.log("Audio is now playing:", audioName);
-            } else {
-              console.log("Audio loaded but waiting for context initialization or unmute");
-            }
-            
-            // Update UI
-            updateUI();
-          } catch (e) {
-            console.error("Error setting up audio buffer:", e.message, e.stack);
+      // Create Howl instance
+      music = new Howl({
+        src: [audioPath],
+        html5: true, // Force HTML5 Audio for better mobile compatibility
+        loop: true,
+        volume: 0.5,
+        onload: function() {
+          console.log("Audio loaded successfully:", audioName);
+          currentAudio = audioName;
+          localStorage.setItem('snowgliderAudioTrack', audioName);
+          
+          // Mark buffer as loaded
+          audioLoaded = true;
+          
+          // Only play if not muted, sound is enabled, and audio context is initialized
+          if (!isMuted && soundEnabled && audioInitialized) {
+            music.play();
+            hasPlayedAudio = true;
+            console.log("Audio is now playing:", audioName);
+          } else {
+            console.log("Audio loaded but waiting for context initialization or unmute");
           }
+          
+          // Update UI
+          updateUI();
         },
-        function(xhr) {
-          // Progress
-          console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-        },
-        function(err) {
-          // Error handler
+        onloaderror: function(id, err) {
           console.error("Error loading audio track:", audioName, err);
           
           // Try alternative audio if this one failed
@@ -205,8 +173,16 @@ const AudioModule = (function() {
             console.log("Trying fallback audio track...");
             setTimeout(() => loadAudio('drum_loop'), 500);
           }
+        },
+        onplayerror: function(id, err) {
+          console.error("Error playing audio:", err);
+          // Try to unlock audio on next user interaction
+          music.once('unlock', function() {
+            console.log("Audio unlocked, attempting to play");
+            music.play();
+          });
         }
-      );
+      });
     } catch (e) {
       console.error("Error in loadAudio function:", e.message, e.stack);
     }
@@ -228,28 +204,25 @@ const AudioModule = (function() {
       
       console.log("Pre-loading audio track:", audioName, "from path:", audioPath);
       
-      audioLoader.load(
-        audioPath,
-        function(buffer) {
-          // Set up the audio buffer but DON'T play yet
-          music.setBuffer(buffer);
-          music.setLoop(true);
-          music.setVolume(0.5);
-          
+      // Create Howl instance but don't play yet
+      music = new Howl({
+        src: [audioPath],
+        html5: true, // Force HTML5 Audio for better mobile compatibility
+        loop: true,
+        volume: 0.5,
+        preload: true,
+        onload: function() {
           currentAudio = audioName;
           audioLoaded = true;
           
           console.log("Audio pre-loaded successfully:", audioName);
-          resolve(buffer);
+          resolve();
         },
-        function(xhr) {
-          console.log((xhr.loaded / xhr.total * 100) + '% pre-loaded');
-        },
-        function(err) {
+        onloaderror: function(id, err) {
           console.error("Error pre-loading audio track:", audioName, err);
           reject(err);
         }
-      );
+      });
     });
   }
   
@@ -265,12 +238,21 @@ const AudioModule = (function() {
       return false;
     }
     
-    if (!audioInitialized) {
-      console.error("Audio context not initialized");
-      return false;
+    if (!audioInitialized && typeof Howler !== 'undefined' && Howler.ctx) {
+      // Try to resume context
+      if (Howler.ctx.state === 'suspended') {
+        Howler.ctx.resume().then(() => {
+          console.log("Audio context resumed in playPreloadedAudio");
+          audioInitialized = true;
+        }).catch(e => {
+          console.error("Failed to resume audio context:", e);
+        });
+      } else if (Howler.ctx.state === 'running') {
+        audioInitialized = true;
+      }
     }
     
-    if (music && !music.isPlaying) {
+    if (music && !music.playing()) {
       try {
         music.play();
         hasPlayedAudio = true;
@@ -320,20 +302,20 @@ const AudioModule = (function() {
       fontWeight: 'bold'
     });
 
-    const maybeInterrupted =
-      (audioListener && audioListener.context.state === 'interrupted'); // WebKit-specific
+    const maybeInterrupted = 
+      (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'interrupted'); // WebKit-specific
     prompt.textContent = maybeInterrupted
       ? '🔇 Tap to enable audio (check iPhone silent switch)'
       : '🔇 Tap to enable audio';
 
     prompt.addEventListener('click', async () => {
       try {
-        const st1 = audioListener ? audioListener.context.state : 'unknown';
+        const st1 = (typeof Howler !== 'undefined' && Howler.ctx) ? Howler.ctx.state : 'unknown';
         console.log('[AUDIO] Retry button clicked, context state:', st1);
         
-        if (st1 !== 'running' && audioListener) {
-          await audioListener.context.resume();
-          console.log('[AUDIO] Context resumed via retry, new state:', audioListener.context.state);
+        if (st1 !== 'running' && typeof Howler !== 'undefined' && Howler.ctx) {
+          await Howler.ctx.resume();
+          console.log('[AUDIO] Context resumed via retry, new state:', Howler.ctx.state);
         }
         
         const ok = playPreloadedAudio();
@@ -370,12 +352,12 @@ const AudioModule = (function() {
     
     if (isMuted) {
       // User wants to mute, pause any playing audio
-      if (music && music.isPlaying) {
+      if (music && music.playing()) {
         music.pause();
       }
     } else {
       // User wants to unmute, try to play if not already playing
-      if (music && !music.isPlaying && soundEnabled) {
+      if (music && !music.playing() && soundEnabled) {
         music.play();
         hasPlayedAudio = true;
       }
@@ -522,13 +504,13 @@ const AudioModule = (function() {
     },
     setVolume: function(level) {
       if (music) {
-        music.setVolume(Math.max(0, Math.min(1, level)));
+        music.volume(Math.max(0, Math.min(1, level)));
       }
     },
     enableSound: function(enable) {
       soundEnabled = enable;
       if (enable && !isMuted && music) {
-        if (!music.isPlaying && audioInitialized) {
+        if (!music.playing() && audioInitialized) {
           music.play();
           hasPlayedAudio = true;
         } else if (!audioInitialized) {
@@ -536,7 +518,7 @@ const AudioModule = (function() {
           // try to resume it (this will require user interaction)
           startAudioExperience();
         }
-      } else if (!enable && music && music.isPlaying) {
+      } else if (!enable && music && music.playing()) {
         music.pause();
       }
     },
@@ -545,17 +527,16 @@ const AudioModule = (function() {
         initialized: isInitialized,
         currentTrack: currentAudio,
         muted: isMuted,
-        playing: music ? music.isPlaying : false,
+        playing: music ? music.playing() : false,
         hasPlayedBefore: hasPlayedAudio,
         contextReady: audioInitialized,
         bufferLoaded: audioLoaded,
-        contextState: audioListener ? audioListener.context.state : 'unknown'
+        contextState: (typeof Howler !== 'undefined' && Howler.ctx) ? Howler.ctx.state : 'unknown'
       };
     },
     addAudioListener: function(camera) {
-      if (audioListener && camera) {
-        camera.add(audioListener);
-      }
+      // Not needed with Howler.js - it handles audio context internally
+      console.log("addAudioListener: Not needed with Howler.js");
     },
     showMessage: function(message, duration) {
       showStartupMessage(message, duration);
