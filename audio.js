@@ -420,6 +420,30 @@ const AudioModule = (function() {
     document.body.appendChild(audioButton);
     document.body.appendChild(audioSelect);
     
+    // Add visibility change listener to handle audio suspension/resumption
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        // Tab/Window hidden - Howler usually handles muting, but we can force mute if needed
+        // For now, we rely on Howler's auto-suspend behavior
+        console.log("App hidden: Audio might be suspended by browser");
+      } else {
+        // Tab/Window visible again - Force resume if suspended
+        console.log("App visible: Checking audio context state");
+        if (typeof Howler !== 'undefined' && Howler.ctx && (Howler.ctx.state === 'suspended' || Howler.ctx.state === 'interrupted')) {
+          // Try to resume - note this might still fail until next user interaction on some browsers
+          Howler.ctx.resume().then(() => {
+            console.log("AudioContext resumed on visibility change");
+            // If we were playing before, ensure we are playing now
+            if (soundEnabled && !isMuted && music && !music.playing()) {
+               music.play();
+            }
+          }).catch(e => {
+             console.warn("Could not auto-resume on visibility change (waiting for interaction):", e);
+          });
+        }
+      }
+    });
+
     // Event listeners
     // Click for mute/unmute
     audioButton.addEventListener('click', toggleMute);
@@ -510,7 +534,16 @@ const AudioModule = (function() {
     enableSound: function(enable) {
       soundEnabled = enable;
       if (enable && !isMuted && music) {
-        if (!music.playing() && audioInitialized) {
+        // Check context state before playing
+        if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'suspended') {
+           console.log("enableSound: Context suspended, attempting resume");
+           startAudioExperience().then(() => {
+             if (!music.playing()) {
+               music.play();
+               hasPlayedAudio = true;
+             }
+           });
+        } else if (!music.playing() && (audioInitialized || (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'running'))) {
           music.play();
           hasPlayedAudio = true;
         } else if (!audioInitialized) {

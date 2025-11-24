@@ -60,8 +60,9 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - Use standard touch event handlers with { passive: false }
 - Provide visual feedback for touch controls on mobile devices
 - Automatically detect device type to enable appropriate controls
-- Use THREE.AudioListener and THREE.Audio for game sound effects with WebAudio API
-- Properly initialize and unlock audio context on user interaction for mobile compatibility
+- Use Howler.js for all game audio (replaces Three.js Audio)
+- Howler.js handles mobile audio unlocking and context management automatically
+- Always include visibility change listeners to resume audio context when app returns to foreground
 - Implement multiple fallback strategies for mobile audio playback
 - Use flags to track audio context state and buffer loading status
 - Initialize audio early but defer playback until user interaction
