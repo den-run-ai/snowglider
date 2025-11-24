@@ -358,8 +358,24 @@ const AudioModule = (function() {
     } else {
       // User wants to unmute, try to play if not already playing
       if (music && !music.playing() && soundEnabled) {
-        music.play();
-        hasPlayedAudio = true;
+        // Check if audio context is suspended and resume if needed
+        if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'suspended') {
+          console.log("toggleMute: Audio context suspended, attempting to resume");
+          Howler.ctx.resume().then(() => {
+            console.log("toggleMute: Audio context resumed successfully");
+            audioInitialized = true;
+            if (music && !music.playing()) {
+              music.play();
+              hasPlayedAudio = true;
+            }
+          }).catch(e => {
+            console.error("toggleMute: Failed to resume audio context:", e);
+          });
+        } else {
+          // Context is already running, just play
+          music.play();
+          hasPlayedAudio = true;
+        }
       }
     }
     
