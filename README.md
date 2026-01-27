@@ -3,7 +3,11 @@ A cheerful snowman shredding mountain snow powder in a playful Three.js animatio
 
 www.snowglider.ai
 
-https://github.com/user-attachments/assets/699d795e-7c79-40b4-8a15-d7ab6cc27660
+
+
+https://github.com/user-attachments/assets/6eed3feb-0352-42bc-9768-91654e93b5e1
+
+
 
 
 ## Overview
