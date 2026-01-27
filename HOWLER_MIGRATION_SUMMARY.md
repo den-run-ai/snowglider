@@ -1,6 +1,112 @@
-# Howler.js Audio Migration Summary
+# Audio Implementation Summary
 
-## Overview
+## Current Status: SIMPLIFIED NATIVE AUDIO (Branch: audio-simplified)
+
+**As of January 26, 2026**, this branch implements a radically simplified audio approach:
+- **Native HTML5 Audio** - No library dependencies (removed Howler.js)
+- **182 lines** (down from 734 lines)
+- **Single track only** - drum_loop, no track switching
+- **2 state variables** - `muted` and `initialized` only
+- **No pre-loading** - loads on first play
+- **No visibility change handling** - let browser manage it
+- **Audio ENABLED** - Set `AUDIO_ENABLED = true` in `audio.js`
+
+### Changes in this branch:
+1. Rewrote `audio.js` using native `<audio>` element
+2. Removed Howler.js CDN from `index.html`
+3. Removed conflicting `initAudioContext()` from `index.html`
+4. Updated tests to match simplified API
+
+### Testing required:
+- [ ] Desktop Chrome, Firefox, Safari
+- [ ] iOS Safari (silent switch on/off)
+- [ ] Android Chrome
+- [ ] Verify no lag/delay issues
+
+---
+
+## Previous Status: AUDIO DISABLED (main branch)
+
+**As of January 26, 2026**, audio was **intentionally disabled** in the main branch due to persistent issues that could not be resolved across 10 months of development and 8+ major fix attempts.
+
+To re-enable in main: Set `AUDIO_ENABLED = true` in `audio.js` (not recommended until issues are resolved).
+
+---
+
+## Diagnostic Report: Git History Analysis
+
+### Timeline of Audio Development
+
+| Date | Commit | Description | Library |
+|------|--------|-------------|---------|
+| Apr 1, 2025 | `1e3bf97` | Initial audio implementation | Three.js Audio |
+| Apr 2, 2025 | `bb35051` | Fixed audio with game menu start | Three.js Audio |
+| Apr 2, 2025 | `3256b4e` | More robust audio on mobile | Three.js Audio |
+| Oct 5, 2025 | `9d1fa5c` | Mobile fix attempt (AI-assisted) | Three.js Audio |
+| Oct 5, 2025 | `75d1284` | Recovery, state detection, monitoring | Three.js Audio |
+| **Nov 23, 2025** | `88ee638` | **Migrated to Howler.js** | Howler.js |
+| Nov 23, 2025 | `da47bc1` | More robust audio re-initialization | Howler.js |
+| Nov 23, 2025 | `fb304c6` | Audio fix for button enable-disable logic | Howler.js |
+| **Jan 26, 2026** | `ccdbad4` | **Audio disabled entirely** | N/A |
+
+### Issues That Led to Disabling Audio
+
+#### Three.js Audio Issues (Pre-Migration)
+1. **Mobile AudioContext suspension** - Context would suspend and not reliably resume
+2. **iOS silent switch handling** - No reliable detection of hardware mute switch
+3. **User gesture timing** - Browser autoplay policies inconsistently enforced
+4. **State management complexity** - Multiple flags required (audioInitialized, audioLoaded, hasPlayedAudio)
+
+#### Howler.js Issues (Post-Migration)
+1. **Audio lagging/delay** - Noticeable delay between user action and audio playback
+2. **HTML5 mode limitations** - `html5: true` used for mobile compatibility but impacts performance
+3. **Context state unreliable** - `Howler.ctx.state` values ('suspended', 'interrupted', 'running') not consistent
+4. **Double-loading issues** - Previous track sometimes not fully unloaded before new track loads
+5. **Visibility change race conditions** - Audio resume on tab focus sometimes failed silently
+
+### Root Cause Analysis
+
+#### Why Three.js Audio Failed
+- Three.js Audio is a thin wrapper around Web Audio API
+- No built-in handling for mobile browser quirks
+- Required manual `AudioContext.resume()` calls at exactly the right time
+- No fallback to HTML5 Audio when Web Audio fails
+
+#### Why Howler.js Also Failed
+Despite advertising mobile compatibility, Howler.js introduced new problems:
+
+1. **HTML5 Audio mode trade-off**
+   - Setting `html5: true` is required for iOS compatibility
+   - But HTML5 Audio has higher latency than Web Audio API
+   - This caused the reported "lagging/delayed audio" issue
+
+2. **Context management conflicts**
+   - Howler manages its own AudioContext (`Howler.ctx`)
+   - Code also created temporary AudioContexts for early unlock (`initAudioContext()`)
+   - Multiple contexts potentially fighting for audio resources
+
+3. **Pre-loading vs lazy loading confusion**
+   - `preloadAudio()` loads track but waits for user gesture to play
+   - `loadAudio()` loads and plays immediately if conditions met
+   - Race conditions between these two approaches
+
+4. **Visibility change handling incomplete**
+   - Tab backgrounding suspends context (expected)
+   - Resume on visibility change sometimes fails silently
+   - No retry mechanism beyond single `resume()` call
+
+### Code Complexity Issues
+
+The current `audio.js` has accumulated significant complexity:
+- **734 lines** of code for what should be simple background music
+- **Multiple flag variables**: `isInitialized`, `audioInitialized`, `audioLoaded`, `soundEnabled`, `hasPlayedAudio`, `isMuted`
+- **Nested async operations** with timeouts and promise chains
+- **Duplicate unlock attempts** in both `index.html` and `audio.js`
+
+---
+
+## Original Migration Overview
+
 Successfully migrated the SnowGlider game from Three.js Audio to Howler.js for better mobile audio compatibility, especially on iOS devices.
 
 ## Changes Made
@@ -196,19 +302,84 @@ To fully verify mobile functionality:
    - Samsung Internet
    - Opera Mobile
 
-## Migration Success
+## Migration Status: INCOMPLETE
 
-The migration from Three.js Audio to Howler.js is **COMPLETE and FUNCTIONAL**. Desktop testing confirms the audio system is working correctly with proper mobile unlock patterns implemented.
+The migration from Three.js Audio to Howler.js is **COMPLETE but NOT FUNCTIONAL** for production use.
 
-Recent updates (post-migration) have improved robustness:
-1. **Visibility Handling**: Audio context now auto-resumes when switching back to the game tab/window.
-2. **Restart Reliability**: Game restart logic now handles suspended audio contexts gracefully.
+**Issues that remain unresolved:**
+1. Audio lagging/delay (especially with HTML5 mode)
+2. Intermittent playback failures on both mobile and desktop
+3. Context state management issues
+4. User gesture timing inconsistencies
 
-The code is ready for broad mobile device testing.
+---
+
+## Recommendations for Future Resolution
+
+### Option 1: Simplify the Implementation
+- Remove all complexity - single audio track, no track switching
+- Remove pre-loading - load on first play attempt
+- Remove visibility change handling - let browser manage
+- Reduce to ~100 lines of code maximum
+
+### Option 2: Try Different Approach
+- Consider **Tone.js** (better scheduling, built for music)
+- Consider **native HTML5 Audio** only (simpler, more reliable, slightly higher latency)
+- Consider **silent/no audio** as the default with audio as opt-in
+
+### Option 3: Web Audio API Directly
+- Avoid library abstractions entirely
+- Implement minimal AudioContext handling
+- Accept that some browsers/devices won't work
+
+### Key Investigation Areas When Re-enabling
+1. **Measure actual latency** - is it truly Howler.js or browser-specific?
+2. **Test HTML5 vs Web Audio mode** - remove `html5: true` and test on iOS
+3. **Remove temporary AudioContext** - only use Howler.ctx
+4. **Simplify state management** - reduce to just 2 flags max
+5. **Test with actual user on real devices** - not just automated tests
+
+### Specific Code Changes to Investigate
+1. Line 178: `html5: true` - try removing this and testing iOS
+2. Lines 1146-1170 in `index.html`: `initAudioContext()` - may conflict with Howler
+3. Multiple `setTimeout` calls in audio path - could be causing delays
+4. Cache-busting (`withVersion()`) - may cause reloading issues
+
+---
 
 ## References
 
 - Howler.js Documentation: https://howlerjs.com/
 - Howler.js GitHub: https://github.com/goldfire/howler.js
 - Mobile Audio Best Practices: https://developers.google.com/web/updates/2017/09/autoplay-policy-changes
+- Web Audio API MDN: https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API
+- Tone.js (alternative): https://tonejs.github.io/
+
+---
+
+## Appendix: Git Commit Details
+
+### First Audio Implementation (Three.js)
+```
+commit 1e3bf97 - Apr 1, 2025
+"sound audio and git lfs"
+Files: audio.js (255 lines), index.html, snowglider.js
+Library: Three.js AudioListener, AudioLoader, Audio
+```
+
+### Howler.js Migration
+```
+commit 88ee638 - Nov 23, 2025  
+"audio fix for mobile for howler.js"
+Files: audio.js (-110 +101 lines net change), package.json (+howler dep)
+Key change: Replaced THREE.Audio with Howl instances, added html5: true
+```
+
+### Final Disable
+```
+commit ccdbad4 - Jan 26, 2026
+"audio disable"
+Files: audio.js (+136 lines for AUDIO_ENABLED flag checks)
+Key change: Added AUDIO_ENABLED = false, all public methods early-exit when disabled
+```
 
