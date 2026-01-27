@@ -11,11 +11,17 @@
     // Set a flag to prevent other test runners from initializing
     window._unifiedTestRunnerActive = true;
     
-    // Wait for game to initialize
-    window.addEventListener('load', function() {
-      // Give the game a moment to fully initialize
+    // Check if document is already loaded (for headless browser testing)
+    if (document.readyState === 'complete') {
+      console.log('Document already complete, initializing unified test runner immediately');
       setTimeout(initializeUnifiedTestRunner, 500);
-    });
+    } else {
+      // Wait for game to initialize
+      window.addEventListener('load', function() {
+        // Give the game a moment to fully initialize
+        setTimeout(initializeUnifiedTestRunner, 500);
+      });
+    }
   }
   
   function initializeUnifiedTestRunner() {
