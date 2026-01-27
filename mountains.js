@@ -125,8 +125,9 @@ function getTerrainHeight(x, z) {
   
   // Ensure downhill gradient in extended sections - create a consistent downhill slope
   // This factor increases the further (more negative) z gets, creating a gradual slope
+  // Use a stronger gradient (0.12) to ensure consistent downhill even with terrain noise
   if (z < -30) {
-    y += (z + 30) * 0.06; // This creates a consistent downhill gradient
+    y += (z + 30) * 0.12; // This creates a consistent downhill gradient
   }
   
   // Store in height map for future lookups
@@ -195,8 +196,9 @@ function createTerrain(scene) {
     
     // Ensure downhill gradient in extended sections - create a consistent downhill slope
     // Must match getTerrainHeight implementation exactly!
+    // Use a stronger gradient (0.12) to ensure consistent downhill even with terrain noise
     if (z < -30) {
-      y += (z + 30) * 0.06;
+      y += (z + 30) * 0.12;
     }
     
     // Add some random smaller bumps for natural backcountry terrain
