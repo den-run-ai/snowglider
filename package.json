@@ -12,6 +12,7 @@
     "test:controls": "echo 'Controls tests require browser - use index.html?test=controls'",
     "test:browser": "node tests/puppeteer-runner.js",
     "test:all": "npm test && npm run test:browser",
+    "test:coverage": "c8 --reporter=lcov --reporter=text npm run test",
     "start": "http-server -p 8080 -c-1"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "three": "^0.134.0"
   },
   "devDependencies": {
+    "c8": "^10.1.2",
     "http-server": "^14.1.1",
     "puppeteer": "^23.11.1"
   }

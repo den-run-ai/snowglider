@@ -25,8 +25,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: Run Node.js tests
-        run: npm test
+      - name: Run Node.js tests with coverage
+        run: npm run test:coverage
       
       - name: Install Puppeteer browser
         run: npx puppeteer browsers install chrome
@@ -35,6 +35,13 @@ jobs:
         run: npm run test:browser
         env:
           CI: true
+      
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
       
       - name: Upload test results
         uses: actions/upload-artifact@v4
