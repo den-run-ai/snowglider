@@ -83,6 +83,7 @@
       { name: 'audio', runner: window.runAudioTests, started: false, completed: false },
       { name: 'gameplay', runner: window.runGameTests, started: false, completed: false },
       { name: 'tree', runner: window.runTreeTests, started: false, completed: false },
+      { name: 'avalanche', runner: window.runAvalancheTests, started: false, completed: false },
       { name: 'regression', runner: window.runRegressionTests, started: false, completed: false }
     ];
     
