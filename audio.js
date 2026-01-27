@@ -1,4 +1,24 @@
 // audio.js - Handle game audio using Howler.js for better mobile compatibility
+//
+// TODO: AUDIO DISABLED - Troubleshooting needed for mobile and desktop issues
+// Issues observed:
+// - Mobile: Audio context suspension, interrupted states, iOS silent switch handling
+// - Desktop: Intermittent playback failures, context state management issues
+// - Cross-platform: User gesture requirements not consistently met
+//
+// Key areas to investigate when re-enabling:
+// 1. AudioContext state management (suspended, interrupted, running)
+// 2. User gesture timing for audio unlock
+// 3. Howler.js HTML5 mode vs Web Audio API mode
+// 4. Visibility change handling when app goes to background
+// 5. Pre-loading vs lazy loading strategies
+//
+// To re-enable audio: Set AUDIO_ENABLED = true and test thoroughly on:
+// - iOS Safari (check silent switch behavior)
+// - Android Chrome
+// - Desktop Chrome, Firefox, Safari
+//
+const AUDIO_ENABLED = false; // TODO: Set to true when audio issues are resolved
 
 // AudioModule - Global module for managing game audio
 const AudioModule = (function() {
@@ -17,9 +37,18 @@ const AudioModule = (function() {
   let audioInitialized = false; // Flag for context state
   let audioLoaded = false;      // Flag for buffer loaded
   
+  // TODO: Early exit if audio is disabled - all public methods will be no-ops
+  if (!AUDIO_ENABLED) {
+    console.log("[AUDIO] Audio is DISABLED. Set AUDIO_ENABLED = true in audio.js to re-enable.");
+  }
+  
   // Private methods
   function initAudio(scene) {
-    if (isInitialized) return;
+    if (isInitialized) {
+      return {
+        initialized: true
+      };
+    }
     
     console.log("Initializing audio system with Howler.js");
     
@@ -117,10 +146,17 @@ const AudioModule = (function() {
     if (!isInitialized || !audioFiles[audioName]) return;
     
     try {
-      // Stop current audio if playing
-      if (music && music.playing()) {
-        music.stop();
+      // Stop and unload current audio completely
+      if (music) {
+        if (music.playing()) {
+          music.stop();
+        }
+        music.unload();
+        music = null;
       }
+      
+      // Reset audio loaded flag
+      audioLoaded = false;
       
       // Load and set the audio
       const audioInfo = audioFiles[audioName];
@@ -193,6 +229,18 @@ const AudioModule = (function() {
     if (!isInitialized || !audioFiles[audioName]) return Promise.reject('Not initialized');
     
     return new Promise((resolve, reject) => {
+      // Stop and unload current audio completely
+      if (music) {
+        if (music.playing()) {
+          music.stop();
+        }
+        music.unload();
+        music = null;
+      }
+      
+      // Reset audio loaded flag
+      audioLoaded = false;
+      
       const audioInfo = audioFiles[audioName];
       let audioPath = audioInfo.path;
       if (audioPath.startsWith('./')) {
@@ -494,12 +542,21 @@ const AudioModule = (function() {
   }
   
   // Public API
+  // TODO: All methods check AUDIO_ENABLED and return early if disabled
   return {
     init: function(scene) {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] init() - Audio disabled, skipping initialization");
+        return { initialized: false, disabled: true };
+      }
       const result = initAudio(scene);
       return result;
     },
     setupUI: function() {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] setupUI() - Audio disabled, skipping UI setup");
+        return;
+      }
       createAudioUI();
       updateUI();
       
@@ -514,11 +571,39 @@ const AudioModule = (function() {
       document.addEventListener('touchstart', unlockAudio, { passive: true });
       document.addEventListener('keydown', unlockAudio, { passive: true });
     },
-    preloadAudio: preloadAudio,
-    playPreloadedAudio: playPreloadedAudio,
-    showAudioRetryPrompt: showAudioRetryPrompt,
-    toggleMute: toggleMute,
+    preloadAudio: function(audioName) {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] preloadAudio() - Audio disabled, skipping preload");
+        return Promise.resolve(); // Return resolved promise so callers don't break
+      }
+      return preloadAudio(audioName);
+    },
+    playPreloadedAudio: function() {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] playPreloadedAudio() - Audio disabled");
+        return false;
+      }
+      return playPreloadedAudio();
+    },
+    showAudioRetryPrompt: function() {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] showAudioRetryPrompt() - Audio disabled");
+        return;
+      }
+      showAudioRetryPrompt();
+    },
+    toggleMute: function() {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] toggleMute() - Audio disabled");
+        return false;
+      }
+      return toggleMute();
+    },
     changeTrack: function(trackName) {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] changeTrack() - Audio disabled");
+        return false;
+      }
       if (audioFiles[trackName]) {
         loadAudio(trackName);
         return true;
@@ -526,6 +611,12 @@ const AudioModule = (function() {
       return false;
     },
     startAudio: function() {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] startAudio() - Audio disabled, showing welcome message only");
+        // Still show welcome message even with audio disabled
+        showStartupMessage("Welcome to SnowGlider!", 2000);
+        return false;
+      }
       // This is the main function to call after user interaction
       if (!isInitialized) {
         console.error("Audio system not initialized. Call init() first.");
@@ -543,11 +634,16 @@ const AudioModule = (function() {
       return true;
     },
     setVolume: function(level) {
+      if (!AUDIO_ENABLED) return;
       if (music) {
         music.volume(Math.max(0, Math.min(1, level)));
       }
     },
     enableSound: function(enable) {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] enableSound() - Audio disabled");
+        return;
+      }
       soundEnabled = enable;
       if (enable && !isMuted && music) {
         // Check context state before playing
@@ -572,6 +668,20 @@ const AudioModule = (function() {
       }
     },
     getStatus: function() {
+      // TODO: Return disabled status when audio is off
+      if (!AUDIO_ENABLED) {
+        return {
+          initialized: false,
+          disabled: true,
+          currentTrack: null,
+          muted: true,
+          playing: false,
+          hasPlayedBefore: false,
+          contextReady: false,
+          bufferLoaded: false,
+          contextState: 'disabled'
+        };
+      }
       return {
         initialized: isInitialized,
         currentTrack: currentAudio,
@@ -584,15 +694,25 @@ const AudioModule = (function() {
       };
     },
     addAudioListener: function(camera) {
+      if (!AUDIO_ENABLED) return;
       // Not needed with Howler.js - it handles audio context internally
       console.log("addAudioListener: Not needed with Howler.js");
     },
     showMessage: function(message, duration) {
+      // TODO: Keep message functionality even when audio disabled
       showStartupMessage(message, duration);
     },
     // New method to explicitly request audio context resume
     resumeAudioContext: async function() {
+      if (!AUDIO_ENABLED) {
+        console.log("[AUDIO] resumeAudioContext() - Audio disabled");
+        return Promise.resolve();
+      }
       return startAudioExperience();
+    },
+    // TODO: Add method to check if audio is enabled (useful for UI decisions)
+    isEnabled: function() {
+      return AUDIO_ENABLED;
     }
   };
 })();

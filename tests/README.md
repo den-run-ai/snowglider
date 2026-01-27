@@ -4,7 +4,7 @@ This directory contains tests for the SnowGlider game. The tests are designed to
 
 ## Test Types
 
-There are five main types of tests:
+There are six main types of tests:
 
 1. **Terrain Tests** (`terrain-tests.js`)
    - Tests for terrain height calculations
@@ -25,12 +25,19 @@ There are five main types of tests:
    - Tests real gameplay interactions
    - Visual feedback in the browser
 
-4. **Regression Tests** (`regression-tests.js` and `browser-regression-tests.js`)
+4. **Audio Tests** (`audio-tests.js`)
+   - Tests for Howler.js audio integration
+   - Audio loading and playback verification
+   - Audio controls (mute, volume, track switching)
+   - Audio context state management
+   - Mobile audio unlock patterns
+
+5. **Regression Tests** (`regression-tests.js` and `browser-regression-tests.js`)
    - Targets specific functionality that may have regressed based on git history
    - Tests fixes for known issues to prevent regressions
    - Includes both Node.js and browser-based tests
 
-5. **Tree Collision Tests** (`tree-collision-tests.js` and `browser-tree-tests.js`)
+6. **Tree Collision Tests** (`tree-collision-tests.js` and `browser-tree-tests.js`)
    - Specialized tests focused on tree collision detection issues
    - Verifies consistency between visual tree rendering and collision detection
    - Tests tree collision in extended ski run area
@@ -83,10 +90,32 @@ open index.html?test=trees
 
 2. The tree collision tests will run automatically and display results in the top-left corner of the screen
 
+### Browser Audio Tests
+
+1. Open the game with the audio tests parameter:
+```
+open index.html?test=audio
+```
+   Or load the game in a browser with `?test=audio` appended to the URL
+
+2. The audio tests will run automatically and display results on the screen
+
+### Unified Test Runner
+
+Run all tests in sequence:
+```
+open index.html?test=unified
+```
+   This will run all test suites (controls, camera, audio, gameplay, tree, regression) in sequence with a unified results display
+
 ## Test Implementation Details
 
 - **Command-line tests** use Node.js with minimal dependencies to test core functionality.
 - **Browser tests** run in the actual game environment to test integrated behavior.
+- **Audio tests** verify the Howler.js audio system integration:
+  - **Test 1: Audio Loading and Playback** - AudioModule initialization, pre-loading, buffer management, track setting
+  - **Test 2: Audio Controls** - Mute/unmute toggle, volume control (min/max/custom), sound enable/disable, track switching
+  - **Test 3: Audio Context State Management** - Howler.js availability, context existence, state validation, resume functionality, retry UI
 - **Regression tests** focus on specific fixes identified in the git history to prevent regressions.
 - **Tree collision tests** specifically target tree collision detection issues:
   - Mismatch between tree positions in `snowglider.js` and `snow.js`

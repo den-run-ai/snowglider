@@ -61,16 +61,28 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=true` - Run basic gameplay tests
 - `?test=trees` - Run tree collision tests
 - `?test=camera` - Run camera tracking tests
+- `?test=audio` - Run audio playback tests
+- `?test=controls` - Run controls tests
 - `?test=regression` - Run regression tests
 - `?test=unified` - Run all tests
+
+### Audio Tests
+The audio test suite (`tests/audio-tests.js`) verifies the Howler.js audio integration:
+- **Test 1: Audio Loading and Playback** - Verifies AudioModule initialization, audio pre-loading, buffer loading, and track management
+- **Test 2: Audio Controls** - Tests mute/unmute, volume control, enable/disable sound, and track switching
+- **Test 3: Audio Context State Management** - Validates Howler.js library, context state, resume functionality, and retry UI
+
+Run audio tests with: `open index.html?test=audio` or as part of the unified suite with `?test=unified`
 
 ## Recent Improvements
 - Enhanced UI with collapsible game controls panel matching the game stats panel behavior
 - Improved touch interactions with consistent left/right swipe gestures for collapsing panels
 - Fixed collapsible panels to ensure they work properly across all device types
-- Added background music system with selectable audio tracks
-- Implemented audio controls with mute/unmute functionality
+- **Migrated to Howler.js** for better mobile audio compatibility (see `HOWLER_MIGRATION_SUMMARY.md`)
+- Added comprehensive audio test suite covering loading, playback, controls, and context management
+- Implemented audio controls with mute/unmute functionality and track selection
 - Added audio preference storage in localStorage
+- Enhanced mobile audio unlock patterns with retry UI for iOS silent switch detection
 - Split user scoring and leaderboard functionality into separate scores.js module
 - Improved code organization with clearer separation of concerns
 - Maintained backward compatibility with existing interfaces

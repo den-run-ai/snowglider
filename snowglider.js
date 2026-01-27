@@ -86,11 +86,15 @@ gameOverOverlay.appendChild(restartButton);
 document.body.appendChild(gameOverOverlay);
 
 // --- Initialize audio early, but don't start playing until user interaction ---
-// Initialize audio and connect to camera
+// TODO: AUDIO DISABLED - These calls will be no-ops when AUDIO_ENABLED = false in audio.js
+// When re-enabling audio, verify:
+// 1. init() is called before any other audio operations
+// 2. setupUI() creates the mute button and track selector
+// 3. Audio context is properly managed on mobile devices
 AudioModule.init(scene);
 // Make sure to attach audio listener to the camera
 AudioModule.addAudioListener(camera);
-// Set up the audio UI
+// Set up the audio UI (will be skipped if audio disabled)
 AudioModule.setupUI();
 
 // --- Game state ---
@@ -469,7 +473,7 @@ function showGameOver(reason) {
   
   gameOverDetail.textContent = reason;
   
-  // Pause audio on game over
+  // TODO: AUDIO DISABLED - Pause audio on game over (will be no-op if disabled)
   if (window.AudioModule) {
     AudioModule.enableSound(false);
   }
@@ -612,7 +616,7 @@ function restartGame() {
   // Initialize camera with the snowman's position and rotation
   cameraManager.initialize(snowman.position, snowman.rotation);
   
-  // Resume audio
+  // TODO: AUDIO DISABLED - Resume audio (will be no-op if disabled)
   if (window.AudioModule) {
     AudioModule.enableSound(true);
   }
@@ -850,19 +854,28 @@ function updateTimerDisplay() {
 }
 
 // Function to initialize the game with audio - called from the start button
+// TODO: AUDIO DISABLED - Function name kept for compatibility, audio calls will be no-ops
 window.initializeGameWithAudio = function() {
-  console.log("Initializing game with audio...");
+  console.log("Initializing game...");
   
-  // Explicitly try to resume audio context first to address mobile audio issues
+  // TODO: AUDIO DISABLED - Audio context resume (will be no-op if disabled)
+  // When re-enabling, verify this resume happens in user gesture context on mobile
   AudioModule.resumeAudioContext().then(() => {
-    console.log("Audio context resumed successfully");
+    console.log("Audio context resume attempted");
   }).catch(err => {
     console.warn("Audio context resume attempt failed:", err);
   });
   
-  // Monitor audio status on mobile and show retry if needed
+  // TODO: AUDIO DISABLED - Audio status monitoring
+  // When re-enabling, this was meant to show retry UI if audio fails to start
   const checkAudioStatus = () => {
     const status = AudioModule.getStatus();
+    
+    // Skip check if audio is disabled
+    if (status.disabled) {
+      console.log('[AUDIO] Audio is disabled, skipping status check');
+      return;
+    }
     
     // If audio buffer is loaded and context is ready, but not playing 2 seconds after game start
     if (!status.playing && status.bufferLoaded && status.contextReady) {
@@ -877,7 +890,7 @@ window.initializeGameWithAudio = function() {
   // Check audio status 2 seconds after game starts
   setTimeout(checkAudioStatus, 2000);
   
-  // Start the audio (will work better on mobile now that we've attempted to resume)
+  // TODO: AUDIO DISABLED - Start audio (will show welcome message but skip music)
   AudioModule.startAudio();
   
   // Reset the snowman to starting position

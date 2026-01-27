@@ -984,7 +984,8 @@
     </div>
     
     <div id="startMenu">
-      <button id="startGameButton" class="menu-button start">Start Game with Music</button>
+      <!-- TODO: Button text changed from "Start Game with Music" since audio is disabled -->
+      <button id="startGameButton" class="menu-button start">Start Game</button>
       <button id="aboutGameButton" class="menu-button about">About Game</button>
     </div>
     
@@ -1086,7 +1087,12 @@
   <div id="leaderboard" style="display:none;"></div>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-  <!-- Howler.js for better mobile audio compatibility -->
+  <!-- TODO: AUDIO DISABLED - Howler.js still loaded but AudioModule is disabled in audio.js
+       Issues to investigate before re-enabling:
+       - Mobile: AudioContext suspension, iOS silent switch, interrupted states
+       - Desktop: Intermittent playback failures
+       - Both: User gesture timing for audio unlock
+       Re-enable by setting AUDIO_ENABLED = true in audio.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
   <!-- Audio resources - using Howler.js instead of Three.js Audio for better mobile support -->
   <!-- Howler.js automatically handles mobile audio unlock requirements and browser quirks -->
@@ -1120,11 +1126,12 @@
         const isFileProtocol = window.location.protocol === 'file:';
         
         // Add build badge to start button
+        // TODO: Button text changed from "Start Game with Music" since audio is disabled
         const build = document.querySelector('meta[name="build-id"]')?.content ||
                      new Date().toISOString().slice(0,16).replace('T',' ');
         const btn = document.getElementById('startGameButton');
         if (btn) {
-          btn.innerHTML = `Start Game with Music <span class="build-badge">${build}</span>`;
+          btn.innerHTML = `Start Game <span class="build-badge">${build}</span>`;
         }
         
         // Add event listeners to initialize audio context on various user interactions
@@ -1351,6 +1358,10 @@
                                                     if (testParam === 'controls' || testParam === 'all' || testParam === 'unified') {
                                                         loadSpecificTest('controls-tests');
                                                     }
+                                                    
+                                                    if (testParam === 'audio' || testParam === 'all' || testParam === 'unified') {
+                                                        loadSpecificTest('audio-tests');
+                                                    }
                                                 }
                                             };
                                             loadTests();
@@ -1358,7 +1369,8 @@
                                             // Config and init logic moved above/into AuthModule
                                             console.log("Main game script loaded.");
                                             
-                                            // Pre-load audio as soon as possible (but don't play yet)
+                                            // TODO: AUDIO DISABLED - Pre-loading still called but AudioModule will skip it
+                                            // When re-enabling audio, verify this preload timing works on mobile
                                             setTimeout(() => {
                                               if (window.AudioModule && typeof window.AudioModule.preloadAudio === 'function') {
                                                 window.AudioModule.preloadAudio('drum_loop')
@@ -1392,26 +1404,28 @@
         });
 
         // Add start game button handler
+        // TODO: AUDIO DISABLED - Audio unlock code still present but will be skipped by AudioModule
         document.getElementById('startGameButton').addEventListener('click', async function() {
-            console.log("Start button clicked - attempting audio unlock");
+            console.log("Start button clicked");
             
-            // Try to initialize audio context again just before starting game
-            initAudioContext();
+            // TODO: Audio context initialization - currently disabled
+            // initAudioContext();
             
-            // Step 1: Resume AudioContext in THIS user gesture
+            // TODO: AUDIO DISABLED - These calls will be no-ops when audio is disabled
+            // When re-enabling, verify user gesture timing is correct for mobile
             if (window.AudioModule) {
               try {
                 await window.AudioModule.resumeAudioContext();
-                console.log("AudioContext resumed in click handler");
+                console.log("AudioContext resume attempted in click handler");
               } catch (e) {
                 console.warn("Could not resume AudioContext:", e);
               }
               
-              // Step 2: Play pre-loaded audio immediately (still in user gesture context)
+              // Play pre-loaded audio (will be skipped if audio disabled)
               window.AudioModule.playPreloadedAudio();
             }
             
-            // Step 3: Start the game
+            // Start the game
             startGame();
         });
         
@@ -1490,23 +1504,25 @@
                 this.classList.add('touch-active'); // Add visual feedback class
             }, { passive: false });
             
+            // TODO: AUDIO DISABLED - Touch handler audio code still present but will be skipped
             startGameButton.addEventListener('touchend', async function(e) {
                 e.preventDefault(); // Prevent default touch behavior
                 this.classList.remove('touch-active');
                 
-                // IMPORTANT: Do audio unlock HERE in the touch event
-                console.log("Touch end - attempting audio unlock");
+                // TODO: AUDIO DISABLED - Audio unlock code here
+                // When re-enabling, this is critical for mobile - must be in touch gesture
+                console.log("Touch end - starting game");
                 
                 if (window.AudioModule) {
                   try {
-                    // Resume audio context in THIS touch gesture
+                    // Resume audio context in THIS touch gesture (will be no-op if disabled)
                     await window.AudioModule.resumeAudioContext();
-                    console.log("AudioContext resumed in touch handler");
+                    console.log("AudioContext resume attempted in touch handler");
                     
-                    // Play pre-loaded audio immediately (still in touch gesture context)
+                    // Play pre-loaded audio (will be skipped if audio disabled)
                     window.AudioModule.playPreloadedAudio();
                   } catch (e) {
-                    console.warn("Audio unlock in touch failed:", e);
+                    console.warn("Audio operation in touch failed:", e);
                   }
                 }
                 

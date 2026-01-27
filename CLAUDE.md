@@ -60,14 +60,23 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - Use standard touch event handlers with { passive: false }
 - Provide visual feedback for touch controls on mobile devices
 - Automatically detect device type to enable appropriate controls
-- Use Howler.js for all game audio (replaces Three.js Audio)
-- Howler.js handles mobile audio unlocking and context management automatically
-- Always include visibility change listeners to resume audio context when app returns to foreground
-- Implement multiple fallback strategies for mobile audio playback
-- Use flags to track audio context state and buffer loading status
-- Initialize audio early but defer playback until user interaction
-- Handle suspended audio contexts with explicit resume calls
-- Store audio preferences in localStorage for persistence
+## Audio Implementation (CURRENTLY DISABLED)
+- **Audio is currently disabled** due to persistent issues on mobile and desktop
+- To re-enable: Set `AUDIO_ENABLED = true` in `audio.js`
+- Issues observed before disabling:
+  - Mobile: AudioContext suspension, iOS silent switch handling, interrupted states
+  - Desktop: Intermittent playback failures, context state management issues
+  - Cross-platform: User gesture requirements not consistently met
+- When re-enabling, test thoroughly on iOS Safari, Android Chrome, and desktop browsers
+- Previous implementation notes (for reference when fixing):
+  - Uses Howler.js for audio (replaces Three.js Audio)
+  - Howler.js handles mobile audio unlocking and context management
+  - Visibility change listeners resume audio context when app returns to foreground
+  - Multiple fallback strategies for mobile audio playback
+  - Flags track audio context state and buffer loading status
+  - Audio initialized early but playback deferred until user interaction
+  - Suspended audio contexts handled with explicit resume calls
+  - Audio preferences stored in localStorage for persistence
 - Use consistent UI patterns for collapsible panels (Game Controls and Game Stats)
 - Implement horizontal swipe gestures for mobile panel interaction
 - Always check for existing/duplicated event listeners when setting up UI controls
