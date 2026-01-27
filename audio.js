@@ -64,8 +64,8 @@ const AudioModule = (function() {
     updateButtonUI(btn);
     
     btn.addEventListener('click', () => {
-      toggleMute();
-      updateButtonUI(btn);
+      AudioModule.toggleMute();
+      // Button UI is already updated by toggleMute()
     });
     
     document.body.appendChild(btn);
