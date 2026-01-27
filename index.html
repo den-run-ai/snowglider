@@ -863,8 +863,13 @@
                              window.location.hostname.includes('localhost') || 
                              window.location.hostname.includes('127.0.0.1');
     
-    // Add a special notice for users on localhost
+    // Add a special notice for users on localhost (only in development environments)
     document.addEventListener('DOMContentLoaded', () => {
+      // Only create the notice element if we're in a local development environment
+      if (!isFileProtocol && !isLocalDevelopment) {
+        return; // Don't create notice in production
+      }
+      
       const notice = document.createElement('div');
       notice.style.position = 'fixed';
       notice.style.bottom = '10px';
