@@ -1335,6 +1335,10 @@
                                                     if (testParam === 'audio' || testParam === 'all' || testParam === 'unified') {
                                                         loadSpecificTest('audio-tests');
                                                     }
+                                                    
+                                                    if (testParam === 'avalanche' || testParam === 'all' || testParam === 'unified') {
+                                                        loadSpecificTest('browser-avalanche-tests');
+                                                    }
                                                 }
                                             };
                                             loadTests();

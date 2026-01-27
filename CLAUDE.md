@@ -25,11 +25,12 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
   - `npm run test:regression` - Regression tests
   - `npm run test:tree-collision` - Tree collision tests
 - Browser tests: 
-  - All tests: `index.html?test=unified`
-  - Camera tests: `index.html?test=camera`
-  - Gameplay tests: `index.html?test=true`
-  - Tree tests: `index.html?test=trees`
-  - Regression tests: `index.html?test=regression`
+ - All tests: `index.html?test=unified`
+ - Camera tests: `index.html?test=camera`
+ - Gameplay tests: `index.html?test=true`
+ - Tree tests: `index.html?test=trees`
+ - Avalanche tests: `index.html?test=avalanche`
+ - Regression tests: `index.html?test=regression`
 
 ## Code Style Guidelines
 - **Indentation**: 2 spaces
