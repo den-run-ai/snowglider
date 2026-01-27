@@ -465,7 +465,13 @@ window.addEventListener('resize', () => {
 });
 
 // Add these functions for game over handling
+// Expose showGameOver on window for test mocking
 function showGameOver(reason) {
+  // Allow tests to intercept showGameOver calls
+  if (window._testShowGameOverOverride) {
+    window._testShowGameOverOverride(reason);
+    return;
+  }
   gameActive = false;
   
   // Remove game-active class from body for styling
@@ -630,6 +636,9 @@ function restartGame() {
 }
 // Make restartGame accessible globally for touch handler
 window.restartGame = restartGame;
+
+// Make showGameOver accessible globally for test hooks
+window.showGameOver = showGameOver;
 
 // Toggle between first-person and third-person camera views
 function toggleCameraView() {

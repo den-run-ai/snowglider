@@ -560,11 +560,11 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
   
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
   // Allow wider boundaries to match the extended mountain terrain
-  // Only skip boundary check during certain tests, but not during the game over test
-  const inExtendedMountainTest = window.location.search.includes('test=') && 
-                                !window.location.search.includes('test=true'); // Don't skip boundary check during browser tests
+  // Only skip boundary check during regression/tree tests, but NOT during browser tests or unified tests
+  const inExtendedMountainTest = window.location.search.includes('test=regression') || 
+                                window.location.search.includes('test=tree'); // Only skip for specific tests
   if (pos.z < -195 || // Extended from -95 to -195 for longer run
-      (!inExtendedMountainTest && Math.abs(pos.x) > 120) || // Keep boundary check during browser tests
+      (!inExtendedMountainTest && Math.abs(pos.x) > 120) || // Keep boundary check during browser/unified tests
       (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||
       collision) {
     

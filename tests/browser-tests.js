@@ -293,7 +293,9 @@
       let gameOverCalled = false;
       let gameOverReason = '';
       
-      window.showGameOver = function(reason) {
+      // Use the test override mechanism instead of replacing window.showGameOver
+      // This allows us to intercept calls from the snowglider.js showGameOver function
+      window._testShowGameOverOverride = function(reason) {
         gameOverCalled = true;
         gameOverReason = reason;
         // Don't actually modify the DOM in test
@@ -354,7 +356,7 @@
         'Failed to detect tree collision - Tree collision test hook failed');
       
       // Restore original functions and state
-      window.showGameOver = originalShowGameOver;
+      window._testShowGameOverOverride = null; // Remove test override
       window.treeCollisionRadius = undefined; // Reset the collision radius to default
       resetSnowman();
       gameActive = true;

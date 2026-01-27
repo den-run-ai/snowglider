@@ -10,6 +10,8 @@
     "test:regression": "node tests/regression-tests.js",
     "test:tree-collision": "node tests/tree-collision-tests.js",
     "test:controls": "echo 'Controls tests require browser - use index.html?test=controls'",
+    "test:browser": "node tests/puppeteer-runner.js",
+    "test:all": "npm test && npm run test:browser",
     "start": "http-server -p 8080 -c-1"
   },
   "dependencies": {
@@ -18,6 +20,7 @@
     "three": "^0.134.0"
   },
   "devDependencies": {
-    "http-server": "^14.1.1"
+    "http-server": "^14.1.1",
+    "puppeteer": "^23.11.1"
   }
 }
