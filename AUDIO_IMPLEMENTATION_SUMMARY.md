@@ -17,7 +17,13 @@
 3. Removed conflicting `initAudioContext()` from `index.html`
 4. Updated tests to match simplified API
 
-### Testing required:
+### Testing Status (January 27, 2026):
+
+**Automated Tests - All Pass ✓**
+- Node.js tests: 21 passed (terrain, physics, regression, tree-collision)
+- Browser audio tests: 19 passed, 0 failed
+
+**Manual Testing Required:**
 - [ ] Desktop Chrome, Firefox, Safari
 - [ ] iOS Safari (silent switch on/off)
 - [ ] Android Chrome
@@ -236,51 +242,54 @@ The migration maintains full backwards compatibility:
 - [ ] Mobile iOS testing (requires physical device or simulator)
 - [ ] Mobile Android testing (requires physical device or simulator)
 
-## Test Suite
+## Test Suite (Simplified Audio - January 27, 2026)
 
 ### Automated Audio Tests
-Created comprehensive automated test suite in `tests/audio-tests.js` covering:
+Test suite in `tests/audio-tests.js` updated for simplified native HTML5 Audio:
 
-#### Test 1: Audio Loading and Playback
-- ✅ AudioModule initialization
-- ✅ Status check after init
-- ✅ Pre-loading audio buffers
-- ✅ Buffer loaded verification
-- ✅ Current track setting
+#### Test Results: 19 passed, 0 failed ✓
 
-#### Test 2: Audio Controls
-- ✅ Mute/unmute toggle functionality
-- ✅ Volume control (min/max/custom values)
-- ✅ Enable/disable sound
-- ✅ Track switching between drum_loop and skullbeatz
-- ✅ Track change verification
-
-#### Test 3: Audio Context State Management
-- ✅ Howler.js library availability
-- ✅ Audio context existence
-- ✅ Context state validation (suspended/running/interrupted)
-- ✅ Resume audio context functionality
-- ✅ Status context state reporting
-- ✅ Context ready flag
-- ✅ Play preloaded audio
-- ✅ Audio retry prompt UI
+| Test | Description | Status |
+|------|-------------|--------|
+| isEnabled Method | AudioModule.isEnabled() exists | ✅ |
+| Module Init | AudioModule.init() returns initialized: true | ✅ |
+| Status Check | getStatus() returns valid state | ✅ |
+| Muted State | muted is boolean | ✅ |
+| Current Track | Default track is drum_loop | ✅ |
+| Toggle Mute | Muted changes correctly | ✅ |
+| Toggle Restore | Muted restores to original | ✅ |
+| Volume Control | setVolume() calls succeed | ✅ |
+| Stub: preloadAudio | Compatibility method exists | ✅ |
+| Stub: playPreloadedAudio | Compatibility method exists | ✅ |
+| Stub: resumeAudioContext | Compatibility method exists | ✅ |
+| Stub: changeTrack | Compatibility method exists | ✅ |
+| Stub: addAudioListener | Compatibility method exists | ✅ |
+| Stub: showMessage | Compatibility method exists | ✅ |
+| Stub: showAudioRetryPrompt | Compatibility method exists | ✅ |
+| preloadAudio Promise | Returns Promise for compatibility | ✅ |
+| Audio Button Created | Mute button added to DOM | ✅ |
+| Button Icon | Button shows correct icon | ✅ |
+| Show Message | showMessage() executes without error | ✅ |
 
 ### Running Audio Tests
 ```bash
 # Run all tests including audio tests
-open index.html?test=unified
+open http://localhost:8080/index.html?test=unified
 
-# Run only audio tests
-open index.html?test=audio
+# Run only audio tests  
+open http://localhost:8080/index.html?test=audio
+
+# Run Node.js tests
+npm test
 ```
 
-### Test Results
-All audio tests pass successfully, verifying:
-- Proper Howler.js integration
-- Audio loading and playback mechanisms
-- Control functionality (mute, volume, track switching)
-- Audio context state management
-- Mobile audio unlock patterns
+### Test Results Summary
+All tests verify:
+- Native HTML5 Audio element initialization
+- Simple mute/unmute functionality
+- Volume control
+- Backward compatibility stubs for existing code
+- UI creation (mute button)
 
 ## Next Steps for Mobile Testing
 
@@ -302,48 +311,40 @@ To fully verify mobile functionality:
    - Samsung Internet
    - Opera Mobile
 
-## Migration Status: INCOMPLETE
+## Current Status: SIMPLIFIED IMPLEMENTATION COMPLETE
 
-The migration from Three.js Audio to Howler.js is **COMPLETE but NOT FUNCTIONAL** for production use.
+**Branch `audio-simplified` implements Option 1** from the original recommendations:
 
-**Issues that remain unresolved:**
-1. Audio lagging/delay (especially with HTML5 mode)
-2. Intermittent playback failures on both mobile and desktop
-3. Context state management issues
-4. User gesture timing inconsistencies
+✅ **Implemented:**
+- Removed all complexity - single audio track (drum_loop only)
+- Removed pre-loading - loads on first play
+- Removed visibility change handling - browser manages it
+- Reduced to **182 lines** (target was ~100, achieved ~180)
+- Native HTML5 Audio - no library dependencies
+- Only 2 state variables (`muted`, `initialized`)
+- All automated tests pass (19/19)
+
+**Remaining:** Manual testing on real devices (iOS Safari, Android Chrome)
 
 ---
 
-## Recommendations for Future Resolution
+## Historical Recommendations (For Reference)
 
-### Option 1: Simplify the Implementation
-- Remove all complexity - single audio track, no track switching
-- Remove pre-loading - load on first play attempt
-- Remove visibility change handling - let browser manage
-- Reduce to ~100 lines of code maximum
+### Option 1: Simplify the Implementation ✅ IMPLEMENTED
+- ~~Remove all complexity - single audio track, no track switching~~
+- ~~Remove pre-loading - load on first play attempt~~
+- ~~Remove visibility change handling - let browser manage~~
+- ~~Reduce to ~100 lines of code maximum~~
 
-### Option 2: Try Different Approach
+### Option 2: Alternative Approaches (Not Needed)
 - Consider **Tone.js** (better scheduling, built for music)
-- Consider **native HTML5 Audio** only (simpler, more reliable, slightly higher latency)
+- Consider **native HTML5 Audio** only ← **This was chosen**
 - Consider **silent/no audio** as the default with audio as opt-in
 
-### Option 3: Web Audio API Directly
+### Option 3: Web Audio API Directly (Not Needed)
 - Avoid library abstractions entirely
 - Implement minimal AudioContext handling
 - Accept that some browsers/devices won't work
-
-### Key Investigation Areas When Re-enabling
-1. **Measure actual latency** - is it truly Howler.js or browser-specific?
-2. **Test HTML5 vs Web Audio mode** - remove `html5: true` and test on iOS
-3. **Remove temporary AudioContext** - only use Howler.ctx
-4. **Simplify state management** - reduce to just 2 flags max
-5. **Test with actual user on real devices** - not just automated tests
-
-### Specific Code Changes to Investigate
-1. Line 178: `html5: true` - try removing this and testing iOS
-2. Lines 1146-1170 in `index.html`: `initAudioContext()` - may conflict with Howler
-3. Multiple `setTimeout` calls in audio path - could be causing delays
-4. Cache-busting (`withVersion()`) - may cause reloading issues
 
 ---
 

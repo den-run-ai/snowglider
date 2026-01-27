@@ -4,15 +4,20 @@
 
 (function() {
   if (window.location.search.includes('test=') && !window._unifiedTestRunnerActive) {
-    window.addEventListener('load', function() {
+    // Check if document already loaded (since script may be added dynamically)
+    if (document.readyState === 'complete') {
       setTimeout(runTests, 500);
-    });
+    } else {
+      window.addEventListener('load', function() {
+        setTimeout(runTests, 500);
+      });
+    }
   }
 
   window.runAudioTests = runTests;
 
   function runTests() {
-    console.log('=== STARTING AUDIO TESTS ===');
+    console.warn('=== STARTING AUDIO TESTS ===');
     
     const audioDisabled = AudioModule.isEnabled && !AudioModule.isEnabled();
     
@@ -51,12 +56,12 @@
       if (condition) testsPassed++;
       else testsFailed++;
       
-      console.log(`${condition ? 'PASS' : 'FAIL'}: ${name} - ${message || ''}`);
+      console.warn(`${condition ? 'PASS' : 'FAIL'}: ${name} - ${message || ''}`);
     }
     
     // TEST 1: Basic Module Tests
     function testBasicModule() {
-      console.log('TEST 1: Basic Module');
+      console.warn('TEST 1: Basic Module');
       
       // Test isEnabled
       assert(
@@ -103,7 +108,7 @@
     
     // TEST 2: Mute/Unmute
     function testMuteToggle() {
-      console.log('TEST 2: Mute Toggle');
+      console.warn('TEST 2: Mute Toggle');
       
       if (audioDisabled) {
         assert(true, 'Mute (Disabled)', 'Skipped - audio disabled');
@@ -133,7 +138,7 @@
     
     // TEST 3: Volume Control
     function testVolumeControl() {
-      console.log('TEST 3: Volume Control');
+      console.warn('TEST 3: Volume Control');
       
       if (audioDisabled) {
         assert(true, 'Volume (Disabled)', 'Skipped - audio disabled');
@@ -153,7 +158,7 @@
     
     // TEST 4: Compatibility Stubs
     function testCompatibilityStubs() {
-      console.log('TEST 4: Compatibility Stubs');
+      console.warn('TEST 4: Compatibility Stubs');
       
       // These methods exist for backward compatibility
       const stubs = [
@@ -185,7 +190,7 @@
     
     // TEST 5: UI Creation
     function testUICreation() {
-      console.log('TEST 5: UI Creation');
+      console.warn('TEST 5: UI Creation');
       
       if (audioDisabled) {
         assert(true, 'UI (Disabled)', 'Skipped - audio disabled');
@@ -212,7 +217,7 @@
     
     // TEST 6: Message Display
     function testMessageDisplay() {
-      console.log('TEST 6: Message Display');
+      console.warn('TEST 6: Message Display');
       
       try {
         AudioModule.showMessage('Test message', 100);
@@ -247,7 +252,7 @@
         summary.textContent = `Audio tests: ${testsPassed} passed, ${testsFailed} failed`;
         resultsDiv.appendChild(summary);
         
-        console.log(`=== AUDIO TESTS COMPLETE: ${testsPassed} passed, ${testsFailed} failed ===`);
+        console.warn(`=== AUDIO TESTS COMPLETE: ${testsPassed} passed, ${testsFailed} failed ===`);
         
         if (window._testCompleteCallback) {
           window._testCompleteCallback('audio');
