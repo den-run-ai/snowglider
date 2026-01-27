@@ -1284,8 +1284,12 @@
                                     controlsScript.src = 'controls.js';
                                     
                                     controlsScript.onload = function() {
-                                        const mainScript = document.createElement('script');
-                                        mainScript.src = 'snowglider.js';
+                                        const avalancheScript = document.createElement('script');
+                                        avalancheScript.src = 'avalanche.js';
+                                        
+                                        avalancheScript.onload = function() {
+                                          const mainScript = document.createElement('script');
+                                          mainScript.src = 'snowglider.js';
                                         
                                         mainScript.onload = function() {
                                             // Load tests if needed
@@ -1353,6 +1357,8 @@
                                             }, 500);
                                         };
                                         document.body.appendChild(mainScript);
+                                        };
+                                        document.body.appendChild(avalancheScript);
                                     };
                                     document.body.appendChild(controlsScript);
                                 };
