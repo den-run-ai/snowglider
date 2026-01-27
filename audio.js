@@ -329,6 +329,12 @@ const AudioModule = (function() {
   
   // NEW: visible retry UI
   function showAudioRetryPrompt() {
+    // IMPORTANT: Early exit if audio is disabled - prevents phantom button in production
+    if (!AUDIO_ENABLED) {
+      console.log("[AUDIO] showAudioRetryPrompt() - Audio disabled, not creating retry UI");
+      return;
+    }
+    
     if (document.getElementById('audioRetryPrompt')) return;
 
     const prompt = document.createElement('button');
@@ -454,6 +460,12 @@ const AudioModule = (function() {
   }
   
   function createAudioUI() {
+    // IMPORTANT: Early exit if audio is disabled - prevents phantom button in production
+    if (!AUDIO_ENABLED) {
+      console.log("[AUDIO] createAudioUI() - Audio disabled, not creating UI elements");
+      return;
+    }
+    
     // Check if elements already exist (to avoid duplication)
     const existingButton = document.getElementById('audioControlBtn');
     if (existingButton) return;
