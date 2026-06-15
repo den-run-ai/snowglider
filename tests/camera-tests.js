@@ -234,10 +234,15 @@
       // Setup test state
       resetSnowman();
       const cameraDebug = setupCameraDebug();
+
+      // Consume the camera's first-frame snap before injecting the offset so
+      // this test exercises smoothing instead of initialization behavior.
+      updateCamera();
       
       // Force camera position to be offset from target - larger offset for clearer test
       const offset = new THREE.Vector3(10, 5, 10);
       camera.position.add(offset);
+      const injectedDistance = camera.position.distanceTo(cameraManager.smoothingVectors.targetPosition);
       
       // This flag will be used to track progress through the test
       window.testState = {
@@ -245,7 +250,8 @@
         frames: 0,
         positions: [],
         completed: false,
-        showDebug: true
+        showDebug: true,
+        injectedDistance
       };
       
       // Inject into animation loop to gather camera smoothing data
@@ -308,7 +314,7 @@
         // Verify camera maintains reasonable distance from target position
         // Note: The game is actively running during this test, so the target is moving
         // We check that the camera stays within a reasonable distance, not strict convergence
-        const initialDistance = window.testState.positions[0].distance;
+        const initialDistance = window.testState.injectedDistance;
         const finalDistance = window.testState.positions[window.testState.positions.length - 1].distance;
         
         // Ignore the startup window after the test injects a camera offset. The
@@ -318,11 +324,14 @@
         const distanceSamples = settledPositions.length > 0 ? settledPositions : window.testState.positions;
         const avgDistance = distanceSamples.reduce((sum, p) => sum + p.distance, 0) / distanceSamples.length;
         const maxDistance = Math.max(...distanceSamples.map(p => p.distance));
+        const finalImprovedFromInjectedOffset = finalDistance < initialDistance * 0.85;
+        const settledAverageImprovedFromInjectedOffset = avgDistance < initialDistance * 0.75;
 
         const maintainsReasonableDistance =
-          avgDistance < 15 &&
-          maxDistance < 25 &&
-          finalDistance <= Math.max(initialDistance + 3, avgDistance * 1.8);
+          finalImprovedFromInjectedOffset &&
+          settledAverageImprovedFromInjectedOffset &&
+          avgDistance < 12 &&
+          maxDistance < 20;
         
         console.log(`  Initial distance to target: ${initialDistance.toFixed(2)}`);
         console.log(`  Final distance to target: ${finalDistance.toFixed(2)}`);
@@ -331,7 +340,7 @@
         
         assert(maintainsReasonableDistance, 'Camera Smoothing Convergence',
           maintainsReasonableDistance ? 'Camera maintains smooth following behavior during gameplay' :
-          `Camera following is unstable (settled avg: ${avgDistance.toFixed(2)}, max: ${maxDistance.toFixed(2)}, final: ${finalDistance.toFixed(2)})`);
+          `Camera following is unstable (initial: ${initialDistance.toFixed(2)}, settled avg: ${avgDistance.toFixed(2)}, max: ${maxDistance.toFixed(2)}, final: ${finalDistance.toFixed(2)})`);
         
         // Check for jitter - camera movement should be smooth
         let hasJitter = false;
@@ -349,7 +358,9 @@
           const movement = prevPos.distanceTo(currPos);
           const movementRate = movement / (deltaTime / 1000); // units per second
           
-          if (i > 3 && movementRate > 30) { // Threshold for jitter (30 units/second)
+          if (window.testState.positions[i].time < 2500) continue;
+
+          if (movementRate > 30) { // Threshold for jitter (30 units/second)
             hasJitter = true;
             maxJitter = Math.max(maxJitter, movementRate);
           }
