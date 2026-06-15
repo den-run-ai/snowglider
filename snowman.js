@@ -364,11 +364,20 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
 
     // Snowplow braking: decelerate along the actual direction of travel so it
     // bleeds genuine speed (not just downhill velocity), with a little extra dig.
+    // Clamp the impulse to the current speed so braking can bring the snowman to a
+    // stop but never reverse the velocity vector — otherwise at low speed the
+    // subtraction overshoots zero and the control bias below drives it back uphill,
+    // letting players climb/stall the timed course by braking.
     if (snowplow && currentSpeed > 0.001) {
       const brakeDecel = 14.0;
-      velocity.x -= (velocity.x / currentSpeed) * brakeDecel * delta;
-      velocity.z -= (velocity.z / currentSpeed) * brakeDecel * delta;
-      velocity.z += accelerationForce * delta * 0.3; // slight uphill bias for control
+      const brakeImpulse = Math.min(brakeDecel * delta, currentSpeed);
+      velocity.x -= (velocity.x / currentSpeed) * brakeImpulse;
+      velocity.z -= (velocity.z / currentSpeed) * brakeImpulse;
+      // Only nudge the slight uphill control bias while still moving; never after the
+      // brake has stopped the snowman (that would push it uphill from a standstill).
+      if (brakeImpulse < currentSpeed) {
+        velocity.z += accelerationForce * delta * 0.3;
+      }
     }
 
     // Edge skid / carve quality: only meaningful while steering. A clean carve

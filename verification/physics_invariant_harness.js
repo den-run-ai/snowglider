@@ -113,11 +113,15 @@ if (!invariantOk) hardFail = true;
 const coast = simulate(mod, NONE, 777);
 const plow = simulate(mod, DOWN, 777);
 const brakeOk = plow.finalSpeed < coast.finalSpeed;
+// Braking must bring the snowman to a stop but never reverse it uphill past the start
+// (distance = -15 - pos.z; negative => climbed uphill). Guards the clamp on brakeImpulse.
+const noReverse = plow.distance >= -0.01;
 console.log('\n--- Snowplow brake (current): Down vs coast [GATING] ---');
 console.log('  coast finalSpeed:', coast.finalSpeed.toFixed(2), 'distance:', coast.distance.toFixed(1));
 console.log('  plow  finalSpeed:', plow.finalSpeed.toFixed(2), 'distance:', plow.distance.toFixed(1), '| technique:', plow.technique);
 console.log('  PASS:', brakeOk ? 'brake slows you ✅' : 'no slowdown ❌');
-if (!brakeOk) hardFail = true;
+console.log('  PASS:', noReverse ? 'brake does not reverse uphill ✅' : `reverses uphill (distance ${plow.distance.toFixed(2)}) ❌`);
+if (!brakeOk || !noReverse) hardFail = true;
 
 // 3) Hard turning at speed should scrub speed vs coasting straight [DIAGNOSTIC ONLY]
 const turn = simulate(mod, RIGHT, 777);
