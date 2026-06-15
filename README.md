@@ -29,6 +29,9 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - Timer with best time tracking
 - Comprehensive test suite for verifying game mechanics
 
+## Roadmap
+[`ROADMAP.md`](ROADMAP.md) tracks the feature roadmap and gap analysis — a phased P0–P3 plan mapped to the open [GitHub issues](https://github.com/den-run-ai/snowglider/issues). The **P0 "skill & structure" layer** (checkpoint gates + finish line, split timing, a result screen, ghost racing, an avalanche warning UI, and a first ski-technique pass) shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56); see [`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md) for that work.
+
 ## Project Structure
 - `index.html` - Main entry point and HTML structure
 - `snowglider.js` - Core game loop and initialization
@@ -36,12 +39,16 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `mountains.js` - Terrain generation and mountain features
 - `trees.js` - Tree creation and placement
 - `avalanche.js` - Avalanche system with snow boulder physics and burial detection
+- `course.js` - Course structure: checkpoint gates, split timing, ghost racing, and result screen
+- `effects.js` - Avalanche warning UI (banner, danger meter, vignette) and camera juice (speed FOV, shake)
 - `camera.js` - Camera management and tracking
 - `snow.js` - Utility functions and snow effects
+- `controls.js` - Keyboard and touch controls
 - `audio.js` - Background music and sound control system
 - `auth.js` - Firebase authentication and user management
 - `scores.js` - User scoring and leaderboard functionality
 - `tests/` - Testing framework for game components
+- `verification/` - Headless physics-invariant and DOM smoke harnesses (run via `npm run test:verify`)
 
 ## Controls
 
