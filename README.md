@@ -29,6 +29,9 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - Timer with best time tracking
 - Comprehensive test suite for verifying game mechanics
 
+## Roadmap
+[`ROADMAP.md`](ROADMAP.md) tracks the feature roadmap and gap analysis — a phased P0–P3 plan mapped to the open [GitHub issues](https://github.com/den-run-ai/snowglider/issues). The **P0 "skill & structure" layer** (checkpoint gates + finish line, split timing, a result screen, ghost racing, an avalanche warning UI, and a first ski-technique pass) shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56); see [`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md) for that work.
+
 ## Project Structure
 - `index.html` - Main entry point and HTML structure
 - `snowglider.js` - Core game loop and initialization
