@@ -177,6 +177,29 @@ Snow.createSnowflakes(scene);
 // like the snowflakes for better visibility
 const snowSplash = Snow.createSnowSplash();
 
+// --- Initialize course (gates, splits, ghost racing) and effects (avalanche UI, juice) ---
+let lastTechnique = 'glide';
+if (typeof window.CourseModule !== 'undefined') {
+  try {
+    CourseModule.init({
+      scene: scene,
+      getTerrainHeight: Snow.getTerrainHeight,
+      createSnowman: Snowman.createSnowman
+    });
+    console.log("Course module initialized (gates, splits, ghost)");
+  } catch (e) {
+    console.warn("Course module init failed:", e.message);
+  }
+}
+if (typeof window.EffectsModule !== 'undefined') {
+  try {
+    EffectsModule.init();
+    console.log("Effects module initialized (avalanche warning, camera juice)");
+  } catch (e) {
+    console.warn("Effects module init failed:", e.message);
+  }
+}
+
 // --- Snowman Position & Reset ---
 let pos = { x: 0, z: -40, y: Snow.getTerrainHeight(0, -40) };
 let velocity = { x: 0, z: 0 }; 
@@ -316,6 +339,11 @@ function resetSnowman() {
   startTime = performance.now(); // Reset the timer when starting a new run
   updateTimerDisplay();
   
+  // Reset course (gates/splits/ghost) and effects (avalanche UI, FOV, shake) for the new run
+  lastTechnique = 'glide';
+  if (window.CourseModule) CourseModule.reset();
+  if (window.EffectsModule) EffectsModule.reset();
+  
   // Track game reset in Analytics if available
   try {
     // Only try to use analytics when properly initialized with modular SDK
@@ -416,9 +444,24 @@ function updateSnowman(delta) {
       groundElement.innerHTML = '🚀 JUMP!';
       groundElement.style.color = '#00FFFF';
     } else {
-      groundElement.innerHTML = '⛷️ Ground';
-      groundElement.style.color = '#AAFFAA';
+      // Reflect the active ski technique so skill is legible in the HUD.
+      const techMap = {
+        carve:    { txt: '🎿 Carving',  color: '#55efc4' },
+        skid:     { txt: '💨 Skidding', color: '#ffeaa7' },
+        snowplow: { txt: '🍕 Snowplow', color: '#74b9ff' },
+        tuck:     { txt: '🏎️ Tuck',     color: '#ff7675' },
+        glide:    { txt: '⛷️ Ground',   color: '#AAFFAA' }
+      };
+      const t = techMap[result.technique] || techMap.glide;
+      groundElement.innerHTML = t.txt;
+      groundElement.style.color = t.color;
     }
+  }
+  lastTechnique = result.technique;
+
+  // Camera shake on a meaningful landing (scales with time spent aloft).
+  if (result.justLanded && result.landingForce > 0.25 && window.EffectsModule) {
+    EffectsModule.addShake(Math.min(1.2, result.landingForce * 0.6));
   }
   
   // Update timer in the updateTimerDisplay function which is called separately
@@ -459,6 +502,12 @@ function animate(time) {
     updateSnowman(delta);
     Snow.updateSnowflakes(delta, pos, scene);
     
+    // --- Course progress: split timing, progress HUD, ghost racing ---
+    if (window.CourseModule) {
+      const elapsed = (performance.now() - startTime) / 1000;
+      CourseModule.update(pos, elapsed, snowman);
+    }
+    
     // --- Avalanche Logic ---
     if (avalanche) {
       // Trigger avalanche based on distance traveled (simple geometric trigger)
@@ -486,6 +535,13 @@ function animate(time) {
         avalancheTriggered = false;
         lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
       }
+      
+      // Telegraph the threat: banner, "distance behind you" meter, vignette, shake.
+      if (window.EffectsModule) {
+        const avActive = avalancheTriggered && avalanche.active;
+        const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
+        EffectsModule.updateAvalanche(avActive, avDist);
+      }
     }
     
     // Save player position before snow splash effect updates
@@ -503,7 +559,20 @@ function animate(time) {
     
     updateCamera();
     updateTimerDisplay(); // Update the timer display
+    
+    // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
+    // the positional offset so the camera manager's own smoothing stays clean.
+    let _shake = null;
+    if (window.EffectsModule) {
+      const spd = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+      _shake = EffectsModule.tickCamera(camera, delta, spd);
+    }
     renderer.render(scene, camera);
+    if (_shake) {
+      camera.position.x -= _shake.x;
+      camera.position.y -= _shake.y;
+      camera.position.z -= _shake.z;
+    }
   } else if (animationRunning) {
     animationRunning = false;
   }
@@ -546,12 +615,23 @@ function showGameOver(reason) {
   }
   gameActive = false;
   
+  // Capture the best time BEFORE the finish branch updates it, so the result
+  // screen can report the delta and whether this run set a new record.
+  const previousBest = bestTime;
+
+  // Measure the finish elapsed ONCE and reuse it for both the best-time/score path
+  // and CourseModule.onFinish(). Otherwise a second performance.now() taken after the
+  // DOM/localStorage/score work could read later: a sub-millisecond personal best
+  // would be saved as a new record while the course screen sees elapsed >= previousBest,
+  // skips persisting the new ghost/splits, and shows a time that disagrees with the score.
+  const finishTime = (performance.now() - startTime) / 1000;
+
   // Remove game-active class from body for styling
   document.body.classList.remove('game-active');
   
   gameOverDetail.textContent = reason;
   removeLoginPrompt();
-  
+
   // TODO: AUDIO DISABLED - Pause audio on game over (will be no-op if disabled)
   if (window.AudioModule) {
     AudioModule.enableSound(false);
@@ -573,22 +653,24 @@ function showGameOver(reason) {
   
   // Only update times if player reached the end successfully
   if (reason === "You reached the end of the slope!") {
-    const currentTime = (performance.now() - startTime) / 1000;
+    const currentTime = finishTime;
     const isNewBestTime = currentTime < bestTime;
     const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
 
+    // Record the score whenever the leaderboard API is available (it handles its own
+    // auth + persistence); otherwise fall back to persisting a new local best.
     if (canRecordScore) {
       window.AuthModule.recordScore(currentTime);
     } else if (isNewBestTime) {
       localStorage.setItem('snowgliderBestTime', currentTime);
     }
-    
+
     // Show appropriate message based on time
     if (isNewBestTime) {
       bestTime = currentTime;
       bestTimeDisplay.textContent = `New Best Time: ${bestTime.toFixed(2)}s`;
       bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
-      
+
       // Update the best time in the game stats window too
       const bestTimeElement = document.getElementById('bestTimeValue');
       if (bestTimeElement) {
@@ -661,12 +743,35 @@ function showGameOver(reason) {
     window.AuthModule.displayLeaderboard();
   }
   
+  // Build the result screen (splits + medal) on a finish; otherwise just clear
+  // the live HUD/effects. The panel is inserted above the restart button.
+  if (window.CourseModule) {
+    const staleResult = document.getElementById('courseResult');
+    if (staleResult && staleResult.parentNode) staleResult.parentNode.removeChild(staleResult);
+    
+    if (reason === "You reached the end of the slope!") {
+      try {
+        const panel = CourseModule.onFinish(finishTime, previousBest);
+        if (panel) gameOverOverlay.insertBefore(panel, restartButton);
+      } catch (e) {
+        console.warn("Result screen failed:", e.message);
+      }
+    } else {
+      CourseModule.hideHud();
+    }
+  }
+  if (window.EffectsModule) EffectsModule.reset();
+  
   gameOverOverlay.style.display = 'flex';
 }
 
 function restartGame() {
   gameOverOverlay.style.display = 'none';
   gameActive = true;
+  
+  // Clear the finish result panel from the previous run, if present.
+  const oldResult = document.getElementById('courseResult');
+  if (oldResult && oldResult.parentNode) oldResult.parentNode.removeChild(oldResult);
   
   // Add game-active class to body for styling
   document.body.classList.add('game-active');

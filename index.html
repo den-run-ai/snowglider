@@ -1288,6 +1288,14 @@
                                         avalancheScript.src = 'avalanche.js';
                                         
                                         avalancheScript.onload = function() {
+                                          // Load effects (avalanche UI, camera juice) then course
+                                          // (gates, splits, ghost racing) before the main game script.
+                                          const effectsScript = document.createElement('script');
+                                          effectsScript.src = 'effects.js';
+                                          effectsScript.onload = function() {
+                                          const courseScript = document.createElement('script');
+                                          courseScript.src = 'course.js';
+                                          courseScript.onload = function() {
                                           const mainScript = document.createElement('script');
                                           mainScript.src = 'snowglider.js';
                                         
@@ -1361,6 +1369,10 @@
                                             }, 500);
                                         };
                                         document.body.appendChild(mainScript);
+                                        };
+                                        document.body.appendChild(courseScript);
+                                        };
+                                        document.body.appendChild(effectsScript);
                                         };
                                         document.body.appendChild(avalancheScript);
                                     };
