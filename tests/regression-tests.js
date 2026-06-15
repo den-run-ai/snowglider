@@ -352,6 +352,47 @@ runTest('Leaderboard Backfills Stored Best On Every Authenticated Finish', () =>
     "A new best should update local best storage");
 });
 
+runTest('Leaderboard Write Cannot Be Clobbered By A Slower Concurrent Backfill', () => {
+  // Mirror of scores.js updateUserBestTime transaction logic: given the authoritative
+  // (in-transaction) stored values, decide what gets written. A transaction re-reads
+  // these values at commit time, so a slower backfill that started against an old best
+  // must not overwrite a faster value committed in the meantime.
+  function resolveWrite(time, storedBest, leaderboardBest) {
+    if (typeof storedBest === 'number' && time > storedBest) {
+      return { writeUser: false, writeLeaderboard: false };
+    }
+    const writeLeaderboard = typeof leaderboardBest !== 'number' || time <= leaderboardBest;
+    return { writeUser: true, writeLeaderboard };
+  }
+
+  // Backfill of a stuck best: user doc has 19.43 but the leaderboard entry is missing.
+  let r = resolveWrite(19.43, 19.43, null);
+  assertEquals(r.writeUser, true, "Equal stored best should still (re)write the user doc");
+  assertEquals(r.writeLeaderboard, true, "Missing leaderboard entry should be backfilled");
+
+  // First finish (no data yet) writes both.
+  r = resolveWrite(20.0, null, null);
+  assertEquals(r.writeUser, true, "First time should write the user doc");
+  assertEquals(r.writeLeaderboard, true, "First time should write the leaderboard");
+
+  // The race: a slower backfill (20s) commits AFTER a faster run (18s) already landed.
+  // The transaction now sees the fresher values and must not regress them.
+  r = resolveWrite(20.0, 18.0, 18.0);
+  assertEquals(r.writeUser, false, "A slower time must not overwrite a faster stored best");
+  assertEquals(r.writeLeaderboard, false, "A slower time must not overwrite a faster leaderboard entry");
+
+  // A genuinely faster time still wins.
+  r = resolveWrite(17.0, 18.0, 18.0);
+  assertEquals(r.writeUser, true, "A faster time should update the user doc");
+  assertEquals(r.writeLeaderboard, true, "A faster time should update the leaderboard");
+
+  // Edge: best time matches user doc but leaderboard already holds a faster entry
+  // (e.g. another device synced faster). Don't downgrade the leaderboard.
+  r = resolveWrite(19.0, 19.0, 17.0);
+  assertEquals(r.writeUser, true, "Equal-to-stored best may refresh the user doc");
+  assertEquals(r.writeLeaderboard, false, "Should not replace a faster leaderboard entry");
+});
+
 // Test 4: Snow Splash Effect Interference
 // Verifies that snow splash effects don't interfere with snowman position
 runTest('Snow Splash Effect Interference', () => {

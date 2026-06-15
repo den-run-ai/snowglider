@@ -27,6 +27,7 @@ import {
   query,
   limit,
   getDocs,
+  runTransaction,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
@@ -107,51 +108,57 @@ function updateUserBestTime(userId, time) {
 
   try {
     const userDocRef = doc(firestore, 'users', userId);
-    getDoc(userDocRef)
-      .then(docSnap => {
-        let shouldUpdate = false;
-        if (docSnap.exists()) {
-          const userData = docSnap.data();
-          // Update only if new time is better or no time exists yet
-          if (typeof userData.bestTime !== 'number' || time <= userData.bestTime) {
-            shouldUpdate = true;
-          }
-        } else {
-          // If user document doesn't exist (should be rare after syncUserData),
-          // assume this is the first time, so update.
-          console.warn("User document not found for best time update, will create/set time.");
-          shouldUpdate = true; // Treat as a new best time
-        }
+    const leaderboardDocRef = doc(firestore, 'leaderboard', userId);
 
-        if (shouldUpdate) {
-          console.log(`Updating best time for user ${userId} to ${time}`);
-          setDoc(userDocRef, {
-            bestTime: time,
-            updatedAt: serverTimestamp() // Track when the best time was updated
-          }, { merge: true })
-          .then(() => {
-            console.log("Best time updated successfully in user document.");
-            updateLeaderboard(userId, time); // Update leaderboard only after successful user doc update
-          })
-          .catch(error => {
-            console.error("Error updating best time in user document:", error);
-            // Handle potential Firestore unavailability
-            if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-              console.warn("Firestore became unavailable during best time update.");
-              firestore = null;
-              displayLeaderboard();
-            }
-          });
+    // Compare-and-write the user best time and leaderboard entry atomically.
+    // recordScore now syncs the stored best on every authenticated finish, so a
+    // slower backfill could otherwise read an old value and then overwrite a faster
+    // time written by a concurrent run or tab (a non-transactional read+write race).
+    // A transaction re-reads inside the commit, so a stale (slower) value can never
+    // clobber a better one, and the leaderboard stays consistent with the user doc.
+    runTransaction(firestore, async (transaction) => {
+      const userSnap = await transaction.get(userDocRef);
+      const leaderboardSnap = await transaction.get(leaderboardDocRef);
+
+      const storedBest = userSnap.exists() ? userSnap.data().bestTime : null;
+      // Skip entirely when the authoritative stored best is already faster.
+      if (typeof storedBest === 'number' && time > storedBest) {
+        return false;
+      }
+
+      transaction.set(userDocRef, {
+        bestTime: time,
+        updatedAt: serverTimestamp() // Track when the best time was updated
+      }, { merge: true });
+
+      // Mirror to the leaderboard, but never replace a faster existing entry.
+      const leaderboardBest = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
+      if (typeof leaderboardBest !== 'number' || time <= leaderboardBest) {
+        transaction.set(leaderboardDocRef, {
+          user: userDocRef, // Store a reference to the user document
+          time: time,
+          achievedAt: serverTimestamp() // Record when this score was achieved/updated
+        });
+      }
+      return true;
+    })
+      .then(updated => {
+        if (updated) {
+          console.log(`Best time + leaderboard updated for user ${userId} to ${time}`);
         } else {
           console.log(`New time (${time}) is not better than existing best time. No update needed.`);
         }
       })
       .catch(error => {
-        console.error("Error reading user data for best time comparison:", error);
-        if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-          console.warn("Firestore became unavailable reading user data.");
+        console.error("Error updating best time/leaderboard:", error);
+        // Only disable Firestore for connectivity issues, not permissions.
+        if (error.code === 'unavailable' || error.code === 'failed-precondition') {
+          console.warn("Firestore became unavailable during best time update. Clearing local instance.");
           firestore = null;
           displayLeaderboard();
+        } else if (error.code === 'permission-denied') {
+          console.warn("Permission issues updating best time/leaderboard. Continuing with limited functionality.");
+          // Don't disable Firestore entirely for permission issues.
         }
       });
   } catch (error) {
@@ -162,7 +169,12 @@ function updateUserBestTime(userId, time) {
 }
 
 /**
- * Update global leaderboard
+ * Update global leaderboard (standalone, non-transactional helper).
+ *
+ * Retained for backward compatibility on the exported ScoresModule API. The
+ * primary finish path no longer calls this — updateUserBestTime writes the
+ * leaderboard atomically alongside the user best time to avoid stale overwrites.
+ * Prefer updateUserBestTime for any new call site.
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
