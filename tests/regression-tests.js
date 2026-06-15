@@ -293,7 +293,7 @@ runTest('Best Time Recording Logic', () => {
     "Best time should not be updated on tree collision");
 });
 
-runTest('Leaderboard Sync When Local Best Was Prewritten', () => {
+runTest('Leaderboard Backfills Stored Best On Every Authenticated Finish', () => {
   const mockLocalStorage = {
     storage: {},
     getItem: function(key) {
@@ -306,39 +306,50 @@ runTest('Leaderboard Sync When Local Best Was Prewritten', () => {
 
   const signedInUser = { uid: 'test-user' };
   const firestoreAvailable = true;
-  let firestoreUpdateCalls = 0;
+  const syncedTimes = [];
 
+  // Mirror of scores.js recordScore sync logic: on an authenticated finish we always
+  // push the effective best (the better of this run and the stored local best) so a
+  // best that never reached Firestore gets backfilled even on a slower follow-up run.
   function recordScore(time) {
     const localBestTimeStr = mockLocalStorage.getItem('snowgliderBestTime');
     const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
     const hasValidLocalBest = typeof localBestTime === 'number' && !isNaN(localBestTime);
     const isNewLocalBest = !hasValidLocalBest || time < localBestTime;
-    const shouldSyncBestTime = !hasValidLocalBest || time <= localBestTime;
+    const effectiveBestTime = isNewLocalBest ? time : localBestTime;
 
     if (isNewLocalBest) {
       mockLocalStorage.setItem('snowgliderBestTime', time.toString());
     }
 
-    if (signedInUser && firestoreAvailable && shouldSyncBestTime) {
-      firestoreUpdateCalls++;
+    if (signedInUser && firestoreAvailable) {
+      syncedTimes.push(effectiveBestTime);
     }
   }
 
-  // Reproduces the bug: snowglider.js had already written the new best before recordScore ran.
+  // A best was stored locally but never reached the leaderboard (e.g. set before sign-in).
   mockLocalStorage.setItem('snowgliderBestTime', '19.43');
-  recordScore(19.43);
-  assertEquals(firestoreUpdateCalls, 1,
-    "Equal local best should still be eligible for Firestore leaderboard sync");
 
+  recordScore(19.43);
+  assertEquals(syncedTimes.length, 1,
+    "Matching the stored best should sync to the leaderboard");
+  assertEquals(syncedTimes[0], 19.43,
+    "The stored best should be the time synced");
+
+  // The reported bug: a slower run after a stuck best must still backfill the stored best.
   recordScore(22.0);
-  assertEquals(firestoreUpdateCalls, 1,
-    "Worse times should not be synced as best times");
+  assertEquals(syncedTimes.length, 2,
+    "A slower finish should still trigger a backfill sync");
+  assertEquals(syncedTimes[1], 19.43,
+    "Backfill should sync the stored best, not the slower run time");
 
   recordScore(18.0);
-  assertEquals(firestoreUpdateCalls, 2,
-    "Better times should be synced as best times");
+  assertEquals(syncedTimes.length, 3,
+    "A new best should sync to the leaderboard");
+  assertEquals(syncedTimes[2], 18.0,
+    "A new best should sync the new (faster) time");
   assertEquals(mockLocalStorage.getItem('snowgliderBestTime'), '18',
-    "Better times should update local best storage");
+    "A new best should update local best storage");
 });
 
 // Test 4: Snow Splash Effect Interference

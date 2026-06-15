@@ -471,7 +471,6 @@ function recordScore(time) {
     const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
     const hasValidLocalBest = typeof localBestTime === 'number' && !isNaN(localBestTime);
     const isNewLocalBest = !hasValidLocalBest || time < localBestTime;
-    const shouldSyncBestTime = !hasValidLocalBest || time <= localBestTime;
 
     if (isNewLocalBest) {
       localStorage.setItem('snowgliderBestTime', time.toString());
@@ -480,6 +479,13 @@ function recordScore(time) {
       console.log("Score recorded, but not a new local best time:", time);
     }
 
+    // The best time we want reflected on the leaderboard is the better of this run
+    // and any previously stored local best. Syncing this value (rather than only the
+    // current run) lets us backfill a best time that was recorded but never made it
+    // to Firestore — e.g. a best set before sign-in or under an earlier bug. Without
+    // this, a stored best could only reach the leaderboard by being beaten again.
+    const effectiveBestTime = isNewLocalBest ? time : localBestTime;
+
     // Track completion in Analytics (if available)
     if (analytics) {
       logEvent(analytics, 'complete_run', { time: time });
@@ -487,22 +493,25 @@ function recordScore(time) {
 
     // Read the signed-in user at record time so auth UI and scoring stay in sync.
     const userAtTimeOfRecord = getActiveUser();
-    
+
     // If Firestore isn't available but should be, try to reinitialize it
-    if (userAtTimeOfRecord && !firestore && window.navigator.onLine && 
+    if (userAtTimeOfRecord && !firestore && window.navigator.onLine &&
         window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
       console.log("Firestore unavailable but user is online. Attempting to reinitialize...");
       window.AuthModule.reinitializeFirestore();
     }
-    
-    // Update Firestore only if user is signed in, Firestore is available, AND this run matches or beats the local best.
-    if (userAtTimeOfRecord && firestore && shouldSyncBestTime) {
-      console.log("Attempting to update Firestore with new best time:", time);
+
+    // Sync whenever the user is signed in and Firestore is available. updateUserBestTime
+    // compares against the authoritative Firestore value and only writes when the time
+    // is better than (or equal to) what is already stored, so syncing on every finish is
+    // safe and never downgrades a faster stored time.
+    if (userAtTimeOfRecord && firestore) {
+      console.log("Attempting to sync best time to Firestore:", effectiveBestTime);
       // Use the snapshot of user data captured at function start time
-      updateUserBestTime(userAtTimeOfRecord.uid, time); // This function handles leaderboard update too
+      updateUserBestTime(userAtTimeOfRecord.uid, effectiveBestTime); // This function handles leaderboard update too
 
       // Track new best time in Analytics (if available)
-      if (analytics) {
+      if (isNewLocalBest && analytics) {
         logEvent(analytics, 'new_high_score', { time: time });
       }
     } else {
@@ -517,7 +526,6 @@ function recordScore(time) {
           console.log("Device appears to be offline. Check internet connection.");
         }
       }
-      if (!shouldSyncBestTime) console.log("Skipping Firestore update: Not a new personal best.");
     }
 
   } catch (error) {
