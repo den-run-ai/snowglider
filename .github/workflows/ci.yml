@@ -41,7 +41,9 @@ jobs:
         run: npm run test:coverage
       
       - name: Install Puppeteer browser
-        run: npx puppeteer browsers install chrome
+        run: |
+          rm -rf ~/.cache/puppeteer/chrome
+          npx puppeteer browsers install chrome
       
       - name: Run browser tests
         run: npm run test:browser
