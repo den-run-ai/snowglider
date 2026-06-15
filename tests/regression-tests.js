@@ -293,6 +293,54 @@ runTest('Best Time Recording Logic', () => {
     "Best time should not be updated on tree collision");
 });
 
+runTest('Leaderboard Sync When Local Best Was Prewritten', () => {
+  const mockLocalStorage = {
+    storage: {},
+    getItem: function(key) {
+      return this.storage[key] !== undefined ? this.storage[key] : null;
+    },
+    setItem: function(key, value) {
+      this.storage[key] = String(value);
+    }
+  };
+
+  const signedInUser = { uid: 'test-user' };
+  const firestoreAvailable = true;
+  let firestoreUpdateCalls = 0;
+
+  function recordScore(time) {
+    const localBestTimeStr = mockLocalStorage.getItem('snowgliderBestTime');
+    const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
+    const hasValidLocalBest = typeof localBestTime === 'number' && !isNaN(localBestTime);
+    const isNewLocalBest = !hasValidLocalBest || time < localBestTime;
+    const shouldSyncBestTime = !hasValidLocalBest || time <= localBestTime;
+
+    if (isNewLocalBest) {
+      mockLocalStorage.setItem('snowgliderBestTime', time.toString());
+    }
+
+    if (signedInUser && firestoreAvailable && shouldSyncBestTime) {
+      firestoreUpdateCalls++;
+    }
+  }
+
+  // Reproduces the bug: snowglider.js had already written the new best before recordScore ran.
+  mockLocalStorage.setItem('snowgliderBestTime', '19.43');
+  recordScore(19.43);
+  assertEquals(firestoreUpdateCalls, 1,
+    "Equal local best should still be eligible for Firestore leaderboard sync");
+
+  recordScore(22.0);
+  assertEquals(firestoreUpdateCalls, 1,
+    "Worse times should not be synced as best times");
+
+  recordScore(18.0);
+  assertEquals(firestoreUpdateCalls, 2,
+    "Better times should be synced as best times");
+  assertEquals(mockLocalStorage.getItem('snowgliderBestTime'), '18',
+    "Better times should update local best storage");
+});
+
 // Test 4: Snow Splash Effect Interference
 // Verifies that snow splash effects don't interfere with snowman position
 runTest('Snow Splash Effect Interference', () => {
