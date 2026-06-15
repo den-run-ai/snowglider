@@ -22,6 +22,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - Smooth snowman skiing with realistic physics and terrain interaction
 - Procedurally generated backcountry mountain terrain with natural features
 - Tree obstacle detection with collision physics
+- **Avalanche system** - triggered when player travels far enough downhill, with tumbling snow boulders that can bury the player (game over)
 - Snow particle effects that respond to speed and turning
 - Tracking camera that follows the snowman's movements
 - Background music with selectable audio tracks
@@ -34,6 +35,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `snowman.js` - Snowman model creation and physics
 - `mountains.js` - Terrain generation and mountain features
 - `trees.js` - Tree creation and placement
+- `avalanche.js` - Avalanche system with snow boulder physics and burial detection
 - `camera.js` - Camera management and tracking
 - `snow.js` - Utility functions and snow effects
 - `audio.js` - Background music and sound control system
@@ -72,6 +74,7 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=camera` - Run camera tracking tests
 - `?test=audio` - Run audio playback tests
 - `?test=controls` - Run controls tests
+- `?test=avalanche` - Run avalanche system tests
 - `?test=regression` - Run regression tests
 - `?test=unified` - Run all tests
 
@@ -84,6 +87,7 @@ The audio test suite (`tests/audio-tests.js`) verifies the Howler.js audio integ
 Run audio tests with: `open index.html?test=audio` or as part of the unified suite with `?test=unified`
 
 ## Recent Improvements
+- **Added avalanche system** - Snow boulders triggered when traveling far downhill, with physics simulation and burial detection (game over on collision)
 - Enhanced UI with collapsible game controls panel matching the game stats panel behavior
 - Improved touch interactions with consistent left/right swipe gestures for collapsing panels
 - Fixed collapsible panels to ensure they work properly across all device types

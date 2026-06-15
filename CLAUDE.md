@@ -7,13 +7,14 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - `snow.js` - Utility functions and snow effects
 - `mountains.js` - Natural backcountry terrain generation code
 - `trees.js` - Tree creation and placement throughout the mountain
+- `avalanche.js` - Avalanche system with snow boulder physics and burial detection
 - `camera.js` - Camera management system
 - `snowman.js` - Snowman model and physics
 - `controls.js` - Keyboard and touch controls implementation
 - `audio.js` - Background music and audio controls
 - `auth.js` / `auth.html` - Firebase authentication implementation
 - `scores.js` - User scoring and leaderboard functionality
-- `tests/` - Test files for terrain, physics, camera, and collision detection
+- `tests/` - Test files for terrain, physics, camera, avalanche, and collision detection
 
 ## Commands
 - Run development server: `npm start` (uses http-server on port 8080)
@@ -25,11 +26,12 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
   - `npm run test:regression` - Regression tests
   - `npm run test:tree-collision` - Tree collision tests
 - Browser tests: 
-  - All tests: `index.html?test=unified`
-  - Camera tests: `index.html?test=camera`
-  - Gameplay tests: `index.html?test=true`
-  - Tree tests: `index.html?test=trees`
-  - Regression tests: `index.html?test=regression`
+ - All tests: `index.html?test=unified`
+ - Camera tests: `index.html?test=camera`
+ - Gameplay tests: `index.html?test=true`
+ - Tree tests: `index.html?test=trees`
+ - Avalanche tests: `index.html?test=avalanche`
+ - Regression tests: `index.html?test=regression`
 
 ## Code Style Guidelines
 - **Indentation**: 2 spaces
@@ -99,3 +101,14 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - ScoresModule handles Firebase service availability gracefully
 - Supports local development mode with localStorage fallback
 - Auth and Scores modules initialize in the correct dependency order
+
+## Avalanche System Implementation
+- AvalancheSystem class in `avalanche.js` manages snow boulder physics
+- Uses THREE.InstancedMesh for efficient rendering of 120 snow boulders
+- Triggered when player travels far enough downhill (distance threshold)
+- Boulders spawn behind player (uphill) and tumble downhill following terrain
+- Physics includes gravity, ground collision, bounce, friction, and slide acceleration
+- Burial detection: collision between player and boulder = game over
+- Methods: `trigger(playerPos)`, `update(dt)`, `checkBurial(playerPos)`, `hasPassed(playerPos)`, `reset()`
+- Requires terrain height function via `setTerrainFunction(fn)` for terrain-aware physics
+- Browser tests: `index.html?test=avalanche`

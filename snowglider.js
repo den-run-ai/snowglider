@@ -117,6 +117,21 @@ const terrainResult = Snow.createTerrain(scene);
 const terrain = terrainResult.terrain;
 // Store terrain reference in global for later object placement
 window.terrainMesh = terrain;
+
+// --- Initialize Avalanche System ---
+let avalanche = null;
+let avalancheTriggered = false;
+let lastAvalancheZ = 0;
+const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
+
+if (typeof window.Avalanche !== 'undefined' && window.Avalanche.AvalancheSystem) {
+  avalanche = new window.Avalanche.AvalancheSystem(scene, 120);
+  avalanche.setTerrainFunction(Snow.getTerrainHeight);
+  console.log("Avalanche system initialized");
+} else {
+  console.warn("Avalanche module not loaded - avalanche feature disabled");
+}
+
 // We can't call Snow.addTrees directly, so let's create a global array
 let treePositions = [];
 
@@ -288,6 +303,13 @@ function resetSnowman() {
   jumpCooldown = 0;
   airTime = 0;
   
+  // Reset avalanche system
+  if (avalanche) {
+    avalanche.reset();
+    avalancheTriggered = false;
+    lastAvalancheZ = pos.z; // Reset to starting position
+  }
+  
   // Reset keyboard controls
   Controls.resetControls();
   
@@ -436,6 +458,35 @@ function animate(time) {
     
     updateSnowman(delta);
     Snow.updateSnowflakes(delta, pos, scene);
+    
+    // --- Avalanche Logic ---
+    if (avalanche) {
+      // Trigger avalanche based on distance traveled (simple geometric trigger)
+      // Player starts at z=-15 and moves in -Z direction (downhill)
+      const distanceTraveled = lastAvalancheZ - pos.z;
+      
+      if (!avalancheTriggered && distanceTraveled > AVALANCHE_TRIGGER_DISTANCE) {
+        avalanche.trigger(snowman.position);
+        avalancheTriggered = true;
+        console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
+      }
+      
+      // Update avalanche physics
+      avalanche.update(delta);
+      
+      // Check for burial (collision with avalanche)
+      if (avalanche.checkBurial(snowman.position)) {
+        showGameOver("Buried by avalanche!");
+      }
+      
+      // Reset avalanche if it has passed the player (survived!)
+      if (avalancheTriggered && avalanche.hasPassed(snowman.position)) {
+        console.log("Avalanche passed - player survived!");
+        avalanche.reset();
+        avalancheTriggered = false;
+        lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
+      }
+    }
     
     // Save player position before snow splash effect updates
     const playerPosBefore = { 

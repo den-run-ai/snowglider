@@ -1284,8 +1284,12 @@
                                     controlsScript.src = 'controls.js';
                                     
                                     controlsScript.onload = function() {
-                                        const mainScript = document.createElement('script');
-                                        mainScript.src = 'snowglider.js';
+                                        const avalancheScript = document.createElement('script');
+                                        avalancheScript.src = 'avalanche.js';
+                                        
+                                        avalancheScript.onload = function() {
+                                          const mainScript = document.createElement('script');
+                                          mainScript.src = 'snowglider.js';
                                         
                                         mainScript.onload = function() {
                                             // Load tests if needed
@@ -1331,6 +1335,10 @@
                                                     if (testParam === 'audio' || testParam === 'all' || testParam === 'unified') {
                                                         loadSpecificTest('audio-tests');
                                                     }
+                                                    
+                                                    if (testParam === 'avalanche' || testParam === 'all' || testParam === 'unified') {
+                                                        loadSpecificTest('browser-avalanche-tests');
+                                                    }
                                                 }
                                             };
                                             loadTests();
@@ -1353,6 +1361,8 @@
                                             }, 500);
                                         };
                                         document.body.appendChild(mainScript);
+                                        };
+                                        document.body.appendChild(avalancheScript);
                                     };
                                     document.body.appendChild(controlsScript);
                                 };

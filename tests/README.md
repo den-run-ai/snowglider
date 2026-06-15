@@ -4,7 +4,7 @@ This directory contains tests for the SnowGlider game. The tests are designed to
 
 ## Test Types
 
-There are six main types of tests:
+There are seven main types of tests:
 
 1. **Terrain Tests** (`terrain-tests.js`)
    - Tests for terrain height calculations
@@ -42,6 +42,12 @@ There are six main types of tests:
    - Verifies consistency between visual tree rendering and collision detection
    - Tests tree collision in extended ski run area
    - Validates snow splash effect interaction with collision detection
+
+7. **Avalanche Tests** (`avalanche-tests.js` and `browser-avalanche-tests.js`)
+   - Node.js tests for core avalanche physics and logic
+   - Browser tests for avalanche UI integration
+   - Tests avalanche trigger mechanics, burial detection, visual rendering
+   - Verifies avalanche reset and game over behavior
 
 ## Running Tests
 
@@ -100,13 +106,23 @@ open index.html?test=audio
 
 2. The audio tests will run automatically and display results on the screen
 
+### Browser Avalanche Tests
+
+1. Open the game with the avalanche tests parameter:
+```
+open index.html?test=avalanche
+```
+   Or load the game in a browser with `?test=avalanche` appended to the URL
+
+2. The avalanche tests will run automatically and display results on the screen
+
 ### Unified Test Runner
 
 Run all tests in sequence:
 ```
 open index.html?test=unified
 ```
-   This will run all test suites (controls, camera, audio, gameplay, tree, regression) in sequence with a unified results display
+   This will run all test suites (controls, camera, audio, gameplay, tree, avalanche, regression) in sequence with a unified results display
 
 ## Test Implementation Details
 
