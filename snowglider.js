@@ -515,6 +515,27 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+function getSignedInUser() {
+  const authModule = window.AuthModule;
+  if (!authModule) {
+    return null;
+  }
+
+  try {
+    return authModule.getCurrentUser?.() || authModule.getAuthState?.()?.user || null;
+  } catch (error) {
+    console.warn("Unable to read auth state:", error);
+    return null;
+  }
+}
+
+function removeLoginPrompt() {
+  const loginPrompt = document.getElementById('loginPrompt');
+  if (loginPrompt) {
+    loginPrompt.remove();
+  }
+}
+
 // Add these functions for game over handling
 // Expose showGameOver on window for test mocking
 function showGameOver(reason) {
@@ -529,6 +550,7 @@ function showGameOver(reason) {
   document.body.classList.remove('game-active');
   
   gameOverDetail.textContent = reason;
+  removeLoginPrompt();
   
   // TODO: AUDIO DISABLED - Pause audio on game over (will be no-op if disabled)
   if (window.AudioModule) {
@@ -552,11 +574,18 @@ function showGameOver(reason) {
   // Only update times if player reached the end successfully
   if (reason === "You reached the end of the slope!") {
     const currentTime = (performance.now() - startTime) / 1000;
+    const isNewBestTime = currentTime < bestTime;
+    const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
+
+    if (canRecordScore) {
+      window.AuthModule.recordScore(currentTime);
+    } else if (isNewBestTime) {
+      localStorage.setItem('snowgliderBestTime', currentTime);
+    }
     
     // Show appropriate message based on time
-    if (currentTime < bestTime) {
+    if (isNewBestTime) {
       bestTime = currentTime;
-      localStorage.setItem('snowgliderBestTime', bestTime);
       bestTimeDisplay.textContent = `New Best Time: ${bestTime.toFixed(2)}s`;
       bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
       
@@ -566,23 +595,13 @@ function showGameOver(reason) {
         bestTimeElement.textContent = `${bestTime.toFixed(2)}s`;
         bestTimeElement.style.color = '#ffff00'; // Highlight new record
       }
-      
-      // Record to Firebase if user is logged in
-      if (window.AuthModule && window.AuthModule.getCurrentUser()) {
-        window.AuthModule.recordScore(currentTime);
-      }
     } else {
       bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${bestTime.toFixed(2)}s)`;
       bestTimeDisplay.style.color = 'white';
-      
-      // Still record to Firebase even if not a personal best
-      if (window.AuthModule && window.AuthModule.getCurrentUser()) {
-        window.AuthModule.recordScore(currentTime);
-      }
     }
     
     // Show login prompt if not logged in
-    if (window.AuthModule && !window.AuthModule.getCurrentUser()) {
+    if (!getSignedInUser()) {
       const loginPrompt = document.createElement('p');
       loginPrompt.textContent = 'Log in to save your score and see the leaderboard!';
       loginPrompt.style.color = '#4285F4';
@@ -628,7 +647,7 @@ function showGameOver(reason) {
   }
   
   // Get leaderboard if user is logged in
-  if (window.AuthModule && window.AuthModule.getCurrentUser()) {
+  if (getSignedInUser()) {
     // Get the leaderboard element
     const leaderboardElement = document.getElementById('leaderboard');
     

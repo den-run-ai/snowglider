@@ -22,7 +22,6 @@ import {
   doc,
   setDoc,
   getDoc,
-  updateDoc,
   collection,
   orderBy,
   query,
@@ -63,6 +62,29 @@ function setCurrentUser(user) {
   currentUser = user;
 }
 
+function getActiveUser() {
+  if (currentUser) {
+    return currentUser;
+  }
+
+  const authModule = window.AuthModule;
+  if (!authModule) {
+    return null;
+  }
+
+  try {
+    const authStateUser = authModule.getAuthState?.()?.user || authModule.getCurrentUser?.();
+    if (authStateUser) {
+      currentUser = authStateUser;
+      return authStateUser;
+    }
+  } catch (error) {
+    console.warn("Unable to refresh current user from AuthModule:", error);
+  }
+
+  return null;
+}
+
 /**
  * Update user's best time in Firestore
  * @param {string} userId - Firebase user ID
@@ -91,7 +113,7 @@ function updateUserBestTime(userId, time) {
         if (docSnap.exists()) {
           const userData = docSnap.data();
           // Update only if new time is better or no time exists yet
-          if (!userData.bestTime || time < userData.bestTime) {
+          if (typeof userData.bestTime !== 'number' || time <= userData.bestTime) {
             shouldUpdate = true;
           }
         } else {
@@ -103,11 +125,10 @@ function updateUserBestTime(userId, time) {
 
         if (shouldUpdate) {
           console.log(`Updating best time for user ${userId} to ${time}`);
-          // Using updateDoc is slightly safer if we only want to add/modify bestTime fields
-          updateDoc(userDocRef, {
+          setDoc(userDocRef, {
             bestTime: time,
             updatedAt: serverTimestamp() // Track when the best time was updated
-          })
+          }, { merge: true })
           .then(() => {
             console.log("Best time updated successfully in user document.");
             updateLeaderboard(userId, time); // Update leaderboard only after successful user doc update
@@ -356,15 +377,16 @@ function displayLeaderboard() {
         // This ensures the leaderboard is displayed even with permissions problems
 
         const { scores, users } = result;
+        const activeUser = getActiveUser();
         let html = '<h3>Top 10 Times</h3><table>';
         html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
 
         scores.forEach((score, index) => {
           const user = users[index];
           // Show current user differently (match by userId)
-          const isCurrentUser = currentUser && score.userId === currentUser.uid;
+          const isCurrentUser = activeUser && score.userId === activeUser.uid;
           const displayName = isCurrentUser ? 
-            (currentUser.displayName || 'You') : 
+            (activeUser.displayName || 'You') : 
             `${user.displayName} ${index + 1}`;
             
           html += `<tr class="${isCurrentUser ? 'current-user-score' : ''}">
@@ -447,9 +469,11 @@ function recordScore(time) {
   try {
     const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
     const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
-    const isNewPersonalBest = localBestTime === null || time < localBestTime;
+    const hasValidLocalBest = typeof localBestTime === 'number' && !isNaN(localBestTime);
+    const isNewLocalBest = !hasValidLocalBest || time < localBestTime;
+    const shouldSyncBestTime = !hasValidLocalBest || time <= localBestTime;
 
-    if (isNewPersonalBest) {
+    if (isNewLocalBest) {
       localStorage.setItem('snowgliderBestTime', time.toString());
       console.log("New local best time recorded:", time);
     } else {
@@ -461,8 +485,8 @@ function recordScore(time) {
       logEvent(analytics, 'complete_run', { time: time });
     }
 
-    // Create a local copy of the user reference to prevent race conditions
-    const userAtTimeOfRecord = currentUser ? {...currentUser} : null;
+    // Read the signed-in user at record time so auth UI and scoring stay in sync.
+    const userAtTimeOfRecord = getActiveUser();
     
     // If Firestore isn't available but should be, try to reinitialize it
     if (userAtTimeOfRecord && !firestore && window.navigator.onLine && 
@@ -471,8 +495,8 @@ function recordScore(time) {
       window.AuthModule.reinitializeFirestore();
     }
     
-    // Update Firestore only if user is signed in, Firestore is available, AND it's a new personal best
-    if (userAtTimeOfRecord && firestore && isNewPersonalBest) {
+    // Update Firestore only if user is signed in, Firestore is available, AND this run matches or beats the local best.
+    if (userAtTimeOfRecord && firestore && shouldSyncBestTime) {
       console.log("Attempting to update Firestore with new best time:", time);
       // Use the snapshot of user data captured at function start time
       updateUserBestTime(userAtTimeOfRecord.uid, time); // This function handles leaderboard update too
@@ -493,7 +517,7 @@ function recordScore(time) {
           console.log("Device appears to be offline. Check internet connection.");
         }
       }
-      if (!isNewPersonalBest) console.log("Skipping Firestore update: Not a new personal best.");
+      if (!shouldSyncBestTime) console.log("Skipping Firestore update: Not a new personal best.");
     }
 
   } catch (error) {
