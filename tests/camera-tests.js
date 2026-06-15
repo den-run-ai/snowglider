@@ -111,6 +111,7 @@
     
     let testsPassed = 0;
     let testsFailed = 0;
+    let cameraSuiteCompleted = false;
     
     function logResult(name, passed, message) {
       const result = document.createElement('div');
@@ -130,6 +131,22 @@
         logResult(name, true, message || 'Test passed');
       } else {
         logResult(name, false, message || 'Test failed');
+      }
+    }
+
+    function completeCameraSuite() {
+      if (cameraSuiteCompleted) return;
+      cameraSuiteCompleted = true;
+
+      if (window._unifiedTestCounts) {
+        console.log(`Camera tests reporting ${testsPassed} passed, ${testsFailed} failed to unified test runner`);
+        window._unifiedTestCounts.passed += testsPassed;
+        window._unifiedTestCounts.failed += testsFailed;
+      }
+
+      if (window._testCompleteCallback) {
+        console.log("Explicitly calling _testCompleteCallback('camera')");
+        window._testCompleteCallback('camera');
       }
     }
 
@@ -234,10 +251,15 @@
       // Setup test state
       resetSnowman();
       const cameraDebug = setupCameraDebug();
+
+      // Consume the camera's first-frame snap before injecting the offset so
+      // this test exercises smoothing instead of initialization behavior.
+      updateCamera();
       
       // Force camera position to be offset from target - larger offset for clearer test
       const offset = new THREE.Vector3(10, 5, 10);
       camera.position.add(offset);
+      const injectedDistance = camera.position.distanceTo(cameraManager.smoothingVectors.targetPosition);
       
       // This flag will be used to track progress through the test
       window.testState = {
@@ -245,7 +267,8 @@
         frames: 0,
         positions: [],
         completed: false,
-        showDebug: true
+        showDebug: true,
+        injectedDistance
       };
       
       // Inject into animation loop to gather camera smoothing data
@@ -291,12 +314,7 @@
             summaryElem.style.color = testsFailed === 0 ? '#4CAF50' : '#FF5252';
           }
           
-          // Add camera test results to unified test count immediately
-          if (window._unifiedTestCounts) {
-            console.log(`Camera tests reporting ${testsPassed} passed, ${testsFailed} failed to unified test runner`);
-            window._unifiedTestCounts.passed += testsPassed;
-            window._unifiedTestCounts.failed += testsFailed;
-          }
+          completeCameraSuite();
         }
       };
       
@@ -308,23 +326,33 @@
         // Verify camera maintains reasonable distance from target position
         // Note: The game is actively running during this test, so the target is moving
         // We check that the camera stays within a reasonable distance, not strict convergence
-        const initialDistance = window.testState.positions[0].distance;
+        const initialDistance = window.testState.injectedDistance;
         const finalDistance = window.testState.positions[window.testState.positions.length - 1].distance;
         
-        // Calculate average distance across all samples
-        const avgDistance = window.testState.positions.reduce((sum, p) => sum + p.distance, 0) / window.testState.positions.length;
-        
-        // The camera should maintain a reasonable distance from target (under 10 units)
-        // and not diverge excessively (final should not be more than 3x average)
-        const maintainsReasonableDistance = avgDistance < 10 && finalDistance < avgDistance * 3;
+        // Ignore the startup window after the test injects a camera offset. The
+        // active game keeps moving the target, so assert settled tracking bounds
+        // rather than strict convergence to zero distance.
+        const settledPositions = window.testState.positions.filter(p => p.time >= 2500);
+        const distanceSamples = settledPositions.length > 0 ? settledPositions : window.testState.positions;
+        const avgDistance = distanceSamples.reduce((sum, p) => sum + p.distance, 0) / distanceSamples.length;
+        const maxDistance = Math.max(...distanceSamples.map(p => p.distance));
+        const finalImprovedFromInjectedOffset = finalDistance < initialDistance * 0.85;
+        const settledAverageImprovedFromInjectedOffset = avgDistance < initialDistance * 0.75;
+
+        const maintainsReasonableDistance =
+          finalImprovedFromInjectedOffset &&
+          settledAverageImprovedFromInjectedOffset &&
+          avgDistance < 12 &&
+          maxDistance < 20;
         
         console.log(`  Initial distance to target: ${initialDistance.toFixed(2)}`);
         console.log(`  Final distance to target: ${finalDistance.toFixed(2)}`);
-        console.log(`  Average distance to target: ${avgDistance.toFixed(2)}`);
+        console.log(`  Settled average distance to target: ${avgDistance.toFixed(2)}`);
+        console.log(`  Settled max distance to target: ${maxDistance.toFixed(2)}`);
         
-        assert(maintainsReasonableDistance, 'Camera Smoothing Convergence', 
-          maintainsReasonableDistance ? 'Camera maintains smooth following behavior during gameplay' : 
-          `Camera following is unstable (avg: ${avgDistance.toFixed(2)}, final: ${finalDistance.toFixed(2)})`);
+        assert(maintainsReasonableDistance, 'Camera Smoothing Convergence',
+          maintainsReasonableDistance ? 'Camera maintains smooth following behavior during gameplay' :
+          `Camera following is unstable (initial: ${initialDistance.toFixed(2)}, settled avg: ${avgDistance.toFixed(2)}, max: ${maxDistance.toFixed(2)}, final: ${finalDistance.toFixed(2)})`);
         
         // Check for jitter - camera movement should be smooth
         let hasJitter = false;
@@ -342,7 +370,9 @@
           const movement = prevPos.distanceTo(currPos);
           const movementRate = movement / (deltaTime / 1000); // units per second
           
-          if (i > 3 && movementRate > 30) { // Threshold for jitter (30 units/second)
+          if (window.testState.positions[i].time < 2500) continue;
+
+          if (movementRate > 30) { // Threshold for jitter (30 units/second)
             hasJitter = true;
             maxJitter = Math.max(maxJitter, movementRate);
           }
@@ -553,25 +583,7 @@
           summaryElem.textContent = `Tests in progress: ${testsPassed} passed, ${testsFailed} failed, remaining tests loading...`;
         }
         
-        // Only update the global test counts if we're in the unified test runner
-        if (window._unifiedTestCounts) {
-          // Store the previous counts so we can calculate the difference
-          const prevPassed = window._unifiedTestCounts.passed || 0;
-          const prevFailed = window._unifiedTestCounts.failed || 0;
-          
-          // Update with current values - add to the existing count if we're in unified mode
-          if (window._unifiedTestRunnerActive) {
-            // Add values to the existing count
-            window._unifiedTestCounts.passed += (testsPassed - prevPassed);
-            window._unifiedTestCounts.failed += (testsFailed - prevFailed);
-          } else {
-            // Direct test - replace values
-            window._unifiedTestCounts.passed = testsPassed;
-            window._unifiedTestCounts.failed = testsFailed;
-          }
-          
-          console.log(`Updated unified test counts: ${testsPassed} passed, ${testsFailed} failed (total: ${window._unifiedTestCounts.passed} passed, ${window._unifiedTestCounts.failed} failed)`);
-        }
+        console.log(`Updated camera test counts: ${testsPassed} passed, ${testsFailed} failed`);
       }
       
       // Set interval to update the summary periodically
@@ -584,48 +596,9 @@
       
       console.log(`=== CAMERA TESTING IN PROGRESS: Loading tests sequentially to prevent state interference ===`);
       
-      // Signal to unified test runner that we're running
-      if (window._testCompleteCallback) {
-        // We'll signal completion when the last test is done - reduced timeout for faster testing
-        setTimeout(() => {
-          console.log(`Camera tests completed (${testsPassed} passed, ${testsFailed} failed), signaling to unified test runner`);
-          
-          // Final update to the unified test counts before signaling completion
-          if (window._unifiedTestCounts) {
-            console.log(`Final camera test counts update: ${testsPassed} passed, ${testsFailed} failed`);
-            
-            // Reset unified test counts for camera to avoid double-counting
-            // This ensures we only count the actual test results once
-            if (window._unifiedTestRunnerActive) {
-              // Store the existing counts from other tests
-              const existingPassedFromOtherTests = window._unifiedTestCounts.passed || 0;
-              const existingFailedFromOtherTests = window._unifiedTestCounts.failed || 0;
-              
-              // Calculate how many camera tests were already included in the count
-              // by looking at what we've contributed so far
-              const cameraContributedPassed = Math.min(existingPassedFromOtherTests, testsPassed);
-              const cameraContributedFailed = Math.min(existingFailedFromOtherTests, testsFailed);
-              
-              // Reset the counts by removing any camera test results that were already counted
-              window._unifiedTestCounts.passed = existingPassedFromOtherTests - cameraContributedPassed;
-              window._unifiedTestCounts.failed = existingFailedFromOtherTests - cameraContributedFailed;
-              
-              // Now add all our current camera test results
-              window._unifiedTestCounts.passed += testsPassed;
-              window._unifiedTestCounts.failed += testsFailed;
-              
-              console.log(`Adjusted unified counts to: ${window._unifiedTestCounts.passed} passed, ${window._unifiedTestCounts.failed} failed`);
-            } else {
-              // Direct mode - just replace the counts
-              window._unifiedTestCounts.passed = testsPassed;
-              window._unifiedTestCounts.failed = testsFailed;
-            }
-          }
-          
-          console.log("Explicitly calling _testCompleteCallback('camera')");
-          window._testCompleteCallback('camera');
-        }, 7000);
-      } else {
+      // Completion is signaled from testCameraSmoothing once the asynchronous
+      // smoothing assertions have been recorded.
+      if (!window._testCompleteCallback) {
         console.warn("window._testCompleteCallback not available - camera tests may not signal completion to unified runner");
       }
     } catch (e) {
