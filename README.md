@@ -1,8 +1,8 @@
 # ❄️ SnowGlider ❄️
 
-[![CI](https://github.com/macmone/snowglider/actions/workflows/ci.yml/badge.svg)](https://github.com/macmone/snowglider/actions/workflows/ci.yml)
+[![CI/CD](https://github.com/den-run-ai/snowglider/actions/workflows/ci.yml/badge.svg)](https://github.com/den-run-ai/snowglider/actions/workflows/ci.yml)
 <!-- Coverage badge disabled until tests are refactored to use ES modules for proper instrumentation -->
-<!-- [![codecov](https://codecov.io/gh/macmone/snowglider/branch/main/graph/badge.svg)](https://codecov.io/gh/macmone/snowglider) -->
+<!-- [![codecov](https://codecov.io/gh/den-run-ai/snowglider/branch/main/graph/badge.svg)](https://codecov.io/gh/den-run-ai/snowglider) -->
 
 A cheerful snowman shredding mountain snow powder in a playful Three.js animation. ⛄️🎿
 

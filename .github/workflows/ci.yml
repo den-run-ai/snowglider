@@ -1,13 +1,22 @@
-name: CI Tests
+name: CI/CD
 
 on:
   push:
-    branches: [main, audio-simplified]
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
     
     steps:
@@ -24,6 +33,9 @@ jobs:
       
       - name: Install dependencies
         run: npm ci
+
+      - name: Run lint
+        run: npm run lint
       
       - name: Run Node.js tests with coverage
         run: npm run test:coverage
@@ -38,6 +50,7 @@ jobs:
       
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
+        if: ${{ always() && hashFiles('coverage/lcov.info') != '' }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/lcov.info
@@ -50,3 +63,47 @@ jobs:
           name: test-results
           path: test-results/
           retention-days: 7
+
+  build-pages:
+    name: Build GitHub Pages artifact
+    runs-on: ubuntu-latest
+    needs: test
+    if: ${{ github.event_name != 'pull_request' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare static site
+        run: |
+          mkdir -p dist
+          cp index.html auth.html CNAME LICENSE README.md dist/
+          find . -maxdepth 1 -name "*.js" ! -name "eslint.config.js" -exec cp {} dist/ \;
+          cp -R assets tests dist/
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy-pages:
+    name: Deploy GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build-pages
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
