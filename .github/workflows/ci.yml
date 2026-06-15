@@ -82,7 +82,7 @@ jobs:
       - name: Prepare static site
         run: |
           mkdir -p dist
-          cp index.html auth.html CNAME LICENSE README.md dist/
+          cp index.html CNAME LICENSE README.md dist/
           find . -maxdepth 1 -name "*.js" ! -name "eslint.config.js" -exec cp {} dist/ \;
           cp -R assets tests dist/
 
