@@ -33,6 +33,8 @@ module.exports = [
         Avalanche: "readonly",
         Camera: "readonly",
         Controls: "readonly",
+        CourseModule: "readonly",
+        EffectsModule: "readonly",
         Howl: "readonly",
         Howler: "readonly",
         Mountains: "readonly",

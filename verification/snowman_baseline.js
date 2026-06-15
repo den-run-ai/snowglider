@@ -1,3 +1,8 @@
+// snowman_baseline.js — FROZEN pre-feature snapshot of snowman.js (git bc25048).
+// Used by physics_invariant_harness.js to prove the ski-technique layer leaves
+// coasting/no-input physics byte-for-byte identical. Regenerate ONLY on a deliberate
+// physics change:  git show <ref>:snowman.js > verification/snowman_baseline.js
+// (re-adding this header).
 // snowman.js - Snowman model and functions for SnowGlider game
 
 // Create Snowman (Three Spheres)
@@ -180,13 +185,6 @@ function createSnowman(scene) {
   rightSki.add(rightSkiTip);
   group.add(rightSki);
   
-  // Keep references + neutral pose so ski technique (e.g. snowplow wedge) can be shown.
-  group.userData = group.userData || {};
-  group.userData.leftSki = leftSki;
-  group.userData.rightSki = rightSki;
-  group.userData.leftSkiBaseX = leftSki.position.x;
-  group.userData.rightSkiBaseX = rightSki.position.x;
-  
   scene.add(group);
   return group;
 }
@@ -236,11 +234,6 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
     jumpCooldown -= delta;
   }
   
-  // Outer-scope outputs surfaced in the return value (HUD + camera juice).
-  let technique = isInAir ? 'air' : 'glide';
-  let justLanded = false;
-  let landingForce = 0;
-  
   // Get current terrain height at position
   const terrainHeightAtPosition = getTerrainHeight(pos.x, pos.z);
   
@@ -248,11 +241,9 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
   if (isInAir && pos.y <= terrainHeightAtPosition) {
     isInAir = false;
     pos.y = terrainHeightAtPosition;
-    justLanded = true;
     
     // Landing impact based on air time and height
     const landingImpact = Math.min(0.5, airTime * 0.15);
-    landingForce = airTime; // seconds aloft; used for camera shake on touchdown
     const currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
     
     // Reduce speed on landing
@@ -326,77 +317,24 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
     velocity.x += dir.x * steepness * gravity * delta;
     velocity.z += dir.z * steepness * gravity * delta;
     
-    // --- Ski technique model -------------------------------------------------
-    // Layered on top of the original arcade handling. Crucially, when the player
-    // gives NO steering or brake input the behaviour below is identical to the
-    // original (turnForce/accel unchanged, skidScrub == 0), so coasting physics
-    // and the existing test expectations are preserved. Skill only emerges once
-    // the player actually works the edges:
-    //   - Snowplow (brake / Down): sheds real speed but grants tight, planted
-    //     turns ("pizza" stop) — slow and controllable.
-    //   - Carving (Left/Right): smooth, anticipatory turns hold speed; sharp
-    //     direction changes at speed wash the edges out and scrub speed (skid).
-    //   - Tuck / straight-line (Up, no steer): least friction, most speed, least
-    //     room to react — the risk/reward line.
-    const steering = (controls.left ? -1 : 0) + (controls.right ? 1 : 0);
-    const snowplow = !!controls.down && !isInAir;
-
-    // Terrain-dependent grip: a touch more bite on moderate pitches, looser when flat.
-    const terrainGrip = 0.6 + Math.min(0.4, steepness * 0.5);
-
-    // Steering authority: snowplow tightens the turn, speed loosens it slightly.
-    let turnForce = 16.0;
-    if (snowplow) turnForce = 24.0;            // planted wedge = sharper steering
-    else if (currentSpeed > 18) turnForce = 14.0; // hard to wrench the skis at speed
-
+    // Handle user input for steering
+    const turnForce = 16.0;
+    
     if (controls.left) {
       velocity.x -= turnForce * delta;
     }
     if (controls.right) {
       velocity.x += turnForce * delta;
     }
-
-    // Forward input / straight-line tuck.
+    
+    // Handle forward/backward input
     const accelerationForce = 10.0;
     if (controls.up) {
       velocity.z -= accelerationForce * delta;
     }
-
-    // Snowplow braking: decelerate along the actual direction of travel so it
-    // bleeds genuine speed (not just downhill velocity), with a little extra dig.
-    // Clamp the impulse to the current speed so braking can bring the snowman to a
-    // stop but never reverse the velocity vector — otherwise at low speed the
-    // subtraction overshoots zero and the control bias below drives it back uphill,
-    // letting players climb/stall the timed course by braking.
-    if (snowplow && currentSpeed > 0.001) {
-      const brakeDecel = 14.0;
-      const brakeImpulse = Math.min(brakeDecel * delta, currentSpeed);
-      velocity.x -= (velocity.x / currentSpeed) * brakeImpulse;
-      velocity.z -= (velocity.z / currentSpeed) * brakeImpulse;
-      // Only nudge the slight uphill control bias while still moving; never after the
-      // brake has stopped the snowman (that would push it uphill from a standstill).
-      if (brakeImpulse < currentSpeed) {
-        velocity.z += accelerationForce * delta * 0.3;
-      }
+    if (controls.down) {
+      velocity.z += accelerationForce * delta * 0.5; // Braking is less powerful
     }
-
-    // Edge skid / carve quality: only meaningful while steering. A clean carve
-    // keeps speed; yanking the skis sideways at speed scrubs it. Snowplow adds
-    // grip, so braking through a turn stays controlled instead of washing out.
-    let skidScrub = 0;
-    if (steering !== 0 && currentSpeed > 4) {
-      const speedFactor2 = Math.min(1, currentSpeed / 22);
-      const grip = snowplow ? 1.0 : terrainGrip;
-      // Sharper turn relative to grip => more scrub. Range roughly 0..0.06.
-      skidScrub = 0.06 * speedFactor2 * (1 - grip * 0.85);
-    }
-
-    // Expose technique for HUD + ski pose.
-    technique = 'glide';
-    if (isInAir) technique = 'air';
-    else if (snowplow) technique = 'snowplow';
-    else if (steering !== 0) technique = skidScrub > 0.025 ? 'skid' : 'carve';
-    else if (controls.up) technique = 'tuck';
     
     // Only use automatic turning if no user input
     if (!controls.left && !controls.right) {
@@ -433,21 +371,9 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
       velocity.x += Math.sin(turnPhase * 0.3) * (turnAmplitude * 0.7) * delta * turnIntensity * currentTurnDirection;
     }
     
-    // Apply friction to slow down. Base friction is unchanged when not steering
-    // (skidScrub == 0), so straight-line/coasting behaviour is identical to before;
-    // hard turns at speed add edge-skid drag on top.
-    const totalFriction = friction + skidScrub;
-    velocity.x *= (1 - totalFriction);
-    velocity.z *= (1 - totalFriction);
-    
-    // Show the current technique on the snowman (snowplow forms a ski wedge).
-    if (snowman.userData && snowman.userData.leftSki && snowman.userData.rightSki) {
-      const ls = snowman.userData.leftSki, rs = snowman.userData.rightSki;
-      const wedge = snowplow ? 0.35 : 0.0; // radians; tips angled inward
-      ls.rotation.y += ((-wedge) - ls.rotation.y) * Math.min(1, delta * 10);
-      rs.rotation.y += ((wedge) - rs.rotation.y) * Math.min(1, delta * 10);
-      snowman.userData.technique = technique;
-    }
+    // Apply simple friction to slow down
+    velocity.x *= (1 - friction);
+    velocity.z *= (1 - friction);
     
     // Update y position to terrain height when not in air
     pos.y = terrainHeightAtPosition;
@@ -675,10 +601,7 @@ function updateSnowman(snowman, delta, pos, velocity, isInAir, verticalVelocity,
     turnPhase,
     currentTurnDirection,
     turnChangeCooldown,
-    currentSpeed,
-    technique,
-    justLanded,
-    landingForce
+    currentSpeed
   };
 }
 

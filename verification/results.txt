@@ -1,0 +1,30 @@
+SnowGlider — integration verification results
+Captured: 2026-06-15 04:35 UTC
+Node: v23.10.0  |  Chrome: Google Chrome 149.0.7827.114 
+
+============================================================
+1) Node suite + verify harness  (npm test)
+============================================================
+Tests completed: 7 passed, 0 failed
+Tests completed: 6 passed, 0 failed
+Tests completed: 5 passed, 0 failed
+Summary: 3 passed, 0 failed
+Tests completed: 10 passed, 0 failed
+  PASS: IDENTICAL ✅
+  PASS: turning free ❌ (known: technique model is intentionally thin — see Gap 4 / issues #48,#54)
+INVARIANT HARNESS: OK ✅ (safety invariant + technique gating checks hold)
+SMOKE TEST TOTAL: 18 passed, 0 failed
+EXIT: 0
+
+   (full per-check harness output: npm run test:verify)
+
+============================================================
+2) Browser / Puppeteer suite  (npm run test:browser)
+   integrated game, system Chrome via PUPPETEER_EXECUTABLE_PATH
+============================================================
+Passed: 51
+Failed: 0
+Completed suites: controls, camera, audio, gameplay, tree, avalanche
+
+   Baseline (clean HEAD, no course/effects) for comparison: Passed: 51, Failed: 0 (identical)
+   In-browser feature probe: CourseModule+EffectsModule live, labels unified, 0 page errors — PASS
