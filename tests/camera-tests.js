@@ -111,6 +111,7 @@
     
     let testsPassed = 0;
     let testsFailed = 0;
+    let cameraSuiteCompleted = false;
     
     function logResult(name, passed, message) {
       const result = document.createElement('div');
@@ -130,6 +131,22 @@
         logResult(name, true, message || 'Test passed');
       } else {
         logResult(name, false, message || 'Test failed');
+      }
+    }
+
+    function completeCameraSuite() {
+      if (cameraSuiteCompleted) return;
+      cameraSuiteCompleted = true;
+
+      if (window._unifiedTestCounts) {
+        console.log(`Camera tests reporting ${testsPassed} passed, ${testsFailed} failed to unified test runner`);
+        window._unifiedTestCounts.passed += testsPassed;
+        window._unifiedTestCounts.failed += testsFailed;
+      }
+
+      if (window._testCompleteCallback) {
+        console.log("Explicitly calling _testCompleteCallback('camera')");
+        window._testCompleteCallback('camera');
       }
     }
 
@@ -297,12 +314,7 @@
             summaryElem.style.color = testsFailed === 0 ? '#4CAF50' : '#FF5252';
           }
           
-          // Add camera test results to unified test count immediately
-          if (window._unifiedTestCounts) {
-            console.log(`Camera tests reporting ${testsPassed} passed, ${testsFailed} failed to unified test runner`);
-            window._unifiedTestCounts.passed += testsPassed;
-            window._unifiedTestCounts.failed += testsFailed;
-          }
+          completeCameraSuite();
         }
       };
       
@@ -571,25 +583,7 @@
           summaryElem.textContent = `Tests in progress: ${testsPassed} passed, ${testsFailed} failed, remaining tests loading...`;
         }
         
-        // Only update the global test counts if we're in the unified test runner
-        if (window._unifiedTestCounts) {
-          // Store the previous counts so we can calculate the difference
-          const prevPassed = window._unifiedTestCounts.passed || 0;
-          const prevFailed = window._unifiedTestCounts.failed || 0;
-          
-          // Update with current values - add to the existing count if we're in unified mode
-          if (window._unifiedTestRunnerActive) {
-            // Add values to the existing count
-            window._unifiedTestCounts.passed += (testsPassed - prevPassed);
-            window._unifiedTestCounts.failed += (testsFailed - prevFailed);
-          } else {
-            // Direct test - replace values
-            window._unifiedTestCounts.passed = testsPassed;
-            window._unifiedTestCounts.failed = testsFailed;
-          }
-          
-          console.log(`Updated unified test counts: ${testsPassed} passed, ${testsFailed} failed (total: ${window._unifiedTestCounts.passed} passed, ${window._unifiedTestCounts.failed} failed)`);
-        }
+        console.log(`Updated camera test counts: ${testsPassed} passed, ${testsFailed} failed`);
       }
       
       // Set interval to update the summary periodically
@@ -602,48 +596,9 @@
       
       console.log(`=== CAMERA TESTING IN PROGRESS: Loading tests sequentially to prevent state interference ===`);
       
-      // Signal to unified test runner that we're running
-      if (window._testCompleteCallback) {
-        // We'll signal completion when the last test is done - reduced timeout for faster testing
-        setTimeout(() => {
-          console.log(`Camera tests completed (${testsPassed} passed, ${testsFailed} failed), signaling to unified test runner`);
-          
-          // Final update to the unified test counts before signaling completion
-          if (window._unifiedTestCounts) {
-            console.log(`Final camera test counts update: ${testsPassed} passed, ${testsFailed} failed`);
-            
-            // Reset unified test counts for camera to avoid double-counting
-            // This ensures we only count the actual test results once
-            if (window._unifiedTestRunnerActive) {
-              // Store the existing counts from other tests
-              const existingPassedFromOtherTests = window._unifiedTestCounts.passed || 0;
-              const existingFailedFromOtherTests = window._unifiedTestCounts.failed || 0;
-              
-              // Calculate how many camera tests were already included in the count
-              // by looking at what we've contributed so far
-              const cameraContributedPassed = Math.min(existingPassedFromOtherTests, testsPassed);
-              const cameraContributedFailed = Math.min(existingFailedFromOtherTests, testsFailed);
-              
-              // Reset the counts by removing any camera test results that were already counted
-              window._unifiedTestCounts.passed = existingPassedFromOtherTests - cameraContributedPassed;
-              window._unifiedTestCounts.failed = existingFailedFromOtherTests - cameraContributedFailed;
-              
-              // Now add all our current camera test results
-              window._unifiedTestCounts.passed += testsPassed;
-              window._unifiedTestCounts.failed += testsFailed;
-              
-              console.log(`Adjusted unified counts to: ${window._unifiedTestCounts.passed} passed, ${window._unifiedTestCounts.failed} failed`);
-            } else {
-              // Direct mode - just replace the counts
-              window._unifiedTestCounts.passed = testsPassed;
-              window._unifiedTestCounts.failed = testsFailed;
-            }
-          }
-          
-          console.log("Explicitly calling _testCompleteCallback('camera')");
-          window._testCompleteCallback('camera');
-        }, 7000);
-      } else {
+      // Completion is signaled from testCameraSmoothing once the asynchronous
+      // smoothing assertions have been recorded.
+      if (!window._testCompleteCallback) {
         console.warn("window._testCompleteCallback not available - camera tests may not signal completion to unified runner");
       }
     } catch (e) {
