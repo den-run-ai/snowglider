@@ -1,0 +1,19 @@
+have_fun: false
+memory_config:
+  disabled: false
+code_review:
+  disable: false
+  comment_severity_threshold: MEDIUM
+  max_review_comments: 12
+  pull_request_opened:
+    help: false
+    summary: true
+    code_review: true
+    include_drafts: false
+ignore_patterns:
+  - "assets/**"
+  - "coverage/**"
+  - "dist/**"
+  - "node_modules/**"
+  - "package-lock.json"
+  - "test-results/**"
