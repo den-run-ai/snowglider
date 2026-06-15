@@ -944,14 +944,14 @@
       const scoresScript = document.createElement('script');
       scoresScript.type = 'module';
       scoresScript.id = 'scoresScript';
-      scoresScript.src = 'scores.js';
+      scoresScript.src = 'src/scores.js';
       head.appendChild(scoresScript);
       
       // Load Auth Module
       const authScript = document.createElement('script');
       authScript.type = 'module';
       authScript.id = 'authScript';
-      authScript.src = 'auth.js';
+      authScript.src = 'src/auth.js';
       head.appendChild(authScript);
     }
   </script>
@@ -1257,47 +1257,47 @@
 
             // Load game scripts sequentially (existing logic)
             const mountainsScript = document.createElement('script');
-            mountainsScript.src = 'mountains.js';
+            mountainsScript.src = 'src/mountains.js';
             
             mountainsScript.onload = function() {
                 const treesScript = document.createElement('script');
-                treesScript.src = 'trees.js';
+                treesScript.src = 'src/trees.js';
                 
                 treesScript.onload = function() {
                     const snowScript = document.createElement('script');
-                    snowScript.src = 'snow.js';
+                    snowScript.src = 'src/snow.js';
                     
                     snowScript.onload = function() {
                         const cameraScript = document.createElement('script');
-                        cameraScript.src = 'camera.js';
+                        cameraScript.src = 'src/camera.js';
                         
                         cameraScript.onload = function() {
                             const snowmanScript = document.createElement('script');
-                            snowmanScript.src = 'snowman.js';
+                            snowmanScript.src = 'src/snowman.js';
                             
                             snowmanScript.onload = function() {
                                 const audioScript = document.createElement('script');
-                                audioScript.src = 'audio.js';
+                                audioScript.src = 'src/audio.js';
                                 
                                 audioScript.onload = function() {
                                     const controlsScript = document.createElement('script');
-                                    controlsScript.src = 'controls.js';
+                                    controlsScript.src = 'src/controls.js';
                                     
                                     controlsScript.onload = function() {
                                         const avalancheScript = document.createElement('script');
-                                        avalancheScript.src = 'avalanche.js';
+                                        avalancheScript.src = 'src/avalanche.js';
                                         
                                         avalancheScript.onload = function() {
                                           // Load effects (avalanche UI, camera juice) then course
                                           // (gates, splits, ghost racing) before the main game script.
                                           const effectsScript = document.createElement('script');
-                                          effectsScript.src = 'effects.js';
+                                          effectsScript.src = 'src/effects.js';
                                           effectsScript.onload = function() {
                                           const courseScript = document.createElement('script');
-                                          courseScript.src = 'course.js';
+                                          courseScript.src = 'src/course.js';
                                           courseScript.onload = function() {
                                           const mainScript = document.createElement('script');
-                                          mainScript.src = 'snowglider.js';
+                                          mainScript.src = 'src/snowglider.js';
                                         
                                         mainScript.onload = function() {
                                             // Load tests if needed

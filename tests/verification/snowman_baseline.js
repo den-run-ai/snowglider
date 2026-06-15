@@ -1,7 +1,7 @@
 // snowman_baseline.js — FROZEN pre-feature snapshot of snowman.js (git bc25048).
 // Used by physics_invariant_harness.js to prove the ski-technique layer leaves
 // coasting/no-input physics byte-for-byte identical. Regenerate ONLY on a deliberate
-// physics change:  git show <ref>:snowman.js > verification/snowman_baseline.js
+// physics change:  git show <ref>:snowman.js > tests/verification/snowman_baseline.js
 // (re-adding this header).
 // snowman.js - Snowman model and functions for SnowGlider game
 

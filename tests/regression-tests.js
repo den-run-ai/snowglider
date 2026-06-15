@@ -21,9 +21,9 @@ THREE.CanvasTexture = function() {
 };
 
 // Load Mountains.js content first (since it's not a module, we need to evaluate it)
-const mountainsContent = fs.readFileSync(path.join(__dirname, '..', 'mountains.js'), 'utf8');
+const mountainsContent = fs.readFileSync(path.join(__dirname, '..', 'src', 'mountains.js'), 'utf8');
 // Then load Snow.js content which depends on Mountains
-const utilsContent = fs.readFileSync(path.join(__dirname, '..', 'snow.js'), 'utf8');
+const utilsContent = fs.readFileSync(path.join(__dirname, '..', 'src', 'snow.js'), 'utf8');
 
 // Create a function to execute the content and return the Utils global
 function loadUtils() {

@@ -5,8 +5,8 @@
 // identical to the original (so the existing physics/regression/browser tests, which
 // drive the real updateSnowman, keep passing).
 //
-//   baseline: verification/snowman_baseline.js  (frozen pre-feature snapshot)
-//   current : ../snowman.js
+//   baseline: tests/verification/snowman_baseline.js  (frozen pre-feature snapshot)
+//   current : ../../src/snowman.js
 //
 // The process exit code is gated ONLY on that invariant (check 1) plus the
 // clearly-correct technique checks (brake slows you; modified scrubs >= original;
@@ -85,7 +85,7 @@ function simulate(updateFn, controls, seed, steps = 220, dt = 1 / 60) {
 }
 
 const orig = loadUpdate(path.join(__dirname, 'snowman_baseline.js'));
-const mod = loadUpdate(path.join(__dirname, '..', 'snowman.js'));
+const mod = loadUpdate(path.join(__dirname, '..', '..', 'src', 'snowman.js'));
 
 const NONE = { left: false, right: false, up: false, down: false, jump: false };
 const DOWN = { left: false, right: false, up: false, down: true, jump: false };
