@@ -26,15 +26,14 @@ declare global {
   //   - camera.js:    @ts-checked -> `Camera` (class) lives in src/camera.js, not here.
   //   - trees.js:     @ts-checked -> `Trees` + `getTerrainHeight`/`getTerrainGradient`
   //                   (top-level fns) live in src/trees.js, not here.
+  //   - effects.js:   @ts-checked -> `EffectsModule` lives in src/effects.js, not here.
+  //   - snow.js:      @ts-checked -> `Snow` + `Utils` live in src/snow.js, not here.
   const AudioModule: any;
   const AuthModule: any;
   const Controls: any;
-  const EffectsModule: any;
   const Mountains: any;
   const ScoresModule: any;
-  const Snow: any;
   const Snowman: any;
-  const Utils: any;
 
   // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
   const Howl: any;
