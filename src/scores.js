@@ -24,6 +24,7 @@ import {
   setDoc,
   getDoc,
   collection,
+  where,
   orderBy,
   query,
   limit,
@@ -36,6 +37,31 @@ import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.
 let firestore = null; // Local cache of firestore instance, updated by initializeScores
 let analytics = null;
 let currentUser = null;
+
+// The timed course runs from z=-15 to z=-195 (180 world metres). Four seconds is
+// deliberately loose: it rejects timer/startup artifacts like 0.01s while allowing
+// any physically plausible descent the current game can produce.
+const MIN_VALID_SCORE_TIME = 4;
+
+function isValidScoreTime(time) {
+  return typeof time === 'number' && Number.isFinite(time) && time >= MIN_VALID_SCORE_TIME;
+}
+
+function readLocalBestTime() {
+  const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
+  if (!localBestTimeStr) {
+    return null;
+  }
+
+  const localBestTime = parseFloat(localBestTimeStr);
+  if (isValidScoreTime(localBestTime)) {
+    return localBestTime;
+  }
+
+  console.warn("Ignoring invalid local best time:", localBestTimeStr);
+  localStorage.removeItem('snowgliderBestTime');
+  return null;
+}
 
 /**
  * Initialize the scores module with Firebase services
@@ -101,7 +127,7 @@ function updateUserBestTime(userId, time) {
     console.warn("Skipping best time update (User ID missing).");
     return;
   }
-  if (typeof time !== 'number' || isNaN(time)) {
+  if (!isValidScoreTime(time)) {
     console.warn("Skipping best time update (Invalid time value):", time);
     return;
   }
@@ -118,7 +144,10 @@ function updateUserBestTime(userId, time) {
     getDoc(userDocRef)
       .then(docSnap => {
         const storedBest = docSnap.exists() ? docSnap.data().bestTime : null;
-        const hasStoredBest = typeof storedBest === 'number';
+        const hasStoredBest = isValidScoreTime(storedBest);
+        if (storedBest !== null && !hasStoredBest) {
+          console.warn(`Ignoring invalid stored best for user ${userId}:`, storedBest);
+        }
         // The authoritative best is the better of the stored value and this run. This is
         // the value the leaderboard must reflect — never the raw run time, which may be
         // slower than a best already stored from another device/tab.
@@ -172,6 +201,11 @@ function updateUserBestTime(userId, time) {
  * @param {number} time - Run completion time in seconds
  */
 function updateLeaderboard(userId, time) {
+  if (!isValidScoreTime(time)) {
+    console.warn("Skipping leaderboard update (Invalid time value):", time);
+    return;
+  }
+
   // Check AuthModule first for availability
   if (!window.AuthModule?.isFirebaseAvailable?.().firestore) {
     console.log("Skipping leaderboard update (Firestore unavailable according to AuthModule).");
@@ -199,7 +233,10 @@ function updateLeaderboard(userId, time) {
     getDoc(leaderboardDocRef)
       .then(leaderboardSnap => {
         const leaderboardBest = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
-        if (typeof leaderboardBest === 'number' && time > leaderboardBest) {
+        if (leaderboardBest !== null && !isValidScoreTime(leaderboardBest)) {
+          console.warn(`Replacing invalid leaderboard entry for user ${userId}:`, leaderboardBest);
+        }
+        if (isValidScoreTime(leaderboardBest) && time > leaderboardBest) {
           console.log(`Leaderboard already has a faster entry for user ${userId}. No update needed.`);
           return;
         }
@@ -245,7 +282,12 @@ function getLeaderboard() {
   try {
     const leaderboardRef = collection(firestore, 'leaderboard');
     // Query for top 10 scores, ordered by time ascending
-    const q = query(leaderboardRef, orderBy('time', 'asc'), limit(10));
+    const q = query(
+      leaderboardRef,
+      where('time', '>=', MIN_VALID_SCORE_TIME),
+      orderBy('time', 'asc'),
+      limit(10)
+    );
 
     console.log("Fetching leaderboard data...");
     return getDocs(q)
@@ -254,7 +296,7 @@ function getLeaderboard() {
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
           // Ensure data has expected fields before pushing
-          if (data && typeof data.time === 'number' && data.user) {
+          if (data && isValidScoreTime(data.time) && data.user) {
             scores.push({
               userId: docSnap.id, // The user ID is the document ID
               time: data.time,
@@ -473,12 +515,15 @@ function displayLeaderboard() {
  * @param {number} time - Run completion time in seconds
  */
 function recordScore(time) {
+  if (!isValidScoreTime(time)) {
+    console.warn("Skipping score record (Invalid time value):", time);
+    return;
+  }
+
   // Always store locally first as a fallback and for immediate personal best tracking
   try {
-    const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
-    const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
-    const hasValidLocalBest = typeof localBestTime === 'number' && !isNaN(localBestTime);
-    const isNewLocalBest = !hasValidLocalBest || time < localBestTime;
+    const localBestTime = readLocalBestTime();
+    const isNewLocalBest = localBestTime === null || time < localBestTime;
 
     if (isNewLocalBest) {
       localStorage.setItem('snowgliderBestTime', time.toString());
@@ -540,7 +585,9 @@ function recordScore(time) {
     console.error("Error in recordScore:", error);
     // Attempt to save locally even if other parts fail
     try {
-      localStorage.setItem('snowgliderBestTime', time.toString());
+      if (isValidScoreTime(time)) {
+        localStorage.setItem('snowgliderBestTime', time.toString());
+      }
     } catch (e) {
       console.error("LocalStorage error during fallback save:", e);
     }
@@ -568,7 +615,8 @@ const ScoresModule = {
   getLeaderboard,
   updateUserBestTime,
   updateLeaderboard,
-  isFirestoreAvailable
+  isFirestoreAvailable,
+  isValidScoreTime
 };
 
 // Export as both a module and a global for flexibility

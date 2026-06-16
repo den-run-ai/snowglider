@@ -411,6 +411,62 @@ runTest('Leaderboard Always Reflects The Authoritative Best, Never A Slower Loca
   assertEquals(r.leaderboardValue, 17.0, "Leaderboard keeps the faster existing entry");
 });
 
+runTest('Impossible Score Times Are Rejected And Repairable', () => {
+  const minValidScoreTime = 4;
+  function isValidScoreTime(time) {
+    return typeof time === 'number' && Number.isFinite(time) && time >= minValidScoreTime;
+  }
+
+  function resolve(time, storedBest, leaderboardBest) {
+    if (!isValidScoreTime(time)) {
+      return {
+        accepted: false,
+        writeUser: false,
+        writeLeaderboard: false,
+        userValue: storedBest,
+        leaderboardValue: leaderboardBest
+      };
+    }
+
+    const hasStored = isValidScoreTime(storedBest);
+    const writeUser = !hasStored || time <= storedBest;
+    const authoritativeBest = hasStored ? Math.min(storedBest, time) : time;
+    const writeLeaderboard = !isValidScoreTime(leaderboardBest) || authoritativeBest <= leaderboardBest;
+    return {
+      accepted: true,
+      writeUser,
+      writeLeaderboard,
+      userValue: writeUser ? authoritativeBest : storedBest,
+      leaderboardValue: writeLeaderboard ? authoritativeBest : leaderboardBest
+    };
+  }
+
+  let r = resolve(0.01, null, null);
+  assertEquals(r.accepted, false, "A 0.01s run should never be accepted as a score");
+  assertEquals(r.writeUser, false, "Invalid runs must not write the user best");
+  assertEquals(r.writeLeaderboard, false, "Invalid runs must not write the leaderboard");
+
+  r = resolve(19.43, 0.01, 0.01);
+  assertEquals(r.accepted, true, "A realistic run should still be accepted");
+  assertEquals(r.userValue, 19.43, "Invalid stored user best should be replaced by a valid time");
+  assertEquals(r.leaderboardValue, 19.43, "Invalid leaderboard best should be repairable by a valid time");
+
+  const fetchedLeaderboardTimes = [0.01, 14.67, 58.64].filter(isValidScoreTime);
+  assertEquals(fetchedLeaderboardTimes.length, 2,
+    "Invalid leaderboard entries should be filtered out of displayed results");
+  assertEquals(fetchedLeaderboardTimes[0], 14.67,
+    "The first displayed leaderboard time should be the first valid score");
+
+  const rawOrderedTimes = Array(10).fill(0.01).concat([14.67, 58.64]);
+  const validAfterQueryFilter = rawOrderedTimes
+    .filter(isValidScoreTime)
+    .slice(0, 10);
+  assertEquals(validAfterQueryFilter.length, 2,
+    "Leaderboard query should fetch past leading invalid scores before applying the limit");
+  assertEquals(validAfterQueryFilter[0], 14.67,
+    "The top valid score should remain visible even when corrupt scores sort before it");
+});
+
 runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
   // Models scores.js: updateUserBestTime writes the user best (setDoc) and calls
   // updateLeaderboard as a SEPARATE write. If Firestore rules allow users/{uid} but

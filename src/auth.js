@@ -383,6 +383,11 @@ function syncUserData(user) {
       const localBestTime = localStorage.getItem('snowgliderBestTime');
       if (localBestTime) {
         const bestTime = parseFloat(localBestTime);
+        if (!ScoresModule.isValidScoreTime(bestTime)) {
+          console.warn("Ignoring invalid local best time during sign-in sync:", localBestTime);
+          localStorage.removeItem('snowgliderBestTime');
+          return;
+        }
         console.log("Found local best time, attempting to sync:", bestTime);
         // Use ScoresModule to update best time
         ScoresModule.updateUserBestTime(user.uid, bestTime);
