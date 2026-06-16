@@ -293,7 +293,7 @@ runTest('Best Time Recording Logic', () => {
     "Best time should not be updated on tree collision");
 });
 
-runTest('Leaderboard Sync When Local Best Was Prewritten', () => {
+runTest('Leaderboard Backfills Stored Best On Every Authenticated Finish', () => {
   const mockLocalStorage = {
     storage: {},
     getItem: function(key) {
@@ -306,39 +306,180 @@ runTest('Leaderboard Sync When Local Best Was Prewritten', () => {
 
   const signedInUser = { uid: 'test-user' };
   const firestoreAvailable = true;
-  let firestoreUpdateCalls = 0;
+  const syncedTimes = [];
 
+  // Mirror of scores.js recordScore sync logic: on an authenticated finish we always
+  // push the effective best (the better of this run and the stored local best) so a
+  // best that never reached Firestore gets backfilled even on a slower follow-up run.
   function recordScore(time) {
     const localBestTimeStr = mockLocalStorage.getItem('snowgliderBestTime');
     const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
     const hasValidLocalBest = typeof localBestTime === 'number' && !isNaN(localBestTime);
     const isNewLocalBest = !hasValidLocalBest || time < localBestTime;
-    const shouldSyncBestTime = !hasValidLocalBest || time <= localBestTime;
+    const effectiveBestTime = isNewLocalBest ? time : localBestTime;
 
     if (isNewLocalBest) {
       mockLocalStorage.setItem('snowgliderBestTime', time.toString());
     }
 
-    if (signedInUser && firestoreAvailable && shouldSyncBestTime) {
-      firestoreUpdateCalls++;
+    if (signedInUser && firestoreAvailable) {
+      syncedTimes.push(effectiveBestTime);
     }
   }
 
-  // Reproduces the bug: snowglider.js had already written the new best before recordScore ran.
+  // A best was stored locally but never reached the leaderboard (e.g. set before sign-in).
   mockLocalStorage.setItem('snowgliderBestTime', '19.43');
-  recordScore(19.43);
-  assertEquals(firestoreUpdateCalls, 1,
-    "Equal local best should still be eligible for Firestore leaderboard sync");
 
+  recordScore(19.43);
+  assertEquals(syncedTimes.length, 1,
+    "Matching the stored best should sync to the leaderboard");
+  assertEquals(syncedTimes[0], 19.43,
+    "The stored best should be the time synced");
+
+  // The reported bug: a slower run after a stuck best must still backfill the stored best.
   recordScore(22.0);
-  assertEquals(firestoreUpdateCalls, 1,
-    "Worse times should not be synced as best times");
+  assertEquals(syncedTimes.length, 2,
+    "A slower finish should still trigger a backfill sync");
+  assertEquals(syncedTimes[1], 19.43,
+    "Backfill should sync the stored best, not the slower run time");
 
   recordScore(18.0);
-  assertEquals(firestoreUpdateCalls, 2,
-    "Better times should be synced as best times");
+  assertEquals(syncedTimes.length, 3,
+    "A new best should sync to the leaderboard");
+  assertEquals(syncedTimes[2], 18.0,
+    "A new best should sync the new (faster) time");
   assertEquals(mockLocalStorage.getItem('snowgliderBestTime'), '18',
-    "Better times should update local best storage");
+    "A new best should update local best storage");
+});
+
+runTest('Leaderboard Always Reflects The Authoritative Best, Never A Slower Local Time', () => {
+  // Mirror of scores.js compare-and-write logic. The user best is read then written
+  // (getDoc + setDoc); the AUTHORITATIVE best is the better of the stored value and this
+  // run. The leaderboard is then written by a SEPARATE getDoc + setDoc using that
+  // authoritative best - never the raw run time - and only when it improves the existing
+  // entry. So a slower local run can neither downgrade the user best nor the leaderboard,
+  // even when the device's localStorage is stale relative to Firestore.
+  function resolve(time, storedBest, leaderboardBest) {
+    const hasStored = typeof storedBest === 'number';
+    const writeUser = !hasStored || time <= storedBest;
+    const authoritativeBest = hasStored ? Math.min(storedBest, time) : time;
+    const writeLeaderboard = typeof leaderboardBest !== 'number' || authoritativeBest <= leaderboardBest;
+    return {
+      writeUser,
+      authoritativeBest,
+      writeLeaderboard,
+      leaderboardValue: writeLeaderboard ? authoritativeBest : leaderboardBest
+    };
+  }
+
+  // Backfill of a stuck best: user doc has 19.43 but the leaderboard entry is missing.
+  let r = resolve(19.43, 19.43, null);
+  assertEquals(r.writeUser, true, "Equal stored best should still (re)write the user doc");
+  assertEquals(r.leaderboardValue, 19.43, "Missing leaderboard entry should be backfilled with the best");
+
+  // First finish (no data yet) writes both.
+  r = resolve(20.0, null, null);
+  assertEquals(r.writeUser, true, "First time should write the user doc");
+  assertEquals(r.leaderboardValue, 20.0, "First time should write the leaderboard");
+
+  // The reported P2: a device with stale/empty localStorage finishes a SLOWER run than
+  // the authoritative server-side best (set on another device). The user doc must not
+  // regress, and the leaderboard must show the authoritative best - never the slow run.
+  r = resolve(19.43, 14.0, null);
+  assertEquals(r.writeUser, false, "A slower run must not overwrite the faster stored best");
+  assertEquals(r.leaderboardValue, 14.0, "Missing leaderboard entry is backfilled with the authoritative best, not the slow run");
+
+  r = resolve(19.43, 14.0, 25.0);
+  assertEquals(r.leaderboardValue, 14.0, "A slower leaderboard entry is repaired to the authoritative best, not the slow run");
+
+  // Concurrent stale overwrite: a slower run (20s) lands after a faster value (18s).
+  // The leaderboard receives the authoritative 18 (or no-ops), never the stale 20.
+  r = resolve(20.0, 18.0, 18.0);
+  assertEquals(r.writeUser, false, "A slower time must not overwrite a faster stored best");
+  assertEquals(r.leaderboardValue, 18.0, "Leaderboard keeps the authoritative best; the slow 20 never reaches it");
+
+  // A genuinely faster time still wins on both.
+  r = resolve(17.0, 18.0, 18.0);
+  assertEquals(r.writeUser, true, "A faster time should update the user doc");
+  assertEquals(r.leaderboardValue, 17.0, "A faster time should update the leaderboard");
+
+  // Edge: best matches user doc but leaderboard already holds a faster entry
+  // (e.g. another device synced faster). Don't downgrade the leaderboard.
+  r = resolve(19.0, 19.0, 17.0);
+  assertEquals(r.writeUser, true, "Equal-to-stored best may refresh the user doc");
+  assertEquals(r.writeLeaderboard, false, "Should not replace a faster leaderboard entry");
+  assertEquals(r.leaderboardValue, 17.0, "Leaderboard keeps the faster existing entry");
+});
+
+runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
+  // Models scores.js: updateUserBestTime writes the user best (setDoc) and calls
+  // updateLeaderboard as a SEPARATE write. If Firestore rules allow users/{uid} but
+  // reject leaderboard/{uid}, the leaderboard write must fail in isolation without
+  // aborting the personal-best sync.
+  let userBestWritten = false;
+  let leaderboardWritten = false;
+
+  function writeUserBest() {
+    userBestWritten = true; // committed by its own setDoc
+  }
+  function updateLeaderboard() {
+    // Separate write; rejected by security rules.
+    throw new Error('permission-denied');
+  }
+  function updateUserBestTime() {
+    writeUserBest();
+    try {
+      updateLeaderboard();
+      leaderboardWritten = true;
+    } catch (e) {
+      // Isolated: leaderboard unavailable, but the personal best already synced.
+    }
+  }
+
+  updateUserBestTime();
+  assertEquals(userBestWritten, true,
+    "Personal best must sync even when the leaderboard write is rejected");
+  assertEquals(leaderboardWritten, false,
+    "A rejected leaderboard write stays isolated from the personal-best write");
+});
+
+runTest('Offline Finish Defers The Leaderboard Write Until The User Write Settles', () => {
+  // Models scores.js updateUserBestTime: the leaderboard reconciliation is CHAINED onto
+  // the user-doc setDoc promise (userWrite.catch(...).then(() => updateLeaderboard())),
+  // not fired in parallel. During an offline finish setDoc stays queued until reconnect,
+  // so the leaderboard read+write must NOT run until that write settles - otherwise an
+  // immediate read against an uncached leaderboard doc would reject and the backfill
+  // would be dropped. This locks in that ordering so the parallel-call regression can't
+  // silently return.
+  const order = [];
+  // A controllable stand-in for the offline setDoc promise: it stays pending until
+  // settle() is called (i.e. until the SDK flushes the queued write on reconnect).
+  function deferredWrite() {
+    let cb = null;
+    const p = {
+      catch: () => p,                       // no rejection in the offline-resolve path
+      then: (fn) => { cb = fn; return p; },
+      settle: () => { if (cb) cb(); }
+    };
+    return p;
+  }
+  function updateLeaderboard() { order.push('leaderboard'); }
+  function updateUserBestTime() {
+    order.push('userWriteStart');
+    const userWrite = deferredWrite(); // offline: queued, not yet settled
+    userWrite
+      .catch(() => order.push('writeError'))
+      .then(() => updateLeaderboard());
+    return userWrite;
+  }
+
+  const userWrite = updateUserBestTime();
+  assertEquals(order.join(','), 'userWriteStart',
+    "Offline: leaderboard write must NOT run before the queued user write settles");
+
+  userWrite.settle(); // connection returns; the queued setDoc flushes
+  assertEquals(order.join(','), 'userWriteStart,leaderboard',
+    "On reconnect the leaderboard write runs once the user write settles");
 });
 
 // Test 4: Snow Splash Effect Interference

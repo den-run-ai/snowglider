@@ -107,62 +107,66 @@ function updateUserBestTime(userId, time) {
 
   try {
     const userDocRef = doc(firestore, 'users', userId);
+
+    // Read the stored best, then write only when this run ties or beats it. This is a
+    // plain getDoc + setDoc, not a transaction: setDoc queues offline and flushes on
+    // reconnect on its own, so a finish during a network blip still syncs without any
+    // custom retry timer/backoff. The narrow read-then-write race (two tabs finishing
+    // within the same few hundred ms) is self-healing — the next finish, or the on-login
+    // syncUserData reconciliation in auth.js, re-applies the authoritative best.
     getDoc(userDocRef)
       .then(docSnap => {
-        let shouldUpdate = false;
-        if (docSnap.exists()) {
-          const userData = docSnap.data();
-          // Update only if new time is better or no time exists yet
-          if (typeof userData.bestTime !== 'number' || time <= userData.bestTime) {
-            shouldUpdate = true;
-          }
-        } else {
-          // If user document doesn't exist (should be rare after syncUserData),
-          // assume this is the first time, so update.
-          console.warn("User document not found for best time update, will create/set time.");
-          shouldUpdate = true; // Treat as a new best time
-        }
+        const storedBest = docSnap.exists() ? docSnap.data().bestTime : null;
+        const hasStoredBest = typeof storedBest === 'number';
+        // The authoritative best is the better of the stored value and this run. This is
+        // the value the leaderboard must reflect — never the raw run time, which may be
+        // slower than a best already stored from another device/tab.
+        const authoritativeBest = hasStoredBest ? Math.min(storedBest, time) : time;
 
-        if (shouldUpdate) {
+        let userWrite;
+        if (!hasStoredBest || time <= storedBest) {
           console.log(`Updating best time for user ${userId} to ${time}`);
-          setDoc(userDocRef, {
+          userWrite = setDoc(userDocRef, {
             bestTime: time,
             updatedAt: serverTimestamp() // Track when the best time was updated
-          }, { merge: true })
-          .then(() => {
-            console.log("Best time updated successfully in user document.");
-            updateLeaderboard(userId, time); // Update leaderboard only after successful user doc update
-          })
-          .catch(error => {
-            console.error("Error updating best time in user document:", error);
-            // Handle potential Firestore unavailability
-            if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-              console.warn("Firestore became unavailable during best time update.");
-              firestore = null;
-              displayLeaderboard();
-            }
-          });
+          }, { merge: true });
         } else {
-          console.log(`New time (${time}) is not better than existing best time. No update needed.`);
+          console.log(`New time (${time}) is not better than stored best (${storedBest}). User doc unchanged.`);
+          userWrite = Promise.resolve();
         }
+
+        // Reconcile the leaderboard toward the authoritative best AFTER the user write
+        // settles, in a SEPARATE write so a leaderboard-only permission/rule failure
+        // can't abort the personal-best sync above. Chaining onto the setDoc promise
+        // (rather than firing in parallel) is what makes an offline finish durable: when
+        // setDoc stays queued until reconnect, the leaderboard read+write run only once
+        // we are back online, so the backfill rides the SDK's own offline queue instead
+        // of being dropped by an immediate read against an uncached leaderboard doc. We
+        // still reconcile when the user write failed or was skipped, so a missing entry —
+        // the original bug — is backfilled, and passing authoritativeBest (not the raw
+        // run time) means a slower local run never downgrades the board.
+        userWrite
+          .catch(error => console.warn("Best time write did not complete:", error))
+          .then(() => updateLeaderboard(userId, authoritativeBest));
       })
       .catch(error => {
-        console.error("Error reading user data for best time comparison:", error);
-        if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-          console.warn("Firestore became unavailable reading user data.");
-          firestore = null;
-          displayLeaderboard();
-        }
+        // getDoc can reject when offline with nothing cached (or on a permission/rules
+        // issue). Nothing is written now; the local best stays in localStorage and the
+        // on-login syncUserData reconciliation re-applies it on the next sign-in.
+        console.warn("Could not sync best time now; will reconcile on next sign-in.", error);
       });
   } catch (error) {
     console.error("Unexpected error in updateUserBestTime:", error);
-    firestore = null; // Assume Firestore is problematic
-    displayLeaderboard();
   }
 }
 
 /**
- * Update global leaderboard
+ * Update the global leaderboard entry for a user (compare-and-write).
+ *
+ * Runs as a separate getDoc + setDoc from the user best-time write in updateUserBestTime,
+ * so a leaderboard-only permission/rule failure does not abort the personal-best sync.
+ * It writes only when this time improves (or creates) the entry, so a slower run never
+ * downgrades a faster existing entry. The setDoc queues offline and flushes on reconnect.
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
@@ -176,10 +180,11 @@ function updateLeaderboard(userId, time) {
     }
     return;
   }
-  // If AuthModule thinks it's available, but we don't have it locally, log warning.
-  // The operation might fail, and the catch block will handle setting local firestore to null.
+  // If AuthModule thinks it's available, but we don't have it locally, bail out;
+  // doc() needs a valid Firestore instance.
   if (!firestore) {
-      console.warn("updateLeaderboard: AuthModule reports Firestore available, but local instance is null. Proceeding cautiously.");
+      console.warn("updateLeaderboard: AuthModule reports Firestore available, but local instance is null. Skipping.");
+      return;
   }
 
   try {
@@ -188,30 +193,32 @@ function updateLeaderboard(userId, time) {
     // Use the user's UID as the document ID in the leaderboard collection
     const leaderboardDocRef = doc(firestore, 'leaderboard', userId);
 
-    console.log(`Updating leaderboard entry for user ${userId} with time ${time}`);
-    // Use setDoc to create or overwrite the user's entry in the leaderboard
-    setDoc(leaderboardDocRef, {
-      user: userDocRef, // Store a reference to the user document
-      time: time,
-      achievedAt: serverTimestamp() // Record when this score was achieved/updated
-    })
-    .then(() => {
-      console.log("Leaderboard updated successfully for user:", userId);
-    })
-    .catch(error => {
-      console.error("Error updating leaderboard:", error);
-      // Only disable Firestore for connectivity issues, not permissions
-      if (error.code === 'unavailable' || error.code === 'failed-precondition') {
-        console.warn("Firestore became unavailable during leaderboard update. Clearing local instance.");
-        firestore = null; // Set local instance to null
-      } else if (error.code === 'permission-denied') {
-        console.warn("Permission issues updating leaderboard. Continuing with limited functionality.");
-        // Don't disable Firestore entirely for permission issues
-      }
-    });
+    // Read the current entry, then write only when this time improves (or creates) it,
+    // so a slower run can never downgrade a faster board entry.
+    getDoc(leaderboardDocRef)
+      .then(leaderboardSnap => {
+        const leaderboardBest = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
+        if (typeof leaderboardBest === 'number' && time > leaderboardBest) {
+          console.log(`Leaderboard already has a faster entry for user ${userId}. No update needed.`);
+          return;
+        }
+        console.log(`Updating leaderboard entry for user ${userId} with time ${time}`);
+        setDoc(leaderboardDocRef, {
+          user: userDocRef, // Store a reference to the user document
+          time: time,
+          achievedAt: serverTimestamp() // Record when this score was achieved/updated
+        })
+          .then(() => console.log("Leaderboard updated successfully for user:", userId))
+          .catch(error => console.warn("Leaderboard write did not complete:", error));
+      })
+      .catch(error => {
+        // Read failed (offline with nothing cached, permissions, etc.); skip this
+        // update. The personal-best write above is unaffected, and the next finish or
+        // the on-login syncUserData reconciliation re-applies the authoritative best.
+        console.warn("Could not read leaderboard entry for comparison; skipping update.", error);
+      });
   } catch (error) {
     console.error("Unexpected error in updateLeaderboard:", error);
-    firestore = null; // Assume Firestore is problematic
   }
 }
 
@@ -471,7 +478,6 @@ function recordScore(time) {
     const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
     const hasValidLocalBest = typeof localBestTime === 'number' && !isNaN(localBestTime);
     const isNewLocalBest = !hasValidLocalBest || time < localBestTime;
-    const shouldSyncBestTime = !hasValidLocalBest || time <= localBestTime;
 
     if (isNewLocalBest) {
       localStorage.setItem('snowgliderBestTime', time.toString());
@@ -480,6 +486,13 @@ function recordScore(time) {
       console.log("Score recorded, but not a new local best time:", time);
     }
 
+    // The best time we want reflected on the leaderboard is the better of this run
+    // and any previously stored local best. Syncing this value (rather than only the
+    // current run) lets us backfill a best time that was recorded but never made it
+    // to Firestore — e.g. a best set before sign-in or under an earlier bug. Without
+    // this, a stored best could only reach the leaderboard by being beaten again.
+    const effectiveBestTime = isNewLocalBest ? time : localBestTime;
+
     // Track completion in Analytics (if available)
     if (analytics) {
       logEvent(analytics, 'complete_run', { time: time });
@@ -487,22 +500,25 @@ function recordScore(time) {
 
     // Read the signed-in user at record time so auth UI and scoring stay in sync.
     const userAtTimeOfRecord = getActiveUser();
-    
+
     // If Firestore isn't available but should be, try to reinitialize it
-    if (userAtTimeOfRecord && !firestore && window.navigator.onLine && 
+    if (userAtTimeOfRecord && !firestore && window.navigator.onLine &&
         window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
       console.log("Firestore unavailable but user is online. Attempting to reinitialize...");
       window.AuthModule.reinitializeFirestore();
     }
-    
-    // Update Firestore only if user is signed in, Firestore is available, AND this run matches or beats the local best.
-    if (userAtTimeOfRecord && firestore && shouldSyncBestTime) {
-      console.log("Attempting to update Firestore with new best time:", time);
+
+    // Sync whenever the user is signed in and Firestore is available. updateUserBestTime
+    // compares against the authoritative Firestore value and only writes when the time
+    // is better than (or equal to) what is already stored, so syncing on every finish is
+    // safe and never downgrades a faster stored time.
+    if (userAtTimeOfRecord && firestore) {
+      console.log("Attempting to sync best time to Firestore:", effectiveBestTime);
       // Use the snapshot of user data captured at function start time
-      updateUserBestTime(userAtTimeOfRecord.uid, time); // This function handles leaderboard update too
+      updateUserBestTime(userAtTimeOfRecord.uid, effectiveBestTime); // This function handles leaderboard update too
 
       // Track new best time in Analytics (if available)
-      if (analytics) {
+      if (isNewLocalBest && analytics) {
         logEvent(analytics, 'new_high_score', { time: time });
       }
     } else {
@@ -517,7 +533,6 @@ function recordScore(time) {
           console.log("Device appears to be offline. Check internet connection.");
         }
       }
-      if (!shouldSyncBestTime) console.log("Skipping Firestore update: Not a new personal best.");
     }
 
   } catch (error) {
