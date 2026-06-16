@@ -129,6 +129,21 @@ async function runStartMenuRaceRegression(browser) {
     releaseSnowgliderScript();
 
     await page.waitForFunction(() => {
+      const button = document.getElementById('startGameButton');
+      const startContainer = document.getElementById('startGameContainer');
+      const gameCanvas = document.getElementById('gameCanvas');
+      return button &&
+        startContainer &&
+        gameCanvas &&
+        !button.disabled &&
+        button.getAttribute('aria-busy') !== 'true' &&
+        startContainer.style.display !== 'none' &&
+        typeof window.initializeGameWithAudio === 'function';
+    }, { timeout: 30000 });
+
+    await page.click('#startGameButton');
+
+    await page.waitForFunction(() => {
       const startContainer = document.getElementById('startGameContainer');
       const gameCanvas = document.getElementById('gameCanvas');
       return startContainer &&
@@ -141,7 +156,7 @@ async function runStartMenuRaceRegression(browser) {
       throw new Error(`Unexpected null DOM access error: ${errors.join('; ')}`);
     }
 
-    console.log('PASS: start menu defers first click until game scripts are ready');
+    console.log('PASS: start menu re-enables Start for a gesture-backed deferred start');
   } finally {
     releaseSnowgliderScript();
     await page.close();

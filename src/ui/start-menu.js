@@ -58,13 +58,14 @@
       return false;
     }
 
-    setStartButtonWaiting(false);
-
     if (startGamePending) {
-      console.log("Starting game from deferred start request.");
-      return startGame();
+      startGamePending = false;
+      setStartButtonWaiting(false);
+      console.log("Game scripts ready after deferred start request; waiting for a fresh start gesture.");
+      return true;
     }
 
+    setStartButtonWaiting(false);
     return true;
   }
 
