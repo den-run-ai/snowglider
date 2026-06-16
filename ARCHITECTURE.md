@@ -166,11 +166,12 @@ Three runtime modes, auto-detected:
 | **Local dev** | `localhost`/`127.0.0.1` | real | disabled (avoids 400s) | `auth.js` / `scores.js` |
 | **Production** | GitHub Pages (https) | real | enabled | `auth.js` / `scores.js` |
 
-Scoring flow (`scores.js` `recordScore(time)`): always writes the local best to
-`localStorage` first; if signed in **and** Firestore is available, it syncs the
-*better of this run and the stored local best* via `updateUserBestTime`, which
-compares against the authoritative Firestore value and never downgrades a faster
-time (so syncing on every finish is safe and backfills bests that predate sign-in).
+Scoring flow (`scores.js` `recordScore(time)`): always writes a new local best to
+`localStorage` first; then, only when the user is signed in, Firestore is
+available, **and** this run matches or beats the local best
+(`shouldSyncBestTime`), it syncs the run's `time` via `updateUserBestTime` (which
+also updates the `leaderboard` collection). Otherwise the Firestore write is
+skipped.
 
 Persistence keys:
 

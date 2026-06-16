@@ -13,16 +13,6 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
-### Scoring & leaderboard
-- **Atomic best-time + leaderboard write** to prevent a stale value from
-  overwriting a faster stored time (`ac258bf`).
-- **Backfill the stored best to the leaderboard on every authenticated finish**
-  (`e6f693b`). `recordScore` now syncs the better of the current run and the
-  stored local best; `updateUserBestTime` compares against the authoritative
-  Firestore value and never downgrades a faster time, so a best set before sign-in
-  (or under an earlier bug) reaches the leaderboard without having to be beaten
-  again. See [`ARCHITECTURE.md` §7](ARCHITECTURE.md).
-
 ### Documentation
 - Added [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`PHYSICS.md`](PHYSICS.md);
   folded the `docs/` implementation and audio reports into this changelog.
