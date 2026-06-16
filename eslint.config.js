@@ -78,6 +78,12 @@ module.exports = [
     }
   },
   {
+    files: ["vite.config.js"],
+    languageOptions: {
+      sourceType: "module"
+    }
+  },
+  {
     files: ["tests/**/*.js"],
     rules: {
       "no-undef": "off"
