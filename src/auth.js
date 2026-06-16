@@ -303,12 +303,19 @@ function setupAuthButtons() {
         });
     };
 
-    // Bind sign-in to a single 'click'. A click is a valid user-activation
-    // gesture for signInWithPopup on both desktop and mobile (it fires on tap via
-    // touchend), so popups are still allowed. Using one event avoids the previous
-    // touchstart+click double-trigger that could open two popups (and produce a
-    // spurious auth/cancelled-popup-request on the superseded one).
+    // Sign-in must work on both desktop and touch. We bind 'touchend' AND 'click':
+    //  - On the game page, Controls.setupControls() (controls.js) installs a
+    //    document-level touchstart preventDefault, which suppresses the synthetic
+    //    click on this button — so a 'click'-only handler would never fire after the
+    //    game scripts load. 'touchend' is a valid user-activation gesture for
+    //    signInWithPopup that the global handler does NOT suppress.
+    //  - On desktop (no touch) only 'click' fires.
+    // handleSignIn calls preventDefault() (so the touchend tap won't also emit a
+    // click) and bails while the button is disabled, so the pair can't open two
+    // popups. We deliberately use 'touchend', not 'touchstart': touchstart fires
+    // before the tap completes and is a weaker popup gesture on iOS.
     loginBtn.addEventListener('click', handleSignIn);
+    loginBtn.addEventListener('touchend', handleSignIn, { passive: false });
   }
 
   // Logout button

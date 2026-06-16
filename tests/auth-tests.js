@@ -163,6 +163,25 @@ async function main() {
     authUI.style.display === 'flex' && profileUI.style.display === 'none');
   check('signed-out: getCurrentUser() is null', AuthModule.getCurrentUser() === null);
 
+  console.log('\n--- Sign-in via touch (game-page click-suppression scenario) ---');
+  // On the game page, controls.js installs a document-level touchstart
+  // preventDefault that suppresses this button's synthetic click — so sign-in must
+  // also work from 'touchend'. Simulate a tap where only touchend reaches the button.
+  nextPopupResult = { resolve: { user: { email: 'touch@glider.ai' } } };
+  const popupsBefore = calls.signInWithPopup;
+  const tEnd = new window.Event('touchend', { cancelable: true });
+  loginBtn.dispatchEvent(tEnd);
+  check('touchend triggers sign-in even when the click is suppressed',
+    calls.signInWithPopup === popupsBefore + 1 && loginBtn.disabled === true);
+  check('handleSignIn preventDefaults the touchend (suppresses the duplicate click)',
+    tEnd.defaultPrevented === true);
+  // A trailing synthetic click (if the browser still emits one) must not open a 2nd popup.
+  loginBtn.dispatchEvent(new window.Event('click'));
+  check('trailing click after touchend does not open a second popup',
+    calls.signInWithPopup === popupsBefore + 1);
+  await flush();
+  authStateCallback(null); // reset button state for the error tests below
+
   console.log('\n--- Sign-in error handling ---');
   // popup-closed-by-user: benign, no alert.
   alerts.length = 0;
