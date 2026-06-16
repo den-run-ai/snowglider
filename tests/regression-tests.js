@@ -443,53 +443,64 @@ runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
     "A rejected leaderboard write stays isolated from the personal-best write");
 });
 
-runTest('Offline Finish Retries Best-Time Sync When Connection Returns', () => {
-  // Models scores.js: Firestore transactions reject offline, so a failed sync
-  // ('unavailable') registers a one-time 'online' listener that re-runs the sync
-  // when connectivity returns - instead of stranding the score in localStorage with
-  // no retry. Guarded so it never stacks duplicate listeners.
+runTest('Unavailable Best-Time Sync Retries Via Backoff Timer And Online Event', () => {
+  // Models scores.js: Firestore transactions reject when 'unavailable'. Crucially that
+  // can happen while navigator.onLine is still true (backend blip / captive portal),
+  // so waiting only for the 'online' event would strand the write. The retry schedules
+  // BOTH a backoff timer and an 'online' listener; whichever fires first re-runs the
+  // sync. Scheduling is de-duplicated, backs off on repeated failure, and resets on
+  // success.
   const listeners = {};
   const win = {
     addEventListener: (ev, fn) => { listeners[ev] = fn; },
     removeEventListener: (ev) => { delete listeners[ev]; }
   };
-  let online = false;
+  let timer = null, onlineHandler = null, attempts = 0, scheduledDelay = null;
+  let serverReachable = false; // 'unavailable' while the browser still believes it is online
   let syncCalls = 0;
-  let retryRegistered = false;
 
-  function registerOnlineRetry() {
-    if (retryRegistered) return; // de-dupe
-    retryRegistered = true;
-    win.addEventListener('online', () => {
-      win.removeEventListener('online');
-      retryRegistered = false;
-      attemptSync();
-    });
+  function clearRetry() {
+    if (timer !== null) { timer = null; }
+    if (onlineHandler) { win.removeEventListener('online'); onlineHandler = null; }
   }
-
-  function attemptSync() {
-    if (!online) {
-      // transaction rejects offline -> schedule a retry instead of giving up
-      registerOnlineRetry();
-      return;
-    }
+  function schedule() {
+    if (timer !== null || onlineHandler !== null) return; // de-dupe
+    attempts = Math.min(attempts + 1, 6);
+    scheduledDelay = Math.min(2000 * Math.pow(2, attempts - 1), 60000);
+    timer = () => { timer = null; attempt(); };          // fake timer handle (invoke to "fire")
+    onlineHandler = () => attempt();
+    win.addEventListener('online', onlineHandler);
+  }
+  function attempt() {
+    clearRetry();
+    if (!serverReachable) { schedule(); return; } // still failing -> reschedule with larger backoff
     syncCalls++;
+    attempts = 0; // reset backoff on success
   }
 
-  // Finish while offline: nothing syncs yet, but a retry is armed.
-  attemptSync();
-  assertEquals(syncCalls, 0, "Offline finish should not sync immediately");
-  assertEquals(retryRegistered, true, "Offline finish should arm an online retry");
+  // Finish while 'unavailable' but browser still online: a retry must be armed even
+  // though no 'online' event will ever fire.
+  schedule();
+  assertEquals(timer !== null, true, "A backoff timer must be armed (not just the online listener)");
+  assertEquals(onlineHandler !== null, true, "An online listener should also be armed");
+  assertEquals(scheduledDelay, 2000, "First backoff should be 2s");
 
-  // A second offline finish must not stack a duplicate listener.
-  attemptSync();
-  assertEquals(retryRegistered, true, "Retry registration should be de-duplicated");
+  // Duplicate schedule call must not stack.
+  schedule();
+  assertEquals(scheduledDelay, 2000, "Scheduling is de-duplicated (no extra backoff increment)");
 
-  // Connection returns -> the listener fires once and the sync runs.
-  online = true;
-  listeners['online']();
-  assertEquals(syncCalls, 1, "Sync should run when the connection returns");
-  assertEquals(retryRegistered, false, "Retry listener should be cleared after it fires");
+  // Backoff timer fires while still unavailable -> reschedules with a larger delay,
+  // proving recovery does NOT depend on an 'online' event.
+  timer();
+  assertEquals(syncCalls, 0, "Still unavailable: no sync yet");
+  assertEquals(scheduledDelay, 4000, "Backoff should grow on repeated failure");
+
+  // Backend recovers; the timer fires and the sync finally runs.
+  serverReachable = true;
+  timer();
+  assertEquals(syncCalls, 1, "Sync runs once the backend is reachable again");
+  assertEquals(attempts, 0, "Backoff resets after a successful sync");
+  assertEquals(timer === null && onlineHandler === null, true, "Pending retry cleared after success");
 });
 
 // Test 4: Snow Splash Effect Interference
