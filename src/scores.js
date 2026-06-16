@@ -24,6 +24,7 @@ import {
   setDoc,
   getDoc,
   collection,
+  where,
   orderBy,
   query,
   limit,
@@ -281,7 +282,12 @@ function getLeaderboard() {
   try {
     const leaderboardRef = collection(firestore, 'leaderboard');
     // Query for top 10 scores, ordered by time ascending
-    const q = query(leaderboardRef, orderBy('time', 'asc'), limit(10));
+    const q = query(
+      leaderboardRef,
+      where('time', '>=', MIN_VALID_SCORE_TIME),
+      orderBy('time', 'asc'),
+      limit(10)
+    );
 
     console.log("Fetching leaderboard data...");
     return getDocs(q)

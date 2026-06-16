@@ -456,6 +456,15 @@ runTest('Impossible Score Times Are Rejected And Repairable', () => {
     "Invalid leaderboard entries should be filtered out of displayed results");
   assertEquals(fetchedLeaderboardTimes[0], 14.67,
     "The first displayed leaderboard time should be the first valid score");
+
+  const rawOrderedTimes = Array(10).fill(0.01).concat([14.67, 58.64]);
+  const validAfterQueryFilter = rawOrderedTimes
+    .filter(isValidScoreTime)
+    .slice(0, 10);
+  assertEquals(validAfterQueryFilter.length, 2,
+    "Leaderboard query should fetch past leading invalid scores before applying the limit");
+  assertEquals(validAfterQueryFilter[0], 14.67,
+    "The top valid score should remain visible even when corrupt scores sort before it");
 });
 
 runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
