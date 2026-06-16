@@ -178,10 +178,10 @@ the render loop, lifecycle, HUD updates, scoring, overlays, and test globals; an
 collision checks, finish/crash reason selection, and browser test hooks.
 
 The best structural move is a staged, behavior-preserving extraction that keeps
-the current no-build/static-site architecture intact. Do **not** use this as a
-bundler/framework rewrite. Preserve the `file://` fallback, GitHub Pages
-deployment, explicit script order, and existing `window.*` compatibility exports
-until tests and callers have been migrated.
+the current classic browser-script architecture intact. Do **not** use this as a
+bundler/framework rewrite. Preserve the `file://` fallback, Vite/GitHub Pages
+deployment path, explicit script order, and existing `window.*` compatibility
+exports until tests and callers have been migrated.
 
 ### Stage R1 — Split the page shell first
 

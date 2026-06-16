@@ -66,6 +66,10 @@ declare global {
     EffectsModule: any;
     Mountains: any;
     ScoresModule: any;
+    SnowGliderFirebase?: any;
+    SnowGliderLocalAuth?: any;
+    SnowGliderScriptLoader?: any;
+    SnowGliderStartMenu?: any;
     Snowman: any;
     Trees: any;
     Utils: any;
