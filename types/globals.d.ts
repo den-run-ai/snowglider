@@ -10,7 +10,7 @@ declare global {
   // three.js r134, loaded as a CDN global (not an ES-module import yet).
   const THREE: typeof THREE_NS;
 
-  /** Terrain height sampler injected via setTerrainFunction (see ARCHITECTURE.md §4). */
+  /** Terrain height sampler injected via setTerrainFunction (see docs/ARCHITECTURE.md §4). */
   type TerrainHeightFn = (x: number, z: number) => number;
 
   // Game module namespaces — attached to the global scope by classic scripts.
@@ -54,7 +54,7 @@ declare global {
   // GameState object; `TerrainHeightFn` (above) is kept for that work.
 
   // Classic scripts publish their namespaces onto window; allow those writes.
-  // NOTE: per ARCHITECTURE.md §3, `Snow` and `Camera` are *bare globals* and are
+  // NOTE: per docs/ARCHITECTURE.md §3, `Snow` and `Camera` are *bare globals* and are
   // NOT window properties (only `window.Utils` aliases `Snow`), so they are
   // intentionally absent here.
   interface Window {
@@ -71,7 +71,7 @@ declare global {
     Utils: any;
     FIREBASE_MANUAL_INIT?: boolean;
     __FIREBASE_DEFAULTS__?: any; // set by auth.js to stop Firebase auto-init 404s
-    // Cross-module/test handles published by snowglider.js (ARCHITECTURE.md §3).
+    // Cross-module/test handles published by snowglider.js (docs/ARCHITECTURE.md §3).
     terrainMesh?: any;
     treePositions?: any;
     isTestMode?: boolean;

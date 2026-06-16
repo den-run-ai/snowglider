@@ -7,7 +7,7 @@ constants in the source as of writing — when you change a constant, update thi
 file and the verification baseline (see [Determinism & the test seam](#determinism--the-test-safe-seam)).
 
 Companion docs: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how the modules fit together),
-[`tests/README.md`](tests/README.md) (how the physics is tested).
+[`tests/README.md`](../tests/README.md) (how the physics is tested).
 
 ---
 

@@ -7,7 +7,7 @@ dated milestone that introduced them, most recent first.
 This file consolidates two reports that previously lived under `docs/`: the
 skill-&-structure implementation report (#56) and the audio implementation /
 diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.md),
-[`PHYSICS.md`](PHYSICS.md), and [`tests/README.md`](tests/README.md).
+[`PHYSICS.md`](PHYSICS.md), and [`tests/README.md`](../tests/README.md).
 
 ---
 
