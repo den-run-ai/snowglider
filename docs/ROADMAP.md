@@ -168,6 +168,95 @@ A phased plan that several of the review passes converge on:
 
 ---
 
+## Refactoring Roadmap
+
+The feature roadmap above is increasingly constrained by three large files:
+`index.html` owns markup, CSS, bootstrapping, local-mode mocks, script loading,
+and start-menu behavior; `src/snowglider.js` owns scene setup, shared game state,
+the render loop, lifecycle, HUD updates, scoring, overlays, and test globals; and
+`src/snowman.js` owns model construction, skiing physics, pose animation,
+collision checks, finish/crash reason selection, and browser test hooks.
+
+The best structural move is a staged, behavior-preserving extraction that keeps
+the current no-build/static-site architecture intact. Do **not** use this as a
+bundler/framework rewrite. Preserve the `file://` fallback, GitHub Pages
+deployment, explicit script order, and existing `window.*` compatibility exports
+until tests and callers have been migrated.
+
+### Stage R1 — Split the page shell first
+
+Lowest-risk extraction from `index.html`:
+
+- Move page styles to `styles/main.css`.
+- Move `file://` auth/score mocks to `src/boot/local-auth.js`.
+- Move Firebase defaults/init-json handling to `src/boot/firebase-bootstrap.js`.
+- Replace the nested script `onload` pyramid with `src/boot/script-loader.js`
+  using a small `loadScriptsInOrder([...])` helper.
+- Move start/about menu behavior to `src/ui/start-menu.js`.
+
+The script order must remain:
+
+```text
+mountains -> trees -> snow -> camera -> snowman -> audio -> controls
+          -> avalanche -> effects -> course -> snowglider -> tests
+```
+
+### Stage R2 — Thin the game orchestrator
+
+`src/snowglider.js` should become a small coordinator instead of the owner of
+every runtime concern. Extract:
+
+- `src/game/scene-setup.js` for scene, renderer, lights, terrain, trees, snowman,
+  snow particles, avalanche construction, and course/effects init.
+- `src/game/game-state.js` for mutable run state (`pos`, `velocity`, air state,
+  timers, avalanche trigger state, technique).
+- `src/game/main-loop.js` for the current `animate()` ordering.
+- `src/game/lifecycle.js` for start, reset, restart, and game-active transitions.
+- `src/ui/hud.js` for stats, timer, speed color, position, and technique display.
+- `src/ui/result-overlay.js` for game-over/finish overlay, local best display,
+  login prompt, leaderboard insertion, and `CourseModule.onFinish(...)`.
+- `src/ui/collapsible-panel.js` for shared Game Stats / Game Controls
+  collapse, resize, and swipe behavior.
+
+Keep these globals stable during the first pass because controls and browser
+tests still use them: `window.resetSnowman`, `window.restartGame`,
+`window.showGameOver`, `window.toggleCameraView`, and
+`window.initializeGameWithAudio`.
+
+### Stage R3 — Split snowman only after R1/R2
+
+`src/snowman.js` is the highest-risk file because it contains the physics model
+and the deterministic verification seam. Split it only after the boot and
+orchestrator work has landed:
+
+- `src/snowman/model.js` for geometry, materials, arms, hat, skis, and scene add.
+- `src/snowman/physics.js` for gravity, friction, jumping, air control, ski
+  technique, snowplow braking, skid/carve classification, and idle turning.
+- `src/snowman/pose.js` for heading, terrain tilt, jump tilt, turn lean, and ski
+  wedge animation.
+- `src/snowman/collision.js` for tree collision, boundary checks, finish
+  detection, and crash/finish reason strings.
+- `src/snowman/test-hooks.js` for browser collision hooks.
+
+Keep `window.Snowman.updateSnowman(...)`, `window.Snowman.resetSnowman(...)`,
+and `window.Snowman.addTestHooks(...)` as compatibility wrappers at first.
+Internally delegate to smaller modules without changing the public signatures.
+
+### Guardrails
+
+- Keep refactoring mechanical: no physics constant changes, no timing changes,
+  no scoring changes, and no UI behavior changes unless explicitly scoped.
+- Preserve the finish reason string `"You reached the end of the slope!"`; the
+  result screen, best-time recording, score syncing, and course finish flow key
+  off it.
+- Re-run `npm test` and `npm run test:verify` after each stage. Any change to the
+  no-input physics path must be deliberate and reflected in
+  `docs/PHYSICS.md` plus the verification baseline.
+- Update `docs/ARCHITECTURE.md` in the same PR as each extraction so the script
+  order, globals, and ownership boundaries stay accurate.
+
+---
+
 ## Top Recommendation (✅ delivered in #56)
 
 The first thing to ship was **gates/checkpoints + carving/snowplow mechanics + avalanche warning UI**, plus **split-time ghost racing** — building the *skill and structure* layer before adding more content, because that converts a cute Three.js skiing demo into a game with skill, tension, and replayability. This shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56).
