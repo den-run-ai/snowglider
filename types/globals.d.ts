@@ -22,11 +22,11 @@ declare global {
   // entry here causes "TS2451: Cannot redeclare". So: remove a module's entry
   // from this block in the same change that adds `// @ts-check` to that module.
   //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
+  //   - course.js:    @ts-checked -> `CourseModule` lives in src/course.js, not here.
   const AudioModule: any;
   const AuthModule: any;
   const Camera: any;
   const Controls: any;
-  const CourseModule: any;
   const EffectsModule: any;
   const Mountains: any;
   const ScoresModule: any;
