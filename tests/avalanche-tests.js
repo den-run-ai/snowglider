@@ -24,6 +24,7 @@ const mockTHREE = {
       this.instanceMatrix = { setUsage: function() {}, needsUpdate: false };
       this.castShadow = false;
       this.receiveShadow = false;
+      this.frustumCulled = true; // three default; avalanche.js must turn this off (r160 culling)
     }
     setMatrixAt() {}
   },
@@ -380,6 +381,25 @@ runTest('Distance Trigger Logic', () => {
   }
   
   assert(avalancheTriggered, 'Avalanche should trigger after traveling 80 units');
+});
+
+// Test 11: Real module disables frustum culling (r160 regression guard)
+// The tests above mirror the logic in a local class; this one loads the ACTUAL
+// src/avalanche.js so it catches a regression in the shipped code: from three r160
+// an InstancedMesh frustum-culls against bounds cached while _hideAll() parks the
+// boulders offscreen, which would make a triggered avalanche invisible. The fix is
+// mesh.frustumCulled = false in the constructor — assert it on the real mesh.
+runTest('Real AvalancheSystem disables frustum culling (r160)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'avalanche.js'), 'utf8');
+  // Evaluate the real source with the mock THREE and no window, returning Avalanche.
+  const factory = new Function('THREE', 'window', 'console', src + '\n;return Avalanche;');
+  const RealAvalanche = factory(mockTHREE, undefined, console);
+  assert(RealAvalanche && RealAvalanche.AvalancheSystem, 'real avalanche.js should export AvalancheSystem');
+  const realSystem = new RealAvalanche.AvalancheSystem(mockScene, 8);
+  assertEquals(realSystem.mesh.frustumCulled, false,
+    'InstancedMesh.frustumCulled must be false so hidden-then-moved boulders are not culled');
 });
 
 // Print test summary

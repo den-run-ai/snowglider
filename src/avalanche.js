@@ -29,6 +29,13 @@ class AvalancheSystem {
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
+    // three r160+ frustum-culls an InstancedMesh against a bounding sphere derived
+    // from its instance matrices. _hideAll() parks every boulder at y=-500 before
+    // the first render, so the cached bounds sit far offscreen; once trigger() moves
+    // boulders to real positions, update() refreshes matrices but not the bounds, so
+    // the whole mesh could be culled — leaving burial/warnings from invisible boulders.
+    // Only 120 instances, all near the player when active, so just never cull.
+    this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
     
     // Hide initially
