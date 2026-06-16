@@ -197,10 +197,26 @@ function updateUserBestTime(userId, time) {
       return hasStoredBest ? Math.min(storedBest, time) : time;
     })
       .then(authoritativeBest => {
-        // A successful sync means connectivity is back: cancel any pending retry and
-        // reset the backoff so a future outage starts fresh.
-        clearBestTimeRetry();
-        retryAttempts = 0;
+        // Only treat this as "the local best is synced" if the value we just committed
+        // still covers the CURRENT local best. The retry state is global, so an older
+        // sync resolving here must not cancel a retry armed for a newer, faster finish
+        // that hit a transient error while this one was in flight — otherwise the faster
+        // time would be stranded. (The pending retry re-reads localStorage on fire, so a
+        // single retry already covers the latest best; we just must not clear it early.)
+        let localBest = null;
+        try {
+          const stored = localStorage.getItem('snowgliderBestTime');
+          localBest = stored ? parseFloat(stored) : null;
+        } catch (e) {
+          console.warn("Unable to read local best time after sync:", e);
+        }
+        const coversLocalBest = typeof localBest !== 'number' || isNaN(localBest) || authoritativeBest <= localBest;
+        if (coversLocalBest) {
+          // Connectivity is back and the current best is synced: cancel any pending
+          // retry and reset the backoff so a future outage starts fresh.
+          clearBestTimeRetry();
+          retryAttempts = 0;
+        }
         console.log(`User best for ${userId} is ${authoritativeBest} (this run: ${time})`);
         // Update the global leaderboard with the AUTHORITATIVE best, in a SEPARATE
         // transaction. Keeping it out of the personal-best transaction means a

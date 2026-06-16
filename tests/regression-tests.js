@@ -503,6 +503,45 @@ runTest('Unavailable Best-Time Sync Retries Via Backoff Timer And Online Event',
   assertEquals(timer === null && onlineHandler === null, true, "Pending retry cleared after success");
 });
 
+runTest('Older Sync Success Does Not Cancel A Newer Best Retry', () => {
+  // Models scores.js success handler: the retry state is global, so when two syncs
+  // overlap, an OLDER sync resolving must not clear a retry armed for a NEWER, faster
+  // best. It only clears when the synced authoritative value still covers the current
+  // local best (authoritativeBest <= localBest).
+  let localBest = null;
+  let retryPending = false;
+
+  function onSyncSuccess(authoritativeBest) {
+    const hasLocal = typeof localBest === 'number' && !isNaN(localBest);
+    const coversLocalBest = !hasLocal || authoritativeBest <= localBest;
+    if (coversLocalBest) {
+      retryPending = false; // clearBestTimeRetry()
+    }
+  }
+
+  // A new faster finish (18.0) updated localStorage and then hit a transient error,
+  // arming a retry for 18.0.
+  localBest = 18.0;
+  retryPending = true;
+
+  // An older in-flight sync (for 19.43) now resolves successfully. It must NOT clear
+  // the retry, because 19.43 does not cover the newer local best of 18.0.
+  onSyncSuccess(19.43);
+  assertEquals(retryPending, true,
+    "Older/slower sync success must not cancel the retry for a newer faster best");
+
+  // When a sync that actually covers the current local best resolves, the retry clears.
+  onSyncSuccess(18.0);
+  assertEquals(retryPending, false,
+    "Sync that covers the current local best should clear the pending retry");
+
+  // Syncing a value faster than the local best (e.g. another device's best) also covers it.
+  localBest = 18.0; retryPending = true;
+  onSyncSuccess(14.0);
+  assertEquals(retryPending, false,
+    "A synced value faster than the local best also covers it and clears the retry");
+});
+
 // Test 4: Snow Splash Effect Interference
 // Verifies that snow splash effects don't interfere with snowman position
 runTest('Snow Splash Effect Interference', () => {
