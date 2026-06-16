@@ -40,35 +40,15 @@ declare global {
   const Howl: any;
   const Howler: any;
 
-  // Shared injected functions (see ARCHITECTURE.md §3 global namespace / §4 seams).
-  // NOTE: the bare `getTerrainHeight` global is a top-level `function` in
-  // src/trees.js, and `resetSnowman`/`updateSnowman` are top-level functions in
-  // src/snowman.js, so those (now @ts-checked) files provide them — declaring them
-  // here too would be a TS2451 redeclare. `TerrainHeightFn` (above) is retained as
-  // a domain type for Phase 3 strictNullChecks annotations.
-  const showGameOver: (...args: any[]) => any;
-  const updateCamera: (...args: any[]) => any;
-
-  // Shared mutable game state (writable globals in eslint.config.js).
-  // NOTE: these are top-level `const`/`let` in src/snowglider.js, so they become
-  // real script-globals once that file is @ts-checked (Phase 3, last) — at which
-  // point these entries must be removed to avoid TS2451 (same rule as namespaces).
-  // Types here mirror the ACTUAL shapes in snowglider.js, not the guide's example:
-  // `velocity`/`pos` are plain `{x,z(,y)}` objects, NOT THREE.Vector3.
-  let scene: THREE_NS.Scene;
-  let snowman: THREE_NS.Object3D;
-  let velocity: { x: number; z: number; y?: number };
-  let pos: { x: number; z: number; y: number };
-  let camera: THREE_NS.PerspectiveCamera;
-  let cameraManager: any;
-  let avalanche: any;
-  let avalancheTriggered: boolean;
-  let bestTime: number;
-  let gameActive: boolean;
-  let isInAir: boolean;
-  let lastAvalancheZ: number;
-  let startTime: number;
-  let verticalVelocity: number;
+  // NOTE: snowglider.js (the orchestrator) is now @ts-checked too, so the shared
+  // injected functions (`showGameOver`, `updateCamera`) and ALL the shared mutable
+  // game state (`scene`, `snowman`, `velocity`, `pos`, `camera`, `cameraManager`,
+  // `avalanche`, `gameActive`, `isInAir`, `startTime`, `bestTime`, …) are real
+  // top-level `const`/`let` script-globals in src/snowglider.js — declaring any of
+  // them here would be a TS2451 redeclare, so they are intentionally absent.
+  // `getTerrainHeight`/`resetSnowman`/`updateSnowman` likewise live in trees.js /
+  // snowman.js. The Phase 3 step is to replace these ad-hoc globals with a typed
+  // GameState object; `TerrainHeightFn` (above) is kept for that work.
 
   // Classic scripts publish their namespaces onto window; allow those writes.
   // NOTE: per ARCHITECTURE.md §3, `Snow` and `Camera` are *bare globals* and are
@@ -103,6 +83,9 @@ declare global {
     testTreeJumpingCheck?: boolean;
     testCollisionDetected?: boolean;
     _treeCheckLogged?: boolean;
+    _testShowGameOverOverride?: (...args: any[]) => unknown;
+    // Firebase modular SDK handle wired up in index.html (analytics, etc.).
+    firebaseModules?: any;
   }
 }
 
