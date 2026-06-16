@@ -218,7 +218,32 @@ let turnAmplitude = 3.0;
 
 // Add timer and best time tracking
 let startTime = 0;
-let bestTime = localStorage.getItem('snowgliderBestTime') ? parseFloat(localStorage.getItem('snowgliderBestTime')) : Infinity;
+const MIN_VALID_SCORE_TIME = 4;
+
+function isValidScoreTime(time) {
+  if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
+    return window.ScoresModule.isValidScoreTime(time);
+  }
+  return typeof time === 'number' && Number.isFinite(time) && time >= MIN_VALID_SCORE_TIME;
+}
+
+function readStoredBestTime() {
+  const storedBestTime = localStorage.getItem('snowgliderBestTime');
+  if (!storedBestTime) {
+    return Infinity;
+  }
+
+  const parsedBestTime = parseFloat(storedBestTime);
+  if (isValidScoreTime(parsedBestTime)) {
+    return parsedBestTime;
+  }
+
+  console.warn("Ignoring invalid stored best time:", storedBestTime);
+  localStorage.removeItem('snowgliderBestTime');
+  return Infinity;
+}
+
+let bestTime = readStoredBestTime();
 
 // Initialize game stats functionality
 function initializeGameStats() {
@@ -629,6 +654,7 @@ function showGameOver(reason) {
   // would be saved as a new record while the course screen sees elapsed >= previousBest,
   // skips persisting the new ghost/splits, and shows a time that disagrees with the score.
   const finishTime = (performance.now() - startTime) / 1000;
+  const hasValidFinishTime = isValidScoreTime(finishTime);
 
   // Remove game-active class from body for styling
   document.body.classList.remove('game-active');
@@ -656,7 +682,7 @@ function showGameOver(reason) {
   }
   
   // Only update times if player reached the end successfully
-  if (reason === "You reached the end of the slope!") {
+  if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
     const currentTime = finishTime;
     const isNewBestTime = currentTime < bestTime;
     const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
@@ -713,6 +739,12 @@ function showGameOver(reason) {
     } catch (e) {
       console.log("Analytics tracking skipped:", e.message);
     }
+  } else if (reason === "You reached the end of the slope!") {
+    console.warn("Finish reached with invalid elapsed time; score not recorded:", finishTime);
+    bestTimeDisplay.textContent = bestTime !== Infinity ?
+      `Best Time: ${bestTime.toFixed(2)}s` :
+      'No best time yet';
+    bestTimeDisplay.style.color = 'white';
   } else {
     // For failures (tree collision, falling, etc.), don't record or update best time
     bestTimeDisplay.textContent = bestTime !== Infinity ? `Best Time: ${bestTime.toFixed(2)}s` : 'No best time yet';
@@ -753,7 +785,7 @@ function showGameOver(reason) {
     const staleResult = document.getElementById('courseResult');
     if (staleResult && staleResult.parentNode) staleResult.parentNode.removeChild(staleResult);
     
-    if (reason === "You reached the end of the slope!") {
+    if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
       try {
         const panel = CourseModule.onFinish(finishTime, previousBest);
         if (panel) gameOverOverlay.insertBefore(panel, restartButton);

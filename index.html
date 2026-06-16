@@ -904,10 +904,20 @@
           console.log("ScoresModule: setCurrentUser called in local mode"); 
         },
         recordScore: function(time) {
+          if (typeof time !== 'number' || !Number.isFinite(time) || time < 4) {
+            console.warn("Skipping local score record (Invalid time value):", time);
+            return;
+          }
           // Store in localStorage
           const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
           const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
-          const isNewPersonalBest = localBestTime === null || time < localBestTime;
+          const hasValidLocalBest = typeof localBestTime === 'number' &&
+            Number.isFinite(localBestTime) && localBestTime >= 4;
+          if (localBestTimeStr && !hasValidLocalBest) {
+            console.warn("Ignoring invalid local best time:", localBestTimeStr);
+            localStorage.removeItem('snowgliderBestTime');
+          }
+          const isNewPersonalBest = !hasValidLocalBest || time < localBestTime;
 
           if (isNewPersonalBest) {
             localStorage.setItem('snowgliderBestTime', time.toString());
@@ -930,7 +940,10 @@
         updateLeaderboard: function(userId, time) { 
           console.log("updateLeaderboard not available in local file mode"); 
         },
-        isFirestoreAvailable: function() { return false; }
+        isFirestoreAvailable: function() { return false; },
+        isValidScoreTime: function(time) {
+          return typeof time === 'number' && Number.isFinite(time) && time >= 4;
+        }
       };
 
       // Do not include the module scripts at all in file:// mode
@@ -1162,6 +1175,10 @@
                     }
                 },
                 recordScore: function(time) {
+                    if (typeof time !== 'number' || !Number.isFinite(time) || time < 4) {
+                        console.warn("Skipping local score record (Invalid time value):", time);
+                        return;
+                    }
                     // Forward to ScoresModule which we've already defined above
                     if (window.ScoresModule && typeof window.ScoresModule.recordScore === 'function') {
                         window.ScoresModule.recordScore(time);

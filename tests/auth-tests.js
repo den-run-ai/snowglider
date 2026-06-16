@@ -76,7 +76,8 @@ const mocks = {
     setCurrentUser: () => {},
     updateUserBestTime: () => {},
     displayLeaderboard: () => {},
-    recordScore: () => {}
+    recordScore: () => {},
+    isValidScoreTime: time => typeof time === 'number' && Number.isFinite(time) && time >= 4
   }
 };
 
