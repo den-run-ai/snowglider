@@ -29,9 +29,9 @@ declare global {
   //   - effects.js:   @ts-checked -> `EffectsModule` lives in src/effects.js, not here.
   //   - snow.js:      @ts-checked -> `Snow` + `Utils` live in src/snow.js, not here.
   //   - controls.js:  @ts-checked -> `Controls` lives in src/controls.js, not here.
+  //   - mountains.js: @ts-checked -> `Mountains` lives in src/mountains.js, not here.
   const AudioModule: any;
   const AuthModule: any;
-  const Mountains: any;
   const ScoresModule: any;
   const Snowman: any;
 
