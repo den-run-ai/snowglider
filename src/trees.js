@@ -1,3 +1,4 @@
+// @ts-check
 // trees.js - Tree creation and management for snowglider
 
 // Create a more realistic tree with visible branches and variability

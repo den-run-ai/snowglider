@@ -24,6 +24,8 @@ declare global {
   //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
   //   - course.js:    @ts-checked -> `CourseModule` lives in src/course.js, not here.
   //   - camera.js:    @ts-checked -> `Camera` (class) lives in src/camera.js, not here.
+  //   - trees.js:     @ts-checked -> `Trees` + `getTerrainHeight`/`getTerrainGradient`
+  //                   (top-level fns) live in src/trees.js, not here.
   const AudioModule: any;
   const AuthModule: any;
   const Controls: any;
@@ -32,7 +34,6 @@ declare global {
   const ScoresModule: any;
   const Snow: any;
   const Snowman: any;
-  const Trees: any;
   const Utils: any;
 
   // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
@@ -40,7 +41,10 @@ declare global {
   const Howler: any;
 
   // Shared injected functions (see ARCHITECTURE.md §3 global namespace / §4 seams).
-  const getTerrainHeight: TerrainHeightFn;
+  // NOTE: the bare `getTerrainHeight` global is a top-level `function` in
+  // src/trees.js, so it's provided by that (now @ts-checked) file — declaring it
+  // here too would be a TS2451 redeclare. `TerrainHeightFn` (above) is retained as
+  // a domain type for Phase 3 strictNullChecks annotations.
   const resetSnowman: (...args: any[]) => any;
   const showGameOver: (...args: any[]) => any;
   const updateCamera: (...args: any[]) => any;
@@ -84,6 +88,10 @@ declare global {
     Trees: any;
     Utils: any;
     FIREBASE_MANUAL_INIT?: boolean;
+    // Cross-module/test handles published by snowglider.js (ARCHITECTURE.md §3).
+    terrainMesh?: any;
+    treePositions?: any;
+    isTestMode?: boolean;
   }
 }
 
