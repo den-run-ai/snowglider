@@ -443,6 +443,45 @@ runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
     "A rejected leaderboard write stays isolated from the personal-best write");
 });
 
+runTest('Offline Finish Defers The Leaderboard Write Until The User Write Settles', () => {
+  // Models scores.js updateUserBestTime: the leaderboard reconciliation is CHAINED onto
+  // the user-doc setDoc promise (userWrite.catch(...).then(() => updateLeaderboard())),
+  // not fired in parallel. During an offline finish setDoc stays queued until reconnect,
+  // so the leaderboard read+write must NOT run until that write settles - otherwise an
+  // immediate read against an uncached leaderboard doc would reject and the backfill
+  // would be dropped. This locks in that ordering so the parallel-call regression can't
+  // silently return.
+  const order = [];
+  // A controllable stand-in for the offline setDoc promise: it stays pending until
+  // settle() is called (i.e. until the SDK flushes the queued write on reconnect).
+  function deferredWrite() {
+    let cb = null;
+    const p = {
+      catch: () => p,                       // no rejection in the offline-resolve path
+      then: (fn) => { cb = fn; return p; },
+      settle: () => { if (cb) cb(); }
+    };
+    return p;
+  }
+  function updateLeaderboard() { order.push('leaderboard'); }
+  function updateUserBestTime() {
+    order.push('userWriteStart');
+    const userWrite = deferredWrite(); // offline: queued, not yet settled
+    userWrite
+      .catch(() => order.push('writeError'))
+      .then(() => updateLeaderboard());
+    return userWrite;
+  }
+
+  const userWrite = updateUserBestTime();
+  assertEquals(order.join(','), 'userWriteStart',
+    "Offline: leaderboard write must NOT run before the queued user write settles");
+
+  userWrite.settle(); // connection returns; the queued setDoc flushes
+  assertEquals(order.join(','), 'userWriteStart,leaderboard',
+    "On reconnect the leaderboard write runs once the user write settles");
+});
+
 // Test 4: Snow Splash Effect Interference
 // Verifies that snow splash effects don't interfere with snowman position
 runTest('Snow Splash Effect Interference', () => {

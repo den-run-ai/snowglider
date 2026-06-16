@@ -123,24 +123,31 @@ function updateUserBestTime(userId, time) {
         // slower than a best already stored from another device/tab.
         const authoritativeBest = hasStoredBest ? Math.min(storedBest, time) : time;
 
+        let userWrite;
         if (!hasStoredBest || time <= storedBest) {
           console.log(`Updating best time for user ${userId} to ${time}`);
-          setDoc(userDocRef, {
+          userWrite = setDoc(userDocRef, {
             bestTime: time,
             updatedAt: serverTimestamp() // Track when the best time was updated
-          }, { merge: true })
-            .then(() => console.log("Best time updated successfully in user document."))
-            .catch(error => console.warn("Best time write did not complete:", error));
+          }, { merge: true });
         } else {
           console.log(`New time (${time}) is not better than stored best (${storedBest}). User doc unchanged.`);
+          userWrite = Promise.resolve();
         }
 
-        // Reconcile the leaderboard toward the authoritative best in a SEPARATE write,
-        // so a leaderboard-only permission/rule failure can't abort the personal-best
-        // sync above. Passing authoritativeBest (not the raw run time) means a slower
-        // local run never downgrades the board, and a missing entry — the original bug —
-        // gets backfilled even when the user doc already held the best.
-        updateLeaderboard(userId, authoritativeBest);
+        // Reconcile the leaderboard toward the authoritative best AFTER the user write
+        // settles, in a SEPARATE write so a leaderboard-only permission/rule failure
+        // can't abort the personal-best sync above. Chaining onto the setDoc promise
+        // (rather than firing in parallel) is what makes an offline finish durable: when
+        // setDoc stays queued until reconnect, the leaderboard read+write run only once
+        // we are back online, so the backfill rides the SDK's own offline queue instead
+        // of being dropped by an immediate read against an uncached leaderboard doc. We
+        // still reconcile when the user write failed or was skipped, so a missing entry —
+        // the original bug — is backfilled, and passing authoritativeBest (not the raw
+        // run time) means a slower local run never downgrades the board.
+        userWrite
+          .catch(error => console.warn("Best time write did not complete:", error))
+          .then(() => updateLeaderboard(userId, authoritativeBest));
       })
       .catch(error => {
         // getDoc can reject when offline with nothing cached (or on a permission/rules
