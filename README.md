@@ -86,7 +86,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 The game automatically detects mobile devices and enables touch controls with visual indicators for easier gameplay.
 
 ## Testing
-The game includes a comprehensive testing framework. Run tests by appending URL parameters:
+Run the Node suite with `npm test`. In-browser suites run by appending a URL parameter:
 - `?test=true` - Run basic gameplay tests
 - `?test=trees` - Run tree collision tests
 - `?test=camera` - Run camera tracking tests
@@ -96,51 +96,7 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=regression` - Run regression tests
 - `?test=unified` - Run all tests
 
-### Audio Tests
-The audio test suite (`tests/audio-tests.js`) verifies the native HTML5 `<audio>` integration (Howler.js was removed — see [`CHANGELOG.md`](CHANGELOG.md)):
-- **Module init & status** - `AudioModule.init()`/`isEnabled()`/`getStatus()` and the default track
-- **Controls** - mute/unmute toggle and volume control
-- **Backward-compatibility stubs** - the previous Howler.js API (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …) is retained as no-ops/Promises
-- **UI** - the mute button is created in the DOM with the correct icon
-
-Run audio tests with: `open index.html?test=audio` or as part of the unified suite with `?test=unified`
-
-## Recent Improvements
-- **Added avalanche system** - Snow boulders triggered when traveling far downhill, with physics simulation and burial detection (game over on collision)
-- Enhanced UI with collapsible game controls panel matching the game stats panel behavior
-- Improved touch interactions with consistent left/right swipe gestures for collapsing panels
-- Fixed collapsible panels to ensure they work properly across all device types
-- **Simplified audio to native HTML5** (Howler.js removed; see the audio history in [`CHANGELOG.md`](CHANGELOG.md))
-- Added comprehensive audio test suite covering loading, playback, controls, and context management
-- Implemented audio controls with mute/unmute functionality and track selection
-- Added audio preference storage in localStorage
-- Enhanced mobile audio unlock patterns with retry UI for iOS silent switch detection
-- Split user scoring and leaderboard functionality into separate scores.js module
-- Improved code organization with clearer separation of concerns
-- Maintained backward compatibility with existing interfaces
-- Enhanced error handling and service availability management
-- Fixed mobile authentication in Chrome with improved popup handling
-- Enhanced error recovery for popup blocking and user cancellation
-- Added optimized authentication flow for mobile browsers
-- Implemented detailed debug mode for troubleshooting auth issues (add `?debug=auth` to URL)
-- Added responsive visual feedback for authentication actions on mobile
-- Added recovery mechanism for authentication errors with automatic retry options
-- Added mobile-friendly touch controls with visual indicators for touchscreen devices
-- Implemented adaptive control layout that adjusts to screen size and orientation
-- Added automatic detection of mobile devices to enable appropriate controls
-- Added Firebase authentication and user account system
-- Implemented global leaderboard with top 10 player times
-- Automatic score syncing between local storage and Firebase
-- Converted terrain from groomed ski run to natural backcountry mountain
-- Distributed trees and rocks throughout the entire mountain terrain
-- Enhanced downhill gradient for consistent skiing experience
-- Renamed utils.js to snow.js for better clarity of its purpose
-- Refactored tree functionality into separate trees.js module
-- Separated snowman functionality into its own module
-- Fixed tree collision detection in extended terrain areas
-- Improved camera tracking system with smooth transitions
-- Added comprehensive test hooks for verifying game mechanics
-- Enhanced snow particle effects with improved visuals
+See [`tests/README.md`](tests/README.md) for the full test matrix, the verification harness, and per-suite details.
 
 ## Development
 
