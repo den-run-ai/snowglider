@@ -353,16 +353,15 @@ runTest('Leaderboard Backfills Stored Best On Every Authenticated Finish', () =>
 });
 
 runTest('Leaderboard Write Cannot Be Clobbered By A Slower Concurrent Backfill', () => {
-  // Mirror of scores.js updateUserBestTime transaction logic: given the authoritative
-  // (in-transaction) stored values, decide what gets written. A transaction re-reads
-  // these values at commit time, so a slower backfill that started against an old best
-  // must not overwrite a faster value committed in the meantime.
+  // Mirror of scores.js compare-and-write logic. The user best and the leaderboard
+  // are written in SEPARATE transactions, each re-reading its own authoritative value
+  // at commit time, so a slower backfill that started against an old value must not
+  // overwrite a faster value committed in the meantime. The two decisions are
+  // independent (a faster leaderboard entry shouldn't block a user-best refresh, etc).
   function resolveWrite(time, storedBest, leaderboardBest) {
-    if (typeof storedBest === 'number' && time > storedBest) {
-      return { writeUser: false, writeLeaderboard: false };
-    }
+    const writeUser = typeof storedBest !== 'number' || time <= storedBest;
     const writeLeaderboard = typeof leaderboardBest !== 'number' || time <= leaderboardBest;
-    return { writeUser: true, writeLeaderboard };
+    return { writeUser, writeLeaderboard };
   }
 
   // Backfill of a stuck best: user doc has 19.43 but the leaderboard entry is missing.
@@ -391,6 +390,38 @@ runTest('Leaderboard Write Cannot Be Clobbered By A Slower Concurrent Backfill',
   r = resolveWrite(19.0, 19.0, 17.0);
   assertEquals(r.writeUser, true, "Equal-to-stored best may refresh the user doc");
   assertEquals(r.writeLeaderboard, false, "Should not replace a faster leaderboard entry");
+});
+
+runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
+  // Models scores.js: updateUserBestTime writes the user best in its own transaction
+  // and calls updateLeaderboard as a SEPARATE transaction. If Firestore rules allow
+  // users/{uid} but reject leaderboard/{uid}, the leaderboard write must fail in
+  // isolation without aborting the personal-best sync.
+  let userBestWritten = false;
+  let leaderboardWritten = false;
+
+  function writeUserBest() {
+    userBestWritten = true; // committed in its own transaction
+  }
+  function updateLeaderboard() {
+    // Separate transaction; rejected by security rules.
+    throw new Error('permission-denied');
+  }
+  function updateUserBestTime() {
+    writeUserBest();
+    try {
+      updateLeaderboard();
+      leaderboardWritten = true;
+    } catch (e) {
+      // Isolated: leaderboard unavailable, but the personal best already synced.
+    }
+  }
+
+  updateUserBestTime();
+  assertEquals(userBestWritten, true,
+    "Personal best must sync even when the leaderboard write is rejected");
+  assertEquals(leaderboardWritten, false,
+    "A rejected leaderboard write stays isolated from the personal-best write");
 });
 
 // Test 4: Snow Splash Effect Interference

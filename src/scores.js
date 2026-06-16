@@ -108,59 +108,50 @@ function updateUserBestTime(userId, time) {
 
   try {
     const userDocRef = doc(firestore, 'users', userId);
-    const leaderboardDocRef = doc(firestore, 'leaderboard', userId);
 
-    // Compare-and-write the user best time and leaderboard entry atomically.
-    // recordScore now syncs the stored best on every authenticated finish, so a
-    // slower backfill could otherwise read an old value and then overwrite a faster
-    // time written by a concurrent run or tab (a non-transactional read+write race).
-    // A transaction re-reads inside the commit, so a stale (slower) value can never
-    // clobber a better one, and the leaderboard stays consistent with the user doc.
+    // Personal best — atomic compare-and-write on the USER document only.
+    // The leaderboard is updated separately (updateLeaderboard below) and NOT in
+    // this transaction, so that if Firestore rules allow users/{uid} writes but
+    // reject leaderboard/{uid}, the authenticated user's personal best still syncs
+    // even when the global leaderboard write is denied. recordScore now syncs the
+    // stored best on every finish, so the transaction also guards the race: it
+    // re-reads at commit time, so a slower/stale value can never overwrite a faster
+    // stored best written by a concurrent run or tab.
     runTransaction(firestore, async (transaction) => {
       const userSnap = await transaction.get(userDocRef);
-      const leaderboardSnap = await transaction.get(leaderboardDocRef);
-
       const storedBest = userSnap.exists() ? userSnap.data().bestTime : null;
-      // Skip entirely when the authoritative stored best is already faster.
+      // Skip when the authoritative stored best is already faster.
       if (typeof storedBest === 'number' && time > storedBest) {
         return false;
       }
-
       transaction.set(userDocRef, {
         bestTime: time,
         updatedAt: serverTimestamp() // Track when the best time was updated
       }, { merge: true });
-
-      // Mirror to the leaderboard, but never replace a faster existing entry.
-      const leaderboardBest = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
-      if (typeof leaderboardBest !== 'number' || time <= leaderboardBest) {
-        transaction.set(leaderboardDocRef, {
-          user: userDocRef, // Store a reference to the user document
-          time: time,
-          achievedAt: serverTimestamp() // Record when this score was achieved/updated
-        });
-      }
       return true;
     })
       .then(updated => {
-        if (updated) {
-          console.log(`Best time + leaderboard updated for user ${userId} to ${time}`);
-        } else {
-          console.log(`New time (${time}) is not better than existing best time. No update needed.`);
-        }
+        console.log(updated
+          ? `Best time updated for user ${userId} to ${time}`
+          : `New time (${time}) is not better than existing best time. No update needed.`);
       })
       .catch(error => {
-        console.error("Error updating best time/leaderboard:", error);
+        console.error("Error updating user best time:", error);
         // Only disable Firestore for connectivity issues, not permissions.
         if (error.code === 'unavailable' || error.code === 'failed-precondition') {
           console.warn("Firestore became unavailable during best time update. Clearing local instance.");
           firestore = null;
           displayLeaderboard();
         } else if (error.code === 'permission-denied') {
-          console.warn("Permission issues updating best time/leaderboard. Continuing with limited functionality.");
+          console.warn("Permission issues updating user best time. Continuing with limited functionality.");
           // Don't disable Firestore entirely for permission issues.
         }
       });
+
+    // Update the global leaderboard independently. Keeping it out of the personal
+    // best transaction means a leaderboard-only permission/rule failure cannot abort
+    // the user best-time write above. updateLeaderboard is itself atomic.
+    updateLeaderboard(userId, time);
   } catch (error) {
     console.error("Unexpected error in updateUserBestTime:", error);
     firestore = null; // Assume Firestore is problematic
@@ -169,12 +160,12 @@ function updateUserBestTime(userId, time) {
 }
 
 /**
- * Update global leaderboard (standalone, non-transactional helper).
+ * Update the global leaderboard entry for a user (atomic compare-and-write).
  *
- * Retained for backward compatibility on the exported ScoresModule API. The
- * primary finish path no longer calls this — updateUserBestTime writes the
- * leaderboard atomically alongside the user best time to avoid stale overwrites.
- * Prefer updateUserBestTime for any new call site.
+ * Runs in its OWN Firestore transaction, separate from the user best-time write in
+ * updateUserBestTime, so a leaderboard-only permission/rule failure does not abort
+ * the personal-best sync. The transaction re-reads at commit time, so a slower/stale
+ * value can never overwrite a faster existing entry written by a concurrent run/tab.
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
@@ -188,10 +179,11 @@ function updateLeaderboard(userId, time) {
     }
     return;
   }
-  // If AuthModule thinks it's available, but we don't have it locally, log warning.
-  // The operation might fail, and the catch block will handle setting local firestore to null.
+  // If AuthModule thinks it's available, but we don't have it locally, bail out;
+  // doc() needs a valid Firestore instance.
   if (!firestore) {
-      console.warn("updateLeaderboard: AuthModule reports Firestore available, but local instance is null. Proceeding cautiously.");
+      console.warn("updateLeaderboard: AuthModule reports Firestore available, but local instance is null. Skipping.");
+      return;
   }
 
   try {
@@ -201,14 +193,24 @@ function updateLeaderboard(userId, time) {
     const leaderboardDocRef = doc(firestore, 'leaderboard', userId);
 
     console.log(`Updating leaderboard entry for user ${userId} with time ${time}`);
-    // Use setDoc to create or overwrite the user's entry in the leaderboard
-    setDoc(leaderboardDocRef, {
-      user: userDocRef, // Store a reference to the user document
-      time: time,
-      achievedAt: serverTimestamp() // Record when this score was achieved/updated
+    runTransaction(firestore, async (transaction) => {
+      const leaderboardSnap = await transaction.get(leaderboardDocRef);
+      const leaderboardBest = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
+      // Never replace a faster existing entry.
+      if (typeof leaderboardBest === 'number' && time > leaderboardBest) {
+        return false;
+      }
+      transaction.set(leaderboardDocRef, {
+        user: userDocRef, // Store a reference to the user document
+        time: time,
+        achievedAt: serverTimestamp() // Record when this score was achieved/updated
+      });
+      return true;
     })
-    .then(() => {
-      console.log("Leaderboard updated successfully for user:", userId);
+    .then(updated => {
+      console.log(updated
+        ? `Leaderboard updated successfully for user ${userId} with time ${time}`
+        : `Leaderboard already has a faster entry for user ${userId}. No update needed.`);
     })
     .catch(error => {
       console.error("Error updating leaderboard:", error);
