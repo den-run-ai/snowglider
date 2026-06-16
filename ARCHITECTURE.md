@@ -65,14 +65,16 @@ present (see [`tests/README.md`](tests/README.md)).
 
 ## 3. The global namespace
 
-Every module exports a single global. Two styles coexist; match the file you edit.
+Each module exposes a single top-level symbol. Most attach it to `window`; two are
+**bare globals** (see the note after the table). Two styles coexist; match the file
+you edit.
 
-| Global | File | Style | Responsibility |
+| Symbol | File | Style | Responsibility |
 |--------|------|-------|----------------|
 | `window.Mountains` | `mountains.js` | object + fns | Terrain height field, gradient, mesh, rocks, `SimplexNoise` |
 | `window.Trees` | `trees.js` | object + fns | Tree meshes + placement; returns `treePositions` |
-| `window.Snow` (`window.Utils` alias) | `snow.js` | object + fns | Snowflakes + ski snow-splash particles |
-| `window.Camera` | `camera.js` | `class Camera` | Chase/orbit camera positioning & look-ahead |
+| `Snow` (bare global; on `window` only as `window.Utils`) | `snow.js` | object + fns | Snowflakes + ski snow-splash particles |
+| `Camera` (bare global; not on `window`) | `camera.js` | `class Camera` | Chase/orbit camera positioning & look-ahead |
 | `window.Snowman` | `snowman.js` | object + fns | Snowman model, `updateSnowman` physics, test hooks |
 | `window.AudioModule` | `audio.js` | IIFE | Native HTML5 background music (gated by `AUDIO_ENABLED`) |
 | `window.Controls` | `controls.js` | object + fns | Keyboard + touch input → shared `controls` state |
@@ -81,6 +83,13 @@ Every module exports a single global. Two styles coexist; match the file you edi
 | `window.CourseModule` | `course.js` | IIFE | Gates, split timing, ghost racing, result screen |
 | `window.AuthModule` | `auth.js` | ES module | Firebase auth, user UI, Firestore lifecycle |
 | `window.ScoresModule` | `scores.js` | ES module | Best-time recording, leaderboard, Firestore writes |
+
+> **Bare globals vs. `window` properties.** A classic-script top-level `const`/`class`
+> (e.g. `Snow`, `Camera`) is shared across scripts by its bare name but is **not** a
+> property of `window` — `window.Snow` and `window.Camera` are `undefined`. Only the
+> explicit `window.* =` assignments above (plus `window.Utils`, the legacy alias for
+> `Snow`) are real `window` properties. Reference those two as bare `Snow`/`Camera`,
+> the way `snowglider.js` does (`new Camera(scene)`, `Snow.createTerrain(...)`).
 
 `snowglider.js` itself exports several functions on `window` for cross-module and
 test use: `resetSnowman`, `restartGame`, `showGameOver`, `toggleCameraView`,
