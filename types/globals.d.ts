@@ -28,9 +28,9 @@ declare global {
   //                   (top-level fns) live in src/trees.js, not here.
   //   - effects.js:   @ts-checked -> `EffectsModule` lives in src/effects.js, not here.
   //   - snow.js:      @ts-checked -> `Snow` + `Utils` live in src/snow.js, not here.
+  //   - controls.js:  @ts-checked -> `Controls` lives in src/controls.js, not here.
   const AudioModule: any;
   const AuthModule: any;
-  const Controls: any;
   const Mountains: any;
   const ScoresModule: any;
   const Snowman: any;
@@ -91,6 +91,12 @@ declare global {
     terrainMesh?: any;
     treePositions?: any;
     isTestMode?: boolean;
+    // Lifecycle/input callbacks snowglider.js publishes for controls.js + buttons.
+    toggleCameraView?: () => unknown;
+    resetSnowman?: (...args: any[]) => unknown;
+    restartGame?: () => unknown;
+    showGameOver?: (...args: any[]) => unknown;
+    initializeGameWithAudio?: (...args: any[]) => unknown;
   }
 }
 
