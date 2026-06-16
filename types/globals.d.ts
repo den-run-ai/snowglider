@@ -32,7 +32,10 @@ declare global {
   //   - mountains.js: @ts-checked -> `Mountains` lives in src/mountains.js, not here.
   //   - snowman.js:   @ts-checked -> `Snowman` + `resetSnowman`/`updateSnowman`
   //                   (top-level fns) live in src/snowman.js, not here.
-  const AudioModule: any;
+  //   - audio.js:     @ts-checked -> `AudioModule` lives in src/audio.js, not here.
+  // AuthModule/ScoresModule stay: auth.js/scores.js are ES modules (not script
+  // globals), so they don't define these as bare globals — kept loose for any
+  // consumer that reads them by bare name.
   const AuthModule: any;
   const ScoresModule: any;
 

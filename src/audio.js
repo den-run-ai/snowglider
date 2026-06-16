@@ -1,3 +1,4 @@
+// @ts-check
 // audio.js - Radically simplified audio using native HTML5 Audio
 // ~100 lines max, single track, minimal state management
 //
@@ -12,6 +13,23 @@
 // To disable: Set AUDIO_ENABLED = false
 
 const AUDIO_ENABLED = true;
+
+/**
+ * Status object returned by getStatus(). The native HTML5 implementation only
+ * populates the first fields; bufferLoaded/contextReady/contextState are legacy
+ * (Howler/AudioContext-era) fields that callers (snowglider.js checkAudioStatus)
+ * still probe — kept optional so those compat checks type-check and read as
+ * undefined at runtime.
+ * @typedef {Object} AudioStatus
+ * @property {boolean} initialized
+ * @property {boolean} disabled
+ * @property {boolean} muted
+ * @property {boolean} playing
+ * @property {string} [currentTrack]
+ * @property {boolean} [bufferLoaded]
+ * @property {boolean} [contextReady]
+ * @property {string} [contextState]
+ */
 
 const AudioModule = (function() {
   let audio = null;
@@ -30,7 +48,7 @@ const AudioModule = (function() {
   
   // Save mute preference
   function savePreferences() {
-    localStorage.setItem('snowgliderMuted', muted);
+    localStorage.setItem('snowgliderMuted', String(muted));
   }
   
   // Create the audio element
@@ -42,7 +60,8 @@ const AudioModule = (function() {
     audio.volume = 0.5;
     
     audio.addEventListener('error', (e) => {
-      console.warn('[Audio] Load error:', e.target.error?.message || 'unknown');
+      const mediaEl = /** @type {HTMLMediaElement} */ (e.target);
+      console.warn('[Audio] Load error:', mediaEl?.error?.message || 'unknown');
     });
     
     return audio;
@@ -78,7 +97,9 @@ const AudioModule = (function() {
   
   // Public API
   return {
-    init: function() {
+    // _scene accepted (and ignored) for backward-compat with the old Three.js
+    // Audio API surface; the native HTML5 implementation needs no scene.
+    init: function(_scene) {
       if (!AUDIO_ENABLED) return { initialized: false, disabled: true };
       if (initialized) return { initialized: true };
       
@@ -140,6 +161,7 @@ const AudioModule = (function() {
       }
     },
     
+    /** @returns {AudioStatus} */
     getStatus: function() {
       if (!AUDIO_ENABLED) {
         return { initialized: false, disabled: true, muted: true, playing: false };
@@ -162,7 +184,7 @@ const AudioModule = (function() {
     playPreloadedAudio: function() { return this.startAudio(); },
     resumeAudioContext: function() { return Promise.resolve(); },
     changeTrack: function() { return false; },
-    addAudioListener: function() {},
+    addAudioListener: function(_listener) {},
     showMessage: function(msg, duration = 3000) {
       // Keep message functionality
       const div = document.createElement('div');

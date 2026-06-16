@@ -12,8 +12,5 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.js", "types/**/*.d.ts"],
-  // src/audio.js is a not-yet-converted classic script; excluding it keeps its
-  // stub method signatures from leaking into the `AudioModule` global (which
-  // globals.d.ts intentionally types as `any` until audio.js is @ts-checked).
-  "exclude": ["node_modules", "dist", "coverage", "tests", "src/audio.js"]
+  "exclude": ["node_modules", "dist", "coverage", "tests"]
 }
