@@ -263,5 +263,5 @@ real acceptance test for this migration, the way `PHYSICS.md`'s invariant harnes
   (read the r135 → r160 entries; color management is r152, lighting default is r155,
   `useLegacyLights` removal is r165).
 - Companion plans: [`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md) (Phase 2 unblocks Stage B),
-  [`ARCHITECTURE.md`](ARCHITECTURE.md) §2 (load order), [`tests/README.md`](tests/README.md)
+  [`ARCHITECTURE.md`](ARCHITECTURE.md) §2 (load order), [`tests/README.md`](../tests/README.md)
   (where the visual smoke lives).

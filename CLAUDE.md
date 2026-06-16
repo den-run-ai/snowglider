@@ -28,6 +28,7 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
 - `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis
 - `docs/TYPESCRIPT_MIGRATION.md` - Incremental `@ts-check`/TypeScript migration plan and phase status
+- `docs/THREEJS_UPGRADE.md` - Staged three.js upgrade plan from r160 to latest
 
 ## Commands
 - Install dependencies: `npm ci`
