@@ -1,3 +1,4 @@
+// @ts-check
 // Snow.js - Utility functions for the snowman skiing game
 
 // Mountains features are now in mountains.js

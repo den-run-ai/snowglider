@@ -1,3 +1,4 @@
+// @ts-check
 // --- Import utilities ---
 // Note: In a real application, you would use: import * as Snow from './snow.js';
 // But for demonstration we assume Snow and Snowman are globally available
@@ -79,7 +80,7 @@ restartButton.style.border = 'none';
 restartButton.style.borderRadius = '8px';
 restartButton.style.cursor = 'pointer';
 restartButton.style.minWidth = '200px';
-restartButton.style.webkitTapHighlightColor = 'rgba(255, 255, 255, 0.5)';
+restartButton.style.setProperty('-webkit-tap-highlight-color', 'rgba(255, 255, 255, 0.5)');
 restartButton.style.touchAction = 'manipulation'; // Removes delay on mobile devices
 restartButton.style.userSelect = 'none';
 restartButton.addEventListener('mouseenter', () => {
@@ -383,7 +384,7 @@ cameraToggleBtn.style.backgroundColor = '#4a69bd'; // Different color from reset
 cameraToggleBtn.style.color = 'white';
 cameraToggleBtn.style.cursor = 'pointer';
 cameraToggleBtn.style.fontSize = '16px';
-cameraToggleBtn.style.webkitTapHighlightColor = 'rgba(255, 255, 255, 0.5)';
+cameraToggleBtn.style.setProperty('-webkit-tap-highlight-color', 'rgba(255, 255, 255, 0.5)');
 cameraToggleBtn.style.touchAction = 'manipulation'; // Removes delay on mobile devices
 cameraToggleBtn.style.userSelect = 'none';
 
@@ -504,7 +505,10 @@ function animate(time) {
     // Only set up test hooks if they're missing
     if (!window.testHooks) {
       console.log("Test hooks missing in animation loop, reinstalling");
-      Snowman.addTestHooks(pos, showGameOver, gameActive, Snow.getTerrainHeight);
+      // addTestHooks(pos, showGameOver, getTerrainHeight) — matches the two other
+      // call sites; the stray `gameActive` arg here was a latent bug (it landed in
+      // the getTerrainHeight slot), surfaced by the type-checker.
+      Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
     }
     
     updateSnowman(delta);
@@ -670,7 +674,7 @@ function showGameOver(reason) {
     if (canRecordScore) {
       window.AuthModule.recordScore(currentTime);
     } else if (isNewBestTime) {
-      localStorage.setItem('snowgliderBestTime', currentTime);
+      localStorage.setItem('snowgliderBestTime', String(currentTime));
     }
 
     // Show appropriate message based on time

@@ -1,4 +1,8 @@
+// @ts-check
 // controls.js - Keyboard and touch controls for SnowGlider game
+
+/** @typedef {{ x: number, y: number, width: number, height: number }} TouchRegion */
+/** @typedef {'left'|'right'|'up'|'down'|'jump'} ControlName */
 
 // Initialize controls state - used for both keyboard and touch
 const gameControls = {
@@ -10,6 +14,13 @@ const gameControls = {
 };
 
 // Touch state tracking
+/**
+ * @type {{
+ *   touches: Record<string, { x: number, y: number }>,
+ *   controlRegions: Partial<Record<ControlName, TouchRegion>>,
+ *   showVisualControls: boolean
+ * }}
+ */
 const touchState = {
   touches: {},         // Store active touch points
   controlRegions: {},  // Regions for touch controls on screen
@@ -264,15 +275,16 @@ function setupTouchControls() {
     if (touchState.showVisualControls && isActive) {
       const touchControls = document.querySelectorAll('.touch-control');
       touchControls.forEach(control => {
+        const el = /** @type {HTMLElement} */ (control);
         // Highlight the active control
         if ((control.classList.contains('touch-left') && gameControls.left) ||
             (control.classList.contains('touch-right') && gameControls.right) ||
             (control.classList.contains('touch-up') && gameControls.up) ||
             (control.classList.contains('touch-down') && gameControls.down) ||
             (control.classList.contains('touch-jump') && gameControls.jump)) {
-          control.style.backgroundColor = 'rgba(255, 255, 255, 0.4)';
+          el.style.backgroundColor = 'rgba(255, 255, 255, 0.4)';
         } else {
-          control.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+          el.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
         }
       });
     }
@@ -445,10 +457,11 @@ function setupButtonTouchHandlers() {
   // when the game over screen appears
   const gameOverObserver = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
-      if (mutation.type === 'attributes' && 
-          mutation.attributeName === 'style' && 
-          mutation.target.id === 'gameOverOverlay' &&
-          mutation.target.style.display === 'flex') {
+      const target = /** @type {HTMLElement} */ (mutation.target);
+      if (mutation.type === 'attributes' &&
+          mutation.attributeName === 'style' &&
+          target.id === 'gameOverOverlay' &&
+          target.style.display === 'flex') {
         
         // Game over overlay is now visible, add touch handler to restart button
         const restartButton = document.querySelector('#gameOverOverlay button');
