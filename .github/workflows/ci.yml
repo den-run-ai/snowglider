@@ -85,8 +85,9 @@ jobs:
         run: |
           mkdir -p dist
           cp index.html CNAME LICENSE README.md dist/
-          find . -maxdepth 1 -name "*.js" ! -name "eslint.config.js" -exec cp {} dist/ \;
-          cp -R assets tests dist/
+          cp -R src assets tests dist/
+          # Test-only harnesses are not part of the published site.
+          rm -rf dist/tests/verification
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5

@@ -2,7 +2,7 @@
   "name": "snowglider",
   "version": "1.0.0",
   "description": "A cheerful snowman shredding mountain snow powder in a playful Three.js animation.",
-  "main": "snowglider.js",
+  "main": "src/snowglider.js",
   "scripts": {
     "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:avalanche && npm run test:controls && npm run test:verify",
     "test:terrain": "node tests/terrain-tests.js",
@@ -11,7 +11,7 @@
     "test:tree-collision": "node tests/tree-collision-tests.js",
     "test:avalanche": "node tests/avalanche-tests.js",
     "test:controls": "echo 'Controls tests require browser - use index.html?test=controls'",
-    "test:verify": "node verification/physics_invariant_harness.js && node verification/dom_smoke_test.js",
+    "test:verify": "node tests/verification/physics_invariant_harness.js && node tests/verification/dom_smoke_test.js",
     "test:browser": "node tests/puppeteer-runner.js",
     "test:all": "npm test && npm run test:browser",
     "test:coverage": "c8 --reporter=lcov --reporter=text npm run test",

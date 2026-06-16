@@ -4,20 +4,26 @@
 > symlink to this file, so Claude Code and Codex (and other agents) read identical guidance.
 
 ## Project Overview
-SnowGlider is a Three.js animation/game project with HTML/JS implementation featuring a snowman skiing on natural backcountry mountain terrain. The core files are:
-- `index.html` - Main entry point and UI
-- `snowglider.js` - Game logic and Three.js implementation
-- `snow.js` - Utility functions and snow effects
-- `mountains.js` - Natural backcountry terrain generation code
-- `trees.js` - Tree creation and placement throughout the mountain
-- `avalanche.js` - Avalanche system with snow boulder physics and burial detection
-- `camera.js` - Camera management system
-- `snowman.js` - Snowman model and physics
-- `controls.js` - Keyboard and touch controls implementation
-- `audio.js` - Background music and audio controls
-- `auth.js` / `auth.html` - Firebase authentication implementation
-- `scores.js` - User scoring and leaderboard functionality
+SnowGlider is a Three.js animation/game project with HTML/JS implementation featuring a snowman skiing on natural backcountry mountain terrain. It is a no-build static site: `index.html` loads the application modules from `src/` via dynamic script tags. The core files are:
+- `index.html` - Main entry point and UI (loads modules from `src/`)
+- `auth.html` - Standalone Firebase authentication page (loads `src/auth.js`)
+- `src/snowglider.js` - Game logic and Three.js implementation
+- `src/snow.js` - Utility functions and snow effects
+- `src/mountains.js` - Natural backcountry terrain generation code
+- `src/trees.js` - Tree creation and placement throughout the mountain
+- `src/avalanche.js` - Avalanche system with snow boulder physics and burial detection
+- `src/course.js` - Checkpoint gates, split timing, ghost racing, and result screen
+- `src/effects.js` - Avalanche warning UI and camera juice (speed FOV, shake)
+- `src/camera.js` - Camera management system
+- `src/snowman.js` - Snowman model and physics
+- `src/controls.js` - Keyboard and touch controls implementation
+- `src/audio.js` - Background music and audio controls
+- `src/auth.js` - Firebase authentication implementation
+- `src/scores.js` - User scoring and leaderboard functionality
+- `assets/` - Media (audio, video) tracked with Git LFS
 - `tests/` - Test files for terrain, physics, camera, avalanche, and collision detection
+- `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (`npm run test:verify`)
+- `docs/` - Project documentation and implementation reports
 
 ## Commands
 - Install dependencies: `npm ci`

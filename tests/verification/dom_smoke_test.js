@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const REPO = path.join(__dirname, '..');
+const REPO = path.join(__dirname, '..', '..');
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
 const { window } = dom;
@@ -70,7 +70,7 @@ function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: $
 
 // ---- EffectsModule ----
 console.log('--- EffectsModule ---');
-const Effects = loadInWindow('effects.js');
+const Effects = loadInWindow('src/effects.js');
 check('module exports init/updateAvalanche/tickCamera', !!Effects && typeof Effects.init === 'function' && typeof Effects.tickCamera === 'function');
 Effects.init();
 const banner = window.document.body.querySelector('div');
@@ -92,7 +92,7 @@ check('reset() runs without throwing', true);
 // ---- CourseModule ----
 console.log('\n--- CourseModule ---');
 const fakeCreateSnowman = () => { const g = new THREE.Group(); g.add(new THREE.Mesh()); return g; };
-const Course = loadInWindow('course.js');
+const Course = loadInWindow('src/course.js');
 check('module exports init/update/onFinish', !!Course && typeof Course.update === 'function' && typeof Course.onFinish === 'function');
 
 const terrain = (x, z) => 40 * Math.exp(-Math.sqrt(x * x + z * z) / 40) + (z < -30 ? (z + 30) * 0.12 : 0);

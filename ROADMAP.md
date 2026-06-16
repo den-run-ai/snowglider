@@ -6,7 +6,7 @@
 
 ## Status
 
-This roadmap began as a feature-gap analysis. Its **top recommendation — the "skill & structure" layer — shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56)**: checkpoint gates + finish line, live split timing and a result screen, ghost racing, an avalanche warning UI, and a first snowplow/carve/tuck ski-technique pass. See [`IMPLEMENTATION_REPORT.md`](IMPLEMENTATION_REPORT.md) for that work in detail.
+This roadmap began as a feature-gap analysis. Its **top recommendation — the "skill & structure" layer — shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56)**: checkpoint gates + finish line, live split timing and a result screen, ghost racing, an avalanche warning UI, and a first snowplow/carve/tuck ski-technique pass. See [`IMPLEMENTATION_REPORT.md`](docs/IMPLEMENTATION_REPORT.md) for that work in detail.
 
 Status legend used below: **✅ shipped** · **◐ partial** (started, more to do) · **○ open**.
 
