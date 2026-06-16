@@ -1,0 +1,848 @@
+body { margin: 0; overflow: hidden; background-color: #87CEEB; }
+canvas { display: block; }
+#info {
+  position: fixed;
+  top: 10px; /* Position at top instead of 180px */
+  width: auto; /* Auto width for content */
+  min-width: 200px; /* Minimum width */
+  max-width: 90%; /* Max width relative to viewport */
+  text-align: center;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+  left: 50%; /* Center horizontally */
+  transform: translateX(-50%); /* Center perfectly */
+  background-color: rgba(0, 0, 0, 0.5); /* Darker background for better visibility */
+  padding: 8px 12px;
+  border-radius: 5px;
+  z-index: 100; /* Ensure it appears above other elements */
+  white-space: nowrap; /* Keep content on one line if possible */
+  overflow: hidden;
+  text-overflow: ellipsis; /* Add ellipsis if content overflows */
+}
+
+/* Controls Info Panel Styles */
+#controlsContainer {
+  position: fixed; /* Change to fixed for consistent positioning */
+  top: 10px;
+  left: 10px;
+  width: 270px; /* Set specific width for stability */
+  max-width: 80vw; /* Max width relative to viewport */
+  z-index: 200; /* Higher than info to be on top */
+  font-family: Arial, sans-serif;
+  transition: all 0.3s ease;
+}
+
+#controlsInfo {
+  display: flex;
+  flex-direction: column;
+  background-color: rgba(0, 0, 0, 0.6);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: white;
+  transition: all 0.3s ease;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); /* Add shadow for better visibility */
+  width: auto;
+}
+
+#controlsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px; /* Height when expanded */
+  overflow-y: auto; /* Allow scrolling */
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+#controlsInfo.collapsed {
+  width: auto;
+  max-width: 180px;
+}
+
+#controlsInfo.collapsed #controlsContent {
+  max-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+}
+
+#controlsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  user-select: none; /* Prevent text selection */
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+}
+
+/* Add swipe indicator for mobile */
+#controlsHeader::after {
+  content: "⟷";
+  position: absolute;
+  right: 30px;
+  font-size: 14px;
+  opacity: 0.6;
+  color: #ffff99;
+}
+
+/* Show swipe indicator only on touch devices */
+@media (hover: none) and (pointer: coarse) {
+  #controlsHeader::after {
+    display: block;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #controlsHeader::after {
+    display: none;
+  }
+}
+
+/* When collapsed, remove bottom border */
+#controlsInfo.collapsed #controlsHeader {
+  border-bottom-color: transparent;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+#controlsHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #ffffff;
+}
+
+.control-item {
+  display: flex;
+  align-items: center;
+  margin: 6px 0;
+  line-height: 1.5;
+}
+
+.key-badge {
+  background-color: #4a69bd;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 8px;
+  font-family: monospace;
+  font-size: 13px;
+  min-width: 45px;
+  text-align: center;
+}
+
+#toggleControls {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  color: white;
+}
+
+/* Game Stats Window - Combined stats and timer */
+#gameStatsContainer {
+  position: fixed;
+  top: 70px; /* Positioned below authContainer */
+  right: 10px; /* Aligned with authContainer */
+  left: auto; /* Remove left positioning */
+  transform: none; /* Remove horizontal centering */
+  padding: 8px 12px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  border-radius: 5px;
+  z-index: 100;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  overflow: hidden;
+  max-width: 90%;
+  width: auto;
+}
+
+#gameStatsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+/* Add horizontal swipe indicator */
+#gameStatsHeader::after {
+  content: "⟷";
+  position: absolute;
+  right: 30px;
+  font-size: 14px;
+  opacity: 0.6;
+  color: #ffff99;
+}
+
+/* Show swipe indicator only on touch devices */
+@media (hover: none) and (pointer: coarse) {
+  #gameStatsHeader::after {
+    display: block;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #gameStatsHeader::after {
+    display: none;
+  }
+}
+
+#gameStatsHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #ffffff;
+}
+
+#toggleStats {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  color: white;
+}
+
+#gameStatsContent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  transition: all 0.3s ease;
+  max-height: 100px;
+  overflow: hidden;
+}
+
+#gameStatsContainer.collapsed {
+  width: auto;
+  max-width: 160px;
+}
+
+#gameStatsContainer.collapsed #gameStatsContent {
+  max-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+}
+
+#gameStatsContainer.collapsed #gameStatsHeader {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 80px;
+}
+
+.stat-label {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+/* Auth UI styles - positioned at top right */
+#authContainer {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 5px;
+  background-color: rgba(0, 0, 0, 0.5);
+  border-radius: 5px;
+  font-family: Arial, sans-serif;
+  z-index: 999; /* Higher z-index to ensure it's above other elements */
+  max-width: 220px; /* Limit width to prevent overflow */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* Mobile/responsive adjustments */
+@media (max-width: 768px) {
+  #info {
+    display: none; /* Hidden as it's replaced by gameStats */
+  }
+
+  #controlsInfo {
+    max-width: 250px;
+    font-size: 13px;
+  }
+
+  #gameStatsContainer {
+    font-size: 14px;
+    padding: 6px 10px;
+    top: 60px; /* Adjusted for mobile */
+  }
+
+  .stat-value {
+    font-size: 14px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  #controlsContainer {
+    width: 220px; /* Smaller on mobile */
+  }
+
+  #controlsInfo.collapsed {
+    max-width: 150px;
+  }
+
+  #controlsInfo.collapsed #controlsContent {
+    max-height: 0;
+    opacity: 0;
+  }
+
+  #controlsHeader h3 {
+    font-size: 14px;
+  }
+
+  .key-badge {
+    min-width: 38px;
+    font-size: 12px;
+  }
+
+  #gameStatsContainer {
+    font-size: 12px;
+    padding: 5px 8px;
+    top: 55px; /* Adjusted for smaller mobile screens */
+    max-width: 160px; /* Keep it compact on small screens */
+  }
+
+  #gameStatsHeader h3 {
+    font-size: 14px;
+  }
+
+  .stat-value {
+    font-size: 13px;
+  }
+
+  .stat-item {
+    min-width: 60px;
+  }
+
+  /* Move auth container to top-right corner */
+  #authContainer {
+    top: 10px;
+    right: 10px;
+    max-width: 160px; /* Smaller on mobile */
+    padding: 3px;
+  }
+
+  /* Make login button smaller on mobile */
+  #loginBtn {
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+
+  /* Make the profile UI smaller on mobile */
+  #profileUI {
+    font-size: 12px;
+  }
+
+  #profileAvatar {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* Fix for very small screens in landscape */
+@media (max-height: 400px) and (orientation: landscape) {
+  #info {
+    top: 40px; /* Make sure it's visible on very small screens */
+  }
+
+  #gameStatsContainer {
+    padding: 4px 8px;
+    max-width: 80%;
+  }
+
+  #controlsInfo.collapsed {
+    max-width: 140px;
+  }
+
+  #controlsInfo.collapsed #controlsContent {
+    max-height: 0;
+    opacity: 0;
+  }
+}
+
+/* Landscape mode specific adjustments */
+@media (orientation: landscape) and (max-height: 500px) {
+  #info {
+    top: 50px; /* Lower position in landscape */
+  }
+
+  #controlsContainer {
+    width: 240px;
+  }
+
+  #controlsInfo.collapsed {
+    max-width: 160px;
+  }
+
+  #controlsInfo.collapsed #controlsContent {
+    max-height: 0;
+    opacity: 0;
+  }
+
+  #controlsInfo {
+    max-height: 180px; /* Limit height in landscape to prevent overflow */
+  }
+
+  #gameStatsContainer {
+    font-size: 14px;
+    padding: 5px 8px;
+    max-width: 85%;
+  }
+}
+
+/* Portrait mode specific adjustments */
+@media (orientation: portrait) {
+  #info {
+    top: 55px; /* Position below controls */
+    max-width: 70%;
+  }
+
+  #controlsInfo {
+    max-width: 280px; /* Wider on portrait */
+  }
+}
+
+#resetBtn {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  padding: 15px 20px;
+  border: none;
+  border-radius: 8px;
+  background-color: #4CAF50;
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.5);
+  touch-action: manipulation; /* Removes delay on mobile devices */
+  user-select: none;
+}
+/* TODO: AUDIO DISABLED - Audio control button CSS commented out
+   Re-enable when audio is re-enabled (AUDIO_ENABLED = true in audio.js)
+#audioControlBtn {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.5);
+  touch-action: manipulation;
+  user-select: none;
+  z-index: 1001;
+}
+#audioSelect {
+  position: absolute;
+  bottom: 70px;
+  right: 20px;
+  padding: 8px;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-family: Arial, sans-serif;
+  z-index: 1001;
+  display: none;
+}
+*/
+#authUI {
+  display: flex;
+  align-items: center;
+}
+#loginBtn {
+  background-color: #4285F4;
+  color: white;
+  border: none;
+  /* Increased padding for larger touch target */
+  padding: 10px 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500; /* Slightly bolder text */
+  display: flex;
+  align-items: center;
+  justify-content: center; /* Center text */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* Better touch response */
+  /* Prevent text selection */
+  user-select: none;
+  -webkit-user-select: none;
+  /* Add transition for smoother visual feedback */
+  transition: transform 0.1s ease, background-color 0.2s ease;
+  min-height: 36px; /* Ensure consistent height */
+  min-width: 120px; /* Ensure sufficient width for touch */
+  position: relative; /* For ::after pseudo-element */
+  overflow: visible; /* Allow overflow for glow effect */
+}
+#loginBtn:hover {
+  background-color: #3367D6;
+}
+#loginBtn:active, #loginBtn.signing-in {
+  background-color: #2A56C6; /* Feedback for touch action */
+  transform: scale(0.98); /* Visual feedback */
+}
+/* Add ripple effect on touch */
+#loginBtn::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+#loginBtn:active::after, #loginBtn.signing-in::after {
+  opacity: 1;
+  transition: opacity 0s;
+}
+#profileUI {
+  display: none;
+  align-items: center;
+  color: white;
+}
+#profileAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+#profileName {
+  font-size: 14px;
+  margin-right: 8px;
+  max-width: 90px; /* Prevent long names from causing overflow */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#logoutBtn {
+  background-color: transparent;
+  color: white;
+  border: 1px solid white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* Better touch response */
+}
+#logoutBtn:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+#logoutBtn:active {
+  background-color: rgba(255, 255, 255, 0.3);
+  transform: scale(0.98); /* Visual feedback */
+}
+/* Leaderboard styles */
+#leaderboard {
+  margin-top: 20px;
+  max-height: 200px;
+  overflow-y: auto;
+  color: white;
+  text-align: center;
+}
+#leaderboard table {
+  width: 100%;
+  border-collapse: collapse;
+}
+#leaderboard th, #leaderboard td {
+  padding: 5px;
+  text-align: left;
+}
+#leaderboard th {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+.mini-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+/* Highlight current user's score in leaderboard */
+.current-user-score {
+  font-weight: bold;
+  background-color: rgba(76, 175, 80, 0.2);
+}
+/* Enhanced Start Game Container styles */
+#startGameContainer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.8);
+  z-index: 2000;
+  color: white;
+  font-family: 'Arial', sans-serif;
+  padding: 10px; /* Add padding to ensure content doesn't touch the edge */
+  overflow-y: auto; /* Allow scrolling if needed */
+}
+
+#gameTitle {
+  font-size: 42px; /* Slightly reduced from 48px */
+  color: #ffffff;
+  text-shadow: 0 0 10px #87CEEB, 0 0 20px #4CAF50;
+  margin-bottom: 10px; /* Reduced from 20px */
+  letter-spacing: 2px;
+  animation: pulse 2s infinite;
+  text-align: center;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+#gameDescription {
+  font-size: 16px; /* Reduced from 18px */
+  max-width: 600px;
+  text-align: center;
+  margin-bottom: 15px; /* Reduced from 30px */
+  line-height: 1.4; /* Slightly reduced from 1.5 */
+}
+
+#controlsGuide {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 20px; /* Reduced from 15px 25px */
+  margin-bottom: 15px; /* Reduced from 30px */
+  max-width: 500px;
+  text-align: left;
+  max-height: 180px; /* Add max height */
+  overflow-y: auto; /* Make scrollable if needed */
+}
+
+#controlsGuide h3 {
+  text-align: center;
+  margin-top: 0;
+  margin-bottom: 8px; /* Reduced from 10px */
+  font-size: 16px; /* Added smaller font size */
+}
+
+.control-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 6px 0; /* Reduced from 8px */
+  font-size: 14px; /* Added smaller font size */
+}
+
+.key {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 1px 6px; /* Reduced from 2px 8px */
+  font-family: monospace;
+  font-weight: bold;
+}
+
+#startMenu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px; /* Reduced from 15px */
+  align-items: center;
+  margin-bottom: 10px; /* Reduced from 20px */
+  width: 280px;
+}
+
+.menu-button {
+  padding: 12px 20px; /* Reduced from 15px 30px */
+  font-size: 16px; /* Reduced from 20px */
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.3s, transform 0.2s;
+  min-width: 220px; /* Reduced from 250px */
+  text-align: center;
+  -webkit-tap-highlight-color: transparent; /* Remove default mobile highlight */
+  touch-action: manipulation; /* Improve touch response */
+  position: relative; /* For touch feedback effect */
+}
+
+.menu-button::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.2);
+  opacity: 0;
+  transition: opacity 0.1s;
+  border-radius: 8px;
+}
+
+.menu-button:active::after,
+.menu-button.touch-active::after {
+  opacity: 1;
+}
+
+.menu-button.start {
+  background-color: #4CAF50;
+}
+
+.menu-button.options {
+  background-color: #4a69bd;
+}
+
+.menu-button.about {
+  background-color: #ff7979;
+}
+
+.menu-button:hover {
+  background-color: #45a049;
+  transform: scale(1.05);
+}
+
+.menu-button.options:hover {
+  background-color: #3c58b0;
+}
+
+.menu-button.about:hover {
+  background-color: #ff6b6b;
+}
+
+.menu-button:active {
+  transform: scale(0.98);
+}
+
+.build-badge {
+  margin-left: .5rem;
+  padding: .15rem .4rem;
+  border-radius: .35rem;
+  font: 500 11px system-ui;
+  background: #eef;
+  border: 1px solid #ccd;
+  color: #333;
+  white-space: nowrap;
+}
+
+#aboutGamePanel {
+  display: none;
+  background-color: rgba(0, 0, 0, 0.7);
+  border-radius: 10px;
+  padding: 15px; /* Reduced from 20px */
+  margin-top: 10px; /* Reduced from 20px */
+  margin-bottom: 10px; /* Reduced from 20px */
+  max-width: 600px;
+  text-align: center;
+  font-size: 14px; /* Added smaller font size */
+}
+
+#aboutGamePanel h3 {
+  margin-top: 0;
+  margin-bottom: 10px; /* Reduced from 15px */
+  color: #ff7979;
+  font-size: 18px; /* Added smaller font size */
+}
+
+#aboutGamePanel p {
+  margin-bottom: 8px; /* Reduced from 10px */
+  line-height: 1.4; /* Slightly reduced from 1.5 */
+}
+
+#keyboardHint {
+  font-style: italic;
+  opacity: 0.8;
+  margin-top: 8px; /* Reduced from 15px */
+  font-size: 14px; /* Added smaller font size */
+}
+#gameCanvas {
+  display: none; /* Initially hidden until game starts */
+}
+
+@media (max-height: 650px) {
+  /* Adjustments for smaller height screens */
+  #gameTitle {
+    font-size: 32px;
+    margin-bottom: 5px;
+  }
+
+  #gameDescription {
+    font-size: 14px;
+    margin-bottom: 10px;
+    max-width: 90%;
+  }
+
+  #controlsGuide {
+    max-height: 120px;
+    margin-bottom: 10px;
+  }
+
+  .menu-button {
+    padding: 8px 16px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Adjustments for mobile screens */
+  #gameTitle {
+    font-size: 28px;
+  }
+
+  #controlsGuide {
+    padding: 8px 15px;
+    max-width: 90%;
+  }
+}
+
+/* Increase touch target size for mobile */
+@media (max-width: 768px) {
+  .menu-button {
+    min-height: 44px; /* Apple's recommended minimum touch target size */
+    padding: 12px 24px;
+  }
+}

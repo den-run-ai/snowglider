@@ -42,9 +42,12 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - [`THREEJS_UPGRADE.md`](docs/THREEJS_UPGRADE.md) — staged three.js upgrade plan from r160 to latest
 
 ## Project Structure
-- `index.html` - Main entry point and HTML structure (loads modules from `src/`)
+- `index.html` - Main entry point and HTML structure (loads boot scripts from `src/boot/`)
 - `auth.html` - Standalone authentication page
+- `styles/` - Page-level CSS for the static site shell
 - `src/` - Application JavaScript modules:
+  - `boot/` - Local auth fallback, Firebase bootstrap, and ordered script loader
+  - `ui/start-menu.js` - Start/about menu behavior
   - `snowglider.js` - Core game loop and initialization
   - `snowman.js` - Snowman model creation and physics
   - `mountains.js` - Terrain generation and mountain features
@@ -94,13 +97,14 @@ Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL p
 
 ### Local Development Setup
 1. Clone the repository
-2. Install dependencies with `npm install`
+2. Install dependencies with `npm ci`
 3. Run locally using one of these options:
-   - **Option 1:** Run with local server: `npm start` (full features)
-   - **Option 2:** Open `index.html` directly in your browser (limited features)
+   - **Option 1:** Run with Vite: `npm run dev` (full features)
+   - **Option 2:** Run the legacy static server: `npm start` (full features)
+   - **Option 3:** Open `index.html` directly in your browser (limited features)
 
 #### Local Development Notes
-- **Server mode (`npm start`):** 
+- **Server mode (`npm run dev` or `npm start`):**
   - Runs on `localhost` with HTTP protocol
   - Firebase Authentication works, but Firestore service is automatically disabled to prevent connection errors
   - A "Local Dev Mode: Firestore disabled" indicator will be displayed in the bottom-right corner
@@ -121,7 +125,7 @@ Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL p
 2. Enable Google Authentication in the Firebase console
 3. Create a Firestore database in the Firebase console
 4. Register your web app in Firebase to get configuration keys
-5. Update the Firebase configuration in `index.html`:
+5. Update the Firebase configuration in `src/boot/firebase-bootstrap.js`:
 
 ```javascript
 const firebaseConfig = {
@@ -144,7 +148,8 @@ The application uses the following Firestore collections:
 1. Push your changes to GitHub repository
 2. Enable GitHub Pages in repository settings
 3. Make sure to add your GitHub Pages domain to the authorized domains in Firebase Authentication settings
-4. Your game will be accessible at `https://[your-username].github.io/[repo-name]/`
+4. The CI workflow runs tests, builds the Vite static artifact with `npm run build`, and deploys `dist/` to GitHub Pages after the test job succeeds
+5. Your game will be accessible at `https://[your-username].github.io/[repo-name]/`
 
 ## Troubleshooting
 

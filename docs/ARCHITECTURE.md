@@ -1,6 +1,6 @@
 # SnowGlider — Architecture
 
-How the pieces fit together: the no-build module system, load order, the global
+How the pieces fit together: the static module system, load order, the global
 namespace and injection seams, the per-frame data flow, and the Firebase/scoring
 subsystem. For the simulation itself see [`PHYSICS.md`](PHYSICS.md); for tests see
 [`tests/README.md`](../tests/README.md).
@@ -9,45 +9,54 @@ subsystem. For the simulation itself see [`PHYSICS.md`](PHYSICS.md); for tests s
 
 ## 1. Big picture
 
-SnowGlider is a **no-build static site**. There is no bundler, transpiler, or
-framework — the browser loads plain `<script>` files in a deliberate order, and
-each module attaches itself to a global on `window`. This keeps the project
-deployable to GitHub Pages by copying files, and runnable straight from
+SnowGlider is a **static browser app**. The source remains plain browser
+scripts — the game modules are not bundled together, and each module attaches
+itself to a global on `window`. Vite provides the local dev server and GitHub
+Pages artifact (`dist/`), while the source entry point still runs straight from
 `file://`, at the cost of a hand-maintained load order.
 
 Two HTML entry points:
 
-- **`index.html`** — the game. Contains all UI markup/CSS and the inline loader
-  that wires everything up.
+- **`index.html`** — the game. Contains the UI markup, links
+  `styles/main.css`, loads the boot scripts, then loads Three.js.
 - **`auth.html`** — a standalone Firebase auth page that loads `src/auth.js`.
 
-All logic lives in `src/*.js`; tests in `tests/`.
+All logic lives in `src/*.js`; page styles live in `styles/`; tests in `tests/`.
+`npm run build` emits the deployable Vite artifact to `dist/` and copies the
+static app directories needed by the existing classic-script loader.
 
 ---
 
 ## 2. Module loading & order
 
-`index.html` loads scripts in two groups.
+`index.html` loads scripts in three groups.
 
 ### 2.1 Firebase modules (ES modules, conditional)
 
-In `<head>`, an inline script branches on protocol:
+In `<head>`, `src/boot/local-auth.js` and `src/boot/firebase-bootstrap.js`
+branch on protocol:
 
-- **`file://`** — Firebase is unavailable, so the page defines **inline mock
-  `ScoresModule` and `AuthModule`** (localStorage-only) and loads no module
-  scripts. This is what makes `open index.html` work with no server.
+- **`file://`** — Firebase is unavailable, so `local-auth.js` defines mock
+  `ScoresModule` and `AuthModule` implementations (localStorage-only) and loads
+  no module scripts. This is what makes `open index.html` work with no server.
 - **`http(s)://`** — it injects `src/scores.js` and `src/auth.js` as
   `type="module"` scripts. These are the only true ES modules in the project
   (`export default` **and** `window.*` assignment, for dual use).
 
-It also sets `window.FIREBASE_MANUAL_INIT = true` and intercepts the
-`/__/firebase/init.json` fetch to stop Firebase's auto-init 404s.
+`firebase-bootstrap.js` also sets `window.FIREBASE_MANUAL_INIT = true` and
+intercepts the `/__/firebase/init.json` fetch to stop Firebase's auto-init 404s.
 
-### 2.2 Game modules (classic scripts, strict sequence)
+### 2.2 Boot UI and game modules (classic scripts, strict sequence)
 
-After `AuthModule` is confirmed ready, the loader chains the game scripts via
-nested `onload` callbacks — order matters because later modules read globals set
-by earlier ones:
+At the bottom of `index.html`, after the Three.js CDN script, the page loads:
+
+- `src/boot/script-loader.js` — waits for `AuthModule`, initializes auth, then
+  loads game scripts with `loadScriptsInOrder([...])`.
+- `src/ui/start-menu.js` — owns the start/about menu handlers and forwards game
+  start to `window.initializeGameWithAudio()`.
+
+The game-script order still matters because later modules read globals set by
+earlier ones:
 
 ```
 mountains → trees → snow → camera → snowman → audio → controls
@@ -58,8 +67,9 @@ mountains → trees → snow → camera → snowman → audio → controls
 others. Test scripts (`tests/*.js`) are appended only when a `?test=` parameter is
 present (see [`tests/README.md`](../tests/README.md)).
 
-> **If you add a module,** insert it at the right point in this chain in
-> `index.html` (and load it before `snowglider.js` if the game loop uses it).
+> **If you add a module,** insert it at the right point in
+> `src/boot/script-loader.js` (and load it before `snowglider.js` if the game
+> loop uses it).
 
 ---
 
@@ -83,6 +93,10 @@ you edit.
 | `window.CourseModule` | `course.js` | IIFE | Gates, split timing, ghost racing, result screen |
 | `window.AuthModule` | `auth.js` | ES module | Firebase auth, user UI, Firestore lifecycle |
 | `window.ScoresModule` | `scores.js` | ES module | Best-time recording, leaderboard, Firestore writes |
+| `window.SnowGliderLocalAuth` | `boot/local-auth.js` | object + fns | `file://` auth and score fallbacks |
+| `window.SnowGliderFirebase` | `boot/firebase-bootstrap.js` | object + fns | Firebase config/init guard and auth-module wait/init helpers |
+| `window.SnowGliderScriptLoader` | `boot/script-loader.js` | object + fns | Ordered classic-script loader and browser-test appender |
+| `window.SnowGliderStartMenu` | `ui/start-menu.js` | object + fns | Start/about menu DOM handlers |
 
 > **Bare globals vs. `window` properties.** A classic-script top-level `const`/`class`
 > (e.g. `Snow`, `Camera`) is shared across scripts by its bare name but is **not** a
@@ -171,7 +185,7 @@ Three runtime modes, auto-detected:
 
 | Mode | Trigger | Auth | Firestore | Source |
 |------|---------|------|-----------|--------|
-| **File** | `file://` | inline mock (Local Mode banner) | no | inline in `index.html` |
+| **File** | `file://` | mock (Local Mode banner) | no | `src/boot/local-auth.js` |
 | **Local dev** | `localhost`/`127.0.0.1` | real | disabled (avoids 400s) | `auth.js` / `scores.js` |
 | **Production** | GitHub Pages (https) | real | enabled | `auth.js` / `scores.js` |
 
@@ -200,7 +214,8 @@ fallbacks** — they are what keep the game runnable without a Firebase project.
 - **Browser suites** load inside the real game via `?test=…` and are appended by
   the loader after `snowglider.js`.
 - **Deployment** is GitHub Pages, gated so Pages publishes only after the test job
-  passes. Workflows must stay least-privileged and must not publish
-  `node_modules/`, `coverage/`, `dist/`, or test artifacts.
+  passes. Vite builds the Pages artifact into `dist/`; workflows must stay
+  least-privileged and must not publish `node_modules/`, `coverage/`, or test
+  artifacts.
 
 See [`tests/README.md`](../tests/README.md) for the full matrix and commands.

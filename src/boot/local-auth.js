@@ -1,0 +1,123 @@
+// @ts-check
+(function () {
+  function isValidScoreTime(time) {
+    return typeof time === 'number' && Number.isFinite(time) && time >= 4;
+  }
+
+  function installScoresModule() {
+    window.ScoresModule = {
+      initializeScores: function () {
+        console.log("ScoresModule initialized in local mode (simplified)");
+      },
+      setCurrentUser: function () {
+        console.log("ScoresModule: setCurrentUser called in local mode");
+      },
+      recordScore: function (time) {
+        if (!isValidScoreTime(time)) {
+          console.warn("Skipping local score record (Invalid time value):", time);
+          return;
+        }
+
+        const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
+        const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
+        const hasValidLocalBest = typeof localBestTime === 'number' &&
+          Number.isFinite(localBestTime) && localBestTime >= 4;
+        if (localBestTimeStr && !hasValidLocalBest) {
+          console.warn("Ignoring invalid local best time:", localBestTimeStr);
+          localStorage.removeItem('snowgliderBestTime');
+        }
+
+        const isNewPersonalBest = !hasValidLocalBest || time < localBestTime;
+
+        if (isNewPersonalBest) {
+          localStorage.setItem('snowgliderBestTime', time.toString());
+          console.log("New local best time recorded:", time);
+        } else {
+          console.log("Score recorded, but not a new local best time:", time);
+        }
+      },
+      displayLeaderboard: function () {
+        console.log("Leaderboard not available in local file mode");
+        const leaderboardElement = document.getElementById('leaderboard');
+        if (leaderboardElement) {
+          leaderboardElement.innerHTML = '<h3>Leaderboard unavailable in local file mode</h3>';
+        }
+      },
+      getLeaderboard: function () { return Promise.resolve([]); },
+      updateUserBestTime: function () {
+        console.log("updateUserBestTime not available in local file mode");
+      },
+      updateLeaderboard: function () {
+        console.log("updateLeaderboard not available in local file mode");
+      },
+      isFirestoreAvailable: function () { return false; },
+      isValidScoreTime: isValidScoreTime
+    };
+  }
+
+  function installAuthModule() {
+    window.AuthModule = {
+      initializeAuth: function () {
+        console.log("Auth initialized in local mode (simplified)");
+        const authUI = document.getElementById('authUI');
+        const profileUI = document.getElementById('profileUI');
+        if (authUI) authUI.style.display = 'none';
+        if (profileUI) profileUI.style.display = 'none';
+
+        const authContainer = document.getElementById('authContainer');
+        if (authContainer && !authContainer.querySelector('.local-mode-notice')) {
+          const localModeNotice = document.createElement('div');
+          localModeNotice.className = 'local-mode-notice';
+          localModeNotice.style.color = 'white';
+          localModeNotice.style.padding = '8px';
+          localModeNotice.style.textAlign = 'center';
+          localModeNotice.innerHTML = '&#127968; Local Mode<br>Auth disabled';
+          authContainer.appendChild(localModeNotice);
+        }
+      },
+      recordScore: function (time) {
+        if (!isValidScoreTime(time)) {
+          console.warn("Skipping local score record (Invalid time value):", time);
+          return;
+        }
+
+        if (window.ScoresModule && typeof window.ScoresModule.recordScore === 'function') {
+          window.ScoresModule.recordScore(time);
+        } else {
+          localStorage.setItem('snowgliderBestTime', time.toString());
+          console.log("Score recorded locally:", time);
+        }
+      },
+      displayLeaderboard: function () {
+        if (window.ScoresModule && typeof window.ScoresModule.displayLeaderboard === 'function') {
+          window.ScoresModule.displayLeaderboard();
+        } else {
+          console.log("Leaderboard not available in local mode");
+          const leaderboardElement = document.getElementById('leaderboard');
+          if (leaderboardElement) {
+            leaderboardElement.innerHTML = '<h3>Leaderboard unavailable in local mode</h3>';
+          }
+        }
+      },
+      getCurrentUser: function () { return null; },
+      isUserSignedIn: function () { return false; },
+      getUserIdToken: function () { return Promise.reject("Not available in local mode"); },
+      signOut: function () { return Promise.resolve(); },
+      getAuthState: function () { return { user: null, isSignedIn: false }; },
+      isFirebaseAvailable: function () {
+        return { auth: false, firestore: false, analytics: false };
+      }
+    };
+  }
+
+  window.SnowGliderLocalAuth = {
+    installScoresModule,
+    installAuthModule
+  };
+
+  if (window.location.protocol === 'file:') {
+    console.log("File protocol detected - using mock Firebase implementation");
+    console.log("Mock Firebase services will be handled by AuthModule in local file mode");
+    installScoresModule();
+  }
+})();
