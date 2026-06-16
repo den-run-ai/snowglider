@@ -47,12 +47,6 @@ import ScoresModule from "./scores.js";
 // Initialize Firebase Auth
 function initializeAuth(firebaseConfig) {
   try {
-    // Fix potential storage bucket mismatch (keep this utility)
-    if (firebaseConfig.storageBucket === "sn0wglider.firebasestorage.app") {
-      firebaseConfig.storageBucket = "sn0wglider.appspot.com";
-      console.log("Adjusted storageBucket to:", firebaseConfig.storageBucket);
-    }
-
     // Initialize Firebase app and services
     console.log("Initializing new Firebase app instance in AuthModule");
     // Ensure __FIREBASE_DEFAULTS__ is set to prevent auto-init attempts
@@ -251,7 +245,14 @@ function setupAuthButtons() {
   if (loginBtn) {
     // Function to handle sign-in process using Popup
     const handleSignIn = (e) => {
-      e.preventDefault(); // Prevent default button action
+      if (e) e.preventDefault(); // Prevent default button action
+
+      // Ignore repeat taps while a sign-in is already in flight. The button is
+      // disabled below, but this also guards against any environment that fires
+      // a second activation before the disabled state takes effect.
+      if (loginBtn.disabled) {
+        return;
+      }
 
       // Check if auth is available before attempting login
       if (!auth) {
@@ -266,7 +267,7 @@ function setupAuthButtons() {
       loginBtn.disabled = true;
       loginBtn.classList.add('signing-in');
 
-      console.log("Sign-in initiated via", e.type);
+      console.log("Sign-in initiated via", e ? e.type : 'programmatic');
 
       const provider = new GoogleAuthProvider();
       provider.addScope('profile');
@@ -288,9 +289,11 @@ function setupAuthButtons() {
           // Provide user feedback for common errors
           if (error.code === 'auth/popup-blocked') {
              alert('Popup blocked by browser. Please allow popups for this site and try again.');
-          } else if (error.code === 'auth/popup-closed-by-user') {
-             console.log('Sign-in cancelled: Popup closed by user.');
-             // Optionally provide non-alert feedback (e.g., update a status div)
+          } else if (error.code === 'auth/popup-closed-by-user' ||
+                     error.code === 'auth/cancelled-popup-request') {
+             // Benign: the user closed the popup, or a second sign-in superseded
+             // this one (rapid double-tap). Don't alert — just allow a retry.
+             console.log('Sign-in cancelled (popup closed or superseded):', error.code);
           } else {
              // Generic error message for other issues
              alert(`Error during sign-in: ${error.message}`);
@@ -300,8 +303,11 @@ function setupAuthButtons() {
         });
     };
 
-    // Add listeners for both touch and click for broad compatibility
-    loginBtn.addEventListener('touchstart', handleSignIn, { passive: false });
+    // Bind sign-in to a single 'click'. A click is a valid user-activation
+    // gesture for signInWithPopup on both desktop and mobile (it fires on tap via
+    // touchend), so popups are still allowed. Using one event avoids the previous
+    // touchstart+click double-trigger that could open two popups (and produce a
+    // spurious auth/cancelled-popup-request on the superseded one).
     loginBtn.addEventListener('click', handleSignIn);
   }
 
