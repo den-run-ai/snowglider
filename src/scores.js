@@ -110,30 +110,35 @@ function updateUserBestTime(userId, time) {
     const userDocRef = doc(firestore, 'users', userId);
 
     // Personal best — atomic compare-and-write on the USER document only.
-    // The leaderboard is updated separately (updateLeaderboard below) and NOT in
-    // this transaction, so that if Firestore rules allow users/{uid} writes but
-    // reject leaderboard/{uid}, the authenticated user's personal best still syncs
-    // even when the global leaderboard write is denied. recordScore now syncs the
-    // stored best on every finish, so the transaction also guards the race: it
-    // re-reads at commit time, so a slower/stale value can never overwrite a faster
-    // stored best written by a concurrent run or tab.
+    // recordScore now syncs the stored best on every finish, so the transaction
+    // re-reads at commit time: a slower/stale value can never overwrite a faster
+    // stored best written by a concurrent run or tab. It resolves with the
+    // AUTHORITATIVE best (the better of the stored value and this run), which is the
+    // value the leaderboard must reflect — never the raw run time, which may be a
+    // slower time from a device whose localStorage is stale relative to Firestore.
     runTransaction(firestore, async (transaction) => {
       const userSnap = await transaction.get(userDocRef);
       const storedBest = userSnap.exists() ? userSnap.data().bestTime : null;
-      // Skip when the authoritative stored best is already faster.
-      if (typeof storedBest === 'number' && time > storedBest) {
-        return false;
+      const hasStoredBest = typeof storedBest === 'number';
+      // Only write when this run is at least as good as the stored best.
+      if (!hasStoredBest || time <= storedBest) {
+        transaction.set(userDocRef, {
+          bestTime: time,
+          updatedAt: serverTimestamp() // Track when the best time was updated
+        }, { merge: true });
       }
-      transaction.set(userDocRef, {
-        bestTime: time,
-        updatedAt: serverTimestamp() // Track when the best time was updated
-      }, { merge: true });
-      return true;
+      // The authoritative best after this transaction.
+      return hasStoredBest ? Math.min(storedBest, time) : time;
     })
-      .then(updated => {
-        console.log(updated
-          ? `Best time updated for user ${userId} to ${time}`
-          : `New time (${time}) is not better than existing best time. No update needed.`);
+      .then(authoritativeBest => {
+        console.log(`User best for ${userId} is ${authoritativeBest} (this run: ${time})`);
+        // Update the global leaderboard with the AUTHORITATIVE best, in a SEPARATE
+        // transaction. Keeping it out of the personal-best transaction means a
+        // leaderboard-only permission/rule failure cannot abort the user best-time
+        // write above; using authoritativeBest (not `time`) means a slower local run
+        // never downgrades the board below the user's true best. updateLeaderboard
+        // is itself atomic and only writes when it improves the existing entry.
+        updateLeaderboard(userId, authoritativeBest);
       })
       .catch(error => {
         console.error("Error updating user best time:", error);
@@ -147,11 +152,6 @@ function updateUserBestTime(userId, time) {
           // Don't disable Firestore entirely for permission issues.
         }
       });
-
-    // Update the global leaderboard independently. Keeping it out of the personal
-    // best transaction means a leaderboard-only permission/rule failure cannot abort
-    // the user best-time write above. updateLeaderboard is itself atomic.
-    updateLeaderboard(userId, time);
   } catch (error) {
     console.error("Unexpected error in updateUserBestTime:", error);
     firestore = null; // Assume Firestore is problematic

@@ -352,44 +352,63 @@ runTest('Leaderboard Backfills Stored Best On Every Authenticated Finish', () =>
     "A new best should update local best storage");
 });
 
-runTest('Leaderboard Write Cannot Be Clobbered By A Slower Concurrent Backfill', () => {
-  // Mirror of scores.js compare-and-write logic. The user best and the leaderboard
-  // are written in SEPARATE transactions, each re-reading its own authoritative value
-  // at commit time, so a slower backfill that started against an old value must not
-  // overwrite a faster value committed in the meantime. The two decisions are
-  // independent (a faster leaderboard entry shouldn't block a user-best refresh, etc).
-  function resolveWrite(time, storedBest, leaderboardBest) {
-    const writeUser = typeof storedBest !== 'number' || time <= storedBest;
-    const writeLeaderboard = typeof leaderboardBest !== 'number' || time <= leaderboardBest;
-    return { writeUser, writeLeaderboard };
+runTest('Leaderboard Always Reflects The Authoritative Best, Never A Slower Local Time', () => {
+  // Mirror of scores.js compare-and-write logic. The user best is written in its own
+  // transaction that resolves with the AUTHORITATIVE best (the better of the stored
+  // value and this run). The leaderboard is then written in a SEPARATE transaction
+  // using that authoritative best - never the raw run time - and only when it improves
+  // the existing entry. So a slower local run can neither downgrade the user best nor
+  // the leaderboard, even when the device's localStorage is stale relative to Firestore.
+  function resolve(time, storedBest, leaderboardBest) {
+    const hasStored = typeof storedBest === 'number';
+    const writeUser = !hasStored || time <= storedBest;
+    const authoritativeBest = hasStored ? Math.min(storedBest, time) : time;
+    const writeLeaderboard = typeof leaderboardBest !== 'number' || authoritativeBest <= leaderboardBest;
+    return {
+      writeUser,
+      authoritativeBest,
+      writeLeaderboard,
+      leaderboardValue: writeLeaderboard ? authoritativeBest : leaderboardBest
+    };
   }
 
   // Backfill of a stuck best: user doc has 19.43 but the leaderboard entry is missing.
-  let r = resolveWrite(19.43, 19.43, null);
+  let r = resolve(19.43, 19.43, null);
   assertEquals(r.writeUser, true, "Equal stored best should still (re)write the user doc");
-  assertEquals(r.writeLeaderboard, true, "Missing leaderboard entry should be backfilled");
+  assertEquals(r.leaderboardValue, 19.43, "Missing leaderboard entry should be backfilled with the best");
 
   // First finish (no data yet) writes both.
-  r = resolveWrite(20.0, null, null);
+  r = resolve(20.0, null, null);
   assertEquals(r.writeUser, true, "First time should write the user doc");
-  assertEquals(r.writeLeaderboard, true, "First time should write the leaderboard");
+  assertEquals(r.leaderboardValue, 20.0, "First time should write the leaderboard");
 
-  // The race: a slower backfill (20s) commits AFTER a faster run (18s) already landed.
-  // The transaction now sees the fresher values and must not regress them.
-  r = resolveWrite(20.0, 18.0, 18.0);
+  // The reported P2: a device with stale/empty localStorage finishes a SLOWER run than
+  // the authoritative server-side best (set on another device). The user doc must not
+  // regress, and the leaderboard must show the authoritative best - never the slow run.
+  r = resolve(19.43, 14.0, null);
+  assertEquals(r.writeUser, false, "A slower run must not overwrite the faster stored best");
+  assertEquals(r.leaderboardValue, 14.0, "Missing leaderboard entry is backfilled with the authoritative best, not the slow run");
+
+  r = resolve(19.43, 14.0, 25.0);
+  assertEquals(r.leaderboardValue, 14.0, "A slower leaderboard entry is repaired to the authoritative best, not the slow run");
+
+  // Concurrent stale overwrite: a slower run (20s) lands after a faster value (18s).
+  // The leaderboard receives the authoritative 18 (or no-ops), never the stale 20.
+  r = resolve(20.0, 18.0, 18.0);
   assertEquals(r.writeUser, false, "A slower time must not overwrite a faster stored best");
-  assertEquals(r.writeLeaderboard, false, "A slower time must not overwrite a faster leaderboard entry");
+  assertEquals(r.leaderboardValue, 18.0, "Leaderboard keeps the authoritative best; the slow 20 never reaches it");
 
-  // A genuinely faster time still wins.
-  r = resolveWrite(17.0, 18.0, 18.0);
+  // A genuinely faster time still wins on both.
+  r = resolve(17.0, 18.0, 18.0);
   assertEquals(r.writeUser, true, "A faster time should update the user doc");
-  assertEquals(r.writeLeaderboard, true, "A faster time should update the leaderboard");
+  assertEquals(r.leaderboardValue, 17.0, "A faster time should update the leaderboard");
 
-  // Edge: best time matches user doc but leaderboard already holds a faster entry
+  // Edge: best matches user doc but leaderboard already holds a faster entry
   // (e.g. another device synced faster). Don't downgrade the leaderboard.
-  r = resolveWrite(19.0, 19.0, 17.0);
+  r = resolve(19.0, 19.0, 17.0);
   assertEquals(r.writeUser, true, "Equal-to-stored best may refresh the user doc");
   assertEquals(r.writeLeaderboard, false, "Should not replace a faster leaderboard entry");
+  assertEquals(r.leaderboardValue, 17.0, "Leaderboard keeps the faster existing entry");
 });
 
 runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
