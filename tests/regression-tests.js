@@ -443,6 +443,55 @@ runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
     "A rejected leaderboard write stays isolated from the personal-best write");
 });
 
+runTest('Offline Finish Retries Best-Time Sync When Connection Returns', () => {
+  // Models scores.js: Firestore transactions reject offline, so a failed sync
+  // ('unavailable') registers a one-time 'online' listener that re-runs the sync
+  // when connectivity returns - instead of stranding the score in localStorage with
+  // no retry. Guarded so it never stacks duplicate listeners.
+  const listeners = {};
+  const win = {
+    addEventListener: (ev, fn) => { listeners[ev] = fn; },
+    removeEventListener: (ev) => { delete listeners[ev]; }
+  };
+  let online = false;
+  let syncCalls = 0;
+  let retryRegistered = false;
+
+  function registerOnlineRetry() {
+    if (retryRegistered) return; // de-dupe
+    retryRegistered = true;
+    win.addEventListener('online', () => {
+      win.removeEventListener('online');
+      retryRegistered = false;
+      attemptSync();
+    });
+  }
+
+  function attemptSync() {
+    if (!online) {
+      // transaction rejects offline -> schedule a retry instead of giving up
+      registerOnlineRetry();
+      return;
+    }
+    syncCalls++;
+  }
+
+  // Finish while offline: nothing syncs yet, but a retry is armed.
+  attemptSync();
+  assertEquals(syncCalls, 0, "Offline finish should not sync immediately");
+  assertEquals(retryRegistered, true, "Offline finish should arm an online retry");
+
+  // A second offline finish must not stack a duplicate listener.
+  attemptSync();
+  assertEquals(retryRegistered, true, "Retry registration should be de-duplicated");
+
+  // Connection returns -> the listener fires once and the sync runs.
+  online = true;
+  listeners['online']();
+  assertEquals(syncCalls, 1, "Sync should run when the connection returns");
+  assertEquals(retryRegistered, false, "Retry listener should be cleared after it fires");
+});
+
 // Test 4: Snow Splash Effect Interference
 // Verifies that snow splash effects don't interfere with snowman position
 runTest('Snow Splash Effect Interference', () => {

@@ -35,6 +35,7 @@ import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.
 // Module state
 let firestore = null; // Local cache of firestore instance, updated by initializeScores
 let analytics = null;
+let onlineRetryRegistered = false; // True while an 'online' best-time retry is pending
 let currentUser = null;
 
 /**
@@ -84,6 +85,41 @@ function getActiveUser() {
   }
 
   return null;
+}
+
+/**
+ * Register a one-time 'online' listener that retries the best-time sync when the
+ * connection returns. Firestore transactions cannot run offline (they require a
+ * server round-trip and reject), unlike a queued setDoc — so an authenticated finish
+ * made offline would otherwise sit only in localStorage until the next login/finish.
+ * On reconnect we re-run the (transactional) sync of the current local best.
+ */
+function registerOnlineBestTimeRetry() {
+  if (onlineRetryRegistered) return; // Avoid stacking duplicate listeners
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  onlineRetryRegistered = true;
+
+  const onOnline = () => {
+    window.removeEventListener('online', onOnline);
+    onlineRetryRegistered = false;
+
+    const user = getActiveUser();
+    let localBest = null;
+    try {
+      const stored = localStorage.getItem('snowgliderBestTime');
+      localBest = stored ? parseFloat(stored) : null;
+    } catch (e) {
+      console.warn("Unable to read local best time for online retry:", e);
+    }
+
+    if (user && firestore && typeof localBest === 'number' && !isNaN(localBest)) {
+      console.log("Connection restored - retrying best-time sync:", localBest);
+      updateUserBestTime(user.uid, localBest); // Re-runs the transactional sync (+ leaderboard)
+    }
+  };
+
+  window.addEventListener('online', onOnline);
+  console.log("Offline: registered an 'online' retry for best-time sync.");
 }
 
 /**
@@ -142,8 +178,13 @@ function updateUserBestTime(userId, time) {
       })
       .catch(error => {
         console.error("Error updating user best time:", error);
-        // Only disable Firestore for connectivity issues, not permissions.
-        if (error.code === 'unavailable' || error.code === 'failed-precondition') {
+        if (error.code === 'unavailable') {
+          // Offline / network blip: transactions can't run offline, but the SDK
+          // instance is still valid. Keep it and retry the sync when the connection
+          // returns so an offline finish isn't stranded in localStorage.
+          console.warn("Firestore unavailable (offline?) during best time update. Will retry when online.");
+          registerOnlineBestTimeRetry();
+        } else if (error.code === 'failed-precondition') {
           console.warn("Firestore became unavailable during best time update. Clearing local instance.");
           firestore = null;
           displayLeaderboard();
@@ -214,8 +255,12 @@ function updateLeaderboard(userId, time) {
     })
     .catch(error => {
       console.error("Error updating leaderboard:", error);
-      // Only disable Firestore for connectivity issues, not permissions
-      if (error.code === 'unavailable' || error.code === 'failed-precondition') {
+      if (error.code === 'unavailable') {
+        // Offline / network blip (e.g. connection dropped after the user-best write).
+        // Keep the valid SDK instance and retry the whole sync when back online.
+        console.warn("Firestore unavailable (offline?) during leaderboard update. Will retry when online.");
+        registerOnlineBestTimeRetry();
+      } else if (error.code === 'failed-precondition') {
         console.warn("Firestore became unavailable during leaderboard update. Clearing local instance.");
         firestore = null; // Set local instance to null
       } else if (error.code === 'permission-denied') {
