@@ -20,3 +20,6 @@ coverage/
 # Large video files
 *.mov
 *.mp4
+
+# Local-only security notes (not for publication)
+SECURITY.md

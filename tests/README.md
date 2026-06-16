@@ -4,7 +4,7 @@ This directory contains tests for the SnowGlider game. The tests are designed to
 
 ## Test Types
 
-There are seven main types of tests:
+There are eight main types of tests:
 
 1. **Terrain Tests** (`terrain-tests.js`)
    - Tests for terrain height calculations
@@ -26,11 +26,11 @@ There are seven main types of tests:
    - Visual feedback in the browser
 
 4. **Audio Tests** (`audio-tests.js`)
-   - Tests for Howler.js audio integration
-   - Audio loading and playback verification
-   - Audio controls (mute, volume, track switching)
-   - Audio context state management
-   - Mobile audio unlock patterns
+   - Tests for the native HTML5 `<audio>` integration (Howler.js was removed; see [`CHANGELOG.md`](../CHANGELOG.md))
+   - Module init, status, and mute/unmute
+   - Volume control
+   - Backward-compatibility stubs for the previous Howler.js API
+   - Mute-button UI creation
 
 5. **Regression Tests** (`regression-tests.js` and `browser-regression-tests.js`)
    - Targets specific functionality that may have regressed based on git history
@@ -49,21 +49,38 @@ There are seven main types of tests:
    - Tests avalanche trigger mechanics, burial detection, visual rendering
    - Verifies avalanche reset and game over behavior
 
+8. **Verification Harness** (`tests/verification/`)
+   - Headless, deterministic checks that guard the physics contract and the DOM modules
+   - Run via `npm run test:verify` (also included in `npm test`)
+   - See [Verification Harness](#verification-harness) below
+
 ## Running Tests
 
 ### Command-line Tests
 
-Run all tests:
+Run the full Node suite:
 ```bash
 npm test
 ```
+This runs, in order: `test:terrain`, `test:physics`, `test:regression`,
+`test:tree-collision`, `test:avalanche`, `test:controls` (a stub — controls are
+browser-only), and `test:verify` (the verification harness).
 
 Run specific test categories:
 ```bash
-npm run test:terrain        # Run terrain tests only
-npm run test:physics        # Run physics tests only
-npm run test:regression     # Run regression tests only
-npm run test:tree-collision # Run tree collision tests only
+npm run test:terrain        # Terrain generation / height-consistency tests
+npm run test:physics        # Physics simulation tests
+npm run test:regression     # Regression tests
+npm run test:tree-collision # Tree collision tests
+npm run test:avalanche      # Avalanche physics tests
+npm run test:verify         # Verification harness (physics invariant + DOM smoke)
+```
+
+Other useful commands:
+```bash
+npm run test:coverage       # Node suite under c8 coverage
+npm run test:browser        # Puppeteer browser suite
+npm run test:all            # Node suite + Puppeteer
 ```
 
 ### Browser Tests
@@ -124,14 +141,42 @@ open index.html?test=unified
 ```
    This will run all test suites (controls, camera, audio, gameplay, tree, avalanche, regression) in sequence with a unified results display
 
+## Verification Harness
+
+`tests/verification/` holds headless, deterministic harnesses that run under Node
+(no browser) and are wired into `npm test` via `npm run test:verify`. They guard
+the two contracts that the browser/Node unit tests can't easily assert end-to-end.
+
+- **`physics_invariant_harness.js`** — loads the frozen baseline
+  `snowman_baseline.js` and the live `src/snowman.js` against a shared
+  deterministic terrain and a seeded RNG, then compares trajectories. The
+  load-bearing check is that **coasting with no input is byte-for-byte identical**
+  to the baseline (max abs difference `0`); the harness's exit code gates on it.
+  It also confirms the snowplow brake and edge-skid scrub behave as designed. See
+  [`PHYSICS.md` §6](../PHYSICS.md) for the seam this protects.
+- **`snowman_baseline.js`** — the frozen pre-feature snapshot of `updateSnowman`.
+  Regenerate it **only** on a deliberate physics change:
+  `git show <ref>:src/snowman.js > tests/verification/snowman_baseline.js`
+  (re-add the file header), then re-run `npm run test:verify`.
+- **`dom_smoke_test.js`** — boots `effects.js` + `course.js` under jsdom with a
+  mocked THREE: both modules build their DOM/gates, the per-frame loop runs, every
+  checkpoint and the finish are reached, the ghost trajectory and best splits
+  persist, and a faster second run is reported as a new record.
+- **`results.txt`** — the recorded output from the last full verification run.
+
+```bash
+npm run test:verify   # physics_invariant_harness.js + dom_smoke_test.js
+```
+
 ## Test Implementation Details
 
 - **Command-line tests** use Node.js with minimal dependencies to test core functionality.
 - **Browser tests** run in the actual game environment to test integrated behavior.
-- **Audio tests** verify the Howler.js audio system integration:
-  - **Test 1: Audio Loading and Playback** - AudioModule initialization, pre-loading, buffer management, track setting
-  - **Test 2: Audio Controls** - Mute/unmute toggle, volume control (min/max/custom), sound enable/disable, track switching
-  - **Test 3: Audio Context State Management** - Howler.js availability, context existence, state validation, resume functionality, retry UI
+- **Audio tests** verify the native HTML5 `<audio>` integration (Howler.js was removed — see [`CHANGELOG.md`](../CHANGELOG.md)):
+  - **Module init & status** - `AudioModule.init()`/`isEnabled()`/`getStatus()` and default track
+  - **Controls** - mute/unmute toggle and volume control
+  - **Backward-compatibility stubs** - the previous Howler.js API surface (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …) is retained as no-ops/Promises so existing callers keep working
+  - **UI** - mute button is created in the DOM with the correct icon
 - **Regression tests** focus on specific fixes identified in the git history to prevent regressions.
 - **Tree collision tests** specifically target tree collision detection issues:
   - Mismatch between tree positions in `snowglider.js` and `snow.js`

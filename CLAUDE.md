@@ -23,7 +23,9 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - `assets/` - Media (audio, video) tracked with Git LFS
 - `tests/` - Test files for terrain, physics, camera, avalanche, and collision detection
 - `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (`npm run test:verify`)
-- `docs/` - Project documentation and implementation reports
+- `ARCHITECTURE.md` - Module system, load order, game loop, and Firebase/scoring subsystem
+- `PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
+- `CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
 
 ## Commands
 - Install dependencies: `npm ci`
@@ -90,23 +92,13 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - Use standard touch event handlers with { passive: false }
 - Provide visual feedback for touch controls on mobile devices
 - Automatically detect device type to enable appropriate controls
-## Audio Implementation (CURRENTLY DISABLED)
-- **Audio is currently disabled** due to persistent issues on mobile and desktop
-- To re-enable: Set `AUDIO_ENABLED = true` in `audio.js`
-- Issues observed before disabling:
-  - Mobile: AudioContext suspension, iOS silent switch handling, interrupted states
-  - Desktop: Intermittent playback failures, context state management issues
-  - Cross-platform: User gesture requirements not consistently met
-- When re-enabling, test thoroughly on iOS Safari, Android Chrome, and desktop browsers
-- Previous implementation notes (for reference when fixing):
-  - Uses Howler.js for audio (replaces Three.js Audio)
-  - Howler.js handles mobile audio unlocking and context management
-  - Visibility change listeners resume audio context when app returns to foreground
-  - Multiple fallback strategies for mobile audio playback
-  - Flags track audio context state and buffer loading status
-  - Audio initialized early but playback deferred until user interaction
-  - Suspended audio contexts handled with explicit resume calls
-  - Audio preferences stored in localStorage for persistence
+## Audio Implementation (ENABLED — simplified native HTML5)
+- **Audio is enabled** via `AUDIO_ENABLED = true` in `src/audio.js`. The current implementation is the simplified, dependency-free native HTML5 `<audio>` approach: a single background-music track (`assets/drum_loop_are_you_heaven.wav`), two state variables (`muted`, `initialized`), loaded on first play, with no visibility-change handling (the browser manages it). Howler.js and Three.js Audio were both removed.
+- To disable: set `AUDIO_ENABLED = false` in `src/audio.js` (all public methods early-exit).
+- The previous Howler.js API surface is kept as no-op/Promise stubs for backward compatibility (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …), so the existing callers in `index.html` keep working without change.
+- **Caveats:** the in-page audio control button CSS is still commented out in `index.html`, and while desktop and the automated suite pass, mobile playback (iOS Safari silent switch, Android Chrome) is **not yet verified on real devices** — test thoroughly there before relying on it.
+- Treat audio changes as high risk: mobile browsers require a user gesture to start audio and can suspend the context.
+- The full audio history (Three.js → Howler.js → disabled → native) and the root-cause analysis live in [`CHANGELOG.md`](CHANGELOG.md).
 - Use consistent UI patterns for collapsible panels (Game Controls and Game Stats)
 - Implement horizontal swipe gestures for mobile panel interaction
 - Always check for existing/duplicated event listeners when setting up UI controls

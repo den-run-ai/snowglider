@@ -25,12 +25,19 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - **Avalanche system** - triggered when player travels far enough downhill, with tumbling snow boulders that can bury the player (game over)
 - Snow particle effects that respond to speed and turning
 - Tracking camera that follows the snowman's movements
-- Background music with selectable audio tracks
+- Background music (simplified native HTML5 audio; see the audio history in [`CHANGELOG.md`](CHANGELOG.md))
 - Timer with best time tracking
 - Comprehensive test suite for verifying game mechanics
 
 ## Roadmap
-[`ROADMAP.md`](ROADMAP.md) tracks the feature roadmap and gap analysis — a phased P0–P3 plan mapped to the open [GitHub issues](https://github.com/den-run-ai/snowglider/issues). The **P0 "skill & structure" layer** (checkpoint gates + finish line, split timing, a result screen, ghost racing, an avalanche warning UI, and a first ski-technique pass) shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56); see [`docs/IMPLEMENTATION_REPORT.md`](docs/IMPLEMENTATION_REPORT.md) for that work.
+[`ROADMAP.md`](ROADMAP.md) tracks the feature roadmap and gap analysis — a phased P0–P3 plan mapped to the open [GitHub issues](https://github.com/den-run-ai/snowglider/issues). The **P0 "skill & structure" layer** (checkpoint gates + finish line, split timing, a result screen, ghost racing, an avalanche warning UI, and a first ski-technique pass) shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56); see [`CHANGELOG.md`](CHANGELOG.md) for that work.
+
+## Documentation
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — module system, load order, the per-frame game loop, and the Firebase/scoring subsystem
+- [`PHYSICS.md`](PHYSICS.md) — terrain, skiing, jumps, collisions, and the avalanche model, with a constants reference
+- [`CHANGELOG.md`](CHANGELOG.md) — notable changes, including the skill/structure layer (#56) and the full audio history
+- [`tests/README.md`](tests/README.md) — test types, commands, and the verification harness
+- [`ROADMAP.md`](ROADMAP.md) — feature roadmap and gap analysis
 
 ## Project Structure
 - `index.html` - Main entry point and HTML structure (loads modules from `src/`)
@@ -52,7 +59,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `assets/` - Media (audio, video) tracked with Git LFS
 - `tests/` - Testing framework for game components
 - `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (run via `npm run test:verify`)
-- `docs/` - Project documentation and implementation reports
+- `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md` - Project documentation (see [Documentation](#documentation))
 
 ## Controls
 
@@ -73,7 +80,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - **Bottom of Screen**: Slow down
 - **Center of Screen**: Jump
 - **Camera Toggle Button**: Switch camera view
-- **Audio Button**: Toggle music or change tracks
+- **Audio Button**: Toggle music on/off
 - **Reset Button**: Start a new run
 
 The game automatically detects mobile devices and enables touch controls with visual indicators for easier gameplay.
@@ -90,10 +97,11 @@ The game includes a comprehensive testing framework. Run tests by appending URL 
 - `?test=unified` - Run all tests
 
 ### Audio Tests
-The audio test suite (`tests/audio-tests.js`) verifies the Howler.js audio integration:
-- **Test 1: Audio Loading and Playback** - Verifies AudioModule initialization, audio pre-loading, buffer loading, and track management
-- **Test 2: Audio Controls** - Tests mute/unmute, volume control, enable/disable sound, and track switching
-- **Test 3: Audio Context State Management** - Validates Howler.js library, context state, resume functionality, and retry UI
+The audio test suite (`tests/audio-tests.js`) verifies the native HTML5 `<audio>` integration (Howler.js was removed — see [`CHANGELOG.md`](CHANGELOG.md)):
+- **Module init & status** - `AudioModule.init()`/`isEnabled()`/`getStatus()` and the default track
+- **Controls** - mute/unmute toggle and volume control
+- **Backward-compatibility stubs** - the previous Howler.js API (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …) is retained as no-ops/Promises
+- **UI** - the mute button is created in the DOM with the correct icon
 
 Run audio tests with: `open index.html?test=audio` or as part of the unified suite with `?test=unified`
 
@@ -102,7 +110,7 @@ Run audio tests with: `open index.html?test=audio` or as part of the unified sui
 - Enhanced UI with collapsible game controls panel matching the game stats panel behavior
 - Improved touch interactions with consistent left/right swipe gestures for collapsing panels
 - Fixed collapsible panels to ensure they work properly across all device types
-- **Migrated to Howler.js** for better mobile audio compatibility (see `HOWLER_MIGRATION_SUMMARY.md`)
+- **Simplified audio to native HTML5** (Howler.js removed; see the audio history in [`CHANGELOG.md`](CHANGELOG.md))
 - Added comprehensive audio test suite covering loading, playback, controls, and context management
 - Implemented audio controls with mute/unmute functionality and track selection
 - Added audio preference storage in localStorage
