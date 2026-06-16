@@ -353,12 +353,12 @@ runTest('Leaderboard Backfills Stored Best On Every Authenticated Finish', () =>
 });
 
 runTest('Leaderboard Always Reflects The Authoritative Best, Never A Slower Local Time', () => {
-  // Mirror of scores.js compare-and-write logic. The user best is written in its own
-  // transaction that resolves with the AUTHORITATIVE best (the better of the stored
-  // value and this run). The leaderboard is then written in a SEPARATE transaction
-  // using that authoritative best - never the raw run time - and only when it improves
-  // the existing entry. So a slower local run can neither downgrade the user best nor
-  // the leaderboard, even when the device's localStorage is stale relative to Firestore.
+  // Mirror of scores.js compare-and-write logic. The user best is read then written
+  // (getDoc + setDoc); the AUTHORITATIVE best is the better of the stored value and this
+  // run. The leaderboard is then written by a SEPARATE getDoc + setDoc using that
+  // authoritative best - never the raw run time - and only when it improves the existing
+  // entry. So a slower local run can neither downgrade the user best nor the leaderboard,
+  // even when the device's localStorage is stale relative to Firestore.
   function resolve(time, storedBest, leaderboardBest) {
     const hasStored = typeof storedBest === 'number';
     const writeUser = !hasStored || time <= storedBest;
@@ -412,18 +412,18 @@ runTest('Leaderboard Always Reflects The Authoritative Best, Never A Slower Loca
 });
 
 runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
-  // Models scores.js: updateUserBestTime writes the user best in its own transaction
-  // and calls updateLeaderboard as a SEPARATE transaction. If Firestore rules allow
-  // users/{uid} but reject leaderboard/{uid}, the leaderboard write must fail in
-  // isolation without aborting the personal-best sync.
+  // Models scores.js: updateUserBestTime writes the user best (setDoc) and calls
+  // updateLeaderboard as a SEPARATE write. If Firestore rules allow users/{uid} but
+  // reject leaderboard/{uid}, the leaderboard write must fail in isolation without
+  // aborting the personal-best sync.
   let userBestWritten = false;
   let leaderboardWritten = false;
 
   function writeUserBest() {
-    userBestWritten = true; // committed in its own transaction
+    userBestWritten = true; // committed by its own setDoc
   }
   function updateLeaderboard() {
-    // Separate transaction; rejected by security rules.
+    // Separate write; rejected by security rules.
     throw new Error('permission-denied');
   }
   function updateUserBestTime() {
@@ -441,105 +441,6 @@ runTest('Personal Best Sync Survives A Leaderboard Write Failure', () => {
     "Personal best must sync even when the leaderboard write is rejected");
   assertEquals(leaderboardWritten, false,
     "A rejected leaderboard write stays isolated from the personal-best write");
-});
-
-runTest('Unavailable Best-Time Sync Retries Via Backoff Timer And Online Event', () => {
-  // Models scores.js: Firestore transactions reject when 'unavailable'. Crucially that
-  // can happen while navigator.onLine is still true (backend blip / captive portal),
-  // so waiting only for the 'online' event would strand the write. The retry schedules
-  // BOTH a backoff timer and an 'online' listener; whichever fires first re-runs the
-  // sync. Scheduling is de-duplicated, backs off on repeated failure, and resets on
-  // success.
-  const listeners = {};
-  const win = {
-    addEventListener: (ev, fn) => { listeners[ev] = fn; },
-    removeEventListener: (ev) => { delete listeners[ev]; }
-  };
-  let timer = null, onlineHandler = null, attempts = 0, scheduledDelay = null;
-  let serverReachable = false; // 'unavailable' while the browser still believes it is online
-  let syncCalls = 0;
-
-  function clearRetry() {
-    if (timer !== null) { timer = null; }
-    if (onlineHandler) { win.removeEventListener('online'); onlineHandler = null; }
-  }
-  function schedule() {
-    if (timer !== null || onlineHandler !== null) return; // de-dupe
-    attempts = Math.min(attempts + 1, 6);
-    scheduledDelay = Math.min(2000 * Math.pow(2, attempts - 1), 60000);
-    timer = () => { timer = null; attempt(); };          // fake timer handle (invoke to "fire")
-    onlineHandler = () => attempt();
-    win.addEventListener('online', onlineHandler);
-  }
-  function attempt() {
-    clearRetry();
-    if (!serverReachable) { schedule(); return; } // still failing -> reschedule with larger backoff
-    syncCalls++;
-    attempts = 0; // reset backoff on success
-  }
-
-  // Finish while 'unavailable' but browser still online: a retry must be armed even
-  // though no 'online' event will ever fire.
-  schedule();
-  assertEquals(timer !== null, true, "A backoff timer must be armed (not just the online listener)");
-  assertEquals(onlineHandler !== null, true, "An online listener should also be armed");
-  assertEquals(scheduledDelay, 2000, "First backoff should be 2s");
-
-  // Duplicate schedule call must not stack.
-  schedule();
-  assertEquals(scheduledDelay, 2000, "Scheduling is de-duplicated (no extra backoff increment)");
-
-  // Backoff timer fires while still unavailable -> reschedules with a larger delay,
-  // proving recovery does NOT depend on an 'online' event.
-  timer();
-  assertEquals(syncCalls, 0, "Still unavailable: no sync yet");
-  assertEquals(scheduledDelay, 4000, "Backoff should grow on repeated failure");
-
-  // Backend recovers; the timer fires and the sync finally runs.
-  serverReachable = true;
-  timer();
-  assertEquals(syncCalls, 1, "Sync runs once the backend is reachable again");
-  assertEquals(attempts, 0, "Backoff resets after a successful sync");
-  assertEquals(timer === null && onlineHandler === null, true, "Pending retry cleared after success");
-});
-
-runTest('Older Sync Success Does Not Cancel A Newer Best Retry', () => {
-  // Models scores.js success handler: the retry state is global, so when two syncs
-  // overlap, an OLDER sync resolving must not clear a retry armed for a NEWER, faster
-  // best. It only clears when the synced authoritative value still covers the current
-  // local best (authoritativeBest <= localBest).
-  let localBest = null;
-  let retryPending = false;
-
-  function onSyncSuccess(authoritativeBest) {
-    const hasLocal = typeof localBest === 'number' && !isNaN(localBest);
-    const coversLocalBest = !hasLocal || authoritativeBest <= localBest;
-    if (coversLocalBest) {
-      retryPending = false; // clearBestTimeRetry()
-    }
-  }
-
-  // A new faster finish (18.0) updated localStorage and then hit a transient error,
-  // arming a retry for 18.0.
-  localBest = 18.0;
-  retryPending = true;
-
-  // An older in-flight sync (for 19.43) now resolves successfully. It must NOT clear
-  // the retry, because 19.43 does not cover the newer local best of 18.0.
-  onSyncSuccess(19.43);
-  assertEquals(retryPending, true,
-    "Older/slower sync success must not cancel the retry for a newer faster best");
-
-  // When a sync that actually covers the current local best resolves, the retry clears.
-  onSyncSuccess(18.0);
-  assertEquals(retryPending, false,
-    "Sync that covers the current local best should clear the pending retry");
-
-  // Syncing a value faster than the local best (e.g. another device's best) also covers it.
-  localBest = 18.0; retryPending = true;
-  onSyncSuccess(14.0);
-  assertEquals(retryPending, false,
-    "A synced value faster than the local best also covers it and clears the retry");
 });
 
 // Test 4: Snow Splash Effect Interference
