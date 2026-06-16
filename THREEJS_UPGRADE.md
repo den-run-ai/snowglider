@@ -96,9 +96,19 @@ visual, so capture it first.
 
 > **✅ Implemented in PR #76.** Chose **Option 1 (preserve the r134 look)** — the three opt-out
 > lines below, all in `src/snowglider.js`. Verified: `npm run lint`, full `npm test` (terrain 7,
-> physics 6, regression 9, tree-collision 3, avalanche 10, auth 23, invariant + DOM smoke 18,
+> physics 6, regression 9, tree-collision 3, avalanche 11, auth 23, invariant + DOM smoke 18,
 > all against three@0.160), and `npm run test:browser` (**79 passed, 0 failed**, system Chrome,
 > real `index.html` on the r160 CDN build). No architecture change.
+>
+> One r160 behavior change surfaced and was fixed in the same PR: `InstancedMesh` now
+> frustum-culls against a cached bounding sphere, which would have made the avalanche's
+> hidden-then-moved boulders invisible — `avalanche.js` now sets `frustumCulled = false`
+> (with a real-module regression test).
+>
+> A headless capture after Start confirmed the preserved look — `THREE.REVISION = 160`,
+> `ColorManagement.enabled = false`, no page errors, and the original colors (sky / snow /
+> trees / snowman) intact. (Kept out of the repo to avoid a binary in history; attach such
+> shots to the PR instead.)
 
 Goal: land on the **last UMD build** with **zero** change to how the game loads or deploys.
 Pure version bump + color/lighting reconciliation.
