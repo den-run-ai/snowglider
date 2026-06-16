@@ -24,11 +24,11 @@
   "dependencies": {
     "firebase": "^11.5.0",
     "howler": "^2.2.4",
-    "three": "^0.134.0"
+    "three": "0.160.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@types/three": "^0.134.0",
+    "@types/three": "0.160.0",
     "c8": "^10.1.2",
     "eslint": "^9.39.4",
     "globals": "^15.15.0",

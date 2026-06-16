@@ -7,7 +7,7 @@
 import type * as THREE_NS from 'three';
 
 declare global {
-  // three.js r134, loaded as a CDN global (not an ES-module import yet).
+  // three.js r160, loaded as a CDN global (not an ES-module import yet).
   const THREE: typeof THREE_NS;
 
   /** Terrain height sampler injected via setTerrainFunction (see docs/ARCHITECTURE.md §4). */

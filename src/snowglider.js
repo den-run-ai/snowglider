@@ -9,9 +9,17 @@
 Controls.setupControls();
 
 // --- Scene, Renderer and Camera ---
+// three.js r160 enables color management (r152+) and physically-correct lights
+// (r155+ default) out of the box, both of which would shift SnowGlider's colors
+// and brightness. Opt out to preserve the original r134 look on this version
+// bump; adopting modern color/lighting is a deliberate later change.
+// (See docs/THREEJS_UPGRADE.md, Stage A.)
+THREE.ColorManagement.enabled = false;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.useLegacyLights = true;
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 // Update to assign renderer to a specific div with an ID

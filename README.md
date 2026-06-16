@@ -39,6 +39,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - [`tests/README.md`](tests/README.md) — test types, commands, and the verification harness
 - [`ROADMAP.md`](docs/ROADMAP.md) — feature roadmap and gap analysis
 - [`TYPESCRIPT_MIGRATION.md`](docs/TYPESCRIPT_MIGRATION.md) — incremental `@ts-check`/TypeScript migration plan and phase status
+- [`THREEJS_UPGRADE.md`](docs/THREEJS_UPGRADE.md) — staged three.js upgrade plan from r160 to latest
 
 ## Project Structure
 - `index.html` - Main entry point and HTML structure (loads modules from `src/`)
@@ -60,7 +61,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `assets/` - Media (audio, video) tracked with Git LFS
 - `tests/` - Testing framework for game components
 - `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (run via `npm run test:verify`)
-- `docs/` - Project documentation: `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md`, `TYPESCRIPT_MIGRATION.md` (see [Documentation](#documentation))
+- `docs/` - Project documentation: `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md`, `TYPESCRIPT_MIGRATION.md`, `THREEJS_UPGRADE.md` (see [Documentation](#documentation))
 
 ## Controls
 
