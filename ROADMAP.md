@@ -6,7 +6,7 @@
 
 ## Status
 
-This roadmap began as a feature-gap analysis. Its **top recommendation — the "skill & structure" layer — shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56)**: checkpoint gates + finish line, live split timing and a result screen, ghost racing, an avalanche warning UI, and a first snowplow/carve/tuck ski-technique pass. See [`IMPLEMENTATION_REPORT.md`](docs/IMPLEMENTATION_REPORT.md) for that work in detail.
+This roadmap began as a feature-gap analysis. Its **top recommendation — the "skill & structure" layer — shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56)**: checkpoint gates + finish line, live split timing and a result screen, ghost racing, an avalanche warning UI, and a first snowplow/carve/tuck ski-technique pass. See [`CHANGELOG.md`](CHANGELOG.md) for that work in detail.
 
 Status legend used below: **✅ shipped** · **◐ partial** (started, more to do) · **○ open**.
 
@@ -36,7 +36,7 @@ These exist today and generally don't need re-inventing — the gaps below build
 - Avalanche system (triggers after distance traveled, checks burial, resets if it passes the player)
 - Snow particle effects responsive to speed/turning
 - Tracking camera with toggleable views
-- Background music with selectable tracks
+- Background music (simplified native HTML5 audio, single track)
 - Timer with best-time tracking
 - Firebase auth + global leaderboard (finishes can record scores when logged in)
 - Mobile touch controls
@@ -114,7 +114,7 @@ A skiing game lives on speed readability and mountain atmosphere.
 
 ### 8. Audio consistency and completion — ○ open
 
-Audio appears **partially integrated**: the README lists music and selectable tracks, but the main game file contains no-op audio calls when audio is disabled, and the mobile music toggle is broken.
+Audio has since been rewritten to a simplified, dependency-free native HTML5 implementation (single background-music track) and re-enabled (`AUDIO_ENABLED = true`); the full history is in [`CHANGELOG.md`](CHANGELOG.md). It remains **partially integrated**: the in-page audio control button is still disabled in `index.html` and mobile playback (iOS Safari silent switch, Android Chrome) is not yet verified on real devices.
 
 - **Add / finish:** sound effects beyond music — wind that scales with speed, satisfying carving sounds on sharp turns, a crash/thud on wipeout — and complete the mobile integration.
 - **Open issue:** mobile music-disable button not working (**#50**).

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "A cheerful snowman shredding mountain snow powder in a playful Three.js animation.",
   "main": "src/snowglider.js",
+  "license": "MIT",
   "scripts": {
     "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:avalanche && npm run test:controls && npm run test:verify",
     "test:terrain": "node tests/terrain-tests.js",
