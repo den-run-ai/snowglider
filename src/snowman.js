@@ -1,3 +1,4 @@
+// @ts-check
 // snowman.js - Snowman model and functions for SnowGlider game
 
 // Create Snowman (Three Spheres)

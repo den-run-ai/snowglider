@@ -30,10 +30,11 @@ declare global {
   //   - snow.js:      @ts-checked -> `Snow` + `Utils` live in src/snow.js, not here.
   //   - controls.js:  @ts-checked -> `Controls` lives in src/controls.js, not here.
   //   - mountains.js: @ts-checked -> `Mountains` lives in src/mountains.js, not here.
+  //   - snowman.js:   @ts-checked -> `Snowman` + `resetSnowman`/`updateSnowman`
+  //                   (top-level fns) live in src/snowman.js, not here.
   const AudioModule: any;
   const AuthModule: any;
   const ScoresModule: any;
-  const Snowman: any;
 
   // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
   const Howl: any;
@@ -41,13 +42,12 @@ declare global {
 
   // Shared injected functions (see ARCHITECTURE.md §3 global namespace / §4 seams).
   // NOTE: the bare `getTerrainHeight` global is a top-level `function` in
-  // src/trees.js, so it's provided by that (now @ts-checked) file — declaring it
+  // src/trees.js, and `resetSnowman`/`updateSnowman` are top-level functions in
+  // src/snowman.js, so those (now @ts-checked) files provide them — declaring them
   // here too would be a TS2451 redeclare. `TerrainHeightFn` (above) is retained as
   // a domain type for Phase 3 strictNullChecks annotations.
-  const resetSnowman: (...args: any[]) => any;
   const showGameOver: (...args: any[]) => any;
   const updateCamera: (...args: any[]) => any;
-  const updateSnowman: (...args: any[]) => any;
 
   // Shared mutable game state (writable globals in eslint.config.js).
   // NOTE: these are top-level `const`/`let` in src/snowglider.js, so they become
@@ -97,6 +97,12 @@ declare global {
     restartGame?: () => unknown;
     showGameOver?: (...args: any[]) => unknown;
     initializeGameWithAudio?: (...args: any[]) => unknown;
+    // Test-only handles read/written by snowman.js test hooks + browser suites.
+    testHooks?: any;
+    treeCollisionRadius?: number;
+    testTreeJumpingCheck?: boolean;
+    testCollisionDetected?: boolean;
+    _treeCheckLogged?: boolean;
   }
 }
 
