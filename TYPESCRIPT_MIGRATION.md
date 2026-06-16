@@ -4,7 +4,9 @@
 
 ## Status
 
-- **Current:** ES2022 JavaScript. Classic `<script>` modules (global namespaces), three.js **r134** loaded as a CDN global, no bundler, no build step. `auth.js` / `scores.js` are the only ES modules (Firebase).
+- **Current:** ES2022 JavaScript with the Phase 1 checker in place. Classic `<script>` modules
+  (global namespaces), three.js **r160** loaded as a CDN global, no bundler, no build step.
+  `auth.js` / `scores.js` are ES modules for Firebase.
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 
@@ -15,7 +17,9 @@ The blocker is **not** TypeScript — it's the *classic-script + global-namespac
 1. **Phase 1 — Type-check in place (no architecture change, no build step).** `tsconfig` with `checkJs` + a `globals.d.ts` that mirrors the globals list already in `eslint.config.js`. Lean on the JSDoc you already write. CI gains `tsc --noEmit`. **Reversible, low risk, real value.**
 2. **Phase 2 — Introduce a bundler + convert globals → ES modules**, module-by-module, behind the test suite. `THREE` moves from CDN global to `import * as THREE from 'three'`.
 3. **Phase 3 — Rename `.js` → `.ts`** and ratchet strict flags up, `strictNullChecks` first.
-4. **Parallel track — upgrade three.js off r134** (separate from all type work; sequence *after* Phase 2).
+4. **Parallel track — upgrade three.js** (separate from all type work): r134 → r160 can happen
+   before Phase 2 because r160 is the final global build; r160 → latest must wait for Phase 2's
+   ES-module conversion. See [`THREEJS_UPGRADE.md`](THREEJS_UPGRADE.md).
 
 Highest ROI is **typed game-state + the pure-logic modules you already test** (physics, terrain, course, avalanche, scoring) — not annotating every rendering object.
 
@@ -41,10 +45,11 @@ Goal: catch type bugs across the existing JS with **zero changes to how the game
 
 ```bash
 npm i -D typescript
-npm i -D @types/three@~0.134   # MUST match the r134 you load from CDN
+npm i -D @types/three@0.160.0  # MUST match the r160 you load from CDN
 ```
 
-> ⚠️ Version-match `@types/three` to your three version. Mismatches are a known source of phantom type errors. You're on r134, so pin `~0.134`.
+> ⚠️ Version-match `@types/three` to your three version. Mismatches are a known source of
+> phantom type errors. After the r160 upgrade, pin `@types/three@0.160.0`.
 
 `tsconfig.json` (checks JS, emits nothing — no build artifact, deploy unchanged):
 
@@ -77,7 +82,7 @@ Your `eslint.config.js` already enumerates every global namespace (`Avalanche`, 
 import type * as THREE_NS from 'three';
 
 declare global {
-  // three.js r134, loaded as a global from cdnjs (not a module yet)
+  // three.js r160, loaded as a global from cdnjs (not a module yet)
   const THREE: typeof THREE_NS;
 
   // Game module namespaces — attached to window by classic scripts.
@@ -162,7 +167,7 @@ Goal: replace the CDN-global + script-injection model with an ES-module graph an
 
 ```bash
 npm i -D vite
-npm i three@0.134   # pull three from npm instead of the CDN (keep r134 for now — upgrade separately)
+npm i three@0.160.0 # pull the current r160 from npm instead of the CDN; latest is a separate step
 ```
 
 `vite.config.js` — custom domain (snowglider.ai via CNAME) means `base: '/'`:
@@ -175,7 +180,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] Replace the CDN `<script src=".../r134/three.min.js">` and the nested `src/*.js` injection in `index.html` with a single module entry: `<script type="module" src="/src/snowglider.js"></script>`. Vite resolves the import graph and ordering for you.
+- [ ] Replace the CDN `<script src=".../0.160.0/three.min.js">` and the nested `src/*.js` injection in `index.html` with a single module entry: `<script type="module" src="/src/snowglider.js"></script>`. Vite resolves the import graph and ordering for you.
 - [ ] Update the GitHub Pages workflow to `npm run build` and deploy `dist/` (e.g. via `actions/deploy-pages`), keeping the `CNAME` file in the published output.
 
 > ⚠️ **Vite does not type-check** — it strips types and bundles. Keep `tsc --noEmit` in CI as the *real* type gate. Optionally add `vite-plugin-checker` for in-editor/dev feedback.
@@ -209,9 +214,16 @@ Now that modules exist and are JSDoc-typed, renaming is mostly mechanical.
 
 ---
 
-## Parallel track — upgrade three.js off r134
+## Parallel track — upgrade three.js
 
-Independent of the type work, but **sequence it after Phase 2** (you need npm-imported, module-style three first; the global/UMD build is dropped in modern versions). Do it as its own step, not mixed with type changes:
+Independent of the type work, but split it into the stages described in
+[`THREEJS_UPGRADE.md`](THREEJS_UPGRADE.md):
+
+- **r134 → r160** can land before Phase 2 because r160 is the last CDN/global UMD build.
+- **r160 → latest** must be sequenced after Phase 2 because r161+ are ESM-only and `THREE`
+  must be imported rather than read from `window`.
+
+Do it as its own step, not mixed with type changes:
 
 - [ ] Bump `three` + `@types/three` together, in lockstep.
 - [ ] Expect breaking changes — most notably **color management** (defaults changed in r152; outputs/lighting can shift), renderer output-encoding renames, and any `examples/jsm` addon path/API changes you use.

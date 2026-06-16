@@ -1,20 +1,22 @@
-# SnowGlider — three.js Upgrade Roadmap (r134 → latest)
+# SnowGlider — three.js Upgrade Roadmap (r134 → r160 → latest)
 
 > Move off the pinned **three.js r134** toward the current release — without breaking
 > the GitHub Pages deploy to snowglider.ai, and **without entangling the upgrade with
-> the TypeScript migration** ([`TYPESCRIPT_MIGRATION.md`](https://github.com/den-run-ai/snowglider/pull/74), PR #74).
+> the TypeScript migration** ([`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md)).
 > This is the "parallel track" that doc defers; here is the concrete plan.
 
 ## Status
 
-- **Current:** three.js **r134**, loaded as a **browser global** from a CDN `<script>`:
+- **Before PR #76:** three.js **r134**, loaded as a **browser global** from a CDN `<script>`:
   `index.html` → `https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js`.
   `package.json` also pins `three@^0.134.0` (used by `tests/terrain-tests.js`, which does
   `require('three')`). No bundler, no build step.
+- **After PR #76:** three.js **0.160.0** in both the CDN tag and npm, with
+  `@types/three@0.160.0` checked by the TypeScript Phase 1 gate from main.
 - **Latest:** three.js **0.184.0** / `@types/three` **0.184.1** (npm, at time of writing).
-- **Guardrail:** `npm test`, `npm run lint`, the verification harness, and the puppeteer
-  browser smoke must stay green after every step. No step may leave `main` un-deployable
-  or visibly broken.
+- **Guardrail:** `npm test`, `npm run lint`, `npm run typecheck`, the verification harness,
+  and the puppeteer browser smoke must stay green after every step. No step may leave `main`
+  un-deployable or visibly broken.
 
 ## TL;DR — the hard constraint that shapes everything
 
@@ -24,7 +26,7 @@ Verified against both cdnjs and jsdelivr:
 
 | Version | `build/three.min.js` (UMD global) |
 |--------:|:----------------------------------|
-| r134 (now) | ✅ present |
+| r134 (PR #76 base) | ✅ present |
 | 0.160.0 | ✅ **present — last UMD build** |
 | 0.161.0 | ❌ gone |
 | 0.184.0 (latest) | ❌ ESM-only (`three.module.js`, `three.core.js`) |
@@ -37,13 +39,13 @@ TypeScript migration**. Therefore:
 1. **Stage A — bump r134 → r160 in place (no architecture change).** Still a CDN `<script>`
    global. This is where the *real* work and visual risk live: it crosses the **color-management
    default (r152)** and the **physically-correct-lights default (r155)**. Independently
-   shippable **today**, fully decoupled from the TS migration. **High value, self-contained.**
+   shippable in PR #76, with the TypeScript checker already active. **High value, self-contained.**
 2. **Stage B — r160 → latest, after ES modules exist.** Sequenced **after** TS-migration
    Phase 2. `THREE` comes from npm via `import * as THREE from 'three'` (bundler) or an
    **import map** (keeps the no-build static-site model). Mostly mechanical once Stage A's
    color/lighting tuning is already done.
 
-> This **refines** the note in [`TYPESCRIPT_MIGRATION.md`](https://github.com/den-run-ai/snowglider/pull/74)
+> This **refines** the note in [`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md)
 > ("upgrade three.js off r134 … sequence it after Phase 2"). True for *latest*, but you don't
 > have to wait: **r134 → r160 is reachable now**, and it front-loads the only genuinely risky
 > part (color/lighting), isolated from the architecture change.
@@ -95,7 +97,8 @@ visual, so capture it first.
 ## Phase A — r134 → r160, in place (1–2 days)
 
 > **✅ Implemented in PR #76.** Chose **Option 1 (preserve the r134 look)** — the three opt-out
-> lines below, all in `src/snowglider.js`. Verified: `npm run lint`, full `npm test` (terrain 7,
+> lines below, all in `src/snowglider.js`. Verified: `npm run lint`, `npm run typecheck`
+> (TypeScript Phase 1 from main, with `@types/three@0.160.0`), full `npm test` (terrain 7,
 > physics 6, regression 9, tree-collision 3, avalanche 11, auth 23, invariant + DOM smoke 18,
 > all against three@0.160), and `npm run test:browser` (**79 passed, 0 failed**, system Chrome,
 > real `index.html` on the r160 CDN build). No architecture change.
@@ -120,18 +123,20 @@ does not update one. So bump the CDN URL, `package.json`, **and** `package-lock.
 using `npm install` (not `npm ci`) so the lockfile is regenerated before tests run:
 
 - [ ] `index.html` CDN `<script>`: `…/three.js/r134/three.min.js` → `…/three.js/0.160.0/three.min.js`.
+- [ ] Add an SRI `integrity` hash and `crossorigin="anonymous"` to the CDN tag.
 - [ ] `npm install three@0.160.0 --save-exact` — updates `package.json`
       (`"three": "^0.134.0"` → `"three": "0.160.0"`), **`package-lock.json`**, and `node_modules`
       in one step. Pin exact: the CDN and npm copy must be the *same* version so
       `terrain-tests.js`'s `require('three')` exercises the shipped version.
-- [ ] *(Only if a TypeScript typecheck has already landed — see PR #74.)* Bump `@types/three`
-      to match `three` (`~0.160`) in the same step; a mismatched `@types/three` is a known
-      phantom-type-error source. Skip it while there is no `tsconfig`/`tsc` gate yet.
-- [ ] `npm test` (terrain/physics now run against three@0.160) and `npm run lint` stay green.
+- [ ] Bump `@types/three` to exact `0.160.0` in the same step; a mismatched `@types/three`
+      is a known phantom-type-error source now that the Phase 1 checker runs on main.
+- [ ] `npm test` (terrain/physics now run against three@0.160), `npm run lint`, and
+      `npm run typecheck` stay green.
 
-> Verified flow: `npm install three@0.160.0 --save-exact` regenerated the lockfile cleanly and
-> all Node suites passed first try. (The harmless `require('three/package.json')` resolution
-> error you may see is just three's `exports` map — it does not affect `require('three')`.)
+> Verified flow: `npm install three@0.160.0 --save-exact` regenerated the runtime lockfile
+> cleanly; `@types/three` was then version-matched to `0.160.0`, and the latest TypeScript
+> checker from main passed. (The harmless `require('three/package.json')` resolution error
+> you may see is just three's `exports` map — it does not affect `require('three')`.)
 
 ### A.2 Decide the color-management posture — **the load-bearing choice**
 
@@ -179,7 +184,7 @@ a different brightness on r160 than on r134.
 
 **Exit criteria for Phase A:** game loads three **r160** from CDN, look matches r134 (or is
 deliberately re-tuned and signed off), all suites + deploy green, **architecture unchanged**.
-Shippable as its own PR with no dependency on the TS migration.
+Shippable as its own PR; after PR #74, the Phase 1 TypeScript checker is an additional gate.
 
 ---
 
@@ -257,8 +262,6 @@ real acceptance test for this migration, the way `PHYSICS.md`'s invariant harnes
 - Official three.js migration notes: <https://github.com/mrdoob/three.js/wiki/Migration-Guide>
   (read the r135 → r160 entries; color management is r152, lighting default is r155,
   `useLegacyLights` removal is r165).
-- Companion plans: [`TYPESCRIPT_MIGRATION.md`](https://github.com/den-run-ai/snowglider/pull/74) (Phase 2 unblocks Stage B),
+- Companion plans: [`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md) (Phase 2 unblocks Stage B),
   [`ARCHITECTURE.md`](ARCHITECTURE.md) §2 (load order), [`tests/README.md`](tests/README.md)
   (where the visual smoke lives).
-</content>
-</invoke>
