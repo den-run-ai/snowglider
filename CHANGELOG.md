@@ -134,3 +134,47 @@ First implementation using `THREE.AudioListener`/`AudioLoader`/`Audio`.
 - Howler.js: https://howlerjs.com/ · https://github.com/goldfire/howler.js
 - Autoplay policy: https://developer.chrome.com/blog/autoplay/
 - Web Audio API (MDN): https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API
+
+---
+
+## Earlier improvements
+
+Foundational work that predates the structured entries above, consolidated here
+from the README. Audio-related items live in the [Audio](#audio) section.
+
+### Gameplay, terrain & effects
+- Avalanche system: snow boulders triggered when traveling far enough downhill,
+  with physics simulation and burial detection (game over on collision).
+- Converted the terrain from a groomed ski run to a natural backcountry mountain;
+  distributed trees and rocks across the whole mountain; strengthened the downhill
+  gradient for a consistent skiing experience.
+- Fixed tree-collision detection in the extended terrain areas.
+- Enhanced the snow particle effects.
+
+### Camera
+- Improved camera tracking with smooth transitions.
+
+### Auth & leaderboard
+- Added Firebase authentication and a user account system; a global leaderboard
+  with the top 10 player times; and automatic score syncing between `localStorage`
+  and Firebase.
+- Split scoring/leaderboard into a separate `scores.js` module, with clearer
+  separation of concerns and backward-compatible interfaces.
+- Hardened error handling and Firebase service-availability management.
+- Mobile auth: improved Chrome popup handling, popup-blocked / cancellation
+  recovery with automatic retry, an optimized mobile auth flow, responsive visual
+  feedback, and a debug overlay (`?debug=auth`).
+
+### Mobile & controls
+- Mobile-friendly touch controls with on-screen visual indicators; an adaptive
+  layout for screen size / orientation; and automatic mobile-device detection.
+
+### UI
+- Collapsible Game Controls panel matching the Game Stats panel; consistent
+  left/right swipe gestures to collapse panels; and cross-device fixes for the
+  collapsible panels.
+
+### Code structure & testing
+- Renamed `utils.js` → `snow.js`; extracted tree logic into `trees.js`; separated
+  the snowman into its own module.
+- Added comprehensive test hooks for verifying game mechanics.
