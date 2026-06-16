@@ -1,3 +1,4 @@
+// @ts-check
 // avalanche.js - Simple avalanche system for Snowglider
 // Triggered when player travels far enough downhill - burial = game over
 

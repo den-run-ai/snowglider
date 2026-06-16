@@ -1,3 +1,4 @@
+// @ts-check
 // effects.js - Drama and "juice" effects for SnowGlider
 //
 // Two responsibilities:

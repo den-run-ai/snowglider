@@ -36,7 +36,10 @@ jobs:
 
       - name: Run lint
         run: npm run lint
-      
+
+      - name: Type-check (tsc --noEmit)
+        run: npm run typecheck
+
       - name: Run Node.js tests with coverage
         run: npm run test:coverage
       

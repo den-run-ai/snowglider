@@ -1,3 +1,4 @@
+// @ts-check
 // course.js - Course structure, split timing, ghost racing and result screen for SnowGlider
 //
 // This module turns the open slope into a timed course:

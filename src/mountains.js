@@ -1,3 +1,4 @@
+// @ts-check
 // mountains.js - Terrain and mountain features for snowglider
 
 // --- SimplexNoise implementation ---
@@ -169,8 +170,10 @@ function createTerrain(scene) {
   scene.userData = scene.userData || {}; 
   scene.userData.terrainGeometry = geometry;
   
-  const vertices = geometry.attributes.position.array;
-  
+  // BufferAttribute.array is typed ArrayLike<number> (read-only); the concrete
+  // buffer is a writable Float32Array, which we mutate in place below.
+  const vertices = /** @type {Float32Array} */ (geometry.attributes.position.array);
+
   // Create Perlin noise for natural terrain variation
   const perlin = new SimplexNoise();
   
@@ -373,7 +376,8 @@ function createRock(size) {
   const geometry = new THREE.DodecahedronGeometry(size, 1);
   
   // Deform vertices slightly for more natural rock shape
-  const positions = geometry.attributes.position.array;
+  // (writable Float32Array under the read-only ArrayLike<number> type)
+  const positions = /** @type {Float32Array} */ (geometry.attributes.position.array);
   for (let i = 0; i < positions.length; i += 3) {
     const noise = Math.random() * 0.2;
     positions[i] *= (1 + noise);
