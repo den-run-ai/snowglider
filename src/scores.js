@@ -1,6 +1,7 @@
+// @ts-check
 /**
  * scores.js - User scoring and leaderboard module for SnowGlider
- * 
+ *
  * This module handles player scoring, personal best tracking, and the global 
  * leaderboard functionality. It was split from auth.js to provide better
  * separation of concerns.

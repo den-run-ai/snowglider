@@ -1,3 +1,4 @@
+// @ts-check
 // auth.js - Firebase Authentication module for SnowGlider
 // Uses Firebase modular SDK (Popup-only Google Sign-In)
 
@@ -184,7 +185,7 @@ function updateUIForLoggedInUser(user) {
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
   const profileName = document.getElementById('profileName');
-  const profileAvatar = document.getElementById('profileAvatar');
+  const profileAvatar = /** @type {HTMLImageElement} */ (document.getElementById('profileAvatar'));
 
   if (!authUI || !profileUI) {
     console.error("updateUIForLoggedInUser: Could not find authUI or profileUI elements!");
@@ -234,7 +235,7 @@ function updateUIForLoggedOutUser() {
 
 // Reset login button to default state
 function resetLoginButton() {
-  const loginBtn = document.getElementById('loginBtn');
+  const loginBtn = /** @type {HTMLButtonElement} */ (document.getElementById('loginBtn'));
   if (loginBtn) {
     loginBtn.textContent = 'Login with Google';
     loginBtn.disabled = false;
@@ -247,7 +248,7 @@ function resetLoginButton() {
 // Set up login/logout button handlers
 function setupAuthButtons() {
   // Login button
-  const loginBtn = document.getElementById('loginBtn');
+  const loginBtn = /** @type {HTMLButtonElement} */ (document.getElementById('loginBtn'));
   if (loginBtn) {
     // Function to handle sign-in process using Popup
     const handleSignIn = (e) => {
@@ -306,7 +307,7 @@ function setupAuthButtons() {
   }
 
   // Logout button
-  const logoutBtn = document.getElementById('logoutBtn');
+  const logoutBtn = /** @type {HTMLButtonElement} */ (document.getElementById('logoutBtn'));
   if (logoutBtn) {
     // Prevent default touch behavior if needed
     logoutBtn.addEventListener('touchstart', (e) => {
@@ -399,7 +400,7 @@ function syncUserData(user) {
 
 /**
  * Gets the currently signed-in user object from Firebase Auth.
- * @returns {firebase.User|null} The current user object or null.
+ * @returns {import('firebase/auth').User | null} The current user object or null.
  */
 function getCurrentUser() {
   return currentUser;

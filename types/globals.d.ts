@@ -67,6 +67,7 @@ declare global {
     Trees: any;
     Utils: any;
     FIREBASE_MANUAL_INIT?: boolean;
+    __FIREBASE_DEFAULTS__?: any; // set by auth.js to stop Firebase auto-init 404s
     // Cross-module/test handles published by snowglider.js (ARCHITECTURE.md §3).
     terrainMesh?: any;
     treePositions?: any;
