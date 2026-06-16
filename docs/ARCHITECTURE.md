@@ -3,7 +3,7 @@
 How the pieces fit together: the no-build module system, load order, the global
 namespace and injection seams, the per-frame data flow, and the Firebase/scoring
 subsystem. For the simulation itself see [`PHYSICS.md`](PHYSICS.md); for tests see
-[`tests/README.md`](tests/README.md).
+[`tests/README.md`](../tests/README.md).
 
 ---
 
@@ -56,7 +56,7 @@ mountains → trees → snow → camera → snowman → audio → controls
 
 `snowglider.js` is last because it is the orchestrator that consumes all the
 others. Test scripts (`tests/*.js`) are appended only when a `?test=` parameter is
-present (see [`tests/README.md`](tests/README.md)).
+present (see [`tests/README.md`](../tests/README.md)).
 
 > **If you add a module,** insert it at the right point in this chain in
 > `index.html` (and load it before `snowglider.js` if the game loop uses it).
@@ -203,4 +203,4 @@ fallbacks** — they are what keep the game runnable without a Firebase project.
   passes. Workflows must stay least-privileged and must not publish
   `node_modules/`, `coverage/`, `dist/`, or test artifacts.
 
-See [`tests/README.md`](tests/README.md) for the full matrix and commands.
+See [`tests/README.md`](../tests/README.md) for the full matrix and commands.

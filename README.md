@@ -25,19 +25,20 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - **Avalanche system** - triggered when player travels far enough downhill, with tumbling snow boulders that can bury the player (game over)
 - Snow particle effects that respond to speed and turning
 - Tracking camera that follows the snowman's movements
-- Background music (simplified native HTML5 audio; see the audio history in [`CHANGELOG.md`](CHANGELOG.md))
+- Background music (simplified native HTML5 audio; see the audio history in [`CHANGELOG.md`](docs/CHANGELOG.md))
 - Timer with best time tracking
 - Comprehensive test suite for verifying game mechanics
 
 ## Roadmap
-[`ROADMAP.md`](ROADMAP.md) tracks the feature roadmap and gap analysis — a phased P0–P3 plan mapped to the open [GitHub issues](https://github.com/den-run-ai/snowglider/issues). The **P0 "skill & structure" layer** (checkpoint gates + finish line, split timing, a result screen, ghost racing, an avalanche warning UI, and a first ski-technique pass) shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56); see [`CHANGELOG.md`](CHANGELOG.md) for that work.
+[`ROADMAP.md`](docs/ROADMAP.md) tracks the feature roadmap and gap analysis — a phased P0–P3 plan mapped to the open [GitHub issues](https://github.com/den-run-ai/snowglider/issues). The **P0 "skill & structure" layer** (checkpoint gates + finish line, split timing, a result screen, ghost racing, an avalanche warning UI, and a first ski-technique pass) shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56); see [`CHANGELOG.md`](docs/CHANGELOG.md) for that work.
 
 ## Documentation
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — module system, load order, the per-frame game loop, and the Firebase/scoring subsystem
-- [`PHYSICS.md`](PHYSICS.md) — terrain, skiing, jumps, collisions, and the avalanche model, with a constants reference
-- [`CHANGELOG.md`](CHANGELOG.md) — notable changes, including the skill/structure layer (#56) and the full audio history
+- [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module system, load order, the per-frame game loop, and the Firebase/scoring subsystem
+- [`PHYSICS.md`](docs/PHYSICS.md) — terrain, skiing, jumps, collisions, and the avalanche model, with a constants reference
+- [`CHANGELOG.md`](docs/CHANGELOG.md) — notable changes, including the skill/structure layer (#56) and the full audio history
 - [`tests/README.md`](tests/README.md) — test types, commands, and the verification harness
-- [`ROADMAP.md`](ROADMAP.md) — feature roadmap and gap analysis
+- [`ROADMAP.md`](docs/ROADMAP.md) — feature roadmap and gap analysis
+- [`TYPESCRIPT_MIGRATION.md`](docs/TYPESCRIPT_MIGRATION.md) — incremental `@ts-check`/TypeScript migration plan and phase status
 
 ## Project Structure
 - `index.html` - Main entry point and HTML structure (loads modules from `src/`)
@@ -59,7 +60,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `assets/` - Media (audio, video) tracked with Git LFS
 - `tests/` - Testing framework for game components
 - `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (run via `npm run test:verify`)
-- `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md` - Project documentation (see [Documentation](#documentation))
+- `docs/` - Project documentation: `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md`, `TYPESCRIPT_MIGRATION.md` (see [Documentation](#documentation))
 
 ## Controls
 

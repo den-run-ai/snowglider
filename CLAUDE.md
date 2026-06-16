@@ -23,9 +23,11 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - `assets/` - Media (audio, video) tracked with Git LFS
 - `tests/` - Test files for terrain, physics, camera, avalanche, and collision detection
 - `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (`npm run test:verify`)
-- `ARCHITECTURE.md` - Module system, load order, game loop, and Firebase/scoring subsystem
-- `PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
-- `CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
+- `docs/ARCHITECTURE.md` - Module system, load order, game loop, and Firebase/scoring subsystem
+- `docs/PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
+- `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
+- `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis
+- `docs/TYPESCRIPT_MIGRATION.md` - Incremental `@ts-check`/TypeScript migration plan and phase status
 
 ## Commands
 - Install dependencies: `npm ci`
@@ -98,7 +100,7 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - The previous Howler.js API surface is kept as no-op/Promise stubs for backward compatibility (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …), so the existing callers in `index.html` keep working without change.
 - **Caveats:** the in-page audio control button CSS is still commented out in `index.html`, and while desktop and the automated suite pass, mobile playback (iOS Safari silent switch, Android Chrome) is **not yet verified on real devices** — test thoroughly there before relying on it.
 - Treat audio changes as high risk: mobile browsers require a user gesture to start audio and can suspend the context.
-- The full audio history (Three.js → Howler.js → disabled → native) and the root-cause analysis live in [`CHANGELOG.md`](CHANGELOG.md).
+- The full audio history (Three.js → Howler.js → disabled → native) and the root-cause analysis live in [`CHANGELOG.md`](docs/CHANGELOG.md).
 - Use consistent UI patterns for collapsible panels (Game Controls and Game Stats)
 - Implement horizontal swipe gestures for mobile panel interaction
 - Always check for existing/duplicated event listeners when setting up UI controls
