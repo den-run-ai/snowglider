@@ -86,17 +86,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 The game automatically detects mobile devices and enables touch controls with visual indicators for easier gameplay.
 
 ## Testing
-Run the Node suite with `npm test`. In-browser suites run by appending a URL parameter:
-- `?test=true` - Run basic gameplay tests
-- `?test=trees` - Run tree collision tests
-- `?test=camera` - Run camera tracking tests
-- `?test=audio` - Run audio playback tests
-- `?test=controls` - Run controls tests
-- `?test=avalanche` - Run avalanche system tests
-- `?test=regression` - Run regression tests
-- `?test=unified` - Run all tests
-
-See [`tests/README.md`](tests/README.md) for the full test matrix, the verification harness, and per-suite details.
+Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL parameters. See [`tests/README.md`](tests/README.md) for the full test matrix, the browser parameters, the verification harness, and per-suite details.
 
 ## Development
 

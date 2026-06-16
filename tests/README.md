@@ -85,6 +85,20 @@ npm run test:all            # Node suite + Puppeteer
 
 ### Browser Tests
 
+Append a `?test=` parameter to the game URL to load a suite in-browser; results
+display on-screen. Available parameters:
+
+| Parameter | Suite |
+|-----------|-------|
+| `?test=true` | Basic gameplay tests |
+| `?test=trees` | Tree collision tests |
+| `?test=camera` | Camera tracking tests |
+| `?test=audio` | Audio playback tests |
+| `?test=controls` | Controls tests |
+| `?test=avalanche` | Avalanche system tests |
+| `?test=regression` | Regression tests |
+| `?test=unified` | All suites (controls, camera, audio, gameplay, tree, avalanche, regression) |
+
 1. Open the game with the test parameter:
 ```
 open index.html?test=true
