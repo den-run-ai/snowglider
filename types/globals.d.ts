@@ -23,9 +23,9 @@ declare global {
   // from this block in the same change that adds `// @ts-check` to that module.
   //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
   //   - course.js:    @ts-checked -> `CourseModule` lives in src/course.js, not here.
+  //   - camera.js:    @ts-checked -> `Camera` (class) lives in src/camera.js, not here.
   const AudioModule: any;
   const AuthModule: any;
-  const Camera: any;
   const Controls: any;
   const EffectsModule: any;
   const Mountains: any;

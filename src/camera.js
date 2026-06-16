@@ -1,3 +1,4 @@
+// @ts-check
 // camera.js - Camera management for SnowGlider
 
 class Camera {
