@@ -58,6 +58,96 @@ async function startServer() {
   });
 }
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function runStartMenuRaceRegression(browser) {
+  console.log('Running start menu race regression...');
+
+  const page = await browser.newPage();
+  const errors = [];
+  let releaseSnowgliderScript;
+  let snowgliderRequestSeen;
+
+  const releaseSnowgliderScriptPromise = new Promise(resolve => {
+    releaseSnowgliderScript = resolve;
+  });
+  const snowgliderRequestSeenPromise = new Promise(resolve => {
+    snowgliderRequestSeen = resolve;
+  });
+
+  page.on('pageerror', (err) => {
+    errors.push(err.message);
+  });
+
+  await page.setRequestInterception(true);
+  page.on('request', async (request) => {
+    if (request.url().endsWith('/src/snowglider.js')) {
+      snowgliderRequestSeen();
+      await releaseSnowgliderScriptPromise;
+    }
+    request.continue();
+  });
+
+  try {
+    await page.goto(`http://localhost:${PORT}/index.html`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
+
+    await page.waitForSelector('#startGameButton', { timeout: 10000 });
+    await page.click('#startGameButton');
+
+    await page.waitForFunction(() => {
+      const button = document.getElementById('startGameButton');
+      return button && button.disabled && button.getAttribute('aria-busy') === 'true';
+    }, { timeout: 5000 });
+
+    const pendingState = await page.evaluate(() => {
+      const startContainer = document.getElementById('startGameContainer');
+      const gameCanvas = document.getElementById('gameCanvas');
+
+      return {
+        startContainerDisplay: startContainer ? startContainer.style.display : null,
+        gameCanvasExists: !!gameCanvas,
+        canInitializeGame: typeof window.initializeGameWithAudio === 'function'
+      };
+    });
+
+    if (pendingState.startContainerDisplay === 'none') {
+      throw new Error('Start screen hid before the game canvas was ready');
+    }
+
+    await Promise.race([
+      snowgliderRequestSeenPromise,
+      wait(30000).then(() => {
+        throw new Error('Timed out waiting for delayed snowglider.js request');
+      })
+    ]);
+
+    releaseSnowgliderScript();
+
+    await page.waitForFunction(() => {
+      const startContainer = document.getElementById('startGameContainer');
+      const gameCanvas = document.getElementById('gameCanvas');
+      return startContainer &&
+        gameCanvas &&
+        startContainer.style.display === 'none' &&
+        gameCanvas.style.display === 'block';
+    }, { timeout: 30000 });
+
+    if (errors.some(error => error.includes("Cannot read properties of null"))) {
+      throw new Error(`Unexpected null DOM access error: ${errors.join('; ')}`);
+    }
+
+    console.log('PASS: start menu defers first click until game scripts are ready');
+  } finally {
+    releaseSnowgliderScript();
+    await page.close();
+  }
+}
+
 async function runBrowserTests() {
   let server;
   let browser;
@@ -78,6 +168,8 @@ async function runBrowserTests() {
         '--autoplay-policy=no-user-gesture-required'
       ]
     });
+
+    await runStartMenuRaceRegression(browser);
     
     const page = await browser.newPage();
     

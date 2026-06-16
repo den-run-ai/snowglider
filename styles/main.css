@@ -758,6 +758,12 @@ canvas { display: block; }
   transform: scale(0.98);
 }
 
+.menu-button:disabled {
+  cursor: wait;
+  opacity: 0.85;
+  transform: none;
+}
+
 .build-badge {
   margin-left: .5rem;
   padding: .15rem .4rem;
