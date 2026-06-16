@@ -26,7 +26,7 @@ There are eight main types of tests:
    - Visual feedback in the browser
 
 4. **Audio Tests** (`audio-tests.js`)
-   - Tests for the native HTML5 `<audio>` integration (Howler.js was removed; see [`CHANGELOG.md`](../CHANGELOG.md))
+   - Tests for the native HTML5 `<audio>` integration (Howler.js was removed; see [`CHANGELOG.md`](../docs/CHANGELOG.md))
    - Module init, status, and mute/unmute
    - Volume control
    - Backward-compatibility stubs for the previous Howler.js API
@@ -167,7 +167,7 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
   load-bearing check is that **coasting with no input is byte-for-byte identical**
   to the baseline (max abs difference `0`); the harness's exit code gates on it.
   It also confirms the snowplow brake and edge-skid scrub behave as designed. See
-  [`PHYSICS.md` §6](../PHYSICS.md) for the seam this protects.
+  [`PHYSICS.md` §6](../docs/PHYSICS.md) for the seam this protects.
 - **`snowman_baseline.js`** — the frozen pre-feature snapshot of `updateSnowman`.
   Regenerate it **only** on a deliberate physics change:
   `git show <ref>:src/snowman.js > tests/verification/snowman_baseline.js`
@@ -186,7 +186,7 @@ npm run test:verify   # physics_invariant_harness.js + dom_smoke_test.js
 
 - **Command-line tests** use Node.js with minimal dependencies to test core functionality.
 - **Browser tests** run in the actual game environment to test integrated behavior.
-- **Audio tests** verify the native HTML5 `<audio>` integration (Howler.js was removed — see [`CHANGELOG.md`](../CHANGELOG.md)):
+- **Audio tests** verify the native HTML5 `<audio>` integration (Howler.js was removed — see [`CHANGELOG.md`](../docs/CHANGELOG.md)):
   - **Module init & status** - `AudioModule.init()`/`isEnabled()`/`getStatus()` and default track
   - **Controls** - mute/unmute toggle and volume control
   - **Backward-compatibility stubs** - the previous Howler.js API surface (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …) is retained as no-ops/Promises so existing callers keep working
