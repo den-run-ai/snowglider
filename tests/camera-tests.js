@@ -252,138 +252,83 @@
       resetSnowman();
       const cameraDebug = setupCameraDebug();
 
-      // Consume the camera's first-frame snap before injecting the offset so
-      // this test exercises smoothing instead of initialization behavior.
+      // Freeze the target so this measures pure smoothing convergence and is
+      // independent of CI frame timing. Camera smoothing applies a FIXED per-frame
+      // lerp factor (camera.js `this.smoothing`), not a dt-scaled one, so with a
+      // stationary target a fixed number of synchronous updateCamera() calls decay
+      // the injected offset by a known amount. Previously this test piggybacked on
+      // requestAnimationFrame over a 5s wall-clock window against a *moving* target,
+      // so under CI load it collected too few frames (and the target outran the
+      // camera) and the settled distance swung wildly (~12.8 to ~21) and flaked. A
+      // synchronous loop is atomic w.r.t. the background rAF loop, matching the
+      // deterministic pattern already used by testCameraDistanceWithSpeed.
+      velocity.x = 0;
+      velocity.z = 0;
+
+      // Consume the camera's first-frame snap and sync the target to the now
+      // stationary snowman before injecting the offset, so this exercises smoothing
+      // rather than initialization behavior.
       updateCamera();
-      
+
       // Force camera position to be offset from target - larger offset for clearer test
       const offset = new THREE.Vector3(10, 5, 10);
       camera.position.add(offset);
       const injectedDistance = camera.position.distanceTo(cameraManager.smoothingVectors.targetPosition);
-      
-      // This flag will be used to track progress through the test
-      window.testState = {
-        startTime: performance.now(),
-        frames: 0,
-        positions: [],
-        completed: false,
-        showDebug: true,
-        injectedDistance
-      };
-      
-      // Inject into animation loop to gather camera smoothing data
-      const originalAnimate = window.animate;
-      
-      window.animate = function(time) {
-        // Call original animate first
-        originalAnimate(time);
-        
-        // Extend test duration to allow for proper convergence
-        const testDuration = 5000; // Extended from 3000ms to 5000ms
-        if (performance.now() - window.testState.startTime < testDuration) {
-          // Track camera position, distance to target, and frame count
-          window.testState.frames++;
-          window.testState.positions.push({
-            time: performance.now() - window.testState.startTime,
-            position: camera.position.clone(),
-            targetPos: cameraManager.smoothingVectors.targetPosition.clone(),
-            distance: camera.position.distanceTo(cameraManager.smoothingVectors.targetPosition)
-          });
-          
-          // Update debug visualization
-          if (window.testState.showDebug) {
-            cameraDebug.updatePositions();
-          }
-        } else if (!window.testState.completed) {
-          // Test analysis once we have enough data
-          window.testState.completed = true;
-          analyzeSmoothing();
-          
-          // Restore original animate
-          window.animate = originalAnimate;
-          
-          // Clean up debug objects
-          scene.remove(cameraDebug.targetMarker);
-          scene.remove(cameraDebug.lookAtMarker);
-          scene.remove(cameraDebug.line);
-          
-          // Update test summary with final results
-          const summaryElem = document.getElementById('testSummary');
-          if (summaryElem) {
-            summaryElem.textContent = `All tests completed: ${testsPassed} passed, ${testsFailed} failed`;
-            summaryElem.style.color = testsFailed === 0 ? '#4CAF50' : '#FF5252';
-          }
-          
-          completeCameraSuite();
-        }
-      };
-      
-      // Function to analyze collected data and complete the test
-      function analyzeSmoothing() {
-        // Should have collected positions for about 3 seconds
-        console.log(`CAMERA TEST: Collected ${window.testState.frames} frames of camera data`);
-        
-        // Verify camera maintains reasonable distance from target position
-        // Note: The game is actively running during this test, so the target is moving
-        // We check that the camera stays within a reasonable distance, not strict convergence
-        const initialDistance = window.testState.injectedDistance;
-        const finalDistance = window.testState.positions[window.testState.positions.length - 1].distance;
-        
-        // Ignore the startup window after the test injects a camera offset. The
-        // active game keeps moving the target, so assert settled tracking bounds
-        // rather than strict convergence to zero distance.
-        const settledPositions = window.testState.positions.filter(p => p.time >= 2500);
-        const distanceSamples = settledPositions.length > 0 ? settledPositions : window.testState.positions;
-        const avgDistance = distanceSamples.reduce((sum, p) => sum + p.distance, 0) / distanceSamples.length;
-        const maxDistance = Math.max(...distanceSamples.map(p => p.distance));
-        const finalImprovedFromInjectedOffset = finalDistance < initialDistance * 0.85;
-        const settledAverageImprovedFromInjectedOffset = avgDistance < initialDistance * 0.75;
 
-        const maintainsReasonableDistance =
-          finalImprovedFromInjectedOffset &&
-          settledAverageImprovedFromInjectedOffset &&
-          avgDistance < 12 &&
-          maxDistance < 20;
-        
-        console.log(`  Initial distance to target: ${initialDistance.toFixed(2)}`);
-        console.log(`  Final distance to target: ${finalDistance.toFixed(2)}`);
-        console.log(`  Settled average distance to target: ${avgDistance.toFixed(2)}`);
-        console.log(`  Settled max distance to target: ${maxDistance.toFixed(2)}`);
-        
-        assert(maintainsReasonableDistance, 'Camera Smoothing Convergence',
-          maintainsReasonableDistance ? 'Camera maintains smooth following behavior during gameplay' :
-          `Camera following is unstable (initial: ${initialDistance.toFixed(2)}, settled avg: ${avgDistance.toFixed(2)}, max: ${maxDistance.toFixed(2)}, final: ${finalDistance.toFixed(2)})`);
-        
-        // Check for jitter - camera movement should be smooth
-        let hasJitter = false;
-        let maxJitter = 0;
-        
-        // Calculate frame-to-frame position changes
-        for (let i = 1; i < window.testState.positions.length; i++) {
-          const prevPos = window.testState.positions[i-1].position;
-          const currPos = window.testState.positions[i].position;
-          const deltaTime = window.testState.positions[i].time - window.testState.positions[i-1].time;
-          
-          // Skip if deltaTime is too small
-          if (deltaTime < 10) continue;
-          
-          const movement = prevPos.distanceTo(currPos);
-          const movementRate = movement / (deltaTime / 1000); // units per second
-          
-          if (window.testState.positions[i].time < 2500) continue;
-
-          if (movementRate > 30) { // Threshold for jitter (30 units/second)
-            hasJitter = true;
-            maxJitter = Math.max(maxJitter, movementRate);
-          }
-        }
-        
-        assert(!hasJitter, 'Camera Movement Smoothness', 
-          !hasJitter ? 'Camera movement is smooth without jitter' : 
-          `Camera exhibits jittery movement (max rate: ${maxJitter.toFixed(2)} units/second)`);
+      // Drive a fixed number of smoothing frames and record distance + position each
+      // step. With a stationary target the offset decays geometrically (~0.92^n).
+      const FRAMES = 100;
+      const distances = [];
+      const positions = [];
+      for (let i = 0; i < FRAMES; i++) {
+        updateCamera();
+        positions.push(camera.position.clone());
+        distances.push(camera.position.distanceTo(cameraManager.smoothingVectors.targetPosition));
       }
-      
-      logResult('Camera Smoothing Test', true, 'Test started - collecting data for 5 seconds...');
+
+      const finalDistance = distances[distances.length - 1];
+      // Treat the second half of the run as the settled window.
+      const settledStart = Math.floor(FRAMES / 2);
+      const settled = distances.slice(settledStart);
+      const avgDistance = settled.reduce((sum, d) => sum + d, 0) / settled.length;
+      const maxDistance = Math.max(...settled);
+
+      // With a stationary target the injected offset must decay toward zero.
+      const recovered = finalDistance < injectedDistance * 0.1;
+      const settledSmall = avgDistance < 1.0 && maxDistance < 2.0;
+      const maintainsReasonableDistance = recovered && settledSmall;
+
+      console.log(`CAMERA TEST: injected ${injectedDistance.toFixed(2)}, final ${finalDistance.toFixed(2)}, settled avg ${avgDistance.toFixed(2)}, max ${maxDistance.toFixed(2)}`);
+
+      assert(maintainsReasonableDistance, 'Camera Smoothing Convergence',
+        maintainsReasonableDistance ? 'Camera smoothly converges to the target after an injected offset' :
+        `Camera following is unstable (injected: ${injectedDistance.toFixed(2)}, settled avg: ${avgDistance.toFixed(2)}, max: ${maxDistance.toFixed(2)}, final: ${finalDistance.toFixed(2)})`);
+
+      // Jitter: in the settled window the per-frame movement should be tiny (the
+      // target is stationary, so the camera is only making small convergence steps).
+      let maxJitter = 0;
+      for (let i = settledStart + 1; i < positions.length; i++) {
+        maxJitter = Math.max(maxJitter, positions[i - 1].distanceTo(positions[i]));
+      }
+      const hasJitter = maxJitter > 0.5;
+      assert(!hasJitter, 'Camera Movement Smoothness',
+        !hasJitter ? 'Camera movement is smooth without jitter' :
+        `Camera exhibits jittery movement (max per-frame movement: ${maxJitter.toFixed(2)})`);
+
+      // Clean up debug objects
+      scene.remove(cameraDebug.targetMarker);
+      scene.remove(cameraDebug.lookAtMarker);
+      scene.remove(cameraDebug.line);
+
+      // Update test summary with final results
+      const summaryElem = document.getElementById('testSummary');
+      if (summaryElem) {
+        summaryElem.textContent = `All tests completed: ${testsPassed} passed, ${testsFailed} failed`;
+        summaryElem.style.color = testsFailed === 0 ? '#4CAF50' : '#FF5252';
+      }
+
+      logResult('Camera Smoothing Test', true, 'Camera smoothing convergence verified deterministically');
+      completeCameraSuite();
     }
     
     // Test 3: Camera Distance with Speed
