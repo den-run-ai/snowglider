@@ -26,21 +26,22 @@ declare global {
   //                   (top-level fns) live in src/trees.js, not here.
   //   - effects.js:   @ts-checked -> `EffectsModule` lives in src/effects.js, not here.
   //   - snow.js:      @ts-checked -> `Snow` + `Utils` live in src/snow.js, not here.
-  //   - controls.js:  @ts-checked -> `Controls` lives in src/controls.js, not here.
   //   - mountains.js: @ts-checked -> `Mountains` lives in src/mountains.js, not here.
   //   - snowman.js:   @ts-checked -> `Snowman` + `resetSnowman`/`updateSnowman`
   //                   (top-level fns) live in src/snowman.js, not here.
   //   - audio.js:     @ts-checked -> `AudioModule` lives in src/audio.js, not here.
-  // AuthModule/ScoresModule/CourseModule/Camera stay: auth.js/scores.js (and, as
-  // of PR 2.2/2.3, course.js/camera.js) are ES modules — their `CourseModule`/
-  // `Camera`/etc. are module-scoped, not script globals — yet the still-classic
-  // snowglider.js reads them by bare name (e.g. `new Camera(scene)`). Keep them
-  // declared loose here until snowglider.js is converted (PR 2.9). (Once a
-  // module's bare consumer is gone, drop its entry.)
+  // AuthModule/ScoresModule/CourseModule/Camera/Controls stay: auth.js/scores.js
+  // (and, as of PR 2.2/2.3/2.5, course.js/camera.js/controls.js) are ES modules —
+  // their `CourseModule`/`Camera`/`Controls`/etc. are module-scoped, not script
+  // globals — yet the still-classic snowglider.js reads them by bare name (e.g.
+  // `new Camera(scene)`, `Controls.setupControls()`). Keep them declared loose
+  // here until snowglider.js is converted (PR 2.9). (Once a module's bare consumer
+  // is gone, drop its entry.)
   const AuthModule: any;
   const ScoresModule: any;
   const CourseModule: any;
   const Camera: any;
+  const Controls: any;
 
   // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
   const Howl: any;

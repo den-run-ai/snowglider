@@ -8,9 +8,9 @@
   per-PR plan). Every `src/**/*.js` carries `// @ts-check`, `tsc --noEmit` is green and **blocking in
   CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
   `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry),
-  **`src/avalanche.js`**, **`src/course.js`** and **`src/camera.js`** are now ES modules too. The
-  remaining game modules are still classic `<script>` globals loaded via `src/boot/script-loader.js`,
-  with three.js **r160** as a CDN global.
+  **`src/avalanche.js`**, **`src/course.js`**, **`src/camera.js`** and **`src/controls.js`** are now
+  ES modules too. The remaining game modules are still classic `<script>` globals loaded via
+  `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
 - **Build today:** `vite build` produces a **real ES-module bundle** (PR 2.0): `index.html` loads
   `src/main.js` as `<script type="module">`, and Vite resolves its import graph (three from npm +
   each converted module) into a hashed chunk referenced by `dist/index.html`. `copyStaticAppFiles`
@@ -44,6 +44,11 @@
     `snowglider.js` is converted (PR 2.9). No test migration: `tests/camera-tests.js` is a browser
     suite that exercises the live game's `camera`/`updateCamera` globals (not a mock-THREE source
     loader), so it runs against the bundled module unchanged.
+  - **PR 2.5 — `src/controls.js`:** `export const Controls` (no three.js import — this module uses
+    none) + a `window.Controls` bridge. `snowglider.js` reads `Controls` by **bare** name
+    (`Controls.setupControls()`), so its eslint global + `types/globals.d.ts` declaration are kept
+    until `snowglider.js` is converted (PR 2.9). No test migration: the controls suite is browser-only
+    (`index.html?test=controls`).
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 

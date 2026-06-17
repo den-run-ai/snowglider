@@ -18,6 +18,9 @@ import './course.js';
 // Phase 2.3: camera.js, imported for its `window.Camera = …` bridge so the
 // still-classic snowglider.js keeps finding the Camera class (`new Camera(...)`).
 import './camera.js';
+// Phase 2.5: controls.js, imported for its `window.Controls = …` bridge so the
+// still-classic snowglider.js keeps finding the input controls.
+import './controls.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

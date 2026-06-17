@@ -8,7 +8,8 @@
     // via the bundle entry (src/main.js), not this classic loader.
     'src/snowman.js',
     'src/audio.js',
-    'src/controls.js',
+    // controls.js converted to an ES module (issue #84, PR 2.5); it now loads
+    // via the bundle entry (src/main.js), not this classic loader.
     // avalanche.js converted to an ES module (issue #84, PR 2.1); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
     'src/effects.js',
