@@ -8,6 +8,7 @@
 const puppeteer = require('puppeteer');
 const { spawn } = require('child_process');
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
@@ -38,6 +39,30 @@ function probeViteReady(port) {
   });
 }
 
+function assertPortAvailable(port) {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+
+    probe.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(new Error(`Port ${port} is already in use; refusing to run browser tests against a pre-existing server`));
+        return;
+      }
+      reject(err);
+    });
+
+    probe.once('listening', () => {
+      probe.close(resolve);
+    });
+
+    probe.listen({
+      host: '127.0.0.1',
+      port: Number(port),
+      exclusive: true
+    });
+  });
+}
+
 async function startServer() {
   // Serve through Vite's dev server rather than http-server: game modules are
   // now ES modules and (as of Phase 3) some are TypeScript, which a browser can't
@@ -47,6 +72,7 @@ async function startServer() {
   // also single-sources three through Vite's dep optimizer, removing the
   // dual-instance hazard the raw import-map path had.)
   console.log('Starting vite dev server...');
+  await assertPortAvailable(PORT);
 
   const server = spawn(
     'npx',
@@ -84,6 +110,10 @@ async function startServer() {
         throw new Error(`Vite exited before becoming ready (code ${exitInfo.code}, signal ${exitInfo.signal})`);
       }
       if (await probeViteReady(PORT)) {
+        await wait(100);
+        if (exitInfo) {
+          throw new Error(`Vite exited during readiness probe (code ${exitInfo.code}, signal ${exitInfo.signal})`);
+        }
         console.log(`Server started on port ${PORT}`);
         return server;
       }
