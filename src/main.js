@@ -15,6 +15,9 @@ import './avalanche.js';
 // Phase 2.2: course.js, imported for its `window.CourseModule = …` bridge so the
 // still-classic snowglider.js keeps finding the course system.
 import './course.js';
+// Phase 2.3: camera.js, imported for its `window.Camera = …` bridge so the
+// still-classic snowglider.js keeps finding the Camera class (`new Camera(...)`).
+import './camera.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

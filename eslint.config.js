@@ -30,6 +30,10 @@ module.exports = [
         ...globals.node,
         AudioModule: "readonly",
         AuthModule: "readonly",
+        // camera.js is now an ES module (PR 2.3), but the still-classic
+        // snowglider.js reads `Camera` by bare name (`new Camera(scene)`), so
+        // keep it declared here until snowglider.js is converted (PR 2.9).
+        // (Like CourseModule; contrast avalanche.js, only read as window.Avalanche.)
         Camera: "readonly",
         Controls: "readonly",
         // course.js is now an ES module (PR 2.2), but the still-classic
@@ -75,7 +79,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/course.js", "src/main.js", "src/scores.js"],
+    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/course.js", "src/main.js", "src/scores.js"],
     languageOptions: {
       sourceType: "module"
     }
