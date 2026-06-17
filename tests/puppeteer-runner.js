@@ -20,13 +20,15 @@ if (!fs.existsSync(RESULTS_DIR)) {
   fs.mkdirSync(RESULTS_DIR, { recursive: true });
 }
 
-// Probe the server root until it answers, so we don't race the server's own
-// readiness banner. Resolves true once an HTTP response (any status) comes back.
-function probeOnce(url) {
+// Probe a Vite-specific endpoint so a stale or unrelated listener already on the
+// port can't masquerade as a ready dev server (`--strictPort` makes our own Vite
+// exit rather than reuse it). Vite serves `/@vite/client` with status 200; only
+// that counts as ready.
+function probeViteReady(port) {
   return new Promise((resolve) => {
-    const req = http.get(url, (res) => {
+    const req = http.get(`http://127.0.0.1:${port}/@vite/client`, (res) => {
       res.resume();
-      resolve(true);
+      resolve(res.statusCode === 200);
     });
     req.on('error', () => resolve(false));
     req.setTimeout(1000, () => {
@@ -63,15 +65,25 @@ async function startServer() {
     console.error('Server stderr:', data.toString());
   });
 
+  // Record an early exit (e.g. `--strictPort` and the port was already taken, so
+  // Vite refuses to start) so we can fail loudly instead of probing whatever else
+  // is on the port.
+  let exitInfo = null;
+  server.on('exit', (code, signal) => {
+    exitInfo = { code, signal };
+  });
+
   const startupError = new Promise((_resolve, reject) => {
     server.on('error', (err) => reject(new Error(`Failed to start server: ${err.message}`)));
   });
 
-  // Poll the port for up to ~30s (Vite's first cold dep-optimize can be slow).
+  // Poll Vite's own endpoint for up to ~30s (its first cold dep-optimize is slow).
   const ready = (async () => {
-    const url = `http://127.0.0.1:${PORT}/`;
     for (let i = 0; i < 60; i++) {
-      if (await probeOnce(url)) {
+      if (exitInfo) {
+        throw new Error(`Vite exited before becoming ready (code ${exitInfo.code}, signal ${exitInfo.signal})`);
+      }
+      if (await probeViteReady(PORT)) {
         console.log(`Server started on port ${PORT}`);
         return server;
       }
