@@ -94,6 +94,11 @@
     }, 500);
   }
 
+  function announceGameScriptsReady() {
+    /** @type {any} */ (window).SnowGliderGameScriptsReady = true;
+    window.dispatchEvent(new CustomEvent('snowglider:game-scripts-ready'));
+  }
+
   function initializeGameScripts() {
     const firebaseBoot = window.SnowGliderFirebase;
     const authReady = firebaseBoot && typeof firebaseBoot.waitForAuthModule === 'function'
@@ -111,6 +116,7 @@
       .then(() => {
         loadTests();
         console.log("Main game script loaded.");
+        announceGameScriptsReady();
         preloadAudio();
       })
       .catch((error) => {
@@ -124,6 +130,7 @@
     loadScript,
     loadScriptsInOrder,
     loadTests,
-    initializeGameScripts
+    initializeGameScripts,
+    announceGameScriptsReady
   };
 })();

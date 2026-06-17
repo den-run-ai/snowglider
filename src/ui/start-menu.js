@@ -1,5 +1,7 @@
 // @ts-check
 (function () {
+  let startGamePending = false;
+
   function addBuildBadge() {
     const buildMeta = document.querySelector('meta[name="build-id"]');
     const build = buildMeta instanceof HTMLMetaElement
@@ -26,18 +28,58 @@
   }
 
   function startGame() {
+    const gameCanvas = document.getElementById('gameCanvas');
+    const canInitializeGame = typeof window.initializeGameWithAudio === 'function';
+
+    if (!gameCanvas || !canInitializeGame) {
+      startGamePending = true;
+      setStartButtonWaiting(true);
+      console.log("Start requested before game scripts finished loading; deferring until ready.");
+      return false;
+    }
+
+    startGamePending = false;
+    setStartButtonWaiting(false);
+
     const startContainer = document.getElementById('startGameContainer');
     if (startContainer) {
       startContainer.style.display = 'none';
     }
 
+    gameCanvas.style.display = 'block';
+
+    window.initializeGameWithAudio();
+    return true;
+  }
+
+  function startPendingGameIfReady() {
     const gameCanvas = document.getElementById('gameCanvas');
-    if (gameCanvas) {
-      gameCanvas.style.display = 'block';
+    if (!gameCanvas || typeof window.initializeGameWithAudio !== 'function') {
+      return false;
     }
 
-    if (typeof window.initializeGameWithAudio === 'function') {
-      window.initializeGameWithAudio();
+    if (startGamePending) {
+      startGamePending = false;
+      setStartButtonWaiting(false);
+      console.log("Game scripts ready after deferred start request; waiting for a fresh start gesture.");
+      return true;
+    }
+
+    setStartButtonWaiting(false);
+    return true;
+  }
+
+  function setStartButtonWaiting(waiting) {
+    const startButton = document.getElementById('startGameButton');
+    if (!(startButton instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    startButton.disabled = waiting;
+    if (waiting) {
+      startButton.setAttribute('aria-busy', 'true');
+    } else {
+      startButton.removeAttribute('aria-busy');
     }
   }
 
@@ -67,6 +109,9 @@
 
   function initializeStartMenu() {
     addBuildBadge();
+    if (/** @type {any} */ (window).SnowGliderGameScriptsReady) {
+      startPendingGameIfReady();
+    }
 
     const startGameButton = document.getElementById('startGameButton');
     if (startGameButton) {
@@ -125,11 +170,13 @@
   }
 
   document.addEventListener('DOMContentLoaded', initializeStartMenu);
+  window.addEventListener('snowglider:game-scripts-ready', startPendingGameIfReady);
 
   window.SnowGliderStartMenu = {
     startGame,
     showAbout,
     hideAbout,
-    initializeStartMenu
+    initializeStartMenu,
+    startPendingGameIfReady
   };
 })();
