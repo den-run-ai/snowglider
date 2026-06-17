@@ -1,13 +1,18 @@
 // SnowGlider Test Suite
 // Run with: open index.html?test=true in browser
 //
-// Phase 2 (issue #84): converted to an ES module — imports the Snow (`Utils`),
-// Controls, and Snowman namespaces from the real src modules instead of reading
-// the window.* bridges; loaded via `<script type="module">`. Runtime game state
-// (pos/velocity/scene/snowman/…) is still read via the window seam snowglider.js
-// publishes. Still publishes window.runGameTests for the unified runner.
+// Phase 2 (issue #84): converted to an ES module — imports the Snow (`Utils`)
+// and Snowman namespaces from the real src modules; loaded via
+// `<script type="module">`. Runtime game state (pos/velocity/scene/snowman/…) is
+// still read via the window seam snowglider.js publishes. Still publishes
+// window.runGameTests for the unified runner.
+//
+// Controls is NOT imported: testJumpMechanics mutates the live controls object
+// (jump = true) that the bundled updateSnowman reads, so it must use the same
+// singleton. On the deployed Pages artifact a local `import` would resolve to a
+// second Controls instance, so we read the live one via window.getControls()
+// (published on the test seam by snowglider.js).
 import { Snow as Utils } from '../src/snow.js';
-import { Controls } from '../src/controls.js';
 import { Snowman } from '../src/snowman.js';
 
 (function() {
@@ -389,8 +394,8 @@ import { Snowman } from '../src/snowman.js';
       
       // Trigger a jump
       jumpCooldown = 0;
-      // Get the controls object and set jump to true
-      const controls = Controls.getControls();
+      // Get the LIVE controls object (same instance updateSnowman reads) and set jump
+      const controls = window.getControls();
       controls.jump = true;
       updateSnowman(0.1);
       

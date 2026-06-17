@@ -1294,6 +1294,12 @@ window.initializeGameWithAudio = function() {
     // sample the same terrain instance the live camera clamps to, so republish the
     // bundled sampler here (test seam only) instead of importing a fork (issue #84).
     getTerrainHeight:   { get: () => Snow.getTerrainHeight },
+    // Live Controls accessor for the gameplay suite. On the deployed Pages
+    // artifact the verbatim-copied dist/tests/*.js import a *second* Controls
+    // module instance, so `Controls.getControls().jump = true` in the test would
+    // mutate a fork while the bundled updateSnowman reads this singleton. Publish
+    // the live getControls so the test drives the same instance (issue #84).
+    getControls:        { get: () => Controls.getControls },
     updateCamera:       { get: () => updateCamera },
     updateSnowman:      { get: () => updateSnowman }
   };
