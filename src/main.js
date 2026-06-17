@@ -21,6 +21,9 @@ import './camera.js';
 // Phase 2.5: controls.js, imported for its `window.Controls = …` bridge so the
 // still-classic snowglider.js keeps finding the input controls.
 import './controls.js';
+// Phase 2.6: effects.js, imported for its `window.EffectsModule = …` bridge so the
+// still-classic snowglider.js keeps finding the avalanche/camera-juice effects.
+import './effects.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

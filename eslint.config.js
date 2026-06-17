@@ -44,6 +44,9 @@ module.exports = [
         // here until snowglider.js is converted (PR 2.9). (Contrast avalanche.js,
         // which is only read as `window.Avalanche`, so its global was dropped.)
         CourseModule: "readonly",
+        // effects.js is now an ES module (PR 2.6), but the still-classic
+        // snowglider.js reads `EffectsModule` by bare name (`EffectsModule.tickCamera`),
+        // so keep it declared here until snowglider.js is converted (PR 2.9).
         EffectsModule: "readonly",
         Howl: "readonly",
         Howler: "readonly",
@@ -82,7 +85,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/main.js", "src/scores.js"],
+    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/scores.js"],
     languageOptions: {
       sourceType: "module"
     }

@@ -2,19 +2,14 @@
 // Headless coverage for course.js + effects.js under jsdom, without a browser.
 // Requires jsdom (devDependency).
 //
-// Phase 2.2 (issue #84): course.js is now an ES module that does
-// `import * as THREE from 'three'`, so it can no longer be evaluated with the
-// `new Function(src)` + mock-THREE injection used here — that pattern can't load
-// `import`/`export`. The CourseModule section now `import()`s the REAL module and
-// REAL three (three's geometry/material/texture constructors need no WebGL, so
-// they build fine headless under Node), exercising shipped code directly. The
-// still-classic effects.js keeps the mock-THREE `new Function` loader until it is
-// converted; switch it over the same way then.
-const fs = require('fs');
-const path = require('path');
+// Phase 2.2/2.6 (issue #84): course.js and effects.js are now ES modules, so they
+// can no longer be evaluated with a `new Function(src)` + mock-THREE injection —
+// that pattern can't load `import`/`export`. Both sections now `import()` the REAL
+// module (and, for course, REAL three: its geometry/material/texture constructors
+// need no WebGL, so they build fine headless under Node), exercising shipped code
+// directly. effects.js uses no three.js at all, so its import needs no mock; the
+// previous mock-THREE scaffolding and `new Function` loader are gone.
 const { JSDOM } = require('jsdom');
-
-const REPO = path.join(__dirname, '..', '..');
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
 const { window } = dom;
@@ -45,43 +40,16 @@ window.document.createElement = function (tag) {
   return el;
 };
 
-// --- Minimal THREE mock (only what course.js touches) ---
-class Obj3D {
-  constructor() { this.position = vec3(); this.rotation = { x: 0, y: 0, z: 0 }; this.children = []; this.visible = true; this.userData = {}; }
-  add(o) { this.children.push(o); }
-  traverse(fn) { fn(this); this.children.forEach(c => c.traverse ? c.traverse(fn) : fn(c)); }
-}
-function vec3() { return { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }, copy() { return this; }, lerp() { return this; }, add() { return this; } }; }
-const THREE = {
-  Group: class extends Obj3D {},
-  Mesh: class extends Obj3D { constructor() { super(); this.material = { color: new ColorMock() }; } },
-  CylinderGeometry: class {}, PlaneGeometry: class {}, BoxGeometry: class {},
-  IcosahedronGeometry: class {}, SphereGeometry: class {},
-  MeshStandardMaterial: class { constructor(o) { Object.assign(this, o); this.color = new ColorMock(); this.emissive = new ColorMock(); } clone() { return new THREE.MeshStandardMaterial(); } },
-  MeshBasicMaterial: class { constructor(o) { Object.assign(this, o); } },
-  CanvasTexture: class {}, DoubleSide: 2,
-};
-class ColorMock { constructor() {} lerp() { return this; } }
-THREE.Color = ColorMock;
-global.THREE = THREE; window.THREE = THREE;
-
-// Load a still-classic module (effects.js) into the jsdom global scope with the
-// mock THREE. course.js is no longer loadable this way (it's an ES module) — it
-// is import()ed against real three in the CourseModule section below.
-function loadInWindow(file) {
-  const code = fs.readFileSync(path.join(REPO, file), 'utf8');
-  // Evaluate with access to our globals (THREE, document, window, localStorage).
-  const fn = new Function('THREE', 'document', 'window', 'localStorage', 'console', code + '\n;return (typeof EffectsModule!=="undefined"?EffectsModule:null);');
-  return fn(THREE, window.document, window, global.localStorage, console);
-}
-
 let pass = 0, fail = 0;
 function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: ${name}`); cond ? pass++ : fail++; }
 
 async function main() {
-  // ---- EffectsModule (still classic: mock THREE + new Function loader) ----
+  // ---- EffectsModule (real ES module, PR 2.6; uses no three.js) ----
   console.log('--- EffectsModule ---');
-  const Effects = loadInWindow('src/effects.js');
+  // effects.js builds DOM overlays and pokes a plain camera object; it imports no
+  // three, so we import the REAL module directly. Its `document`/`window` reads
+  // resolve to the jsdom globals wired up above.
+  const { EffectsModule: Effects } = await import('../../src/effects.js');
   check('module exports init/updateAvalanche/tickCamera', !!Effects && typeof Effects.init === 'function' && typeof Effects.tickCamera === 'function');
   Effects.init();
   const banner = window.document.body.querySelector('div');

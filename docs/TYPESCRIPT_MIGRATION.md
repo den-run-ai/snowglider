@@ -8,9 +8,10 @@
   per-PR plan). Every `src/**/*.js` carries `// @ts-check`, `tsc --noEmit` is green and **blocking in
   CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
   `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry),
-  **`src/avalanche.js`**, **`src/course.js`**, **`src/camera.js`** and **`src/controls.js`** are now
-  ES modules too. The remaining game modules are still classic `<script>` globals loaded via
-  `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
+  **`src/avalanche.js`**, **`src/course.js`**, **`src/camera.js`**, **`src/controls.js`** and
+  **`src/effects.js`** are now ES modules too. The remaining game modules (`mountains.js`, `trees.js`,
+  `snow.js`, `snowman.js`, `audio.js`, `snowglider.js`) are still classic `<script>` globals loaded
+  via `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
 - **Build today:** `vite build` produces a **real ES-module bundle** (PR 2.0): `index.html` loads
   `src/main.js` as `<script type="module">`, and Vite resolves its import graph (three from npm +
   each converted module) into a hashed chunk referenced by `dist/index.html`. `copyStaticAppFiles`
@@ -49,6 +50,13 @@
     (`Controls.setupControls()`), so its eslint global + `types/globals.d.ts` declaration are kept
     until `snowglider.js` is converted (PR 2.9). No test migration: the controls suite is browser-only
     (`index.html?test=controls`).
+  - **PR 2.6 — `src/effects.js`:** `export const EffectsModule` (no three.js import — it only pokes a
+    camera object handed to it) + a `window.EffectsModule` bridge. `snowglider.js` reads
+    `EffectsModule` by **bare** name (`EffectsModule.tickCamera`), so its eslint global +
+    `types/globals.d.ts` declaration are kept until `snowglider.js` is converted (PR 2.9). Its headless
+    coverage (`tests/verification/dom_smoke_test.js`) now `import()`s the real module; with effects.js
+    converted, that file's last `new Function` + mock-THREE scaffolding is gone (both its sections now
+    import real modules).
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 
