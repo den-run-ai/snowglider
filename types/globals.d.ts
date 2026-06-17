@@ -22,7 +22,6 @@ declare global {
   // entry here causes "TS2451: Cannot redeclare". So: remove a module's entry
   // from this block in the same change that adds `// @ts-check` to that module.
   //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
-  //   - course.js:    @ts-checked -> `CourseModule` lives in src/course.js, not here.
   //   - camera.js:    @ts-checked -> `Camera` (class) lives in src/camera.js, not here.
   //   - trees.js:     @ts-checked -> `Trees` + `getTerrainHeight`/`getTerrainGradient`
   //                   (top-level fns) live in src/trees.js, not here.
@@ -33,11 +32,14 @@ declare global {
   //   - snowman.js:   @ts-checked -> `Snowman` + `resetSnowman`/`updateSnowman`
   //                   (top-level fns) live in src/snowman.js, not here.
   //   - audio.js:     @ts-checked -> `AudioModule` lives in src/audio.js, not here.
-  // AuthModule/ScoresModule stay: auth.js/scores.js are ES modules (not script
-  // globals), so they don't define these as bare globals — kept loose for any
-  // consumer that reads them by bare name.
+  // AuthModule/ScoresModule/CourseModule stay: auth.js/scores.js (and, as of
+  // PR 2.2, course.js) are ES modules — their `CourseModule`/etc. are module-
+  // scoped, not script globals — yet the still-classic snowglider.js reads them
+  // by bare name. Keep them declared loose here until snowglider.js is converted
+  // (PR 2.9). (Once a module's bare consumer is gone, drop its entry.)
   const AuthModule: any;
   const ScoresModule: any;
+  const CourseModule: any;
 
   // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
   const Howl: any;

@@ -7,9 +7,10 @@
 - **Current:** Phase 1 **complete and hardened**; **Phase 2 in progress** (see issue #84 for the
   per-PR plan). Every `src/**/*.js` carries `// @ts-check`, `tsc --noEmit` is green and **blocking in
   CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
-  `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry) and
-  **`src/avalanche.js`** are now ES modules too. The remaining game modules are still classic
-  `<script>` globals loaded via `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
+  `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry),
+  **`src/avalanche.js`** and **`src/course.js`** are now ES modules too. The remaining game modules
+  are still classic `<script>` globals loaded via `src/boot/script-loader.js`, with three.js **r160**
+  as a CDN global.
 - **Build today:** `vite build` produces a **real ES-module bundle** (PR 2.0): `index.html` loads
   `src/main.js` as `<script type="module">`, and Vite resolves its import graph (three from npm +
   each converted module) into a hashed chunk referenced by `dist/index.html`. `copyStaticAppFiles`
@@ -20,9 +21,16 @@
   scripts, npm/ESM for the bundle; browsers log a benign "Multiple instances of Three.js" warning).
   An import map in `index.html` resolves the bundle's bare `three` specifier when the page is served
   as raw source (puppeteer suite, `npm start`); it is inert in the Vite build, where three is bundled.
-- **Converted so far (PR 2.1):** `src/avalanche.js` — `import * as THREE from 'three'` + `export class
-  AvalancheSystem`. Its Node test (`tests/avalanche-tests.js`) now `import()`s the real module and
-  real three instead of the old `new Function(src)` + mock-THREE injection.
+- **Converted so far:**
+  - **PR 2.1 — `src/avalanche.js`:** `import * as THREE from 'three'` + `export class AvalancheSystem`.
+    Its Node test (`tests/avalanche-tests.js`) now `import()`s the real module and real three instead
+    of the old `new Function(src)` + mock-THREE injection.
+  - **PR 2.2 — `src/course.js`:** `import * as THREE from 'three'` + `export const CourseModule`. Its
+    headless coverage (`tests/verification/dom_smoke_test.js`) now `import()`s the real module + real
+    three for the CourseModule section; the still-classic `effects.js` keeps the mock-THREE
+    `new Function` loader there until it is converted. Note `snowglider.js` reads `CourseModule` by
+    **bare** name (not just `window.CourseModule`), so its eslint global + `types/globals.d.ts`
+    declaration are kept (like `AuthModule`/`ScoresModule`) until `snowglider.js` is converted (PR 2.9).
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 

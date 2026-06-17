@@ -12,6 +12,9 @@ import * as THREE from 'three';
 // finding the avalanche system. As more modules convert, add them here too
 // until the classic loader is retired (PR 2.10).
 import './avalanche.js';
+// Phase 2.2: course.js, imported for its `window.CourseModule = …` bridge so the
+// still-classic snowglider.js keeps finding the course system.
+import './course.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

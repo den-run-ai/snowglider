@@ -15,8 +15,17 @@
 //     system; they exist to mark the line and the split points.
 //   - Best splits and the best-run trajectory are persisted in localStorage and only
 //     committed when a run sets a new personal best, so the ghost is always your best.
+//
+// Phase 2.2 (issue #84): second module converted off the classic global model.
+// `THREE` now comes from the npm package via a real ES-module import instead of
+// the CDN global, and `CourseModule` is `export`ed. The window.CourseModule
+// assignment below is kept so the still-classic consumer (snowglider.js, which
+// reads it by bare name and as window.CourseModule, converted last in PR 2.9)
+// keeps working during the staged migration; it is loaded into the page through
+// the bundle entry (src/main.js) rather than the classic script-loader.
+import * as THREE from 'three';
 
-const CourseModule = (function () {
+export const CourseModule = (function () {
   'use strict';
 
   // --- Course geometry (world units; 1 unit == 1 metre for the HUD) ---
@@ -584,6 +593,9 @@ const CourseModule = (function () {
   };
 })();
 
+// Backward-compat global export for the still-classic consumer (snowglider.js
+// reads `CourseModule`/`window.CourseModule`). Drop this once snowglider.js is
+// converted to import CourseModule directly (PR 2.9, issue #84).
 if (typeof window !== 'undefined') {
   window.CourseModule = CourseModule;
 }
