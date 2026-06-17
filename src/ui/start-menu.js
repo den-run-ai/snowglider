@@ -1,4 +1,10 @@
 // @ts-check
+// Phase 2 (issue #84): converted to an ES module so it imports AudioModule from
+// the real src module instead of reading the window.AudioModule bridge. index.html
+// loads it as `<script type="module">`; like every module script it is deferred,
+// so it still runs before DOMContentLoaded and its listeners are registered in time.
+import { AudioModule } from '../audio.js';
+
 (function () {
   let startGamePending = false;
 
@@ -14,14 +20,14 @@
   }
 
   async function unlockAudioForStart(source) {
-    if (!window.AudioModule) {
+    if (!AudioModule) {
       return;
     }
 
     try {
-      await window.AudioModule.resumeAudioContext();
+      await AudioModule.resumeAudioContext();
       console.log(`AudioContext resume attempted in ${source} handler`);
-      window.AudioModule.playPreloadedAudio();
+      AudioModule.playPreloadedAudio();
     } catch (e) {
       console.warn(`Audio operation in ${source} failed:`, e);
     }

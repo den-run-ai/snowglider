@@ -12,21 +12,14 @@ declare global {
   /** Terrain height sampler injected via setTerrainFunction (see docs/ARCHITECTURE.md §4). */
   type TerrainHeightFn = (x: number, z: number) => number;
 
-  // Game module namespaces — attached to the global scope by classic scripts.
-  // Loose for now; tighten as each module is converted.
-  //
-  // IMPORTANT: a namespace is declared here ONLY while its defining module is not
-  // yet `// @ts-check`ed. Once you @ts-check the file that defines it, its own
-  // top-level `const`/`class` becomes the shared-script global, and keeping the
-  // entry here causes "TS2451: Cannot redeclare". So: remove a module's entry
-  // from this block in the same change that adds `// @ts-check` to that module.
-  //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
-  //   - audio.js:     @ts-checked -> `AudioModule` lives in src/audio.js, not here.
+  // Auth/scoring globals are still published by the Firebase modules and read
+  // loosely by the boot/orchestrator seams. Game-module namespaces are not
+  // declared here anymore; Phase 2 converted them to real imports.
   // As of PR 2.9, snowglider.js is itself an ES module that *imports* camera.js/
   // controls.js/course.js/effects.js/snow.js/snowman.js, so the bare-name globals
   // `Camera`/`Controls`/`CourseModule`/`EffectsModule`/`Snow`/`Snowman` have no
-  // remaining consumer and were dropped here (their window.* bridges live on in
-  // the Window interface below until the classic loader is retired, PR 2.10).
+  // remaining consumer and were dropped here. The later Phase 2 cleanup removed
+  // their window namespace bridges too.
   // AuthModule/ScoresModule stay: auth.js/scores.js publish them onto window and
   // they're still referenced loosely.
   const AuthModule: any;
@@ -58,20 +51,16 @@ declare global {
   // are typed in the Window interface below. The Phase 3 step is to replace these
   // ad-hoc globals with a typed GameState object; `TerrainHeightFn` is kept for it.
 
-  // Classic scripts publish their namespaces onto window; allow those writes.
-  // NOTE: `Snow` and `Camera` used to be *bare globals* (NOT window properties),
-  // but as of the terrain cluster / PR 2.3 their defining files (snow.js,
-  // camera.js) are ES modules that publish `window.Snow` / `window.Camera`
-  // migration bridges, so they are listed below until their bare consumers
-  // (snowglider.js) are converted (PR 2.9). mountains.js (PR 2.7) likewise
-  // republishes the terrain samplers onto window.
+  // Window members below are the remaining boot/auth/test seams. They are not
+  // per-module namespace bridges.
   interface Window {
-    // AudioModule is the last module-namespace bridge (start-menu.js + the audio
-    // browser tests read window.AudioModule). The THREE/Avalanche/Camera/Controls/
-    // CourseModule/EffectsModule/Snow/Snowman/Utils/Mountains/Trees bridges and the
-    // getTerrainHeight* terrain samplers were all removed (issue #84) — every
+    // Every per-module window.* namespace bridge has been removed (issue #84):
+    // AudioModule was the last one (the boot script-loader, the start menu, and
+    // the audio browser tests now import it), and the THREE/Avalanche/Camera/
+    // Controls/CourseModule/EffectsModule/Snow/Snowman/Utils/Mountains/Trees
+    // bridges + the getTerrainHeight* samplers were dropped earlier — every
     // consumer imports those directly or receives them as injected parameters.
-    AudioModule: any;
+    // The members below are boot/auth/test seams, not module-namespace bridges.
     AuthModule: any;
     ScoresModule: any;
     SnowGliderFirebase?: any;
@@ -79,7 +68,7 @@ declare global {
     SnowGliderScriptLoader?: any;
     SnowGliderStartMenu?: any;
     // Deferred dynamic-import hook for the orchestrator (src/main.js -> snowglider.js),
-    // invoked by the classic script-loader after audio.js + Auth are ready (PR 2.9).
+    // invoked by the module script-loader after audio.js + Auth are ready (PR 2.9).
     __loadSnowGliderOrchestrator?: () => Promise<unknown>;
     FIREBASE_MANUAL_INIT?: boolean;
     __FIREBASE_DEFAULTS__?: any; // set by auth.js to stop Firebase auto-init 404s

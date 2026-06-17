@@ -1,4 +1,10 @@
 // @ts-check
+// Phase 2 (issue #84): converted to an ES module so it imports AudioModule from
+// the real src module instead of reading the window.AudioModule bridge. index.html
+// loads it as `<script type="module">` (deferred, like every module script), so it
+// still registers its DOMContentLoaded handler before that event fires.
+import { AudioModule } from '../audio.js';
+
 (function () {
   const GAME_SCRIPT_ORDER = [
     // mountains.js converted to an ES module (issue #84, PR 2.7); it now loads
@@ -128,8 +134,8 @@
 
   function preloadAudio() {
     setTimeout(() => {
-      if (window.AudioModule && typeof window.AudioModule.preloadAudio === 'function') {
-        window.AudioModule.preloadAudio('drum_loop')
+      if (AudioModule && typeof AudioModule.preloadAudio === 'function') {
+        AudioModule.preloadAudio('drum_loop')
           .then(() => {
             console.log("Audio pre-loaded and ready for user interaction");
           })
@@ -161,10 +167,11 @@
       })
       .then(() => {
         // snowglider.js (the orchestrator) is now an ES module loaded by the
-        // bundle entry's deferred dynamic-import hook. Run it AFTER the classic
-        // game scripts (audio.js) so AudioModule is ready, then proceed exactly as
-        // before. If the hook is missing (bundle failed to load), fall through so
-        // the catch below surfaces the error rather than silently hanging.
+        // bundle entry's deferred dynamic-import hook (GAME_SCRIPT_ORDER above is
+        // empty — every game module loads through src/main.js). Run it after the
+        // module bundle has loaded, then proceed exactly as before. If the hook is
+        // missing (bundle failed to load), fall through so the catch below surfaces
+        // the error rather than silently hanging.
         const loadOrchestrator = window.__loadSnowGliderOrchestrator;
         return typeof loadOrchestrator === 'function'
           ? loadOrchestrator()

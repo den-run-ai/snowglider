@@ -169,16 +169,22 @@
   
   <!--
     ES-module bundle entry (issue #84, Phase 2). Deferred like every module
-    script, so it runs before DOMContentLoaded — i.e. before script-loader.js
-    pulls in audio.js + the classic browser-test scripts. main.js imports three
-    from npm and publishes the `window.THREE` + per-module `window.*` bridges that
-    the still-classic browser tests (and audio.js) read. PR 2.10 removed the
-    redundant CDN UMD <script> global that used to sit here; three is now bundled
-    (Vite build) or import-mapped from node_modules (raw source) — a single copy.
+    script, so it runs before DOMContentLoaded and before the module loader
+    triggers the deferred snowglider orchestrator. main.js imports three and the
+    game modules from npm/src directly; the old `window.THREE` and per-module
+    `window.*` migration bridges are gone. PR 2.10 removed the redundant CDN UMD
+    <script> global that used to sit here; three is now bundled (Vite build) or
+    import-mapped from node_modules (raw source) — a single copy.
   -->
   <script type="module" src="src/main.js"></script>
-  <!-- Audio: Simplified implementation using native HTML5 Audio (no library dependencies) -->
-  <script src="src/boot/script-loader.js"></script>
-  <script src="src/ui/start-menu.js"></script>
+  <!--
+    Boot + start-menu scripts. As of issue #84 these are ES modules too (loaded
+    with type="module"), so they `import { AudioModule }` from src/audio.js
+    directly instead of reading the retired window.AudioModule bridge. Like every
+    module script they are deferred and run in document order after main.js but
+    before DOMContentLoaded, so their DOMContentLoaded handlers still fire.
+  -->
+  <script type="module" src="src/boot/script-loader.js"></script>
+  <script type="module" src="src/ui/start-menu.js"></script>
 </body>
 </html>

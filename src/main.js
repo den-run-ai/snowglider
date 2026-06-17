@@ -5,18 +5,13 @@ import * as THREE from 'three';
 // hashed asset, importing three.js from the npm package instead of the CDN
 // global. index.html loads this as `<script type="module">`.
 //
-// Most game modules are imported here only so they're part of the eagerly-loaded
-// bundle graph; snowglider.js (the deferred orchestrator) imports them too, and
-// the browser tests import the ones they need directly. Their per-module
-// `window.*` namespace bridges have been removed (issue #84). Two side effects
-// here are still load-bearing:
-//   1. The terrain trio (trees.js, mountains.js, snow.js) must run in THIS order:
-//      snow.js reads `Mountains`/`Trees` by bare name at module-eval (via the
-//      window.Mountains / window.Trees bridges those two still publish), so both
-//      must execute before snow.js. mountains.js also publishes the
-//      window.getTerrainHeight/getTerrainGradient/getDownhillDirection samplers.
-//   2. audio.js publishes the still-needed window.AudioModule bridge (read by the
-//      classic start-menu.js + the audio browser tests).
+// Game modules are imported here only so they're part of the eagerly-loaded
+// bundle graph; snowglider.js (the deferred orchestrator) imports them too, the
+// browser tests import the ones they need directly, and the boot/start-menu
+// scripts import audio.js. Every per-module `window.*` namespace bridge has been
+// removed (issue #84) — the modules resolve each other through real ES-module
+// imports (e.g. snow.js imports Mountains/Trees, camera.js imports Mountains), so
+// the import order below is no longer load-bearing.
 import './avalanche.js';
 import './course.js';
 import './camera.js';
