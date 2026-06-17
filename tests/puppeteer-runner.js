@@ -261,9 +261,12 @@ async function runBrowserTests() {
             return true;
           }
           
-          // Also check if tests completed but summary text isn't updated
+          // Also check if tests completed but summary text isn't updated. This
+          // must use the runner's expected count; resolving at a hard-coded lower
+          // count can silently skip later suites.
           const counts = window._unifiedTestCounts;
-          if (counts && counts.completed && counts.completed.length >= 6) {
+          const expectedSuiteCount = window._unifiedExpectedSuiteCount || 7;
+          if (counts && counts.completed && counts.completed.length >= expectedSuiteCount) {
             resolve({
               passed: counts.passed,
               failed: counts.failed,
