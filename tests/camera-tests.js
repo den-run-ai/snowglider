@@ -445,12 +445,18 @@ import { Snow as Utils } from '../src/snow.js';
       // Force reset of game
       resetSnowman();
       
-      // Camera smoothing vectors should all be initialized (not undefined)
+      // Camera smoothing vectors should all be initialized (not undefined).
+      // Use three's `.isVector3` duck-type flag rather than `instanceof THREE.Vector3`:
+      // on the deployed Pages artifact the game runs from the Vite-bundled three while
+      // this copied test imports the standalone import-map three, so the two are
+      // different module instances and `instanceof` would be false even when the live
+      // camera is correct. `.isVector3` is three's canonical cross-instance check (issue #84).
+      const isVector3 = (v) => Boolean(v && v.isVector3 === true);
       const vectorsExist = (
         cameraManager.smoothingVectors &&
-        cameraManager.smoothingVectors.lastPosition instanceof THREE.Vector3 &&
-        cameraManager.smoothingVectors.targetPosition instanceof THREE.Vector3 &&
-        cameraManager.smoothingVectors.lookAtPosition instanceof THREE.Vector3
+        isVector3(cameraManager.smoothingVectors.lastPosition) &&
+        isVector3(cameraManager.smoothingVectors.targetPosition) &&
+        isVector3(cameraManager.smoothingVectors.lookAtPosition)
       );
       
       assert(vectorsExist, 'Camera Vector Initialization', 
