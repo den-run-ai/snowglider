@@ -3,7 +3,12 @@
  * 
  * Add to index.html with: ?test=regression
  * These tests focus on gameplay regressions identified from git history
+ *
+ * Phase 2 (issue #84): converted to an ES module — imports the Snow (`Utils`)
+ * namespace from src/snow.js instead of the window.Utils bridge; loaded via
+ * `<script type="module">`. Still publishes window.runRegressionTests for the runner.
  */
+import { Snow as Utils } from '../src/snow.js';
 
 (function() {
   // Only run if ?test=regression is in the URL and not running through the unified test runner

@@ -5,7 +5,12 @@
  * that have been identified in the git history.
  * 
  * Run with: open index.html?test=trees
+ *
+ * Phase 2 (issue #84): converted to an ES module — imports the Snow (`Utils`)
+ * namespace from src/snow.js instead of the window.Utils bridge; loaded via
+ * `<script type="module">`. Still publishes window.runTreeTests for the runner.
  */
+import { Snow as Utils } from '../src/snow.js';
 
 (function() {
   // Only run if ?test=trees is in the URL and not running through the unified test runner

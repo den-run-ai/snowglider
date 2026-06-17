@@ -96,9 +96,18 @@ module.exports = [
     }
   },
   {
-    // Test suites converted to ES modules (issue #84) — they `import` the real
-    // src modules. Grows as each browser-test file is migrated off the window.* bridges.
-    files: ["tests/audio-tests.js", "tests/controls-tests.js", "tests/camera-tests.js", "tests/browser-avalanche-tests.js"],
+    // Browser-test suites converted to ES modules (issue #84) — they `import` the
+    // real src modules instead of the window.* bridges. (unified-test-runner.js is
+    // still a classic script; the node-only test files stay sourceType: script.)
+    files: [
+      "tests/audio-tests.js",
+      "tests/controls-tests.js",
+      "tests/camera-tests.js",
+      "tests/browser-avalanche-tests.js",
+      "tests/browser-tests.js",
+      "tests/browser-tree-tests.js",
+      "tests/browser-regression-tests.js"
+    ],
     languageOptions: {
       sourceType: "module"
     }

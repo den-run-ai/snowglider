@@ -1,5 +1,14 @@
 // SnowGlider Test Suite
 // Run with: open index.html?test=true in browser
+//
+// Phase 2 (issue #84): converted to an ES module — imports the Snow (`Utils`),
+// Controls, and Snowman namespaces from the real src modules instead of reading
+// the window.* bridges; loaded via `<script type="module">`. Runtime game state
+// (pos/velocity/scene/snowman/…) is still read via the window seam snowglider.js
+// publishes. Still publishes window.runGameTests for the unified runner.
+import { Snow as Utils } from '../src/snow.js';
+import { Controls } from '../src/controls.js';
+import { Snowman } from '../src/snowman.js';
 
 (function() {
   // Only run tests if ?test=true is in the URL and not running through the unified test runner
@@ -142,9 +151,9 @@
       // If test hooks don't exist, call the Snowman module to set them up
       if (!window.testHooks || !window.testHooks.forceTreeCollision) {
         console.log("COLLISION TEST: Test hooks missing, requesting setup from Snowman module");
-        if (window.Snowman && typeof window.Snowman.addTestHooks === 'function') {
+        if (Snowman && typeof Snowman.addTestHooks === 'function') {
           console.log("COLLISION TEST: Using Snowman.addTestHooks to set up hooks");
-          window.Snowman.addTestHooks(pos, window.showGameOver, Utils.getTerrainHeight);
+          Snowman.addTestHooks(pos, window.showGameOver, Utils.getTerrainHeight);
         } else {
           console.error("COLLISION TEST: Snowman module or addTestHooks function not available!");
         }
@@ -339,9 +348,9 @@
       // If test hooks don't exist, call the Snowman module to set them up
       if (!window.testHooks || !window.testHooks.forceTreeCollision) {
         console.log("GAME OVER TEST: Test hooks missing, requesting setup from Snowman module");
-        if (window.Snowman && typeof window.Snowman.addTestHooks === 'function') {
+        if (Snowman && typeof Snowman.addTestHooks === 'function') {
           console.log("GAME OVER TEST: Using Snowman.addTestHooks to set up hooks");
-          window.Snowman.addTestHooks(pos, originalShowGameOver, Utils.getTerrainHeight);
+          Snowman.addTestHooks(pos, originalShowGameOver, Utils.getTerrainHeight);
         } else {
           console.error("GAME OVER TEST: Snowman module or addTestHooks function not available!");
         }
@@ -584,9 +593,9 @@
       // If test hooks don't exist, call the Snowman module to set them up
       if (!window.testHooks || !window.testHooks.forceTreeCollision) {
         console.log("BEST TIME TEST: Test hooks missing, requesting setup from Snowman module");
-        if (window.Snowman && typeof window.Snowman.addTestHooks === 'function') {
+        if (Snowman && typeof Snowman.addTestHooks === 'function') {
           console.log("BEST TIME TEST: Using Snowman.addTestHooks to set up hooks");
-          window.Snowman.addTestHooks(pos, window.showGameOver, gameActive, Utils.getTerrainHeight);
+          Snowman.addTestHooks(pos, window.showGameOver, gameActive, Utils.getTerrainHeight);
         } else {
           console.error("BEST TIME TEST: Snowman module or addTestHooks function not available!");
         }
