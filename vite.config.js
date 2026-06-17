@@ -1,6 +1,7 @@
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { defineConfig } from 'vite';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
@@ -47,8 +48,68 @@ function copyStaticAppFiles() {
       const threeRel = path.join('node_modules', 'three', 'build', 'three.module.min.js');
       await mkdir(path.join(distDir, path.dirname(threeRel)), { recursive: true });
       await cp(path.join(rootDir, threeRel), path.join(distDir, threeRel), { force: true });
+
+      await transpileCopiedTypeScriptSources(path.join(distDir, 'src'));
+      await rewriteCopiedThreeImports(path.join(distDir, 'src'));
+      await rewriteCopiedThreeImports(path.join(distDir, 'tests'));
     }
   };
+}
+
+async function transpileCopiedTypeScriptSources(srcDir) {
+  const entries = await readdir(srcDir, { withFileTypes: true });
+
+  await Promise.all(entries.map(async (entry) => {
+    const filePath = path.join(srcDir, entry.name);
+
+    if (entry.isDirectory()) {
+      await transpileCopiedTypeScriptSources(filePath);
+      return;
+    }
+
+    if (!entry.isFile() || !entry.name.endsWith('.ts') || entry.name.endsWith('.d.ts')) {
+      return;
+    }
+
+    const source = await readFile(filePath, 'utf8');
+    const result = ts.transpileModule(source, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        sourceMap: false,
+        target: ts.ScriptTarget.ES2022
+      },
+      fileName: filePath
+    });
+
+    await writeFile(filePath.replace(/\.ts$/, '.js'), result.outputText);
+    await rm(filePath, { force: true });
+  }));
+}
+
+async function rewriteCopiedThreeImports(dir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+
+  await Promise.all(entries.map(async (entry) => {
+    const filePath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      await rewriteCopiedThreeImports(filePath);
+      return;
+    }
+
+    if (!entry.isFile() || !entry.name.endsWith('.js')) {
+      return;
+    }
+
+    const source = await readFile(filePath, 'utf8');
+    const rewritten = source
+      .replace(/(from\s+['"])three(['"])/g, '$1/node_modules/three/build/three.module.min.js$2')
+      .replace(/(import\s*\(\s*['"])three(['"]\s*\))/g, '$1/node_modules/three/build/three.module.min.js$2');
+
+    if (rewritten !== source) {
+      await writeFile(filePath, rewritten);
+    }
+  }));
 }
 
 export default defineConfig({
