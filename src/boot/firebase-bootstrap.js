@@ -62,6 +62,26 @@
     head.appendChild(authScript);
   }
 
+  // Install the localStorage-backed Auth/Scores stubs from local-auth.js. Used
+  // both for file:// (no Firebase by design) and as a graceful-degradation
+  // fallback over http when the Firebase modules fail to load (offline, a CDN
+  // outage, or a blocked gstatic request). Without this fallback a single
+  // failed gstatic fetch would reject waitForAuthModule and take the whole game
+  // down with it; instead we boot in local mode (CLAUDE.md: "graceful
+  // degradation to localStorage when Firebase is unavailable").
+  function installLocalAuthFallback() {
+    const localAuth = window.SnowGliderLocalAuth;
+    if (!localAuth) {
+      return;
+    }
+    if (!window.ScoresModule && typeof localAuth.installScoresModule === 'function') {
+      localAuth.installScoresModule();
+    }
+    if (!window.AuthModule && typeof localAuth.installAuthModule === 'function') {
+      localAuth.installAuthModule();
+    }
+  }
+
   function waitForAuthModule() {
     if (isFileProtocol) {
       if (window.SnowGliderLocalAuth &&
@@ -72,7 +92,7 @@
       return Promise.resolve();
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       let checkCount = 0;
       const maxChecks = 25;
       const checkInterval = setInterval(() => {
@@ -84,8 +104,12 @@
           checkCount++;
           if (checkCount >= maxChecks) {
             clearInterval(checkInterval);
-            console.error("AuthModule failed to load after timeout.");
-            reject(new Error("AuthModule failed to load"));
+            // Firebase did not come up in time — degrade gracefully to local
+            // mode and resolve so the game still boots, instead of rejecting
+            // and aborting the entire startup chain.
+            console.warn("AuthModule failed to load after timeout - falling back to local mode.");
+            installLocalAuthFallback();
+            resolve();
           }
         }
       }, 200);
