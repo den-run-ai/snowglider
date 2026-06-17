@@ -38,14 +38,11 @@ module.exports = [
         Howl: "readonly",
         Howler: "readonly",
         ScoresModule: "readonly",
-        // three.js + Mountains + Trees are single-sourced from npm and imported by
-        // every consumer (the terrain trio import each other), so their bare
-        // globals + window bridges were removed (issue #84).
-        // Terrain samplers republished onto window by mountains.js (PR 2.7). Kept
-        // for the window bridge; the converted modules take them as parameters.
-        getTerrainHeight: "readonly",
-        getTerrainGradient: "readonly",
-        getDownhillDirection: "readonly",
+        // three.js + Mountains + Trees + the terrain samplers (getTerrainHeight/
+        // getTerrainGradient/getDownhillDirection) are single-sourced from npm and
+        // reached via imports (terrain trio + camera.js) or injected parameters
+        // (snowman.js, course.js), so their bare globals + window bridges were all
+        // removed (issue #84).
         // snowman.js's checkTreeCollision test hook reads these two as bare globals
         // (not its parameters), and the browser test suites reassign them to drive
         // the live game; snowglider.js re-publishes them on window via accessors

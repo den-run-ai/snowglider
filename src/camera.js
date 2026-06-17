@@ -1,14 +1,12 @@
 // @ts-check
 // camera.js - Camera management for SnowGlider
 //
-// Phase 2.3 (issue #84): third module converted off the classic global model.
-// `THREE` now comes from the npm package via a real ES-module import instead of
-// the CDN global, and the class is `export`ed. The window.Camera assignment
-// below is kept so the still-classic consumer (snowglider.js, which reads
-// `Camera` by bare name and is converted last in PR 2.9) keeps working during
-// the staged migration; it is loaded into the page through the bundle entry
-// (src/main.js) rather than the classic script-loader.
+// Phase 2.3 (issue #84): converted off the classic global model. `THREE` and the
+// terrain sampler (`Mountains.getTerrainHeight`) now come from real ES-module
+// imports instead of the CDN global / window bridge, and the class is `export`ed.
+// Loaded via the bundle entry (src/main.js).
 import * as THREE from 'three';
+import { Mountains } from './mountains.js';
 
 export class Camera {
   constructor(scene) {
@@ -168,7 +166,7 @@ export class Camera {
     this.camera.position.lerp(this.smoothingVectors.targetPosition, effectiveSmoothingFactor);
     
     // Maintain minimum height above terrain to prevent camera from going below ground
-    const terrainHeightAtCamera = getTerrainHeight(this.camera.position.x, this.camera.position.z);
+    const terrainHeightAtCamera = Mountains.getTerrainHeight(this.camera.position.x, this.camera.position.z);
     if (this.camera.position.y < terrainHeightAtCamera + 5) {
       this.camera.position.y = terrainHeightAtCamera + 5;
     }

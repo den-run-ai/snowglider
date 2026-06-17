@@ -439,13 +439,6 @@ export const Mountains = {
   heightMap // Expose the heightmap for debugging
 };
 
-// The window.Mountains bridge was removed (issue #84): trees.js and snow.js
-// import Mountains directly now. The bare terrain samplers are still republished
-// onto `window` because snowman.js / camera.js / course.js read them by bare name
-// (resolving via this bridge) — drop these once those modules take the samplers
-// as imports/parameters.
-if (typeof window !== 'undefined') {
-  window.getTerrainHeight = getTerrainHeight;
-  window.getTerrainGradient = getTerrainGradient;
-  window.getDownhillDirection = getDownhillDirection;
-}
+// All window.* bridges from mountains.js are gone (issue #84). Consumers get the
+// terrain samplers via imports (camera.js, trees.js, snow.js import Mountains) or
+// as injected parameters (snowman.js, course.js receive them from snowglider.js).

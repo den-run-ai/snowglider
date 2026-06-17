@@ -31,15 +31,11 @@ declare global {
   // they're still referenced loosely.
   const AuthModule: any;
   const ScoresModule: any;
-  // trees.js / mountains.js (and snow.js) now import each other directly, so the
-  // bare `Trees` / `Mountains` globals + their window bridges were removed (#84).
-  // Terrain samplers republished onto window by mountains.js (PR 2.7). Kept as a
-  // loose ambient global for the window bridge; the converted modules take them as
-  // parameters rather than reading these names. (Distinct from the per-run
-  // `setTerrainFunction` seam.)
-  const getTerrainHeight: TerrainHeightFn;
-  const getTerrainGradient: (x: number, z: number) => { x: number; z: number };
-  const getDownhillDirection: (x: number, z: number) => { x: number; z: number };
+  // trees.js / mountains.js / snow.js import each other directly, camera.js imports
+  // Mountains, and snowman.js / course.js receive the terrain samplers as injected
+  // parameters — so the bare `Trees` / `Mountains` / `getTerrainHeight` /
+  // `getTerrainGradient` / `getDownhillDirection` globals + their window bridges
+  // were all removed (issue #84). `TerrainHeightFn` is still used below.
 
   // snowman.js's checkTreeCollision test hook reads these two as bare globals
   // (they are not its parameters, unlike `pos`/`getTerrainHeight`). snowglider.js
@@ -70,17 +66,13 @@ declare global {
   // (snowglider.js) are converted (PR 2.9). mountains.js (PR 2.7) likewise
   // republishes the terrain samplers onto window.
   interface Window {
-    // AudioModule still bridged (start-menu.js + the audio browser tests read
-    // window.AudioModule); the terrain samplers (getTerrainHeight*) are still
-    // bridged (snowman.js/camera.js/course.js read them by bare name). The
-    // THREE/Avalanche/Camera/Controls/CourseModule/EffectsModule/Snow/Snowman/
-    // Utils/Mountains/Trees bridges were removed (issue #84) — every consumer
-    // imports those directly now.
+    // AudioModule is the last module-namespace bridge (start-menu.js + the audio
+    // browser tests read window.AudioModule). The THREE/Avalanche/Camera/Controls/
+    // CourseModule/EffectsModule/Snow/Snowman/Utils/Mountains/Trees bridges and the
+    // getTerrainHeight* terrain samplers were all removed (issue #84) — every
+    // consumer imports those directly or receives them as injected parameters.
     AudioModule: any;
     AuthModule: any;
-    getTerrainHeight?: (x: number, z: number) => number;
-    getTerrainGradient?: (x: number, z: number) => { x: number; z: number };
-    getDownhillDirection?: (x: number, z: number) => { x: number; z: number };
     ScoresModule: any;
     SnowGliderFirebase?: any;
     SnowGliderLocalAuth?: any;
