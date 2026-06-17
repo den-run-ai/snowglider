@@ -11,7 +11,7 @@
     // via the bundle entry (src/main.js), not this classic loader.
     // snowman.js converted to an ES module (issue #84, PR 2.8); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
-    'src/audio.js',
+    'src/audio.js'
     // controls.js converted to an ES module (issue #84, PR 2.5); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
     // avalanche.js converted to an ES module (issue #84, PR 2.1); it now loads
@@ -20,7 +20,10 @@
     // via the bundle entry (src/main.js), not this classic loader.
     // course.js converted to an ES module (issue #84, PR 2.2); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
-    'src/snowglider.js'
+    // snowglider.js converted to an ES module (issue #84, PR 2.9); it can't be a
+    // classic <script>, so it loads via the deferred dynamic-import hook below
+    // (window.__loadSnowGliderOrchestrator, set by src/main.js) — kept LAST so it
+    // still runs after audio.js + Auth, sharing the bundled module graph.
   ];
 
   const TEST_SCRIPTS = {
@@ -121,6 +124,17 @@
           firebaseBoot.initializeAuthModule();
         }
         return loadScriptsInOrder(GAME_SCRIPT_ORDER);
+      })
+      .then(() => {
+        // snowglider.js (the orchestrator) is now an ES module loaded by the
+        // bundle entry's deferred dynamic-import hook. Run it AFTER the classic
+        // game scripts (audio.js) so AudioModule is ready, then proceed exactly as
+        // before. If the hook is missing (bundle failed to load), fall through so
+        // the catch below surfaces the error rather than silently hanging.
+        const loadOrchestrator = window.__loadSnowGliderOrchestrator;
+        return typeof loadOrchestrator === 'function'
+          ? loadOrchestrator()
+          : Promise.reject(new Error('SnowGlider orchestrator loader unavailable (src/main.js did not run)'));
       })
       .then(() => {
         loadTests();

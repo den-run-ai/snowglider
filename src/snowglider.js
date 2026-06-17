@@ -1,9 +1,28 @@
 // @ts-check
-// --- Import utilities ---
-// Note: In a real application, you would use: import * as Snow from './snow.js';
-// But for demonstration we assume Snow and Snowman are globally available
-// require('./snow.js');
-// require('./snowman.js');
+// --- Imports (Phase 2.9, issue #84) ---
+// snowglider.js is the orchestrator and the LAST game module converted off the
+// classic global-namespace model. three.js and every converted game module now
+// come from real ES-module imports instead of the CDN global / window.* bridges.
+//
+// Loading: snowglider.js is pulled in by src/main.js via a *deferred dynamic
+// import* (window.__loadSnowGliderOrchestrator), triggered by the classic
+// script-loader only after audio.js + Auth are ready. That preserves the
+// previous ordering (and the start-menu deferred-load behavior) while keeping
+// snowglider.js inside the single bundled module graph — so it shares the same
+// Snow/Snowman/Mountains/etc. instances as main.js instead of forking a second
+// copy from the verbatim dist/src tree.
+//
+// Still read as globals (not yet ES modules): AudioModule (audio.js is classic);
+// AuthModule/ScoresModule/firebaseModules (published onto window by the Firebase
+// bootstrap). Those stay window.* reads until their own conversion.
+import * as THREE from 'three';
+import { Camera } from './camera.js';
+import { Controls } from './controls.js';
+import { Snow } from './snow.js';
+import { Snowman } from './snowman.js';
+import { CourseModule } from './course.js';
+import { EffectsModule } from './effects.js';
+import { AvalancheSystem } from './avalanche.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();
@@ -134,8 +153,8 @@ let avalancheTriggered = false;
 let lastAvalancheZ = 0;
 const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
 
-if (typeof window.Avalanche !== 'undefined' && window.Avalanche.AvalancheSystem) {
-  avalanche = new window.Avalanche.AvalancheSystem(scene, 120);
+if (typeof AvalancheSystem !== 'undefined') {
+  avalanche = new AvalancheSystem(scene, 120);
   avalanche.setTerrainFunction(Snow.getTerrainHeight);
   console.log("Avalanche system initialized");
 } else {
@@ -189,7 +208,7 @@ const snowSplash = Snow.createSnowSplash();
 
 // --- Initialize course (gates, splits, ghost racing) and effects (avalanche UI, juice) ---
 let lastTechnique = 'glide';
-if (typeof window.CourseModule !== 'undefined') {
+if (typeof CourseModule !== 'undefined') {
   try {
     CourseModule.init({
       scene: scene,
@@ -201,7 +220,7 @@ if (typeof window.CourseModule !== 'undefined') {
     console.warn("Course module init failed:", e.message);
   }
 }
-if (typeof window.EffectsModule !== 'undefined') {
+if (typeof EffectsModule !== 'undefined') {
   try {
     EffectsModule.init();
     console.log("Effects module initialized (avalanche warning, camera juice)");
@@ -376,8 +395,8 @@ function resetSnowman() {
   
   // Reset course (gates/splits/ghost) and effects (avalanche UI, FOV, shake) for the new run
   lastTechnique = 'glide';
-  if (window.CourseModule) CourseModule.reset();
-  if (window.EffectsModule) EffectsModule.reset();
+  if (CourseModule) CourseModule.reset();
+  if (EffectsModule) EffectsModule.reset();
   
   // Track game reset in Analytics if available
   try {
@@ -495,7 +514,7 @@ function updateSnowman(delta) {
   lastTechnique = result.technique;
 
   // Camera shake on a meaningful landing (scales with time spent aloft).
-  if (result.justLanded && result.landingForce > 0.25 && window.EffectsModule) {
+  if (result.justLanded && result.landingForce > 0.25 && EffectsModule) {
     EffectsModule.addShake(Math.min(1.2, result.landingForce * 0.6));
   }
   
@@ -541,7 +560,7 @@ function animate(time) {
     Snow.updateSnowflakes(delta, pos, scene);
     
     // --- Course progress: split timing, progress HUD, ghost racing ---
-    if (window.CourseModule) {
+    if (CourseModule) {
       const elapsed = (performance.now() - startTime) / 1000;
       CourseModule.update(pos, elapsed, snowman);
     }
@@ -575,7 +594,7 @@ function animate(time) {
       }
       
       // Telegraph the threat: banner, "distance behind you" meter, vignette, shake.
-      if (window.EffectsModule) {
+      if (EffectsModule) {
         const avActive = avalancheTriggered && avalanche.active;
         const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
         EffectsModule.updateAvalanche(avActive, avDist);
@@ -601,7 +620,7 @@ function animate(time) {
     // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
     // the positional offset so the camera manager's own smoothing stays clean.
     let _shake = null;
-    if (window.EffectsModule) {
+    if (EffectsModule) {
       const spd = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
       _shake = EffectsModule.tickCamera(camera, delta, spd);
     }
@@ -790,7 +809,7 @@ function showGameOver(reason) {
   
   // Build the result screen (splits + medal) on a finish; otherwise just clear
   // the live HUD/effects. The panel is inserted above the restart button.
-  if (window.CourseModule) {
+  if (CourseModule) {
     const staleResult = document.getElementById('courseResult');
     if (staleResult && staleResult.parentNode) staleResult.parentNode.removeChild(staleResult);
     
@@ -805,7 +824,7 @@ function showGameOver(reason) {
       CourseModule.hideHud();
     }
   }
-  if (window.EffectsModule) EffectsModule.reset();
+  if (EffectsModule) EffectsModule.reset();
   
   gameOverOverlay.style.display = 'flex';
 }
@@ -1220,6 +1239,49 @@ window.initializeGameWithAudio = function() {
   
   return true;
 };
+
+// --- Test/global bridge (Phase 2.9, issue #84) ---
+// As an ES module, snowglider.js's top-level state and helpers are module-scoped
+// rather than the implicit script globals the classic build exposed. The browser
+// suites (camera/regression/tree/avalanche tests) still drive the live game by
+// bare name — both reading AND reassigning these (e.g. `gameActive = true`,
+// `verticalVelocity = 0`, `avalancheTriggered = true`) and mutating shared objects
+// (`pos.x = …`, `avalanche.trigger(...)`). Re-publish them on `window` so those
+// bare references resolve exactly as before: getters/setters proxy to the
+// module-local bindings (a test's `gameActive = true` flows back here and the game
+// loop observes it), and object/function refs are shared by identity. The hot loop
+// keeps using the locals directly, so runtime behavior is unchanged.
+// (resetSnowman/showGameOver/restartGame/toggleCameraView/initializeGameWithAudio
+// and treePositions/terrainMesh/isTestMode are already published above.)
+(function publishGameGlobals() {
+  if (typeof window === 'undefined') return;
+  /** @type {Record<string, PropertyDescriptor>} */
+  const live = {
+    // Mutable primitives the tests reassign — proxy reads and writes.
+    gameActive:         { get: () => gameActive,         set: (v) => { gameActive = v; } },
+    isInAir:            { get: () => isInAir,            set: (v) => { isInAir = v; } },
+    verticalVelocity:   { get: () => verticalVelocity,   set: (v) => { verticalVelocity = v; } },
+    bestTime:           { get: () => bestTime,           set: (v) => { bestTime = v; } },
+    startTime:          { get: () => startTime,          set: (v) => { startTime = v; } },
+    avalancheTriggered: { get: () => avalancheTriggered, set: (v) => { avalancheTriggered = v; } },
+    lastAvalancheZ:     { get: () => lastAvalancheZ,     set: (v) => { lastAvalancheZ = v; } },
+    // Object/function refs the tests read or mutate (never reassign) — get-only.
+    scene:              { get: () => scene },
+    camera:             { get: () => camera },
+    cameraManager:      { get: () => cameraManager },
+    snowman:            { get: () => snowman },
+    velocity:           { get: () => velocity },
+    pos:                { get: () => pos },
+    avalanche:          { get: () => avalanche },
+    snowSplash:         { get: () => snowSplash },
+    terrain:            { get: () => terrain },
+    updateCamera:       { get: () => updateCamera },
+    updateSnowman:      { get: () => updateSnowman }
+  };
+  for (const name of Object.keys(live)) {
+    Object.defineProperty(window, name, { configurable: true, enumerable: false, ...live[name] });
+  }
+})();
 
 // If this is a test environment, auto-start the game
 if (window.isTestMode) {

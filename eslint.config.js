@@ -30,69 +30,42 @@ module.exports = [
         ...globals.node,
         AudioModule: "readonly",
         AuthModule: "readonly",
-        // camera.js is now an ES module (PR 2.3), but the still-classic
-        // snowglider.js reads `Camera` by bare name (`new Camera(scene)`), so
-        // keep it declared here until snowglider.js is converted (PR 2.9).
-        // (Like CourseModule; contrast avalanche.js, only read as window.Avalanche.)
-        Camera: "readonly",
-        // controls.js is now an ES module (PR 2.5), but the still-classic
-        // snowglider.js reads `Controls` by bare name (`Controls.setupControls()`),
-        // so keep it declared here until snowglider.js is converted (PR 2.9).
-        Controls: "readonly",
-        // course.js is now an ES module (PR 2.2), but the still-classic
-        // snowglider.js reads `CourseModule` by bare name, so keep it declared
-        // here until snowglider.js is converted (PR 2.9). (Contrast avalanche.js,
-        // which is only read as `window.Avalanche`, so its global was dropped.)
-        CourseModule: "readonly",
-        // effects.js is now an ES module (PR 2.6), but the still-classic
-        // snowglider.js reads `EffectsModule` by bare name (`EffectsModule.tickCamera`),
-        // so keep it declared here until snowglider.js is converted (PR 2.9).
-        EffectsModule: "readonly",
+        // Camera/Controls/CourseModule/EffectsModule/Snow/Snowman were kept here
+        // only for the still-classic snowglider.js bare reads. As of PR 2.9
+        // snowglider.js is an ES module that imports them, so those globals were
+        // dropped (their window.* bridges persist until the loader is retired, PR
+        // 2.10). avalanche.js is likewise only read as window.Avalanche.
         Howl: "readonly",
         Howler: "readonly",
         // mountains.js is now an ES module (PR 2.7), but trees.js + snow.js read
-        // `Mountains` by bare name (as the window bridge), so keep it declared
-        // here until those + snowglider.js are converted (PR 2.9).
+        // `Mountains` by bare name (the window bridge) at eval, so keep it declared
+        // here until those bare reads are removed.
         Mountains: "readonly",
         ScoresModule: "readonly",
-        // snow.js is now an ES module (cluster), but the still-classic
-        // snowglider.js reads `Snow` by bare name (`Snow.getTerrainHeight`, …),
-        // so keep it declared here until snowglider.js is converted (PR 2.9).
-        Snow: "readonly",
-        // snowman.js is now an ES module (PR 2.8), but the still-classic
-        // snowglider.js reads `Snowman` by bare name (`Snowman.createSnowman`),
-        // so keep it declared here until snowglider.js is converted (PR 2.9).
-        Snowman: "readonly",
         THREE: "readonly",
         // trees.js is now an ES module (PR 2.4), but the still-classic snow.js
         // reads `Trees` by bare name (at eval, to build the `Snow` namespace), so
         // keep it declared here until snow.js is converted (this same cluster).
         Trees: "readonly",
         Utils: "readonly",
-        avalanche: "writable",
-        avalancheTriggered: "writable",
-        bestTime: "writable",
-        camera: "writable",
-        cameraManager: "writable",
-        gameActive: "writable",
-        // Terrain samplers: mountains.js (now an ES module, PR 2.7) republishes
-        // these onto window; snowman.js / camera.js / course.js read them by bare
-        // name. Kept until snowglider.js is converted (PR 2.9).
+        // Terrain samplers republished onto window by mountains.js (PR 2.7). Kept
+        // for the window bridge; the converted modules take them as parameters.
         getTerrainHeight: "readonly",
         getTerrainGradient: "readonly",
         getDownhillDirection: "readonly",
+        // snowman.js's checkTreeCollision test hook reads these two as bare globals
+        // (not its parameters), and the browser test suites reassign them to drive
+        // the live game; snowglider.js re-publishes them on window via accessors
+        // (PR 2.9), so they stay declared (writable) until those reads/writes move
+        // to an explicit handle.
         isInAir: "writable",
-        lastAvalancheZ: "writable",
-        pos: "writable",
-        resetSnowman: "readonly",
-        scene: "writable",
-        showGameOver: "readonly",
-        snowman: "writable",
-        startTime: "writable",
-        updateCamera: "readonly",
-        updateSnowman: "readonly",
-        velocity: "writable",
         verticalVelocity: "writable"
+        // The rest of the shared mutable game state (scene/camera/snowman/velocity/pos/
+        // gameActive/bestTime/…) and the orchestrator helpers (resetSnowman/
+        // showGameOver/updateCamera/updateSnowman) used to be snowglider.js script
+        // globals. As of PR 2.9 snowglider.js is an ES module: that state is
+        // module-scoped and re-published on window (see snowglider.js), so the
+        // bare-name globals were dropped here too.
       }
     },
     rules: {
@@ -102,7 +75,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowman.js", "src/trees.js"],
+    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js"],
     languageOptions: {
       sourceType: "module"
     }
