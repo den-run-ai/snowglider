@@ -10,12 +10,16 @@
 //
 // The tests can be run individually or as part of the unified test suite (index.html?test=unified)
 //
-// Phase 2 (issue #84): converted to an ES module — imports three from npm and the
-// terrain sampler from src/snow.js (the `Snow`/`Utils` namespace) instead of reading
-// the window.THREE / window.Utils bridges; loaded via `<script type="module">`.
-// Still publishes window.runCameraTests for the unified runner.
+// Phase 2 (issue #84): converted to an ES module — imports three from npm; loaded
+// via `<script type="module">`. Still publishes window.runCameraTests for the
+// unified runner.
+//
+// Terrain height is read from the LIVE game via window.getTerrainHeight (published
+// on the test seam by snowglider.js) rather than importing src/snow.js here. On the
+// deployed GitHub Pages artifact a local `import` would resolve to a second copy of
+// snow.js whose terrain heightMap is unpopulated and randomly noised, so it would
+// disagree with the bundled terrain the live camera actually clamps to.
 import * as THREE from 'three';
-import { Snow as Utils } from '../src/snow.js';
 
 (function() {
   // Only run tests if ?test=camera is in the URL and not running through the unified test runner
@@ -408,14 +412,14 @@ import { Snow as Utils } from '../src/snow.js';
         // Move snowman to test location
         pos.x = location.x;
         pos.z = location.z;
-        pos.y = Utils.getTerrainHeight(location.x, location.z);
+        pos.y = window.getTerrainHeight(location.x, location.z);
         snowman.position.set(pos.x, pos.y, pos.z);
-        
+
         // Update camera
         updateCamera();
-        
-        // Get terrain height at camera position
-        const terrainHeightAtCamera = Utils.getTerrainHeight(camera.position.x, camera.position.z);
+
+        // Get terrain height at camera position (live game's terrain instance)
+        const terrainHeightAtCamera = window.getTerrainHeight(camera.position.x, camera.position.z);
         
         // Camera should be at least 5 units above terrain
         const minHeightAboveTerrain = 5;

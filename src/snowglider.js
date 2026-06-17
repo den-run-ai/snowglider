@@ -1282,6 +1282,15 @@ window.initializeGameWithAudio = function() {
     avalanche:          { get: () => avalanche },
     snowSplash:         { get: () => snowSplash },
     terrain:            { get: () => terrain },
+    // Live terrain sampler for the browser tests. camera.js imports the sampler
+    // directly (window.getTerrainHeight* was dropped from production in 0781822),
+    // but the deployed GitHub Pages artifact runs dist/index.html from Vite's
+    // bundle while the verbatim-copied dist/tests/*.js import a *second* copy of
+    // snow.js — whose heightMap is never populated by createTerrain and whose
+    // per-vertex Math.random() noise differs anyway. testCameraAboveTerrain must
+    // sample the same terrain instance the live camera clamps to, so republish the
+    // bundled sampler here (test seam only) instead of importing a fork (issue #84).
+    getTerrainHeight:   { get: () => Snow.getTerrainHeight },
     updateCamera:       { get: () => updateCamera },
     updateSnowman:      { get: () => updateSnowman }
   };
