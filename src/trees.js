@@ -1,16 +1,13 @@
 // @ts-check
 // trees.js - Tree creation and management for snowglider
 //
-// Phase 2.4 (issue #84): converted off the classic global model. `THREE` now
-// comes from the npm package via a real ES-module import instead of the CDN
-// global, and `Trees` is `export`ed. The window.Trees assignment below is kept so
-// the still-classic consumers (snow.js reads `Trees` by bare name at eval time;
-// snowglider.js is converted last in PR 2.9) keep working during the staged
-// migration; it is loaded into the page through the bundle entry (src/main.js)
-// rather than the classic script-loader. The internal getTerrainHeight/
-// getTerrainGradient wrappers below delegate to window.Mountains at call time, so
-// they keep working whether Mountains is classic or an ES-module bridge.
+// Phase 2.4 (issue #84): converted off the classic global model. `THREE` and the
+// terrain samplers (`Mountains`) now come from real ES-module imports instead of
+// the CDN global / window bridges, and `Trees` is `export`ed. mountains.js and
+// trees.js import each other (the cross-references are only used at call time, so
+// the circular import resolves cleanly).
 import * as THREE from 'three';
+import { Mountains } from './mountains.js';
 
 // Create a more realistic tree with visible branches and variability
 function createTree(scale = 1.0) {
@@ -356,35 +353,23 @@ function addTrees(scene) {
   return treePositions;
 }
 
-// Helper function to use Mountains utility to get terrain height
+// Helper function to use the Mountains module to get terrain height.
 function getTerrainHeight(x, z) {
-  // First try to use global function
-  if (window && window.Mountains && window.Mountains.getTerrainHeight) {
-    return window.Mountains.getTerrainHeight(x, z);
-  }
-  
-  // Fallback to accessing via the Mountains global
-  if (typeof Mountains !== 'undefined' && Mountains.getTerrainHeight) {
+  if (Mountains && Mountains.getTerrainHeight) {
     return Mountains.getTerrainHeight(x, z);
   }
-  
+
   // Last resort - approximate with zero height
   console.warn('Trees: getTerrainHeight function not found');
   return 0;
 }
 
-// Helper function to use Mountains utility to get terrain gradient
+// Helper function to use the Mountains module to get terrain gradient.
 function getTerrainGradient(x, z) {
-  // First try to use global function
-  if (window && window.Mountains && window.Mountains.getTerrainGradient) {
-    return window.Mountains.getTerrainGradient(x, z);
-  }
-  
-  // Fallback to accessing via the Mountains global
-  if (typeof Mountains !== 'undefined' && Mountains.getTerrainGradient) {
+  if (Mountains && Mountains.getTerrainGradient) {
     return Mountains.getTerrainGradient(x, z);
   }
-  
+
   // Last resort - approximate with flat gradient
   console.warn('Trees: getTerrainGradient function not found');
   return { x: 0, z: 0 };
@@ -400,10 +385,5 @@ export const Trees = {
   getTerrainGradient
 };
 
-// Backward-compat global export for the still-classic consumers (snow.js reads
-// `Trees` by bare name when it builds the `Snow` namespace; snowglider.js reads
-// it indirectly via `Snow`). Drop this once those consumers import Trees directly
-// (snow.js in PR 2.6/this cluster, snowglider.js in PR 2.9, issue #84).
-if (typeof window !== 'undefined') {
-  window.Trees = Trees;
-}
+// The window.Trees bridge was removed (issue #84): snow.js and mountains.js
+// import Trees directly now.

@@ -37,18 +37,10 @@ module.exports = [
         // 2.10). avalanche.js is likewise only read as window.Avalanche.
         Howl: "readonly",
         Howler: "readonly",
-        // mountains.js is now an ES module (PR 2.7), but trees.js + snow.js read
-        // `Mountains` by bare name (the window bridge) at eval, so keep it declared
-        // here until those bare reads are removed.
-        Mountains: "readonly",
         ScoresModule: "readonly",
-        // three.js is single-sourced from npm; every module `import`s it and the
-        // browser tests do too, so the bare `THREE` global (and its window.THREE
-        // bridge) were removed (issue #84).
-        // trees.js is an ES module, but snow.js + mountains.js still read `Trees`
-        // by bare name (via the window bridge) at eval, so keep it declared until
-        // those modules import it directly.
-        Trees: "readonly",
+        // three.js + Mountains + Trees are single-sourced from npm and imported by
+        // every consumer (the terrain trio import each other), so their bare
+        // globals + window bridges were removed (issue #84).
         // Terrain samplers republished onto window by mountains.js (PR 2.7). Kept
         // for the window bridge; the converted modules take them as parameters.
         getTerrainHeight: "readonly",
