@@ -8,9 +8,8 @@ import * as THREE from 'three';
 //
 // Phase 2.1: avalanche.js is the first converted module. Importing it here for
 // its side effect runs its `window.Avalanche = …` bridge before the classic
-// script-loader pulls in snowglider.js, so the still-classic consumer keeps
-// finding the avalanche system. As more modules convert, add them here too
-// until the classic loader is retired (PR 2.10).
+// script-loader pulls in the game/test scripts, so the still-classic consumers
+// (the browser-test suite) keep finding the avalanche system.
 import './avalanche.js';
 // Phase 2.2: course.js, imported for its `window.CourseModule = …` bridge so the
 // still-classic snowglider.js keeps finding the course system.
@@ -47,6 +46,14 @@ if (typeof window !== 'undefined') {
   /** @type {any} */ (window).__SNOWGLIDER_BUNDLE__ = {
     threeRevision: THREE.REVISION
   };
+
+  // PR 2.10 (issue #84): the CDN UMD <script> that used to define the global
+  // `THREE` is gone — three is now single-sourced from npm (bundled by Vite, or
+  // import-mapped from node_modules when index.html is served as raw source).
+  // The still-classic browser-test scripts (camera-tests.js) read three as a
+  // bare global, so bridge it here, exactly like the per-module bridges above.
+  // Drop this once those test scripts are converted to ES modules.
+  /** @type {any} */ (window).THREE = THREE;
 
   // Phase 2.9: snowglider.js (the orchestrator) is now an ES module too, but it
   // must still run LAST — after the classic loader has loaded audio.js + Auth —

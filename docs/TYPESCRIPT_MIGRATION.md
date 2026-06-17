@@ -9,27 +9,31 @@
   CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
   `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry),
   **`src/avalanche.js`**, **`src/course.js`**, **`src/camera.js`**, **`src/controls.js`**,
-  **`src/effects.js`**, **`src/trees.js`**, **`src/mountains.js`**, **`src/snow.js`** and
-  **`src/snowman.js`** are now ES modules too. The remaining game modules (`audio.js`, `snowglider.js`)
-  are still classic `<script>` globals loaded via `src/boot/script-loader.js`, with three.js **r160**
-  as a CDN global.
+  **`src/effects.js`**, **`src/trees.js`**, **`src/mountains.js`**, **`src/snow.js`**,
+  **`src/snowman.js`** and (PR 2.9) the orchestrator **`src/snowglider.js`** are now ES modules too —
+  every game module except **`audio.js`**, which is still a classic `<script>` global loaded via
+  `src/boot/script-loader.js`. As of PR 2.10 three.js is **r160 imported from npm** (no CDN global);
+  the `window.*` bridges now serve only the still-classic consumers (the browser-test scripts and
+  `audio.js`).
 - **Build today:** `vite build` produces a **real ES-module bundle** (PR 2.0): `index.html` loads
   `src/main.js` as `<script type="module">`, and Vite resolves its import graph (three from npm +
   each converted module) into a hashed chunk referenced by `dist/index.html`. `copyStaticAppFiles`
-  still copies the static tree so the **classic CDN + script-loader path keeps booting the game**
-  during the staged conversion. Until the loader is retired (PR 2.10), converted modules also load
-  through the bundle and re-publish their `window.*` namespace so the still-classic `snowglider.js`
-  keeps finding them — which means three.js is loaded twice transitionally (CDN UMD for classic
-  scripts, npm/ESM for the bundle; browsers log a benign "Multiple instances of Three.js" warning).
-  An import map in `index.html` resolves the bundle's bare `three` specifier when the page is served
-  as raw source (puppeteer suite, `npm start`); it is inert in the Vite build, where three is bundled.
+  still copies the static tree so the **script-loader path keeps booting the game** during the staged
+  conversion. Converted modules load through the bundle (`src/main.js`) and re-publish their `window.*`
+  namespace so the still-classic consumers — the browser-test scripts and `audio.js` — keep finding
+  them. **PR 2.10** removed the redundant CDN UMD `<script>` global (a *second* copy of r160): three is
+  now single-sourced from npm, so the "Multiple instances of Three.js" warning is gone. An import map in
+  `index.html` resolves the bundle's bare `three` specifier when the page is served as raw source
+  (puppeteer suite, `npm start`) — now pointed at the local `node_modules` copy, so the raw-source path
+  no longer needs the CDN; it is inert in the Vite build, where three is bundled. `main.js` bridges
+  `window.THREE` for the still-classic browser-test scripts that read three by bare name.
   - **`file://` caveat:** because converted modules load via `<script type="module">`, opening
     `index.html` directly (`file://`) no longer loads them — Chrome blocks module + import-map loading
     from a null origin (CORS). The classic-script part of the game still boots, but converted features
     (avalanche, course, camera) are silently disabled by `snowglider.js`'s "module not loaded" fallback. Use
     `npm start` or a build to run the full game. This is an intended consequence of the bundler/server
-    run model (`file://` direct-open is retired by PR 2.10), not a regression; it was raised in Codex
-    review of PR 2.1 and applies equally to every later conversion.
+    run model (direct `file://` open is no longer a supported run mode), not a regression; it was raised
+    in Codex review of PR 2.1 and applies equally to every later conversion.
 - **Converted so far:**
   - **PR 2.1 — `src/avalanche.js`:** `import * as THREE from 'three'` + `export class AvalancheSystem`.
     Its Node test (`tests/avalanche-tests.js`) now `import()`s the real module and real three instead
@@ -85,8 +89,25 @@
     "current" side (the frozen classic baseline still loads via `vm.runInContext`) and stubs
     `global.window` for updateSnowman's test-hook/debug paths; the load-bearing coasting invariant
     stays **bit-identical** to the baseline. `physics-tests`/`tree-collision-tests` are self-contained
-    mocks and needed no change. (`snowglider.js` — the orchestrator that unwinds every `window.*`
-    bridge and loose global — and the classic-loader retirement remain as their own later PRs.)
+    mocks and needed no change.
+  - **PR 2.9 — `src/snowglider.js`** (the orchestrator, converted last): `import * as THREE from 'three'`
+    plus direct imports of every converted module instead of CDN-global `THREE` + the `window.*` bridges.
+    It still loads **last + deferred**, so it can't be a classic `<script>`: `src/main.js` exposes
+    `window.__loadSnowGliderOrchestrator = () => import('./snowglider.js')`, which the classic
+    `script-loader.js` calls after audio.js + Auth (snowglider dropped from `GAME_SCRIPT_ORDER`). The
+    dynamic import keeps it in Vite's shared module graph (one Snow/Snowman/… instance) while raw-serve
+    still resolves it to `/src/snowglider.js` (the request the puppeteer start-menu regression
+    intercepts). Browser suites drive the game by bare name, so snowglider re-publishes its mutable
+    state on `window` via get/set accessors; `AudioModule`/`AuthModule`/`ScoresModule`/`firebaseModules`
+    stay `window.*` reads until their own conversion.
+  - **PR 2.10 — three.js de-dup + `window.THREE` bridge:** with every game module now importing three
+    from npm, the redundant CDN UMD `<script>` global in `index.html` (a *second* copy of r160) was
+    removed — three is single-sourced (bundled by Vite, or import-mapped from `node_modules` on the
+    raw-source path, which no longer needs the CDN). `src/main.js` bridges `window.THREE` for the
+    still-classic browser-test scripts (`camera-tests.js`) that read three by bare name. The
+    `script-loader`, the import map, and the per-module `window.*` bridges **remain** — still consumed by
+    the classic browser-test suite and the still-classic `audio.js` — so retiring them is deferred to
+    later PRs (alongside converting `audio.js` and migrating the browser tests to ES modules).
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 

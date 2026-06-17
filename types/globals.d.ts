@@ -7,7 +7,11 @@
 import type * as THREE_NS from 'three';
 
 declare global {
-  // three.js r160, loaded as a CDN global (not an ES-module import yet).
+  // three.js r160. As of PR 2.10 the CDN UMD <script> global is gone — three is
+  // single-sourced from npm (every src module `import`s it; main.js bridges
+  // `window.THREE`). Kept declared as an ambient global in lockstep with
+  // eslint.config.js for the still-classic browser-test scripts (camera-tests.js)
+  // that read it bare; drop once those tests become ES modules.
   const THREE: typeof THREE_NS;
 
   /** Terrain height sampler injected via setTerrainFunction (see docs/ARCHITECTURE.md §4). */
@@ -77,6 +81,9 @@ declare global {
   // (snowglider.js) are converted (PR 2.9). mountains.js (PR 2.7) likewise
   // republishes the terrain samplers onto window.
   interface Window {
+    // three.js bridged onto window by main.js (PR 2.10) for the still-classic
+    // browser-test scripts, replacing the removed CDN UMD global.
+    THREE: typeof THREE_NS;
     AudioModule: any;
     AuthModule: any;
     Avalanche: any;

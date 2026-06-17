@@ -42,6 +42,9 @@ module.exports = [
         // here until those bare reads are removed.
         Mountains: "readonly",
         ScoresModule: "readonly",
+        // As of PR 2.10 three.js is single-sourced from npm: the CDN UMD global
+        // is gone and main.js bridges `window.THREE`. Kept declared here for the
+        // still-classic browser-test scripts (camera-tests.js) that read it bare.
         THREE: "readonly",
         // trees.js is now an ES module (PR 2.4), but the still-classic snow.js
         // reads `Trees` by bare name (at eval, to build the `Snow` namespace), so
