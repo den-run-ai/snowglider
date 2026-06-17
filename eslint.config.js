@@ -72,7 +72,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/scores.js"],
+    files: ["src/auth.js", "src/main.js", "src/scores.js"],
     languageOptions: {
       sourceType: "module"
     }
