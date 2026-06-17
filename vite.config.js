@@ -35,6 +35,18 @@ function copyStaticAppFiles() {
         recursive: true,
         force: true
       });
+
+      // Publish the single three.js ESM build the page import map points at
+      // (`/node_modules/three/build/three.module.min.js`). The bundled game never
+      // hits the import map (Vite inlines three into the hashed chunk), but the
+      // verbatim-copied browser tests in dist/tests load as `<script type="module">`
+      // and import bare `three`, so on Pages — where node_modules is NOT published —
+      // they'd 404 and the `?test=…` entry points would fail before registering
+      // their window.run*Tests hooks. Copying just this one file (not all of
+      // node_modules) keeps those deployed test pages resolving three (issue #84).
+      const threeRel = path.join('node_modules', 'three', 'build', 'three.module.min.js');
+      await mkdir(path.join(distDir, path.dirname(threeRel)), { recursive: true });
+      await cp(path.join(rootDir, threeRel), path.join(distDir, threeRel), { force: true });
     }
   };
 }

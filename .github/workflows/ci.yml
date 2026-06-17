@@ -107,6 +107,9 @@ jobs:
           test -f dist/LICENSE
           test -f dist/README.md
           test ! -d dist/tests/verification
+          # The verbatim-copied browser tests import bare `three`; Pages has no
+          # node_modules, so the page import map's three build must be published.
+          test -f dist/node_modules/three/build/three.module.min.js
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
