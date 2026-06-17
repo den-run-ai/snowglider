@@ -1,5 +1,16 @@
 // @ts-check
 // mountains.js - Terrain and mountain features for snowglider
+//
+// Phase 2.7 (issue #84): converted off the classic global model. `THREE` now
+// comes from the npm package via a real ES-module import instead of the CDN
+// global, and `Mountains` is `export`ed. Because mountains.js used to define the
+// terrain sampler functions (`getTerrainHeight`/`getTerrainGradient`/
+// `getDownhillDirection`) as bare script globals, the bottom of this file now
+// republishes them onto `window` so the still-classic/converted consumers that
+// read them by bare name (snowman.js, plus the already-converted camera.js and
+// course.js) keep resolving them during the staged migration. It is loaded into
+// the page through the bundle entry (src/main.js) rather than the classic loader.
+import * as THREE from 'three';
 
 // --- SimplexNoise implementation ---
 class SimplexNoise {
@@ -414,7 +425,7 @@ function debugHeightMap(x, z) {
 }
 
 // Export all mountain-related functions and classes
-const Mountains = {
+export const Mountains = {
   SimplexNoise,
   getTerrainHeight,
   getTerrainGradient,
@@ -426,7 +437,16 @@ const Mountains = {
   heightMap // Expose the heightmap for debugging
 };
 
-// Make Mountains available globally
+// Backward-compat global exports for the still-classic / staged consumers.
+// `window.Mountains` is read by trees.js and snow.js (as a bridge) and indirectly
+// by snowglider.js via `Snow`. The bare terrain samplers below used to be script
+// globals defined by this (classic) file; now that it is an ES module they are
+// republished onto `window` so bare reads in snowman.js / camera.js / course.js
+// keep resolving. Drop these once all consumers import the functions directly
+// (snowman.js in this cluster, snowglider.js in PR 2.9, issue #84).
 if (typeof window !== 'undefined') {
   window.Mountains = Mountains;
+  window.getTerrainHeight = getTerrainHeight;
+  window.getTerrainGradient = getTerrainGradient;
+  window.getDownhillDirection = getDownhillDirection;
 }

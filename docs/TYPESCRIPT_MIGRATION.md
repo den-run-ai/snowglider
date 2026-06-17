@@ -9,9 +9,9 @@
   CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
   `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry),
   **`src/avalanche.js`**, **`src/course.js`**, **`src/camera.js`**, **`src/controls.js`**,
-  **`src/effects.js`** and **`src/trees.js`** are now ES modules too. The remaining game modules
-  (`mountains.js`, `snow.js`, `snowman.js`, `audio.js`, `snowglider.js`) are still classic `<script>`
-  globals loaded via `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
+  **`src/effects.js`**, **`src/trees.js`**, **`src/mountains.js`** and **`src/snow.js`** are now ES
+  modules too. The remaining game modules (`snowman.js`, `audio.js`, `snowglider.js`) are still classic
+  `<script>` globals loaded via `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
 - **Build today:** `vite build` produces a **real ES-module bundle** (PR 2.0): `index.html` loads
   `src/main.js` as `<script type="module">`, and Vite resolves its import graph (three from npm +
   each converted module) into a hashed chunk referenced by `dist/index.html`. `copyStaticAppFiles`
@@ -64,6 +64,18 @@
     internal `getTerrainHeight`/`getTerrainGradient` wrappers delegate to `window.Mountains` at call
     time, so they keep working across the migration. No test migration: `terrain-tests`/`regression-tests`
     inject a *Trees mock* (they don't load real trees.js), and `tree-collision-tests` is self-contained.
+  - **PR 2.7 + snow — `src/mountains.js` + `src/snow.js`** (converted together): `import * as THREE
+    from 'three'` + `export const Mountains` / `export const Snow`. mountains.js republishes the bare
+    terrain samplers (`window.getTerrainHeight`/`getTerrainGradient`/`getDownhillDirection`) it used to
+    define as script globals; snow.js republishes `window.Snow` (the still-classic snowglider.js reads
+    `Snow` by bare name) alongside the legacy `window.Utils` alias. They convert in one step because
+    `terrain-tests` and `regression-tests` load *both* via the shared `with(sandbox)` + `new Function`
+    loader, which can't evaluate an ES module, and because snow.js reads `Mountains`/`Trees` at
+    module-eval (so main.js imports mountains+trees before snow). Both Node tests now `import()` the
+    real modules (setting `global.Mountains` + a lightweight `Trees` mock before importing snow.js) and
+    run inside an async IIFE; `tree-collision-tests` and `physics-tests` are self-contained mocks and
+    needed no change. Ambient `getTerrainHeight`/`getTerrainGradient`/`getDownhillDirection` +
+    `Mountains`/`Snow` declarations move into `types/globals.d.ts`, kept until snowglider.js (PR 2.9).
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 

@@ -1,10 +1,12 @@
 // @ts-check
 (function () {
   const GAME_SCRIPT_ORDER = [
-    'src/mountains.js',
+    // mountains.js converted to an ES module (issue #84, PR 2.7); it now loads
+    // via the bundle entry (src/main.js), not this classic loader.
     // trees.js converted to an ES module (issue #84, PR 2.4); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
-    'src/snow.js',
+    // snow.js converted to an ES module (issue #84, cluster); it now loads
+    // via the bundle entry (src/main.js), not this classic loader.
     // camera.js converted to an ES module (issue #84, PR 2.3); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
     'src/snowman.js',

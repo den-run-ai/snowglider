@@ -28,6 +28,14 @@ import './effects.js';
 // snow.js (below) because snow.js reads `Trees` at module-eval time when it builds
 // the `Snow` namespace.
 import './trees.js';
+// Phase 2.7: mountains.js, imported for its `window.Mountains = …` +
+// `window.getTerrainHeight/getTerrainGradient/getDownhillDirection` bridges. Also
+// imported before snow.js, which reads `Mountains` at module-eval time.
+import './mountains.js';
+// Phase 2.6/cluster: snow.js, imported LAST of the terrain trio for its
+// `window.Snow`/`window.Utils` bridges — it reads `Mountains`/`Trees` at eval, so
+// both must already be bridged above.
+import './snow.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;
