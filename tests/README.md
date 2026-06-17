@@ -4,7 +4,7 @@ This directory contains tests for the SnowGlider game. The tests are designed to
 
 ## Test Types
 
-There are eight main types of tests:
+There are ten main types of tests:
 
 1. **Terrain Tests** (`terrain-tests.js`)
    - Tests for terrain height calculations
@@ -32,24 +32,32 @@ There are eight main types of tests:
    - Backward-compatibility stubs for the previous Howler.js API
    - Mute-button UI creation
 
-5. **Regression Tests** (`regression-tests.js` and `browser-regression-tests.js`)
+5. **Auth Tests** (`auth-tests.js`)
+   - Loads the real `src/auth.js` module under jsdom with mocked Firebase
+   - Tests popup sign-in, touch sign-in, sign-out, and auth error handling
+
+6. **Scores Tests** (`scores-tests.js`)
+   - Loads the real `src/scores.js` module under jsdom with mocked Firestore
+   - Tests score validation, local best-time storage, leaderboard reconciliation, and leaderboard filtering
+
+7. **Regression Tests** (`regression-tests.js` and `browser-regression-tests.js`)
    - Targets specific functionality that may have regressed based on git history
    - Tests fixes for known issues to prevent regressions
    - Includes both Node.js and browser-based tests
 
-6. **Tree Collision Tests** (`tree-collision-tests.js` and `browser-tree-tests.js`)
+8. **Tree Collision Tests** (`tree-collision-tests.js` and `browser-tree-tests.js`)
    - Specialized tests focused on tree collision detection issues
    - Verifies consistency between visual tree rendering and collision detection
    - Tests tree collision in extended ski run area
    - Validates snow splash effect interaction with collision detection
 
-7. **Avalanche Tests** (`avalanche-tests.js` and `browser-avalanche-tests.js`)
+9. **Avalanche Tests** (`avalanche-tests.js` and `browser-avalanche-tests.js`)
    - Node.js tests for core avalanche physics and logic
    - Browser tests for avalanche UI integration
    - Tests avalanche trigger mechanics, burial detection, visual rendering
    - Verifies avalanche reset and game over behavior
 
-8. **Verification Harness** (`tests/verification/`)
+10. **Verification Harness** (`tests/verification/`)
    - Headless, deterministic checks that guard the physics contract and the DOM modules
    - Run via `npm run test:verify` (also included in `npm test`)
    - See [Verification Harness](#verification-harness) below
@@ -63,8 +71,9 @@ Run the full Node suite:
 npm test
 ```
 This runs, in order: `test:terrain`, `test:physics`, `test:regression`,
-`test:tree-collision`, `test:avalanche`, `test:controls` (a stub — controls are
-browser-only), and `test:verify` (the verification harness).
+`test:tree-collision`, `test:avalanche`, `test:auth`, `test:scores`,
+`test:controls` (a stub — controls are browser-only), and `test:verify` (the
+verification harness).
 
 Run specific test categories:
 ```bash
@@ -73,6 +82,8 @@ npm run test:physics        # Physics simulation tests
 npm run test:regression     # Regression tests
 npm run test:tree-collision # Tree collision tests
 npm run test:avalanche      # Avalanche physics tests
+npm run test:auth           # Auth module tests with mocked Firebase
+npm run test:scores         # Scores module tests with mocked Firestore
 npm run test:verify         # Verification harness (physics invariant + DOM smoke)
 ```
 
