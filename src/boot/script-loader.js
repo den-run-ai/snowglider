@@ -90,7 +90,10 @@
     // `<script type="module">` so they can `import` the real src modules instead
     // of reading window.* bridges. The rest remain classic until converted.
     const MODULE_TESTS = new Set([
-      'audio-tests'
+      'audio-tests',
+      'controls-tests',
+      'camera-tests',
+      'browser-avalanche-tests'
     ]);
 
     const selectedScripts = TEST_SCRIPTS[testParam] || [];

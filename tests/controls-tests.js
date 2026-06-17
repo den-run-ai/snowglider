@@ -1,6 +1,11 @@
 /**
  * Controls module tests for SnowGlider
+ *
+ * Phase 2 (issue #84): converted to an ES module — imports Controls from the real
+ * src module instead of reading the window.Controls bridge; loaded via
+ * `<script type="module">`. Still publishes window.runControlsTests for the runner.
  */
+import { Controls } from '../src/controls.js';
 
 // Helper function to simulate keyboard events
 function simulateKeyEvent(type, key) {

@@ -9,6 +9,13 @@
 // 5. Camera Smoothing - tests smooth camera movement and following behavior
 //
 // The tests can be run individually or as part of the unified test suite (index.html?test=unified)
+//
+// Phase 2 (issue #84): converted to an ES module — imports three from npm and the
+// terrain sampler from src/snow.js (the `Snow`/`Utils` namespace) instead of reading
+// the window.THREE / window.Utils bridges; loaded via `<script type="module">`.
+// Still publishes window.runCameraTests for the unified runner.
+import * as THREE from 'three';
+import { Snow as Utils } from '../src/snow.js';
 
 (function() {
   // Only run tests if ?test=camera is in the URL and not running through the unified test runner

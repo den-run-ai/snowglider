@@ -10,6 +10,11 @@
 // 6. Avalanche Reset - tests avalanche resets with game reset
 //
 // The tests can be run individually or as part of the unified test suite (index.html?test=unified)
+//
+// Phase 2 (issue #84): converted to an ES module — imports AvalancheSystem from the
+// real src module instead of probing the window.Avalanche bridge; loaded via
+// `<script type="module">`. Still publishes window.runAvalancheTests for the runner.
+import { AvalancheSystem } from '../src/avalanche.js';
 
 (function() {
   // Only run tests if ?test=avalanche is in the URL and not running through the unified test runner
@@ -136,12 +141,11 @@
 
     // Test 1: Avalanche System Initialization
     function testAvalancheInitialization() {
-      // Check that Avalanche module is loaded
-      const moduleLoaded = typeof window.Avalanche !== 'undefined' && 
-                          window.Avalanche.AvalancheSystem !== undefined;
-      
-      assert(moduleLoaded, 'Avalanche Module Loaded', 
-        moduleLoaded ? 'Avalanche module is properly loaded' : 
+      // Check that the Avalanche module is loaded (imported from src/avalanche.js)
+      const moduleLoaded = typeof AvalancheSystem === 'function';
+
+      assert(moduleLoaded, 'Avalanche Module Loaded',
+        moduleLoaded ? 'Avalanche module is properly loaded' :
         'Avalanche module failed to load');
       
       // Check that avalanche system is initialized in the game

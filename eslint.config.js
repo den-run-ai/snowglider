@@ -98,7 +98,7 @@ module.exports = [
   {
     // Test suites converted to ES modules (issue #84) — they `import` the real
     // src modules. Grows as each browser-test file is migrated off the window.* bridges.
-    files: ["tests/audio-tests.js"],
+    files: ["tests/audio-tests.js", "tests/controls-tests.js", "tests/camera-tests.js", "tests/browser-avalanche-tests.js"],
     languageOptions: {
       sourceType: "module"
     }
