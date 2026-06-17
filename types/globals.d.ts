@@ -22,8 +22,6 @@ declare global {
   // entry here causes "TS2451: Cannot redeclare". So: remove a module's entry
   // from this block in the same change that adds `// @ts-check` to that module.
   //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
-  //   - snowman.js:   @ts-checked -> `Snowman` + `resetSnowman`/`updateSnowman`
-  //                   (top-level fns) live in src/snowman.js, not here.
   //   - audio.js:     @ts-checked -> `AudioModule` lives in src/audio.js, not here.
   // AuthModule/ScoresModule/CourseModule/Camera/Controls/EffectsModule stay:
   // auth.js/scores.js (and, as of PR 2.2/2.3/2.5/2.6, course.js/camera.js/
@@ -49,10 +47,14 @@ declare global {
   // until snowglider.js is converted (PR 2.9).
   const Mountains: any;
   const Snow: any;
+  // snowman.js (PR 2.8) is an ES module; `Snowman` is module-scoped there, but
+  // the still-classic snowglider.js reads it by bare name (`Snowman.createSnowman`).
+  // Kept until snowglider.js is converted (PR 2.9).
+  const Snowman: any;
   // Terrain samplers republished onto window by mountains.js (PR 2.7); read by
-  // bare name in the still-classic snowman.js and the converted camera.js/
-  // course.js. (Distinct from the per-run `setTerrainFunction` seam.) Kept until
-  // snowglider.js is converted (PR 2.9).
+  // bare name in the converted snowman.js / camera.js / course.js. (Distinct from
+  // the per-run `setTerrainFunction` seam.) Kept until snowglider.js is converted
+  // (PR 2.9).
   const getTerrainHeight: TerrainHeightFn;
   const getTerrainGradient: (x: number, z: number) => { x: number; z: number };
   const getDownhillDirection: (x: number, z: number) => { x: number; z: number };
@@ -67,9 +69,11 @@ declare global {
   // `avalanche`, `gameActive`, `isInAir`, `startTime`, `bestTime`, …) are real
   // top-level `const`/`let` script-globals in src/snowglider.js — declaring any of
   // them here would be a TS2451 redeclare, so they are intentionally absent.
-  // `resetSnowman`/`updateSnowman` likewise live in snowman.js (still classic).
-  // The Phase 3 step is to replace these ad-hoc globals with a typed GameState
-  // object; `TerrainHeightFn` (above) is kept for that work.
+  // `resetSnowman`/`updateSnowman` are snowglider.js's OWN top-level wrapper
+  // functions (script globals) — distinct from snowman.js's `Snowman.resetSnowman`/
+  // `Snowman.updateSnowman`, which snowglider.js reaches via the namespace — so
+  // they stay absent here too. The Phase 3 step is to replace these ad-hoc globals
+  // with a typed GameState object; `TerrainHeightFn` (above) is kept for that work.
 
   // Classic scripts publish their namespaces onto window; allow those writes.
   // NOTE: `Snow` and `Camera` used to be *bare globals* (NOT window properties),

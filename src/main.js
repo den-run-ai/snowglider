@@ -36,6 +36,9 @@ import './mountains.js';
 // `window.Snow`/`window.Utils` bridges — it reads `Mountains`/`Trees` at eval, so
 // both must already be bridged above.
 import './snow.js';
+// Phase 2.8: snowman.js, imported for its `window.Snowman = …` bridge so the
+// still-classic snowglider.js keeps finding the snowman model + physics.
+import './snowman.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

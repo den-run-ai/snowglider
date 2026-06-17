@@ -59,6 +59,9 @@ module.exports = [
         // snowglider.js reads `Snow` by bare name (`Snow.getTerrainHeight`, …),
         // so keep it declared here until snowglider.js is converted (PR 2.9).
         Snow: "readonly",
+        // snowman.js is now an ES module (PR 2.8), but the still-classic
+        // snowglider.js reads `Snowman` by bare name (`Snowman.createSnowman`),
+        // so keep it declared here until snowglider.js is converted (PR 2.9).
         Snowman: "readonly",
         THREE: "readonly",
         // trees.js is now an ES module (PR 2.4), but the still-classic snow.js
@@ -99,7 +102,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/trees.js"],
+    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowman.js", "src/trees.js"],
     languageOptions: {
       sourceType: "module"
     }

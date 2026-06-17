@@ -84,8 +84,19 @@ function simulate(updateFn, controls, seed, steps = 220, dt = 1 / 60) {
            distance: -15 - pos.z, steps: traj.length, technique: st.technique };
 }
 
+// The frozen baseline is still a classic script, so it loads via vm.runInContext.
+// src/snowman.js is now an ES module (issue #84, PR 2.8) and can't be evaluated
+// that way, so import the REAL module and read its updateSnowman directly. The
+// comparison is unchanged: both return the same updateSnowman(...) contract, and
+// the harness injects terrain + controls as arguments (snowman.js reads no terrain
+// globals). The async import means the checks run inside an async IIFE.
+(async () => {
 const orig = loadUpdate(path.join(__dirname, 'snowman_baseline.js'));
-const mod = loadUpdate(path.join(__dirname, '..', '..', 'src', 'snowman.js'));
+const mod = (await import('../../src/snowman.js')).Snowman.updateSnowman;
+// updateSnowman reads window.treeCollisionRadius / window.location.search for its
+// test-hook + debug-logging paths; the frozen baseline gets these from its vm
+// sandbox, so provide the same minimal stub on the global for the imported module.
+global.window = global.window || { location: { search: '' } };
 
 const NONE = { left: false, right: false, up: false, down: false, jump: false };
 const DOWN = { left: false, right: false, up: false, down: true, jump: false };
@@ -167,3 +178,4 @@ if (!scrubAtSpeed) hardFail = true;
 
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
+})();
