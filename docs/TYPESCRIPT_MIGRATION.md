@@ -260,7 +260,17 @@ bridges are gone, `npm test`, `npm run test:browser`, `npm run typecheck`, `npm 
 
 Now that modules exist and are JSDoc-typed, renaming is mostly mechanical.
 
-- [ ] Rename `.js` → `.ts` module-by-module; move JSDoc typedefs to real `interface`/`type` declarations.
+### 3.0 — toolchain proof (avalanche.ts) ✅
+
+The first `.ts` rename, done as a standalone PR to prove the end-to-end pipeline on one leaf:
+
+- `tsconfig` `include` gained `src/**/*.ts`; `src/avalanche.js` → **`src/avalanche.ts`**, dropping the `@ts-check` pragma and turning the inferred shapes into real `interface`/`type` (`Vec3Like`, `TerrainHeightFn`) plus typed fields/params. Behaviour is unchanged — every edit is erasable, so esbuild (Vite) and Node both run it as-is.
+- **Importers keep the `./avalanche.js` specifier** (snowglider.js, main.js): both tsc's `Bundler` resolution and Vite map `.js` → `.ts`. Only the **Node** test names the real extension (`import('../src/avalanche.ts')`) — Node's resolver does *not* remap `.js`→`.ts`, but it strips the type annotations natively (Node ≥ 22.18), so `node tests/avalanche-tests.js` runs the shipped module.
+- Green on the four gates this proves: `tsc --noEmit`, `eslint .` (skips `.ts` — no typescript-eslint configured, so the file is simply unlinted for now), `npm test` (avalanche 12/12 + full suite), and `npm run build` (avalanche transpiled into the bundle; Pages-artifact shape unchanged).
+
+> **Known caveat — raw-source browser path.** `npm run test:browser` and the deployed `index.html?test=…` path serve **raw** `src/` over `http-server` (no transpile), so a browser fetching `src/avalanche.ts` can't execute it. The bundled paths (`vite build` → Pages game, `vite dev`) are fine because they transpile. This is the unresolved **"browser-tests-on-Pages" model decision** (does `?test=` stay a supported raw-source path, or move to the built artifact / a Vite-served harness?). It must be settled before the `.ts` work reaches `main`, where CI runs `test:browser`. Tracked separately from 3.0.
+
+- [ ] Rename the remaining `.js` → `.ts` module-by-module (course → camera → trees → controls → effects → snow → mountains → snowman, snowglider last; auth/scores in parallel); move JSDoc typedefs to real `interface`/`type` declarations.
 - [ ] **Enable `strictNullChecks` first** — it's the single highest-value flag for this game (empty raycaster hits, optional mesh refs, `getTerrainHeight` before injection). Fix, commit.
 - [ ] Then ratchet the rest: `noImplicitAny` → `strictFunctionTypes` → full `"strict": true`. One flag per PR; never big-bang `strict`.
 - [ ] Replace the shared mutable globals (`scene`, `velocity`, `gameActive`, `avalancheTriggered`, `lastAvalancheZ`, `bestTime`…) with a typed `GameState` object passed through the loop, or typed module state. This is where `PlayerState` / `Gate` / `GamePhase` / `AvalancheState` become real types and refactors get safe.

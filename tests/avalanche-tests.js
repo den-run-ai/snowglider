@@ -1,7 +1,7 @@
 /**
  * Avalanche system tests for SnowGlider.
  *
- * Phase 2.1 (issue #84): these run against the REAL `src/avalanche.js` ES module
+ * Phase 2.1 (issue #84): these run against the REAL `src/avalanche.ts` ES module
  * and real three.js from npm. The previous version evaluated the source with
  * `new Function(src)` and a hand-rolled THREE mock plus a parallel
  * `TestAvalancheSystem` reimplementation; that injection pattern can't load a
@@ -54,7 +54,12 @@ function runTest(name, testFn) {
 async function main() {
   // Real three.js (npm) and the real avalanche module under test.
   const THREE = await import('three');
-  const { AvalancheSystem } = await import('../src/avalanche.js');
+  // Phase 3.0 (issue #84): avalanche is now `.ts`. Node resolves an explicit
+  // `.ts` specifier and strips the type annotations natively (>=22.18), so this
+  // import runs the shipped module unchanged. (A `.js` specifier does NOT map to
+  // `.ts` under Node's resolver — unlike tsc's bundler resolution or Vite — so it
+  // must name the real extension here.)
+  const { AvalancheSystem } = await import('../src/avalanche.ts');
 
   // Each test gets a fresh real scene; the system adds its InstancedMesh to it.
   const makeSystem = (count) => new AvalancheSystem(new THREE.Scene(), count);
