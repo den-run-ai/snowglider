@@ -78,7 +78,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js"],
+    files: ["src/audio.js", "src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js"],
     languageOptions: {
       sourceType: "module"
     }

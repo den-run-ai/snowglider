@@ -38,6 +38,11 @@ import './snow.js';
 // Phase 2.8: snowman.js, imported for its `window.Snowman = …` bridge so the
 // still-classic snowglider.js keeps finding the snowman model + physics.
 import './snowman.js';
+// Phase 2 (audio): audio.js, imported for its `window.AudioModule = …` bridge so
+// snowglider.js (bare `AudioModule` reads), start-menu.js, and the audio-tests
+// browser suite keep finding it. It was the last game module loaded by the
+// classic script-loader; with this import GAME_SCRIPT_ORDER is empty.
+import './audio.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

@@ -12,9 +12,9 @@
 // Snow/Snowman/Mountains/etc. instances as main.js instead of forking a second
 // copy from the verbatim dist/src tree.
 //
-// Still read as globals (not yet ES modules): AudioModule (audio.js is classic);
-// AuthModule/ScoresModule/firebaseModules (published onto window by the Firebase
-// bootstrap). Those stay window.* reads until their own conversion.
+// Still read as globals (not yet ES modules): AuthModule/ScoresModule/
+// firebaseModules (published onto window by the Firebase bootstrap). Those stay
+// window.* reads until their own conversion.
 import * as THREE from 'three';
 import { Camera } from './camera.js';
 import { Controls } from './controls.js';
@@ -23,6 +23,7 @@ import { Snowman } from './snowman.js';
 import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
 import { AvalancheSystem } from './avalanche.js';
+import { AudioModule } from './audio.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();

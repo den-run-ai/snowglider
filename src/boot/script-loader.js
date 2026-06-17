@@ -11,7 +11,9 @@
     // via the bundle entry (src/main.js), not this classic loader.
     // snowman.js converted to an ES module (issue #84, PR 2.8); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
-    'src/audio.js'
+    // audio.js converted to an ES module (issue #84); it now loads via the
+    // bundle entry (src/main.js), not this classic loader. GAME_SCRIPT_ORDER is
+    // now empty — every game module loads through src/main.js.
     // controls.js converted to an ES module (issue #84, PR 2.5); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
     // avalanche.js converted to an ES module (issue #84, PR 2.1); it now loads
