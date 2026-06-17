@@ -4,9 +4,15 @@
 
 ## Status
 
-- **Current:** ES2022 JavaScript with the Phase 1 checker in place. Classic `<script>` modules
-  (global namespaces), three.js **r160** loaded as a CDN global, no bundler, no build step.
-  `auth.js` / `scores.js` are ES modules for Firebase.
+- **Current:** Phase 1 **complete and hardened.** Every `src/**/*.js` carries `// @ts-check`,
+  `tsc --noEmit` is green and **blocking in CI**, and `tsconfig` now sets `"checkJs": true` so any
+  *new* source file is type-checked by default (the per-file directives are now a belt-and-suspenders
+  ratchet, not the gate). Still classic `<script>` modules (global namespaces), three.js **r160**
+  loaded as a CDN global. `auth.js` / `scores.js` are ES modules for Firebase.
+- **Build today:** a Vite step exists but currently only **copies** the static source tree into
+  `dist/` (see `vite.config.js` `copyStaticAppFiles`) — it does **not** yet bundle an ES-module
+  graph. `index.html` still loads CDN `THREE` and injects `src/*.js` via `src/boot/script-loader.js`.
+  Turning that copy step into a real module bundle is the substance of Phase 2.
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 
