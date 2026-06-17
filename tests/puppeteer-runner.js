@@ -220,8 +220,15 @@ async function runBrowserTests() {
     await page.waitForSelector('canvas', { timeout: 10000 });
     console.log('Canvas loaded');
     
-    // Simulate user interaction to trigger audio tests and unlock audio context
-    await page.click('body');
+    // Simulate user interaction to trigger audio tests and unlock audio context.
+    // The unified results overlay (zIndex 99999) can cover the body's center, so
+    // click a fixed top-left corner outside it; tolerate failure since autoplay is
+    // already permitted via the --autoplay-policy launch flag.
+    try {
+      await page.mouse.click(5, 5);
+    } catch (clickErr) {
+      console.warn('Audio-unlock click skipped:', clickErr.message);
+    }
     await new Promise(r => setTimeout(r, 1000));
     
     // Wait for tests to complete
