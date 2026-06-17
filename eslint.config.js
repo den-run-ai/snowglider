@@ -42,15 +42,13 @@ module.exports = [
         // here until those bare reads are removed.
         Mountains: "readonly",
         ScoresModule: "readonly",
-        // As of PR 2.10 three.js is single-sourced from npm: the CDN UMD global
-        // is gone and main.js bridges `window.THREE`. Kept declared here for the
-        // still-classic browser-test scripts (camera-tests.js) that read it bare.
-        THREE: "readonly",
-        // trees.js is now an ES module (PR 2.4), but the still-classic snow.js
-        // reads `Trees` by bare name (at eval, to build the `Snow` namespace), so
-        // keep it declared here until snow.js is converted (this same cluster).
+        // three.js is single-sourced from npm; every module `import`s it and the
+        // browser tests do too, so the bare `THREE` global (and its window.THREE
+        // bridge) were removed (issue #84).
+        // trees.js is an ES module, but snow.js + mountains.js still read `Trees`
+        // by bare name (via the window bridge) at eval, so keep it declared until
+        // those modules import it directly.
         Trees: "readonly",
-        Utils: "readonly",
         // Terrain samplers republished onto window by mountains.js (PR 2.7). Kept
         // for the window bridge; the converted modules take them as parameters.
         getTerrainHeight: "readonly",

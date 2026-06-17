@@ -593,9 +593,4 @@ export const CourseModule = (function () {
   };
 })();
 
-// Backward-compat global export for the still-classic consumer (snowglider.js
-// reads `CourseModule`/`window.CourseModule`). Drop this once snowglider.js is
-// converted to import CourseModule directly (PR 2.9, issue #84).
-if (typeof window !== 'undefined') {
-  window.CourseModule = CourseModule;
-}
+// The window.CourseModule bridge was removed (issue #84): snowglider.js imports it.

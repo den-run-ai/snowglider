@@ -224,13 +224,5 @@ export class AvalancheSystem {
   }
 }
 
-// Backward-compat global export for the still-classic consumer (snowglider.js
-// reads `window.Avalanche.AvalancheSystem`). Drop this once snowglider.js is
-// converted to import AvalancheSystem directly (PR 2.9, issue #84).
-const Avalanche = {
-  AvalancheSystem
-};
-
-if (typeof window !== 'undefined') {
-  window.Avalanche = Avalanche;
-}
+// The window.Avalanche bridge was removed (issue #84): snowglider.js imports
+// AvalancheSystem and the avalanche browser tests import it too.

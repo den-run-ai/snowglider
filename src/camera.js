@@ -239,9 +239,4 @@ export class Camera {
   }
 }
 
-// Backward-compat global export for the still-classic consumer (snowglider.js
-// reads `Camera` by bare name as `new Camera(scene)`). Drop this once
-// snowglider.js is converted to import Camera directly (PR 2.9, issue #84).
-if (typeof window !== 'undefined') {
-  window.Camera = Camera;
-}
+// The window.Camera bridge was removed (issue #84): snowglider.js imports Camera.

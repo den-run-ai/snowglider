@@ -510,9 +510,5 @@ function setupButtonTouchHandlers() {
   }
 }
 
-// Backward-compat global export for the still-classic consumer (snowglider.js
-// reads `Controls` by bare name, e.g. `Controls.setupControls()`). Drop this
-// once snowglider.js is converted to import Controls directly (PR 2.9, issue #84).
-if (typeof window !== 'undefined') {
-  window.Controls = Controls;
-}
+// The window.Controls bridge was removed (issue #84): snowglider.js and the
+// controls browser tests import Controls.

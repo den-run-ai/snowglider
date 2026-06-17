@@ -4,15 +4,10 @@
 //
 // Phase 1 strategy: start loose (`any` for not-yet-typed module namespaces),
 // give the well-understood primitives real three.js types, and tighten per module.
-import type * as THREE_NS from 'three';
-
 declare global {
-  // three.js r160. As of PR 2.10 the CDN UMD <script> global is gone — three is
-  // single-sourced from npm (every src module `import`s it; main.js bridges
-  // `window.THREE`). Kept declared as an ambient global in lockstep with
-  // eslint.config.js for the still-classic browser-test scripts (camera-tests.js)
-  // that read it bare; drop once those tests become ES modules.
-  const THREE: typeof THREE_NS;
+  // three.js r160 is single-sourced from npm. Every src module and every browser
+  // test now `import * as THREE from 'three'`, so the ambient `THREE` global and
+  // its window.THREE bridge were removed (issue #84).
 
   /** Terrain height sampler injected via setTerrainFunction (see docs/ARCHITECTURE.md §4). */
   type TerrainHeightFn = (x: number, z: number) => number;
@@ -81,18 +76,14 @@ declare global {
   // (snowglider.js) are converted (PR 2.9). mountains.js (PR 2.7) likewise
   // republishes the terrain samplers onto window.
   interface Window {
-    // three.js bridged onto window by main.js (PR 2.10) for the still-classic
-    // browser-test scripts, replacing the removed CDN UMD global.
-    THREE: typeof THREE_NS;
+    // AudioModule still bridged (start-menu.js + the audio browser tests read
+    // window.AudioModule); Mountains/Trees still bridged (snow.js/mountains.js
+    // read them by bare name at eval). The THREE/Avalanche/Camera/Controls/
+    // CourseModule/EffectsModule/Snow/Snowman/Utils bridges were removed (issue
+    // #84) — every consumer imports those directly now.
     AudioModule: any;
     AuthModule: any;
-    Avalanche: any;
-    Camera: any;
-    Controls: any;
-    CourseModule: any;
-    EffectsModule: any;
     Mountains: any;
-    Snow: any;
     getTerrainHeight?: (x: number, z: number) => number;
     getTerrainGradient?: (x: number, z: number) => { x: number; z: number };
     getDownhillDirection?: (x: number, z: number) => { x: number; z: number };
@@ -104,9 +95,7 @@ declare global {
     // Deferred dynamic-import hook for the orchestrator (src/main.js -> snowglider.js),
     // invoked by the classic script-loader after audio.js + Auth are ready (PR 2.9).
     __loadSnowGliderOrchestrator?: () => Promise<unknown>;
-    Snowman: any;
     Trees: any;
-    Utils: any;
     FIREBASE_MANUAL_INIT?: boolean;
     __FIREBASE_DEFAULTS__?: any; // set by auth.js to stop Firebase auto-init 404s
     // Cross-module/test handles published by snowglider.js (docs/ARCHITECTURE.md §3).

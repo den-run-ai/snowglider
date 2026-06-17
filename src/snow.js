@@ -408,14 +408,7 @@ export const Snow = {
 // For backward compatibility, alias Utils to Snow
 const Utils = Snow;
 
-// Backward-compat global exports. snowglider.js reads `Snow` by bare name
-// (`Snow.getTerrainHeight`, `Snow.addTrees`, …); as a classic script it used to
-// see snow.js's top-level `const Snow` via the shared script scope, but now that
-// snow.js is an ES module that binding is module-scoped, so we republish it onto
-// `window` (bare `Snow` in the classic snowglider.js resolves via window). The
-// legacy `window.Utils` alias is preserved. Drop both once snowglider.js imports
-// Snow directly (PR 2.9, issue #84).
-if (typeof window !== 'undefined') {
-  window.Snow = Snow;
-  window.Utils = Snow;
-}
+// The window.Snow / window.Utils bridges were removed (issue #84): snowglider.js
+// imports Snow, and the browser tests import it as `Snow as Utils`. (snow.js still
+// reads Mountains/Trees via their window bridges at eval — those remain until
+// mountains.js/trees.js are imported here.)

@@ -861,9 +861,5 @@ export const Snowman = {
   addTestHooks
 };
 
-// Backward-compat global export for the still-classic consumer (snowglider.js
-// reads `Snowman` by bare name, e.g. `Snowman.createSnowman(scene)`). Drop this
-// once snowglider.js is converted to import Snowman directly (PR 2.9, issue #84).
-if (typeof window !== 'undefined') {
-  window.Snowman = Snowman;
-}
+// The window.Snowman bridge was removed (issue #84): snowglider.js and the
+// gameplay browser tests import Snowman.
