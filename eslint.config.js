@@ -30,7 +30,6 @@ module.exports = [
         ...globals.node,
         AudioModule: "readonly",
         AuthModule: "readonly",
-        Avalanche: "readonly",
         Camera: "readonly",
         Controls: "readonly",
         CourseModule: "readonly",
@@ -72,7 +71,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/main.js", "src/scores.js"],
+    files: ["src/auth.js", "src/avalanche.js", "src/main.js", "src/scores.js"],
     languageOptions: {
       sourceType: "module"
     }

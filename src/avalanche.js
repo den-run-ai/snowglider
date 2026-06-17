@@ -1,8 +1,16 @@
 // @ts-check
 // avalanche.js - Simple avalanche system for Snowglider
 // Triggered when player travels far enough downhill - burial = game over
+//
+// Phase 2.1 (issue #84): first module converted off the classic global model.
+// `THREE` now comes from the npm package via a real ES-module import instead of
+// the CDN global, and the class is `export`ed. The window.Avalanche assignment
+// below is kept so the still-classic consumer (snowglider.js, converted last in
+// PR 2.9) keeps working during the staged migration; it is loaded into the page
+// through the bundle entry (src/main.js) rather than the classic script-loader.
+import * as THREE from 'three';
 
-class AvalancheSystem {
+export class AvalancheSystem {
   constructor(scene, count = 120) {
     this.scene = scene;
     this.count = count;
@@ -216,7 +224,9 @@ class AvalancheSystem {
   }
 }
 
-// Export globally like other modules
+// Backward-compat global export for the still-classic consumer (snowglider.js
+// reads `window.Avalanche.AvalancheSystem`). Drop this once snowglider.js is
+// converted to import AvalancheSystem directly (PR 2.9, issue #84).
 const Avalanche = {
   AvalancheSystem
 };

@@ -46,13 +46,12 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       input: {
-        // Keep the existing page as Vite's HTML entry so dist/index.html is
-        // emitted exactly as before (classic CDN + script-loader boot path).
-        index: path.resolve(rootDir, 'index.html'),
-        // Phase 2.0 (issue #84): a real ES-module bundle (three.js from npm)
-        // emitted alongside the page to stand up the bundling pipeline. It is
-        // not yet referenced by index.html; per-module conversions wire it in.
-        bundle: path.resolve(rootDir, 'src/main.js')
+        // index.html is Vite's HTML entry. As of Phase 2.1 (issue #84) it loads
+        // the ES-module bundle via `<script type="module" src="src/main.js">`,
+        // so Vite discovers src/main.js (and its imports: three + avalanche.js)
+        // from the page itself and emits one hashed chunk referenced by
+        // dist/index.html — no separate standalone input needed anymore.
+        index: path.resolve(rootDir, 'index.html')
       }
     }
   },

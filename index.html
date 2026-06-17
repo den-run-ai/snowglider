@@ -6,6 +6,22 @@
   <meta name="build-id" content="2025.10.06-mobile-audio-v3">
   <title>Skiing Snowman</title>
   <link rel="stylesheet" href="styles/main.css">
+  <!--
+    Import map for the ES-module bundle path (issue #84, Phase 2). It only takes
+    effect when index.html is served as raw source (the puppeteer suite and
+    `npm start`), where converted modules' bare `import * as THREE from 'three'`
+    needs a resolvable URL. In the Vite build that ships to snowglider.ai, three
+    is bundled into the hashed chunk, so this map is inert there. Pinned to the
+    same r160 as the classic CDN <script> below to avoid version skew while both
+    load paths coexist (the classic loader is retired in PR 2.10).
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js"
+    }
+  }
+  </script>
   <script src="src/boot/local-auth.js"></script>
   <script src="src/boot/firebase-bootstrap.js"></script>
 </head>
@@ -147,6 +163,14 @@
   <div id="leaderboard" style="display:none;"></div>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js" integrity="sha512-vnmn/Qqn6aG0POAc9mIGzjq0IybrvxJXYDafNvp9JSnDGxeF3pbkSqLvf+YGd5ku63pT7sa/jxHn7/d0mU8+tA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!--
+    ES-module bundle entry (issue #84, Phase 2). Deferred like every module
+    script, so it runs after the classic CDN three.js above is in place but
+    before DOMContentLoaded — i.e. before script-loader.js pulls in the classic
+    game modules. Converted modules (avalanche.js so far) publish their
+    window.* bridge here so the still-classic snowglider.js keeps finding them.
+  -->
+  <script type="module" src="src/main.js"></script>
   <!-- Audio: Simplified implementation using native HTML5 Audio (no library dependencies) -->
   <script src="src/boot/script-loader.js"></script>
   <script src="src/ui/start-menu.js"></script>
