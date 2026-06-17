@@ -1262,6 +1262,12 @@ window.initializeGameWithAudio = function() {
     gameActive:         { get: () => gameActive,         set: (v) => { gameActive = v; } },
     isInAir:            { get: () => isInAir,            set: (v) => { isInAir = v; } },
     verticalVelocity:   { get: () => verticalVelocity,   set: (v) => { verticalVelocity = v; } },
+    // jumpCooldown is reassigned by the gameplay suite (testJumpMechanics). It must
+    // be republished like the others: now that browser-tests.js is an ES module
+    // (strict mode), a bare `jumpCooldown = 0` assignment to an unpublished name
+    // throws a ReferenceError instead of silently creating a sloppy-mode global
+    // (issue #84).
+    jumpCooldown:       { get: () => jumpCooldown,       set: (v) => { jumpCooldown = v; } },
     bestTime:           { get: () => bestTime,           set: (v) => { bestTime = v; } },
     startTime:          { get: () => startTime,          set: (v) => { startTime = v; } },
     avalancheTriggered: { get: () => avalancheTriggered, set: (v) => { avalancheTriggered = v; } },
