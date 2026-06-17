@@ -86,9 +86,19 @@
     testUtils.src = 'tests/unified-test-runner.js';
     document.body.appendChild(testUtils);
 
+    // Test suites converted to ES modules (issue #84): loaded as
+    // `<script type="module">` so they can `import` the real src modules instead
+    // of reading window.* bridges. The rest remain classic until converted.
+    const MODULE_TESTS = new Set([
+      'audio-tests'
+    ]);
+
     const selectedScripts = TEST_SCRIPTS[testParam] || [];
     selectedScripts.forEach((scriptName) => {
       const testScript = document.createElement('script');
+      if (MODULE_TESTS.has(scriptName)) {
+        testScript.type = 'module';
+      }
       testScript.src = `tests/${scriptName}.js`;
       document.body.appendChild(testScript);
     });

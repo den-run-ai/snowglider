@@ -94,5 +94,13 @@ module.exports = [
     rules: {
       "no-undef": "off"
     }
+  },
+  {
+    // Test suites converted to ES modules (issue #84) — they `import` the real
+    // src modules. Grows as each browser-test file is migrated off the window.* bridges.
+    files: ["tests/audio-tests.js"],
+    languageOptions: {
+      sourceType: "module"
+    }
   }
 ];
