@@ -24,6 +24,10 @@ import './controls.js';
 // Phase 2.6: effects.js, imported for its `window.EffectsModule = …` bridge so the
 // still-classic snowglider.js keeps finding the avalanche/camera-juice effects.
 import './effects.js';
+// Phase 2.4: trees.js, imported for its `window.Trees = …` bridge. Imported before
+// snow.js (below) because snow.js reads `Trees` at module-eval time when it builds
+// the `Snow` namespace.
+import './trees.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

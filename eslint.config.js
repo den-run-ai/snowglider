@@ -55,6 +55,9 @@ module.exports = [
         Snow: "readonly",
         Snowman: "readonly",
         THREE: "readonly",
+        // trees.js is now an ES module (PR 2.4), but the still-classic snow.js
+        // reads `Trees` by bare name (at eval, to build the `Snow` namespace), so
+        // keep it declared here until snow.js is converted (this same cluster).
         Trees: "readonly",
         Utils: "readonly",
         avalanche: "writable",
@@ -85,7 +88,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/scores.js"],
+    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/scores.js", "src/trees.js"],
     languageOptions: {
       sourceType: "module"
     }

@@ -8,10 +8,10 @@
   per-PR plan). Every `src/**/*.js` carries `// @ts-check`, `tsc --noEmit` is green and **blocking in
   CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
   `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry),
-  **`src/avalanche.js`**, **`src/course.js`**, **`src/camera.js`**, **`src/controls.js`** and
-  **`src/effects.js`** are now ES modules too. The remaining game modules (`mountains.js`, `trees.js`,
-  `snow.js`, `snowman.js`, `audio.js`, `snowglider.js`) are still classic `<script>` globals loaded
-  via `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
+  **`src/avalanche.js`**, **`src/course.js`**, **`src/camera.js`**, **`src/controls.js`**,
+  **`src/effects.js`** and **`src/trees.js`** are now ES modules too. The remaining game modules
+  (`mountains.js`, `snow.js`, `snowman.js`, `audio.js`, `snowglider.js`) are still classic `<script>`
+  globals loaded via `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
 - **Build today:** `vite build` produces a **real ES-module bundle** (PR 2.0): `index.html` loads
   `src/main.js` as `<script type="module">`, and Vite resolves its import graph (three from npm +
   each converted module) into a hashed chunk referenced by `dist/index.html`. `copyStaticAppFiles`
@@ -57,6 +57,13 @@
     coverage (`tests/verification/dom_smoke_test.js`) now `import()`s the real module; with effects.js
     converted, that file's last `new Function` + mock-THREE scaffolding is gone (both its sections now
     import real modules).
+  - **PR 2.4 — `src/trees.js`:** `import * as THREE from 'three'` + `export const Trees`, plus a
+    `window.Trees` bridge. `Trees` is read by **bare** name at eval time by the still-classic `snow.js`
+    (which builds its `Snow` namespace from `Trees.*`/`Mountains.*`), so its eslint global +
+    `types/globals.d.ts` declaration are kept until `snow.js` is converted (same cluster). trees.js's
+    internal `getTerrainHeight`/`getTerrainGradient` wrappers delegate to `window.Mountains` at call
+    time, so they keep working across the migration. No test migration: `terrain-tests`/`regression-tests`
+    inject a *Trees mock* (they don't load real trees.js), and `tree-collision-tests` is self-contained.
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 

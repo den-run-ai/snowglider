@@ -22,8 +22,6 @@ declare global {
   // entry here causes "TS2451: Cannot redeclare". So: remove a module's entry
   // from this block in the same change that adds `// @ts-check` to that module.
   //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
-  //   - trees.js:     @ts-checked -> `Trees` + `getTerrainHeight`/`getTerrainGradient`
-  //                   (top-level fns) live in src/trees.js, not here.
   //   - snow.js:      @ts-checked -> `Snow` + `Utils` live in src/snow.js, not here.
   //   - mountains.js: @ts-checked -> `Mountains` lives in src/mountains.js, not here.
   //   - snowman.js:   @ts-checked -> `Snowman` + `resetSnowman`/`updateSnowman`
@@ -43,6 +41,10 @@ declare global {
   const Camera: any;
   const Controls: any;
   const EffectsModule: any;
+  // trees.js (PR 2.4) is an ES module; `Trees` is module-scoped there, but the
+  // still-classic snow.js reads it by bare name at eval. Kept until snow.js is
+  // converted (same cluster).
+  const Trees: any;
 
   // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
   const Howl: any;
