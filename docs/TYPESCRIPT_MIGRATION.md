@@ -21,6 +21,13 @@
   scripts, npm/ESM for the bundle; browsers log a benign "Multiple instances of Three.js" warning).
   An import map in `index.html` resolves the bundle's bare `three` specifier when the page is served
   as raw source (puppeteer suite, `npm start`); it is inert in the Vite build, where three is bundled.
+  - **`file://` caveat:** because converted modules load via `<script type="module">`, opening
+    `index.html` directly (`file://`) no longer loads them — Chrome blocks module + import-map loading
+    from a null origin (CORS). The classic-script part of the game still boots, but converted features
+    (avalanche, course) are silently disabled by `snowglider.js`'s "module not loaded" fallback. Use
+    `npm start` or a build to run the full game. This is an intended consequence of the bundler/server
+    run model (`file://` direct-open is retired by PR 2.10), not a regression; it was raised in Codex
+    review of PR 2.1 and applies equally to every later conversion.
 - **Converted so far:**
   - **PR 2.1 — `src/avalanche.js`:** `import * as THREE from 'three'` + `export class AvalancheSystem`.
     Its Node test (`tests/avalanche-tests.js`) now `import()`s the real module and real three instead

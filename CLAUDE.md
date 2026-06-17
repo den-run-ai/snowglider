@@ -34,6 +34,14 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 - Install dependencies: `npm ci`
 - Run development server: `npm start` (uses http-server on port 8080)
 - Open locally: `open index.html` or use URL parameters for tests
+  - **Caveat (Phase 2 migration):** modules already converted to ES modules
+    (`avalanche.js`, `course.js`, loaded via `src/main.js` as `<script type="module">`)
+    do **not** load over `file://` in Chrome — module + import-map loading is blocked
+    by CORS (null origin). Opening `index.html` directly still boots the rest of the
+    game, but those converted features are silently disabled (`snowglider.js` falls
+    into its "module not loaded" path). Use `npm start` (or `npm run build` + serve
+    `dist/`) to exercise the full game. This is an intended consequence of the move to
+    a bundler/server run model; `file://` direct-open is being retired by PR 2.10.
 - Run lint: `npm run lint` (eslint)
 - Run all Node tests: `npm test`
 - Run Node tests with coverage: `npm run test:coverage`
