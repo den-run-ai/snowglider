@@ -89,10 +89,18 @@ npm run test:verify         # Verification harness (physics invariant + DOM smok
 
 Other useful commands:
 ```bash
-npm run test:coverage       # Node suite under c8 coverage
+npm run test:coverage       # Node suite under c8 coverage for all src/ files
 npm run test:browser        # Puppeteer browser suite
 npm run test:all            # Node suite + Puppeteer
 ```
+
+`npm run test:coverage` passes `--all --src src` to c8 so the generated
+`coverage/lcov.info` counts every source file in the migrated `src/` tree, not
+only files imported by Node tests. This keeps Codecov honest during the
+TypeScript migration: browser-only modules and harnesses that still execute
+transpiled/eval-loaded source are reported as uncovered until they are wired into
+importable Node tests or browser coverage collection. CI uploads the LCOV to
+Codecov as an informational, non-gating report; no coverage threshold is enforced.
 
 ### Browser Tests
 

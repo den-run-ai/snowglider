@@ -1,8 +1,7 @@
 # ❄️ SnowGlider ❄️
 
 [![CI/CD](https://github.com/den-run-ai/snowglider/actions/workflows/ci.yml/badge.svg)](https://github.com/den-run-ai/snowglider/actions/workflows/ci.yml)
-<!-- Coverage badge disabled until tests are refactored to use ES modules for proper instrumentation -->
-<!-- [![codecov](https://codecov.io/gh/den-run-ai/snowglider/branch/main/graph/badge.svg)](https://codecov.io/gh/den-run-ai/snowglider) -->
+[![codecov](https://codecov.io/gh/den-run-ai/snowglider/branch/main/graph/badge.svg)](https://codecov.io/gh/den-run-ai/snowglider)
 
 A cheerful snowman shredding mountain snow powder in a playful Three.js animation. ⛄️🎿
 
@@ -92,6 +91,11 @@ The game automatically detects mobile devices and enables touch controls with vi
 
 ## Testing
 Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL parameters. See [`tests/README.md`](tests/README.md) for the full test matrix, the browser parameters, the verification harness, and per-suite details.
+
+Coverage runs through `npm run test:coverage`, which uses c8/Codecov against the
+entire `src/` tree. The report is intentionally non-gating in CI and includes
+all migrated JavaScript/TypeScript source files, so browser-only or eval-loaded
+modules appear as `0%` until they have importable or browser-collected coverage.
 
 ## Development
 
