@@ -15,7 +15,7 @@
     "test:scores": "node --import ./tests/loaders/register-firebase-mock.mjs tests/scores-tests.js",
     "test:start-menu": "node --import ./tests/loaders/register-ts-resolve.mjs tests/start-menu-tests.js",
     "test:firebase": "npx -y firebase-tools@15.20.0 emulators:exec --project snowglider-rules-test --only firestore \"node tests/firestore-rules-tests.js\"",
-    "test:controls": "echo 'Controls tests require browser - use index.html?test=controls'",
+    "test:controls": "node --import ./tests/loaders/register-ts-resolve.mjs tests/controls-node-tests.js",
     "test:coverage-merge": "node tests/coverage-merge-tests.js",
     "test:verify": "node tests/verification/physics_invariant_harness.js && node tests/verification/dom_smoke_test.js",
     "test:browser": "node tests/puppeteer-runner.js",
