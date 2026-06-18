@@ -438,12 +438,16 @@
       // Force reset of game
       resetSnowman();
       
-      // Camera smoothing vectors should all be initialized (not undefined)
+      // Camera smoothing vectors should all be initialized (not undefined).
+      // During Phase 2 the camera module uses npm ESM three while these classic
+      // browser tests still read the CDN THREE global, so constructor identity
+      // is not stable across the two three.js instances.
+      const isVector3 = (v) => Boolean(v && v.isVector3 === true);
       const vectorsExist = (
         cameraManager.smoothingVectors &&
-        cameraManager.smoothingVectors.lastPosition instanceof THREE.Vector3 &&
-        cameraManager.smoothingVectors.targetPosition instanceof THREE.Vector3 &&
-        cameraManager.smoothingVectors.lookAtPosition instanceof THREE.Vector3
+        isVector3(cameraManager.smoothingVectors.lastPosition) &&
+        isVector3(cameraManager.smoothingVectors.targetPosition) &&
+        isVector3(cameraManager.smoothingVectors.lookAtPosition)
       );
       
       assert(vectorsExist, 'Camera Vector Initialization', 

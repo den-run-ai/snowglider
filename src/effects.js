@@ -11,8 +11,17 @@
 // The camera is never modified directly inside camera.js. Instead the animation loop
 // asks this module for a per-frame shake offset, applies it for the render, and reverts
 // it, so the camera manager's own smoothing is never fed its own shake.
+//
+// Phase 2.6 (issue #84): converted off the classic global model. `EffectsModule`
+// is now `export`ed instead of being a bare script global. This module uses no
+// three.js (it only pokes a camera object handed to it), so there is no
+// `import * as THREE`. The window.EffectsModule assignment below is kept so the
+// still-classic consumer (snowglider.js, which reads `EffectsModule` by bare
+// name, converted last in PR 2.9) keeps working during the staged migration; it
+// is loaded into the page through the bundle entry (src/main.js) rather than the
+// classic script-loader.
 
-const EffectsModule = (function () {
+export const EffectsModule = (function () {
   'use strict';
 
   const BASE_FOV = 75;
@@ -180,6 +189,10 @@ const EffectsModule = (function () {
   return { init, updateAvalanche, addShake, tickCamera, reset };
 })();
 
+// Backward-compat global export for the still-classic consumer (snowglider.js
+// reads `EffectsModule` by bare name, e.g. `EffectsModule.tickCamera(...)`). Drop
+// this once snowglider.js is converted to import EffectsModule directly
+// (PR 2.9, issue #84).
 if (typeof window !== 'undefined') {
   window.EffectsModule = EffectsModule;
 }

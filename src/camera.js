@@ -1,7 +1,16 @@
 // @ts-check
 // camera.js - Camera management for SnowGlider
+//
+// Phase 2.3 (issue #84): third module converted off the classic global model.
+// `THREE` now comes from the npm package via a real ES-module import instead of
+// the CDN global, and the class is `export`ed. The window.Camera assignment
+// below is kept so the still-classic consumer (snowglider.js, which reads
+// `Camera` by bare name and is converted last in PR 2.9) keeps working during
+// the staged migration; it is loaded into the page through the bundle entry
+// (src/main.js) rather than the classic script-loader.
+import * as THREE from 'three';
 
-class Camera {
+export class Camera {
   constructor(scene) {
     // Create the camera
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -230,5 +239,9 @@ class Camera {
   }
 }
 
-// In a module environment, you would use:
-// export default Camera;
+// Backward-compat global export for the still-classic consumer (snowglider.js
+// reads `Camera` by bare name as `new Camera(scene)`). Drop this once
+// snowglider.js is converted to import Camera directly (PR 2.9, issue #84).
+if (typeof window !== 'undefined') {
+  window.Camera = Camera;
+}

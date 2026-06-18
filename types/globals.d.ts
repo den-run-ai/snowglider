@@ -22,24 +22,27 @@ declare global {
   // entry here causes "TS2451: Cannot redeclare". So: remove a module's entry
   // from this block in the same change that adds `// @ts-check` to that module.
   //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
-  //   - camera.js:    @ts-checked -> `Camera` (class) lives in src/camera.js, not here.
   //   - trees.js:     @ts-checked -> `Trees` + `getTerrainHeight`/`getTerrainGradient`
   //                   (top-level fns) live in src/trees.js, not here.
-  //   - effects.js:   @ts-checked -> `EffectsModule` lives in src/effects.js, not here.
   //   - snow.js:      @ts-checked -> `Snow` + `Utils` live in src/snow.js, not here.
-  //   - controls.js:  @ts-checked -> `Controls` lives in src/controls.js, not here.
   //   - mountains.js: @ts-checked -> `Mountains` lives in src/mountains.js, not here.
   //   - snowman.js:   @ts-checked -> `Snowman` + `resetSnowman`/`updateSnowman`
   //                   (top-level fns) live in src/snowman.js, not here.
   //   - audio.js:     @ts-checked -> `AudioModule` lives in src/audio.js, not here.
-  // AuthModule/ScoresModule/CourseModule stay: auth.js/scores.js (and, as of
-  // PR 2.2, course.js) are ES modules — their `CourseModule`/etc. are module-
-  // scoped, not script globals — yet the still-classic snowglider.js reads them
-  // by bare name. Keep them declared loose here until snowglider.js is converted
-  // (PR 2.9). (Once a module's bare consumer is gone, drop its entry.)
+  // AuthModule/ScoresModule/CourseModule/Camera/Controls/EffectsModule stay:
+  // auth.js/scores.js (and, as of PR 2.2/2.3/2.5/2.6, course.js/camera.js/
+  // controls.js/effects.js) are ES modules — their `CourseModule`/`Camera`/
+  // `Controls`/`EffectsModule`/etc. are module-scoped, not script globals — yet
+  // the still-classic snowglider.js reads them by bare name (e.g.
+  // `new Camera(scene)`, `Controls.setupControls()`, `EffectsModule.tickCamera`).
+  // Keep them declared loose here until snowglider.js is converted (PR 2.9).
+  // (Once a module's bare consumer is gone, drop its entry.)
   const AuthModule: any;
   const ScoresModule: any;
   const CourseModule: any;
+  const Camera: any;
+  const Controls: any;
+  const EffectsModule: any;
 
   // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
   const Howl: any;
@@ -56,13 +59,16 @@ declare global {
   // GameState object; `TerrainHeightFn` (above) is kept for that work.
 
   // Classic scripts publish their namespaces onto window; allow those writes.
-  // NOTE: per docs/ARCHITECTURE.md §3, `Snow` and `Camera` are *bare globals* and are
-  // NOT window properties (only `window.Utils` aliases `Snow`), so they are
-  // intentionally absent here.
+  // NOTE: per docs/ARCHITECTURE.md §3, `Snow` is a *bare global* and is NOT a
+  // window property (only `window.Utils` aliases `Snow`), so it is intentionally
+  // absent here. `Camera` used to be a bare global too, but as of PR 2.3 camera.js
+  // is an ES module that publishes a `window.Camera` migration bridge, so it is
+  // listed below until its bare consumer (snowglider.js) is converted (PR 2.9).
   interface Window {
     AudioModule: any;
     AuthModule: any;
     Avalanche: any;
+    Camera: any;
     Controls: any;
     CourseModule: any;
     EffectsModule: any;

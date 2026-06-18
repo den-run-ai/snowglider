@@ -8,9 +8,10 @@
   per-PR plan). Every `src/**/*.js` carries `// @ts-check`, `tsc --noEmit` is green and **blocking in
   CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
   `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry),
-  **`src/avalanche.js`** and **`src/course.js`** are now ES modules too. The remaining game modules
-  are still classic `<script>` globals loaded via `src/boot/script-loader.js`, with three.js **r160**
-  as a CDN global.
+  **`src/avalanche.js`**, **`src/course.js`**, **`src/camera.js`**, **`src/controls.js`** and
+  **`src/effects.js`** are now ES modules too. The remaining game modules (`mountains.js`, `trees.js`,
+  `snow.js`, `snowman.js`, `audio.js`, `snowglider.js`) are still classic `<script>` globals loaded
+  via `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
 - **Build today:** `vite build` produces a **real ES-module bundle** (PR 2.0): `index.html` loads
   `src/main.js` as `<script type="module">`, and Vite resolves its import graph (three from npm +
   each converted module) into a hashed chunk referenced by `dist/index.html`. `copyStaticAppFiles`
@@ -24,7 +25,7 @@
   - **`file://` caveat:** because converted modules load via `<script type="module">`, opening
     `index.html` directly (`file://`) no longer loads them — Chrome blocks module + import-map loading
     from a null origin (CORS). The classic-script part of the game still boots, but converted features
-    (avalanche, course) are silently disabled by `snowglider.js`'s "module not loaded" fallback. Use
+    (avalanche, course, camera) are silently disabled by `snowglider.js`'s "module not loaded" fallback. Use
     `npm start` or a build to run the full game. This is an intended consequence of the bundler/server
     run model (`file://` direct-open is retired by PR 2.10), not a regression; it was raised in Codex
     review of PR 2.1 and applies equally to every later conversion.
@@ -38,6 +39,24 @@
     `new Function` loader there until it is converted. Note `snowglider.js` reads `CourseModule` by
     **bare** name (not just `window.CourseModule`), so its eslint global + `types/globals.d.ts`
     declaration are kept (like `AuthModule`/`ScoresModule`) until `snowglider.js` is converted (PR 2.9).
+  - **PR 2.3 — `src/camera.js`:** `import * as THREE from 'three'` + `export class Camera`, plus a
+    `window.Camera` migration bridge. Like `course.js`, `snowglider.js` reads `Camera` by **bare**
+    name (`new Camera(scene)`), so its eslint global + `types/globals.d.ts` declaration are kept until
+    `snowglider.js` is converted (PR 2.9). No test migration: `tests/camera-tests.js` is a browser
+    suite that exercises the live game's `camera`/`updateCamera` globals (not a mock-THREE source
+    loader), so it runs against the bundled module unchanged.
+  - **PR 2.5 — `src/controls.js`:** `export const Controls` (no three.js import — this module uses
+    none) + a `window.Controls` bridge. `snowglider.js` reads `Controls` by **bare** name
+    (`Controls.setupControls()`), so its eslint global + `types/globals.d.ts` declaration are kept
+    until `snowglider.js` is converted (PR 2.9). No test migration: the controls suite is browser-only
+    (`index.html?test=controls`).
+  - **PR 2.6 — `src/effects.js`:** `export const EffectsModule` (no three.js import — it only pokes a
+    camera object handed to it) + a `window.EffectsModule` bridge. `snowglider.js` reads
+    `EffectsModule` by **bare** name (`EffectsModule.tickCamera`), so its eslint global +
+    `types/globals.d.ts` declaration are kept until `snowglider.js` is converted (PR 2.9). Its headless
+    coverage (`tests/verification/dom_smoke_test.js`) now `import()`s the real module; with effects.js
+    converted, that file's last `new Function` + mock-THREE scaffolding is gone (both its sections now
+    import real modules).
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 
