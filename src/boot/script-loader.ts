@@ -1,8 +1,13 @@
-// @ts-check
 // Phase 2 (issue #84): converted to an ES module so it imports AudioModule from
 // the real src module instead of reading the window.AudioModule bridge. index.html
 // loads it as `<script type="module">` (deferred, like every module script), so it
 // still registers its DOMContentLoaded handler before that event fires.
+//
+// Phase 3.11 (issue #84): renamed `.js` -> `.ts`. No type surface to promote (this
+// is a boot orchestration script with implicitly-`any` DOM helper params under the
+// current non-strict config); the only edit is the JSDoc `(window)` cast → `as`.
+// The `../audio.js` import specifier is unchanged — Vite/tsc Bundler resolve it to
+// audio.ts.
 import { AudioModule } from '../audio.js';
 
 (function () {
@@ -62,8 +67,8 @@ import { AudioModule } from '../audio.js';
     avalanche: ['browser-avalanche-tests']
   };
 
-  function appendScript(src, configureScript) {
-    return new Promise((resolve, reject) => {
+  function appendScript(src: string, configureScript?: (script: HTMLScriptElement) => void) {
+    return new Promise<void>((resolve, reject) => {
       const script = document.createElement('script');
       if (typeof configureScript === 'function') {
         configureScript(script);
@@ -110,7 +115,7 @@ import { AudioModule } from '../audio.js';
     if (testParam === 'unified') {
       // Set this before module test suites evaluate so they publish their
       // window.run*Tests hooks without also self-starting.
-      /** @type {any} */ (window)._unifiedTestRunnerActive = true;
+      (window as any)._unifiedTestRunnerActive = true;
     }
 
     const testModuleLoads = selectedScripts.map((scriptName) => {
@@ -147,7 +152,7 @@ import { AudioModule } from '../audio.js';
   }
 
   function announceGameScriptsReady() {
-    /** @type {any} */ (window).SnowGliderGameScriptsReady = true;
+    (window as any).SnowGliderGameScriptsReady = true;
     window.dispatchEvent(new CustomEvent('snowglider:game-scripts-ready'));
   }
 

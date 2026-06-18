@@ -120,8 +120,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         // index.html is Vite's HTML entry. As of Phase 2.1 (issue #84) it loads
-        // the ES-module bundle via `<script type="module" src="src/main.js">`,
-        // so Vite discovers src/main.js (and its imports: three + avalanche.js)
+        // the ES-module bundle via `<script type="module" src="src/main.ts">`,
+        // so Vite discovers src/main.ts (and its imports: three + avalanche.ts)
         // from the page itself and emits one hashed chunk referenced by
         // dist/index.html — no separate standalone input needed anymore.
         index: path.resolve(rootDir, 'index.html')
