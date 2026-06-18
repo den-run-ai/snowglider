@@ -58,7 +58,7 @@ import { AudioModule } from '../audio.js';
 
     gameCanvas.style.display = 'block';
 
-    window.initializeGameWithAudio();
+    window.initializeGameWithAudio?.();
     return true;
   }
 

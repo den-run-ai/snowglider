@@ -57,7 +57,7 @@ function createSnowflakes(scene: THREE.Scene) {
   const canvas = document.createElement('canvas');
   canvas.width = 16;
   canvas.height = 16;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d')!;
   
   // Draw a soft, more prominent blueish circle
   const gradient = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
@@ -143,7 +143,7 @@ function createSnowSplash(): SnowSplash {
   const canvas = document.createElement('canvas');
   canvas.width = 32;
   canvas.height = 32;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d')!;
   
   // Draw a bright, more prominent blueish circle with soft edges
   const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
@@ -159,7 +159,7 @@ function createSnowSplash(): SnowSplash {
   const canvas2 = document.createElement('canvas');
   canvas2.width = 32;
   canvas2.height = 32;
-  const ctx2 = canvas2.getContext('2d');
+  const ctx2 = canvas2.getContext('2d')!;
   
   // Create a more irregular, crystalline shape
   ctx2.fillStyle = 'rgba(180, 210, 255, 0)';

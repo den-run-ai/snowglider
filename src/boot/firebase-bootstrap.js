@@ -129,7 +129,7 @@
       return Promise.resolve();
     }
 
-    return new Promise((resolve) => {
+    return /** @type {Promise<void>} */ (new Promise((resolve) => {
       let checkCount = 0;
       const maxChecks = 25;
       const checkInterval = setInterval(() => {
@@ -151,7 +151,7 @@
           }
         }
       }, 200);
-    });
+    }));
   }
 
   function initializeAuthModule() {
