@@ -84,6 +84,7 @@ npm run test:tree-collision # Tree collision tests
 npm run test:avalanche      # Avalanche physics tests
 npm run test:auth           # Auth module tests with mocked Firebase
 npm run test:scores         # Scores module tests with mocked Firestore
+npm run test:firebase       # Firestore Security Rules tests (requires Java)
 npm run test:verify         # Verification harness (physics invariant + DOM smoke)
 ```
 
@@ -119,6 +120,10 @@ suites, so they now report real browser coverage too. CI runs `test:coverage`,
 then the browser suite with `BROWSER_COVERAGE`, then `coverage:merge`, and uploads
 the merged LCOV to Codecov as an informational, non-gating report; no coverage
 threshold is enforced.
+
+`npm run test:firebase` starts the Firestore emulator with `firebase-tools` and
+runs `firestore.rules` through `tests/firestore-rules-tests.js`. It is separate
+from `npm test` because the emulator requires a local Java runtime.
 
 ### Browser Tests
 
