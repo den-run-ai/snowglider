@@ -1,4 +1,15 @@
-// @ts-check
+// snowglider.ts - Orchestrator: scene/render/game loop wiring for SnowGlider.
+//
+// Phase 3.9 (issue #84): the orchestrator is the LAST module renamed `.js` -> `.ts`,
+// after every leaf module was stable. The `@ts-check` pragma is gone (implied for a
+// real `.ts` file) and the three `/** @type {any} */ (...)` JSDoc casts (the r160
+// color-management / renderer opt-outs) are now `as any` casts — `.ts` does not
+// honour JSDoc cast syntax. No behaviour change and no GameState refactor: the
+// module-scoped state and its window accessors are unchanged. It still loads via the
+// deferred dynamic import below (Vite resolves `./snowglider.js` -> `snowglider.ts`;
+// the build emits a `dist/src/snowglider.js` chunk), and the puppeteer start-menu
+// regression now matches the delayed `/src/snowglider.{js,ts}` request.
+//
 // --- Imports (Phase 2.9, issue #84) ---
 // snowglider.js is the orchestrator and the LAST game module converted off the
 // classic global-namespace model. three.js and every converted game module now
@@ -34,13 +45,13 @@ Controls.setupControls();
 // and brightness. Opt out to preserve the original r134 look on this version
 // bump; adopting modern color/lighting is a deliberate later change.
 // (See docs/THREEJS_UPGRADE.md, Stage A.)
-const THREECompat = /** @type {any} */ (THREE);
+const THREECompat = THREE as any;
 THREECompat.ColorManagement.enabled = false;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-/** @type {any} */ (renderer).outputColorSpace = THREECompat.LinearSRGBColorSpace;
-/** @type {any} */ (renderer).useLegacyLights = true;
+(renderer as any).outputColorSpace = THREECompat.LinearSRGBColorSpace;
+(renderer as any).useLegacyLights = true;
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 // Update to assign renderer to a specific div with an ID
