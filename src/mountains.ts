@@ -1,33 +1,58 @@
-// @ts-check
-// mountains.js - Terrain and mountain features for snowglider
+// mountains.ts - Terrain and mountain features for snowglider
 //
 // Phase 2.7 (issue #84): converted off the classic global model. `THREE` and the
 // `Trees` module now come from real ES-module imports, and `Mountains` is
 // `export`ed. mountains.js and trees.js import each other (the cross-references
-// run only at call time, so the circular import resolves cleanly).
+// run only at call time, so the circular import resolves cleanly). The terrain
+// samplers (`getTerrainHeight`/`getTerrainGradient`/`getDownhillDirection`) are
+// reached via the `Mountains` import or as injected parameters — the old window
+// bridges are gone.
 //
-// The bottom of this file still republishes the terrain sampler functions
-// (`getTerrainHeight`/`getTerrainGradient`/`getDownhillDirection`) onto `window`,
-// because snowman.js, camera.js and course.js still read them by bare name
-// (resolving via the window bridge). Those bridges stay until those modules take
-// the samplers as imports/parameters.
+// Phase 3.6 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+// (implied for a real `.ts` file), the `SimplexNoise` fields and the terrain
+// sampler/geometry helper signatures are now real type declarations, and the
+// JSDoc `/** @type {Float32Array} */` buffer casts are now `as` casts. The terrain
+// math is byte-identical — every edit is type-only/erasable, so esbuild (Vite) and
+// Node's native type-stripping both run it exactly as before, preserving terrain
+// height consistency (the seam camera/trees/snow/physics all depend on).
+// The `./trees.js` specifier stays `.js` (Vite/tsc resolve it to `trees.ts`; the
+// Node terrain/regression tests use the `.js`->`.ts` resolve hook added in PR 3.3).
 import * as THREE from 'three';
 import { Trees } from './trees.js';
 
+/** A 2D vector in the terrain x/z plane: a gradient or a unit downhill direction. */
+export interface TerrainVec2 {
+  x: number;
+  z: number;
+}
+
+/** A placed rock's world position and size. */
+interface RockPosition {
+  x: number;
+  y: number;
+  z: number;
+  size: number;
+}
+
 // --- SimplexNoise implementation ---
 class SimplexNoise {
+  grad3: number[][];
+  p: number[];
+  perm: number[];
+  gradP: number[][];
+
   constructor() {
-    this.grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0], 
-                 [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1], 
-                 [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]]; 
+    this.grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+                 [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+                 [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
     this.p = [];
     for (let i = 0; i < 256; i++) {
       this.p[i] = Math.floor(Math.random() * 256);
     }
-    
-    // To remove the need for index wrapping, double the permutation table length 
-    this.perm = new Array(512); 
-    this.gradP = new Array(512); 
+
+    // To remove the need for index wrapping, double the permutation table length
+    this.perm = new Array(512);
+    this.gradP = new Array(512);
     
     // Populate permutation table
     for(let i = 0; i < 512; i++) { 
@@ -36,7 +61,7 @@ class SimplexNoise {
     } 
   }
   
-  noise(xin, yin) {
+  noise(xin: number, yin: number): number {
     // Simple 2D noise implementation - produces values between -1 and 1
     let n0, n1, n2; // Noise contributions from the three corners
     
@@ -107,7 +132,7 @@ class SimplexNoise {
     return 70 * (n0 + n1 + n2);
   }
   
-  dot(g, x, y) {
+  dot(g: number[], x: number, y: number): number {
     return g[0]*x + g[1]*y;
   }
 }
@@ -115,10 +140,10 @@ class SimplexNoise {
 // --- Terrain utilities ---
 
 // Global height map for efficient lookup - will be populated when terrain is created
-const heightMap = {}; 
+const heightMap: Record<string, number> = {};
 
 // Calculate terrain height at (x, z)
-function getTerrainHeight(x, z) {
+function getTerrainHeight(x: number, z: number): number {
   // First check if we have this position in our cached height map
   const key = `${Math.round(x*10)},${Math.round(z*10)}`;
   if (heightMap[key] !== undefined) {
@@ -150,7 +175,7 @@ function getTerrainHeight(x, z) {
 }
 
 // Calculate terrain gradient for physics and tree placement
-function getTerrainGradient(x, z) {
+function getTerrainGradient(x: number, z: number): TerrainVec2 {
   const eps = 0.1;
   const h = getTerrainHeight(x, z);
   const hX = getTerrainHeight(x + eps, z);
@@ -159,7 +184,7 @@ function getTerrainGradient(x, z) {
 }
 
 // Compute Downhill Direction (Approximate Gradient)
-function getDownhillDirection(x, z) {
+function getDownhillDirection(x: number, z: number): TerrainVec2 {
   const eps = 0.1;
   const h = getTerrainHeight(x, z);
   const hX = getTerrainHeight(x + eps, z);
@@ -174,7 +199,7 @@ function getDownhillDirection(x, z) {
 // --- Terrain creation functions ---
 
 // Create Terrain (Natural Mountain)
-function createTerrain(scene) {
+function createTerrain(scene: THREE.Scene) {
   // Create a large natural mountain terrain
   const geometry = new THREE.PlaneGeometry(300, 400, 150, 200);
   geometry.rotateX(-Math.PI / 2);
@@ -185,7 +210,7 @@ function createTerrain(scene) {
   
   // BufferAttribute.array is typed ArrayLike<number> (read-only); the concrete
   // buffer is a writable Float32Array, which we mutate in place below.
-  const vertices = /** @type {Float32Array} */ (geometry.attributes.position.array);
+  const vertices = geometry.attributes.position.array as Float32Array;
 
   // Create Perlin noise for natural terrain variation
   const perlin = new SimplexNoise();
@@ -300,19 +325,20 @@ function createTerrain(scene) {
 }
 
 // Add rocks to create a more realistic mountain environment
-function addRocks(scene) {
+function addRocks(scene: THREE.Scene) {
   // Remove any existing rocks from the scene to prevent duplicates
   for (let i = scene.children.length - 1; i >= 0; i--) {
     const child = scene.children[i];
     // Rocks are typically meshes with dodecahedron geometry
-    if (child.type === 'Mesh' && child.geometry && 
-        child.geometry.type && child.geometry.type.includes('Dodecahedron')) {
+    const mesh = child as THREE.Mesh;
+    if (child.type === 'Mesh' && mesh.geometry &&
+        mesh.geometry.type && mesh.geometry.type.includes('Dodecahedron')) {
       scene.remove(child);
     }
   }
-  
+
   // Create rock positions with higher density on steeper parts of mountain
-  const rockPositions = [];
+  const rockPositions: RockPosition[] = [];
   
   // Add rocks scattered across the entire mountain
   for(let z = -180; z < 90; z += 10) {
@@ -353,11 +379,13 @@ function addRocks(scene) {
   } 
   // Last resort - find by name or type
   else {
-    terrainMesh = scene.children.find(child => 
-      child.name === 'terrain' || 
-      (child.type === 'Mesh' && 
-       child.geometry && 
-       child.geometry.type === 'PlaneGeometry'));
+    terrainMesh = scene.children.find(child => {
+      const mesh = child as THREE.Mesh;
+      return child.name === 'terrain' ||
+        (child.type === 'Mesh' &&
+         !!mesh.geometry &&
+         mesh.geometry.type === 'PlaneGeometry');
+    });
   }
   
   // Create rock instances
@@ -384,13 +412,13 @@ function addRocks(scene) {
 }
 
 // Create a rock with variable size
-function createRock(size) {
+function createRock(size: number): THREE.Mesh {
   // Use dodecahedron as base shape for rocks
   const geometry = new THREE.DodecahedronGeometry(size, 1);
-  
+
   // Deform vertices slightly for more natural rock shape
   // (writable Float32Array under the read-only ArrayLike<number> type)
-  const positions = /** @type {Float32Array} */ (geometry.attributes.position.array);
+  const positions = geometry.attributes.position.array as Float32Array;
   for (let i = 0; i < positions.length; i += 3) {
     const noise = Math.random() * 0.2;
     positions[i] *= (1 + noise);
@@ -418,7 +446,7 @@ function createRock(size) {
 }
 
 // Debug utility to verify the height map is working
-function debugHeightMap(x, z) {
+function debugHeightMap(x: number, z: number): number {
   const key = `${Math.round(x*10)},${Math.round(z*10)}`;
   console.log(`Height Map Debug at (${x}, ${z}):`);
   console.log(`- Height Map Entry: ${heightMap[key]}`);
