@@ -290,12 +290,16 @@ const velocity = player.velocity;
 
 // Add timer and best time tracking (state.startTime / state.bestTime)
 const MIN_VALID_SCORE_TIME = 4;
+const MAX_VALID_SCORE_TIME = 600;
 
 function isValidScoreTime(time: number) {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
     return window.ScoresModule.isValidScoreTime(time);
   }
-  return typeof time === 'number' && Number.isFinite(time) && time >= MIN_VALID_SCORE_TIME;
+  return typeof time === 'number' &&
+    Number.isFinite(time) &&
+    time >= MIN_VALID_SCORE_TIME &&
+    time <= MAX_VALID_SCORE_TIME;
 }
 
 function readStoredBestTime() {

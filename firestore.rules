@@ -1,0 +1,122 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidScoreTime(time) {
+      return time is number && time >= 4 && time <= 600;
+    }
+
+    function userDocPath(userId) {
+      return /databases/$(database)/documents/users/$(userId);
+    }
+
+    function validUserKeys(data) {
+      return data.keys().hasOnly([
+        'displayName',
+        'email',
+        'photoURL',
+        'lastLogin',
+        'bestTime',
+        'updatedAt'
+      ]);
+    }
+
+    function validUserDoc(data) {
+      return validUserKeys(data)
+        && (!('displayName' in data) || data.displayName == null || data.displayName is string)
+        && (!('email' in data) || data.email == null || data.email is string)
+        && (!('photoURL' in data) || data.photoURL == null || data.photoURL is string)
+        && (!('lastLogin' in data) || data.lastLogin is timestamp)
+        && (!('bestTime' in data) || isValidScoreTime(data.bestTime))
+        && (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function changedUserKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function validChangedUserFields() {
+      return validUserKeys(request.resource.data)
+        && changedUserKeys().hasOnly([
+          'displayName',
+          'email',
+          'photoURL',
+          'lastLogin',
+          'bestTime',
+          'updatedAt'
+        ])
+        && (!changedUserKeys().hasAny(['displayName']) ||
+          request.resource.data.displayName == null ||
+          request.resource.data.displayName is string)
+        && (!changedUserKeys().hasAny(['email']) ||
+          request.resource.data.email == null ||
+          request.resource.data.email is string)
+        && (!changedUserKeys().hasAny(['photoURL']) ||
+          request.resource.data.photoURL == null ||
+          request.resource.data.photoURL is string)
+        && (!changedUserKeys().hasAny(['lastLogin']) ||
+          request.resource.data.lastLogin is timestamp)
+        && (!changedUserKeys().hasAny(['updatedAt']) ||
+          request.resource.data.updatedAt is timestamp);
+    }
+
+    function validBestTimeUpdate() {
+      return !changedUserKeys().hasAny(['bestTime'])
+        || (
+          isValidScoreTime(request.resource.data.bestTime)
+          && (!('bestTime' in resource.data) ||
+            !isValidScoreTime(resource.data.bestTime) ||
+            request.resource.data.bestTime <= resource.data.bestTime)
+        );
+    }
+
+    function validLeaderboardKeys(data) {
+      return data.keys().hasOnly(['user', 'time', 'achievedAt']);
+    }
+
+    function validLeaderboardDoc(userId, data) {
+      return validLeaderboardKeys(data)
+        && data.user == userDocPath(userId)
+        && isValidScoreTime(data.time)
+        && (!('achievedAt' in data) || data.achievedAt is timestamp);
+    }
+
+    function validLeaderboardUpdate(userId) {
+      return validLeaderboardDoc(userId, request.resource.data)
+        && (!('time' in resource.data) ||
+          !isValidScoreTime(resource.data.time) ||
+          request.resource.data.time <= resource.data.time);
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && validUserDoc(request.resource.data);
+      allow update: if isOwner(userId) && validChangedUserFields() && validBestTimeUpdate();
+      allow delete: if false;
+    }
+
+    match /leaderboard/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardDoc(userId, request.resource.data);
+      allow update: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardUpdate(userId);
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

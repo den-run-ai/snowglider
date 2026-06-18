@@ -77,7 +77,10 @@ const mocks = {
     updateUserBestTime: () => {},
     displayLeaderboard: () => {},
     recordScore: () => {},
-    isValidScoreTime: time => typeof time === 'number' && Number.isFinite(time) && time >= 4
+    isValidScoreTime: time => typeof time === 'number' &&
+      Number.isFinite(time) &&
+      time >= 4 &&
+      time <= 600
   }
 };
 
