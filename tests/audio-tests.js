@@ -1,6 +1,12 @@
 // Audio Test Suite for SnowGlider
 // Tests for simplified native HTML5 Audio implementation
 // Run with: open index.html?test=unified or index.html?test=audio
+//
+// Phase 2 (issue #84): converted to an ES module. It imports AudioModule from
+// the real src module instead of reading the window.AudioModule bridge, and is
+// loaded via `<script type="module">` by the boot script-loader. It still
+// publishes window.runAudioTests so the unified runner can invoke it.
+import { AudioModule } from '../src/audio.js';
 
 (function() {
   if (window.location.search.includes('test=') && !window._unifiedTestRunnerActive) {

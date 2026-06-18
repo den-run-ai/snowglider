@@ -101,7 +101,7 @@ Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL p
 3. Run locally using one of these options:
    - **Option 1:** Run with Vite: `npm run dev` (full features)
    - **Option 2:** Run the legacy static server: `npm start` (full features)
-   - **Option 3:** Open `index.html` directly in your browser (limited features)
+   - Direct `file://` opens are not supported after the ES-module migration.
 
 #### Local Development Notes
 - **Server mode (`npm run dev` or `npm start`):**
@@ -111,12 +111,8 @@ Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL p
   - Best times are stored in localStorage and can be synced to Firebase when online
 
 - **Direct browser mode (opening `index.html` directly):**
-  - Uses the `file://` protocol 
-  - All Firebase services (Authentication and Firestore) are automatically disabled
-  - A "Local File Mode: Firebase disabled" indicator will be displayed
-  - Login UI is hidden and replaced with a "Local Mode" message
-  - Best times are only stored in localStorage
-  - Perfect for quick testing without server setup
+  - Not supported. Browser module graphs and the import map do not load reliably from a `file://` origin.
+  - Use `npm run dev`, `npm start`, or `npm run build` plus a static server.
 
 ### Firebase Setup and Deployment
 
@@ -172,10 +168,8 @@ The application uses the following Firestore collections:
 - Mobile devices now use popup-based authentication for better compatibility with Chrome and other mobile browsers
 
 ### CORS Errors When Opening Directly
-- If you previously saw CORS errors when opening the game directly with `file://` protocol, this has been fixed
-- The game now automatically detects the file:// protocol and provides a fallback implementation
-- Authentication UI is hidden in this mode and replaced with a "Local Mode" indicator
-- All core gameplay features will work without authentication
+- Direct `file://` opens are no longer a supported run mode.
+- Use `npm run dev`, `npm start`, or serve the `dist/` output from `npm run build`.
 
 ### GitHub Pages Deployment
 - The GitHub Pages deployment will continue to work normally with the full set of features

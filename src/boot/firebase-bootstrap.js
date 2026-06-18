@@ -59,7 +59,64 @@
     authScript.type = 'module';
     authScript.id = 'authScript';
     authScript.src = 'src/auth.js';
+    // If Firebase was merely slow, waitForAuthModule may have already timed out
+    // and booted the local fallback. src/auth.js then finishes here and overwrites
+    // window.AuthModule with the real, uninitialized module. Re-initialize it so
+    // the real Google login handlers / auth listener get installed instead of
+    // leaving the page stuck in local mode. No-op on the happy path (the fallback
+    // never ran) and when waitForAuthModule already initialized the real module.
+    authScript.addEventListener('load', () => {
+      if (localFallbackActivated &&
+          window.AuthModule &&
+          typeof window.AuthModule.initializeAuth === 'function') {
+        console.log("src/auth.js loaded after local fallback - re-initializing the real AuthModule.");
+        clearLocalAuthFallbackUi();
+        initializeAuthModule();
+      }
+    });
     head.appendChild(authScript);
+  }
+
+  // Set when we degrade to the localStorage fallback because the Firebase auth
+  // module did not load in time (slow CDN/network, not a hard failure). src/auth.js
+  // assigns window.AuthModule unconditionally, so if it finishes *after* the
+  // fallback it silently replaces the initialized stub with the real, but
+  // *uninitialized*, module — see the authScript 'load' handler below.
+  let localFallbackActivated = false;
+
+  // Install the localStorage-backed Auth/Scores stubs from local-auth.js. Used
+  // both for file:// (no Firebase by design) and as a graceful-degradation
+  // fallback over http when the Firebase modules fail to load (offline, a CDN
+  // outage, or a blocked gstatic request). Without this fallback a single
+  // failed gstatic fetch would reject waitForAuthModule and take the whole game
+  // down with it; instead we boot in local mode (CLAUDE.md: "graceful
+  // degradation to localStorage when Firebase is unavailable").
+  function installLocalAuthFallback() {
+    const localAuth = window.SnowGliderLocalAuth;
+    if (!localAuth) {
+      return;
+    }
+    if (!window.ScoresModule && typeof localAuth.installScoresModule === 'function') {
+      localAuth.installScoresModule();
+    }
+    if (!window.AuthModule && typeof localAuth.installAuthModule === 'function') {
+      localAuth.installAuthModule();
+    }
+  }
+
+  function clearLocalAuthFallbackUi() {
+    const authContainer = document.getElementById('authContainer');
+    const localModeNotice = authContainer
+      ? authContainer.querySelector('.local-mode-notice')
+      : null;
+    if (localModeNotice) {
+      localModeNotice.remove();
+    }
+
+    const authUI = document.getElementById('authUI');
+    const profileUI = document.getElementById('profileUI');
+    if (authUI) authUI.style.display = 'flex';
+    if (profileUI) profileUI.style.display = 'none';
   }
 
   function waitForAuthModule() {
@@ -72,7 +129,7 @@
       return Promise.resolve();
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       let checkCount = 0;
       const maxChecks = 25;
       const checkInterval = setInterval(() => {
@@ -84,8 +141,13 @@
           checkCount++;
           if (checkCount >= maxChecks) {
             clearInterval(checkInterval);
-            console.error("AuthModule failed to load after timeout.");
-            reject(new Error("AuthModule failed to load"));
+            // Firebase did not come up in time — degrade gracefully to local
+            // mode and resolve so the game still boots, instead of rejecting
+            // and aborting the entire startup chain.
+            console.warn("AuthModule failed to load after timeout - falling back to local mode.");
+            localFallbackActivated = true;
+            installLocalAuthFallback();
+            resolve();
           }
         }
       }, 200);

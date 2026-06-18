@@ -9,6 +9,17 @@
 // 5. Camera Smoothing - tests smooth camera movement and following behavior
 //
 // The tests can be run individually or as part of the unified test suite (index.html?test=unified)
+//
+// Phase 2 (issue #84): converted to an ES module — imports three from npm; loaded
+// via `<script type="module">`. Still publishes window.runCameraTests for the
+// unified runner.
+//
+// Terrain height is read from the LIVE game via window.getTerrainHeight (published
+// on the test seam by snowglider.js) rather than importing src/snow.js here. On the
+// deployed GitHub Pages artifact a local `import` would resolve to a second copy of
+// snow.js whose terrain heightMap is unpopulated and randomly noised, so it would
+// disagree with the bundled terrain the live camera actually clamps to.
+import * as THREE from 'three';
 
 (function() {
   // Only run tests if ?test=camera is in the URL and not running through the unified test runner
@@ -16,12 +27,16 @@
       (window.location.search.includes('test=true') && window.location.search.includes('camera=true'))) && 
       !window.location.search.includes('test=unified') && 
       !window._unifiedTestRunnerActive) {
-    // Wait for game to initialize
-    window.addEventListener('load', function() {
+    if (document.readyState === 'complete') {
       console.log("Camera tests initializing from direct URL parameter");
-      // Give the game a moment to fully initialize
       setTimeout(runCameraTests, 500);
-    });
+    } else {
+      window.addEventListener('load', function() {
+        console.log("Camera tests initializing from direct URL parameter");
+        // Give the game a moment to fully initialize
+        setTimeout(runCameraTests, 500);
+      });
+    }
   }
   
   // Expose the test runner for the unified test system
@@ -401,14 +416,14 @@
         // Move snowman to test location
         pos.x = location.x;
         pos.z = location.z;
-        pos.y = Utils.getTerrainHeight(location.x, location.z);
+        pos.y = window.getTerrainHeight(location.x, location.z);
         snowman.position.set(pos.x, pos.y, pos.z);
-        
+
         // Update camera
         updateCamera();
-        
-        // Get terrain height at camera position
-        const terrainHeightAtCamera = Utils.getTerrainHeight(camera.position.x, camera.position.z);
+
+        // Get terrain height at camera position (live game's terrain instance)
+        const terrainHeightAtCamera = window.getTerrainHeight(camera.position.x, camera.position.z);
         
         // Camera should be at least 5 units above terrain
         const minHeightAboveTerrain = 5;
@@ -439,9 +454,11 @@
       resetSnowman();
       
       // Camera smoothing vectors should all be initialized (not undefined).
-      // During Phase 2 the camera module uses npm ESM three while these classic
-      // browser tests still read the CDN THREE global, so constructor identity
-      // is not stable across the two three.js instances.
+      // Use three's `.isVector3` duck-type flag rather than `instanceof THREE.Vector3`:
+      // on the deployed Pages artifact the game runs from the Vite-bundled three while
+      // this copied test imports the standalone import-map three, so the two are
+      // different module instances and `instanceof` would be false even when the live
+      // camera is correct. `.isVector3` is three's canonical cross-instance check (issue #84).
       const isVector3 = (v) => Boolean(v && v.isVector3 === true);
       const vectorsExist = (
         cameraManager.smoothingVectors &&

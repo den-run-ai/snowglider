@@ -86,6 +86,7 @@
       { name: 'avalanche', runner: window.runAvalancheTests, started: false, completed: false },
       { name: 'regression', runner: window.runRegressionTests, started: false, completed: false }
     ];
+    window._unifiedExpectedSuiteCount = testSuites.length;
     
     // Callback for tests to signal completion
     window._testCompleteCallback = function(testName, error) {

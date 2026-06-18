@@ -37,25 +37,12 @@ module.exports = [
         // 2.10). avalanche.js is likewise only read as window.Avalanche.
         Howl: "readonly",
         Howler: "readonly",
-        // mountains.js is now an ES module (PR 2.7), but trees.js + snow.js read
-        // `Mountains` by bare name (the window bridge) at eval, so keep it declared
-        // here until those bare reads are removed.
-        Mountains: "readonly",
         ScoresModule: "readonly",
-        // As of PR 2.10 three.js is single-sourced from npm: the CDN UMD global
-        // is gone and main.js bridges `window.THREE`. Kept declared here for the
-        // still-classic browser-test scripts (camera-tests.js) that read it bare.
-        THREE: "readonly",
-        // trees.js is now an ES module (PR 2.4), but the still-classic snow.js
-        // reads `Trees` by bare name (at eval, to build the `Snow` namespace), so
-        // keep it declared here until snow.js is converted (this same cluster).
-        Trees: "readonly",
-        Utils: "readonly",
-        // Terrain samplers republished onto window by mountains.js (PR 2.7). Kept
-        // for the window bridge; the converted modules take them as parameters.
-        getTerrainHeight: "readonly",
-        getTerrainGradient: "readonly",
-        getDownhillDirection: "readonly",
+        // three.js + Mountains + Trees + the terrain samplers (getTerrainHeight/
+        // getTerrainGradient/getDownhillDirection) are single-sourced from npm and
+        // reached via imports (terrain trio + camera.js) or injected parameters
+        // (snowman.js, course.js), so their bare globals + window bridges were all
+        // removed (issue #84).
         // snowman.js's checkTreeCollision test hook reads these two as bare globals
         // (not its parameters), and the browser test suites reassign them to drive
         // the live game; snowglider.js re-publishes them on window via accessors
@@ -78,7 +65,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js"],
+    files: ["src/audio.js", "src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js"],
     languageOptions: {
       sourceType: "module"
     }
@@ -93,6 +80,23 @@ module.exports = [
     files: ["tests/**/*.js"],
     rules: {
       "no-undef": "off"
+    }
+  },
+  {
+    // Browser-test suites converted to ES modules (issue #84) — they `import` the
+    // real src modules instead of the window.* bridges. (unified-test-runner.js is
+    // still a classic script; the node-only test files stay sourceType: script.)
+    files: [
+      "tests/audio-tests.js",
+      "tests/controls-tests.js",
+      "tests/camera-tests.js",
+      "tests/browser-avalanche-tests.js",
+      "tests/browser-tests.js",
+      "tests/browser-tree-tests.js",
+      "tests/browser-regression-tests.js"
+    ],
+    languageOptions: {
+      sourceType: "module"
     }
   }
 ];

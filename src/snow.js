@@ -1,16 +1,15 @@
 // @ts-check
 // Snow.js - Utility functions for the snowman skiing game
 //
-// Phase 2.6/cluster (issue #84): converted off the classic global model. `THREE`
-// now comes from the npm package via a real ES-module import instead of the CDN
-// global, and `Snow` is `export`ed. snow.js builds its `Snow` namespace from
-// `Mountains.*` and `Trees.*` at module-eval time, reading them as bare globals,
-// so it must load AFTER mountains.js and trees.js — src/main.js imports it last
-// of the three for exactly that reason. The window.Snow / window.Utils bridges
-// below keep the still-classic snowglider.js (which reads `Snow` by bare name)
-// working until it is converted (PR 2.9). Loaded via the bundle entry, not the
-// classic script-loader.
+// Phase 2.6/cluster (issue #84): converted off the classic global model. `THREE`,
+// `Mountains` and `Trees` now come from real ES-module imports, and `Snow` is
+// `export`ed. snow.js builds its `Snow` namespace from `Mountains.*` and `Trees.*`
+// at module-eval time; the imports guarantee both are evaluated first, so the
+// previous bare-global reads (via window bridges) are gone. Loaded via the bundle
+// entry, not the classic script-loader.
 import * as THREE from 'three';
+import { Mountains } from './mountains.js';
+import { Trees } from './trees.js';
 
 // Mountains features are now in mountains.js
 // This file now delegates terrain/mountain calls to mountains.js
@@ -408,14 +407,7 @@ export const Snow = {
 // For backward compatibility, alias Utils to Snow
 const Utils = Snow;
 
-// Backward-compat global exports. snowglider.js reads `Snow` by bare name
-// (`Snow.getTerrainHeight`, `Snow.addTrees`, …); as a classic script it used to
-// see snow.js's top-level `const Snow` via the shared script scope, but now that
-// snow.js is an ES module that binding is module-scoped, so we republish it onto
-// `window` (bare `Snow` in the classic snowglider.js resolves via window). The
-// legacy `window.Utils` alias is preserved. Drop both once snowglider.js imports
-// Snow directly (PR 2.9, issue #84).
-if (typeof window !== 'undefined') {
-  window.Snow = Snow;
-  window.Utils = Snow;
-}
+// The window.Snow / window.Utils bridges were removed (issue #84): snowglider.js
+// imports Snow, and the browser tests import it as `Snow as Utils`. (snow.js still
+// reads Mountains/Trees via their window bridges at eval — those remain until
+// mountains.js/trees.js are imported here.)

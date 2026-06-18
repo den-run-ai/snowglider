@@ -1,6 +1,11 @@
 /**
  * Controls module tests for SnowGlider
+ *
+ * Phase 2 (issue #84): converted to an ES module — imports Controls from the real
+ * src module instead of reading the window.Controls bridge; loaded via
+ * `<script type="module">`. Still publishes window.runControlsTests for the runner.
  */
+import { Controls } from '../src/controls.js';
 
 // Helper function to simulate keyboard events
 function simulateKeyEvent(type, key) {
@@ -379,11 +384,14 @@ function runControlsTests() {
 
 // Auto-run tests if not in Node.js environment and test param is set
 if (typeof window !== 'undefined' && window.location.search.includes('test=controls')) {
-  // Wait for game to initialize
-  window.addEventListener('load', function() {
-    // Give the game a moment to fully initialize
+  if (document.readyState === 'complete') {
     setTimeout(runControlsTests, 500);
-  });
+  } else {
+    window.addEventListener('load', function() {
+      // Give the game a moment to fully initialize
+      setTimeout(runControlsTests, 500);
+    });
+  }
 }
 
 // Export for Node.js environment and unified test runner

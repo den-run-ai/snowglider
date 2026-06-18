@@ -12,9 +12,9 @@
 // Snow/Snowman/Mountains/etc. instances as main.js instead of forking a second
 // copy from the verbatim dist/src tree.
 //
-// Still read as globals (not yet ES modules): AudioModule (audio.js is classic);
-// AuthModule/ScoresModule/firebaseModules (published onto window by the Firebase
-// bootstrap). Those stay window.* reads until their own conversion.
+// Still read as globals (not yet ES modules): AuthModule/ScoresModule/
+// firebaseModules (published onto window by the Firebase bootstrap). Those stay
+// window.* reads until their own conversion.
 import * as THREE from 'three';
 import { Camera } from './camera.js';
 import { Controls } from './controls.js';
@@ -23,6 +23,7 @@ import { Snowman } from './snowman.js';
 import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
 import { AvalancheSystem } from './avalanche.js';
+import { AudioModule } from './audio.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();
@@ -1264,6 +1265,12 @@ window.initializeGameWithAudio = function() {
     gameActive:         { get: () => gameActive,         set: (v) => { gameActive = v; } },
     isInAir:            { get: () => isInAir,            set: (v) => { isInAir = v; } },
     verticalVelocity:   { get: () => verticalVelocity,   set: (v) => { verticalVelocity = v; } },
+    // jumpCooldown is reassigned by the gameplay suite (testJumpMechanics). It must
+    // be republished like the others: now that browser-tests.js is an ES module
+    // (strict mode), a bare `jumpCooldown = 0` assignment to an unpublished name
+    // throws a ReferenceError instead of silently creating a sloppy-mode global
+    // (issue #84).
+    jumpCooldown:       { get: () => jumpCooldown,       set: (v) => { jumpCooldown = v; } },
     bestTime:           { get: () => bestTime,           set: (v) => { bestTime = v; } },
     startTime:          { get: () => startTime,          set: (v) => { startTime = v; } },
     avalancheTriggered: { get: () => avalancheTriggered, set: (v) => { avalancheTriggered = v; } },
@@ -1278,6 +1285,21 @@ window.initializeGameWithAudio = function() {
     avalanche:          { get: () => avalanche },
     snowSplash:         { get: () => snowSplash },
     terrain:            { get: () => terrain },
+    // Live terrain sampler for the browser tests. camera.js imports the sampler
+    // directly (window.getTerrainHeight* was dropped from production in 0781822),
+    // but the deployed GitHub Pages artifact runs dist/index.html from Vite's
+    // bundle while the verbatim-copied dist/tests/*.js import a *second* copy of
+    // snow.js — whose heightMap is never populated by createTerrain and whose
+    // per-vertex Math.random() noise differs anyway. testCameraAboveTerrain must
+    // sample the same terrain instance the live camera clamps to, so republish the
+    // bundled sampler here (test seam only) instead of importing a fork (issue #84).
+    getTerrainHeight:   { get: () => Snow.getTerrainHeight },
+    // Live Controls accessor for the gameplay suite. On the deployed Pages
+    // artifact the verbatim-copied dist/tests/*.js import a *second* Controls
+    // module instance, so `Controls.getControls().jump = true` in the test would
+    // mutate a fork while the bundled updateSnowman reads this singleton. Publish
+    // the live getControls so the test drives the same instance (issue #84).
+    getControls:        { get: () => Controls.getControls },
     updateCamera:       { get: () => updateCamera },
     updateSnowman:      { get: () => updateSnowman }
   };

@@ -2,6 +2,13 @@
 // audio.js - Radically simplified audio using native HTML5 Audio
 // ~100 lines max, single track, minimal state management
 //
+// Phase 2 (issue #84): converted off the classic global model. `AudioModule` is
+// now `export`ed and loaded through the bundle entry (src/main.js) rather than
+// the classic script-loader. This module uses no three.js, so there is no
+// `import * as THREE`. The `window.AudioModule` assignment below is kept so the
+// still-window consumers (snowglider.js bare reads, start-menu.js, and the
+// classic audio-tests browser suite) keep working until they import it directly.
+//
 // Design principles:
 // 1. Native HTML5 Audio element - no library dependencies
 // 2. Single track only (drum_loop) - no track switching complexity
@@ -31,7 +38,7 @@ const AUDIO_ENABLED = true;
  * @property {string} [contextState]
  */
 
-const AudioModule = (function() {
+export const AudioModule = (function() {
   let audio = null;
   let muted = false;
   let initialized = false;
@@ -201,4 +208,8 @@ const AudioModule = (function() {
   };
 })();
 
-window.AudioModule = AudioModule;
+// Backward-compat global export for the still-window consumers (snowglider.js
+// reads `AudioModule` by bare name; start-menu.js + audio-tests use window.AudioModule).
+if (typeof window !== 'undefined') {
+  /** @type {any} */ (window).AudioModule = AudioModule;
+}

@@ -27,13 +27,9 @@
   (puppeteer suite, `npm start`) — now pointed at the local `node_modules` copy, so the raw-source path
   no longer needs the CDN; it is inert in the Vite build, where three is bundled. `main.js` bridges
   `window.THREE` for the still-classic browser-test scripts that read three by bare name.
-  - **`file://` caveat:** because converted modules load via `<script type="module">`, opening
-    `index.html` directly (`file://`) no longer loads them — Chrome blocks module + import-map loading
-    from a null origin (CORS). The classic-script part of the game still boots, but converted features
-    (avalanche, course, camera) are silently disabled by `snowglider.js`'s "module not loaded" fallback. Use
-    `npm start` or a build to run the full game. This is an intended consequence of the bundler/server
-    run model (direct `file://` open is no longer a supported run mode), not a regression; it was raised
-    in Codex review of PR 2.1 and applies equally to every later conversion.
+  - **`file://` caveat:** direct `open index.html` is no longer a supported run mode. Browser module
+    graphs and the import map do not load reliably from a null origin (CORS), so use `npm run dev`,
+    `npm start`, or serve the built `dist/` output.
 - **Converted so far:**
   - **PR 2.1 — `src/avalanche.js`:** `import * as THREE from 'three'` + `export class AvalancheSystem`.
     Its Node test (`tests/avalanche-tests.js`) now `import()`s the real module and real three instead

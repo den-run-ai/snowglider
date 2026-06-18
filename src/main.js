@@ -3,41 +3,30 @@ import * as THREE from 'three';
 
 // Phase 2.0 (issue #84): a real ES-module entry that Vite bundles into a
 // hashed asset, importing three.js from the npm package instead of the CDN
-// global. Per-module conversions (PR 2.1 onward) move each game module onto
-// this bundle, which index.html now loads as `<script type="module">`.
+// global. index.html loads this as `<script type="module">`.
 //
-// Phase 2.1: avalanche.js is the first converted module. Importing it here for
-// its side effect runs its `window.Avalanche = …` bridge before the classic
-// script-loader pulls in the game/test scripts, so the still-classic consumers
-// (the browser-test suite) keep finding the avalanche system.
+// Most game modules are imported here only so they're part of the eagerly-loaded
+// bundle graph; snowglider.js (the deferred orchestrator) imports them too, and
+// the browser tests import the ones they need directly. Their per-module
+// `window.*` namespace bridges have been removed (issue #84). Two side effects
+// here are still load-bearing:
+//   1. The terrain trio (trees.js, mountains.js, snow.js) must run in THIS order:
+//      snow.js reads `Mountains`/`Trees` by bare name at module-eval (via the
+//      window.Mountains / window.Trees bridges those two still publish), so both
+//      must execute before snow.js. mountains.js also publishes the
+//      window.getTerrainHeight/getTerrainGradient/getDownhillDirection samplers.
+//   2. audio.js publishes the still-needed window.AudioModule bridge (read by the
+//      classic start-menu.js + the audio browser tests).
 import './avalanche.js';
-// Phase 2.2: course.js, imported for its `window.CourseModule = …` bridge so the
-// still-classic snowglider.js keeps finding the course system.
 import './course.js';
-// Phase 2.3: camera.js, imported for its `window.Camera = …` bridge so the
-// still-classic snowglider.js keeps finding the Camera class (`new Camera(...)`).
 import './camera.js';
-// Phase 2.5: controls.js, imported for its `window.Controls = …` bridge so the
-// still-classic snowglider.js keeps finding the input controls.
 import './controls.js';
-// Phase 2.6: effects.js, imported for its `window.EffectsModule = …` bridge so the
-// still-classic snowglider.js keeps finding the avalanche/camera-juice effects.
 import './effects.js';
-// Phase 2.4: trees.js, imported for its `window.Trees = …` bridge. Imported before
-// snow.js (below) because snow.js reads `Trees` at module-eval time when it builds
-// the `Snow` namespace.
 import './trees.js';
-// Phase 2.7: mountains.js, imported for its `window.Mountains = …` +
-// `window.getTerrainHeight/getTerrainGradient/getDownhillDirection` bridges. Also
-// imported before snow.js, which reads `Mountains` at module-eval time.
 import './mountains.js';
-// Phase 2.6/cluster: snow.js, imported LAST of the terrain trio for its
-// `window.Snow`/`window.Utils` bridges — it reads `Mountains`/`Trees` at eval, so
-// both must already be bridged above.
 import './snow.js';
-// Phase 2.8: snowman.js, imported for its `window.Snowman = …` bridge so the
-// still-classic snowglider.js keeps finding the snowman model + physics.
 import './snowman.js';
+import './audio.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;
@@ -47,13 +36,10 @@ if (typeof window !== 'undefined') {
     threeRevision: THREE.REVISION
   };
 
-  // PR 2.10 (issue #84): the CDN UMD <script> that used to define the global
-  // `THREE` is gone — three is now single-sourced from npm (bundled by Vite, or
-  // import-mapped from node_modules when index.html is served as raw source).
-  // The still-classic browser-test scripts (camera-tests.js) read three as a
-  // bare global, so bridge it here, exactly like the per-module bridges above.
-  // Drop this once those test scripts are converted to ES modules.
-  /** @type {any} */ (window).THREE = THREE;
+  // The window.THREE bridge was removed (issue #84): three is single-sourced
+  // from npm (bundled by Vite, or import-mapped from node_modules in raw source),
+  // and the browser-test scripts that used to read it bare (camera-tests.js) now
+  // `import * as THREE from 'three'` directly.
 
   // Phase 2.9: snowglider.js (the orchestrator) is now an ES module too, but it
   // must still run LAST — after the classic loader has loaded audio.js + Auth —

@@ -189,10 +189,4 @@ export const EffectsModule = (function () {
   return { init, updateAvalanche, addShake, tickCamera, reset };
 })();
 
-// Backward-compat global export for the still-classic consumer (snowglider.js
-// reads `EffectsModule` by bare name, e.g. `EffectsModule.tickCamera(...)`). Drop
-// this once snowglider.js is converted to import EffectsModule directly
-// (PR 2.9, issue #84).
-if (typeof window !== 'undefined') {
-  window.EffectsModule = EffectsModule;
-}
+// The window.EffectsModule bridge was removed (issue #84): snowglider.js imports it.

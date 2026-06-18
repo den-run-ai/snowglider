@@ -11,7 +11,7 @@
     "test:regression": "node tests/regression-tests.js",
     "test:tree-collision": "node tests/tree-collision-tests.js",
     "test:avalanche": "node tests/avalanche-tests.js",
-    "test:auth": "node tests/auth-tests.js",
+    "test:auth": "node tests/auth-tests.js && node tests/firebase-bootstrap-tests.js",
     "test:scores": "node tests/scores-tests.js",
     "test:controls": "echo 'Controls tests require browser - use index.html?test=controls'",
     "test:verify": "node tests/verification/physics_invariant_harness.js && node tests/verification/dom_smoke_test.js",
