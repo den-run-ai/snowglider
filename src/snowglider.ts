@@ -141,9 +141,9 @@ AudioModule.addAudioListener(camera);
 AudioModule.setupUI();
 
 // --- Game state ---
-let gameActive = false; // Start inactive until user clicks start button
-let animationRunning = false; // Track if animation loop is running
-let gameInitialized = false; // Track if game has been initialized
+// The run-lifecycle flags (gameActive / animationRunning / gameInitialized) live
+// on the typed `state` object defined below (GameState), alongside the avalanche
+// and run/scoring fields.
 
 // --- Lighting ---
 scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -173,6 +173,8 @@ window.terrainMesh = terrain;
  * Folded in so far:
  *  - PR 3.19 (pilot): the avalanche run-state.
  *  - PR 3.20: the run/scoring lifecycle (`startTime`, `bestTime`).
+ *  - PR 3.22: the run-loop lifecycle flags (`gameActive`, `animationRunning`,
+ *    `gameInitialized`).
  * The per-frame player physics state lives in the typed `physics.ts` module
  * (PR 3.21); future PRs can fold more cohesive subsets in the same way.
  */
@@ -182,6 +184,9 @@ interface GameState {
   lastAvalancheZ: number;            // z the trigger distance is measured from
   startTime: number;                 // performance.now() at run start (timer origin)
   bestTime: number;                  // best finish time in seconds (Infinity = none yet)
+  gameActive: boolean;               // true while a run is live (drives the loop + input)
+  animationRunning: boolean;         // true while the requestAnimationFrame loop is running
+  gameInitialized: boolean;          // true once the first run has been initialized
 }
 const state: GameState = {
   avalanche: null,
@@ -189,6 +194,9 @@ const state: GameState = {
   lastAvalancheZ: 0,
   startTime: 0,
   bestTime: Infinity, // overwritten by readStoredBestTime() below, before any read
+  gameActive: false,       // start inactive until the user clicks the start button
+  animationRunning: false,
+  gameInitialized: false,
 };
 const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
 
@@ -488,7 +496,7 @@ function updateSnowman(delta: number) {
     getTerrainGradient: Snow.getTerrainGradient,
     getDownhillDirection: Snow.getDownhillDirection,
     treePositions,
-    gameActive,
+    gameActive: state.gameActive,
     showGameOver: activeShowGameOver
   });
 
@@ -568,7 +576,7 @@ cameraManager.initialize(
 // --- Animation Loop ---
 let lastTime = 0;
 function animate(time: number) {
-  if (gameActive) {
+  if (state.gameActive) {
     requestAnimationFrame(animate);
     const delta = Math.min((time - lastTime) / 1000, 0.1); // Cap delta to avoid jumps
     lastTime = time;
@@ -657,8 +665,8 @@ function animate(time: number) {
       camera.position.y -= _shake.y;
       camera.position.z -= _shake.z;
     }
-  } else if (animationRunning) {
-    animationRunning = false;
+  } else if (state.animationRunning) {
+    state.animationRunning = false;
   }
 }
 
@@ -697,8 +705,8 @@ function showGameOver(reason: string) {
     window._testShowGameOverOverride(reason);
     return;
   }
-  gameActive = false;
-  
+  state.gameActive = false;
+
   // Capture the best time BEFORE the finish branch updates it, so the result
   // screen can report the delta and whether this run set a new record.
   const previousBest = state.bestTime;
@@ -858,8 +866,8 @@ function showGameOver(reason: string) {
 
 function restartGame() {
   gameOverOverlay.style.display = 'none';
-  gameActive = true;
-  
+  state.gameActive = true;
+
   // Clear the finish result panel from the previous run, if present.
   const oldResult = document.getElementById('courseResult');
   if (oldResult && oldResult.parentNode) oldResult.parentNode.removeChild(oldResult);
@@ -894,8 +902,8 @@ function restartGame() {
   }
   
   // Reset animation if it was stopped
-  if (!animationRunning) {
-    animationRunning = true;
+  if (!state.animationRunning) {
+    state.animationRunning = true;
     lastTime = performance.now();
     animate(lastTime);
   }
@@ -1115,7 +1123,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Update timer display during gameplay
 function updateTimerDisplay() {
-  if (gameActive) {
+  if (state.gameActive) {
     const currentTime = (performance.now() - state.startTime) / 1000;
 
     // Update the current time element in game stats
@@ -1221,24 +1229,24 @@ window.initializeGameWithAudio = function() {
   }
   
   // Display a short loading message if this is the first initialization
-  if (!gameInitialized) {
+  if (!state.gameInitialized) {
     // Show a loading indicator while THREE.js initializes
     AudioModule.showMessage("Loading game...", 1500);
-    gameInitialized = true;
-    
+    state.gameInitialized = true;
+
     // Short delay to allow for visual transition
     setTimeout(() => {
       // Activate the game after a short delay for visual feedback
-      gameActive = true;
-      animationRunning = true;
-      
+      state.gameActive = true;
+      state.animationRunning = true;
+
       // Add game-active class to body for styling
       document.body.classList.add('game-active');
-      
+
       // Start animation loop
       lastTime = performance.now();
       animate(lastTime);
-      
+
       // Show a "Get Ready" message
       setTimeout(() => {
         AudioModule.showMessage("Get Ready!", 1000);
@@ -1246,8 +1254,8 @@ window.initializeGameWithAudio = function() {
     }, 1800);
   } else {
     // If already initialized once, just restart immediately
-    gameActive = true;
-    animationRunning = true;
+    state.gameActive = true;
+    state.animationRunning = true;
     
     // Add game-active class to body for styling
     document.body.classList.add('game-active');
@@ -1288,7 +1296,9 @@ window.initializeGameWithAudio = function() {
   if (typeof window === 'undefined') return;
   const live: Record<string, PropertyDescriptor> = {
     // Mutable primitives the tests reassign — proxy reads and writes.
-    gameActive:         { get: () => gameActive,         set: (v) => { gameActive = v; } },
+    // gameActive now lives on the typed `state` (GameState); the proxy backs the
+    // bare handle with state.* so a test's `gameActive = true` flows to the live state.
+    gameActive:         { get: () => state.gameActive,       set: (v) => { state.gameActive = v; } },
     // Player physics scalars now live on the typed `player` state (src/physics.ts);
     // the proxy reads/writes player.* so test reassignments hit the live state.
     isInAir:            { get: () => player.isInAir,          set: (v) => { player.isInAir = v; } },
