@@ -40,6 +40,14 @@ jobs:
       - name: Type-check (tsc --noEmit)
         run: npm run typecheck
 
+      # Validate the production Vite bundle on every PR (tsc --noEmit above does
+      # NOT run the bundler). Catches a build/transpile regression before merge so
+      # it can't reach the Pages deploy. Same dist guard the build-pages job uses.
+      - name: Production build (Vite) + dist guard
+        run: |
+          npm run build
+          bash scripts/verify-pages-dist.sh
+
       - name: Run Node.js tests with coverage
         run: npm run test:coverage
       
@@ -110,23 +118,10 @@ jobs:
           # Guard against a raw-TypeScript Pages artifact (defense-in-depth). The
           # real prod-outage fix was switching the Pages source to GitHub Actions
           # (build_type=workflow) so the legacy branch builder can't serve raw src/;
-          # this assertion additionally fails the build if Vite ever stops emitting
-          # transpiled .js — which on Pages would be served as MIME video/mp2t and
-          # break every module entrypoint.
-          test -f dist/src/main.js
-          test -f dist/src/boot/script-loader.js
-          test -f dist/src/ui/start-menu.js
-          test -f dist/src/auth.js
-          test -f dist/src/scores.js
-          if grep -En 'src/(main|boot/script-loader|ui/start-menu)\.ts|<script[^>]+type="module"[^>]+src="src/[^"]+\.ts"' dist/index.html; then
-            echo "::error::dist/index.html references raw TypeScript module entrypoints"
-            exit 1
-          fi
-          if find dist/src -name '*.ts' -print -quit | grep -q .; then
-            echo "::error::dist/src contains raw TypeScript files"
-            find dist/src -name '*.ts' -print
-            exit 1
-          fi
+          # this fails the build if Vite ever stops emitting transpiled .js — which
+          # on Pages is served as MIME video/mp2t and breaks every module
+          # entrypoint. Shared with the per-PR test gate via this script.
+          bash scripts/verify-pages-dist.sh
           # The verbatim-copied browser tests import bare `three`; Pages has no
           # node_modules, so the page import map's three build must be published.
           test -f dist/node_modules/three/build/three.module.min.js
