@@ -232,6 +232,15 @@ rocks (`size >= 1.25`) are returned as collision hazards through `rockPositions`
 Small half-buried stones remain decorative so the slope does not become unfairly
 dense with low-visibility crashes.
 
+Because rock placement is unseeded `Math.random()`, `mountains.ts` also keeps the
+central ski line and the spawn pocket free of *collidable* rocks
+(`rockIsCollisionHazard`): a rock only becomes a hazard when `|x| >= 5` (mirroring
+the tree clear-corridor in `trees.ts`, and wide enough to cover the max rock
+radius) and it is at least `10` units from the snowman start `(0, -15)`. This
+guarantees the run is always navigable and the player never spawns on a rock.
+Decorative rocks are still rendered across the whole mountain — only their hazard
+status is suppressed.
+
 Rock collision uses the same simple 2D (x,z) distance style as trees, with a
 size-scaled radius clamped to `1.25 .. 3.0`. A rock hit ends the run unless the
 snowman is actively clearing it: `isInAir && verticalVelocity > 0` and the
@@ -378,6 +387,7 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Max tilt | 0.25 rad (~14°) | `snowman.js` |
 | Tree collision radius | 2.5 | `snowman.js` |
 | Rock hazard min size / radius clamp | 1.25 / `1.25 .. 3.0` | `mountains.ts`, `snowman.ts` |
+| Rock hazard clear-zone (path half-width / start radius) | `|x|>=5` / `10` from `(0,-15)` | `mountains.ts` |
 | Off-mountain / fall bounds | `|x|>120` / `terrain−0.5` | `snowman.js` |
 | Downhill terrain bias | `(z+30)*0.12` for `z<-30` | `mountains.js` |
 | Avalanche trigger distance | 80 | `snowglider.js` |

@@ -19,6 +19,9 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 - Rock collision data is returned from terrain generation and threaded through the
   typed physics wrapper so the behavior lands cleanly after the TypeScript
   migration stack.
+- Collidable rocks are kept off the central ski line (`|x| < 5`) and the spawn
+  pocket (within 10u of the start) so the unseeded random placement can never wall
+  off the run or crash the player on spawn; decorative rocks still render anywhere.
 
 ### Honest full-source coverage — Node + browser merged (#122)
 - `npm run test:coverage` now runs c8 with `--all --src src`, so the Node and

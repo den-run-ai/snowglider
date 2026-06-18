@@ -36,6 +36,31 @@ export interface RockPosition {
 
 const ROCK_COLLISION_MIN_SIZE = 1.25;
 
+// Keep the central ski line and the spawn pocket clear of *collidable* rocks: the
+// run must always stay navigable (mirrors the tree clear-corridor in trees.ts) and
+// the player must never spawn on, or right next to, a hazard. Decorative rocks are
+// still rendered everywhere — only their hazard status is suppressed here.
+const ROCK_COLLISION_PATH_HALF_WIDTH = 5;     // |x| < 5 stays hazard-free (covers the max rock radius of 3)
+const ROCK_COLLISION_START_CLEAR_RADIUS = 10; // no hazard within 10u of the snowman start
+// Snowman spawn, mirroring resetSnowman() in snowman.ts (pos.x = 0, pos.z = -15).
+const SNOWMAN_START_X = 0;
+const SNOWMAN_START_Z = -15;
+
+/**
+ * Whether a placed rock should act as a collision hazard. A rock qualifies only
+ * when it is large enough to read as an obstacle AND clear of both the central ski
+ * line and the spawn pocket, so the unseeded random placement can never wall off
+ * the run or crash the player on spawn.
+ */
+function rockIsCollisionHazard(x: number, z: number, size: number): boolean {
+  if (size < ROCK_COLLISION_MIN_SIZE) return false;
+  if (Math.abs(x) < ROCK_COLLISION_PATH_HALF_WIDTH) return false;
+  const dx = x - SNOWMAN_START_X;
+  const dz = z - SNOWMAN_START_Z;
+  if (Math.sqrt(dx * dx + dz * dz) < ROCK_COLLISION_START_CLEAR_RADIUS) return false;
+  return true;
+}
+
 // --- SimplexNoise implementation ---
 class SimplexNoise {
   grad3: number[][];
@@ -414,7 +439,7 @@ function addRocks(scene: THREE.Scene): RockPosition[] {
     
     scene.add(rock);
 
-    if (pos.size >= ROCK_COLLISION_MIN_SIZE) {
+    if (rockIsCollisionHazard(pos.x, pos.z, pos.size)) {
       collisionRockPositions.push({ x: pos.x, y: terrainHeight, z: pos.z, size: pos.size });
     }
   });
@@ -476,6 +501,7 @@ export const Mountains = {
   createRock,
   addRocks,
   ROCK_COLLISION_MIN_SIZE,
+  rockIsCollisionHazard,
   debugHeightMap,
   heightMap // Expose the heightmap for debugging
 };

@@ -279,6 +279,27 @@ runTest('Tree and Rock Positioning', () => {
   Utils.createTree = originalCreateTree;
 });
 
+// Test 8: Collidable rocks avoid the ski line and spawn pocket
+runTest('Collidable rocks avoid the ski line and spawn pocket', () => {
+  const isHazard = global.Mountains.rockIsCollisionHazard;
+  assert(typeof isHazard === 'function', 'Mountains.rockIsCollisionHazard should be exported');
+
+  // Small half-buried stones stay decorative even when well clear of the path.
+  assert(!isHazard(50, -150, 1.0), 'rocks below the min hazard size stay decorative');
+
+  // The central ski line is kept hazard-free so the run is always navigable.
+  assert(!isHazard(0, -150, 2.0), 'no hazard directly on the center ski line');
+  assert(!isHazard(4.9, -150, 3.0), 'no hazard inside the |x| < 5 ski corridor');
+
+  // The spawn pocket around the start (0, -15) is hazard-free, even off-center.
+  assert(!isHazard(0, -15, 2.0), 'no hazard on the snowman start');
+  assert(!isHazard(6, -15, 2.0), 'no hazard within the spawn pocket even off the center line');
+
+  // A large rock clear of both the ski line and the start is a real hazard.
+  assert(isHazard(50, -150, 2.0), 'large rocks clear of the path and start are hazards');
+  assert(isHazard(8, -60, 1.5), 'large off-line rocks past the spawn pocket are hazards');
+});
+
 // Print test summary
 console.log(`\n==============================`);
 console.log(`Tests completed: ${passCount} passed, ${failCount} failed`);
