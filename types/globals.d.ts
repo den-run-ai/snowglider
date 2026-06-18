@@ -75,6 +75,7 @@ declare global {
     // Cross-module/test handles published by snowglider.js (docs/ARCHITECTURE.md §3).
     terrainMesh?: any;
     treePositions?: any;
+    rockPositions?: Array<{ x: number; y: number; z: number; size: number }>;
     isTestMode?: boolean;
     // Lifecycle/input callbacks snowglider.js publishes for controls.js + buttons.
     toggleCameraView?: () => unknown;

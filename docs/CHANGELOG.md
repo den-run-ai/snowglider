@@ -13,6 +13,13 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Gameplay
+- Large exposed rocks now participate in collision detection with a distinct rock
+  crash reason, while small half-buried stones remain decorative terrain detail.
+- Rock collision data is returned from terrain generation and threaded through the
+  typed physics wrapper so the behavior lands cleanly after the TypeScript
+  migration stack.
+
 ### Honest full-source coverage — Node + browser merged (#122)
 - `npm run test:coverage` now runs c8 with `--all --src src`, so the Node and
   verification suites count every migrated `src/` file instead of only the ones

@@ -26,6 +26,7 @@ import {
   type TerrainVecFn,
   type SnowmanControls,
   type TreePos,
+  type RockPos,
   type CameraManagerLike,
   type ShowGameOverFn,
   type UpdateResult,
@@ -64,6 +65,7 @@ export interface StepDeps {
   getTerrainGradient: TerrainVecFn;
   getDownhillDirection: TerrainVecFn;
   treePositions: TreePos[];
+  rockPositions: RockPos[];
   gameActive: boolean;
   showGameOver: ShowGameOverFn;
 }
@@ -119,7 +121,7 @@ function stepPlayer(player: PlayerState, deps: StepDeps): UpdateResult {
     player.lastTerrainHeight, player.airTime, player.jumpCooldown, deps.controls,
     player.turnPhase, player.currentTurnDirection, player.turnChangeCooldown, TURN_AMPLITUDE,
     deps.getTerrainHeight, deps.getTerrainGradient, deps.getDownhillDirection,
-    deps.treePositions, deps.gameActive, deps.showGameOver
+    deps.treePositions, deps.gameActive, deps.showGameOver, deps.rockPositions
   );
 
   // Write the mutable scalars back (pos/velocity were mutated in place above).

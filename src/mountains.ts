@@ -27,12 +27,14 @@ export interface TerrainVec2 {
 }
 
 /** A placed rock's world position and size. */
-interface RockPosition {
+export interface RockPosition {
   x: number;
   y: number;
   z: number;
   size: number;
 }
+
+const ROCK_COLLISION_MIN_SIZE = 1.25;
 
 // --- SimplexNoise implementation ---
 class SimplexNoise {
@@ -310,8 +312,9 @@ function createTerrain(scene: THREE.Scene) {
   // Debug log to verify our height map is working
   console.log(`Height map contains ${Object.keys(heightMap).length} terrain points`);
   
-  // Add rocks to make the mountain more realistic
-  addRocks(scene);
+  // Add rocks to make the mountain more realistic. The returned subset is the
+  // collision source of truth for rocks large enough to read as hazards.
+  const rockPositions = addRocks(scene);
   
   // Add trees to make the slope more visible using the separate Trees module
   let treePositions: TreePosition[] = [];
@@ -321,11 +324,11 @@ function createTerrain(scene: THREE.Scene) {
     console.warn("Trees module not found, skipping tree creation");
   }
   
-  return { terrain, treePositions };
+  return { terrain, treePositions, rockPositions };
 }
 
 // Add rocks to create a more realistic mountain environment
-function addRocks(scene: THREE.Scene) {
+function addRocks(scene: THREE.Scene): RockPosition[] {
   // Remove any existing rocks from the scene to prevent duplicates
   for (let i = scene.children.length - 1; i >= 0; i--) {
     const child = scene.children[i];
@@ -388,6 +391,8 @@ function addRocks(scene: THREE.Scene) {
     }) ?? null;
   }
   
+  const collisionRockPositions: RockPosition[] = [];
+
   // Create rock instances
   rockPositions.forEach(pos => {
     // Get the exact terrain height from our height map or calculation
@@ -408,7 +413,14 @@ function addRocks(scene: THREE.Scene) {
     rock.rotation.z = -Math.atan(gradient.x) * 0.8;
     
     scene.add(rock);
+
+    if (pos.size >= ROCK_COLLISION_MIN_SIZE) {
+      collisionRockPositions.push({ x: pos.x, y: terrainHeight, z: pos.z, size: pos.size });
+    }
   });
+
+  console.log(`Mountains.addRocks: Created ${collisionRockPositions.length} rock positions for collision detection`);
+  return collisionRockPositions;
 }
 
 // Create a rock with variable size
@@ -463,6 +475,7 @@ export const Mountains = {
   createTerrain,
   createRock,
   addRocks,
+  ROCK_COLLISION_MIN_SIZE,
   debugHeightMap,
   heightMap // Expose the heightmap for debugging
 };

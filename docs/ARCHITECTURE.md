@@ -81,7 +81,7 @@ you edit.
 
 | Symbol | File | Style | Responsibility |
 |--------|------|-------|----------------|
-| `window.Mountains` | `mountains.js` | object + fns | Terrain height field, gradient, mesh, rocks, `SimplexNoise` |
+| `window.Mountains` | `mountains.js` | object + fns | Terrain height field, gradient, mesh, rocks / `rockPositions`, `SimplexNoise` |
 | `window.Trees` | `trees.js` | object + fns | Tree meshes + placement; returns `treePositions` |
 | `Snow` (bare global; on `window` only as `window.Utils`) | `snow.js` | object + fns | Snowflakes + ski snow-splash particles |
 | `Camera` (bare global; not on `window`) | `camera.js` | `class Camera` | Chase/orbit camera positioning & look-ahead |
@@ -108,6 +108,7 @@ you edit.
 `snowglider.js` itself exports several functions on `window` for cross-module and
 test use: `resetSnowman`, `restartGame`, `showGameOver`, `toggleCameraView`,
 `initializeGameWithAudio`, plus `window.terrainMesh`, `window.treePositions`,
+`window.rockPositions`,
 `window.isTestMode`.
 
 ---
@@ -118,6 +119,9 @@ Rather than importing each other, modules receive their dependencies:
 
 - **Terrain into physics.** `getTerrainHeight`, `getTerrainGradient`,
   `getDownhillDirection` are passed into `Snowman.updateSnowman(...)`.
+- **Obstacle positions into physics.** `treePositions` and `rockPositions` are
+  passed into the typed physics wrapper and then into `Snowman.updateSnowman(...)`;
+  these arrays are the collision source of truth for rendered obstacles.
 - **Terrain into avalanche.** `avalanche.setTerrainFunction(getTerrainHeight)` —
   without it boulders fall to `y = 0` instead of following the slope.
 - **Course init.** `CourseModule.init({ scene, getTerrainHeight, createSnowman })`;
