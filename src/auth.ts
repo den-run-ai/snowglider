@@ -1,6 +1,14 @@
-// @ts-check
-// auth.js - Firebase Authentication module for SnowGlider
+// auth.ts - Firebase Authentication module for SnowGlider
 // Uses Firebase modular SDK (Popup-only Google Sign-In)
+//
+// Phase 3.8 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+// (implied for a real `.ts` file). The module keeps its existing Firebase-typed
+// JSDoc (`@param`/`@returns` with `import('firebase/auth').*` etc.) — TypeScript
+// reads JSDoc type annotations in `.ts` files too, so the popup-only auth flow and
+// the localStorage fallback stay byte-for-byte unchanged (no TS syntax added).
+// It still loads via firebase-bootstrap's `<script src="src/auth.js">` (Vite-dev
+// resolves `.js`->`.ts`; the build emits `dist/src/auth.js`), and the headless
+// auth test reads `src/auth.ts` now (Node does not remap `.js`->`.ts`).
 
 // Prevent Firebase from trying to auto-init via init.json that gives 404 on GitHub Pages
 window.FIREBASE_MANUAL_INIT = true;
@@ -179,7 +187,7 @@ function updateUIForLoggedInUser(user) {
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
   const profileName = document.getElementById('profileName');
-  const profileAvatar = /** @type {HTMLImageElement} */ (document.getElementById('profileAvatar'));
+  const profileAvatar = document.getElementById('profileAvatar') as HTMLImageElement;
 
   if (!authUI || !profileUI) {
     console.error("updateUIForLoggedInUser: Could not find authUI or profileUI elements!");
@@ -229,7 +237,7 @@ function updateUIForLoggedOutUser() {
 
 // Reset login button to default state
 function resetLoginButton() {
-  const loginBtn = /** @type {HTMLButtonElement} */ (document.getElementById('loginBtn'));
+  const loginBtn = document.getElementById('loginBtn') as HTMLButtonElement;
   if (loginBtn) {
     loginBtn.textContent = 'Login with Google';
     loginBtn.disabled = false;
@@ -242,7 +250,7 @@ function resetLoginButton() {
 // Set up login/logout button handlers
 function setupAuthButtons() {
   // Login button
-  const loginBtn = /** @type {HTMLButtonElement} */ (document.getElementById('loginBtn'));
+  const loginBtn = document.getElementById('loginBtn') as HTMLButtonElement;
   if (loginBtn) {
     // Function to handle sign-in process using Popup
     const handleSignIn = (e) => {
@@ -320,7 +328,7 @@ function setupAuthButtons() {
   }
 
   // Logout button
-  const logoutBtn = /** @type {HTMLButtonElement} */ (document.getElementById('logoutBtn'));
+  const logoutBtn = document.getElementById('logoutBtn') as HTMLButtonElement;
   if (logoutBtn) {
     // Prevent default touch behavior if needed
     logoutBtn.addEventListener('touchstart', (e) => {

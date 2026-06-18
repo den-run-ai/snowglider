@@ -1,8 +1,15 @@
-// @ts-check
 /**
- * scores.js - User scoring and leaderboard module for SnowGlider
+ * scores.ts - User scoring and leaderboard module for SnowGlider
  *
- * This module handles player scoring, personal best tracking, and the global 
+ * Phase 3.8 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+ * (implied for a real `.ts` file); the module keeps its existing Firebase-typed
+ * JSDoc (TypeScript reads JSDoc in `.ts` too), so score validation, the
+ * localStorage best-time store and the leaderboard sync/fallback stay byte-for-byte
+ * unchanged (no TS syntax added). It loads via firebase-bootstrap's
+ * `<script src="src/scores.js">` (Vite-dev resolves `.js`->`.ts`; the build emits
+ * `dist/src/scores.js`); the headless scores test reads `src/scores.ts` now.
+ *
+ * This module handles player scoring, personal best tracking, and the global
  * leaderboard functionality. It was split from auth.js to provide better
  * separation of concerns.
  * 
