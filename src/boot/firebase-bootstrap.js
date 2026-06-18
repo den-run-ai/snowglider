@@ -191,7 +191,7 @@
         headers: { 'Content-Type': 'application/json' }
       }));
     }
-    return originalFetch.apply(this, arguments);
+    return originalFetch.call(this, url, options);
   };
 
   document.addEventListener('DOMContentLoaded', addLocalModeNotice);
