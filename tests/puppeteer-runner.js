@@ -11,10 +11,23 @@ const http = require('http');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
+const {
+  startBrowserCoverage,
+  foldPageCoverage,
+  writeBrowserReports,
+  createCoverageMap
+} = require('./coverage/browser-coverage');
 
 const PORT = process.env.TEST_PORT || 8081;  // Use different port to avoid conflicts
 const TEST_TIMEOUT = 120000; // 2 minutes for all tests
 const RESULTS_DIR = path.join(__dirname, '..', 'test-results');
+const ROOT = path.join(__dirname, '..');
+// Opt-in browser coverage (step 2 of the honest-coverage work). Off by default so
+// `npm run test:browser` stays fast/unchanged; CI sets BROWSER_COVERAGE for the
+// coverage upload. The unified suite (index.html?test=unified) runs every browser
+// test, so instrumenting that one page captures the full browser surface.
+const COLLECT_COVERAGE = process.env.BROWSER_COVERAGE === '1' || process.env.BROWSER_COVERAGE === 'true';
+const COVERAGE_DIR = path.join(ROOT, 'coverage', 'browser');
 
 // Ensure results directory exists
 if (!fs.existsSync(RESULTS_DIR)) {
@@ -265,9 +278,19 @@ async function runBrowserTests() {
     });
 
     await runStartMenuRaceRegression(browser);
-    
+
     const page = await browser.newPage();
-    
+
+    // Start V8 coverage before navigating so the initial module graph is
+    // instrumented. Best-effort: a coverage failure must never fail the suite.
+    if (COLLECT_COVERAGE) {
+      try {
+        await startBrowserCoverage(page);
+      } catch (covErr) {
+        console.warn('Browser coverage: failed to start:', covErr.message);
+      }
+    }
+
     // Collect console logs
     const consoleLogs = [];
     page.on('console', (msg) => {
@@ -385,6 +408,20 @@ async function runBrowserTests() {
       });
     });
     
+    // Stop and persist browser coverage now that the suite has finished but the
+    // page is still alive. Best-effort: never let coverage break the test run.
+    if (COLLECT_COVERAGE) {
+      try {
+        const coverageMap = createCoverageMap();
+        await foldPageCoverage(page, coverageMap, ROOT);
+        fs.mkdirSync(COVERAGE_DIR, { recursive: true });
+        writeBrowserReports(coverageMap, COVERAGE_DIR);
+        console.log(`Browser coverage written: ${coverageMap.files().filter(f => f.includes(`${path.sep}src${path.sep}`)).length} src files -> ${path.relative(ROOT, COVERAGE_DIR)}/lcov.info`);
+      } catch (covErr) {
+        console.warn('Browser coverage: failed to write report:', covErr.message);
+      }
+    }
+
     // Take a screenshot of results
     await page.screenshot({
       path: path.join(RESULTS_DIR, 'test-results.png'),

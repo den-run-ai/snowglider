@@ -14,8 +14,9 @@ test-results/
 # GitHub Pages build output
 dist/
 
-# Coverage reports
-coverage/
+# Coverage reports (anchored to the repo-root output dir so it does not also
+# ignore the tests/coverage/ tooling sources)
+/coverage/
 
 # Large video files
 *.mov

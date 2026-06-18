@@ -89,18 +89,36 @@ npm run test:verify         # Verification harness (physics invariant + DOM smok
 
 Other useful commands:
 ```bash
-npm run test:coverage       # Node suite under c8 coverage for all src/ files
+npm run test:coverage       # Node + verification suites under c8 coverage
 npm run test:browser        # Puppeteer browser suite
-npm run test:all            # Node suite + Puppeteer
+npm run test:browser:coverage  # Puppeteer suite with Chromium V8 coverage
+npm run coverage:merge      # Line-merge c8 + browser LCOV -> coverage/lcov.info
+npm run test:coverage:all   # Full pipeline: c8 + browser + merge
+npm run test:all            # Node suite + Puppeteer (no coverage)
 ```
 
-`npm run test:coverage` passes `--all --src src` to c8 so the generated
-`coverage/lcov.info` counts every source file in the migrated `src/` tree, not
-only files imported by Node tests. This keeps Codecov honest during the
-TypeScript migration: browser-only modules and harnesses that still execute
-transpiled/eval-loaded source are reported as uncovered until they are wired into
-importable Node tests or browser coverage collection. CI uploads the LCOV to
-Codecov as an informational, non-gating report; no coverage threshold is enforced.
+Coverage is collected from every suite and merged into a single
+`coverage/lcov.info`:
+
+- `npm run test:coverage` passes `--all --src src` to c8 so the Node and
+  verification suites count every source file in the migrated `src/` tree, not
+  only files imported by Node tests.
+- `npm run test:browser:coverage` sets `BROWSER_COVERAGE=1`, so
+  `tests/puppeteer-runner.js` records Chromium V8 coverage while the unified
+  browser suite runs. `tests/coverage/browser-coverage.js` converts that V8
+  coverage to Istanbul/LCOV, using Vite's inline source maps to attribute it back
+  to `src/*.ts` lines, and writes `coverage/browser/lcov.info`.
+- `npm run coverage:merge` (`tests/coverage/merge-lcov.js`) unions the two reports
+  at the LCOV line level — required because c8 (Node type-stripping) and Vite
+  (esbuild) emit different statement structures for the same file, so an
+  Istanbul-object merge would mis-attribute hits.
+
+This keeps Codecov honest: browser-only game modules are counted instead of
+showing as `0%`. The auth/scores modules are exercised by the browser auth/scores
+suites, so they now report real browser coverage too. CI runs `test:coverage`,
+then the browser suite with `BROWSER_COVERAGE`, then `coverage:merge`, and uploads
+the merged LCOV to Codecov as an informational, non-gating report; no coverage
+threshold is enforced.
 
 ### Browser Tests
 

@@ -13,6 +13,24 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Honest full-source coverage — Node + browser merged (#122)
+- `npm run test:coverage` now runs c8 with `--all --src src`, so the Node and
+  verification suites count every migrated `src/` file instead of only the ones
+  Node tests `import`.
+- The browser suite collects Chromium V8 coverage (`BROWSER_COVERAGE=1` →
+  `tests/coverage/browser-coverage.js`) and attributes it back to `src/*.ts` via
+  Vite's inline source maps. `tests/coverage/merge-lcov.js` line-merges that with
+  the c8 LCOV into a single `coverage/lcov.info` (`npm run test:coverage:all` runs
+  the whole pipeline; CI runs it across the existing test/browser steps).
+- Line-level merge is deliberate: c8 instruments Node's type-stripped `.ts` while
+  Vite instruments its esbuild output, so the two emit different statement
+  structures for the same file; an Istanbul-object merge would mis-attribute hits.
+- Net effect: browser-only modules (snowglider, course, effects, main, the boot
+  and start-menu modules) and the auth/scores browser suites now report real
+  coverage instead of `0%`; the merged report rose from ~28% (Node-only) to ~76%.
+  Coverage stays informational and non-gating (`fail_ci_if_error: false`, no
+  threshold); the Codecov badge is re-enabled now that the denominator is honest.
+
 ### TypeScript migration — Phase 2 (conversion) complete (#84)
 - Every game module is now an ES module that imports `three` from npm (the CDN
   UMD global is gone) and imports the others directly. The final classic module

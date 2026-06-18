@@ -92,10 +92,14 @@ The game automatically detects mobile devices and enables touch controls with vi
 ## Testing
 Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL parameters. See [`tests/README.md`](tests/README.md) for the full test matrix, the browser parameters, the verification harness, and per-suite details.
 
-Coverage runs through `npm run test:coverage`, which uses c8/Codecov against the
-entire `src/` tree. The report is intentionally non-gating in CI and includes
-all migrated JavaScript/TypeScript source files, so browser-only or eval-loaded
-modules appear as `0%` until they have importable or browser-collected coverage.
+Coverage is reported to Codecov against the entire `src/` tree and is
+intentionally non-gating in CI. It combines two passes: `npm run test:coverage`
+measures the Node + verification suites with c8 (`--all --src src`), and the
+browser suite collects Chromium V8 coverage that is mapped back to `src/*.ts` and
+line-merged into the same `coverage/lcov.info`. Run the whole pipeline locally
+with `npm run test:coverage:all`. Browser-only modules are therefore counted, not
+shown as `0%`; remaining gaps reflect untested code rather than uninstrumented
+files.
 
 ## Development
 
