@@ -1,7 +1,7 @@
 /**
  * Avalanche system tests for SnowGlider.
  *
- * Phase 2.1 (issue #84): these run against the REAL `src/avalanche.js` ES module
+ * Phase 2.1 (issue #84): these run against the REAL `src/avalanche.ts` ES module
  * and real three.js from npm. The previous version evaluated the source with
  * `new Function(src)` and a hand-rolled THREE mock plus a parallel
  * `TestAvalancheSystem` reimplementation; that injection pattern can't load a
@@ -13,6 +13,11 @@
  */
 
 'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { pathToFileURL } = require('url');
+const ts = require('typescript');
 
 // Custom assert helpers
 function assert(condition, message) {
@@ -39,6 +44,29 @@ function assertApprox(a, b, tolerance, message) {
 let passCount = 0;
 let failCount = 0;
 
+async function importTranspiledTypeScriptModule(sourcePath) {
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ES2022,
+      target: ts.ScriptTarget.ES2022,
+      sourceMap: false
+    },
+    fileName: sourcePath
+  });
+
+  const tempDir = path.join(__dirname, '.tmp-avalanche-tests');
+  const tempPath = path.join(tempDir, `avalanche-${process.pid}-${Date.now()}.mjs`);
+  fs.mkdirSync(tempDir, { recursive: true });
+  fs.writeFileSync(tempPath, transpiled.outputText, 'utf8');
+
+  try {
+    return await import(pathToFileURL(tempPath).href);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 function runTest(name, testFn) {
   try {
     testFn();
@@ -54,7 +82,12 @@ function runTest(name, testFn) {
 async function main() {
   // Real three.js (npm) and the real avalanche module under test.
   const THREE = await import('three');
-  const { AvalancheSystem } = await import('../src/avalanche.js');
+  // Phase 3.0 (issue #84): avalanche is now `.ts`. Transpile it to temporary ESM
+  // for Node tests so this suite does not depend on Node's native type-stripping
+  // support. The browser/dev/build paths still exercise Vite's TypeScript loader.
+  const { AvalancheSystem } = await importTranspiledTypeScriptModule(
+    path.join(__dirname, '..', 'src', 'avalanche.ts')
+  );
 
   // Each test gets a fresh real scene; the system adds its InstancedMesh to it.
   const makeSystem = (count) => new AvalancheSystem(new THREE.Scene(), count);

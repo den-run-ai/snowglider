@@ -63,7 +63,9 @@ module.exports = [
     }
   },
   {
-    files: ["src/audio.js", "src/auth.js", "src/avalanche.js", "src/boot/script-loader.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js", "src/ui/start-menu.js"],
+    // avalanche.js renamed to avalanche.ts (issue #84, Phase 3.0); `eslint .`
+    // does not lint .ts (no typescript-eslint configured), so it's dropped here.
+    files: ["src/audio.js", "src/auth.js", "src/boot/script-loader.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js", "src/ui/start-menu.js"],
     languageOptions: {
       sourceType: "module"
     }
