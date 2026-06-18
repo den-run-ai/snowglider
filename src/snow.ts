@@ -1,5 +1,4 @@
-// @ts-check
-// Snow.js - Utility functions for the snowman skiing game
+// snow.ts - Utility functions for the snowman skiing game
 //
 // Phase 2.6/cluster (issue #84): converted off the classic global model. `THREE`,
 // `Mountains` and `Trees` now come from real ES-module imports, and `Snow` is
@@ -7,15 +6,45 @@
 // at module-eval time; the imports guarantee both are evaluated first, so the
 // previous bare-global reads (via window bridges) are gone. Loaded via the bundle
 // entry, not the classic script-loader.
+//
+// Phase 3.5 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+// (implied for a real `.ts` file) and the snow particle/splash state, helper
+// params and the `SnowSplash` pool shape are now real `interface`/`type`
+// declarations. The `Snow` facade keeps delegating to the imported `Mountains`/
+// `Trees` modules unchanged. Behaviour is unchanged — every edit is
+// type-only/erasable, so esbuild (Vite) and Node's native type-stripping both run
+// it exactly as before. The `./mountains.js` / `./trees.js` specifiers stay `.js`
+// (Vite/tsc resolve them to the `.ts` files; the Node terrain/regression tests use
+// the `.js`->`.ts` resolve hook added in PR 3.3).
 import * as THREE from 'three';
 import { Mountains } from './mountains.js';
 import { Trees } from './trees.js';
+
+/** Minimal positional shape the snow systems read from the player. */
+interface Vec3Like {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Horizontal velocity the splash reads (only x/z are used). */
+interface PlanarVelocity {
+  x: number;
+  z: number;
+}
+
+/** Pooled snow-splash particle system returned by {@link createSnowSplash}. */
+interface SnowSplash {
+  particles: THREE.Sprite[];
+  particleCount: number;
+  nextParticle: number;
+}
 
 // Mountains features are now in mountains.js
 // This file now delegates terrain/mountain calls to mountains.js
 
 // --- Snow Particle System ---
-const snowflakes = [];
+const snowflakes: THREE.Sprite[] = [];
 const snowflakeCount = 1000;
 const snowflakeSpread = 100; // Spread area around player
 const snowflakeHeight = 50; // Height above player
@@ -23,7 +52,7 @@ const snowflakeFallSpeed = 5;
 
 // Snowman code moved to snowman.js
 
-function createSnowflakes(scene) {
+function createSnowflakes(scene: THREE.Scene) {
   // Create a simple white circle texture for snowflakes
   const canvas = document.createElement('canvas');
   canvas.width = 16;
@@ -72,14 +101,14 @@ function createSnowflakes(scene) {
   }
 }
 
-function resetSnowflakePosition(snowflake, playerPos) {
+function resetSnowflakePosition(snowflake: THREE.Sprite, playerPos: Vec3Like) {
   // Position snowflakes randomly in a box above the player
   snowflake.position.x = playerPos.x + (Math.random() * snowflakeSpread - snowflakeSpread/2);
   snowflake.position.z = playerPos.z + (Math.random() * snowflakeSpread - snowflakeSpread/2);
   snowflake.position.y = playerPos.y + Math.random() * snowflakeHeight;
 }
 
-function updateSnowflakes(delta, playerPos, scene) {
+function updateSnowflakes(delta: number, playerPos: Vec3Like, scene: THREE.Scene) {
   snowflakes.forEach(snowflake => {
     // Apply falling movement
     snowflake.position.y -= snowflake.userData.speed * delta;
@@ -109,7 +138,7 @@ function updateSnowflakes(delta, playerPos, scene) {
 }
 
 // Create a snow splash particle system for ski effects
-function createSnowSplash() {
+function createSnowSplash(): SnowSplash {
   // Create a simple white circle texture for snow splash
   const canvas = document.createElement('canvas');
   canvas.width = 32;
@@ -161,7 +190,7 @@ function createSnowSplash() {
   const textures = [texture, texture2];
   
   // Follow the same approach as snowflakes - use individual sprites
-  const splashParticles = [];
+  const splashParticles: THREE.Sprite[] = [];
   const particleCount = 250; // Increased for more dramatic effect
   
   // Create the base materials that particles will use
@@ -212,7 +241,7 @@ function createSnowSplash() {
 }
 
 // Update snow splash particles each frame
-function updateSnowSplash(splash, delta, snowman, velocity, isInAir, scene) {
+function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THREE.Object3D, velocity: PlanarVelocity, isInAir: boolean, scene: THREE.Scene) {
   // Early return if not initialized
   if (!splash || !splash.particles) return;
   
@@ -376,10 +405,9 @@ function updateSnowSplash(splash, delta, snowman, velocity, isInAir, scene) {
 
 // Export utility functions and classes
 // We leverage the Mountains export from mountains.js and add our own.
-// `Mountains` and `Trees` are read here as bare globals (the window.* bridges
-// published by the already-imported mountains.js / trees.js modules), so this
+// `Mountains` and `Trees` are read from the ES-module imports above, so this
 // object literal must evaluate after those modules — guaranteed by main.js's
-// import order.
+// import order (and by the static imports at the top of this file).
 export const Snow = {
   // Mountain features are now imported from mountains.js
   // For backward compatibility, provide the same API via delegation
@@ -407,7 +435,6 @@ export const Snow = {
 // For backward compatibility, alias Utils to Snow
 const Utils = Snow;
 
-// The window.Snow / window.Utils bridges were removed (issue #84): snowglider.js
-// imports Snow, and the browser tests import it as `Snow as Utils`. (snow.js still
-// reads Mountains/Trees via their window bridges at eval — those remain until
-// mountains.js/trees.js are imported here.)
+// Snow is imported directly by snowglider.js, and the browser tests import it as
+// `Snow as Utils` (issue #84). Mountains/Trees are read via the ES-module imports
+// at the top of this file.
