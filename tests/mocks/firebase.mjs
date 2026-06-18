@@ -31,8 +31,16 @@ export const calls = {
   getDoc: [],
   setDoc: [],
   getDocs: [],
-  logEvent: []
+  logEvent: [],
+  // firebase-auth.js call counters (used by the auth harness)
+  signInWithPopup: 0,
+  signOut: 0,
+  setPersistence: 0
 };
+
+// firebase-auth.js control surface, driven by the auth harness.
+let authStateCallback = null; // the onAuthStateChanged listener auth.ts registers
+let nextPopupResult = null;   // controls how the next signInWithPopup resolves/rejects
 
 // Sentinels handed back to callers that ask the SDK for the service instances.
 export const firestoreInstance = { __firestore: true };
@@ -80,9 +88,14 @@ export function reset() {
   calls.setDoc = [];
   calls.getDocs = [];
   calls.logEvent = [];
+  calls.signInWithPopup = 0;
+  calls.signOut = 0;
+  calls.setPersistence = 0;
   pendingWritePath = null;
   pendingWrite = null;
   timestampCounter = 0;
+  authStateCallback = null;
+  nextPopupResult = null;
 }
 
 export function seed(collectionName, id, value) {
@@ -223,4 +236,75 @@ export function getAnalytics() {
 
 export function logEvent(_analytics, name, params) {
   calls.logEvent.push({ name, params });
+}
+
+// ---- firebase-app.js surface ----
+const appInstance = { __app: true };
+
+export function initializeApp() {
+  return appInstance;
+}
+
+// ---- firebase-auth.js surface ----
+const authInstance = { __isAuth: true };
+
+export function getAuth() {
+  return authInstance;
+}
+
+export class GoogleAuthProvider {
+  constructor() {
+    this.scopes = [];
+    this.params = {};
+  }
+  addScope(scope) {
+    this.scopes.push(scope);
+  }
+  setCustomParameters(params) {
+    this.params = params;
+  }
+}
+
+export function signInWithPopup() {
+  calls.signInWithPopup++;
+  if (nextPopupResult && nextPopupResult.reject) {
+    return Promise.reject(nextPopupResult.reject);
+  }
+  return Promise.resolve(nextPopupResult ? nextPopupResult.resolve : { user: { email: 'x@y.z' } });
+}
+
+// auth.ts imports this as `signOut as firebaseSignOut`.
+export function signOut() {
+  calls.signOut++;
+  return Promise.resolve();
+}
+
+export function onAuthStateChanged(_auth, callback) {
+  authStateCallback = callback;
+}
+
+export function setPersistence() {
+  calls.setPersistence++;
+  return Promise.resolve();
+}
+
+export const browserLocalPersistence = { __persistence: 'local' };
+
+// ---- auth test control surface ----
+
+/** Set how the next signInWithPopup() resolves: { resolve } or { reject }. */
+export function setNextPopupResult(result) {
+  nextPopupResult = result;
+}
+
+/** The onAuthStateChanged listener auth.ts registered (null until initializeAuth). */
+export function getAuthStateCallback() {
+  return authStateCallback;
+}
+
+/** Drive an auth state transition through the captured listener. */
+export function emitAuthState(user) {
+  if (authStateCallback) {
+    authStateCallback(user);
+  }
 }
