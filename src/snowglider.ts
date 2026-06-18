@@ -161,14 +161,30 @@ const terrain = terrainResult.terrain;
 window.terrainMesh = terrain;
 
 // --- Initialize Avalanche System ---
-let avalanche: AvalancheSystem | null = null;
-let avalancheTriggered = false;
-let lastAvalancheZ = 0;
+/**
+ * Typed game state (Phase 3 pilot, issue #98). Consolidates the avalanche
+ * run-state that was previously three loose module-scoped `let`s into one typed
+ * object. The browser suites still drive these by their original bare names via
+ * the `window.*` accessor proxy below (the proxy now reads/writes `state.*`).
+ * Future PRs can fold more mutable game state (player physics, run timer, …)
+ * into this same object as additional `GameState` fields.
+ */
+interface GameState {
+  avalanche: AvalancheSystem | null; // live avalanche system (null if module absent)
+  avalancheTriggered: boolean;       // whether this run's avalanche has fired
+  lastAvalancheZ: number;            // z the trigger distance is measured from
+}
+const state: GameState = {
+  avalanche: null,
+  avalancheTriggered: false,
+  lastAvalancheZ: 0,
+};
 const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
 
 if (typeof AvalancheSystem !== 'undefined') {
-  avalanche = new AvalancheSystem(scene, 120);
-  avalanche.setTerrainFunction(Snow.getTerrainHeight);
+  const av = new AvalancheSystem(scene, 120);
+  av.setTerrainFunction(Snow.getTerrainHeight);
+  state.avalanche = av;
   console.log("Avalanche system initialized");
 } else {
   console.warn("Avalanche module not loaded - avalanche feature disabled");
@@ -394,10 +410,11 @@ function resetSnowman() {
   airTime = 0;
   
   // Reset avalanche system
+  const avalanche = state.avalanche;
   if (avalanche) {
     avalanche.reset();
-    avalancheTriggered = false;
-    lastAvalancheZ = pos.z; // Reset to starting position
+    state.avalancheTriggered = false;
+    state.lastAvalancheZ = pos.z; // Reset to starting position
   }
   
   // Reset keyboard controls
@@ -582,14 +599,15 @@ function animate(time: number) {
     }
     
     // --- Avalanche Logic ---
+    const avalanche = state.avalanche;
     if (avalanche) {
       // Trigger avalanche based on distance traveled (simple geometric trigger)
       // Player starts at z=-15 and moves in -Z direction (downhill)
-      const distanceTraveled = lastAvalancheZ - pos.z;
+      const distanceTraveled = state.lastAvalancheZ - pos.z;
       
-      if (!avalancheTriggered && distanceTraveled > AVALANCHE_TRIGGER_DISTANCE) {
+      if (!state.avalancheTriggered && distanceTraveled > AVALANCHE_TRIGGER_DISTANCE) {
         avalanche.trigger(snowman.position);
-        avalancheTriggered = true;
+        state.avalancheTriggered = true;
         console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
       }
       
@@ -602,16 +620,16 @@ function animate(time: number) {
       }
       
       // Reset avalanche if it has passed the player (survived!)
-      if (avalancheTriggered && avalanche.hasPassed(snowman.position)) {
+      if (state.avalancheTriggered && avalanche.hasPassed(snowman.position)) {
         console.log("Avalanche passed - player survived!");
         avalanche.reset();
-        avalancheTriggered = false;
-        lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
+        state.avalancheTriggered = false;
+        state.lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
       }
       
       // Telegraph the threat: banner, "distance behind you" meter, vignette, shake.
       if (EffectsModule) {
-        const avActive = avalancheTriggered && avalanche.active;
+        const avActive = state.avalancheTriggered && avalanche.active;
         const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
         EffectsModule.updateAvalanche(avActive, avDist);
       }
@@ -1288,8 +1306,8 @@ window.initializeGameWithAudio = function() {
     jumpCooldown:       { get: () => jumpCooldown,       set: (v) => { jumpCooldown = v; } },
     bestTime:           { get: () => bestTime,           set: (v) => { bestTime = v; } },
     startTime:          { get: () => startTime,          set: (v) => { startTime = v; } },
-    avalancheTriggered: { get: () => avalancheTriggered, set: (v) => { avalancheTriggered = v; } },
-    lastAvalancheZ:     { get: () => lastAvalancheZ,     set: (v) => { lastAvalancheZ = v; } },
+    avalancheTriggered: { get: () => state.avalancheTriggered, set: (v) => { state.avalancheTriggered = v; } },
+    lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v) => { state.lastAvalancheZ = v; } },
     // Object/function refs the tests read or mutate (never reassign) — get-only.
     scene:              { get: () => scene },
     camera:             { get: () => camera },
@@ -1297,7 +1315,7 @@ window.initializeGameWithAudio = function() {
     snowman:            { get: () => snowman },
     velocity:           { get: () => velocity },
     pos:                { get: () => pos },
-    avalanche:          { get: () => avalanche },
+    avalanche:          { get: () => state.avalanche },
     snowSplash:         { get: () => snowSplash },
     terrain:            { get: () => terrain },
     // Live terrain sampler for the browser tests. camera.js imports the sampler
