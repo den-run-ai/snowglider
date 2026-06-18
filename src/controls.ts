@@ -1,19 +1,47 @@
-// @ts-check
-// controls.js - Keyboard and touch controls for SnowGlider game
+// controls.ts - Keyboard and touch controls for SnowGlider game
 //
 // Phase 2.5 (issue #84): converted off the classic global model. `Controls` is
 // now `export`ed instead of being a bare script global. This module uses no
-// three.js, so there is no `import * as THREE`. The window.Controls assignment
-// below is kept so the still-classic consumer (snowglider.js, which reads
-// `Controls` by bare name, converted last in PR 2.9) keeps working during the
-// staged migration; it is loaded into the page through the bundle entry
-// (src/main.js) rather than the classic script-loader.
+// three.js, so there is no `import * as THREE`. It is loaded into the page
+// through the bundle entry (src/main.js) and imported directly by snowglider.js
+// and the controls browser test.
+//
+// Phase 3.4 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+// (implied for a real `.ts` file), the JSDoc `@typedef`s are now real
+// `interface`/`type` declarations, and the JSDoc `/** @type {HTMLElement} */`
+// casts are now `as` casts. This is user-input code, so the diff is a behavioural
+// no-op — every edit is type-only/erasable, so esbuild (Vite) and Node's native
+// type-stripping both run it exactly as before.
 
-/** @typedef {{ x: number, y: number, width: number, height: number }} TouchRegion */
-/** @typedef {'left'|'right'|'up'|'down'|'jump'} ControlName */
+/** A rectangular on-screen touch zone (CSS pixels). */
+export interface TouchRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The five logical controls, shared by keyboard and touch. */
+export type ControlName = 'left' | 'right' | 'up' | 'down' | 'jump';
+
+/** Boolean pressed-state for every control. */
+export type ControlState = Record<ControlName, boolean>;
+
+/** A tracked active touch point (CSS pixels). */
+interface TouchPoint {
+  x: number;
+  y: number;
+}
+
+/** Touch tracking state: live touches, the screen regions, and the visual flag. */
+interface TouchState {
+  touches: Record<string, TouchPoint>;
+  controlRegions: Partial<Record<ControlName, TouchRegion>>;
+  showVisualControls: boolean;
+}
 
 // Initialize controls state - used for both keyboard and touch
-const gameControls = {
+const gameControls: ControlState = {
   left: false,
   right: false,
   up: false,
@@ -22,21 +50,14 @@ const gameControls = {
 };
 
 // Touch state tracking
-/**
- * @type {{
- *   touches: Record<string, { x: number, y: number }>,
- *   controlRegions: Partial<Record<ControlName, TouchRegion>>,
- *   showVisualControls: boolean
- * }}
- */
-const touchState = {
+const touchState: TouchState = {
   touches: {},         // Store active touch points
   controlRegions: {},  // Regions for touch controls on screen
   showVisualControls: false // Flag to enable visual touch controls (optional)
 };
 
 // Setup controls (keyboard + touch)
-function setupControls() {
+function setupControls(): ControlState {
   // Set up keyboard controls
   setupKeyboardControls();
   
@@ -50,7 +71,7 @@ function setupControls() {
 // Setup keyboard control handlers
 function setupKeyboardControls() {
   // Handle keyboard down events
-  const handleKeyDown = (event) => {
+  const handleKeyDown = (event: KeyboardEvent) => {
     switch(event.key) {
       case 'ArrowLeft':
       case 'a':
@@ -86,7 +107,7 @@ function setupKeyboardControls() {
   };
   
   // Handle keyboard up events
-  const handleKeyUp = (event) => {
+  const handleKeyUp = (event: KeyboardEvent) => {
     switch(event.key) {
       case 'ArrowLeft':
       case 'a':
@@ -125,7 +146,7 @@ function setupKeyboardControls() {
 // Setup touch control handlers
 function setupTouchControls() {
   // Detect if we're on a mobile device
-  const isMobileDevice = () => {
+  const isMobileDevice = (): boolean => {
     return (
       typeof window.orientation !== 'undefined' ||
       navigator.userAgent.indexOf('IEMobile') !== -1 ||
@@ -198,7 +219,7 @@ function setupTouchControls() {
   window.addEventListener('resize', updateTouchRegions);
   
   // Handle touch start
-  const handleTouchStart = (event) => {
+  const handleTouchStart = (event: TouchEvent) => {
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();
@@ -216,7 +237,7 @@ function setupTouchControls() {
   };
   
   // Handle touch move
-  const handleTouchMove = (event) => {
+  const handleTouchMove = (event: TouchEvent) => {
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();
@@ -234,7 +255,7 @@ function setupTouchControls() {
   };
   
   // Handle touch end
-  const handleTouchEnd = (event) => {
+  const handleTouchEnd = (event: TouchEvent) => {
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();
@@ -258,7 +279,7 @@ function setupTouchControls() {
   };
   
   // Process touch input based on screen position
-  const processTouchInput = (touch, isActive) => {
+  const processTouchInput = (touch: Touch, isActive: boolean) => {
     const x = touch.clientX;
     const y = touch.clientY;
     
@@ -283,7 +304,7 @@ function setupTouchControls() {
     if (touchState.showVisualControls && isActive) {
       const touchControls = document.querySelectorAll('.touch-control');
       touchControls.forEach(control => {
-        const el = /** @type {HTMLElement} */ (control);
+        const el = control as HTMLElement;
         // Highlight the active control
         if ((control.classList.contains('touch-left') && gameControls.left) ||
             (control.classList.contains('touch-right') && gameControls.right) ||
@@ -299,9 +320,9 @@ function setupTouchControls() {
   };
   
   // Helper to check if a point is in a region
-  const isPointInRegion = (x, y, region) => {
+  const isPointInRegion = (x: number, y: number, region: TouchRegion) => {
     return (
-      x >= region.x && 
+      x >= region.x &&
       x <= region.x + region.width && 
       y >= region.y && 
       y <= region.y + region.height
@@ -323,7 +344,7 @@ function setupTouchControls() {
     if (!touchState.showVisualControls) return;
     
     // Helper to create a control element
-    const createControlElement = (region, name) => {
+    const createControlElement = (region: TouchRegion, name: string) => {
       const element = document.createElement('div');
       element.className = `touch-control touch-${name}`;
       element.style.position = 'absolute';
@@ -378,7 +399,7 @@ function setupTouchControls() {
 }
 
 // Reset all controls to default state
-function resetControls() {
+function resetControls(): ControlState {
   gameControls.left = false;
   gameControls.right = false;
   gameControls.up = false;
@@ -404,7 +425,7 @@ export const Controls = {
     );
   },
   // Toggle visibility of touch controls
-  toggleTouchControls: (show) => {
+  toggleTouchControls: (show?: boolean) => {
     if (typeof show === 'boolean') {
       touchState.showVisualControls = show;
       // Refresh controls
@@ -465,7 +486,7 @@ function setupButtonTouchHandlers() {
   // when the game over screen appears
   const gameOverObserver = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
-      const target = /** @type {HTMLElement} */ (mutation.target);
+      const target = mutation.target as HTMLElement;
       if (mutation.type === 'attributes' &&
           mutation.attributeName === 'style' &&
           target.id === 'gameOverOverlay' &&
@@ -510,5 +531,5 @@ function setupButtonTouchHandlers() {
   }
 }
 
-// The window.Controls bridge was removed (issue #84): snowglider.js and the
-// controls browser tests import Controls.
+// Controls is imported directly by snowglider.js and the controls browser test
+// (issue #84).
