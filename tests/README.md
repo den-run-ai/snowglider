@@ -4,7 +4,7 @@ This directory contains tests for the SnowGlider game. The tests are designed to
 
 ## Test Types
 
-There are ten main types of tests:
+There are eleven main types of tests:
 
 1. **Terrain Tests** (`terrain-tests.js`)
    - Tests for terrain height calculations
@@ -61,6 +61,14 @@ There are ten main types of tests:
    - Headless, deterministic checks that guard the physics contract and the DOM modules
    - Run via `npm run test:verify` (also included in `npm test`)
    - See [Verification Harness](#verification-harness) below
+
+11. **Playwright E2E** (`tests/e2e/`)
+   - Cross-browser (Chromium + WebKit) end-to-end tests that drive the real game
+   - Added *alongside* the Puppeteer suite, not as a replacement — for the things
+     the in-page `?test=` runner can't reach: the Safari engine, real menu+keyboard
+     user flows, and emulated mobile touch
+   - Run via `npm run test:e2e` (not part of `npm test`; runs as its own CI job)
+   - See [Playwright E2E](#playwright-e2e-cross-browser--mobile) below
 
 ## Running Tests
 
@@ -223,6 +231,46 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
 ```bash
 npm run test:verify   # physics_invariant_harness.js + dom_smoke_test.js
 ```
+
+## Playwright E2E (cross-browser + mobile)
+
+`tests/e2e/` holds Playwright specs that drive the **real game** in real browser
+engines. They were added *alongside* the Puppeteer suite, not as a replacement:
+the Puppeteer runner still owns the in-page `?test=` suites and the honest-coverage
+pipeline, while Playwright covers what that setup structurally can't —
+
+- **Cross-browser / Safari** — specs run on **Chromium and WebKit** (`webkit` is
+  the closest CI proxy for desktop/iOS Safari; nothing ran on the Safari engine
+  before). It does **not** cover the iOS hardware silent-switch audio caveat in
+  `CLAUDE.md` — that still needs a real device.
+- **Real user flows** — start from the menu, ski with real keyboard input, observe
+  the snowman move / the timer advance / reset — black-box, not poking unit suites.
+- **Mobile touch** — emulated iPhone (WebKit) verifying touch regions drive the
+  shared controls state and the mobile HUD renders.
+
+Specs (each maps to one PR commit):
+
+- `boot.spec.ts` — boot smoke: menu loads, the three.js WebGL canvas mounts, WebGL2
+  is available, no uncaught errors. (chromium + webkit)
+- `gameplay.spec.ts` — start → ski downhill → timer advances; arrow keys steer;
+  reset returns to start. (chromium + webkit)
+- `mobile.spec.ts` — touch regions drive controls; canvas + on-screen touch
+  controls render. (emulated iPhone / WebKit)
+
+```bash
+npm run test:e2e          # all specs, all projects (boots its own Vite server)
+npm run test:e2e:webkit   # WebKit (Safari engine) only
+npm run test:e2e:ui       # interactive Playwright UI mode
+```
+
+`playwright.config.ts` boots a dedicated Vite dev server (port 8082, separate from
+the Puppeteer runner's 8081) so the two suites can run side by side. The shared
+helpers in `tests/e2e/helpers.ts` use the live `window.*` game/test handles the
+orchestrator re-publishes (see [`ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §3).
+First run needs the browsers: `npx playwright install chromium webkit`.
+
+`npm run test:e2e` is intentionally **not** part of `npm test`; CI runs it as its
+own `e2e` job that does not gate the Pages deploy.
 
 ## Test Implementation Details
 

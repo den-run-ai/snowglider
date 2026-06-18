@@ -19,6 +19,9 @@
     "test:verify": "node tests/verification/physics_invariant_harness.js && node tests/verification/dom_smoke_test.js",
     "test:browser": "node tests/puppeteer-runner.js",
     "test:browser:coverage": "BROWSER_COVERAGE=1 node tests/puppeteer-runner.js",
+    "test:e2e": "PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test",
+    "test:e2e:webkit": "PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test --project=webkit",
+    "test:e2e:ui": "PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test --ui",
     "test:all": "npm test && npm run test:browser",
     "test:coverage": "c8 --all --src src --reporter=lcov --reporter=text npm run test",
     "coverage:merge": "node tests/coverage/merge-lcov.js --out coverage/lcov.info coverage/lcov.info coverage/browser/lcov.info",
@@ -38,6 +41,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@firebase/rules-unit-testing": "^4.0.1",
+    "@playwright/test": "^1.61.0",
     "@types/three": "0.160.0",
     "c8": "^10.1.2",
     "eslint": "^9.39.4",
