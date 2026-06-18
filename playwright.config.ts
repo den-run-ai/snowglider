@@ -1,5 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// NOTE: run the specs via `npm run test:e2e` (not a bare `npx playwright test`).
+// Those scripts set PLAYWRIGHT_FORCE_ASYNC_LOADER=1, which is required on Node 23:
+// Playwright 1.61's synchronous registerHooks loader crashes resolving the relative
+// `.ts` imports in the specs ("context.conditions?.includes is not a function").
+// The env must be set before the process starts, so it can't live in this config.
+
 // Playwright E2E layer (added alongside the existing Puppeteer suite, not as a
 // replacement). It exists for the things the Puppeteer/in-page `?test=` runner
 // can't reach: cross-browser engines (WebKit ≈ Safari), real menu+input user
