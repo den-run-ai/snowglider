@@ -1,0 +1,14 @@
+# Coverage is reported (badge + PR annotations) but never gates a PR.
+# See docs/CHANGELOG.md (#122): "Coverage stays informational and non-gating."
+# Without this file Codecov applies its default `project` status (auto target,
+# 0% threshold), which fails on ANY decrease — e.g. a -0.12% dip from adding a
+# couple of debug log lines. `informational: true` keeps the report while never
+# blocking the merge.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
