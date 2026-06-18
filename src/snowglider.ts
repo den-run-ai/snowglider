@@ -243,8 +243,8 @@ if (typeof EffectsModule !== 'undefined') {
 }
 
 // --- Snowman Position & Reset ---
-let pos = { x: 0, z: -40, y: Snow.getTerrainHeight(0, -40) };
-let velocity = { x: 0, z: 0 }; 
+const pos = { x: 0, z: -40, y: Snow.getTerrainHeight(0, -40) };
+const velocity = { x: 0, z: 0 };
 let isInAir = false;
 let verticalVelocity = 0;
 let jumpCooldown = 0;
@@ -255,7 +255,7 @@ let airTime = 0;
 let turnPhase = 0;
 let currentTurnDirection = 0;
 let turnChangeCooldown = 0;
-let turnAmplitude = 3.0;
+const turnAmplitude = 3.0;
 
 // Add timer and best time tracking
 let startTime = 0;
