@@ -62,18 +62,15 @@ module.exports = [
       "no-unused-vars": "off"
     }
   },
-  {
-    // Every game/app module was renamed to .ts through Phase 3 (issue #84):
-    // avalanche/course/effects/camera/trees/controls/snow/mountains/snowman
-    // (3.0-3.7), auth/scores (3.8), the snowglider.js orchestrator (3.9) and
-    // audio.js (3.10). `eslint .` does not lint .ts (no typescript-eslint
-    // configured), so they are dropped from this module override. Only the
-    // boot/bundle-entry/ui scripts remain as `.js` ES modules here.
-    files: ["src/boot/script-loader.js", "src/main.js", "src/ui/start-menu.js"],
-    languageOptions: {
-      sourceType: "module"
-    }
-  },
+  // Phase 3 (issue #84) renamed every src game/app module to .ts — the game
+  // modules (3.0-3.7), auth/scores (3.8), the snowglider orchestrator (3.9),
+  // audio.js (3.10) and finally the bundle entry + boot/ui scripts (main.js,
+  // boot/script-loader.js, ui/start-menu.js → .ts, 3.11). `eslint .` does not
+  // lint .ts (no typescript-eslint configured), so there is no longer a
+  // sourceType:"module" override for src. The only remaining `.js` files under
+  // src are the classic Firebase/local-auth bootstrap `<script>`s
+  // (boot/firebase-bootstrap.js, boot/local-auth.js); they are NOT modules, so
+  // the default `**/*.js` block (sourceType:"script") above is correct for them.
   {
     files: ["vite.config.js"],
     languageOptions: {

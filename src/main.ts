@@ -1,9 +1,14 @@
-// @ts-check
 import * as THREE from 'three';
 
 // Phase 2.0 (issue #84): a real ES-module entry that Vite bundles into a
 // hashed asset, importing three.js from the npm package instead of the CDN
-// global. index.html loads this as `<script type="module">`.
+// global. index.html loads this as `<script type="module" src="src/main.ts">`.
+//
+// Phase 3.11 (issue #84): renamed `.js` -> `.ts` (index.html's module `src` now
+// points at src/main.ts). The only edits are dropping the implied `// @ts-check`
+// pragma and converting the two JSDoc `(window)` casts to `as`; the `./*.js`
+// import specifiers are unchanged — Vite/tsc Bundler resolve them to the `.ts`
+// modules.
 //
 // Game modules are imported here only so they're part of the eagerly-loaded
 // bundle graph; snowglider.js (the deferred orchestrator) imports them too, the
@@ -27,7 +32,7 @@ import './audio.js';
 export const BUNDLED_THREE_REVISION = THREE.REVISION;
 
 if (typeof window !== 'undefined') {
-  /** @type {any} */ (window).__SNOWGLIDER_BUNDLE__ = {
+  (window as any).__SNOWGLIDER_BUNDLE__ = {
     threeRevision: THREE.REVISION
   };
 
@@ -45,7 +50,7 @@ if (typeof window !== 'undefined') {
   // Vite still bundles it into the shared module graph (one Snow/Snowman/etc.
   // instance), while raw-source serving resolves it to /src/snowglider.js (the
   // request the puppeteer start-menu regression intercepts).
-  /** @type {any} */ (window).__loadSnowGliderOrchestrator = () => import('./snowglider.js');
+  (window as any).__loadSnowGliderOrchestrator = () => import('./snowglider.js');
 }
 
 console.log(`[snowglider] bundled three.js r${THREE.REVISION}`);

@@ -1,8 +1,12 @@
-// @ts-check
 // Phase 2 (issue #84): converted to an ES module so it imports AudioModule from
 // the real src module instead of reading the window.AudioModule bridge. index.html
 // loads it as `<script type="module">`; like every module script it is deferred,
 // so it still runs before DOMContentLoaded and its listeners are registered in time.
+//
+// Phase 3.11 (issue #84): renamed `.js` -> `.ts`. The only edit is the JSDoc
+// `(window)` cast → `as`; the DOM/menu wiring carries no type surface to promote
+// under the current non-strict config. The `../audio.js` import specifier is
+// unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
 
 (function () {
@@ -115,7 +119,7 @@ import { AudioModule } from '../audio.js';
 
   function initializeStartMenu() {
     addBuildBadge();
-    if (/** @type {any} */ (window).SnowGliderGameScriptsReady) {
+    if ((window as any).SnowGliderGameScriptsReady) {
       startPendingGameIfReady();
     }
 
