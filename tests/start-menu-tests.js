@@ -188,6 +188,20 @@ async function main() {
   check('signed out: getLeaderboard is NOT called (Firestore rules deny it)',
     leaderboardReads === 0);
 
+  // Auth up but Firestore disabled (localhost/127.0.0.1 + file:// fallback): the
+  // hint advertises leaderboard saving that can't work there, so it must stay
+  // hidden even when signed out.
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: false },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('signed out + Firestore disabled: sign-in hint hidden', hint.style.display === 'none');
+  check('signed out + Firestore disabled: leaderboard hidden', lb.style.display === 'none');
+
   // Signed in, empty leaderboard -> preview hidden (an empty [] is indistinguishable
   // from a swallowed read error, so we never claim "No times yet"), hint hidden.
   resetAccountDom();

@@ -60,8 +60,11 @@ import { AudioModule } from '../audio.js';
 
     const hint = document.getElementById('startSignInHint');
     if (hint) {
-      // Only meaningful when real auth exists and the player is signed out.
-      hint.style.display = (firebase.auth && !authState.isSignedIn) ? 'block' : 'none';
+      // Only show when signing in can actually deliver the advertised benefit:
+      // real auth AND Firestore are up (the localhost/127.0.0.1 + file:// fallbacks
+      // skip Firestore, so leaderboard writes are no-ops there) and the player is
+      // signed out. Otherwise we'd advertise a global leaderboard that can't save.
+      hint.style.display = (firebase.auth && firebase.firestore && !authState.isSignedIn) ? 'block' : 'none';
     }
 
     const lb = document.getElementById('startLeaderboard');
