@@ -49,10 +49,11 @@ const SNOWMAN_START_X = 0;
 const SNOWMAN_START_Z = -15;
 
 /**
- * Collision radius (world units) of a collidable rock of the given size. Single
- * source of truth shared with snowman.ts's rock collision test (imported there), so
- * the placement-time safe-zone below and the in-game hazard check agree on exactly
- * how far a rock reaches (max 3u).
+ * Collision radius (world units) of a collidable rock of the given size (max 3u).
+ * The placement-time safe-zone below uses this to exclude rocks whose hazard radius
+ * would reach the ski lane or spawn pocket. snowman.ts's in-game rock collision uses
+ * the identical formula inline (it must stay free of relative imports so the
+ * no-resolve-hook Node test harnesses can load it) — keep the two in sync.
  */
 export function rockCollisionRadius(size: number): number {
   return Math.max(1.25, Math.min(3.0, size * 0.75 + 0.75));

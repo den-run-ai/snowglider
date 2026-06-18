@@ -16,7 +16,6 @@
 // native type-stripping run it exactly as before; the physics-invariant harness
 // confirms coasting stays bit-identical to the frozen baseline.
 import * as THREE from 'three';
-import { rockCollisionRadius } from './mountains.js';
 
 // These contract types are exported so the typed player-state layer in
 // physics.ts (PR 3.21) shares snowman's exact call contract instead of
@@ -741,7 +740,12 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     const dx = pos.x - rockPos.x;
     const dz = pos.z - rockPos.z;
     const horizontalDistance = Math.sqrt(dx*dx + dz*dz);
-    const rockRadius = rockCollisionRadius(rockPos.size);
+    // Collision radius (max 3u). Kept in sync with Mountains.rockCollisionRadius,
+    // which the placement-time safe-zone uses to exclude rocks that would reach the
+    // ski lane/spawn pocket. Duplicated inline (rather than imported) because
+    // snowman.ts must stay free of relative imports: some Node test harnesses load
+    // it without the .js->.ts resolve hook, and Node 22 won't map ./mountains.js.
+    const rockRadius = Math.max(1.25, Math.min(3.0, rockPos.size * 0.75 + 0.75));
     const exposedRockTop = rockPos.y + rockPos.size * 0.7;
     // Clearance is height-based: once the snowman is airborne and above the rock
     // top it clears the hazard whether it is still rising or already descending past
