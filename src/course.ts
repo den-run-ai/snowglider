@@ -1,5 +1,4 @@
-// @ts-check
-// course.js - Course structure, split timing, ghost racing and result screen for SnowGlider
+// course.ts - Course structure, split timing, ghost racing and result screen for SnowGlider
 //
 // This module turns the open slope into a timed course:
 //   - Visible checkpoint gates and a finish arch placed down the fall line
@@ -18,12 +17,66 @@
 //
 // Phase 2.2 (issue #84): second module converted off the classic global model.
 // `THREE` now comes from the npm package via a real ES-module import instead of
-// the CDN global, and `CourseModule` is `export`ed. The window.CourseModule
-// assignment below is kept so the still-classic consumer (snowglider.js, which
-// reads it by bare name and as window.CourseModule, converted last in PR 2.9)
-// keeps working during the staged migration; it is loaded into the page through
-// the bundle entry (src/main.js) rather than the classic script-loader.
+// the CDN global, and `CourseModule` is `export`ed; it is loaded into the page
+// through the bundle entry (src/main.js) and imported directly by snowglider.js.
+//
+// Phase 3.1 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+// (implied for a real `.ts` file) and the previously inferred course/ghost/HUD
+// shapes are now real `interface`/`type` declarations. Behaviour is unchanged —
+// every edit is type-only/erasable, so esbuild (Vite) and Node's native
+// type-stripping both run it exactly as before.
 import * as THREE from 'three';
+
+/** Terrain sampler injected via {@link CourseModule.init}. */
+export type TerrainHeightFn = (x: number, z: number) => number;
+
+/** Factory that builds a fresh snowman group, reused to spawn the ghost. */
+export type CreateSnowmanFn = (scene: THREE.Scene) => THREE.Object3D;
+
+/** One recorded point on a run's trajectory; the persisted ghost is an array of these. */
+export interface GhostSample {
+  t: number;   // seconds since run start
+  x: number;
+  y: number;
+  z: number;
+  rot: number; // snowman heading (radians)
+}
+
+/** A checkpoint or the finish line along the fall line. */
+export interface SplitPoint {
+  z: number;
+  label: string;
+}
+
+/** Options handed to {@link CourseModule.init}. */
+export interface CourseInitOptions {
+  scene: THREE.Scene;
+  getTerrainHeight: TerrainHeightFn;
+  createSnowman: CreateSnowmanFn;
+}
+
+/** Result of {@link medalFor}: which medal a finished run earned. */
+export interface Medal {
+  key: 'gold' | 'silver' | 'bronze' | 'finish';
+  icon: string;
+  label: string;
+}
+
+/** Minimal positional shape the course reads from the player each frame. */
+export interface Vec3Like {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Lazily-built course HUD element handles. */
+interface CourseHud {
+  root?: HTMLDivElement;
+  fill?: HTMLDivElement;
+  distance?: HTMLSpanElement;
+  ghostDelta?: HTMLSpanElement;
+  flash?: HTMLDivElement;
+}
 
 export const CourseModule = (function () {
   'use strict';
@@ -44,26 +97,26 @@ export const CourseModule = (function () {
   const LS_GHOST = 'snowgliderGhost';
 
   // --- Module state ---
-  let scene = null;
-  let getTerrainHeight = null;
-  let createSnowman = null;
+  let scene: THREE.Scene | null = null;
+  let getTerrainHeight: TerrainHeightFn | null = null;
+  let createSnowman: CreateSnowmanFn | null = null;
 
-  let gateGroup = null;        // container for all gate meshes
-  let ghost = null;            // ghost snowman group (or null)
-  let ghostSamples = null;     // loaded best-run trajectory for playback
+  let gateGroup: THREE.Group | null = null;        // container for all gate meshes
+  let ghost: THREE.Object3D | null = null;         // ghost snowman group (or null)
+  let ghostSamples: GhostSample[] | null = null;   // loaded best-run trajectory for playback
   let ghostTotalTime = 0;
 
-  let bestSplits = null;       // array of best split times (per checkpoint + finish), or null
+  let bestSplits: number[] | null = null;  // best split times (per checkpoint + finish), or null
 
   // Per-run state
   let nextIndex = 0;           // index into the combined checkpoint+finish list
-  let runSplits = [];          // split times recorded this run
-  let recordSamples = [];      // trajectory recorded this run
+  let runSplits: number[] = [];          // split times recorded this run
+  let recordSamples: GhostSample[] = []; // trajectory recorded this run
   let sampleAccum = 0;
   let runActive = false;
 
   // Combined list of split gates (checkpoints then finish)
-  const splitPoints = CHECKPOINT_Z.map((z, i) => ({ z, label: `CHECKPOINT ${i + 1}` }))
+  const splitPoints: SplitPoint[] = CHECKPOINT_Z.map((z, i) => ({ z, label: `CHECKPOINT ${i + 1}` }))
     .concat([{ z: FINISH_Z, label: 'Finish' }]);
 
   const reduceMotion = typeof window !== 'undefined' &&
@@ -72,7 +125,7 @@ export const CourseModule = (function () {
   // ---------------------------------------------------------------------------
   // HUD construction
   // ---------------------------------------------------------------------------
-  let hud = {};
+  let hud: CourseHud = {};
 
   function buildHud() {
     if (hud.root) return;
@@ -132,8 +185,8 @@ export const CourseModule = (function () {
     hud = { root, fill, distance, ghostDelta, flash };
   }
 
-  let flashTimer = null;
-  function showFlash(html, color) {
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  function showFlash(html: string, color?: string) {
     if (!hud.flash) return;
     hud.flash.innerHTML = html;
     hud.flash.style.color = color || '#fff';
@@ -145,7 +198,7 @@ export const CourseModule = (function () {
   // ---------------------------------------------------------------------------
   // Gate / finish meshes
   // ---------------------------------------------------------------------------
-  function makeGate(zPos, colorHex, label, isFinish) {
+  function makeGate(zPos: number, colorHex: number, label: string, isFinish: boolean): THREE.Group {
     const group = new THREE.Group();
     const halfW = isFinish ? FINISH_HALF_WIDTH : GATE_HALF_WIDTH;
     const poleMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.6 });
@@ -260,13 +313,15 @@ export const CourseModule = (function () {
     ghost = createSnowman(scene);
     // Make it a translucent blue apparition that never collides or shadows.
     ghost.traverse((obj) => {
-      if (obj.isMesh && obj.material) {
-        const m = obj.material.clone();
-        m.transparent = true;
-        m.opacity = 0.32;
-        if (m.color) m.color.lerp(new THREE.Color(0x66ccff), 0.6);
-        if ('emissive' in m && m.emissive) m.emissive = new THREE.Color(0x113355);
-        obj.material = m;
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh && mesh.material) {
+        // Ghost snowman meshes use a single MeshStandardMaterial (never an array).
+        const cloned = (mesh.material as THREE.MeshStandardMaterial).clone();
+        cloned.transparent = true;
+        cloned.opacity = 0.32;
+        if (cloned.color) cloned.color.lerp(new THREE.Color(0x66ccff), 0.6);
+        if ('emissive' in cloned && cloned.emissive) cloned.emissive = new THREE.Color(0x113355);
+        mesh.material = cloned;
         obj.castShadow = false;
         obj.receiveShadow = false;
       }
@@ -275,7 +330,7 @@ export const CourseModule = (function () {
   }
 
   // Interpolate the ghost's recorded position at time t (seconds since run start).
-  function ghostPositionAt(t) {
+  function ghostPositionAt(t: number) {
     if (!ghostSamples) return null;
     const s = ghostSamples;
     if (t <= s[0].t) return s[0];
@@ -297,7 +352,7 @@ export const CourseModule = (function () {
   }
 
   // The time at which the ghost reached a given downhill depth (z).
-  function ghostTimeAtZ(z) {
+  function ghostTimeAtZ(z: number) {
     if (!ghostSamples) return null;
     const s = ghostSamples;
     if (z >= s[0].z) return 0;
@@ -315,7 +370,7 @@ export const CourseModule = (function () {
   // Public API
   // ---------------------------------------------------------------------------
 
-  function init(opts) {
+  function init(opts: CourseInitOptions) {
     scene = opts.scene;
     getTerrainHeight = opts.getTerrainHeight;
     createSnowman = opts.createSnowman;
@@ -353,18 +408,18 @@ export const CourseModule = (function () {
     }
   }
 
-  function formatTime(t) {
+  function formatTime(t: number): string {
     return `${t.toFixed(2)}s`;
   }
 
-  function formatDelta(d) {
+  function formatDelta(d: number): string {
     const sign = d <= 0 ? '−' : '+';
     return `${sign}${Math.abs(d).toFixed(2)}s`;
   }
 
   // Called every frame from the animation loop.
   // pos: snowman position, elapsed: seconds since run start, snowman: the player group.
-  function update(pos, elapsed, snowman) {
+  function update(pos: Vec3Like, elapsed: number, snowman?: THREE.Object3D) {
     if (!runActive) return;
 
     // --- Progress HUD ---
@@ -442,7 +497,7 @@ export const CourseModule = (function () {
   }
 
   // Decide a medal based on the player's own pace (robust without a global par).
-  function medalFor(total, previousBest, isFirst) {
+  function medalFor(total: number, previousBest: number, isFirst: boolean): Medal {
     if (isFirst) return { key: 'gold', icon: '🥇', label: 'First descent!' };
     if (total < previousBest) return { key: 'gold', icon: '🥇', label: 'New record!' };
     if (total <= previousBest * 1.10) return { key: 'silver', icon: '🥈', label: 'Silver run' };
@@ -452,7 +507,7 @@ export const CourseModule = (function () {
 
   // Called from showGameOver() on a successful finish.
   // Returns a DOM node (the result panel) to insert into the game-over overlay.
-  function onFinish(totalTime, previousBest) {
+  function onFinish(totalTime: number, previousBest: number): HTMLDivElement {
     hideHud();
 
     const isFirst = !(previousBest < Infinity);
@@ -484,7 +539,7 @@ export const CourseModule = (function () {
     return buildResultPanel(totalTime, previousBest, isBest, isFirst, medal);
   }
 
-  function buildResultPanel(totalTime, previousBest, isBest, isFirst, medal) {
+  function buildResultPanel(totalTime: number, previousBest: number, isBest: boolean, isFirst: boolean, medal: Medal): HTMLDivElement {
     const panel = document.createElement('div');
     panel.id = 'courseResult';
     Object.assign(panel.style, {
@@ -540,7 +595,7 @@ export const CourseModule = (function () {
       display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '4px 14px',
       fontSize: '13px', alignItems: 'center'
     });
-    const head = (txt, align) => {
+    const head = (txt: string, align?: string) => {
       const c = document.createElement('div');
       c.textContent = txt;
       Object.assign(c.style, {
@@ -593,4 +648,4 @@ export const CourseModule = (function () {
   };
 })();
 
-// The window.CourseModule bridge was removed (issue #84): snowglider.js imports it.
+// CourseModule is imported directly by snowglider.js (issue #84).

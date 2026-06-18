@@ -1,14 +1,18 @@
 // dom_smoke_test.js
-// Headless coverage for course.js + effects.js under jsdom, without a browser.
+// Headless coverage for course.ts + effects.ts under jsdom, without a browser.
 // Requires jsdom (devDependency).
 //
-// Phase 2.2/2.6 (issue #84): course.js and effects.js are now ES modules, so they
-// can no longer be evaluated with a `new Function(src)` + mock-THREE injection —
-// that pattern can't load `import`/`export`. Both sections now `import()` the REAL
+// Phase 2.2/2.6 (issue #84): course and effects are ES modules, so they can no
+// longer be evaluated with a `new Function(src)` + mock-THREE injection — that
+// pattern can't load `import`/`export`. Both sections now `import()` the REAL
 // module (and, for course, REAL three: its geometry/material/texture constructors
 // need no WebGL, so they build fine headless under Node), exercising shipped code
-// directly. effects.js uses no three.js at all, so its import needs no mock; the
+// directly. effects uses no three.js at all, so its import needs no mock; the
 // previous mock-THREE scaffolding and `new Function` loader are gone.
+//
+// Phase 3.1 (issue #84): both modules were renamed `.js` -> `.ts`. Node does not
+// remap `.js` import specifiers to `.ts`, so these direct imports use the real
+// `.ts` extension (Node strips the erasable types natively, like `avalanche.ts`).
 const { JSDOM } = require('jsdom');
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
@@ -46,10 +50,10 @@ function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: $
 async function main() {
   // ---- EffectsModule (real ES module, PR 2.6; uses no three.js) ----
   console.log('--- EffectsModule ---');
-  // effects.js builds DOM overlays and pokes a plain camera object; it imports no
+  // effects builds DOM overlays and pokes a plain camera object; it imports no
   // three, so we import the REAL module directly. Its `document`/`window` reads
   // resolve to the jsdom globals wired up above.
-  const { EffectsModule: Effects } = await import('../../src/effects.js');
+  const { EffectsModule: Effects } = await import('../../src/effects.ts');
   check('module exports init/updateAvalanche/tickCamera', !!Effects && typeof Effects.init === 'function' && typeof Effects.tickCamera === 'function');
   Effects.init();
   const banner = window.document.body.querySelector('div');
@@ -70,12 +74,12 @@ async function main() {
 
   // ---- CourseModule (real ES module + real three, PR 2.2) ----
   console.log('\n--- CourseModule ---');
-  // course.js now `import`s three from npm, so we import the REAL module + REAL
-  // three rather than evaluating the source with a mock. The fake snowman is a
-  // real three Group whose mesh carries a MeshStandardMaterial so buildGhost's
+  // course `import`s three from npm, so we import the REAL module + REAL three
+  // rather than evaluating the source with a mock. The fake snowman is a real
+  // three Group whose mesh carries a MeshStandardMaterial so buildGhost's
   // material.clone()/color.lerp()/emissive path exercises shipped code.
   const RealTHREE = await import('three');
-  const { CourseModule: Course } = await import('../../src/course.js');
+  const { CourseModule: Course } = await import('../../src/course.ts');
   const fakeCreateSnowman = () => {
     const g = new RealTHREE.Group();
     g.add(new RealTHREE.Mesh(new RealTHREE.BoxGeometry(1, 1, 1), new RealTHREE.MeshStandardMaterial()));
