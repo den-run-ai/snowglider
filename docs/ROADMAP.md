@@ -8,6 +8,8 @@
 
 This roadmap began as a feature-gap analysis. Its **top recommendation — the "skill & structure" layer — shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56)**: checkpoint gates + finish line, live split timing and a result screen, ghost racing, an avalanche warning UI, and a first snowplow/carve/tuck ski-technique pass. See [`CHANGELOG.md`](CHANGELOG.md) for that work in detail.
 
+**Since this roadmap was written (snapshot 2026-06-18):** a large *infrastructure* wave landed — the TypeScript/ES-module migration completed (issues [#35](https://github.com/den-run-ai/snowglider/issues/35), [#84](https://github.com/den-run-ai/snowglider/issues/84), [#98](https://github.com/den-run-ai/snowglider/issues/98), now closed; all of `src/` is `.ts` under `strict: true`, bundled by Vite), plus CI hardening (production-build validation, raw-TS Pages guard, honest merged Node+browser coverage) and new test layers (Playwright cross-browser/mobile E2E, Firestore-rules harness, c8 coverage harnesses). **None of this changed gameplay**, so the Priority Findings below are unchanged — but it did invalidate the premises of the [Refactoring Roadmap](#refactoring-roadmap), which has been updated accordingly.
+
 Status legend used below: **✅ shipped** · **◐ partial** (started, more to do) · **○ open**.
 
 > The [**GitHub issue tracker**](https://github.com/den-run-ai/snowglider/issues) is the living source of truth for the backlog. This document is a higher-level synthesis and will drift as issues open and close — treat the issue references here as pointers, not a status board.
@@ -87,7 +89,7 @@ The avalanche existed but wasn't well communicated, especially when it came from
 Jump is a listed control but currently does little for the player.
 
 - **Add:** airtime scoring, landing-quality grading, obstacle clears, shortcuts, avalanche-dodge windows, speed boost on clean landings, and style/combo bonuses.
-- **Open issue:** jumping should help avoid obstacles and maybe avalanches (**#47**).
+- **Open issues:** jumping should help avoid obstacles and maybe avalanches (**#47**), freestyle ski tricks (**#32**).
 
 ### 5. Dynamic hazards and a living world — ○ open
 
@@ -132,7 +134,7 @@ Touch controls exist, but this game is a natural fit for richer mobile input.
 
 - **Add:** gyro/tilt steering, haptics, swipe-to-jump, a simpler mobile HUD, and **performance scaling** (toggle shadows / reduce particle counts when framerate drops below ~30 FPS).
 - **UI:** keep the game-over screen, score counter, and menus as responsive HTML/CSS overlaying the `<canvas>` for crisp mobile readability, rather than baked into the 3D scene.
-- **Open issue:** gyro/tilt controls (open).
+- **Open issues:** gyro/tilt controls (**#24**), more visible touchscreen controls (**#25**), make all buttons (about-game, music selection) mobile-friendly (**#37**).
 
 ### 11. Personality and fail-state fun — ○ open
 
@@ -170,52 +172,78 @@ A phased plan that several of the review passes converge on:
 
 ## Refactoring Roadmap
 
+> **Premises updated (2026-06-18).** This section originally assumed a
+> "classic browser-script" / `file://` architecture with a load-bearing script
+> order. That is no longer the project: the TypeScript migration (**#84**,
+> **#98**) converted every `src/*` module to a `.ts` ES module bundled by Vite,
+> removed the per-module `window.*` namespace bridges, single-sourced three.js
+> from npm, and retired the explicit script order (`src/main.ts` is the bundle
+> entry and modules now resolve each other through real ES imports — see
+> `src/main.ts`: *"the import order below is no longer load-bearing"*). `file://`
+> is no longer a supported run path for the game graph; only the boot scripts
+> (`src/boot/local-auth.js`, `src/boot/firebase-bootstrap.js`) stay as classic
+> non-module scripts so the Local Mode auth/score fallback still loads. The
+> staged plan below survives the migration, but **Stage R1 has effectively
+> shipped** and the remaining stages should be read as ES-module extractions,
+> not classic-script ones.
+
 The feature roadmap above is increasingly constrained by three large files:
 `index.html` owns markup, CSS, bootstrapping, local-mode mocks, script loading,
-and start-menu behavior; `src/snowglider.js` owns scene setup, shared game state,
+and start-menu behavior; `src/snowglider.ts` owns scene setup, shared game state,
 the render loop, lifecycle, HUD updates, scoring, overlays, and test globals; and
-`src/snowman.js` owns model construction, skiing physics, pose animation,
+`src/snowman.ts` owns model construction, skiing physics, pose animation,
 collision checks, finish/crash reason selection, and browser test hooks.
 
-The best structural move is a staged, behavior-preserving extraction that keeps
-the current classic browser-script architecture intact. Do **not** use this as a
-bundler/framework rewrite. Preserve the `file://` fallback, Vite/GitHub Pages
-deployment path, explicit script order, and existing `window.*` compatibility
-exports until tests and callers have been migrated.
+The best structural move is a staged, behavior-preserving extraction. Do **not**
+turn this into a *framework* rewrite (React Three Fiber **#36** and alternative
+engines like rapier **#38** / Needle **#41** remain exploratory "consider" issues,
+not committed direction). Preserve the Vite/GitHub Pages deployment path, the
+Local Mode boot fallback, and the remaining test/runtime `window.*` hooks
+(`window.resetSnowman`, `window.restartGame`, …) until tests and callers have been
+migrated. **Tracking issues:** refactor `index.html` into CSS + main (**#33**),
+refactor `snowglider` into a thinner UI/game module (**#34**).
 
-### Stage R1 — Split the page shell first
+### Stage R1 — Split the page shell first — ✅ shipped
 
-Lowest-risk extraction from `index.html`:
+Lowest-risk extraction from `index.html`; this stage has landed (file names
+reflect what exists today):
 
-- Move page styles to `styles/main.css`.
-- Move `file://` auth/score mocks to `src/boot/local-auth.js`.
-- Move Firebase defaults/init-json handling to `src/boot/firebase-bootstrap.js`.
-- Replace the nested script `onload` pyramid with `src/boot/script-loader.js`
-  using a small `loadScriptsInOrder([...])` helper.
-- Move start/about menu behavior to `src/ui/start-menu.js`.
+- ✅ Page styles moved to `styles/main.css` (no inline `<style>` left in `index.html`).
+- ✅ `file://`/Local Mode auth/score mocks in `src/boot/local-auth.js`.
+- ✅ Firebase defaults/init-json handling in `src/boot/firebase-bootstrap.js`.
+- ✅ Script loading replaced — the nested `onload` pyramid is gone; the bundle
+  entry `src/main.ts` (Vite) eagerly imports the game modules, and
+  `src/boot/script-loader.ts` survives only to append the optional browser-test
+  suite (its `GAME_SCRIPT_ORDER` is now empty).
+- ✅ Start/about menu behavior moved to `src/ui/start-menu.ts`.
 
-The script order must remain:
+The old fixed script order is **obsolete** — modules resolve each other through
+ES imports, so this chain is no longer load-bearing:
 
 ```text
 mountains -> trees -> snow -> camera -> snowman -> audio -> controls
           -> avalanche -> effects -> course -> snowglider -> tests
 ```
 
-### Stage R2 — Thin the game orchestrator
+### Stage R2 — Thin the game orchestrator — ◐ partial
 
-`src/snowglider.js` should become a small coordinator instead of the owner of
-every runtime concern. Extract:
+`src/snowglider.ts` should become a small coordinator instead of the owner of
+every runtime concern. The TS migration already did the *state* slice of this:
+the mutable run/lifecycle state was folded into a typed `GameState`
+(**#118**/**#119**/**#121**) and the player physics state was extracted into
+`src/physics.ts` (**#120**). The *scene / loop / UI* extractions below are still
+open (no `src/game/` dir yet; `src/ui/` currently holds only `start-menu.ts`):
 
-- `src/game/scene-setup.js` for scene, renderer, lights, terrain, trees, snowman,
+- ◐ `game-state` — done as typed `GameState` (`pos`, `velocity`, air state, timers,
+  avalanche trigger state, technique) + `src/physics.ts` player-state layer.
+- ○ `src/game/scene-setup.ts` for scene, renderer, lights, terrain, trees, snowman,
   snow particles, avalanche construction, and course/effects init.
-- `src/game/game-state.js` for mutable run state (`pos`, `velocity`, air state,
-  timers, avalanche trigger state, technique).
-- `src/game/main-loop.js` for the current `animate()` ordering.
-- `src/game/lifecycle.js` for start, reset, restart, and game-active transitions.
-- `src/ui/hud.js` for stats, timer, speed color, position, and technique display.
-- `src/ui/result-overlay.js` for game-over/finish overlay, local best display,
+- ○ `src/game/main-loop.ts` for the current `animate()` ordering.
+- ○ `src/game/lifecycle.ts` for start, reset, restart, and game-active transitions.
+- ○ `src/ui/hud.ts` for stats, timer, speed color, position, and technique display.
+- ○ `src/ui/result-overlay.ts` for game-over/finish overlay, local best display,
   login prompt, leaderboard insertion, and `CourseModule.onFinish(...)`.
-- `src/ui/collapsible-panel.js` for shared Game Stats / Game Controls
+- ○ `src/ui/collapsible-panel.ts` for shared Game Stats / Game Controls
   collapse, resize, and swipe behavior.
 
 Keep these globals stable during the first pass because controls and browser
@@ -223,20 +251,23 @@ tests still use them: `window.resetSnowman`, `window.restartGame`,
 `window.showGameOver`, `window.toggleCameraView`, and
 `window.initializeGameWithAudio`.
 
-### Stage R3 — Split snowman only after R1/R2
+### Stage R3 — Split snowman only after R1/R2 — ○ mostly open
 
-`src/snowman.js` is the highest-risk file because it contains the physics model
-and the deterministic verification seam. Split it only after the boot and
-orchestrator work has landed:
+`src/snowman.ts` is the highest-risk file because it contains the physics model
+and the deterministic verification seam. Note the typed `src/physics.ts`
+extracted in R2 is only the per-frame *state* container — the physics *math*
+(`Snowman.updateSnowman` / `Snowman.resetSnowman`) deliberately still lives in
+`snowman.ts` so the physics-invariant harness stays byte-identical. Split the
+rest only after the boot and orchestrator work has landed:
 
-- `src/snowman/model.js` for geometry, materials, arms, hat, skis, and scene add.
-- `src/snowman/physics.js` for gravity, friction, jumping, air control, ski
+- `src/snowman/model.ts` for geometry, materials, arms, hat, skis, and scene add.
+- `src/snowman/physics.ts` for gravity, friction, jumping, air control, ski
   technique, snowplow braking, skid/carve classification, and idle turning.
-- `src/snowman/pose.js` for heading, terrain tilt, jump tilt, turn lean, and ski
+- `src/snowman/pose.ts` for heading, terrain tilt, jump tilt, turn lean, and ski
   wedge animation.
-- `src/snowman/collision.js` for tree collision, boundary checks, finish
+- `src/snowman/collision.ts` for tree collision, boundary checks, finish
   detection, and crash/finish reason strings.
-- `src/snowman/test-hooks.js` for browser collision hooks.
+- `src/snowman/test-hooks.ts` for browser collision hooks.
 
 Keep `window.Snowman.updateSnowman(...)`, `window.Snowman.resetSnowman(...)`,
 and `window.Snowman.addTestHooks(...)` as compatibility wrappers at first.
@@ -252,8 +283,8 @@ Internally delegate to smaller modules without changing the public signatures.
 - Re-run `npm test` and `npm run test:verify` after each stage. Any change to the
   no-input physics path must be deliberate and reflected in
   `docs/PHYSICS.md` plus the verification baseline.
-- Update `docs/ARCHITECTURE.md` in the same PR as each extraction so the script
-  order, globals, and ownership boundaries stay accurate.
+- Update `docs/ARCHITECTURE.md` in the same PR as each extraction so the module
+  graph, globals, and ownership boundaries stay accurate.
 
 ---
 
@@ -280,8 +311,30 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Intro fly-over of the mountain | #51 | ○ open |
 | Mobile music-disable button broken *(bug)* | #50 | ○ open |
 | Jumping should help avoid obstacles/avalanches | #47 | ○ open |
-| Integrate a realistic 3D map | #40 | ○ open |
+| Freestyle ski tricks | #32 | ○ open |
 | Pause/save game state | #39 | ○ open |
-| Gyro/tilt controls; lighting/shadows; textures; visible sky | (open) | ○ open |
+| Social media sharing | #31 | ○ open |
+| Gameplay tuning (steeper slope, fewer bumps, drop the "forward" button) | #27 | ○ open |
+| More visible touchscreen controls; mobile-friendly buttons | #25, #37 | ○ open |
+| Gyro/tilt controls | #24 | ○ open |
+| Lighting and shadows | #18 | ○ open |
+| Textures (snow, trees, rocks, snowman) | #17 | ○ open |
+| Visible sky | #2 | ○ open |
+
+### Infrastructure, tooling & exploratory
+
+These don't map to a Priority Finding above but are part of the live backlog (and
+several landed after this roadmap was first written):
+
+| Theme | Issue(s) | Status |
+|-------|----------|--------|
+| TypeScript / ES-module migration | #35, #84, #98 | ✅ shipped — closed (all `src/` is `.ts`, `strict: true`, Vite bundle) |
+| Refactor `index.html` into CSS + main | #33 | ✅ Stage R1 shipped (`styles/main.css` + `src/boot/*` + `src/ui/start-menu.ts`) |
+| Refactor `snowglider` into a thinner UI/game module | #34 | ◐ partial — typed `GameState` + `src/physics.ts`; scene/loop/UI extraction still open |
+| Improve test coverage for RED files (scores, auth, controls, start-menu) | #126 | ◐ in progress (#128–#131) |
+| Update three.js + validate testing/audio | #29 | ✅ likely addressed by the r160 upgrade (#75/#76) + native-audio rewrite — candidate to close |
+| Leaderboard unavailable / sign-in dropout + testing | #28 | ◐ scores/auth hardening + tests (#67, #73, #128/#129); the specific dropout report not separately re-verified |
+| Performance monitoring via Firebase | #30 | ○ open |
+| Engine/framework explorations (not committed direction) | #40 (3D map), #36 (React Three Fiber), #38 (rapier physics), #41 (Needle tools) | ○ exploratory |
 
 *The higher-level structural gaps — a finish line and objective feedback, scoring depth, progression/replay hooks, and the AI features — were the items the tracker was quieter on; #56 delivered the first of these (course + result + ghost), and the rest (daily/per-course leaderboards, AI coach) remain the biggest open wins.*
