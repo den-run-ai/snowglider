@@ -7,6 +7,8 @@
 
 const puppeteer = require('puppeteer');
 const { spawn } = require('child_process');
+const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
@@ -19,43 +21,109 @@ if (!fs.existsSync(RESULTS_DIR)) {
   fs.mkdirSync(RESULTS_DIR, { recursive: true });
 }
 
-async function startServer() {
+// Probe a Vite-specific endpoint so a stale or unrelated listener already on the
+// port can't masquerade as a ready dev server (`--strictPort` makes our own Vite
+// exit rather than reuse it). Vite serves `/@vite/client` with status 200; only
+// that counts as ready.
+function probeViteReady(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/@vite/client`, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(1000, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function assertPortAvailable(port) {
   return new Promise((resolve, reject) => {
-    console.log('Starting http-server...');
-    
-    const server = spawn('npx', ['http-server', '-p', PORT, '-c-1'], {
+    const probe = net.createServer();
+
+    probe.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(new Error(`Port ${port} is already in use; refusing to run browser tests against a pre-existing server`));
+        return;
+      }
+      reject(err);
+    });
+
+    probe.once('listening', () => {
+      probe.close(resolve);
+    });
+
+    probe.listen({
+      host: '127.0.0.1',
+      port: Number(port),
+      exclusive: true
+    });
+  });
+}
+
+async function startServer() {
+  // Serve through Vite's dev server rather than http-server: game modules are
+  // now ES modules and (as of Phase 3) some are TypeScript, which a browser can't
+  // execute raw. Vite transpiles `.ts` on the fly and resolves the `./x.js`
+  // import specifiers to their `.ts` sources, so the suite exercises the real
+  // shipped modules over the same module graph the production build ships. (It
+  // also single-sources three through Vite's dep optimizer, removing the
+  // dual-instance hazard the raw import-map path had.)
+  console.log('Starting vite dev server...');
+  await assertPortAvailable(PORT);
+
+  const server = spawn(
+    'npx',
+    ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'],
+    {
       cwd: path.join(__dirname, '..'),
       stdio: ['ignore', 'pipe', 'pipe']
-    });
-    
-    let started = false;
-    
-    server.stdout.on('data', (data) => {
-      const output = data.toString();
-      if (!started && output.includes('Available on')) {
-        started = true;
-        console.log(`Server started on port ${PORT}`);
-        // Give server a moment to be fully ready
-        setTimeout(() => resolve(server), 1000);
-      }
-    });
-    
-    server.stderr.on('data', (data) => {
-      console.error('Server stderr:', data.toString());
-    });
-    
-    server.on('error', (err) => {
-      reject(new Error(`Failed to start server: ${err.message}`));
-    });
-    
-    // Timeout for server startup
-    setTimeout(() => {
-      if (!started) {
-        server.kill();
-        reject(new Error('Server startup timeout'));
-      }
-    }, 15000);
+    }
+  );
+
+  server.stdout.on('data', (data) => {
+    const output = data.toString().trim();
+    if (output) console.log(`[vite] ${output}`);
   });
+  server.stderr.on('data', (data) => {
+    console.error('Server stderr:', data.toString());
+  });
+
+  // Record an early exit (e.g. `--strictPort` and the port was already taken, so
+  // Vite refuses to start) so we can fail loudly instead of probing whatever else
+  // is on the port.
+  let exitInfo = null;
+  server.on('exit', (code, signal) => {
+    exitInfo = { code, signal };
+  });
+
+  const startupError = new Promise((_resolve, reject) => {
+    server.on('error', (err) => reject(new Error(`Failed to start server: ${err.message}`)));
+  });
+
+  // Poll Vite's own endpoint for up to ~30s (its first cold dep-optimize is slow).
+  const ready = (async () => {
+    for (let i = 0; i < 60; i++) {
+      if (exitInfo) {
+        throw new Error(`Vite exited before becoming ready (code ${exitInfo.code}, signal ${exitInfo.signal})`);
+      }
+      if (await probeViteReady(PORT)) {
+        await wait(100);
+        if (exitInfo) {
+          throw new Error(`Vite exited during readiness probe (code ${exitInfo.code}, signal ${exitInfo.signal})`);
+        }
+        console.log(`Server started on port ${PORT}`);
+        return server;
+      }
+      await wait(500);
+    }
+    server.kill();
+    throw new Error('Server startup timeout');
+  })();
+
+  return Promise.race([ready, startupError]);
 }
 
 function wait(ms) {
@@ -83,7 +151,15 @@ async function runStartMenuRaceRegression(browser) {
 
   await page.setRequestInterception(true);
   page.on('request', async (request) => {
-    if (request.url().endsWith('/src/snowglider.js')) {
+    // Match the orchestrator's dynamic import regardless of any Vite-appended
+    // query (e.g. `?t=…`/`?import`) — `pathname` strips the query string.
+    let pathname;
+    try {
+      pathname = new URL(request.url()).pathname;
+    } catch {
+      pathname = request.url();
+    }
+    if (pathname.endsWith('/src/snowglider.js')) {
       snowgliderRequestSeen();
       await releaseSnowgliderScriptPromise;
     }
@@ -91,7 +167,7 @@ async function runStartMenuRaceRegression(browser) {
   });
 
   try {
-    await page.goto(`http://localhost:${PORT}/index.html`, {
+    await page.goto(`http://127.0.0.1:${PORT}/index.html`, {
       waitUntil: 'domcontentloaded',
       timeout: 30000
     });
@@ -211,7 +287,7 @@ async function runBrowserTests() {
     
     // Navigate to test page
     console.log('Loading test page...');
-    await page.goto(`http://localhost:${PORT}/index.html?test=unified`, {
+    await page.goto(`http://127.0.0.1:${PORT}/index.html?test=unified`, {
       waitUntil: 'networkidle2',
       timeout: 30000
     });

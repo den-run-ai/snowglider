@@ -32,8 +32,10 @@ SnowGlider is a Three.js animation/game project with HTML/JS implementation feat
 
 ## Commands
 - Install dependencies: `npm ci`
-- Run development server: `npm start` (uses http-server on port 8080)
+- Run development server: `npm start` (Vite dev server on port 8080) or `npm run dev`
 - Open locally through a server (`npm run dev`, `npm start`, or serve `dist/` after `npm run build`).
+  These go through Vite, which transpiles the TypeScript modules (Phase 3); a plain static
+  file server can no longer serve raw `src/` once any module is `.ts`.
   Direct `file://` opens are not supported after the ES-module migration because browser module graphs
   and the import map do not load reliably from a null origin.
 - Run lint: `npm run lint` (eslint)

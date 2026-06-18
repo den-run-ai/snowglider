@@ -23,7 +23,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "start": "http-server -p 8080 -c-1"
+    "start": "vite --host 0.0.0.0 --port 8080"
   },
   "dependencies": {
     "firebase": "^11.5.0",
