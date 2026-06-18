@@ -1,8 +1,7 @@
 # ❄️ SnowGlider ❄️
 
 [![CI/CD](https://github.com/den-run-ai/snowglider/actions/workflows/ci.yml/badge.svg)](https://github.com/den-run-ai/snowglider/actions/workflows/ci.yml)
-<!-- Coverage badge disabled until tests are refactored to use ES modules for proper instrumentation -->
-<!-- [![codecov](https://codecov.io/gh/den-run-ai/snowglider/branch/main/graph/badge.svg)](https://codecov.io/gh/den-run-ai/snowglider) -->
+[![codecov](https://codecov.io/gh/den-run-ai/snowglider/branch/main/graph/badge.svg)](https://codecov.io/gh/den-run-ai/snowglider)
 
 A cheerful snowman shredding mountain snow powder in a playful Three.js animation. ⛄️🎿
 
@@ -92,6 +91,15 @@ The game automatically detects mobile devices and enables touch controls with vi
 
 ## Testing
 Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL parameters. See [`tests/README.md`](tests/README.md) for the full test matrix, the browser parameters, the verification harness, and per-suite details.
+
+Coverage is reported to Codecov against the entire `src/` tree and is
+intentionally non-gating in CI. It combines two passes: `npm run test:coverage`
+measures the Node + verification suites with c8 (`--all --src src`), and the
+browser suite collects Chromium V8 coverage that is mapped back to `src/*.ts` and
+line-merged into the same `coverage/lcov.info`. Run the whole pipeline locally
+with `npm run test:coverage:all`. Browser-only modules are therefore counted, not
+shown as `0%`; remaining gaps reflect untested code rather than uninstrumented
+files.
 
 ## Development
 

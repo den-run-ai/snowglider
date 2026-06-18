@@ -60,7 +60,17 @@ jobs:
         run: npm run test:browser
         env:
           CI: true
-      
+          # Collect Chromium V8 coverage during the unified browser suite so the
+          # browser-only src/ modules are counted. Writes coverage/browser/lcov.info.
+          BROWSER_COVERAGE: 'true'
+
+      - name: Merge browser coverage into LCOV
+        # Line-merge c8 (Node + verification) coverage with the browser LCOV into
+        # coverage/lcov.info before upload. Resilient: skips missing inputs, so it
+        # is a no-op normalize if the browser run produced no coverage.
+        if: always()
+        run: npm run coverage:merge
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v7
         if: ${{ always() && hashFiles('coverage/lcov.info') != '' }}
