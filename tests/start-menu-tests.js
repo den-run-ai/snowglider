@@ -1,0 +1,149 @@
+// start-menu-tests.js
+// Headless, c8-instrumented coverage for src/ui/start-menu.ts (the start screen).
+//
+// start-menu.ts is a side-effect ES module: importing it runs an IIFE that registers
+// the menu's DOM handlers and exposes window.SnowGliderStartMenu. It imports only
+// `../audio.js` (no Firebase/CDN), so we just set up jsdom and `import` the real `.ts`
+// under the existing .js->.ts resolve hook — Node type-strips it and c8 instruments it
+// with correct source-mapped lines. Run via the `test:start-menu` npm script.
+//
+// Focus: the deferred-start state machine that two prior bug fixes added —
+//   080bb29 "Fix deferred start before game scripts load"
+//   6429cfa "Preserve start gesture after deferred load"
+// plus the build badge, about panel, and keyboard handlers.
+const { JSDOM } = require('jsdom');
+
+const dom = new JSDOM(`<!doctype html><html><head>
+  <meta name="build-id" content="2026-06-18 12:00">
+</head><body>
+  <div id="startGameContainer">
+    <div id="startMenu">
+      <button id="startGameButton">Start Game</button>
+      <button id="aboutGameButton">About</button>
+    </div>
+    <div id="controlsGuide"></div>
+    <div id="keyboardHint"></div>
+    <div id="aboutGamePanel" style="display:none">
+      <button id="closeAboutButton">Close</button>
+    </div>
+  </div>
+  <canvas id="gameCanvas" style="display:none"></canvas>
+</body></html>`, { url: 'https://snowglider.ai/' });
+
+const { window } = dom;
+global.window = window;
+global.document = window.document;
+// start-menu.ts uses bare `instanceof HTMLMetaElement` / `HTMLButtonElement`, which
+// resolve to globalThis; expose jsdom's DOM constructors there.
+global.HTMLMetaElement = window.HTMLMetaElement;
+global.HTMLButtonElement = window.HTMLButtonElement;
+
+let pass = 0;
+let fail = 0;
+function check(name, condition) {
+  console.log(`  ${condition ? 'PASS' : 'FAIL'}: ${name}`);
+  if (condition) {
+    pass++;
+  } else {
+    fail++;
+  }
+}
+const flush = () => new Promise(r => setTimeout(r, 0));
+
+// Count game launches; start-menu calls window.initializeGameWithAudio() when ready.
+let launches = 0;
+
+async function main() {
+  // Importing the module runs the IIFE, which exposes window.SnowGliderStartMenu and
+  // registers the DOMContentLoaded + game-scripts-ready listeners.
+  await import('../src/ui/start-menu.ts');
+  const SM = window.SnowGliderStartMenu;
+
+  console.log('--- module surface ---');
+  check('exposes the SnowGliderStartMenu API',
+    !!SM && ['startGame', 'showAbout', 'hideAbout', 'initializeStartMenu', 'startPendingGameIfReady']
+      .every(k => typeof SM[k] === 'function'));
+
+  // Wire up the handlers + build badge (DOMContentLoaded would do this in the browser).
+  SM.initializeStartMenu();
+
+  const btn = document.getElementById('startGameButton');
+  const startContainer = document.getElementById('startGameContainer');
+  const gameCanvas = document.getElementById('gameCanvas');
+  const aboutPanel = document.getElementById('aboutGamePanel');
+  const startMenu = document.getElementById('startMenu');
+  const keyboardHint = document.getElementById('keyboardHint');
+
+  console.log('\n--- build badge ---');
+  check('addBuildBadge renders the build id into the start button',
+    /Start Game/.test(btn.innerHTML) &&
+    /build-badge/.test(btn.innerHTML) &&
+    /2026-06-18 12:00/.test(btn.innerHTML));
+
+  console.log('\n--- deferred start before game scripts load (080bb29) ---');
+  delete window.initializeGameWithAudio; // game scripts not ready yet
+  const deferred = SM.startGame();
+  check('startGame defers (returns false) when game scripts are not ready',
+    deferred === false);
+  check('deferred start marks the button waiting (disabled + aria-busy)',
+    btn.disabled === true && btn.getAttribute('aria-busy') === 'true');
+  check('deferred start does NOT hide the start container',
+    startContainer.style.display !== 'none');
+
+  console.log('\n--- game scripts arrive: preserve start gesture (6429cfa) ---');
+  window.initializeGameWithAudio = () => { launches++; };
+  window.dispatchEvent(new window.Event('snowglider:game-scripts-ready'));
+  check('game-scripts-ready clears the pending wait and re-enables the button',
+    btn.disabled === false && !btn.hasAttribute('aria-busy'));
+  check('game-scripts-ready does NOT auto-start; it waits for a fresh gesture',
+    launches === 0 && startContainer.style.display !== 'none');
+
+  console.log('\n--- successful start when ready ---');
+  launches = 0;
+  const started = SM.startGame();
+  check('startGame starts (returns true) when ready', started === true);
+  check('successful start hides the container and shows the canvas',
+    startContainer.style.display === 'none' && gameCanvas.style.display === 'block');
+  check('successful start invokes initializeGameWithAudio once', launches === 1);
+
+  console.log('\n--- about panel show/hide ---');
+  SM.showAbout();
+  check('showAbout shows the about panel and hides the menu/hint',
+    aboutPanel.style.display === 'block' &&
+    startMenu.style.display === 'none' &&
+    keyboardHint.style.display === 'none');
+  SM.hideAbout();
+  check('hideAbout restores the menu and hides the about panel',
+    aboutPanel.style.display === 'none' && startMenu.style.display === 'flex');
+
+  console.log('\n--- keyboard: Enter starts when the start screen is visible ---');
+  startContainer.style.display = 'flex'; // start screen visible again
+  aboutPanel.style.display = 'none';
+  launches = 0;
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  check('Enter starts the game when the start screen is visible', launches === 1);
+
+  console.log('\n--- keyboard: Escape closes the about panel ---');
+  SM.showAbout();
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+  check('Escape closes the about panel (via closeAboutButton)',
+    aboutPanel.style.display === 'none');
+
+  console.log('\n--- start button click runs the audio-unlock + start flow ---');
+  startContainer.style.display = 'flex';
+  aboutPanel.style.display = 'none';
+  launches = 0;
+  btn.dispatchEvent(new window.Event('click'));
+  await flush();
+  await flush();
+  check('clicking Start runs the start flow (after async audio unlock)',
+    launches === 1 && startContainer.style.display === 'none');
+
+  console.log(`\nSTART MENU TEST TOTAL: ${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+}
+
+main().catch(error => {
+  console.error(error);
+  process.exit(1);
+});
