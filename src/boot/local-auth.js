@@ -1,8 +1,14 @@
 // @ts-check
 (function () {
+  const MIN_VALID_SCORE_TIME = 4;
+  const MAX_VALID_SCORE_TIME = 600;
+
   /** @param {number} time */
   function isValidScoreTime(time) {
-    return typeof time === 'number' && Number.isFinite(time) && time >= 4;
+    return typeof time === 'number' &&
+      Number.isFinite(time) &&
+      time >= MIN_VALID_SCORE_TIME &&
+      time <= MAX_VALID_SCORE_TIME;
   }
 
   function installScoresModule() {
@@ -22,8 +28,13 @@
 
         const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
         const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
+        // Inline (not isValidScoreTime) so the `typeof` check narrows localBestTime
+        // from `number | null` to `number` for the `time < localBestTime` use below
+        // under strictNullChecks.
         const hasValidLocalBest = typeof localBestTime === 'number' &&
-          Number.isFinite(localBestTime) && localBestTime >= 4;
+          Number.isFinite(localBestTime) &&
+          localBestTime >= MIN_VALID_SCORE_TIME &&
+          localBestTime <= MAX_VALID_SCORE_TIME;
         if (localBestTimeStr && !hasValidLocalBest) {
           console.warn("Ignoring invalid local best time:", localBestTimeStr);
           localStorage.removeItem('snowgliderBestTime');

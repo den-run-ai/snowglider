@@ -148,6 +148,10 @@ The application uses the following Firestore collections:
 - `users` - User profiles and best times
 - `leaderboard` - Global leaderboard entries
 
+Firestore Security Rules are tracked in `firestore.rules`. Run
+`npm run test:firebase` to validate the rules against the Firebase emulator
+(requires a local Java runtime).
+
 #### GitHub Pages Deployment
 1. Push your changes to GitHub repository
 2. Enable GitHub Pages in repository settings

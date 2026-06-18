@@ -49,11 +49,16 @@ let currentUser: User | null = null;
 
 // The timed course runs from z=-15 to z=-195 (180 world metres). Four seconds is
 // deliberately loose: it rejects timer/startup artifacts like 0.01s while allowing
-// any physically plausible descent the current game can produce.
+// any physically plausible descent the current game can produce. Ten minutes is
+// a generous upper bound for completed runs and matches the Firestore rules cap.
 const MIN_VALID_SCORE_TIME = 4;
+const MAX_VALID_SCORE_TIME = 600;
 
 function isValidScoreTime(time: number) {
-  return typeof time === 'number' && Number.isFinite(time) && time >= MIN_VALID_SCORE_TIME;
+  return typeof time === 'number' &&
+    Number.isFinite(time) &&
+    time >= MIN_VALID_SCORE_TIME &&
+    time <= MAX_VALID_SCORE_TIME;
 }
 
 function readLocalBestTime() {

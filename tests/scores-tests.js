@@ -314,16 +314,21 @@ async function main() {
       'isFirestoreAvailable', 'isValidScoreTime'].every(key => typeof ScoresModule[key] === 'function'));
   check('score validation rejects impossible and non-finite times',
     ScoresModule.isValidScoreTime(0.01) === false &&
+    ScoresModule.isValidScoreTime(600.01) === false &&
     ScoresModule.isValidScoreTime(Infinity) === false &&
     ScoresModule.isValidScoreTime('14') === false);
   check('score validation accepts plausible numeric times',
     ScoresModule.isValidScoreTime(4) === true &&
+    ScoresModule.isValidScoreTime(600) === true &&
     ScoresModule.isValidScoreTime(14.67) === true);
 
   console.log('\n--- Local score recording ---');
   resetState(ScoresModule);
   ScoresModule.recordScore(0.01);
   check('invalid runs are not stored locally',
+    localStorage.getItem('snowgliderBestTime') === null);
+  ScoresModule.recordScore(600.01);
+  check('over-cap runs are not stored locally',
     localStorage.getItem('snowgliderBestTime') === null);
   localStorage.setItem('snowgliderBestTime', 'bogus');
   ScoresModule.recordScore(21.5);

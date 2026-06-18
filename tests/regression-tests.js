@@ -362,8 +362,12 @@ runTest('Leaderboard Always Reflects The Authoritative Best, Never A Slower Loca
 
 runTest('Impossible Score Times Are Rejected And Repairable', () => {
   const minValidScoreTime = 4;
+  const maxValidScoreTime = 600;
   function isValidScoreTime(time) {
-    return typeof time === 'number' && Number.isFinite(time) && time >= minValidScoreTime;
+    return typeof time === 'number' &&
+      Number.isFinite(time) &&
+      time >= minValidScoreTime &&
+      time <= maxValidScoreTime;
   }
 
   function resolve(time, storedBest, leaderboardBest) {
@@ -394,6 +398,11 @@ runTest('Impossible Score Times Are Rejected And Repairable', () => {
   assertEquals(r.accepted, false, "A 0.01s run should never be accepted as a score");
   assertEquals(r.writeUser, false, "Invalid runs must not write the user best");
   assertEquals(r.writeLeaderboard, false, "Invalid runs must not write the leaderboard");
+
+  r = resolve(600.01, null, null);
+  assertEquals(r.accepted, false, "A run over 600s should never be accepted as a score");
+  assertEquals(r.writeUser, false, "Over-cap runs must not write the user best");
+  assertEquals(r.writeLeaderboard, false, "Over-cap runs must not write the leaderboard");
 
   r = resolve(19.43, 0.01, 0.01);
   assertEquals(r.accepted, true, "A realistic run should still be accepted");
