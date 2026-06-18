@@ -32,6 +32,10 @@ module.exports = [
         AuthModule: "readonly",
         Camera: "readonly",
         Controls: "readonly",
+        // course.js is now an ES module (PR 2.2), but the still-classic
+        // snowglider.js reads `CourseModule` by bare name, so keep it declared
+        // here until snowglider.js is converted (PR 2.9). (Contrast avalanche.js,
+        // which is only read as `window.Avalanche`, so its global was dropped.)
         CourseModule: "readonly",
         EffectsModule: "readonly",
         Howl: "readonly",
@@ -71,7 +75,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/main.js", "src/scores.js"],
+    files: ["src/auth.js", "src/avalanche.js", "src/course.js", "src/main.js", "src/scores.js"],
     languageOptions: {
       sourceType: "module"
     }

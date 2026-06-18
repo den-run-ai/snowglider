@@ -11,7 +11,8 @@
     // avalanche.js converted to an ES module (issue #84, PR 2.1); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
     'src/effects.js',
-    'src/course.js',
+    // course.js converted to an ES module (issue #84, PR 2.2); it now loads
+    // via the bundle entry (src/main.js), not this classic loader.
     'src/snowglider.js'
   ];
 
