@@ -188,7 +188,8 @@ async function main() {
   check('signed out: getLeaderboard is NOT called (Firestore rules deny it)',
     leaderboardReads === 0);
 
-  // Signed in, empty leaderboard -> empty state shown, hint hidden.
+  // Signed in, empty leaderboard -> preview hidden (an empty [] is indistinguishable
+  // from a swallowed read error, so we never claim "No times yet"), hint hidden.
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: true },
@@ -198,8 +199,8 @@ async function main() {
   refresh();
   await settle();
   check('signed in: sign-in hint hidden', hint.style.display === 'none');
-  check('signed in + empty leaderboard: empty-state shown',
-    lb.style.display === 'block' && /No times yet/.test(lb.innerHTML));
+  check('signed in + empty/unavailable leaderboard: preview hidden (no false empty state)',
+    lb.style.display === 'none');
 
   // Signed in, populated leaderboard -> top-5 table with 2-decimal times.
   resetAccountDom();
@@ -265,6 +266,21 @@ async function main() {
   await settle();
   check('ScoresModule without getLeaderboard hides the leaderboard',
     lb.style.display === 'none');
+
+  // The start menu re-renders when auth.ts broadcasts snowglider:auth-changed
+  // (login/logout), so signing in from the start screen isn't stale until reload.
+  // Here we change account state but do NOT call refresh() directly — the wired
+  // listener must do it in response to the event.
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Signed In' }, isSignedIn: true },
+    getLeaderboard: () => [{ userId: 'me', time: 7.25 }]
+  });
+  window.dispatchEvent(new window.Event('snowglider:auth-changed'));
+  await settle();
+  check('snowglider:auth-changed re-renders the account UI without a manual refresh',
+    lb.style.display === 'block' && lb.innerHTML.includes('7.25s'));
 
   // No AuthModule/ScoresModule at all (file:// / offline) -> everything hidden.
   resetAccountDom();

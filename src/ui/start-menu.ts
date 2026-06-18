@@ -78,12 +78,12 @@ import { AudioModule } from '../audio.js';
     Promise.resolve(scores.getLeaderboard())
       .then((list) => {
         if (!Array.isArray(list) || list.length === 0) {
-          if (firebase.firestore) {
-            lb.innerHTML = '<h3>🏆 Global Top Times</h3><p class="lb-empty">No times yet — be the first to finish!</p>';
-            lb.style.display = 'block';
-          } else {
-            lb.style.display = 'none';
-          }
+          // getLeaderboard() resolves [] for BOTH a genuinely empty board and a
+          // swallowed read error (offline / transient Firestore failure), and
+          // isFirebaseAvailable() can still report Firestore "available" — so the
+          // two are indistinguishable here. Hide the preview rather than risk a
+          // false "No times yet" during an outage.
+          lb.style.display = 'none';
           return;
         }
 
@@ -272,6 +272,10 @@ import { AudioModule } from '../audio.js';
     refreshStartAccountUI();
     setTimeout(refreshStartAccountUI, 1500);
   });
+  // Re-render whenever auth state changes (auth.ts dispatches this on login/logout),
+  // so signing in from the elevated start-screen control immediately swaps the
+  // sign-in hint for the leaderboard instead of leaving stale state until reload.
+  window.addEventListener('snowglider:auth-changed', refreshStartAccountUI);
 
   window.SnowGliderStartMenu = {
     startGame,
