@@ -1,16 +1,37 @@
-// @ts-check
-// trees.js - Tree creation and management for snowglider
+// trees.ts - Tree creation and management for snowglider
 //
 // Phase 2.4 (issue #84): converted off the classic global model. `THREE` and the
 // terrain samplers (`Mountains`) now come from real ES-module imports instead of
 // the CDN global / window bridges, and `Trees` is `export`ed. mountains.js and
 // trees.js import each other (the cross-references are only used at call time, so
 // the circular import resolves cleanly).
+//
+// Phase 3.3 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+// (implied for a real `.ts` file) and the placement/collision data shapes and
+// helper signatures are now real `interface`/`type` declarations. Behaviour is
+// unchanged — every edit is type-only/erasable, so esbuild (Vite) and Node's
+// native type-stripping both run it exactly as before. The trees <-> mountains
+// circular import is untouched: the `./mountains.js` specifier still resolves to
+// `mountains.js` (it converts in PR 3.6), and the cross-references stay call-time.
 import * as THREE from 'three';
 import { Mountains } from './mountains.js';
 
+/** A placed tree's world position and size; addTrees returns these for collision. */
+export interface TreePosition {
+  x: number;
+  y: number;
+  z: number;
+  scale: number;
+}
+
+/** Terrain gradient (slope components) returned by the Mountains sampler. */
+export interface TerrainGradient {
+  x: number;
+  z: number;
+}
+
 // Create a more realistic tree with visible branches and variability
-function createTree(scale = 1.0) {
+function createTree(scale = 1.0): THREE.Group {
   const group = new THREE.Group();
   
   // Add randomization factors for variety
@@ -86,7 +107,7 @@ function createTree(scale = 1.0) {
 }
 
 // Add visible branches sticking out of the main cone shape
-function addBranchesAtLayer(cone, radius, material) {
+function addBranchesAtLayer(cone: THREE.Mesh, radius: number, material: THREE.Material) {
   // Number of branches depends on radius
   const branchCount = Math.floor(3 + Math.random() * 3); // 3-5 visible branches
   
@@ -123,7 +144,7 @@ function addBranchesAtLayer(cone, radius, material) {
 }
 
 // Add snow caps on top of tree
-function addSnowCaps(tree, treeHeight, widthScale) {
+function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: number) {
   // Add some snow on top
   const snowCapGeometry = new THREE.SphereGeometry(widthScale * 0.8, 8, 4, 0, Math.PI * 2, 0, Math.PI / 3);
   const snowMaterial = new THREE.MeshStandardMaterial({
@@ -163,7 +184,7 @@ function addSnowCaps(tree, treeHeight, widthScale) {
 }
 
 // Add trees to make the scene more interesting
-function addTrees(scene) {
+function addTrees(scene: THREE.Scene): TreePosition[] {
   // Remove any existing trees from the scene to prevent duplicates
   for (let i = scene.children.length - 1; i >= 0; i--) {
     const child = scene.children[i];
@@ -173,8 +194,8 @@ function addTrees(scene) {
     }
   }
   
-  const treePositions = [];
-  
+  const treePositions: TreePosition[] = [];
+
   // IMPORTANT: Log the ranges we're using to create trees for debugging
   console.log("Trees.addTrees: Creating trees in X range -100 to 100, Z range -180 to 80");
   
@@ -328,11 +349,13 @@ function addTrees(scene) {
   } 
   // Last resort - find by name or type
   else {
-    terrainMesh = scene.children.find(child => 
-      child.name === 'terrain' || 
-      (child.type === 'Mesh' && 
-       child.geometry && 
-       child.geometry.type === 'PlaneGeometry'));
+    terrainMesh = scene.children.find(child => {
+      const mesh = child as THREE.Mesh;
+      return child.name === 'terrain' ||
+        (child.type === 'Mesh' &&
+         !!mesh.geometry &&
+         mesh.geometry.type === 'PlaneGeometry');
+    });
   }
   
   // Create tree instances - ensure trees are properly anchored to terrain
@@ -354,7 +377,7 @@ function addTrees(scene) {
 }
 
 // Helper function to use the Mountains module to get terrain height.
-function getTerrainHeight(x, z) {
+function getTerrainHeight(x: number, z: number): number {
   if (Mountains && Mountains.getTerrainHeight) {
     return Mountains.getTerrainHeight(x, z);
   }
@@ -365,7 +388,7 @@ function getTerrainHeight(x, z) {
 }
 
 // Helper function to use the Mountains module to get terrain gradient.
-function getTerrainGradient(x, z) {
+function getTerrainGradient(x: number, z: number): TerrainGradient {
   if (Mountains && Mountains.getTerrainGradient) {
     return Mountains.getTerrainGradient(x, z);
   }
@@ -385,5 +408,4 @@ export const Trees = {
   getTerrainGradient
 };
 
-// The window.Trees bridge was removed (issue #84): snow.js and mountains.js
-// import Trees directly now.
+// Trees is imported directly by snow.js and mountains.js (issue #84).
