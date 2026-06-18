@@ -159,7 +159,11 @@ async function runStartMenuRaceRegression(browser) {
     } catch {
       pathname = request.url();
     }
-    if (pathname.endsWith('/src/snowglider.js')) {
+    // snowglider was renamed .js -> .ts (issue #84, Phase 3.9). Depending on how
+    // Vite rewrites the deferred dynamic import, the served request may be `.js`
+    // (Vite serves the .ts content for it) or the resolved `.ts` path — match both
+    // so the delayed-load start-menu regression keeps exercising the deferral.
+    if (pathname.endsWith('/src/snowglider.js') || pathname.endsWith('/src/snowglider.ts')) {
       snowgliderRequestSeen();
       await releaseSnowgliderScriptPromise;
     }
