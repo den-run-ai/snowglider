@@ -796,7 +796,7 @@ function addTestHooks(pos: PlayerPos, showGameOver: ShowGameOverFn, getTerrainHe
   };
   
   // Add a tree collision checking function
-  window.testHooks.checkTreeCollision = function(x, z) {
+  window.testHooks.checkTreeCollision = function(x: number, z: number) {
     console.log("TEST: checkTreeCollision hook called");
     // Create a test tree at the specified position
     const testTree = { 
@@ -883,7 +883,7 @@ function addTestHooks(pos: PlayerPos, showGameOver: ShowGameOverFn, getTerrainHe
     }
     
     // Find a tree in extended terrain (z < -80)
-    const extendedTrees = window.treePositions.filter(t => t.z < -80);
+    const extendedTrees = window.treePositions.filter((t: { z: number }) => t.z < -80);
     if (extendedTrees.length === 0) {
       console.log("TEST: No trees found in extended terrain (z < -80)");
       // Still show collision for test to pass

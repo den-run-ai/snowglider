@@ -1,5 +1,6 @@
 // @ts-check
 (function () {
+  /** @param {number} time */
   function isValidScoreTime(time) {
     return typeof time === 'number' && Number.isFinite(time) && time >= 4;
   }
@@ -12,6 +13,7 @@
       setCurrentUser: function () {
         console.log("ScoresModule: setCurrentUser called in local mode");
       },
+      /** @param {number} time */
       recordScore: function (time) {
         if (!isValidScoreTime(time)) {
           console.warn("Skipping local score record (Invalid time value):", time);
@@ -75,6 +77,7 @@
           authContainer.appendChild(localModeNotice);
         }
       },
+      /** @param {number} time */
       recordScore: function (time) {
         if (!isValidScoreTime(time)) {
           console.warn("Skipping local score record (Invalid time value):", time);

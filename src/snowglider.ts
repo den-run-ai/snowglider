@@ -179,7 +179,7 @@ let treePositions: TreePosition[] = [];
 
 // Instead of duplicating the tree placement logic, use Snow.addTrees
 // and store its returned positions for collision detection
-function addTreesWithPositions(scene) {
+function addTreesWithPositions(scene: THREE.Scene) {
   // The addTrees function in Snow now handles all tree placement and rendering
   // It returns an array of all tree positions that we can use for collision detection
   
@@ -261,7 +261,7 @@ let turnAmplitude = 3.0;
 let startTime = 0;
 const MIN_VALID_SCORE_TIME = 4;
 
-function isValidScoreTime(time) {
+function isValidScoreTime(time: number) {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
     return window.ScoresModule.isValidScoreTime(time);
   }
@@ -456,7 +456,7 @@ cameraToggleBtn.addEventListener('touchend', function(event) {
 document.body.appendChild(cameraToggleBtn);
 
 // --- Update Snowman: Physics-based Movement ---
-function updateSnowman(delta) {
+function updateSnowman(delta: number) {
   // We no longer need to add test hooks every frame as they're set up at initialization
   // and after resets. This improves performance.
   const activeShowGameOver = typeof window.showGameOver === 'function'
@@ -515,7 +515,7 @@ function updateSnowman(delta) {
       groundElement.style.color = '#00FFFF';
     } else {
       // Reflect the active ski technique so skill is legible in the HUD.
-      const techMap = {
+      const techMap: Record<string, { txt: string; color: string }> = {
         carve:    { txt: '🎿 Carving',  color: '#55efc4' },
         skid:     { txt: '💨 Skidding', color: '#ffeaa7' },
         snowplow: { txt: '🍕 Snowplow', color: '#74b9ff' },
@@ -557,7 +557,7 @@ cameraManager.initialize(
 
 // --- Animation Loop ---
 let lastTime = 0;
-function animate(time) {
+function animate(time: number) {
   if (gameActive) {
     requestAnimationFrame(animate);
     const delta = Math.min((time - lastTime) / 1000, 0.1); // Cap delta to avoid jumps
@@ -680,7 +680,7 @@ function removeLoginPrompt() {
 
 // Add these functions for game over handling
 // Expose showGameOver on window for test mocking
-function showGameOver(reason) {
+function showGameOver(reason: string) {
   // Allow tests to intercept showGameOver calls
   if (window._testShowGameOverOverride) {
     window._testShowGameOverOverride(reason);
@@ -929,7 +929,11 @@ function toggleCameraView() {
 window.toggleCameraView = toggleCameraView;
 
 // Add test hook functions for tree collision testing
-function addTestHooks(pos, showGameOver, getTerrainHeight) {
+function addTestHooks(
+  pos: { x: number; y: number; z: number },
+  showGameOver: (reason: string) => void,
+  getTerrainHeight: TerrainHeightFn
+) {
   console.log("Snowman.addTestHooks called - setting up test hooks");
   
   if (!window.testHooks) {
@@ -1271,8 +1275,7 @@ window.initializeGameWithAudio = function() {
 // and treePositions/terrainMesh/isTestMode are already published above.)
 (function publishGameGlobals() {
   if (typeof window === 'undefined') return;
-  /** @type {Record<string, PropertyDescriptor>} */
-  const live = {
+  const live: Record<string, PropertyDescriptor> = {
     // Mutable primitives the tests reassign — proxy reads and writes.
     gameActive:         { get: () => gameActive,         set: (v) => { gameActive = v; } },
     isInAir:            { get: () => isInAir,            set: (v) => { isInAir = v; } },

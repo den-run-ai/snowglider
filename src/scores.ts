@@ -36,21 +36,23 @@ import {
   query,
   limit,
   getDocs,
-  serverTimestamp
+  serverTimestamp,
+  type Firestore
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
-import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
+import { getAnalytics, logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
+import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
 
 // Module state
-let firestore = null; // Local cache of firestore instance, updated by initializeScores
-let analytics = null;
-let currentUser = null;
+let firestore: Firestore | null = null; // Local cache of firestore instance, updated by initializeScores
+let analytics: Analytics | null = null;
+let currentUser: User | null = null;
 
 // The timed course runs from z=-15 to z=-195 (180 world metres). Four seconds is
 // deliberately loose: it rejects timer/startup artifacts like 0.01s while allowing
 // any physically plausible descent the current game can produce.
 const MIN_VALID_SCORE_TIME = 4;
 
-function isValidScoreTime(time) {
+function isValidScoreTime(time: number) {
   return typeof time === 'number' && Number.isFinite(time) && time >= MIN_VALID_SCORE_TIME;
 }
 
@@ -75,7 +77,7 @@ function readLocalBestTime() {
  * @param {Object|null} firestoreInstance - Initialized Firestore instance (or null)
  * @param {Object|null} analyticsInstance - Initialized Analytics instance (or null)
  */
-function initializeScores(firestoreInstance, analyticsInstance) {
+function initializeScores(firestoreInstance: Firestore | null, analyticsInstance: Analytics | null) {
   firestore = firestoreInstance; // Update local cache
   analytics = analyticsInstance;
   console.log("Scores module initialized/updated:",
@@ -92,7 +94,7 @@ function initializeScores(firestoreInstance, analyticsInstance) {
  * Set the current user for score tracking
  * @param {Object} user - Firebase auth user object
  */
-function setCurrentUser(user) {
+function setCurrentUser(user: User | null) {
   currentUser = user;
 }
 
@@ -124,7 +126,7 @@ function getActiveUser() {
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
-function updateUserBestTime(userId, time) {
+function updateUserBestTime(userId: string, time: number) {
   // Guard clauses
   if (!firestore) {
     console.log("Skipping best time update (Firestore unavailable).");
@@ -207,7 +209,7 @@ function updateUserBestTime(userId, time) {
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
-function updateLeaderboard(userId, time) {
+function updateLeaderboard(userId: string, time: number) {
   if (!isValidScoreTime(time)) {
     console.warn("Skipping leaderboard update (Invalid time value):", time);
     return;
@@ -530,7 +532,7 @@ function displayLeaderboard() {
  * Record a completed run score
  * @param {number} time - Run completion time in seconds
  */
-function recordScore(time) {
+function recordScore(time: number) {
   if (!isValidScoreTime(time)) {
     console.warn("Skipping score record (Invalid time value):", time);
     return;
