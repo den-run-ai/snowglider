@@ -279,6 +279,36 @@ runTest('Tree and Rock Positioning', () => {
   Utils.createTree = originalCreateTree;
 });
 
+// Test 8: Collidable rocks avoid the ski line and spawn pocket
+runTest('Collidable rocks avoid the ski line and spawn pocket', () => {
+  const isHazard = global.Mountains.rockIsCollisionHazard;
+  assert(typeof isHazard === 'function', 'Mountains.rockIsCollisionHazard should be exported');
+
+  // Small half-buried stones stay decorative even when well clear of the path.
+  assert(!isHazard(50, -150, 1.0), 'rocks below the min hazard size stay decorative');
+
+  // The central ski line is kept hazard-free so the run is always navigable.
+  assert(!isHazard(0, -150, 2.0), 'no hazard directly on the center ski line');
+  assert(!isHazard(4.9, -150, 3.0), 'no hazard inside the |x| < 5 ski corridor');
+
+  // The spawn pocket around the start (0, -15) is hazard-free, even off-center.
+  assert(!isHazard(0, -15, 2.0), 'no hazard on the snowman start');
+  assert(!isHazard(6, -15, 2.0), 'no hazard within the spawn pocket even off the center line');
+
+  // A large rock clear of both the ski line and the start is a real hazard.
+  assert(isHazard(50, -150, 2.0), 'large rocks clear of the path and start are hazards');
+  assert(isHazard(8, -60, 1.5), 'large off-line rocks past the spawn pocket are hazards');
+
+  // Each exclusion is widened by the rock's collision radius (up to 3u), so a rock
+  // whose *center* sits just outside the corridor/pocket can't still reach into it.
+  const rockRadius = global.Mountains.rockCollisionRadius;
+  assert(typeof rockRadius === 'function', 'Mountains.rockCollisionRadius should be exported');
+  assert(Math.abs(rockRadius(3.0) - 3.0) < 1e-9, 'a size-3 rock has a 3u collision radius');
+  assert(!isHazard(5.1, -150, 3.0), 'a size-3 rock at x=5.1 reaches into the |x|<5 ski lane, so it is excluded');
+  assert(!isHazard(12, -15, 3.0), 'a size-3 rock 12u from the start reaches into the spawn pocket, so it is excluded');
+  assert(isHazard(8.5, -150, 3.0), 'a size-3 rock fully clear of the corridor + radius is still a hazard');
+});
+
 // Print test summary
 console.log(`\n==============================`);
 console.log(`Tests completed: ${passCount} passed, ${failCount} failed`);

@@ -27,11 +27,53 @@ export interface TerrainVec2 {
 }
 
 /** A placed rock's world position and size. */
-interface RockPosition {
+export interface RockPosition {
   x: number;
   y: number;
   z: number;
   size: number;
+}
+
+const ROCK_COLLISION_MIN_SIZE = 1.25;
+
+// Keep the central ski line and the spawn pocket clear of *collidable* rocks: the
+// run must always stay navigable (mirrors the tree clear-corridor in trees.ts) and
+// the player must never spawn on, or right next to, a hazard. Decorative rocks are
+// still rendered everywhere — only their hazard status is suppressed here. Both
+// exclusions are widened by the rock's own collision radius below, so a rock whose
+// *center* sits just outside the corridor/pocket can't still reach into it.
+const ROCK_COLLISION_PATH_HALF_WIDTH = 5;     // central ski-line corridor half-width, before the rock radius is added
+const ROCK_COLLISION_START_CLEAR_RADIUS = 10; // clear pocket around the snowman start, before the rock radius is added
+// Snowman spawn, mirroring resetSnowman() in snowman.ts (pos.x = 0, pos.z = -15).
+const SNOWMAN_START_X = 0;
+const SNOWMAN_START_Z = -15;
+
+/**
+ * Collision radius (world units) of a collidable rock of the given size (max 3u).
+ * The placement-time safe-zone below uses this to exclude rocks whose hazard radius
+ * would reach the ski lane or spawn pocket. snowman.ts's in-game rock collision uses
+ * the identical formula inline (it must stay free of relative imports so the
+ * no-resolve-hook Node test harnesses can load it) — keep the two in sync.
+ */
+export function rockCollisionRadius(size: number): number {
+  return Math.max(1.25, Math.min(3.0, size * 0.75 + 0.75));
+}
+
+/**
+ * Whether a placed rock should act as a collision hazard. A rock qualifies only
+ * when it is large enough to read as an obstacle AND clear of both the central ski
+ * line and the spawn pocket — each exclusion expanded by the rock's own collision
+ * radius so the unseeded random placement can never reach into the ski lane, wall
+ * off the run, or crash the player on spawn.
+ */
+function rockIsCollisionHazard(x: number, z: number, size: number): boolean {
+  if (size < ROCK_COLLISION_MIN_SIZE) return false;
+  const radius = rockCollisionRadius(size);
+  if (Math.abs(x) < ROCK_COLLISION_PATH_HALF_WIDTH + radius) return false;
+  const dx = x - SNOWMAN_START_X;
+  const dz = z - SNOWMAN_START_Z;
+  if (Math.sqrt(dx * dx + dz * dz) < ROCK_COLLISION_START_CLEAR_RADIUS + radius) return false;
+  return true;
 }
 
 // --- SimplexNoise implementation ---
@@ -310,8 +352,9 @@ function createTerrain(scene: THREE.Scene) {
   // Debug log to verify our height map is working
   console.log(`Height map contains ${Object.keys(heightMap).length} terrain points`);
   
-  // Add rocks to make the mountain more realistic
-  addRocks(scene);
+  // Add rocks to make the mountain more realistic. The returned subset is the
+  // collision source of truth for rocks large enough to read as hazards.
+  const rockPositions = addRocks(scene);
   
   // Add trees to make the slope more visible using the separate Trees module
   let treePositions: TreePosition[] = [];
@@ -321,11 +364,11 @@ function createTerrain(scene: THREE.Scene) {
     console.warn("Trees module not found, skipping tree creation");
   }
   
-  return { terrain, treePositions };
+  return { terrain, treePositions, rockPositions };
 }
 
 // Add rocks to create a more realistic mountain environment
-function addRocks(scene: THREE.Scene) {
+function addRocks(scene: THREE.Scene): RockPosition[] {
   // Remove any existing rocks from the scene to prevent duplicates
   for (let i = scene.children.length - 1; i >= 0; i--) {
     const child = scene.children[i];
@@ -388,6 +431,8 @@ function addRocks(scene: THREE.Scene) {
     }) ?? null;
   }
   
+  const collisionRockPositions: RockPosition[] = [];
+
   // Create rock instances
   rockPositions.forEach(pos => {
     // Get the exact terrain height from our height map or calculation
@@ -408,7 +453,14 @@ function addRocks(scene: THREE.Scene) {
     rock.rotation.z = -Math.atan(gradient.x) * 0.8;
     
     scene.add(rock);
+
+    if (rockIsCollisionHazard(pos.x, pos.z, pos.size)) {
+      collisionRockPositions.push({ x: pos.x, y: terrainHeight, z: pos.z, size: pos.size });
+    }
   });
+
+  console.log(`Mountains.addRocks: Created ${collisionRockPositions.length} rock positions for collision detection`);
+  return collisionRockPositions;
 }
 
 // Create a rock with variable size
@@ -463,6 +515,9 @@ export const Mountains = {
   createTerrain,
   createRock,
   addRocks,
+  ROCK_COLLISION_MIN_SIZE,
+  rockCollisionRadius,
+  rockIsCollisionHazard,
   debugHeightMap,
   heightMap // Expose the heightmap for debugging
 };

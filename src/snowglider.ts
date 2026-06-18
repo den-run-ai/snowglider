@@ -36,6 +36,7 @@ import { EffectsModule, type ShakeOffset } from './effects.js';
 import { AvalancheSystem } from './avalanche.js';
 import { AudioModule } from './audio.js';
 import { Physics } from './physics.js';
+import type { RockPosition } from './mountains.js';
 import type { TreePosition } from './trees.js';
 
 // Get keyboard controls from the Controls module
@@ -158,6 +159,7 @@ scene.add(directionalLight);
 // Store terrain in a global for precise object positioning
 const terrainResult = Snow.createTerrain(scene);
 const terrain = terrainResult.terrain;
+const rockPositions: RockPosition[] = terrainResult.rockPositions;
 // Store terrain reference in global for later object placement
 window.terrainMesh = terrain;
 
@@ -243,6 +245,8 @@ if (treePositions.length > 0) {
 
 // Set up window.treePositions for test hooks to access
 window.treePositions = treePositions;
+window.rockPositions = rockPositions;
+console.log(`Rock positions array has ${rockPositions.length} large rocks for collision detection`);
 
 // Create a global flag to control test behavior
 window.isTestMode = window.location.search.includes('test');
@@ -500,6 +504,7 @@ function updateSnowman(delta: number) {
     getTerrainGradient: Snow.getTerrainGradient,
     getDownhillDirection: Snow.getDownhillDirection,
     treePositions,
+    rockPositions,
     gameActive: state.gameActive,
     showGameOver: activeShowGameOver
   });

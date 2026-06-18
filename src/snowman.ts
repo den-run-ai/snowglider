@@ -61,6 +61,14 @@ export interface TreePos {
   z: number;
 }
 
+/** Minimal rock-position shape the collision check reads. */
+export interface RockPos {
+  x: number;
+  y: number;
+  z: number;
+  size: number;
+}
+
 /** The camera-manager seam resetSnowman drives (satisfied by the Camera class). */
 export interface CameraManagerLike {
   initialize(position: THREE.Vector3, rotation: THREE.Euler): void;
@@ -317,7 +325,8 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
                       lastTerrainHeight: number, airTime: number, jumpCooldown: number, controls: SnowmanControls,
                       turnPhase: number, currentTurnDirection: number, turnChangeCooldown: number, turnAmplitude: number,
                       getTerrainHeight: TerrainHeightFn, getTerrainGradient: TerrainVecFn, getDownhillDirection: TerrainVecFn,
-                      treePositions: TreePos[], gameActive: boolean, showGameOver: ShowGameOverFn): UpdateResult {
+                      treePositions: TreePos[], gameActive: boolean, showGameOver: ShowGameOverFn,
+                      rockPositions: RockPos[] = []): UpdateResult {
   
   // Update jump cooldown
   if (jumpCooldown > 0) {
@@ -667,7 +676,7 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
   }
   
   // Check collision with any tree
-  const collision = treePositions.some(treePos => {
+  const treeCollision = treePositions.some(treePos => {
     // Special case for tests - direct position match or very close positions always collide
     // Use a small epsilon for floating point comparison, increased for test reliability
     // This helps with floating-point precision issues in tests
@@ -724,6 +733,31 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     // Allow jumping over trees but collide when on the ground
     return isCloseEnough && !isJumpingHighAboveTrees;
   });
+
+  // Check collision with large, exposed rocks. Small half-buried stones remain
+  // terrain detail; only positions returned by Mountains.addRocks reach this list.
+  const rockCollision = rockPositions.some(rockPos => {
+    const dx = pos.x - rockPos.x;
+    const dz = pos.z - rockPos.z;
+    const horizontalDistance = Math.sqrt(dx*dx + dz*dz);
+    // Collision radius (max 3u). Kept in sync with Mountains.rockCollisionRadius,
+    // which the placement-time safe-zone uses to exclude rocks that would reach the
+    // ski lane/spawn pocket. Duplicated inline (rather than imported) because
+    // snowman.ts must stay free of relative imports: some Node test harnesses load
+    // it without the .js->.ts resolve hook, and Node 22 won't map ./mountains.js.
+    const rockRadius = Math.max(1.25, Math.min(3.0, rockPos.size * 0.75 + 0.75));
+    const exposedRockTop = rockPos.y + rockPos.size * 0.7;
+    // Clearance is height-based: once the snowman is airborne and above the rock
+    // top it clears the hazard whether it is still rising or already descending past
+    // the jump apex. (Requiring upward motion made descending-but-high jumps crash.)
+    const isJumpingOverRock = isInAir && pos.y > exposedRockTop + 0.5;
+
+    if (window.location.search.includes('test=true') && horizontalDistance < 5) {
+      console.log(`ROCK CHECK: dist=${horizontalDistance.toFixed(2)}, radius=${rockRadius.toFixed(2)}, jumping=${isJumpingOverRock}, collision=${horizontalDistance < rockRadius && !isJumpingOverRock}`);
+    }
+
+    return horizontalDistance < rockRadius && !isJumpingOverRock;
+  });
   
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
   // Allow wider boundaries to match the extended mountain terrain
@@ -733,14 +767,17 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
   if (pos.z < -195 || // Extended from -95 to -195 for longer run
       (!inExtendedMountainTest && Math.abs(pos.x) > 120) || // Keep boundary check during browser/unified tests
       (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||
-      collision) {
+      treeCollision ||
+      rockCollision) {
     
     if (gameActive) {
       // Determine the reason for game over
       let reason = "You crashed!";
       
-      if (collision) {
+      if (treeCollision) {
         reason = "BANG!!! You hit a tree!";
+      } else if (rockCollision) {
+        reason = "BANG!!! You hit a rock!";
       } else if (pos.z < -195) {
         reason = "You reached the end of the slope!";
       } else if (Math.abs(pos.x) > 120) {

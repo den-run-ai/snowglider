@@ -58,7 +58,7 @@ function stepDeps(snowman) {
   return {
     snowman, delta: 1 / 60, controls: NONE,
     getTerrainHeight, getTerrainGradient, getDownhillDirection,
-    treePositions: [], gameActive: false, showGameOver() {}
+    treePositions: [], rockPositions: [], gameActive: false, showGameOver() {}
   };
 }
 
@@ -131,6 +131,74 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     for (let i = 0; i < 120; i++) Physics.stepPlayer(p, stepDeps(snowman));
     assert(p.pos.z < startZ, 'snowman moved downhill (-Z) under gravity');
     assert(Math.sqrt(p.velocity.x * p.velocity.x + p.velocity.z * p.velocity.z) > 0, 'picked up speed');
+  });
+
+  runTest('rock collision ends the run with a rock-specific reason', () => {
+    const p = Physics.createPlayerState(getTerrainHeight);
+    p.pos.x = 4;
+    p.pos.z = -60;
+    p.pos.y = getTerrainHeight(p.pos.x, p.pos.z);
+    p.velocity.x = 0;
+    p.velocity.z = 0;
+    const rock = { x: p.pos.x, y: p.pos.y, z: p.pos.z, size: 1.5 };
+    let reason = '';
+
+    Physics.stepPlayer(p, {
+      ...stepDeps(fakeSnowman()),
+      rockPositions: [rock],
+      gameActive: true,
+      showGameOver(nextReason) { reason = nextReason; }
+    });
+
+    assert(reason === 'BANG!!! You hit a rock!', `expected rock crash reason, got "${reason}"`);
+  });
+
+  runTest('jumping high enough clears a rock hazard', () => {
+    const p = Physics.createPlayerState(getTerrainHeight);
+    p.pos.x = -3;
+    p.pos.z = -70;
+    const terrainY = getTerrainHeight(p.pos.x, p.pos.z);
+    p.pos.y = terrainY + 2.0;
+    p.velocity.x = 0;
+    p.velocity.z = 0;
+    p.isInAir = true;
+    p.verticalVelocity = 6;
+    p.lastTerrainHeight = terrainY;
+    const rock = { x: p.pos.x, y: terrainY, z: p.pos.z, size: 1.5 };
+    let reason = '';
+
+    Physics.stepPlayer(p, {
+      ...stepDeps(fakeSnowman()),
+      rockPositions: [rock],
+      gameActive: true,
+      showGameOver(nextReason) { reason = nextReason; }
+    });
+
+    assert(reason === '', `expected jump clearance with no crash, got "${reason}"`);
+  });
+
+  runTest('a descending jump still clears a rock while above it', () => {
+    const p = Physics.createPlayerState(getTerrainHeight);
+    p.pos.x = -3;
+    p.pos.z = -70;
+    const terrainY = getTerrainHeight(p.pos.x, p.pos.z);
+    p.pos.y = terrainY + 3.0;
+    p.velocity.x = 0;
+    p.velocity.z = 0;
+    p.isInAir = true;
+    p.verticalVelocity = -3; // past the apex, descending but still well above the rock
+    p.lastTerrainHeight = terrainY;
+    const rock = { x: p.pos.x, y: terrainY, z: p.pos.z, size: 1.5 };
+    let reason = '';
+
+    Physics.stepPlayer(p, {
+      ...stepDeps(fakeSnowman()),
+      rockPositions: [rock],
+      gameActive: true,
+      showGameOver(nextReason) { reason = nextReason; }
+    });
+
+    assert(reason === '', `expected descending-jump clearance with no crash, got "${reason}"`);
   });
 
   console.log('\n================================================');
