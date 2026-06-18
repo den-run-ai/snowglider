@@ -102,12 +102,21 @@ jobs:
     # Additive cross-browser/Safari + mobile-touch layer alongside the Puppeteer
     # suite (which still owns the in-page suites + coverage). Runs independently of
     # `test`; it does NOT gate the Pages deploy (build-pages only needs `test`).
+    #
+    # Runs inside the official Playwright image so the version-matched chromium +
+    # webkit AND their ~180 OS packages are pre-baked. This removes the
+    # `playwright install --with-deps` step, whose apt download was wildly variable
+    # on bare runners (43s on one run, 15min+ on the next). The image tag MUST track
+    # the @playwright/test version in package.json (1.61.0) — bump them together.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.0-noble
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-        with:
-          lfs: true  # Needed for audio files tracked with Git LFS
+        # No lfs: the specs boot the game but never assert on the LFS-tracked audio
+        # asset (it loads on Start; a missing file is a media error, not a page
+        # error), so we skip LFS and the git-lfs-in-container requirement.
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -118,8 +127,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers (chromium + webkit)
-        run: npx playwright install --with-deps chromium webkit
+      # No browser-install step: the container already provides chromium + webkit
+      # and all their OS dependencies.
 
       - name: Run Playwright E2E tests
         run: npm run test:e2e
