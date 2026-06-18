@@ -1,15 +1,56 @@
-// @ts-check
-// camera.js - Camera management for SnowGlider
+// camera.ts - Camera management for SnowGlider
 //
 // Phase 2.3 (issue #84): converted off the classic global model. `THREE` and the
 // terrain sampler (`Mountains.getTerrainHeight`) now come from real ES-module
 // imports instead of the CDN global / window bridge, and the class is `export`ed.
 // Loaded via the bundle entry (src/main.js).
+//
+// Phase 3.2 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+// (implied for a real `.ts` file) and the camera's state is now expressed as
+// explicit, typed class fields plus typed method signatures. Behaviour is
+// unchanged — every edit is type-only/erasable, so esbuild (Vite) and Node's
+// native type-stripping both run it exactly as before.
 import * as THREE from 'three';
 import { Mountains } from './mountains.js';
 
+/** Third- or first-person follow camera. */
+export type CameraMode = 'thirdPerson' | 'firstPerson';
+
+/** Terrain sampler signature (the live game injects `Snow.getTerrainHeight`). */
+export type TerrainHeightFn = (x: number, z: number) => number;
+
+/**
+ * Horizontal velocity the camera reads. Only x/z are used (for follow distance
+ * and look-ahead), so this accepts both a real `THREE.Vector3` and the plain
+ * `{ x, z }` velocity the game loop tracks.
+ */
+interface PlanarVelocity {
+  x: number;
+  z: number;
+}
+
+/** Reusable vectors that carry smoothing state between frames. */
+interface SmoothingVectors {
+  lastPosition: THREE.Vector3;
+  targetPosition: THREE.Vector3;
+  lookAtPosition: THREE.Vector3;
+}
+
 export class Camera {
-  constructor(scene) {
+  camera: THREE.PerspectiveCamera;
+  smoothingVectors: SmoothingVectors;
+  smoothing: number;
+  minDistance: number;
+  maxDistance: number;
+  speedThreshold: number;
+  frameCount: number;
+  isFirstFrame: boolean;
+  mode: CameraMode;
+
+  // `scene` is accepted to match the call site (`new Camera(scene)`) and kept for
+  // parity with the other managers, though the camera reads terrain via the
+  // imported `Mountains` sampler rather than the scene graph.
+  constructor(scene: THREE.Scene) {
     // Create the camera
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     
@@ -33,7 +74,7 @@ export class Camera {
   }
 
   // Position camera initially behind the player
-  initialize(playerPosition, playerRotation) {
+  initialize(playerPosition: THREE.Vector3, playerRotation: THREE.Euler) {
     if (this.mode === "firstPerson") {
       // First-person camera initialization
       const angle = playerRotation.y;
@@ -91,14 +132,14 @@ export class Camera {
   }
 
   // Toggle between first-person and third-person views
-  toggleCameraMode() {
+  toggleCameraMode(): CameraMode {
     this.mode = this.mode === "thirdPerson" ? "firstPerson" : "thirdPerson";
     console.log(`Camera mode switched to: ${this.mode}`);
     return this.mode;
   }
   
   // Update camera position based on player position, rotation, and velocity
-  update(playerPosition, playerRotation, velocity, getTerrainHeight) {
+  update(playerPosition: THREE.Vector3, playerRotation: THREE.Euler, velocity: PlanarVelocity, getTerrainHeight: TerrainHeightFn) {
     // Track frames for smoothing transitions
     this.frameCount++;
     
@@ -189,7 +230,7 @@ export class Camera {
   }
   
   // First-person camera update method
-  updateFirstPerson(playerPosition, playerRotation, velocity) {
+  updateFirstPerson(playerPosition: THREE.Vector3, playerRotation: THREE.Euler, velocity: PlanarVelocity) {
     // Calculate a position slightly behind and above the snowman's head
     // to prevent obstruction by the character model
     const angle = playerRotation.y;
@@ -232,9 +273,9 @@ export class Camera {
   }
 
   // Get camera for rendering
-  getCamera() {
+  getCamera(): THREE.PerspectiveCamera {
     return this.camera;
   }
 }
 
-// The window.Camera bridge was removed (issue #84): snowglider.js imports Camera.
+// Camera is imported directly by snowglider.js (issue #84).
