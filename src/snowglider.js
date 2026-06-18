@@ -446,6 +446,9 @@ document.body.appendChild(cameraToggleBtn);
 function updateSnowman(delta) {
   // We no longer need to add test hooks every frame as they're set up at initialization
   // and after resets. This improves performance.
+  const activeShowGameOver = typeof window.showGameOver === 'function'
+    ? window.showGameOver
+    : showGameOver;
   
   // Update snowman using the Snowman module function
   const result = Snowman.updateSnowman(
@@ -453,7 +456,7 @@ function updateSnowman(delta) {
     lastTerrainHeight, airTime, jumpCooldown, Controls.getControls(), 
     turnPhase, currentTurnDirection, turnChangeCooldown, turnAmplitude,
     Snow.getTerrainHeight, Snow.getTerrainGradient, Snow.getDownhillDirection, 
-    treePositions, gameActive, showGameOver
+    treePositions, gameActive, activeShowGameOver
   );
   
   // Update state variables from the result
