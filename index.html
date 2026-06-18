@@ -11,14 +11,19 @@
     effect when index.html is served as raw source (the puppeteer suite and
     `npm start`), where converted modules' bare `import * as THREE from 'three'`
     needs a resolvable URL. In the Vite build that ships to snowglider.ai, three
-    is bundled into the hashed chunk, so this map is inert there. Pinned to the
-    same r160 as the classic CDN <script> below to avoid version skew while both
-    load paths coexist (the classic loader is retired in PR 2.10).
+    is bundled into the hashed chunk, so this map is inert there.
+
+    PR 2.10 (issue #84): three.js is now single-sourced from the npm package.
+    The redundant CDN UMD <script> global (a *second* copy of r160) is gone, so
+    this map resolves bare `three` to the same npm build the bundler uses, served
+    locally from node_modules. That removes the version-skew hazard of two
+    coexisting three copies and drops the CDN dependency from the raw-source path
+    (so the puppeteer suite no longer needs network access to a CDN to load three).
   -->
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js"
+      "three": "/node_modules/three/build/three.module.min.js"
     }
   }
   </script>
@@ -162,13 +167,14 @@
   <!-- Leaderboard Container (will be added to game over overlay) -->
   <div id="leaderboard" style="display:none;"></div>
   
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js" integrity="sha512-vnmn/Qqn6aG0POAc9mIGzjq0IybrvxJXYDafNvp9JSnDGxeF3pbkSqLvf+YGd5ku63pT7sa/jxHn7/d0mU8+tA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!--
     ES-module bundle entry (issue #84, Phase 2). Deferred like every module
-    script, so it runs after the classic CDN three.js above is in place but
-    before DOMContentLoaded — i.e. before script-loader.js pulls in the classic
-    game modules. Converted modules (avalanche.js so far) publish their
-    window.* bridge here so the still-classic snowglider.js keeps finding them.
+    script, so it runs before DOMContentLoaded — i.e. before script-loader.js
+    pulls in audio.js + the classic browser-test scripts. main.js imports three
+    from npm and publishes the `window.THREE` + per-module `window.*` bridges that
+    the still-classic browser tests (and audio.js) read. PR 2.10 removed the
+    redundant CDN UMD <script> global that used to sit here; three is now bundled
+    (Vite build) or import-mapped from node_modules (raw source) — a single copy.
   -->
   <script type="module" src="src/main.js"></script>
   <!-- Audio: Simplified implementation using native HTML5 Audio (no library dependencies) -->
