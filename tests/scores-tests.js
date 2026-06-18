@@ -249,7 +249,15 @@ const mocks = {
 };
 
 function loadScoresModule() {
-  let code = fs.readFileSync(path.join(REPO, 'src', 'scores.js'), 'utf8');
+  // src/scores.ts is TypeScript (issue #84, Phase 3.8). Strip the types to runnable
+  // JS first (transpile via the TypeScript devDependency) so the `new Function(...)`
+  // eval below sees plain JavaScript. ESNext output keeps import/export statements
+  // as-is, so the existing import/export removal still works.
+  const ts = require('typescript');
+  const tsSource = fs.readFileSync(path.join(REPO, 'src', 'scores.ts'), 'utf8');
+  let code = ts.transpileModule(tsSource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+  }).outputText;
   code = code.replace(/import[\s\S]*?from\s+["'][^"']+["'];/g, '');
   code = code.replace(/export\s+default\s+[^;]+;/g, '');
   const argNames = Object.keys(mocks);

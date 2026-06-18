@@ -83,7 +83,16 @@ const mocks = {
 
 // ---- Load src/auth.js with imports/exports stripped, mocks injected ----
 function loadAuthModule() {
-  let code = fs.readFileSync(path.join(REPO, 'src', 'auth.js'), 'utf8');
+  // src/auth.ts is TypeScript (issue #84, Phase 3.8). Strip the types to runnable
+  // JS first (esbuild-equivalent transpile via the TypeScript devDependency) so the
+  // `new Function(...)` eval below — which can't parse `as` casts / annotations —
+  // sees plain JavaScript. ESNext output keeps the import/export statements as-is,
+  // so the existing import/export removal still works.
+  const ts = require('typescript');
+  const tsSource = fs.readFileSync(path.join(REPO, 'src', 'auth.ts'), 'utf8');
+  let code = ts.transpileModule(tsSource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+  }).outputText;
   code = code.replace(/import[\s\S]*?from\s+["'][^"']+["'];/g, ''); // drop CDN + local imports
   code = code.replace(/export\s+default\s+[^;]+;/g, '');            // drop `export default AuthModule;`
   const argNames = Object.keys(mocks);

@@ -63,12 +63,12 @@ module.exports = [
     }
   },
   {
-    // avalanche.js (Phase 3.0), course.js/effects.js (Phase 3.1), camera.js
-    // (Phase 3.2), trees.js (Phase 3.3), controls.js (Phase 3.4), snow.js
-    // (Phase 3.5), mountains.js (Phase 3.6) and snowman.js (Phase 3.7) were renamed
+    // The game/app modules avalanche/course/effects/camera/trees/controls/snow/
+    // mountains/snowman (Phases 3.0-3.7) and auth/scores (Phase 3.8) were renamed
     // to .ts (issue #84); `eslint .` does not lint .ts (no typescript-eslint
-    // configured), so those files are dropped from this module override.
-    files: ["src/audio.js", "src/auth.js", "src/boot/script-loader.js", "src/main.js", "src/scores.js", "src/snowglider.js", "src/ui/start-menu.js"],
+    // configured), so those files are dropped from this module override. Only
+    // audio.js + the boot/orchestrator/ui scripts remain as `.js` modules here.
+    files: ["src/audio.js", "src/boot/script-loader.js", "src/main.js", "src/snowglider.js", "src/ui/start-menu.js"],
     languageOptions: {
       sourceType: "module"
     }
