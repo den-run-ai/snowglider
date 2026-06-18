@@ -183,7 +183,7 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
   Regenerate it **only** on a deliberate physics change:
   `git show <ref>:src/snowman.js > tests/verification/snowman_baseline.js`
   (re-add the file header), then re-run `npm run test:verify`.
-- **`dom_smoke_test.js`** — boots `effects.js` + `course.js` under jsdom with a
+- **`dom_smoke_test.js`** — boots `effects.ts` + `course.ts` under jsdom with a
   mocked THREE: both modules build their DOM/gates, the per-frame loop runs, every
   checkpoint and the finish are reached, the ghost trajectory and best splits
   persist, and a faster second run is reported as a new record.

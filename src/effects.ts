@@ -1,5 +1,4 @@
-// @ts-check
-// effects.js - Drama and "juice" effects for SnowGlider
+// effects.ts - Drama and "juice" effects for SnowGlider
 //
 // Two responsibilities:
 //   1. Avalanche telegraphing: a warning banner, a "distance behind you" danger meter,
@@ -15,11 +14,42 @@
 // Phase 2.6 (issue #84): converted off the classic global model. `EffectsModule`
 // is now `export`ed instead of being a bare script global. This module uses no
 // three.js (it only pokes a camera object handed to it), so there is no
-// `import * as THREE`. The window.EffectsModule assignment below is kept so the
-// still-classic consumer (snowglider.js, which reads `EffectsModule` by bare
-// name, converted last in PR 2.9) keeps working during the staged migration; it
-// is loaded into the page through the bundle entry (src/main.js) rather than the
-// classic script-loader.
+// `import * as THREE`. It is loaded into the page through the bundle entry
+// (src/main.js) and imported directly by snowglider.js.
+//
+// Phase 3.1 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
+// (implied for a real `.ts` file) and the previously inferred shapes are now real
+// `interface` declarations (the lazily-built UI handles, the per-frame shake
+// offset, and the minimal camera surface `tickCamera` pokes). Behaviour is
+// unchanged — every edit is type-only/erasable, so esbuild (Vite) and Node's
+// native type-stripping both run it exactly as before.
+
+/** Per-frame camera shake offset returned by {@link EffectsModule.tickCamera}. */
+export interface ShakeOffset {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * Minimal camera surface `tickCamera` reads/writes. Satisfied by a real
+ * `THREE.PerspectiveCamera` (the live game) and by the plain object the headless
+ * DOM smoke test hands in.
+ */
+export interface ShakeCamera {
+  fov: number;
+  updateProjectionMatrix(): void;
+  position: { x: number; y: number; z: number };
+}
+
+/** Lazily-built avalanche-warning DOM overlays. */
+interface EffectsUI {
+  vignette?: HTMLDivElement;
+  banner?: HTMLDivElement;
+  meterWrap?: HTMLDivElement;
+  meterFill?: HTMLDivElement;
+  meterLabelR?: HTMLSpanElement;
+}
 
 export const EffectsModule = (function () {
   'use strict';
@@ -33,7 +63,7 @@ export const EffectsModule = (function () {
   const reduceMotion = typeof window !== 'undefined' &&
     window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  let ui = {};
+  let ui: EffectsUI = {};
   let shake = 0;        // current shake intensity (decays over time)
   let proximityShake = 0; // sustained shake from avalanche proximity
   let currentFov = BASE_FOV;
@@ -110,7 +140,7 @@ export const EffectsModule = (function () {
   // Called each frame with the live avalanche state.
   //   active:   whether the avalanche is currently bearing down
   //   distance: closest boulder distance to the player (units); Infinity if none
-  function updateAvalanche(active, distance) {
+  function updateAvalanche(active: boolean, distance: number) {
     if (!ui.banner) return;
 
     if (!active || !isFinite(distance)) {
@@ -140,14 +170,14 @@ export const EffectsModule = (function () {
   }
 
   // Other systems can request a one-off shake impulse (e.g. a hard landing).
-  function addShake(amount) {
+  function addShake(amount: number) {
     if (reduceMotion) return;
     shake = Math.min(2.5, shake + amount);
   }
 
   // Per-frame camera treatment. Returns the shake offset that was applied so the
   // caller can revert it after rendering.
-  function tickCamera(camera, dt, speed) {
+  function tickCamera(camera: ShakeCamera, dt: number, speed: number): ShakeOffset {
     // Speed-based FOV (smoothed). A zooming FOV is itself camera motion, so honor
     // prefers-reduced-motion by pinning to the base FOV and skipping the zoom.
     if (reduceMotion) {
@@ -189,4 +219,4 @@ export const EffectsModule = (function () {
   return { init, updateAvalanche, addShake, tickCamera, reset };
 })();
 
-// The window.EffectsModule bridge was removed (issue #84): snowglider.js imports it.
+// EffectsModule is imported directly by snowglider.js (issue #84).
