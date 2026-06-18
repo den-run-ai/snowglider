@@ -18,11 +18,16 @@ import { Snowman } from '../src/snowman.js';
 (function() {
   // Only run tests if ?test=true is in the URL and not running through the unified test runner
   if (window.location.search.includes('test=true') && !window.location.search.includes('unified=true') && !window._unifiedTestRunnerActive) {
-    // Wait for game to initialize
-    window.addEventListener('load', function() {
-      // Give the game a moment to fully initialize
+    // These module tests are injected after auth/game startup, which can happen
+    // after window load when Firebase falls back slowly.
+    if (document.readyState === 'complete') {
       setTimeout(runTests, 500);
-    });
+    } else {
+      window.addEventListener('load', function() {
+        // Give the game a moment to fully initialize
+        setTimeout(runTests, 500);
+      });
+    }
   }
 
   // Expose the test runner for the unified test system

@@ -22,12 +22,16 @@ import { AvalancheSystem } from '../src/avalanche.js';
       (window.location.search.includes('test=true') && window.location.search.includes('avalanche=true'))) && 
       !window.location.search.includes('test=unified') && 
       !window._unifiedTestRunnerActive) {
-    // Wait for game to initialize
-    window.addEventListener('load', function() {
+    if (document.readyState === 'complete') {
       console.log("Avalanche tests initializing from direct URL parameter");
-      // Give the game a moment to fully initialize
       setTimeout(runAvalancheTests, 500);
-    });
+    } else {
+      window.addEventListener('load', function() {
+        console.log("Avalanche tests initializing from direct URL parameter");
+        // Give the game a moment to fully initialize
+        setTimeout(runAvalancheTests, 500);
+      });
+    }
   }
   
   // Expose the test runner for the unified test system

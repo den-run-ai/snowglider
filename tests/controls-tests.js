@@ -384,11 +384,14 @@ function runControlsTests() {
 
 // Auto-run tests if not in Node.js environment and test param is set
 if (typeof window !== 'undefined' && window.location.search.includes('test=controls')) {
-  // Wait for game to initialize
-  window.addEventListener('load', function() {
-    // Give the game a moment to fully initialize
+  if (document.readyState === 'complete') {
     setTimeout(runControlsTests, 500);
-  });
+  } else {
+    window.addEventListener('load', function() {
+      // Give the game a moment to fully initialize
+      setTimeout(runControlsTests, 500);
+    });
+  }
 }
 
 // Export for Node.js environment and unified test runner

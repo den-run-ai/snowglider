@@ -15,11 +15,14 @@ import { Snow as Utils } from '../src/snow.js';
 (function() {
   // Only run if ?test=trees is in the URL and not running through the unified test runner
   if (window.location.search.includes('test=trees') && !window.location.search.includes('unified=true') && !window._unifiedTestRunnerActive) {
-    // Wait for game to initialize
-    window.addEventListener('load', function() {
-      // Give the game a moment to fully initialize
+    if (document.readyState === 'complete') {
       setTimeout(runTreeTests, 500);
-    });
+    } else {
+      window.addEventListener('load', function() {
+        // Give the game a moment to fully initialize
+        setTimeout(runTreeTests, 500);
+      });
+    }
   }
   
   // Expose the test runner for the unified test system

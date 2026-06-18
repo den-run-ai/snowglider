@@ -27,12 +27,16 @@ import * as THREE from 'three';
       (window.location.search.includes('test=true') && window.location.search.includes('camera=true'))) && 
       !window.location.search.includes('test=unified') && 
       !window._unifiedTestRunnerActive) {
-    // Wait for game to initialize
-    window.addEventListener('load', function() {
+    if (document.readyState === 'complete') {
       console.log("Camera tests initializing from direct URL parameter");
-      // Give the game a moment to fully initialize
       setTimeout(runCameraTests, 500);
-    });
+    } else {
+      window.addEventListener('load', function() {
+        console.log("Camera tests initializing from direct URL parameter");
+        // Give the game a moment to fully initialize
+        setTimeout(runCameraTests, 500);
+      });
+    }
   }
   
   // Expose the test runner for the unified test system
