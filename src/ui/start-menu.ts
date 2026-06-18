@@ -63,7 +63,14 @@ import { AudioModule } from '../audio.js';
     if (!lb) {
       return;
     }
-    if (!scores || typeof scores.getLeaderboard !== 'function') {
+    // The Firestore rules only permit leaderboard get/list for signed-in users
+    // (firestore.rules: `allow get, list: if isSignedIn()`). Reading while signed
+    // out is denied — ScoresModule.getLeaderboard() swallows that into an empty
+    // array (without disabling Firestore), which would otherwise render a
+    // misleading "No times yet" preview and log a permission error on every
+    // signed-out start screen. So only read once signed in; signed-out players get
+    // the sign-in hint instead.
+    if (!authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function') {
       lb.style.display = 'none';
       return;
     }
