@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="build-id" content="2025.10.06-mobile-audio-v3">
+  <!-- build-id is replaced at serve/build time by the inject-build-id Vite plugin
+       (vite.config.js); the "dev" placeholder only shows if served without Vite. -->
+  <meta name="build-id" content="dev">
   <title>Skiing Snowman</title>
   <link rel="stylesheet" href="styles/main.css">
   <!--
@@ -34,7 +36,7 @@
   <!-- Start Game Container and Button -->
   <div id="startGameContainer">
     <h1 id="gameTitle">❄️ 🎿 ⛰️ SnowGlider ☃️ ❄️</h1>
-    <p id="gameDescription">Race down the mountain as a snowman, dodge trees, perform jumps and try to reach the bottom with the fastest time!</p>
+    <p id="gameDescription">Race a snowman down a procedurally generated mountain: hit every checkpoint, carve past trees, launch off jumps — and outrun the avalanche chasing you down the slope. Beat the clock and your own ghost for the fastest time!</p>
     
     <div id="controlsGuide">
       <h3>Controls</h3>
@@ -63,23 +65,29 @@
         <span>Toggle Chase View</span>
       </div>
     </div>
+    <p class="touch-note">📱 On touch devices: tap the left/right of the screen to steer, top/bottom for speed, and the center to jump.</p>
     
     <div id="startMenu">
-      <!-- TODO: Button text changed from "Start Game with Music" since audio is disabled -->
       <button id="startGameButton" class="menu-button start">Start Game</button>
       <button id="aboutGameButton" class="menu-button about">About Game</button>
     </div>
-    
+
+    <!-- Global Top Times preview; populated by start-menu.js once scores load,
+         and hidden when no leaderboard is available (e.g. local/offline). -->
+    <div id="startLeaderboard" style="display:none;"></div>
+    <p id="startSignInHint" style="display:none;">🔐 Optional: <strong>sign in (top&#8209;right)</strong> to save your best time to the global leaderboard.</p>
+
     <div id="aboutGamePanel">
       <h3>About SnowGlider</h3>
-      <p>SnowGlider is a 3D skiing game where you control a snowman racing down a mountain.</p>
-      <p>Your goal is to reach the bottom of the slope as fast as possible while avoiding trees and obstacles.</p>
-      <p>Perform jumps off slopes, control your speed, and try to set new personal best times!</p>
-      <p>Made with Three.js and a lot of love for winter sports.</p>
+      <p>SnowGlider is a 3D skiing game where you guide a snowman down a procedurally generated backcountry mountain.</p>
+      <p>Reach the finish as fast as you can: pass through the checkpoint gates, watch your split times, and race the translucent <em>ghost</em> of your best run.</p>
+      <p>Keep an eye uphill — once you've descended far enough, an avalanche of tumbling snow boulders gives chase. Get caught and it's game over.</p>
+      <p>Sign in with Google to save your best time to the global leaderboard. Made with Three.js and a lot of love for winter sports.</p>
       <button id="closeAboutButton" class="menu-button">Close</button>
     </div>
-    
+
     <p id="keyboardHint">Press <span class="key">Enter</span> or <span class="key">Space</span> to start the game</p>
+    <div id="buildBadge" aria-label="build version"></div>
   </div>
 
   <!-- Game Stats Container - Combined stats window -->

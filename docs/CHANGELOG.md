@@ -56,6 +56,24 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   stay green; the Vite bundle and `CNAME`/Pages artifact are unchanged. See
   [`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md) for the phase status.
 
+### Onboarding / start screen
+- **Self-updating build badge.** The hand-maintained `build-id` meta (stuck at
+  `2025.10.06-mobile-audio-v3`) is now a `dev` placeholder that the new
+  `inject-build-id` Vite plugin rewrites to the actual build timestamp at
+  serve/build time — so it can never go stale again. The badge also moved off the
+  primary "Start Game" CTA into an unobtrusive footer (`#buildBadge`).
+- **Refreshed copy** for the description and About panel to match the shipped
+  game (checkpoints, split times, ghost racing, the avalanche chase) instead of
+  the old "go downhill, avoid trees" framing; removed a stale `TODO` comment.
+- **Touch-controls note** added below the keyboard controls guide.
+- **Global Top Times preview** on the start screen (`#startLeaderboard`),
+  populated from `ScoresModule.getLeaderboard()` once scores load; hidden when no
+  leaderboard is available (file:// / localhost / offline).
+- **Optional sign-in** surfaced on the start screen: the existing
+  `#authContainer` (login ↔ profile, managed by `auth.js`) is lifted above the
+  start overlay via a `body.start-screen-active` class, plus a hint pointing to
+  it. No auth wiring is duplicated — the start menu only reads auth/score state.
+
 ### Documentation
 - Added [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`PHYSICS.md`](PHYSICS.md);
   folded the `docs/` implementation and audio reports into this changelog.

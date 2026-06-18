@@ -14,13 +14,86 @@ import { AudioModule } from '../audio.js';
 
   function addBuildBadge() {
     const buildMeta = document.querySelector('meta[name="build-id"]');
-    const build = buildMeta instanceof HTMLMetaElement
+    const build = buildMeta instanceof HTMLMetaElement && buildMeta.content
       ? buildMeta.content
       : new Date().toISOString().slice(0, 16).replace('T', ' ');
-    const btn = document.getElementById('startGameButton');
-    if (btn) {
-      btn.innerHTML = `Start Game <span class="build-badge">${build}</span>`;
+    // Show the build version as an unobtrusive footer on the start screen rather
+    // than as a pill on the primary "Start Game" CTA.
+    const badge = document.getElementById('buildBadge');
+    if (badge) {
+      badge.textContent = `build ${build}`;
     }
+  }
+
+  function escapeHtml(value: string) {
+    return String(value).replace(/[&<>"']/g, (ch) => {
+      switch (ch) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        default: return '&#39;';
+      }
+    });
+  }
+
+  // Populate the start-screen leaderboard preview and the optional sign-in hint.
+  // Reuses the live AuthModule/ScoresModule (the in-game #authContainer keeps the
+  // actual sign-in/profile state), so this only reads state — it never duplicates
+  // the auth wiring. Safe to call repeatedly; degrades to hidden when Firestore is
+  // unavailable (file:// / localhost / offline).
+  function refreshStartAccountUI() {
+    const auth = window.AuthModule;
+    const scores = window.ScoresModule;
+
+    const firebase = auth && typeof auth.isFirebaseAvailable === 'function'
+      ? auth.isFirebaseAvailable()
+      : { auth: false, firestore: false };
+    const authState = auth && typeof auth.getAuthState === 'function'
+      ? auth.getAuthState()
+      : { user: null, isSignedIn: false };
+
+    const hint = document.getElementById('startSignInHint');
+    if (hint) {
+      // Only meaningful when real auth exists and the player is signed out.
+      hint.style.display = (firebase.auth && !authState.isSignedIn) ? 'block' : 'none';
+    }
+
+    const lb = document.getElementById('startLeaderboard');
+    if (!lb) {
+      return;
+    }
+    if (!scores || typeof scores.getLeaderboard !== 'function') {
+      lb.style.display = 'none';
+      return;
+    }
+
+    Promise.resolve(scores.getLeaderboard())
+      .then((list) => {
+        if (!Array.isArray(list) || list.length === 0) {
+          if (firebase.firestore) {
+            lb.innerHTML = '<h3>🏆 Global Top Times</h3><p class="lb-empty">No times yet — be the first to finish!</p>';
+            lb.style.display = 'block';
+          } else {
+            lb.style.display = 'none';
+          }
+          return;
+        }
+
+        const me = authState.user;
+        let html = '<h3>🏆 Global Top Times</h3><table><tr><th>#</th><th>Player</th><th>Time</th></tr>';
+        list.slice(0, 5).forEach((entry, index) => {
+          const isMe = me && entry.userId === me.uid;
+          const name = isMe ? (me.displayName || 'You') : `Player ${index + 1}`;
+          html += `<tr class="${isMe ? 'current-user-score' : ''}"><td>${index + 1}</td><td>${escapeHtml(name)}</td><td>${Number(entry.time).toFixed(2)}s</td></tr>`;
+        });
+        html += '</table>';
+        lb.innerHTML = html;
+        lb.style.display = 'block';
+      })
+      .catch(() => {
+        lb.style.display = 'none';
+      });
   }
 
   async function unlockAudioForStart(source: string) {
@@ -55,6 +128,8 @@ import { AudioModule } from '../audio.js';
     if (startContainer) {
       startContainer.style.display = 'none';
     }
+    // Drop the start-screen account-control elevation now that the game is shown.
+    document.body.classList.remove('start-screen-active');
 
     gameCanvas.style.display = 'block';
 
@@ -119,8 +194,11 @@ import { AudioModule } from '../audio.js';
 
   function initializeStartMenu() {
     addBuildBadge();
+    // Surface the account/sign-in control above the start overlay while it's up.
+    document.body.classList.add('start-screen-active');
     if ((window as any).SnowGliderGameScriptsReady) {
       startPendingGameIfReady();
+      refreshStartAccountUI();
     }
 
     const startGameButton = document.getElementById('startGameButton');
@@ -180,13 +258,20 @@ import { AudioModule } from '../audio.js';
   }
 
   document.addEventListener('DOMContentLoaded', initializeStartMenu);
-  window.addEventListener('snowglider:game-scripts-ready', startPendingGameIfReady);
+  window.addEventListener('snowglider:game-scripts-ready', function () {
+    startPendingGameIfReady();
+    // Render the leaderboard/sign-in state now, and again shortly after to catch
+    // Firebase auth + Firestore finishing their async init after scripts load.
+    refreshStartAccountUI();
+    setTimeout(refreshStartAccountUI, 1500);
+  });
 
   window.SnowGliderStartMenu = {
     startGame,
     showAbout,
     hideAbout,
     initializeStartMenu,
-    startPendingGameIfReady
+    startPendingGameIfReady,
+    refreshStartAccountUI
   };
 })();

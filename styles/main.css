@@ -764,15 +764,85 @@ canvas { display: block; }
   transform: none;
 }
 
-.build-badge {
-  margin-left: .5rem;
-  padding: .15rem .4rem;
-  border-radius: .35rem;
-  font: 500 11px system-ui;
-  background: #eef;
-  border: 1px solid #ccd;
-  color: #333;
-  white-space: nowrap;
+/* Touch-controls note shown below the start-screen controls guide */
+.touch-note {
+  margin: -6px 0 14px;
+  max-width: 500px;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.8;
+  text-align: center;
+}
+
+/* Global Top Times preview on the start screen */
+#startLeaderboard {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  width: 100%;
+  max-width: 360px;
+  max-height: 168px;
+  overflow-y: auto;
+  text-align: center;
+}
+
+#startLeaderboard h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+#startLeaderboard table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+#startLeaderboard th,
+#startLeaderboard td {
+  padding: 3px 6px;
+  text-align: left;
+}
+
+#startLeaderboard th {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+  font-weight: 600;
+}
+
+#startLeaderboard th:last-child,
+#startLeaderboard td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#startLeaderboard .lb-empty {
+  margin: 4px 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+/* Optional sign-in hint under the menu */
+#startSignInHint {
+  margin: 0 0 12px;
+  max-width: 420px;
+  font-size: 13px;
+  text-align: center;
+  opacity: 0.85;
+}
+
+/* Unobtrusive build-version footer (replaces the old pill on the CTA) */
+#buildBadge {
+  margin-top: 10px;
+  font: 500 11px system-ui, sans-serif;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: center;
+}
+
+/* While the start overlay is up, lift the account/sign-in control above it so
+   players can sign in before starting a run (the overlay sits at z-index 2000). */
+body.start-screen-active #authContainer {
+  z-index: 2001;
 }
 
 #aboutGamePanel {
@@ -825,6 +895,11 @@ canvas { display: block; }
   #controlsGuide {
     max-height: 120px;
     margin-bottom: 10px;
+  }
+
+  #startLeaderboard {
+    max-height: 104px;
+    margin-bottom: 8px;
   }
 
   .menu-button {
