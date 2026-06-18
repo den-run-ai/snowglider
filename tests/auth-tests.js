@@ -1,17 +1,16 @@
 // auth-tests.js
-// Headless coverage for src/auth.js (the popup-only Google sign-in module).
+// Headless, c8-instrumented coverage for src/auth.ts (popup-only Google sign-in).
 //
-// auth.js is an ES module that imports the Firebase SDK from a CDN, which Node
-// can't resolve. Mirroring tests/verification/dom_smoke_test.js, we load the
-// source under jsdom, strip the import/export lines, and inject mock Firebase
-// functions (getAuth, GoogleAuthProvider, signInWithPopup, …) + a mock
-// ScoresModule. We capture the onAuthStateChanged callback so we can drive auth
-// state transitions deterministically, with no network and no real Google popup.
-const fs = require('fs');
-const path = require('path');
+// auth.ts imports the Firebase SDK from gstatic CDN URLs, which Node can't resolve.
+// The resolve hook in tests/loaders/register-firebase-mock.mjs redirects those CDN
+// imports to the in-memory mock (tests/mocks/firebase.mjs), so we `import` the real
+// `.ts` under jsdom and c8 instruments it with correct source-mapped lines. The mock
+// captures the onAuthStateChanged listener and lets us drive sign-in/out and every
+// signInWithPopup error branch deterministically — no network, no real Google popup.
+// auth.ts's `import ScoresModule from "./scores.js"` resolves to the real
+// src/scores.ts (via the .js->.ts hook), which is backed by the same Firebase mock.
+// Run via the `test:auth` npm script, which wires in that loader.
 const { JSDOM } = require('jsdom');
-
-const REPO = path.join(__dirname, '..');
 
 // ---- jsdom environment with the auth UI markup auth.js expects ----
 const dom = new JSDOM(`<!doctype html><html><body>
@@ -40,71 +39,19 @@ const alerts = [];
 window.alert = (msg) => { alerts.push(String(msg)); };
 global.alert = window.alert;
 
-// ---- Mock Firebase SDK surface used by auth.js ----
-let authStateCallback = null;     // the onAuthStateChanged listener auth.js registers
-let nextPopupResult = null;       // controls how the next signInWithPopup resolves/rejects
-const calls = { signInWithPopup: 0, signOut: 0, setPersistence: 0, logEvent: [] };
-
-const authInstance = { __isAuth: true };
-const mocks = {
-  initializeApp: () => ({ __app: true }),
-  getAuth: () => authInstance,
-  getFirestore: () => ({ __firestore: true }),
-  getAnalytics: () => ({ __analytics: true }),
-  logEvent: (_a, name, params) => { calls.logEvent.push({ name, params }); },
-  GoogleAuthProvider: class {
-    constructor() { this.scopes = []; this.params = {}; }
-    addScope(s) { this.scopes.push(s); }
-    setCustomParameters(p) { this.params = p; }
-  },
-  signInWithPopup: () => {
-    calls.signInWithPopup++;
-    if (nextPopupResult && nextPopupResult.reject) {
-      return Promise.reject(nextPopupResult.reject);
-    }
-    return Promise.resolve(nextPopupResult ? nextPopupResult.resolve : { user: { email: 'x@y.z' } });
-  },
-  firebaseSignOut: () => { calls.signOut++; return Promise.resolve(); },
-  onAuthStateChanged: (_auth, cb) => { authStateCallback = cb; },
-  setPersistence: () => { calls.setPersistence++; return Promise.resolve(); },
-  browserLocalPersistence: { __persistence: 'local' },
-  doc: () => ({ __doc: true }),
-  setDoc: () => Promise.resolve(),
-  serverTimestamp: () => ({ __ts: true }),
-  ScoresModule: {
-    initializeScores: () => {},
-    setCurrentUser: () => {},
-    updateUserBestTime: () => {},
-    displayLeaderboard: () => {},
-    recordScore: () => {},
-    isValidScoreTime: time => typeof time === 'number' &&
-      Number.isFinite(time) &&
-      time >= 4 &&
-      time <= 600
-  }
-};
-
-// ---- Load src/auth.js with imports/exports stripped, mocks injected ----
-function loadAuthModule() {
-  // src/auth.ts is TypeScript (issue #84, Phase 3.8). Strip the types to runnable
-  // JS first (esbuild-equivalent transpile via the TypeScript devDependency) so the
-  // `new Function(...)` eval below — which can't parse `as` casts / annotations —
-  // sees plain JavaScript. ESNext output keeps the import/export statements as-is,
-  // so the existing import/export removal still works.
-  const ts = require('typescript');
-  const tsSource = fs.readFileSync(path.join(REPO, 'src', 'auth.ts'), 'utf8');
-  let code = ts.transpileModule(tsSource, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
-  }).outputText;
-  code = code.replace(/import[\s\S]*?from\s+["'][^"']+["'];/g, ''); // drop CDN + local imports
-  code = code.replace(/export\s+default\s+[^;]+;/g, '');            // drop `export default AuthModule;`
-  const argNames = Object.keys(mocks);
-  const fn = new Function(
-    'window', 'document', 'localStorage', 'console', 'alert', ...argNames,
-    code + '\nreturn window.AuthModule;'
-  );
-  return fn(window, window.document, global.localStorage, console, window.alert,
-    ...argNames.map(n => mocks[n]));
+// ---- Load the REAL src/auth.ts with the Firebase SDK mocked via the resolve hook ----
+// Bound from the shared Firebase mock once imported. The auth control surface (the
+// captured onAuthStateChanged listener and the next popup result) is driven through
+// fb.getAuthStateCallback()/emitAuthState()/setNextPopupResult().
+let calls;
+async function loadAuthModule() {
+  const fb = await import('./mocks/firebase.mjs');
+  calls = fb.calls;
+  // Importing the real module (rather than eval'ing it) is what makes it c8-visible;
+  // its CDN Firebase imports resolve to `fb`, and `./scores.js` resolves to the real
+  // src/scores.ts (also backed by `fb`).
+  const authModule = await import('../src/auth.ts');
+  return { AuthModule: authModule.default, fb };
 }
 
 const config = {
@@ -118,13 +65,13 @@ const flush = () => new Promise(r => setTimeout(r, 0)); // let queued promise ca
 
 async function main() {
   console.log('--- AuthModule load & init ---');
-  const AuthModule = loadAuthModule();
+  const { AuthModule, fb } = await loadAuthModule();
   check('module exposes the expected public surface',
     !!AuthModule && ['initializeAuth', 'getCurrentUser', 'isUserSignedIn', 'signOut',
       'getAuthState', 'isFirebaseAvailable'].every(k => typeof AuthModule[k] === 'function'));
 
   AuthModule.initializeAuth(config);
-  check('onAuthStateChanged listener was registered', typeof authStateCallback === 'function');
+  check('onAuthStateChanged listener was registered', typeof fb.getAuthStateCallback() === 'function');
   check('auth persistence was set (browserLocalPersistence)', calls.setPersistence === 1);
 
   const avail = AuthModule.isFirebaseAvailable();
@@ -141,7 +88,7 @@ async function main() {
   const authUI = window.document.getElementById('authUI');
   const profileUI = window.document.getElementById('profileUI');
 
-  nextPopupResult = { resolve: { user: { email: 'snow@glider.ai' } } };
+  fb.setNextPopupResult({ resolve: { user: { email: 'snow@glider.ai' } } });
   loginBtn.dispatchEvent(new window.Event('click'));
   check('click disables the button and shows "Signing In..."',
     loginBtn.disabled === true && /Signing In/.test(loginBtn.textContent));
@@ -156,7 +103,7 @@ async function main() {
     calls.logEvent.some(e => e.name === 'login' && e.params && e.params.method === 'GooglePopup'));
 
   // Firebase now reports the signed-in user via the captured callback.
-  authStateCallback({ uid: 'u1', email: 'snow@glider.ai', displayName: 'Snow', photoURL: 'http://p/x.png' });
+  fb.emitAuthState({ uid: 'u1', email: 'snow@glider.ai', displayName: 'Snow', photoURL: 'http://p/x.png' });
   check('signed-in: profile UI shown, auth UI hidden',
     authUI.style.display === 'none' && profileUI.style.display === 'flex');
   check('signed-in: profile name populated',
@@ -171,7 +118,7 @@ async function main() {
   logoutBtn.dispatchEvent(new window.Event('click'));
   check('firebaseSignOut was invoked', calls.signOut === 1);
   await flush();
-  authStateCallback(null); // Firebase reports signed-out
+  fb.emitAuthState(null); // Firebase reports signed-out
   check('signed-out: auth UI shown again, profile hidden',
     authUI.style.display === 'flex' && profileUI.style.display === 'none');
   check('signed-out: getCurrentUser() is null', AuthModule.getCurrentUser() === null);
@@ -180,7 +127,7 @@ async function main() {
   // On the game page, controls.js installs a document-level touchstart
   // preventDefault that suppresses this button's synthetic click — so sign-in must
   // also work from 'touchend'. Simulate a tap where only touchend reaches the button.
-  nextPopupResult = { resolve: { user: { email: 'touch@glider.ai' } } };
+  fb.setNextPopupResult({ resolve: { user: { email: 'touch@glider.ai' } } });
   const popupsBefore = calls.signInWithPopup;
   const tEnd = new window.Event('touchend', { cancelable: true });
   loginBtn.dispatchEvent(tEnd);
@@ -193,12 +140,12 @@ async function main() {
   check('trailing click after touchend does not open a second popup',
     calls.signInWithPopup === popupsBefore + 1);
   await flush();
-  authStateCallback(null); // reset button state for the error tests below
+  fb.emitAuthState(null); // reset button state for the error tests below
 
   console.log('\n--- Sign-in error handling ---');
   // popup-closed-by-user: benign, no alert.
   alerts.length = 0;
-  nextPopupResult = { reject: { code: 'auth/popup-closed-by-user', message: 'closed' } };
+  fb.setNextPopupResult({ reject: { code: 'auth/popup-closed-by-user', message: 'closed' } });
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
   check('popup-closed-by-user: no alert, button re-enabled',
@@ -206,7 +153,7 @@ async function main() {
 
   // cancelled-popup-request: the new benign case — also no alert.
   alerts.length = 0;
-  nextPopupResult = { reject: { code: 'auth/cancelled-popup-request', message: 'superseded' } };
+  fb.setNextPopupResult({ reject: { code: 'auth/cancelled-popup-request', message: 'superseded' } });
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
   check('cancelled-popup-request: treated as benign (no alert)',
@@ -214,7 +161,7 @@ async function main() {
 
   // popup-blocked: user-facing alert.
   alerts.length = 0;
-  nextPopupResult = { reject: { code: 'auth/popup-blocked', message: 'blocked' } };
+  fb.setNextPopupResult({ reject: { code: 'auth/popup-blocked', message: 'blocked' } });
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
   check('popup-blocked: shows an alert and re-enables the button',
@@ -222,10 +169,46 @@ async function main() {
 
   // unknown error: generic alert.
   alerts.length = 0;
-  nextPopupResult = { reject: { code: 'auth/internal-error', message: 'boom' } };
+  fb.setNextPopupResult({ reject: { code: 'auth/internal-error', message: 'boom' } });
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
   check('unknown error: shows a generic alert', alerts.length === 1 && /boom/.test(alerts[0]));
+
+  console.log('\n--- syncUserData login backstop + id token + direct sign-out ---');
+  // A valid local best present at sign-in must be backfilled by the delayed
+  // syncUserData() login backstop — the durability path scores.ts relies on
+  // (see scores.ts: "the on-login syncUserData reconciliation re-applies it").
+  // Write through the injected global store auth.ts reads (jsdom's window.localStorage
+  // is read-only, so the harness's window.localStorage = global alias did not take).
+  localStorage.setItem('snowgliderBestTime', '17.5');
+  fb.setNextPopupResult(null);
+  fb.emitAuthState({ uid: 'sync1', email: 's@g.ai', displayName: 'Sync', photoURL: null });
+  // syncUserData is scheduled 100ms after sign-in; wait past it with margin, then let
+  // the setDoc -> updateUserBestTime -> updateLeaderboard promise chain settle.
+  await new Promise(r => setTimeout(r, 250));
+  await flush();
+  await flush();
+  await flush();
+  check('syncUserData writes the user profile doc on sign-in',
+    !!fb.read('users', 'sync1') && fb.read('users', 'sync1').displayName === 'Sync');
+  check('syncUserData backfills a valid local best to the leaderboard',
+    !!fb.read('leaderboard', 'sync1') && fb.read('leaderboard', 'sync1').time === 17.5);
+
+  // getUserIdToken delegates to the signed-in user's getIdToken (with forceRefresh).
+  fb.emitAuthState({ uid: 'tok1', email: 't@g.ai', displayName: 'Tok', photoURL: null,
+    getIdToken: (force) => Promise.resolve(`token-${force}`) });
+  check('getUserIdToken resolves the signed-in user id token',
+    (await AuthModule.getUserIdToken(true)) === 'token-true');
+
+  // Direct AuthModule.signOut() delegates to firebaseSignOut while auth is available.
+  const signOutsBefore = calls.signOut;
+  await AuthModule.signOut();
+  check('AuthModule.signOut() delegates to firebaseSignOut', calls.signOut === signOutsBefore + 1);
+
+  // After sign-out, getUserIdToken resolves null rather than rejecting.
+  fb.emitAuthState(null);
+  check('getUserIdToken resolves null when no user is signed in',
+    (await AuthModule.getUserIdToken()) === null);
 
   console.log(`\nAUTH TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

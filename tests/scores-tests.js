@@ -1,14 +1,13 @@
 // scores-tests.js
-// Headless coverage for src/scores.js against the real module code.
+// Headless, c8-instrumented coverage for src/scores.ts against the real module.
 //
-// scores.js imports Firebase from CDN URLs, which Node cannot resolve directly.
-// Match the auth-tests.js harness: strip import/export syntax, evaluate the
-// shipped source under jsdom, and inject a small in-memory Firestore mock.
-const fs = require('fs');
-const path = require('path');
+// src/scores.ts imports the Firebase SDK from gstatic CDN URLs, which Node cannot
+// resolve. Instead of eval'ing the source (which is invisible to c8), the resolve
+// hook in tests/loaders/register-firebase-mock.mjs redirects those CDN imports to
+// the in-memory mock in tests/mocks/firebase.mjs, so we `import` the real `.ts`
+// under jsdom and c8 instruments it with correct source-mapped lines. Run via the
+// `test:scores` npm script, which wires in that loader.
 const { JSDOM } = require('jsdom');
-
-const REPO = path.join(__dirname, '..');
 
 const dom = new JSDOM(`<!doctype html><html><body>
   <div id="leaderboard"></div>
@@ -32,240 +31,47 @@ Object.defineProperty(window.navigator, 'onLine', {
   get: () => online
 });
 
-const firestoreInstance = { __firestore: true };
-const analyticsInstance = { __analytics: true };
-const db = {
-  users: new Map(),
-  leaderboard: new Map()
-};
-const calls = {
-  getDoc: [],
-  setDoc: [],
-  getDocs: [],
-  logEvent: [],
-  reinitializeFirestore: 0
-};
-
+// AuthModule-driven flags. The Firestore/Analytics mock state lives in
+// tests/mocks/firebase.mjs and is bound below once the mock is imported.
 let firestoreAvailable = true;
 let currentAuthUser = null;
 let reinitializeSucceeds = false;
-let pendingWritePath = null;
-let pendingWrite = null;
-let timestampCounter = 0;
 
-function clone(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
-}
+// Bound from the shared Firebase mock in loadScoresModule(). The resolve hook hands
+// src/scores.ts the SAME module instance, so seeding/reading here mutates exactly
+// the store the module under test reads and writes.
+let fb;
+let firestoreInstance;
+let analyticsInstance;
+let calls;
+let doc;
+let seed;
+let read;
+let setPendingWrite;
 
-function getCollectionStore(name) {
-  if (!db[name]) {
-    throw new Error(`Unknown collection: ${name}`);
-  }
-  return db[name];
-}
-
-function makeDocSnap(ref) {
-  const store = getCollectionStore(ref.collectionName);
-  const value = store.get(ref.id);
-  return {
-    id: ref.id,
-    exists: () => value !== undefined,
-    data: () => clone(value)
-  };
-}
-
-function writeDoc(ref, data, options) {
-  const store = getCollectionStore(ref.collectionName);
-  const existing = store.get(ref.id) || {};
-  const next = options && options.merge ? { ...existing, ...clone(data) } : clone(data);
-  store.set(ref.id, next);
-}
-
-function makeDeferredWrite() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-function seed(collectionName, id, value) {
-  getCollectionStore(collectionName).set(id, clone(value));
-}
-
-function read(collectionName, id) {
-  return getCollectionStore(collectionName).get(id);
+async function loadScoresModule() {
+  fb = await import('./mocks/firebase.mjs');
+  ({ firestoreInstance, analyticsInstance, calls, doc, seed, read, setPendingWrite } = fb);
+  // AuthModule.reinitializeFirestore is mocked in this harness (not in the Firebase
+  // mock), so track its call count alongside the Firestore call log.
+  calls.reinitializeFirestore = 0;
+  // Importing the real module (rather than eval'ing it) is what makes it c8-visible;
+  // its CDN Firebase imports resolve to `fb` via the registered hook.
+  const scoresModule = await import('../src/scores.ts');
+  return scoresModule.default;
 }
 
 function resetState(ScoresModule) {
   localStore = {};
-  db.users.clear();
-  db.leaderboard.clear();
-  calls.getDoc = [];
-  calls.setDoc = [];
-  calls.getDocs = [];
-  calls.logEvent = [];
+  fb.reset();
   calls.reinitializeFirestore = 0;
   firestoreAvailable = true;
   currentAuthUser = null;
   reinitializeSucceeds = false;
-  pendingWritePath = null;
-  pendingWrite = null;
   online = true;
-  timestampCounter = 0;
   document.getElementById('leaderboard').innerHTML = '';
   ScoresModule.setCurrentUser(null);
   ScoresModule.initializeScores(null, null);
-}
-
-function getFirestore() {
-  return firestoreInstance;
-}
-
-function getAnalytics() {
-  return analyticsInstance;
-}
-
-function logEvent(_analytics, name, params) {
-  calls.logEvent.push({ name, params });
-}
-
-function doc(firestore, collectionName, id) {
-  return {
-    firestore,
-    collectionName,
-    id,
-    path: `${collectionName}/${id}`
-  };
-}
-
-function collection(firestore, collectionName) {
-  return {
-    firestore,
-    collectionName,
-    path: collectionName
-  };
-}
-
-function where(field, op, value) {
-  return { kind: 'where', field, op, value };
-}
-
-function orderBy(field, direction) {
-  return { kind: 'orderBy', field, direction };
-}
-
-function query(collectionRef, ...constraints) {
-  return { collectionRef, constraints };
-}
-
-function limit(count) {
-  return { kind: 'limit', count };
-}
-
-function serverTimestamp() {
-  timestampCounter++;
-  return { __serverTimestamp: timestampCounter };
-}
-
-function getDoc(ref) {
-  calls.getDoc.push(ref.path);
-  return Promise.resolve(makeDocSnap(ref));
-}
-
-function setDoc(ref, data, options) {
-  calls.setDoc.push({ path: ref.path, data: clone(data), options: clone(options) });
-  const commit = () => writeDoc(ref, data, options);
-
-  if (pendingWritePath === ref.path && pendingWrite) {
-    const write = pendingWrite;
-    pendingWritePath = null;
-    pendingWrite = null;
-    return write.promise.then(() => commit());
-  }
-
-  commit();
-  return Promise.resolve();
-}
-
-function getDocs(q) {
-  calls.getDocs.push(q);
-  let rows = Array.from(getCollectionStore(q.collectionRef.collectionName).entries())
-    .map(([id, data]) => ({ id, data: clone(data) }));
-
-  q.constraints.forEach(constraint => {
-    if (constraint.kind === 'where') {
-      rows = rows.filter(row => {
-        const value = row.data[constraint.field];
-        if (constraint.op === '>=') {
-          return value >= constraint.value;
-        }
-        throw new Error(`Unsupported where op: ${constraint.op}`);
-      });
-    }
-
-    if (constraint.kind === 'orderBy') {
-      const direction = constraint.direction === 'desc' ? -1 : 1;
-      rows = rows.slice().sort((a, b) => {
-        const av = a.data[constraint.field];
-        const bv = b.data[constraint.field];
-        return av === bv ? 0 : (av < bv ? -1 : 1) * direction;
-      });
-    }
-
-    if (constraint.kind === 'limit') {
-      rows = rows.slice(0, constraint.count);
-    }
-  });
-
-  return Promise.resolve({
-    forEach: callback => {
-      rows.forEach(row => {
-        callback({
-          id: row.id,
-          data: () => clone(row.data)
-        });
-      });
-    }
-  });
-}
-
-const mocks = {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  collection,
-  where,
-  orderBy,
-  query,
-  limit,
-  getDocs,
-  serverTimestamp,
-  getAnalytics,
-  logEvent
-};
-
-function loadScoresModule() {
-  // src/scores.ts is TypeScript (issue #84, Phase 3.8). Strip the types to runnable
-  // JS first (transpile via the TypeScript devDependency) so the `new Function(...)`
-  // eval below sees plain JavaScript. ESNext output keeps import/export statements
-  // as-is, so the existing import/export removal still works.
-  const ts = require('typescript');
-  const tsSource = fs.readFileSync(path.join(REPO, 'src', 'scores.ts'), 'utf8');
-  let code = ts.transpileModule(tsSource, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
-  }).outputText;
-  code = code.replace(/import[\s\S]*?from\s+["'][^"']+["'];/g, '');
-  code = code.replace(/export\s+default\s+[^;]+;/g, '');
-  const argNames = Object.keys(mocks);
-  const fn = new Function(
-    'window', 'document', 'localStorage', 'console', ...argNames,
-    code + '\nreturn window.ScoresModule;'
-  );
-  return fn(window, window.document, global.localStorage, console, ...argNames.map(name => mocks[name]));
 }
 
 window.AuthModule = {
@@ -305,7 +111,7 @@ async function flushAll() {
 }
 
 async function main() {
-  const ScoresModule = loadScoresModule();
+  const ScoresModule = await loadScoresModule();
 
   console.log('--- ScoresModule load & validation ---');
   check('module exposes the expected public surface',
@@ -416,9 +222,7 @@ async function main() {
   console.log('\n--- Offline write ordering ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
-  pendingWritePath = 'users/u4';
-  pendingWrite = makeDeferredWrite();
-  const write = pendingWrite;
+  const write = setPendingWrite('users/u4');
   ScoresModule.updateUserBestTime('u4', 18);
   await flushAll();
   check('queued user write starts before leaderboard reconciliation',
@@ -429,6 +233,100 @@ async function main() {
   await flushAll();
   check('leaderboard reconciliation runs after the queued user write settles',
     read('leaderboard', 'u4')?.time === 18);
+
+  console.log('\n--- New high score analytics ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'hs', displayName: 'HS' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  ScoresModule.recordScore(15); // first finish, no stored best => a new personal best
+  await flushAll();
+  check('a new authenticated personal best logs new_high_score',
+    calls.logEvent.some(event => event.name === 'new_high_score' && event.params.time === 15));
+  check('new personal best is also synced to the user doc',
+    read('users', 'hs')?.bestTime === 15);
+
+  console.log('\n--- getActiveUser falls back to AuthModule ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  // No setCurrentUser() call: recordScore must resolve the signed-in user via the
+  // AuthModule.getAuthState()/getCurrentUser() fallback path.
+  currentAuthUser = { uid: 'fallback', displayName: 'Fallback' };
+  ScoresModule.recordScore(16);
+  await flushAll();
+  check('getActiveUser pulls the user from AuthModule when none was set',
+    read('users', 'fallback')?.bestTime === 16);
+
+  console.log('\n--- isFirestoreAvailable reflects AuthModule + local instance ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  check('isFirestoreAvailable is true when AuthModule is available and the local instance is set',
+    ScoresModule.isFirestoreAvailable() === true);
+  firestoreAvailable = false;
+  check('isFirestoreAvailable is false when AuthModule reports unavailable',
+    ScoresModule.isFirestoreAvailable() === false);
+
+  console.log('\n--- displayLeaderboard: offline ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  online = false;
+  ScoresModule.displayLeaderboard();
+  await flushAll();
+  check('offline displayLeaderboard renders the offline message',
+    document.getElementById('leaderboard').innerHTML.includes('offline'));
+  online = true;
+
+  console.log('\n--- displayLeaderboard: renders ranked table and highlights current user ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'me', displayName: 'Me' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  seed('leaderboard', 'me', { user: doc(firestoreInstance, 'users', 'me'), time: 12.34 });
+  seed('leaderboard', 'other', { user: doc(firestoreInstance, 'users', 'other'), time: 20 });
+  ScoresModule.displayLeaderboard();
+  await flushAll();
+  let lbHtml = document.getElementById('leaderboard').innerHTML;
+  check('displayLeaderboard renders the Top 10 Times table',
+    lbHtml.includes('Top 10 Times') && lbHtml.includes('<table>'));
+  check('displayLeaderboard renders rows ascending with formatted times',
+    lbHtml.includes('12.34s') && lbHtml.includes('20.00s') &&
+    lbHtml.indexOf('12.34s') < lbHtml.indexOf('20.00s'));
+  check('displayLeaderboard highlights and names the current user row',
+    lbHtml.includes('current-user-score') && lbHtml.includes('Me'));
+
+  console.log('\n--- displayLeaderboard: empty board ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  ScoresModule.displayLeaderboard();
+  await flushAll();
+  check('empty leaderboard renders the no-scores message',
+    document.getElementById('leaderboard').innerHTML.includes('No scores recorded yet'));
+
+  console.log('\n--- displayLeaderboard: unavailable Firestore, failed reinitialization ---');
+  resetState(ScoresModule);
+  // Local instance stays null (resetState initializes with null) and AuthModule reports
+  // unavailable, so the reinitialization attempt fails => unavailable message.
+  firestoreAvailable = false;
+  reinitializeSucceeds = false;
+  ScoresModule.displayLeaderboard();
+  await flushAll();
+  check('displayLeaderboard attempts reinitialization when Firestore is unavailable',
+    calls.reinitializeFirestore > 0);
+  check('failed reinitialization renders the unavailable message',
+    document.getElementById('leaderboard').innerHTML === '<h3>Leaderboard unavailable</h3>');
+
+  console.log('\n--- displayLeaderboard: reinitializes a null local instance then renders ---');
+  resetState(ScoresModule);
+  // AuthModule reports available but the local instance is null; a successful
+  // reinitialization must restore it and let the fetch+render proceed.
+  firestoreAvailable = true;
+  reinitializeSucceeds = true;
+  seed('leaderboard', 'x', { user: doc(firestoreInstance, 'users', 'x'), time: 30 });
+  ScoresModule.displayLeaderboard();
+  await flushAll();
+  check('successful reinitialization restores the local instance and renders scores',
+    calls.reinitializeFirestore > 0 &&
+    document.getElementById('leaderboard').innerHTML.includes('30.00s'));
 
   console.log(`\nSCORES TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
