@@ -337,7 +337,7 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   const downDirection = new THREE.Vector3(0, -1, 0);
   
   // Get terrain mesh for raycasting - try multiple ways to find it
-  let terrainMesh = null;
+  let terrainMesh: THREE.Object3D | null = null;
   
   // Check global reference first (set in snowglider.js)
   if (window && window.terrainMesh) {
@@ -355,7 +355,7 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
         (child.type === 'Mesh' &&
          !!mesh.geometry &&
          mesh.geometry.type === 'PlaneGeometry');
-    });
+    }) ?? null;
   }
   
   // Create tree instances - ensure trees are properly anchored to terrain

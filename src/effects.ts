@@ -44,11 +44,11 @@ export interface ShakeCamera {
 
 /** Lazily-built avalanche-warning DOM overlays. */
 interface EffectsUI {
-  vignette?: HTMLDivElement;
-  banner?: HTMLDivElement;
-  meterWrap?: HTMLDivElement;
-  meterFill?: HTMLDivElement;
-  meterLabelR?: HTMLSpanElement;
+  vignette: HTMLDivElement;
+  banner: HTMLDivElement;
+  meterWrap: HTMLDivElement;
+  meterFill: HTMLDivElement;
+  meterLabelR: HTMLSpanElement;
 }
 
 export const EffectsModule = (function () {
@@ -63,13 +63,13 @@ export const EffectsModule = (function () {
   const reduceMotion = typeof window !== 'undefined' &&
     window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  let ui: EffectsUI = {};
+  let ui: EffectsUI | null = null;
   let shake = 0;        // current shake intensity (decays over time)
   let proximityShake = 0; // sustained shake from avalanche proximity
   let currentFov = BASE_FOV;
 
   function buildUI() {
-    if (ui.banner) return;
+    if (ui) return;
 
     // Red vignette (full-screen radial gradient overlay)
     const vignette = document.createElement('div');
@@ -141,7 +141,7 @@ export const EffectsModule = (function () {
   //   active:   whether the avalanche is currently bearing down
   //   distance: closest boulder distance to the player (units); Infinity if none
   function updateAvalanche(active: boolean, distance: number) {
-    if (!ui.banner) return;
+    if (!ui) return;
 
     if (!active || !isFinite(distance)) {
       ui.banner.style.display = 'none';
@@ -211,9 +211,11 @@ export const EffectsModule = (function () {
     shake = 0;
     proximityShake = 0;
     currentFov = BASE_FOV;
-    if (ui.banner) ui.banner.style.display = 'none';
-    if (ui.meterWrap) ui.meterWrap.style.display = 'none';
-    if (ui.vignette) ui.vignette.style.opacity = '0';
+    if (ui) {
+      ui.banner.style.display = 'none';
+      ui.meterWrap.style.display = 'none';
+      ui.vignette.style.opacity = '0';
+    }
   }
 
   return { init, updateAvalanche, addShake, tickCamera, reset };

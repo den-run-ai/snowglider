@@ -8,6 +8,7 @@
     "checkJs": true,
     "noEmit": true,
     "strict": false,
+    "strictNullChecks": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },

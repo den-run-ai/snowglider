@@ -30,8 +30,8 @@ window.__FIREBASE_DEFAULTS__ = {}; // Ensure this exists early
 let auth;
 let firestore;
 let analytics;
-let currentUser = null;
-let firebaseApp = null; // Keep track of the app instance
+let currentUser: User | null = null;
+let firebaseApp: FirebaseApp | null = null; // Keep track of the app instance
 
 // Import Firebase modules
 import {
@@ -42,6 +42,7 @@ import {
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
+  type User,
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
 import {
   getFirestore,
@@ -50,7 +51,7 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+import { initializeApp, type FirebaseApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import ScoresModule from "./scores.js";
 
 // Initialize Firebase Auth

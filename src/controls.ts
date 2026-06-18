@@ -320,7 +320,8 @@ function setupTouchControls() {
   };
   
   // Helper to check if a point is in a region
-  const isPointInRegion = (x: number, y: number, region: TouchRegion) => {
+  const isPointInRegion = (x: number, y: number, region: TouchRegion | undefined) => {
+    if (!region) return false;
     return (
       x >= region.x &&
       x <= region.x + region.width && 

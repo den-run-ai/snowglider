@@ -18,7 +18,7 @@
 // The `./trees.js` specifier stays `.js` (Vite/tsc resolve it to `trees.ts`; the
 // Node terrain/regression tests use the `.js`->`.ts` resolve hook added in PR 3.3).
 import * as THREE from 'three';
-import { Trees } from './trees.js';
+import { Trees, type TreePosition } from './trees.js';
 
 /** A 2D vector in the terrain x/z plane: a gradient or a unit downhill direction. */
 export interface TerrainVec2 {
@@ -258,7 +258,7 @@ function createTerrain(scene: THREE.Scene) {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, 512, 512);
   
@@ -314,7 +314,7 @@ function createTerrain(scene: THREE.Scene) {
   addRocks(scene);
   
   // Add trees to make the slope more visible using the separate Trees module
-  let treePositions = [];
+  let treePositions: TreePosition[] = [];
   if (Trees && typeof Trees.addTrees === 'function') {
     treePositions = Trees.addTrees(scene);
   } else {
@@ -367,16 +367,16 @@ function addRocks(scene: THREE.Scene) {
   const downDirection = new THREE.Vector3(0, -1, 0);
   
   // Get terrain mesh for raycasting - try multiple ways to find it
-  let terrainMesh = null;
-  
+  let terrainMesh: THREE.Object3D | null = null;
+
   // Check global reference first (set in snowglider.js)
   if (window && window.terrainMesh) {
     terrainMesh = window.terrainMesh;
-  } 
+  }
   // Then check userData
   else if (scene.userData && scene.userData.terrainMesh) {
     terrainMesh = scene.userData.terrainMesh;
-  } 
+  }
   // Last resort - find by name or type
   else {
     terrainMesh = scene.children.find(child => {
@@ -385,7 +385,7 @@ function addRocks(scene: THREE.Scene) {
         (child.type === 'Mesh' &&
          !!mesh.geometry &&
          mesh.geometry.type === 'PlaneGeometry');
-    });
+    }) ?? null;
   }
   
   // Create rock instances

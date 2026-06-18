@@ -32,9 +32,10 @@ import { Controls } from './controls.js';
 import { Snow } from './snow.js';
 import { Snowman } from './snowman.js';
 import { CourseModule } from './course.js';
-import { EffectsModule } from './effects.js';
+import { EffectsModule, type ShakeOffset } from './effects.js';
 import { AvalancheSystem } from './avalanche.js';
 import { AudioModule } from './audio.js';
+import type { TreePosition } from './trees.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();
@@ -160,7 +161,7 @@ const terrain = terrainResult.terrain;
 window.terrainMesh = terrain;
 
 // --- Initialize Avalanche System ---
-let avalanche = null;
+let avalanche: AvalancheSystem | null = null;
 let avalancheTriggered = false;
 let lastAvalancheZ = 0;
 const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
@@ -174,7 +175,7 @@ if (typeof AvalancheSystem !== 'undefined') {
 }
 
 // We can't call Snow.addTrees directly, so let's create a global array
-let treePositions = [];
+let treePositions: TreePosition[] = [];
 
 // Instead of duplicating the tree placement logic, use Snow.addTrees
 // and store its returned positions for collision detection
@@ -425,7 +426,7 @@ function resetSnowman() {
 window.resetSnowman = resetSnowman;
 
 // Initialize controls but don't reset the snowman yet
-document.getElementById('resetBtn').addEventListener('click', resetSnowman);
+document.getElementById('resetBtn')!.addEventListener('click', resetSnowman);
 
 // Add camera toggle button
 const cameraToggleBtn = document.createElement('button');
@@ -634,7 +635,7 @@ function animate(time) {
     
     // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
     // the positional offset so the camera manager's own smoothing stays clean.
-    let _shake = null;
+    let _shake: ShakeOffset | null = null;
     if (EffectsModule) {
       const spd = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
       _shake = EffectsModule.tickCamera(camera, delta, spd);
@@ -813,7 +814,7 @@ function showGameOver(reason) {
     const leaderboardElement = document.getElementById('leaderboard');
     
     // Add to game over overlay if not already there
-    if (leaderboardElement.parentNode !== gameOverOverlay) {
+    if (leaderboardElement && leaderboardElement.parentNode !== gameOverOverlay) {
       gameOverOverlay.insertBefore(leaderboardElement, restartButton);
       leaderboardElement.style.display = 'block';
     }
@@ -981,9 +982,9 @@ function initializeControlsToggle() {
     // Ensure previous event listeners are removed (if possible)
     try {
       controlsHeader.replaceWith(controlsHeader.cloneNode(true));
-      const newControlsHeader = document.getElementById('controlsHeader');
-      const newToggleButton = document.getElementById('toggleControls');
-      
+      const newControlsHeader = document.getElementById('controlsHeader')!;
+      const newToggleButton = document.getElementById('toggleControls')!;
+
       // Setup the toggle functionality
       const toggleControls = function() {
         console.log("Toggle controls called, current state:", controlsInfo.classList.contains('collapsed'));
@@ -1328,9 +1329,9 @@ if (window.isTestMode) {
     if (startContainer) startContainer.style.display = 'none';
     
     // Show the game canvas
-    document.getElementById('gameCanvas').style.display = 'block';
-    
+    document.getElementById('gameCanvas')!.style.display = 'block';
+
     // Initialize the game
-    window.initializeGameWithAudio();
+    window.initializeGameWithAudio?.();
   }, 100);
 }

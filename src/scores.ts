@@ -271,7 +271,14 @@ function updateLeaderboard(userId, time) {
  * Get leaderboard data (top 10 scores)
  * @returns {Promise<Array>} Promise resolving to array of score objects
  */
-function getLeaderboard() {
+/** A leaderboard row assembled from a Firestore `leaderboard` document. */
+interface LeaderboardScore {
+  userId: string;     // the leaderboard document id (== the user's uid)
+  time: number;       // best run time in seconds
+  userRef: any;       // Firestore DocumentReference to the user doc (untyped DocumentData)
+}
+
+function getLeaderboard(): Promise<LeaderboardScore[]> {
   // Check AuthModule first for availability
    if (!window.AuthModule?.isFirebaseAvailable?.().firestore) {
     console.log("Cannot get leaderboard (Firestore unavailable according to AuthModule).");
@@ -287,7 +294,9 @@ function getLeaderboard() {
    }
 
   try {
-    const leaderboardRef = collection(firestore, 'leaderboard');
+    // firestore is non-null on the normal path; if AuthModule lied (warned above)
+    // this best-effort call throws and is handled by the surrounding catch.
+    const leaderboardRef = collection(firestore!, 'leaderboard');
     // Query for top 10 scores, ordered by time ascending
     const q = query(
       leaderboardRef,
@@ -299,7 +308,7 @@ function getLeaderboard() {
     console.log("Fetching leaderboard data...");
     return getDocs(q)
       .then(snapshot => {
-        const scores = [];
+        const scores: LeaderboardScore[] = [];
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
           // Ensure data has expected fields before pushing

@@ -188,17 +188,20 @@ export const CourseModule = (function () {
   let flashTimer: ReturnType<typeof setTimeout> | null = null;
   function showFlash(html: string, color?: string) {
     if (!hud.flash) return;
-    hud.flash.innerHTML = html;
-    hud.flash.style.color = color || '#fff';
-    hud.flash.style.opacity = '1';
+    const flashEl = hud.flash;
+    flashEl.innerHTML = html;
+    flashEl.style.color = color || '#fff';
+    flashEl.style.opacity = '1';
     if (flashTimer) clearTimeout(flashTimer);
-    flashTimer = setTimeout(() => { hud.flash.style.opacity = '0'; }, 1600);
+    flashTimer = setTimeout(() => { flashEl.style.opacity = '0'; }, 1600);
   }
 
   // ---------------------------------------------------------------------------
   // Gate / finish meshes
   // ---------------------------------------------------------------------------
   function makeGate(zPos: number, colorHex: number, label: string, isFinish: boolean): THREE.Group {
+    const sampleHeight = getTerrainHeight;
+    if (!sampleHeight) throw new Error('CourseModule.makeGate called before init()');
     const group = new THREE.Group();
     const halfW = isFinish ? FINISH_HALF_WIDTH : GATE_HALF_WIDTH;
     const poleMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.6 });
@@ -206,7 +209,7 @@ export const CourseModule = (function () {
     const poleRadius = isFinish ? 0.35 : 0.25;
 
     [-halfW, halfW].forEach((xOff) => {
-      const groundY = getTerrainHeight(xOff, zPos);
+      const groundY = sampleHeight(xOff, zPos);
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 10),
         poleMat
@@ -227,7 +230,7 @@ export const CourseModule = (function () {
     });
 
     // Banner across the top spanning the gate
-    const midY = (getTerrainHeight(-halfW, zPos) + getTerrainHeight(halfW, zPos)) / 2;
+    const midY = (sampleHeight(-halfW, zPos) + sampleHeight(halfW, zPos)) / 2;
     const banner = new THREE.Mesh(
       new THREE.BoxGeometry(halfW * 2, isFinish ? 1.6 : 1.0, 0.2),
       new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.7 })
@@ -240,7 +243,7 @@ export const CourseModule = (function () {
     if (label) {
       const canvas = document.createElement('canvas');
       canvas.width = 512; canvas.height = 96;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d')!;
       ctx.fillStyle = 'rgba(0,0,0,0)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.font = 'bold 70px Arial';
@@ -262,18 +265,19 @@ export const CourseModule = (function () {
   }
 
   function buildGates() {
-    if (gateGroup) return;
-    gateGroup = new THREE.Group();
+    if (gateGroup || !scene) return;
+    const group = new THREE.Group();
+    gateGroup = group;
 
     const palette = [0x00b894, 0x0984e3, 0xfdcb6e]; // green, blue, amber for CPs
     CHECKPOINT_Z.forEach((z, i) => {
       // Single source of truth for the label so the 3D banner and the HUD/result
       // table never drift apart (was "CHECKPOINT n" here vs "CP n" in the HUD).
-      gateGroup.add(makeGate(z, palette[i % palette.length], splitPoints[i].label, false));
+      group.add(makeGate(z, palette[i % palette.length], splitPoints[i].label, false));
     });
-    gateGroup.add(makeGate(FINISH_Z, 0xffd700, 'FINISH', true));
+    group.add(makeGate(FINISH_Z, 0xffd700, 'FINISH', true));
 
-    scene.add(gateGroup);
+    scene.add(group);
   }
 
   // ---------------------------------------------------------------------------
@@ -309,7 +313,7 @@ export const CourseModule = (function () {
   }
 
   function buildGhost() {
-    if (!ghostSamples || ghost || !createSnowman) return;
+    if (!ghostSamples || ghost || !createSnowman || !scene) return;
     ghost = createSnowman(scene);
     // Make it a translucent blue apparition that never collides or shadows.
     ghost.traverse((obj) => {
@@ -398,7 +402,7 @@ export const CourseModule = (function () {
     buildGhost();
     if (ghost) ghost.visible = false;
 
-    if (hud.root) {
+    if (hud.root && hud.fill && hud.distance && hud.ghostDelta && hud.flash) {
       hud.root.style.display = 'flex';
       hud.fill.style.width = '0%';
       hud.distance.textContent = `${COURSE_LENGTH} m to finish`;
