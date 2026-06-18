@@ -5,7 +5,7 @@
   "main": "src/snowglider.js",
   "license": "MIT",
   "scripts": {
-    "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:avalanche && npm run test:auth && npm run test:scores && npm run test:controls && npm run test:coverage-merge && npm run test:verify",
+    "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:avalanche && npm run test:auth && npm run test:scores && npm run test:start-menu && npm run test:controls && npm run test:coverage-merge && npm run test:verify",
     "test:terrain": "node --import ./tests/loaders/register-ts-resolve.mjs tests/terrain-tests.js",
     "test:physics": "node tests/physics-tests.js && node --import ./tests/loaders/register-ts-resolve.mjs tests/physics-state-tests.js",
     "test:regression": "node --import ./tests/loaders/register-ts-resolve.mjs tests/regression-tests.js",
@@ -13,6 +13,7 @@
     "test:avalanche": "node tests/avalanche-tests.js",
     "test:auth": "node --import ./tests/loaders/register-firebase-mock.mjs tests/auth-tests.js && node tests/firebase-bootstrap-tests.js",
     "test:scores": "node --import ./tests/loaders/register-firebase-mock.mjs tests/scores-tests.js",
+    "test:start-menu": "node --import ./tests/loaders/register-ts-resolve.mjs tests/start-menu-tests.js",
     "test:firebase": "npx -y firebase-tools@15.20.0 emulators:exec --project snowglider-rules-test --only firestore \"node tests/firestore-rules-tests.js\"",
     "test:controls": "echo 'Controls tests require browser - use index.html?test=controls'",
     "test:coverage-merge": "node tests/coverage-merge-tests.js",
