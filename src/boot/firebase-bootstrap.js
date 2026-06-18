@@ -70,6 +70,7 @@
           window.AuthModule &&
           typeof window.AuthModule.initializeAuth === 'function') {
         console.log("src/auth.js loaded after local fallback - re-initializing the real AuthModule.");
+        clearLocalAuthFallbackUi();
         initializeAuthModule();
       }
     });
@@ -101,6 +102,21 @@
     if (!window.AuthModule && typeof localAuth.installAuthModule === 'function') {
       localAuth.installAuthModule();
     }
+  }
+
+  function clearLocalAuthFallbackUi() {
+    const authContainer = document.getElementById('authContainer');
+    const localModeNotice = authContainer
+      ? authContainer.querySelector('.local-mode-notice')
+      : null;
+    if (localModeNotice) {
+      localModeNotice.remove();
+    }
+
+    const authUI = document.getElementById('authUI');
+    const profileUI = document.getElementById('profileUI');
+    if (authUI) authUI.style.display = 'flex';
+    if (profileUI) profileUI.style.display = 'none';
   }
 
   function waitForAuthModule() {
