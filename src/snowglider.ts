@@ -230,7 +230,7 @@ if (typeof CourseModule !== 'undefined') {
     });
     console.log("Course module initialized (gates, splits, ghost)");
   } catch (e) {
-    console.warn("Course module init failed:", e.message);
+    console.warn("Course module init failed:", (e as Error).message);
   }
 }
 if (typeof EffectsModule !== 'undefined') {
@@ -238,7 +238,7 @@ if (typeof EffectsModule !== 'undefined') {
     EffectsModule.init();
     console.log("Effects module initialized (avalanche warning, camera juice)");
   } catch (e) {
-    console.warn("Effects module init failed:", e.message);
+    console.warn("Effects module init failed:", (e as Error).message);
   }
 }
 
@@ -419,7 +419,7 @@ function resetSnowman() {
       window.firebaseModules.logEvent('game_reset');
     }
   } catch (e) {
-    console.log("Analytics tracking skipped:", e.message);
+    console.log("Analytics tracking skipped:", (e as Error).message);
   }
 }
 // Make resetSnowman accessible globally for touch handler
@@ -781,7 +781,7 @@ function showGameOver(reason: string) {
         });
       }
     } catch (e) {
-      console.log("Analytics tracking skipped:", e.message);
+      console.log("Analytics tracking skipped:", (e as Error).message);
     }
   } else if (reason === "You reached the end of the slope!") {
     console.warn("Finish reached with invalid elapsed time; score not recorded:", finishTime);
@@ -804,7 +804,7 @@ function showGameOver(reason: string) {
         });
       }
     } catch (e) {
-      console.log("Analytics tracking skipped:", e.message);
+      console.log("Analytics tracking skipped:", (e as Error).message);
     }
   }
   
@@ -834,7 +834,7 @@ function showGameOver(reason: string) {
         const panel = CourseModule.onFinish(finishTime, previousBest);
         if (panel) gameOverOverlay.insertBefore(panel, restartButton);
       } catch (e) {
-        console.warn("Result screen failed:", e.message);
+        console.warn("Result screen failed:", (e as Error).message);
       }
     } else {
       CourseModule.hideHud();
@@ -1254,7 +1254,7 @@ window.initializeGameWithAudio = function() {
       window.firebaseModules.logEvent('game_start');
     }
   } catch (e) {
-    console.log("Analytics tracking skipped:", e.message);
+    console.log("Analytics tracking skipped:", (e as Error).message);
   }
   
   return true;
