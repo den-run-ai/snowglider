@@ -177,6 +177,30 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     assert(reason === '', `expected jump clearance with no crash, got "${reason}"`);
   });
 
+  runTest('a descending jump still clears a rock while above it', () => {
+    const p = Physics.createPlayerState(getTerrainHeight);
+    p.pos.x = -3;
+    p.pos.z = -70;
+    const terrainY = getTerrainHeight(p.pos.x, p.pos.z);
+    p.pos.y = terrainY + 3.0;
+    p.velocity.x = 0;
+    p.velocity.z = 0;
+    p.isInAir = true;
+    p.verticalVelocity = -3; // past the apex, descending but still well above the rock
+    p.lastTerrainHeight = terrainY;
+    const rock = { x: p.pos.x, y: terrainY, z: p.pos.z, size: 1.5 };
+    let reason = '';
+
+    Physics.stepPlayer(p, {
+      ...stepDeps(fakeSnowman()),
+      rockPositions: [rock],
+      gameActive: true,
+      showGameOver(nextReason) { reason = nextReason; }
+    });
+
+    assert(reason === '', `expected descending-jump clearance with no crash, got "${reason}"`);
+  });
+
   console.log('\n================================================');
   console.log(`Tests completed: ${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);

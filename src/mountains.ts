@@ -39,25 +39,39 @@ const ROCK_COLLISION_MIN_SIZE = 1.25;
 // Keep the central ski line and the spawn pocket clear of *collidable* rocks: the
 // run must always stay navigable (mirrors the tree clear-corridor in trees.ts) and
 // the player must never spawn on, or right next to, a hazard. Decorative rocks are
-// still rendered everywhere — only their hazard status is suppressed here.
-const ROCK_COLLISION_PATH_HALF_WIDTH = 5;     // |x| < 5 stays hazard-free (covers the max rock radius of 3)
-const ROCK_COLLISION_START_CLEAR_RADIUS = 10; // no hazard within 10u of the snowman start
+// still rendered everywhere — only their hazard status is suppressed here. Both
+// exclusions are widened by the rock's own collision radius below, so a rock whose
+// *center* sits just outside the corridor/pocket can't still reach into it.
+const ROCK_COLLISION_PATH_HALF_WIDTH = 5;     // central ski-line corridor half-width, before the rock radius is added
+const ROCK_COLLISION_START_CLEAR_RADIUS = 10; // clear pocket around the snowman start, before the rock radius is added
 // Snowman spawn, mirroring resetSnowman() in snowman.ts (pos.x = 0, pos.z = -15).
 const SNOWMAN_START_X = 0;
 const SNOWMAN_START_Z = -15;
 
 /**
+ * Collision radius (world units) of a collidable rock of the given size. Single
+ * source of truth shared with snowman.ts's rock collision test (imported there), so
+ * the placement-time safe-zone below and the in-game hazard check agree on exactly
+ * how far a rock reaches (max 3u).
+ */
+export function rockCollisionRadius(size: number): number {
+  return Math.max(1.25, Math.min(3.0, size * 0.75 + 0.75));
+}
+
+/**
  * Whether a placed rock should act as a collision hazard. A rock qualifies only
  * when it is large enough to read as an obstacle AND clear of both the central ski
- * line and the spawn pocket, so the unseeded random placement can never wall off
- * the run or crash the player on spawn.
+ * line and the spawn pocket — each exclusion expanded by the rock's own collision
+ * radius so the unseeded random placement can never reach into the ski lane, wall
+ * off the run, or crash the player on spawn.
  */
 function rockIsCollisionHazard(x: number, z: number, size: number): boolean {
   if (size < ROCK_COLLISION_MIN_SIZE) return false;
-  if (Math.abs(x) < ROCK_COLLISION_PATH_HALF_WIDTH) return false;
+  const radius = rockCollisionRadius(size);
+  if (Math.abs(x) < ROCK_COLLISION_PATH_HALF_WIDTH + radius) return false;
   const dx = x - SNOWMAN_START_X;
   const dz = z - SNOWMAN_START_Z;
-  if (Math.sqrt(dx * dx + dz * dz) < ROCK_COLLISION_START_CLEAR_RADIUS) return false;
+  if (Math.sqrt(dx * dx + dz * dz) < ROCK_COLLISION_START_CLEAR_RADIUS + radius) return false;
   return true;
 }
 
@@ -501,6 +515,7 @@ export const Mountains = {
   createRock,
   addRocks,
   ROCK_COLLISION_MIN_SIZE,
+  rockCollisionRadius,
   rockIsCollisionHazard,
   debugHeightMap,
   heightMap // Expose the heightmap for debugging

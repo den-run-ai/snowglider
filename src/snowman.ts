@@ -16,6 +16,7 @@
 // native type-stripping run it exactly as before; the physics-invariant harness
 // confirms coasting stays bit-identical to the frozen baseline.
 import * as THREE from 'three';
+import { rockCollisionRadius } from './mountains.js';
 
 // These contract types are exported so the typed player-state layer in
 // physics.ts (PR 3.21) shares snowman's exact call contract instead of
@@ -740,15 +741,18 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     const dx = pos.x - rockPos.x;
     const dz = pos.z - rockPos.z;
     const horizontalDistance = Math.sqrt(dx*dx + dz*dz);
-    const rockCollisionRadius = Math.max(1.25, Math.min(3.0, rockPos.size * 0.75 + 0.75));
+    const rockRadius = rockCollisionRadius(rockPos.size);
     const exposedRockTop = rockPos.y + rockPos.size * 0.7;
-    const isJumpingOverRock = isInAir && verticalVelocity > 0 && pos.y > exposedRockTop + 0.5;
+    // Clearance is height-based: once the snowman is airborne and above the rock
+    // top it clears the hazard whether it is still rising or already descending past
+    // the jump apex. (Requiring upward motion made descending-but-high jumps crash.)
+    const isJumpingOverRock = isInAir && pos.y > exposedRockTop + 0.5;
 
     if (window.location.search.includes('test=true') && horizontalDistance < 5) {
-      console.log(`ROCK CHECK: dist=${horizontalDistance.toFixed(2)}, radius=${rockCollisionRadius.toFixed(2)}, jumping=${isJumpingOverRock}, collision=${horizontalDistance < rockCollisionRadius && !isJumpingOverRock}`);
+      console.log(`ROCK CHECK: dist=${horizontalDistance.toFixed(2)}, radius=${rockRadius.toFixed(2)}, jumping=${isJumpingOverRock}, collision=${horizontalDistance < rockRadius && !isJumpingOverRock}`);
     }
 
-    return horizontalDistance < rockCollisionRadius && !isJumpingOverRock;
+    return horizontalDistance < rockRadius && !isJumpingOverRock;
   });
   
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree

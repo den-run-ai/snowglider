@@ -298,6 +298,15 @@ runTest('Collidable rocks avoid the ski line and spawn pocket', () => {
   // A large rock clear of both the ski line and the start is a real hazard.
   assert(isHazard(50, -150, 2.0), 'large rocks clear of the path and start are hazards');
   assert(isHazard(8, -60, 1.5), 'large off-line rocks past the spawn pocket are hazards');
+
+  // Each exclusion is widened by the rock's collision radius (up to 3u), so a rock
+  // whose *center* sits just outside the corridor/pocket can't still reach into it.
+  const rockRadius = global.Mountains.rockCollisionRadius;
+  assert(typeof rockRadius === 'function', 'Mountains.rockCollisionRadius should be exported');
+  assert(Math.abs(rockRadius(3.0) - 3.0) < 1e-9, 'a size-3 rock has a 3u collision radius');
+  assert(!isHazard(5.1, -150, 3.0), 'a size-3 rock at x=5.1 reaches into the |x|<5 ski lane, so it is excluded');
+  assert(!isHazard(12, -15, 3.0), 'a size-3 rock 12u from the start reaches into the spawn pocket, so it is excluded');
+  assert(isHazard(8.5, -150, 3.0), 'a size-3 rock fully clear of the corridor + radius is still a hazard');
 });
 
 // Print test summary
