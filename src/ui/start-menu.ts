@@ -23,7 +23,7 @@ import { AudioModule } from '../audio.js';
     }
   }
 
-  async function unlockAudioForStart(source) {
+  async function unlockAudioForStart(source: string) {
     if (!AudioModule) {
       return;
     }
@@ -79,7 +79,7 @@ import { AudioModule } from '../audio.js';
     return true;
   }
 
-  function setStartButtonWaiting(waiting) {
+  function setStartButtonWaiting(waiting: boolean) {
     const startButton = document.getElementById('startGameButton');
     if (!(startButton instanceof HTMLButtonElement)) {
       return;

@@ -27,9 +27,9 @@ window.__FIREBASE_DEFAULTS__ = {}; // Ensure this exists early
  */
 
 // Service instances initialized by initializeAuth
-let auth;
-let firestore;
-let analytics;
+let auth: Auth | null = null;
+let firestore: Firestore | null = null;
+let analytics: Analytics | null = null;
 let currentUser: User | null = null;
 let firebaseApp: FirebaseApp | null = null; // Keep track of the app instance
 
@@ -43,19 +43,21 @@ import {
   setPersistence,
   browserLocalPersistence,
   type User,
+  type Auth,
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
 import {
   getFirestore,
   doc,
   setDoc,
-  serverTimestamp
+  serverTimestamp,
+  type Firestore
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
-import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
-import { initializeApp, type FirebaseApp } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+import { getAnalytics, logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
+import { initializeApp, type FirebaseApp, type FirebaseOptions } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import ScoresModule from "./scores.js";
 
 // Initialize Firebase Auth
-function initializeAuth(firebaseConfig) {
+function initializeAuth(firebaseConfig: FirebaseOptions) {
   try {
     // Initialize Firebase app and services
     console.log("Initializing new Firebase app instance in AuthModule");
@@ -182,7 +184,7 @@ function initializeAuth(firebaseConfig) {
 }
 
 // Update UI when user is logged in
-function updateUIForLoggedInUser(user) {
+function updateUIForLoggedInUser(user: User) {
   // --- Edit 2: Add logging inside UI update function ---
   console.log("updateUIForLoggedInUser: Attempting to update UI for", user?.email);
   const authUI = document.getElementById('authUI');
@@ -254,7 +256,7 @@ function setupAuthButtons() {
   const loginBtn = document.getElementById('loginBtn') as HTMLButtonElement;
   if (loginBtn) {
     // Function to handle sign-in process using Popup
-    const handleSignIn = (e) => {
+    const handleSignIn = (e: Event) => {
       if (e) e.preventDefault(); // Prevent default button action
 
       // Ignore repeat taps while a sign-in is already in flight. The button is
@@ -371,7 +373,7 @@ function setupAuthButtons() {
 }
 
 // Sync user data with Firestore (only if firestore is available)
-function syncUserData(user) {
+function syncUserData(user: User) {
   if (!firestore || !user) {
     console.log("Skipping user data sync (Firestore unavailable or no user).");
     return;
@@ -521,7 +523,7 @@ const AuthModule = {
   reinitializeFirestore, // Add the new function
 
   // Delegated methods to ScoresModule 
-  recordScore: (time) => ScoresModule.recordScore(time),
+  recordScore: (time: number) => ScoresModule.recordScore(time),
   displayLeaderboard: () => ScoresModule.displayLeaderboard(),
   
   // Export utilities for debugging or potential external use

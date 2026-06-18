@@ -11,7 +11,7 @@
 import { AudioModule } from '../audio.js';
 
 (function () {
-  const GAME_SCRIPT_ORDER = [
+  const GAME_SCRIPT_ORDER: string[] = [
     // mountains.js converted to an ES module (issue #84, PR 2.7); it now loads
     // via the bundle entry (src/main.js), not this classic loader.
     // trees.js converted to an ES module (issue #84, PR 2.4); it now loads
@@ -39,7 +39,7 @@ import { AudioModule } from '../audio.js';
     // still runs after audio.js + Auth, sharing the bundled module graph.
   ];
 
-  const TEST_SCRIPTS = {
+  const TEST_SCRIPTS: Record<string, string[]> = {
     true: ['browser-tests'],
     all: [
       'browser-tests',
@@ -80,17 +80,17 @@ import { AudioModule } from '../audio.js';
     });
   }
 
-  function loadScript(src) {
+  function loadScript(src: string) {
     return appendScript(src);
   }
 
-  function loadModuleScript(src) {
+  function loadModuleScript(src: string) {
     return appendScript(src, (script) => {
       script.type = 'module';
     });
   }
 
-  function loadScriptsInOrder(scripts) {
+  function loadScriptsInOrder(scripts: string[]) {
     return scripts.reduce((promise, src) => {
       return promise.then(() => loadScript(src));
     }, Promise.resolve());
@@ -158,7 +158,7 @@ import { AudioModule } from '../audio.js';
 
   function initializeGameScripts() {
     const firebaseBoot = window.SnowGliderFirebase;
-    const authReady = firebaseBoot && typeof firebaseBoot.waitForAuthModule === 'function'
+    const authReady: Promise<void> = firebaseBoot && typeof firebaseBoot.waitForAuthModule === 'function'
       ? firebaseBoot.waitForAuthModule()
       : Promise.resolve();
 
