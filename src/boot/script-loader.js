@@ -56,13 +56,26 @@
     avalanche: ['browser-avalanche-tests']
   };
 
-  function loadScript(src) {
+  function appendScript(src, configureScript) {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
+      if (typeof configureScript === 'function') {
+        configureScript(script);
+      }
       script.src = src;
-      script.onload = resolve;
+      script.onload = () => resolve();
       script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
       document.body.appendChild(script);
+    });
+  }
+
+  function loadScript(src) {
+    return appendScript(src);
+  }
+
+  function loadModuleScript(src) {
+    return appendScript(src, (script) => {
+      script.type = 'module';
     });
   }
 
@@ -82,21 +95,35 @@
 
     console.log(`Loading test scripts for test parameter: ${testParam}`);
 
-    const testUtils = document.createElement('script');
-    testUtils.src = 'tests/unified-test-runner.js';
-    document.body.appendChild(testUtils);
-
     // Every browser-test suite is now an ES module (issue #84): loaded as
     // `<script type="module">` so they `import` the real src modules instead of
     // reading window.* bridges. (unified-test-runner.js stays a classic script —
     // it imports nothing and only reads window.run*Tests, which the modules set.)
     const selectedScripts = TEST_SCRIPTS[testParam] || [];
-    selectedScripts.forEach((scriptName) => {
-      const testScript = document.createElement('script');
-      testScript.type = 'module';
-      testScript.src = `tests/${scriptName}.js`;
-      document.body.appendChild(testScript);
+
+    if (testParam === 'unified') {
+      // Set this before module test suites evaluate so they publish their
+      // window.run*Tests hooks without also self-starting.
+      /** @type {any} */ (window)._unifiedTestRunnerActive = true;
+    }
+
+    const testModuleLoads = selectedScripts.map((scriptName) => {
+      return loadModuleScript(`tests/${scriptName}.js`);
     });
+
+    Promise.allSettled(testModuleLoads)
+      .then((results) => {
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            console.error(`Failed to load test module ${selectedScripts[index]}:`, result.reason);
+          }
+        });
+
+        return loadScript('tests/unified-test-runner.js');
+      })
+      .catch((error) => {
+        console.error("Failed to load unified test runner:", error);
+      });
   }
 
   function preloadAudio() {
