@@ -11,6 +11,10 @@ import { AudioModule } from '../audio.js';
 
 (function () {
   let startGamePending = false;
+  // Monotonic token for refreshStartAccountUI: bumped on every call so a slow
+  // in-flight leaderboard read can detect that a newer refresh superseded it
+  // (e.g. the player logged out mid-read) and discard its now-stale result.
+  let accountRefreshSeq = 0;
 
   function addBuildBadge() {
     const buildMeta = document.querySelector('meta[name="build-id"]');
@@ -45,6 +49,7 @@ import { AudioModule } from '../audio.js';
   function refreshStartAccountUI() {
     const auth = window.AuthModule;
     const scores = window.ScoresModule;
+    const seq = ++accountRefreshSeq;
 
     const firebase = auth && typeof auth.isFirebaseAvailable === 'function'
       ? auth.isFirebaseAvailable()
@@ -77,6 +82,13 @@ import { AudioModule } from '../audio.js';
 
     Promise.resolve(scores.getLeaderboard())
       .then((list) => {
+        // Discard a superseded read: if another refresh ran after this one (e.g.
+        // the player logged out while this signed-in read was in flight), don't
+        // clobber its result — otherwise a slow read could re-show the leaderboard
+        // on a now signed-out start screen (Firestore rules forbid that read).
+        if (seq !== accountRefreshSeq) {
+          return;
+        }
         if (!Array.isArray(list) || list.length === 0) {
           // getLeaderboard() resolves [] for BOTH a genuinely empty board and a
           // swallowed read error (offline / transient Firestore failure), and
@@ -99,6 +111,11 @@ import { AudioModule } from '../audio.js';
         lb.style.display = 'block';
       })
       .catch(() => {
+        // Same staleness guard: don't let a superseded read's failure hide a board
+        // that a newer refresh has since populated.
+        if (seq !== accountRefreshSeq) {
+          return;
+        }
         lb.style.display = 'none';
       });
   }

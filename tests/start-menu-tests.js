@@ -267,6 +267,32 @@ async function main() {
   check('ScoresModule without getLeaderboard hides the leaderboard',
     lb.style.display === 'none');
 
+  // Stale-read guard: a signed-in getLeaderboard() still in flight when the player
+  // logs out must NOT re-show the board after the logout refresh has hidden it.
+  resetAccountDom();
+  let resolveSlow;
+  const slow = new Promise((res) => { resolveSlow = res; });
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
+    getLeaderboard: () => slow
+  });
+  refresh(); // signed-in read starts, in flight (unresolved)
+  // Player logs out before it resolves; the newer refresh hides the board.
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('logout hides the board while the prior signed-in read is still in flight',
+    lb.style.display === 'none');
+  resolveSlow([{ userId: 'me', time: 5.0 }]); // the stale signed-in read finally resolves
+  await settle();
+  check('stale in-flight leaderboard read is discarded after logout (board stays hidden)',
+    lb.style.display === 'none');
+
   // The start menu re-renders when auth.ts broadcasts snowglider:auth-changed
   // (login/logout), so signing in from the start screen isn't stale until reload.
   // Here we change account state but do NOT call refresh() directly — the wired
