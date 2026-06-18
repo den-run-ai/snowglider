@@ -12,6 +12,7 @@
     "noImplicitAny": true,
     "strictFunctionTypes": true,
     "strictBindCallApply": true,
+    "useUnknownInCatchVariables": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },

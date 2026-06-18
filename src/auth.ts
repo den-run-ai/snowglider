@@ -173,7 +173,8 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
     }
   } catch (e) {
     // Catch errors during initializeApp or other setup steps
-    console.error("Firebase setup failed:", e.message, e.stack);
+    const err = e as Error;
+    console.error("Firebase setup failed:", err.message, err.stack);
     auth = firestore = analytics = null; // Ensure services are null on failure
     updateUIForLoggedOutUser();
     resetLoginButton();

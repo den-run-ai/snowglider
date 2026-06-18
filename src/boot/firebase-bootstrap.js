@@ -173,7 +173,8 @@
         console.error("AuthModule or initializeAuth function not found when expected!");
       }
     } catch (e) {
-      console.error("Error calling AuthModule.initializeAuth:", e.message, e.stack);
+      const err = /** @type {Error} */ (e);
+      console.error("Error calling AuthModule.initializeAuth:", err.message, err.stack);
     }
   }
 
