@@ -4,15 +4,25 @@
 
 ## Status
 
-- **Current:** Phase 1 **complete and hardened.** Every `src/**/*.js` carries `// @ts-check`,
-  `tsc --noEmit` is green and **blocking in CI**, and `tsconfig` now sets `"checkJs": true` so any
-  *new* source file is type-checked by default (the per-file directives are now a belt-and-suspenders
-  ratchet, not the gate). Still classic `<script>` modules (global namespaces), three.js **r160**
-  loaded as a CDN global. `auth.js` / `scores.js` are ES modules for Firebase.
-- **Build today:** a Vite step exists but currently only **copies** the static source tree into
-  `dist/` (see `vite.config.js` `copyStaticAppFiles`) — it does **not** yet bundle an ES-module
-  graph. `index.html` still loads CDN `THREE` and injects `src/*.js` via `src/boot/script-loader.js`.
-  Turning that copy step into a real module bundle is the substance of Phase 2.
+- **Current:** Phase 1 **complete and hardened**; **Phase 2 in progress** (see issue #84 for the
+  per-PR plan). Every `src/**/*.js` carries `// @ts-check`, `tsc --noEmit` is green and **blocking in
+  CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
+  `auth.js` / `scores.js` were already ES modules for Firebase; `src/main.js` (the bundle entry) and
+  **`src/avalanche.js`** are now ES modules too. The remaining game modules are still classic
+  `<script>` globals loaded via `src/boot/script-loader.js`, with three.js **r160** as a CDN global.
+- **Build today:** `vite build` produces a **real ES-module bundle** (PR 2.0): `index.html` loads
+  `src/main.js` as `<script type="module">`, and Vite resolves its import graph (three from npm +
+  each converted module) into a hashed chunk referenced by `dist/index.html`. `copyStaticAppFiles`
+  still copies the static tree so the **classic CDN + script-loader path keeps booting the game**
+  during the staged conversion. Until the loader is retired (PR 2.10), converted modules also load
+  through the bundle and re-publish their `window.*` namespace so the still-classic `snowglider.js`
+  keeps finding them — which means three.js is loaded twice transitionally (CDN UMD for classic
+  scripts, npm/ESM for the bundle; browsers log a benign "Multiple instances of Three.js" warning).
+  An import map in `index.html` resolves the bundle's bare `three` specifier when the page is served
+  as raw source (puppeteer suite, `npm start`); it is inert in the Vite build, where three is bundled.
+- **Converted so far (PR 2.1):** `src/avalanche.js` — `import * as THREE from 'three'` + `export class
+  AvalancheSystem`. Its Node test (`tests/avalanche-tests.js`) now `import()`s the real module and
+  real three instead of the old `new Function(src)` + mock-THREE injection.
 - **Target:** ES-module TypeScript with full type-checking in CI, `@types/three`, and a thin build step that still ships static files to GitHub Pages.
 - **Guardrail:** the existing test suite (`npm test`) and ESLint must stay green after every phase. No phase is allowed to leave `main` un-deployable.
 
