@@ -47,6 +47,17 @@ if (typeof window !== 'undefined') {
   /** @type {any} */ (window).__SNOWGLIDER_BUNDLE__ = {
     threeRevision: THREE.REVISION
   };
+
+  // Phase 2.9: snowglider.js (the orchestrator) is now an ES module too, but it
+  // must still run LAST — after the classic loader has loaded audio.js + Auth —
+  // and stay deferred so the start menu's "clicked before scripts loaded" path
+  // keeps working. So instead of a static import here (which would run it eagerly
+  // at bundle load), expose a dynamic-import hook the classic script-loader calls
+  // at the right moment. Keeping it a dynamic import of './snowglider.js' means
+  // Vite still bundles it into the shared module graph (one Snow/Snowman/etc.
+  // instance), while raw-source serving resolves it to /src/snowglider.js (the
+  // request the puppeteer start-menu regression intercepts).
+  /** @type {any} */ (window).__loadSnowGliderOrchestrator = () => import('./snowglider.js');
 }
 
 console.log(`[snowglider] bundled three.js r${THREE.REVISION}`);

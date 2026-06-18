@@ -277,7 +277,27 @@ For each module, in the dependency order from Phase 1:
 
 Convert lowest-coupling pure-logic modules first; convert `snowglider.js` (the orchestrator holding most global state) **last**.
 
-**Exit criteria for Phase 2:** `index.html` loads one module entry, no `window.*` namespace assignments remain, `three` comes from npm, `npm test` + `tsc --noEmit` + build + Pages deploy all green.
+**Progress (issue #84):** PR 2.1 avalanche.js · 2.2 course.js · 2.3 camera.js · 2.4 trees.js ·
+2.5 controls.js · 2.6 effects.js · 2.7 mountains.js (+ snow.js) · 2.8 snowman.js · **2.9
+snowglider.js — done.** All game modules are now ES modules importing `three` from npm.
+
+> **PR 2.9 — `snowglider.js` (the orchestrator).** Unlike the other modules it can't be a
+> classic `<script>` (it now `import`s three + every game module), yet it must still load
+> **last and deferred** so AudioModule/Auth are ready and the start-menu "clicked before
+> scripts loaded" path keeps working. So `src/main.js` exposes a dynamic-import hook
+> (`window.__loadSnowGliderOrchestrator = () => import('./snowglider.js')`) and the classic
+> `script-loader.js` calls it after loading `audio.js` + Auth (snowglider.js was dropped from
+> `GAME_SCRIPT_ORDER`). Keeping it a **dynamic import** means Vite emits it as a shared-graph
+> chunk (one `Snow`/`Snowman`/etc. instance, not a second copy from the verbatim `dist/src`
+> tree), while raw-source serving still resolves it to `/src/snowglider.js` (the request the
+> puppeteer start-menu regression intercepts). Because the browser test suites drive the live
+> game by **bare name** — reading and reassigning `gameActive`/`isInAir`/… and mutating
+> `pos`/`avalanche`/… — snowglider.js re-publishes that now-module-scoped state on `window`
+> via accessors (get/set proxy to the module locals), so those suites pass unchanged. Still
+> read as globals: `AudioModule` (audio.js classic), `AuthModule`/`ScoresModule` (Firebase
+> bootstrap), and `Mountains`/`Trees` (snow.js reads them bare at eval).
+
+**Exit criteria for Phase 2:** `index.html` loads one module entry, no `window.*` namespace assignments remain, `three` comes from npm, `npm test` + `tsc --noEmit` + build + Pages deploy all green. **Remaining: PR 2.10 — retire the classic `script-loader.js` + CDN-`THREE` `<script>` + import-map + the `window.*` migration bridges** (convert `audio.js` and fold the boot/loader into the module entry).
 
 ---
 
@@ -325,7 +345,7 @@ Ordered by ROI: pure, already-tested logic first; the big stateful orchestrator 
 | 6 | `effects.js` / `snow.js` | 184 / 405 | (regression) | Rendering-heavy; type the public surface, allow internal looseness. |
 | 7 | `mountains.js` | 427 | `terrain-tests` | Terrain height = the `TerrainHeightFn` seam. Pure parts are high-value. |
 | 8 | `snowman.js` | 853 | (regression) | Large, visual + state. |
-| 9 | `snowglider.js` | 1193 | `physics-tests`, invariant harness, dom smoke | **Last.** Main loop + most global state. Consider extracting a typed `physics.ts` here (you have `PHYSICS.md` + invariant tests to keep it correct). |
+| 9 | `snowglider.js` | 1193 | browser suites (camera/regression/tree/avalanche) | **Done (PR 2.9).** Main loop + most global state; loaded via a deferred dynamic-import hook and re-publishes its state on `window` for the bare-name browser suites. Phase 3 can extract a typed `physics.ts` + `GameState` here (you have `PHYSICS.md` + invariant tests to keep it correct). |
 | ∥ | `auth.js` / `scores.js` | 521 / 562 | `audio`/regression | Already ES modules; Firebase ships its own types. Can be typed in parallel anytime. |
 
 ---
