@@ -107,6 +107,26 @@ jobs:
           test -f dist/LICENSE
           test -f dist/README.md
           test ! -d dist/tests/verification
+          # Guard against a raw-TypeScript Pages artifact (defense-in-depth). The
+          # real prod-outage fix was switching the Pages source to GitHub Actions
+          # (build_type=workflow) so the legacy branch builder can't serve raw src/;
+          # this assertion additionally fails the build if Vite ever stops emitting
+          # transpiled .js — which on Pages would be served as MIME video/mp2t and
+          # break every module entrypoint.
+          test -f dist/src/main.js
+          test -f dist/src/boot/script-loader.js
+          test -f dist/src/ui/start-menu.js
+          test -f dist/src/auth.js
+          test -f dist/src/scores.js
+          if grep -En 'src/(main|boot/script-loader|ui/start-menu)\.ts|<script[^>]+type="module"[^>]+src="src/[^"]+\.ts"' dist/index.html; then
+            echo "::error::dist/index.html references raw TypeScript module entrypoints"
+            exit 1
+          fi
+          if find dist/src -name '*.ts' -print -quit | grep -q .; then
+            echo "::error::dist/src contains raw TypeScript files"
+            find dist/src -name '*.ts' -print
+            exit 1
+          fi
           # The verbatim-copied browser tests import bare `three`; Pages has no
           # node_modules, so the page import map's three build must be published.
           test -f dist/node_modules/three/build/three.module.min.js
