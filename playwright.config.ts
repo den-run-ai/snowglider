@@ -49,6 +49,14 @@ export default defineConfig({
       use: { ...devices['Desktop Safari'] },
       testIgnore: /mobile\.spec\.ts/,
     },
+    {
+      // Emulated iPhone (WebKit engine, mobile UA, touch, mobile viewport). The
+      // game's control layer enables touch input when it detects a mobile UA, so
+      // this is where the touch-control specs run. Mobile-only by testMatch.
+      name: 'Mobile Safari',
+      use: { ...devices['iPhone 13'] },
+      testMatch: /mobile\.spec\.ts/,
+    },
   ],
   webServer: {
     // Same dev server as tests/puppeteer-runner.js: Vite transpiles the .ts game
