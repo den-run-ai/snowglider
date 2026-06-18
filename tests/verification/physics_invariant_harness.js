@@ -85,14 +85,19 @@ function simulate(updateFn, controls, seed, steps = 220, dt = 1 / 60) {
 }
 
 // The frozen baseline is still a classic script, so it loads via vm.runInContext.
-// src/snowman.js is now an ES module (issue #84, PR 2.8) and can't be evaluated
+// src/snowman is now an ES module (issue #84, PR 2.8) and can't be evaluated
 // that way, so import the REAL module and read its updateSnowman directly. The
 // comparison is unchanged: both return the same updateSnowman(...) contract, and
-// the harness injects terrain + controls as arguments (snowman.js reads no terrain
+// the harness injects terrain + controls as arguments (snowman reads no terrain
 // globals). The async import means the checks run inside an async IIFE.
+//
+// Phase 3.7 (issue #84): snowman was renamed `.js` -> `.ts`. This harness runs
+// under `npm run test:verify` (no `.js`->`.ts` resolve hook), and it imports
+// snowman directly, so use the real `.ts` extension (Node strips the erasable
+// types natively, like avalanche.ts).
 (async () => {
 const orig = loadUpdate(path.join(__dirname, 'snowman_baseline.js'));
-const mod = (await import('../../src/snowman.js')).Snowman.updateSnowman;
+const mod = (await import('../../src/snowman.ts')).Snowman.updateSnowman;
 // updateSnowman reads window.treeCollisionRadius / window.location.search for its
 // test-hook + debug-logging paths; the frozen baseline gets these from its vm
 // sandbox, so provide the same minimal stub on the global for the imported module.
