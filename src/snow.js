@@ -1,5 +1,16 @@
 // @ts-check
 // Snow.js - Utility functions for the snowman skiing game
+//
+// Phase 2.6/cluster (issue #84): converted off the classic global model. `THREE`
+// now comes from the npm package via a real ES-module import instead of the CDN
+// global, and `Snow` is `export`ed. snow.js builds its `Snow` namespace from
+// `Mountains.*` and `Trees.*` at module-eval time, reading them as bare globals,
+// so it must load AFTER mountains.js and trees.js — src/main.js imports it last
+// of the three for exactly that reason. The window.Snow / window.Utils bridges
+// below keep the still-classic snowglider.js (which reads `Snow` by bare name)
+// working until it is converted (PR 2.9). Loaded via the bundle entry, not the
+// classic script-loader.
+import * as THREE from 'three';
 
 // Mountains features are now in mountains.js
 // This file now delegates terrain/mountain calls to mountains.js
@@ -365,8 +376,12 @@ function updateSnowSplash(splash, delta, snowman, velocity, isInAir, scene) {
 }
 
 // Export utility functions and classes
-// We leverage the Mountains export from mountains.js and add our own
-const Snow = {
+// We leverage the Mountains export from mountains.js and add our own.
+// `Mountains` and `Trees` are read here as bare globals (the window.* bridges
+// published by the already-imported mountains.js / trees.js modules), so this
+// object literal must evaluate after those modules — guaranteed by main.js's
+// import order.
+export const Snow = {
   // Mountain features are now imported from mountains.js
   // For backward compatibility, provide the same API via delegation
   SimplexNoise: Mountains.SimplexNoise,
@@ -393,15 +408,14 @@ const Snow = {
 // For backward compatibility, alias Utils to Snow
 const Utils = Snow;
 
-// Make Utils available in the global scope for backward compatibility
+// Backward-compat global exports. snowglider.js reads `Snow` by bare name
+// (`Snow.getTerrainHeight`, `Snow.addTrees`, …); as a classic script it used to
+// see snow.js's top-level `const Snow` via the shared script scope, but now that
+// snow.js is an ES module that binding is module-scoped, so we republish it onto
+// `window` (bare `Snow` in the classic snowglider.js resolves via window). The
+// legacy `window.Utils` alias is preserved. Drop both once snowglider.js imports
+// Snow directly (PR 2.9, issue #84).
 if (typeof window !== 'undefined') {
+  window.Snow = Snow;
   window.Utils = Snow;
 }
-
-// In a module environment, you would use:
-// export { 
-//   SimplexNoise, getTerrainHeight, getTerrainGradient,
-//   getDownhillDirection, createTerrain, createSnowman, 
-//   createSnowflakes, updateSnowflakes, createTree, createRock,
-//   addTrees, addRocks, addBranchesAtLayer, addSnowCaps
-// };

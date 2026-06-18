@@ -1,5 +1,17 @@
 // @ts-check
 // snowman.js - Snowman model and functions for SnowGlider game
+//
+// Phase 2.8 (issue #84): final terrain-cluster module converted off the classic
+// global model. `THREE` now comes from the npm package via a real ES-module
+// import instead of the CDN global, and `Snowman` is `export`ed. The
+// window.Snowman assignment below is kept so the still-classic consumer
+// (snowglider.js, which reads `Snowman` by bare name, e.g.
+// `Snowman.createSnowman(scene)`, converted last in PR 2.9) keeps working during
+// the staged migration. snowman.js reads the terrain samplers (getTerrainHeight/
+// getTerrainGradient/getDownhillDirection) by bare name at call time; those
+// resolve to the window bridges published by mountains.js (PR 2.7). It is loaded
+// into the page through the bundle entry (src/main.js), not the classic loader.
+import * as THREE from 'three';
 
 // Create Snowman (Three Spheres)
 function createSnowman(scene) {
@@ -842,14 +854,16 @@ function addTestHooks(pos, showGameOver, getTerrainHeight) {
 }
 
 // Export snowman functions
-const Snowman = {
+export const Snowman = {
   createSnowman,
   resetSnowman,
   updateSnowman,
   addTestHooks
 };
 
-// Make Snowman available globally
+// Backward-compat global export for the still-classic consumer (snowglider.js
+// reads `Snowman` by bare name, e.g. `Snowman.createSnowman(scene)`). Drop this
+// once snowglider.js is converted to import Snowman directly (PR 2.9, issue #84).
 if (typeof window !== 'undefined') {
   window.Snowman = Snowman;
 }

@@ -22,12 +22,6 @@ declare global {
   // entry here causes "TS2451: Cannot redeclare". So: remove a module's entry
   // from this block in the same change that adds `// @ts-check` to that module.
   //   - avalanche.js: @ts-checked -> `Avalanche` lives in src/avalanche.js, not here.
-  //   - trees.js:     @ts-checked -> `Trees` + `getTerrainHeight`/`getTerrainGradient`
-  //                   (top-level fns) live in src/trees.js, not here.
-  //   - snow.js:      @ts-checked -> `Snow` + `Utils` live in src/snow.js, not here.
-  //   - mountains.js: @ts-checked -> `Mountains` lives in src/mountains.js, not here.
-  //   - snowman.js:   @ts-checked -> `Snowman` + `resetSnowman`/`updateSnowman`
-  //                   (top-level fns) live in src/snowman.js, not here.
   //   - audio.js:     @ts-checked -> `AudioModule` lives in src/audio.js, not here.
   // AuthModule/ScoresModule/CourseModule/Camera/Controls/EffectsModule stay:
   // auth.js/scores.js (and, as of PR 2.2/2.3/2.5/2.6, course.js/camera.js/
@@ -43,6 +37,27 @@ declare global {
   const Camera: any;
   const Controls: any;
   const EffectsModule: any;
+  // trees.js (PR 2.4) is an ES module; `Trees` is module-scoped there, but the
+  // still-classic snow.js reads it by bare name at eval. Kept until snow.js is
+  // converted (same cluster).
+  const Trees: any;
+  // mountains.js (PR 2.7) + snow.js (cluster) are ES modules; `Mountains`/`Snow`
+  // are module-scoped there, but bare consumers remain — trees.js/snow.js read
+  // `Mountains`, and snowglider.js reads `Snow` — via the window bridges. Kept
+  // until snowglider.js is converted (PR 2.9).
+  const Mountains: any;
+  const Snow: any;
+  // snowman.js (PR 2.8) is an ES module; `Snowman` is module-scoped there, but
+  // the still-classic snowglider.js reads it by bare name (`Snowman.createSnowman`).
+  // Kept until snowglider.js is converted (PR 2.9).
+  const Snowman: any;
+  // Terrain samplers republished onto window by mountains.js (PR 2.7); read by
+  // bare name in the converted snowman.js / camera.js / course.js. (Distinct from
+  // the per-run `setTerrainFunction` seam.) Kept until snowglider.js is converted
+  // (PR 2.9).
+  const getTerrainHeight: TerrainHeightFn;
+  const getTerrainGradient: (x: number, z: number) => { x: number; z: number };
+  const getDownhillDirection: (x: number, z: number) => { x: number; z: number };
 
   // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
   const Howl: any;
@@ -54,16 +69,19 @@ declare global {
   // `avalanche`, `gameActive`, `isInAir`, `startTime`, `bestTime`, …) are real
   // top-level `const`/`let` script-globals in src/snowglider.js — declaring any of
   // them here would be a TS2451 redeclare, so they are intentionally absent.
-  // `getTerrainHeight`/`resetSnowman`/`updateSnowman` likewise live in trees.js /
-  // snowman.js. The Phase 3 step is to replace these ad-hoc globals with a typed
-  // GameState object; `TerrainHeightFn` (above) is kept for that work.
+  // `resetSnowman`/`updateSnowman` are snowglider.js's OWN top-level wrapper
+  // functions (script globals) — distinct from snowman.js's `Snowman.resetSnowman`/
+  // `Snowman.updateSnowman`, which snowglider.js reaches via the namespace — so
+  // they stay absent here too. The Phase 3 step is to replace these ad-hoc globals
+  // with a typed GameState object; `TerrainHeightFn` (above) is kept for that work.
 
   // Classic scripts publish their namespaces onto window; allow those writes.
-  // NOTE: per docs/ARCHITECTURE.md §3, `Snow` is a *bare global* and is NOT a
-  // window property (only `window.Utils` aliases `Snow`), so it is intentionally
-  // absent here. `Camera` used to be a bare global too, but as of PR 2.3 camera.js
-  // is an ES module that publishes a `window.Camera` migration bridge, so it is
-  // listed below until its bare consumer (snowglider.js) is converted (PR 2.9).
+  // NOTE: `Snow` and `Camera` used to be *bare globals* (NOT window properties),
+  // but as of the terrain cluster / PR 2.3 their defining files (snow.js,
+  // camera.js) are ES modules that publish `window.Snow` / `window.Camera`
+  // migration bridges, so they are listed below until their bare consumers
+  // (snowglider.js) are converted (PR 2.9). mountains.js (PR 2.7) likewise
+  // republishes the terrain samplers onto window.
   interface Window {
     AudioModule: any;
     AuthModule: any;
@@ -73,6 +91,10 @@ declare global {
     CourseModule: any;
     EffectsModule: any;
     Mountains: any;
+    Snow: any;
+    getTerrainHeight?: (x: number, z: number) => number;
+    getTerrainGradient?: (x: number, z: number) => { x: number; z: number };
+    getDownhillDirection?: (x: number, z: number) => { x: number; z: number };
     ScoresModule: any;
     SnowGliderFirebase?: any;
     SnowGliderLocalAuth?: any;

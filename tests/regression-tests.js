@@ -5,84 +5,33 @@
  * based on the git history and codebase analysis.
  */
 
-// Require the utils and mountains modules plus THREE.js
-const fs = require('fs');
-const path = require('path');
-const THREE = require('three');
+// mountains.js and snow.js are now ES modules (issue #84), so they can no longer
+// be evaluated as source in a `new Function` + `with(sandbox)` scope. We import
+// the REAL modules and exercise their shipped terrain/snow-effect code directly.
 
-// Mock THREE.js features
-THREE.Color = function() {};
-THREE.CanvasTexture = function() {
-  return {
-    wrapS: 0,
-    wrapT: 0,
-    repeat: { set: () => {} }
+// snow.js builds its `Snow` namespace from `Mountains.*`/`Trees.*` at module-eval
+// time, reading them as bare globals, so we set `global.Mountains` (from the real
+// module) and a lightweight `Trees` mock — these tests only need the Trees
+// function surface, not real meshes — before importing snow.js.
+async function loadUtils() {
+  global.Trees = {
+    createTree: function() {},
+    addTrees: function() { return []; },
+    addBranchesAtLayer: function() {},
+    addSnowCaps: function() {}
   };
-};
-
-// Load Mountains.js content first (since it's not a module, we need to evaluate it)
-const mountainsContent = fs.readFileSync(path.join(__dirname, '..', 'src', 'mountains.js'), 'utf8');
-// Then load Snow.js content which depends on Mountains
-const utilsContent = fs.readFileSync(path.join(__dirname, '..', 'src', 'snow.js'), 'utf8');
-
-// Create a function to execute the content and return the Utils global
-function loadUtils() {
-  // Create a sandbox environment
-  const sandbox = {
-    window: {},
-    document: {
-      createElement: () => ({
-        getContext: () => ({
-          fillRect: () => {},
-          fillStyle: '',
-          createLinearGradient: () => ({
-            addColorStop: () => {}
-          }),
-          createRadialGradient: () => ({
-            addColorStop: () => {}
-          }),
-          beginPath: () => {},
-          moveTo: () => {},
-          lineTo: () => {},
-          stroke: () => {},
-          strokeStyle: ''
-        }),
-        width: 0,
-        height: 0
-      })
-    },
-    THREE: THREE
-  };
-  
-  // Create trees.js mock since tests only use Mountains directly
-  const treesMock = `
-    // Mock Trees for testing
-    const Trees = {
-      createTree: function() {},
-      addTrees: function() { return []; },
-      addBranchesAtLayer: function() {},
-      addSnowCaps: function() {}
-    };
-    if (typeof window !== 'undefined') {
-      window.Trees = Trees;
-    }
-  `;
-  
-  // Create a function to evaluate the mountainsContent first, trees mock, then utilsContent in the sandbox
-  const fn = new Function('sandbox', `
-    with (sandbox) {
-      ${mountainsContent}
-      ${treesMock}
-      ${utilsContent}
-      return Utils;
-    }
-  `);
-  
-  return fn(sandbox);
+  const { Mountains } = await import('../src/mountains.js');
+  global.Mountains = Mountains;
+  const { Snow } = await import('../src/snow.js');
+  return Snow;
 }
 
-// Load the Utils object
-const Utils = loadUtils();
+// Load the Utils object, then run the suite. The import is async, so the whole
+// suite runs inside an async IIFE (closed at the end of the file). `Utils` is
+// declared here (not at module scope) so it shadows the read-only `Utils` global
+// instead of reassigning it.
+(async () => {
+const Utils = await loadUtils();
 
 // Custom assert functions
 function assert(condition, message) {
@@ -643,3 +592,4 @@ console.log(`Tests completed: ${passCount} passed, ${failCount} failed`);
 
 // Exit with appropriate code for CI integration
 process.exit(failCount > 0 ? 1 : 0);
+})();

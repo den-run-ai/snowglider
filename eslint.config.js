@@ -50,11 +50,23 @@ module.exports = [
         EffectsModule: "readonly",
         Howl: "readonly",
         Howler: "readonly",
+        // mountains.js is now an ES module (PR 2.7), but trees.js + snow.js read
+        // `Mountains` by bare name (as the window bridge), so keep it declared
+        // here until those + snowglider.js are converted (PR 2.9).
         Mountains: "readonly",
         ScoresModule: "readonly",
+        // snow.js is now an ES module (cluster), but the still-classic
+        // snowglider.js reads `Snow` by bare name (`Snow.getTerrainHeight`, …),
+        // so keep it declared here until snowglider.js is converted (PR 2.9).
         Snow: "readonly",
+        // snowman.js is now an ES module (PR 2.8), but the still-classic
+        // snowglider.js reads `Snowman` by bare name (`Snowman.createSnowman`),
+        // so keep it declared here until snowglider.js is converted (PR 2.9).
         Snowman: "readonly",
         THREE: "readonly",
+        // trees.js is now an ES module (PR 2.4), but the still-classic snow.js
+        // reads `Trees` by bare name (at eval, to build the `Snow` namespace), so
+        // keep it declared here until snow.js is converted (this same cluster).
         Trees: "readonly",
         Utils: "readonly",
         avalanche: "writable",
@@ -63,7 +75,12 @@ module.exports = [
         camera: "writable",
         cameraManager: "writable",
         gameActive: "writable",
+        // Terrain samplers: mountains.js (now an ES module, PR 2.7) republishes
+        // these onto window; snowman.js / camera.js / course.js read them by bare
+        // name. Kept until snowglider.js is converted (PR 2.9).
         getTerrainHeight: "readonly",
+        getTerrainGradient: "readonly",
+        getDownhillDirection: "readonly",
         isInAir: "writable",
         lastAvalancheZ: "writable",
         pos: "writable",
@@ -85,7 +102,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/scores.js"],
+    files: ["src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowman.js", "src/trees.js"],
     languageOptions: {
       sourceType: "module"
     }

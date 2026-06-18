@@ -24,6 +24,21 @@ import './controls.js';
 // Phase 2.6: effects.js, imported for its `window.EffectsModule = …` bridge so the
 // still-classic snowglider.js keeps finding the avalanche/camera-juice effects.
 import './effects.js';
+// Phase 2.4: trees.js, imported for its `window.Trees = …` bridge. Imported before
+// snow.js (below) because snow.js reads `Trees` at module-eval time when it builds
+// the `Snow` namespace.
+import './trees.js';
+// Phase 2.7: mountains.js, imported for its `window.Mountains = …` +
+// `window.getTerrainHeight/getTerrainGradient/getDownhillDirection` bridges. Also
+// imported before snow.js, which reads `Mountains` at module-eval time.
+import './mountains.js';
+// Phase 2.6/cluster: snow.js, imported LAST of the terrain trio for its
+// `window.Snow`/`window.Utils` bridges — it reads `Mountains`/`Trees` at eval, so
+// both must already be bridged above.
+import './snow.js';
+// Phase 2.8: snowman.js, imported for its `window.Snowman = …` bridge so the
+// still-classic snowglider.js keeps finding the snowman model + physics.
+import './snowman.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

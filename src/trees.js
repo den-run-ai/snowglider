@@ -1,5 +1,16 @@
 // @ts-check
 // trees.js - Tree creation and management for snowglider
+//
+// Phase 2.4 (issue #84): converted off the classic global model. `THREE` now
+// comes from the npm package via a real ES-module import instead of the CDN
+// global, and `Trees` is `export`ed. The window.Trees assignment below is kept so
+// the still-classic consumers (snow.js reads `Trees` by bare name at eval time;
+// snowglider.js is converted last in PR 2.9) keep working during the staged
+// migration; it is loaded into the page through the bundle entry (src/main.js)
+// rather than the classic script-loader. The internal getTerrainHeight/
+// getTerrainGradient wrappers below delegate to window.Mountains at call time, so
+// they keep working whether Mountains is classic or an ES-module bridge.
+import * as THREE from 'three';
 
 // Create a more realistic tree with visible branches and variability
 function createTree(scale = 1.0) {
@@ -380,7 +391,7 @@ function getTerrainGradient(x, z) {
 }
 
 // Export all tree-related functions
-const Trees = {
+export const Trees = {
   createTree,
   addBranchesAtLayer,
   addSnowCaps,
@@ -389,7 +400,10 @@ const Trees = {
   getTerrainGradient
 };
 
-// Make Trees available globally
+// Backward-compat global export for the still-classic consumers (snow.js reads
+// `Trees` by bare name when it builds the `Snow` namespace; snowglider.js reads
+// it indirectly via `Snow`). Drop this once those consumers import Trees directly
+// (snow.js in PR 2.6/this cluster, snowglider.js in PR 2.9, issue #84).
 if (typeof window !== 'undefined') {
   window.Trees = Trees;
 }
