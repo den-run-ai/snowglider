@@ -162,22 +162,32 @@ window.terrainMesh = terrain;
 
 // --- Initialize Avalanche System ---
 /**
- * Typed game state (Phase 3 pilot, issue #98). Consolidates the avalanche
- * run-state that was previously three loose module-scoped `let`s into one typed
- * object. The browser suites still drive these by their original bare names via
- * the `window.*` accessor proxy below (the proxy now reads/writes `state.*`).
- * Future PRs can fold more mutable game state (player physics, run timer, …)
- * into this same object as additional `GameState` fields.
+ * Typed game state (Phase 3, issues #98/#84). Consolidates aliased mutable
+ * module-scoped `let`s into one typed object — the real fix for the
+ * shared-mutable-global aliasing that types alone can't catch (see
+ * `TYPESCRIPT_MIGRATION.md`, "What TypeScript will not catch"). The browser
+ * suites still drive these by their original bare names via the `window.*`
+ * accessor proxy below (the proxy reads/writes `state.*`).
+ *
+ * Folded in so far:
+ *  - PR 3.19 (pilot): the avalanche run-state.
+ *  - PR 3.20: the run/scoring lifecycle (`startTime`, `bestTime`).
+ * The per-frame player physics state lives in the typed `physics.ts` module
+ * (PR 3.21); future PRs can fold more cohesive subsets in the same way.
  */
 interface GameState {
   avalanche: AvalancheSystem | null; // live avalanche system (null if module absent)
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
   lastAvalancheZ: number;            // z the trigger distance is measured from
+  startTime: number;                 // performance.now() at run start (timer origin)
+  bestTime: number;                  // best finish time in seconds (Infinity = none yet)
 }
 const state: GameState = {
   avalanche: null,
   avalancheTriggered: false,
   lastAvalancheZ: 0,
+  startTime: 0,
+  bestTime: Infinity, // overwritten by readStoredBestTime() below, before any read
 };
 const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
 
@@ -273,8 +283,7 @@ let currentTurnDirection = 0;
 let turnChangeCooldown = 0;
 const turnAmplitude = 3.0;
 
-// Add timer and best time tracking
-let startTime = 0;
+// Add timer and best time tracking (state.startTime / state.bestTime)
 const MIN_VALID_SCORE_TIME = 4;
 
 function isValidScoreTime(time: number) {
@@ -300,14 +309,15 @@ function readStoredBestTime() {
   return Infinity;
 }
 
-let bestTime = readStoredBestTime();
+// Persisted best loaded once at module eval (may prune an invalid stored entry).
+state.bestTime = readStoredBestTime();
 
 // Initialize game stats functionality
 function initializeGameStats() {
   console.log("Initializing game stats");
   const bestTimeElement = document.getElementById('bestTimeValue');
   if (bestTimeElement) {
-    bestTimeElement.textContent = bestTime !== Infinity ? `${bestTime.toFixed(2)}s` : '--';
+    bestTimeElement.textContent = state.bestTime !== Infinity ? `${state.bestTime.toFixed(2)}s` : '--';
   }
   
   // Add game stats toggle functionality
@@ -387,7 +397,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // Add best time to game over overlay
 const bestTimeDisplay = document.createElement('p');
 bestTimeDisplay.id = 'bestTimeDisplay';
-bestTimeDisplay.textContent = bestTime !== Infinity ? `Best Time: ${bestTime.toFixed(2)}s` : 'No best time yet';
+bestTimeDisplay.textContent = state.bestTime !== Infinity ? `Best Time: ${state.bestTime.toFixed(2)}s` : 'No best time yet';
 bestTimeDisplay.style.color = 'white';
 bestTimeDisplay.style.fontFamily = 'Arial, sans-serif';
 bestTimeDisplay.style.fontSize = '20px';
@@ -420,7 +430,7 @@ function resetSnowman() {
   // Reset keyboard controls
   Controls.resetControls();
   
-  startTime = performance.now(); // Reset the timer when starting a new run
+  state.startTime = performance.now(); // Reset the timer when starting a new run
   updateTimerDisplay();
   
   // Reset course (gates/splits/ghost) and effects (avalanche UI, FOV, shake) for the new run
@@ -594,7 +604,7 @@ function animate(time: number) {
     
     // --- Course progress: split timing, progress HUD, ghost racing ---
     if (CourseModule) {
-      const elapsed = (performance.now() - startTime) / 1000;
+      const elapsed = (performance.now() - state.startTime) / 1000;
       CourseModule.update(pos, elapsed, snowman);
     }
     
@@ -708,14 +718,14 @@ function showGameOver(reason: string) {
   
   // Capture the best time BEFORE the finish branch updates it, so the result
   // screen can report the delta and whether this run set a new record.
-  const previousBest = bestTime;
+  const previousBest = state.bestTime;
 
   // Measure the finish elapsed ONCE and reuse it for both the best-time/score path
   // and CourseModule.onFinish(). Otherwise a second performance.now() taken after the
   // DOM/localStorage/score work could read later: a sub-millisecond personal best
   // would be saved as a new record while the course screen sees elapsed >= previousBest,
   // skips persisting the new ghost/splits, and shows a time that disagrees with the score.
-  const finishTime = (performance.now() - startTime) / 1000;
+  const finishTime = (performance.now() - state.startTime) / 1000;
   const hasValidFinishTime = isValidScoreTime(finishTime);
 
   // Remove game-active class from body for styling
@@ -746,7 +756,7 @@ function showGameOver(reason: string) {
   // Only update times if player reached the end successfully
   if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
     const currentTime = finishTime;
-    const isNewBestTime = currentTime < bestTime;
+    const isNewBestTime = currentTime < state.bestTime;
     const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
 
     // Record the score whenever the leaderboard API is available (it handles its own
@@ -759,18 +769,18 @@ function showGameOver(reason: string) {
 
     // Show appropriate message based on time
     if (isNewBestTime) {
-      bestTime = currentTime;
-      bestTimeDisplay.textContent = `New Best Time: ${bestTime.toFixed(2)}s`;
+      state.bestTime = currentTime;
+      bestTimeDisplay.textContent = `New Best Time: ${state.bestTime.toFixed(2)}s`;
       bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
 
       // Update the best time in the game stats window too
       const bestTimeElement = document.getElementById('bestTimeValue');
       if (bestTimeElement) {
-        bestTimeElement.textContent = `${bestTime.toFixed(2)}s`;
+        bestTimeElement.textContent = `${state.bestTime.toFixed(2)}s`;
         bestTimeElement.style.color = '#ffff00'; // Highlight new record
       }
     } else {
-      bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${bestTime.toFixed(2)}s)`;
+      bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${state.bestTime.toFixed(2)}s)`;
       bestTimeDisplay.style.color = 'white';
     }
     
@@ -803,13 +813,13 @@ function showGameOver(reason: string) {
     }
   } else if (reason === "You reached the end of the slope!") {
     console.warn("Finish reached with invalid elapsed time; score not recorded:", finishTime);
-    bestTimeDisplay.textContent = bestTime !== Infinity ?
-      `Best Time: ${bestTime.toFixed(2)}s` :
+    bestTimeDisplay.textContent = state.bestTime !== Infinity ?
+      `Best Time: ${state.bestTime.toFixed(2)}s` :
       'No best time yet';
     bestTimeDisplay.style.color = 'white';
   } else {
     // For failures (tree collision, falling, etc.), don't record or update best time
-    bestTimeDisplay.textContent = bestTime !== Infinity ? `Best Time: ${bestTime.toFixed(2)}s` : 'No best time yet';
+    bestTimeDisplay.textContent = state.bestTime !== Infinity ? `Best Time: ${state.bestTime.toFixed(2)}s` : 'No best time yet';
     bestTimeDisplay.style.color = 'white';
     
     // Track game over reason in Analytics
@@ -1123,18 +1133,18 @@ document.addEventListener('DOMContentLoaded', function() {
 // Update timer display during gameplay
 function updateTimerDisplay() {
   if (gameActive) {
-    const currentTime = (performance.now() - startTime) / 1000;
-    
+    const currentTime = (performance.now() - state.startTime) / 1000;
+
     // Update the current time element in game stats
     const currentTimeElement = document.getElementById('currentTime');
     if (currentTimeElement) {
       currentTimeElement.textContent = `${currentTime.toFixed(2)}s`;
     }
-    
+
     // Keep best time updated
     const bestTimeElement = document.getElementById('bestTimeValue');
     if (bestTimeElement) {
-      bestTimeElement.textContent = bestTime !== Infinity ? `${bestTime.toFixed(2)}s` : '--';
+      bestTimeElement.textContent = state.bestTime !== Infinity ? `${state.bestTime.toFixed(2)}s` : '--';
     }
   }
 }
@@ -1304,8 +1314,9 @@ window.initializeGameWithAudio = function() {
     // throws a ReferenceError instead of silently creating a sloppy-mode global
     // (issue #84).
     jumpCooldown:       { get: () => jumpCooldown,       set: (v) => { jumpCooldown = v; } },
-    bestTime:           { get: () => bestTime,           set: (v) => { bestTime = v; } },
-    startTime:          { get: () => startTime,          set: (v) => { startTime = v; } },
+    // Run/scoring + avalanche run-state now live on the typed `state` object.
+    bestTime:           { get: () => state.bestTime,           set: (v) => { state.bestTime = v; } },
+    startTime:          { get: () => state.startTime,          set: (v) => { state.startTime = v; } },
     avalancheTriggered: { get: () => state.avalancheTriggered, set: (v) => { state.avalancheTriggered = v; } },
     lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v) => { state.lastAvalancheZ = v; } },
     // Object/function refs the tests read or mutate (never reassign) — get-only.
