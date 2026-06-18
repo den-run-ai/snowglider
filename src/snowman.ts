@@ -17,15 +17,19 @@
 // confirms coasting stays bit-identical to the frozen baseline.
 import * as THREE from 'three';
 
+// These contract types are exported so the typed player-state layer in
+// physics.ts (PR 3.21) shares snowman's exact call contract instead of
+// re-declaring it. Exporting interfaces/types is purely additive and erasable.
+
 /** Mutable player position the physics integrates each frame. */
-interface PlayerPos {
+export interface PlayerPos {
   x: number;
   y: number;
   z: number;
 }
 
 /** Mutable horizontal velocity (vertical motion is tracked by verticalVelocity). */
-interface PlanarVelocity {
+export interface PlanarVelocity {
   x: number;
   z: number;
 }
@@ -37,12 +41,12 @@ interface TerrainVec2 {
 }
 
 /** Terrain height sampler injected by the orchestrator. */
-type TerrainHeightFn = (x: number, z: number) => number;
+export type TerrainHeightFn = (x: number, z: number) => number;
 /** Terrain gradient / downhill-direction sampler injected by the orchestrator. */
-type TerrainVecFn = (x: number, z: number) => TerrainVec2;
+export type TerrainVecFn = (x: number, z: number) => TerrainVec2;
 
 /** The control flags updateSnowman reads each frame. */
-interface SnowmanControls {
+export interface SnowmanControls {
   left: boolean;
   right: boolean;
   up: boolean;
@@ -51,25 +55,25 @@ interface SnowmanControls {
 }
 
 /** Minimal tree-position shape the collision check reads. */
-interface TreePos {
+export interface TreePos {
   x: number;
   y: number;
   z: number;
 }
 
 /** The camera-manager seam resetSnowman drives (satisfied by the Camera class). */
-interface CameraManagerLike {
+export interface CameraManagerLike {
   initialize(position: THREE.Vector3, rotation: THREE.Euler): void;
 }
 
 /** Game-over callback handed in by the orchestrator. */
-type ShowGameOverFn = (reason: string) => void;
+export type ShowGameOverFn = (reason: string) => void;
 
 /** Ski technique surfaced for the HUD + ski pose. */
 type SkiTechnique = 'air' | 'glide' | 'snowplow' | 'skid' | 'carve' | 'tuck';
 
 /** Per-frame physics output returned by updateSnowman. */
-interface UpdateResult {
+export interface UpdateResult {
   isInAir: boolean;
   verticalVelocity: number;
   lastTerrainHeight: number;

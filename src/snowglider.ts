@@ -35,6 +35,7 @@ import { CourseModule } from './course.js';
 import { EffectsModule, type ShakeOffset } from './effects.js';
 import { AvalancheSystem } from './avalanche.js';
 import { AudioModule } from './audio.js';
+import { Physics } from './physics.js';
 import type { TreePosition } from './trees.js';
 
 // Get keyboard controls from the Controls module
@@ -269,19 +270,15 @@ if (typeof EffectsModule !== 'undefined') {
 }
 
 // --- Snowman Position & Reset ---
-const pos = { x: 0, z: -40, y: Snow.getTerrainHeight(0, -40) };
-const velocity = { x: 0, z: 0 };
-let isInAir = false;
-let verticalVelocity = 0;
-let jumpCooldown = 0;
-let lastTerrainHeight = 0;
-let airTime = 0;
-
-// Variables for automatic turning
-let turnPhase = 0;
-let currentTurnDirection = 0;
-let turnChangeCooldown = 0;
-const turnAmplitude = 3.0;
+// The per-frame player physics state lives in one typed PlayerState object
+// (src/physics.ts) instead of ~11 aliased module-scoped lets. `pos`/`velocity`
+// are objects mutated in place and handed by reference to course/camera/snow/
+// snowman, so keep by-identity aliases for those existing call sites; the
+// reassigned scalars are accessed through `player.*` (and so is the window proxy)
+// so writes are visible at a single source of truth.
+const player = Physics.createPlayerState(Snow.getTerrainHeight);
+const pos = player.pos;
+const velocity = player.velocity;
 
 // Add timer and best time tracking (state.startTime / state.bestTime)
 const MIN_VALID_SCORE_TIME = 4;
@@ -405,20 +402,10 @@ bestTimeDisplay.style.marginBottom = '20px';
 gameOverOverlay.insertBefore(bestTimeDisplay, restartButton);
 
 function resetSnowman() {
-  // Reset snowman using the Snowman module function
-  lastTerrainHeight = Snowman.resetSnowman(snowman, pos, velocity, Snow.getTerrainHeight, cameraManager);
-  
-  // Reset automatic turning variables to avoid initial random turns
-  turnPhase = 0;
-  currentTurnDirection = 0;
-  turnChangeCooldown = 3.0; // Longer initial cooldown to prevent immediate turns
-  
-  // Reset air state variables
-  isInAir = false;
-  verticalVelocity = 0;
-  jumpCooldown = 0;
-  airTime = 0;
-  
+  // Reset the snowman + player physics state (position, velocity, camera, and the
+  // air/auto-turn scalars) to the start of a run.
+  Physics.resetPlayer(player, snowman, Snow.getTerrainHeight, cameraManager);
+
   // Reset avalanche system
   const avalanche = state.avalanche;
   if (avalanche) {
@@ -490,25 +477,21 @@ function updateSnowman(delta: number) {
     ? window.showGameOver
     : showGameOver;
   
-  // Update snowman using the Snowman module function
-  const result = Snowman.updateSnowman(
-    snowman, delta, pos, velocity, isInAir, verticalVelocity, 
-    lastTerrainHeight, airTime, jumpCooldown, Controls.getControls(), 
-    turnPhase, currentTurnDirection, turnChangeCooldown, turnAmplitude,
-    Snow.getTerrainHeight, Snow.getTerrainGradient, Snow.getDownhillDirection, 
-    treePositions, gameActive, activeShowGameOver
-  );
-  
-  // Update state variables from the result
-  isInAir = result.isInAir;
-  verticalVelocity = result.verticalVelocity;
-  lastTerrainHeight = result.lastTerrainHeight;
-  airTime = result.airTime;
-  jumpCooldown = result.jumpCooldown;
-  turnPhase = result.turnPhase;
-  currentTurnDirection = result.currentTurnDirection;
-  turnChangeCooldown = result.turnChangeCooldown;
-  
+  // Advance the player one frame. Physics.stepPlayer wraps Snowman.updateSnowman
+  // (the unchanged physics kernel) and writes the mutated scalars back into the
+  // typed `player` state, returning the per-frame result for the HUD/camera.
+  const result = Physics.stepPlayer(player, {
+    snowman,
+    delta,
+    controls: Controls.getControls(),
+    getTerrainHeight: Snow.getTerrainHeight,
+    getTerrainGradient: Snow.getTerrainGradient,
+    getDownhillDirection: Snow.getDownhillDirection,
+    treePositions,
+    gameActive,
+    showGameOver: activeShowGameOver
+  });
+
   // Update game stats display
   // Format speed with color based on value
   const speed = result.currentSpeed.toFixed(1);
@@ -537,7 +520,7 @@ function updateSnowman(delta: number) {
   
   const groundElement = document.getElementById('groundStatus');
   if (groundElement) {
-    if (isInAir) {
+    if (player.isInAir) {
       groundElement.innerHTML = '🚀 JUMP!';
       groundElement.style.color = '#00FFFF';
     } else {
@@ -653,7 +636,7 @@ function animate(time: number) {
     };
     
     // Update snow splash particles - pass all required parameters
-    Snow.updateSnowSplash(snowSplash, delta, snowman, velocity, isInAir, scene);
+    Snow.updateSnowSplash(snowSplash, delta, snowman, velocity, player.isInAir, scene);
     
     // Ensure snowman position wasn't affected by particles
     snowman.position.set(playerPosBefore.x, playerPosBefore.y, playerPosBefore.z);
@@ -1306,14 +1289,16 @@ window.initializeGameWithAudio = function() {
   const live: Record<string, PropertyDescriptor> = {
     // Mutable primitives the tests reassign — proxy reads and writes.
     gameActive:         { get: () => gameActive,         set: (v) => { gameActive = v; } },
-    isInAir:            { get: () => isInAir,            set: (v) => { isInAir = v; } },
-    verticalVelocity:   { get: () => verticalVelocity,   set: (v) => { verticalVelocity = v; } },
+    // Player physics scalars now live on the typed `player` state (src/physics.ts);
+    // the proxy reads/writes player.* so test reassignments hit the live state.
+    isInAir:            { get: () => player.isInAir,          set: (v) => { player.isInAir = v; } },
+    verticalVelocity:   { get: () => player.verticalVelocity, set: (v) => { player.verticalVelocity = v; } },
     // jumpCooldown is reassigned by the gameplay suite (testJumpMechanics). It must
     // be republished like the others: now that browser-tests.js is an ES module
     // (strict mode), a bare `jumpCooldown = 0` assignment to an unpublished name
     // throws a ReferenceError instead of silently creating a sloppy-mode global
     // (issue #84).
-    jumpCooldown:       { get: () => jumpCooldown,       set: (v) => { jumpCooldown = v; } },
+    jumpCooldown:       { get: () => player.jumpCooldown,     set: (v) => { player.jumpCooldown = v; } },
     // Run/scoring + avalanche run-state now live on the typed `state` object.
     bestTime:           { get: () => state.bestTime,           set: (v) => { state.bestTime = v; } },
     startTime:          { get: () => state.startTime,          set: (v) => { state.startTime = v; } },
