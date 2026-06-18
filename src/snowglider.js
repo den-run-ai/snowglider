@@ -695,7 +695,7 @@ function showGameOver(reason) {
   removeLoginPrompt();
 
   // TODO: AUDIO DISABLED - Pause audio on game over (will be no-op if disabled)
-  if (window.AudioModule) {
+  if (AudioModule) {
     AudioModule.enableSound(false);
   }
   
@@ -866,7 +866,7 @@ function restartGame() {
   cameraManager.initialize(snowman.position, snowman.rotation);
   
   // TODO: AUDIO DISABLED - Resume audio (will be no-op if disabled)
-  if (window.AudioModule) {
+  if (AudioModule) {
     AudioModule.enableSound(true);
   }
   

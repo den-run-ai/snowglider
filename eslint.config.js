@@ -28,13 +28,11 @@ module.exports = [
       globals: {
         ...globals.browser,
         ...globals.node,
-        AudioModule: "readonly",
         AuthModule: "readonly",
         // Camera/Controls/CourseModule/EffectsModule/Snow/Snowman were kept here
-        // only for the still-classic snowglider.js bare reads. As of PR 2.9
-        // snowglider.js is an ES module that imports them, so those globals were
-        // dropped (their window.* bridges persist until the loader is retired, PR
-        // 2.10). avalanche.js is likewise only read as window.Avalanche.
+        // only for snowglider.js's old bare reads. As of PR 2.9 snowglider.js is
+        // an ES module that imports them, and the later Phase 2 cleanup removed
+        // their window namespace bridges too.
         Howl: "readonly",
         Howler: "readonly",
         ScoresModule: "readonly",
@@ -65,7 +63,7 @@ module.exports = [
     }
   },
   {
-    files: ["src/audio.js", "src/auth.js", "src/avalanche.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js"],
+    files: ["src/audio.js", "src/auth.js", "src/avalanche.js", "src/boot/script-loader.js", "src/camera.js", "src/controls.js", "src/course.js", "src/effects.js", "src/main.js", "src/mountains.js", "src/scores.js", "src/snow.js", "src/snowglider.js", "src/snowman.js", "src/trees.js", "src/ui/start-menu.js"],
     languageOptions: {
       sourceType: "module"
     }

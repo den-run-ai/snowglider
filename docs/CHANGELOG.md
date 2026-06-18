@@ -13,6 +13,21 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### TypeScript migration — Phase 2 (conversion) complete (#84)
+- Every game module is now an ES module that imports `three` from npm (the CDN
+  UMD global is gone) and imports the others directly. The final classic module
+  `audio.js` was converted, and the last consumers reading it as a global — the
+  boot script-loader (`src/boot/script-loader.js`) and the start menu
+  (`src/ui/start-menu.js`) — became ES modules that `import { AudioModule }`.
+- **All per-module `window.*` namespace bridges are retired** (`THREE`,
+  `Avalanche`, `Camera`, `Controls`, `CourseModule`, `EffectsModule`,
+  `Snow`/`Utils`, `Snowman`, `Mountains`, `Trees`, the `getTerrainHeight*`
+  samplers, and finally `AudioModule`). Remaining `window.*` handles are
+  deliberate boot/auth/test seams, not module-namespace bridges.
+- Build, lint, `tsc --noEmit`, the Node suite, and the puppeteer browser suite
+  stay green; the Vite bundle and `CNAME`/Pages artifact are unchanged. See
+  [`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md) for the phase status.
+
 ### Documentation
 - Added [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`PHYSICS.md`](PHYSICS.md);
   folded the `docs/` implementation and audio reports into this changelog.

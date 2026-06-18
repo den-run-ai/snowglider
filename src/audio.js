@@ -5,9 +5,8 @@
 // Phase 2 (issue #84): converted off the classic global model. `AudioModule` is
 // now `export`ed and loaded through the bundle entry (src/main.js) rather than
 // the classic script-loader. This module uses no three.js, so there is no
-// `import * as THREE`. The `window.AudioModule` assignment below is kept so the
-// still-window consumers (snowglider.js bare reads, start-menu.js, and the
-// classic audio-tests browser suite) keep working until they import it directly.
+// `import * as THREE`. Every consumer imports `AudioModule` directly now, so the
+// previous `window.AudioModule` namespace bridge has been removed.
 //
 // Design principles:
 // 1. Native HTML5 Audio element - no library dependencies
@@ -186,8 +185,10 @@ export const AudioModule = (function() {
       return AUDIO_ENABLED;
     },
     
-    // Compatibility stubs for existing code
-    preloadAudio: function() { return Promise.resolve(); },
+    // Compatibility stubs for existing code. preloadAudio accepts (and ignores) a
+    // track name for parity with the old Howler API surface — the boot
+    // script-loader still calls preloadAudio('drum_loop').
+    preloadAudio: function(_track) { return Promise.resolve(); },
     playPreloadedAudio: function() { return this.startAudio(); },
     resumeAudioContext: function() { return Promise.resolve(); },
     changeTrack: function() { return false; },
@@ -208,8 +209,6 @@ export const AudioModule = (function() {
   };
 })();
 
-// Backward-compat global export for the still-window consumers (snowglider.js
-// reads `AudioModule` by bare name; start-menu.js + audio-tests use window.AudioModule).
-if (typeof window !== 'undefined') {
-  /** @type {any} */ (window).AudioModule = AudioModule;
-}
+// The window.AudioModule bridge was removed (issue #84): every consumer now
+// imports AudioModule directly — snowglider.js (orchestrator), the boot
+// script-loader, the start menu, and the audio browser test suite.
