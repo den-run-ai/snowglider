@@ -361,7 +361,7 @@ function displayLeaderboard() {
   }
 
   // --- Revised Logic ---
-  let firestoreIsAvailable = window.AuthModule?.isFirebaseAvailable?.().firestore ?? false;
+  const firestoreIsAvailable = window.AuthModule?.isFirebaseAvailable?.().firestore ?? false;
 
   // Function to attempt fetching and rendering the leaderboard
   const attemptFetchAndRender = () => {
