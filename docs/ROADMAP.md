@@ -8,7 +8,7 @@
 
 This roadmap began as a feature-gap analysis. Its **top recommendation — the "skill & structure" layer — shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56)**: checkpoint gates + finish line, live split timing and a result screen, ghost racing, an avalanche warning UI, and a first snowplow/carve/tuck ski-technique pass. See [`CHANGELOG.md`](CHANGELOG.md) for that work in detail.
 
-**Since this roadmap was written (snapshot 2026-06-18):** a large *infrastructure* wave landed — the TypeScript/ES-module migration completed (issues [#35](https://github.com/den-run-ai/snowglider/issues/35), [#84](https://github.com/den-run-ai/snowglider/issues/84), [#98](https://github.com/den-run-ai/snowglider/issues/98), now closed; all of `src/` is `.ts` under `strict: true`, bundled by Vite), plus CI hardening (production-build validation, raw-TS Pages guard, honest merged Node+browser coverage) and new test layers (Playwright cross-browser/mobile E2E, Firestore-rules harness, c8 coverage harnesses). **None of this changed gameplay**, so the Priority Findings below are unchanged — but it did invalidate the premises of the [Refactoring Roadmap](#refactoring-roadmap), which has been updated accordingly.
+**Since this roadmap was written (snapshot 2026-06-18):** a large *infrastructure* wave landed — the TypeScript/ES-module migration completed (issues [#35](https://github.com/den-run-ai/snowglider/issues/35), [#84](https://github.com/den-run-ai/snowglider/issues/84), [#98](https://github.com/den-run-ai/snowglider/issues/98), now closed; all of `src/` is `.ts` under `strict: true`, bundled by Vite), plus CI hardening (production-build validation, raw-TS Pages guard, honest merged Node+browser coverage) and new test layers (Playwright cross-browser/mobile E2E, Firestore-rules harness, c8 coverage harnesses). **None of this changed gameplay**, so the Priority Findings below are unchanged — but it did invalidate the premises of the [Refactoring Roadmap](#refactoring-roadmap), which has been updated accordingly. *(Update: the first post-snapshot gameplay PR, [#136](https://github.com/den-run-ai/snowglider/pull/136), has since landed the carve-vs-skid speed-management trade-off — Finding 2 / P1.)*
 
 Status legend used below: **✅ shipped** · **◐ partial** (started, more to do) · **○ open**.
 
@@ -24,7 +24,7 @@ The missing layer can be summarized as one chain:
 
 > **course → visible goal → skill choices → risk / reward → finish & result → reason to play again**
 
-**Single strongest move (✅ shipped in #56):** **gates/checkpoints + carving/snowplow technique + an avalanche warning UI**, with **split-time ghost racing** as the replay hook. That turned a pleasant Three.js snowman demo into a game with skill, tension, and replayability. The skiing-technique model landed deliberately thin (see Finding 2) — deepening it is the main open thread from this slice.
+**Single strongest move (✅ shipped in #56):** **gates/checkpoints + carving/snowplow technique + an avalanche warning UI**, with **split-time ghost racing** as the replay hook. That turned a pleasant Three.js snowman demo into a game with skill, tension, and replayability. The skiing-technique model landed deliberately thin (see Finding 2); its key open thread — the carve-vs-skid speed trade-off — was then deepened in **#136**.
 
 ---
 
@@ -51,7 +51,7 @@ These exist today and generally don't need re-inventing — the gaps below build
 - **Ghost racing:** your best run recorded and replayed as a translucent ghost, with an AHEAD/BEHIND readout
 - **Avalanche telegraphing:** warning banner, "distance behind you" danger meter, red vignette, proximity camera shake
 - **Game feel:** speed-based FOV, camera shake on hard landings
-- **Ski technique (first pass):** snowplow brake, carve/skid, tuck, and terrain-dependent grip — *intentionally thin* for now (see Finding 2)
+- **Ski technique (first pass):** snowplow brake, carve/skid, tuck, and terrain-dependent grip — *intentionally thin* at first; the carve-vs-skid speed trade-off was later deepened in #136 (see Finding 2)
 
 **The core gap was "game feel + replay loop," not core tech.**
 
@@ -68,13 +68,14 @@ The objective is "reach the bottom fast," but the player got little guidance, so
 - **Shipped:** finish-line arch, checkpoint gates, distance-to-finish + progress bar, a result screen with split times and an "improved by ±X seconds" payoff.
 - **Remaining (○):** mini-map, on-slope route hints/arrows.
 
-### 2. Skiing skill, not just steering — ◐ partial (#56)
+### 2. Skiing skill, not just steering — ◐ partial (#56, #136)
 
 The biggest design gap: the game *slid with steering* rather than feeling like skiing.
 
-- **Shipped:** snowplow/"pizza" braking (clamped so it stops rather than reversing uphill), carve vs. skid, straight-line tuck, and terrain-dependent grip — layered on a test-safe seam so no-input physics is unchanged.
-- **Remaining (○):** the model is *intentionally thin* — turning doesn't yet cost speed at normal velocity, so carving isn't yet a genuine speed-management trade-off. Also: parallel turns, hop turns, ski poles/planting.
-- **Open issues:** more realistic speed control for turns/terrain/avalanche escape (**#54**), ski techniques (**#48**), ski poles and planting (**#52**).
+- **Shipped (#56):** snowplow/"pizza" braking (clamped so it stops rather than reversing uphill), carve vs. skid, straight-line tuck, and terrain-dependent grip — layered on a test-safe seam so no-input physics is unchanged.
+- **Shipped (#136):** the carve-vs-skid **speed-management trade-off** that #56 was thin on — a `carveCharge` edge-engagement model where a committed carve holds speed and panic-steering (reversing the edge / yanking a fresh one) scrubs it, plus an always-on turn tax so straight-lining stays the fastest line. A gating carve-vs-skid check (carve ≈40% faster than chatter-skidding) protects it; no-input coasting stays byte-identical.
+- **Remaining (○):** parallel turns, hop turns, ski poles/planting; meaningful jumps.
+- **Open issues:** ski poles and planting (**#52**); freestyle/jump mechanics (**#47**/**#32**). Speed control (**#54**) and core ski techniques (**#48**) are now substantially addressed (carve/skid/snowplow/tuck + the speed trade-off); parallel/hop turns remain the open slice of #48.
 
 ### 3. Telegraphing and drama around the avalanche — ✅ shipped (#56)
 
@@ -164,7 +165,7 @@ A phased plan that several of the review passes converge on:
 | Phase | Goal | Ship | Status |
 |-------|------|------|--------|
 | **P0 — Make it feel like a game** | Give runs a shape | Finish line, checkpoints, split times, result screen, medals, restart/replay flow | ✅ shipped (#56) |
-| **P1 — Make skiing skillful** | Reward technique | Carving / snowplow / straight-line modes, speed loss on turns, terrain-dependent friction, meaningful jumps | ◐ started (#56) — technique seam landed but thin; turns don't yet cost speed; jumps still open (#48/#54) |
+| **P1 — Make skiing skillful** | Reward technique | Carving / snowplow / straight-line modes, speed loss on turns, terrain-dependent friction, meaningful jumps | ◐ mostly shipped (#56, #136) — carve/snowplow/tuck + the carve-vs-skid speed trade-off land; parallel/hop turns (#48) and meaningful jumps (#47) still open |
 | **P2 — Make it memorable** | Atmosphere & drama | Better mountain visuals, avalanche warning, expressive snowman, scarf/poles, intro fly-over, ghost racer | ◐ avalanche warning + ghost racer shipped (#56); visuals/snowman/poles/fly-over open |
 | **P3 — Make it social / AI** | Retention | Daily challenge, ghost leaderboard, AI coach, shareable replay | ○ open |
 
@@ -294,7 +295,7 @@ Internally delegate to smaller modules without changing the public signatures.
 
 The first thing to ship was **gates/checkpoints + carving/snowplow mechanics + avalanche warning UI**, plus **split-time ghost racing** — building the *skill and structure* layer before adding more content, because that converts a cute Three.js skiing demo into a game with skill, tension, and replayability. This shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56).
 
-**Next strongest move:** deepen the ski-technique model into a real speed-management trade-off (carving holds speed; panic-steering scrubs it) — issues **#48** / **#54** — then layer P2 atmosphere on top.
+**Next strongest move:** ~~deepen the ski-technique model into a real speed-management trade-off (carving holds speed; panic-steering scrubs it) — issues **#48** / **#54**~~ — **shipped in [#136](https://github.com/den-run-ai/snowglider/pull/136)**. The remaining P1 thread is parallel/hop turns (#48) and meaningful jumps (#47); after that, layer P2 atmosphere on top.
 
 ---
 
@@ -304,8 +305,8 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 
 | Theme | Issue(s) | Status |
 |-------|----------|--------|
-| Realistic speed control (turns, terrain, avalanche escape) | #54 | ◐ first pass in #56; turns don't yet cost speed |
-| Ski techniques (snowplow/pizza, parallel, carving, hop, straight-line) | #48 | ◐ snowplow/carve/tuck in #56; parallel/hop open |
+| Realistic speed control (turns, terrain, avalanche escape) | #54 | ◐ first pass in #56; carve-vs-skid speed trade-off shipped in #136 (turns now cost speed; clean carves hold it) |
+| Ski techniques (snowplow/pizza, parallel, carving, hop, straight-line) | #48 | ◐ snowplow/carve/tuck in #56 + carve-vs-skid trade-off in #136; parallel/hop turns open |
 | Avalanche trigger notification + visibility from behind | #49 | ◐ warning UI + danger meter in #56; in-scene cloud/shadow open |
 | Avalanche effects and controls | #44 | ◐ effects in #56; controls open |
 | Expressive snowman (scarf, flexible, breaks on impact) | #53 | ○ open |
