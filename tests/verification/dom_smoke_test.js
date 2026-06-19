@@ -159,6 +159,7 @@ async function main() {
   check('createSnowman builds a fine-grained part registry', !!ud && !!ud.parts && !!ud.parts.headGroup && !!ud.parts.head && !!ud.parts.bottom);
   check('shatterRoots is a flat list including the head cluster', Array.isArray(ud.shatterRoots) && ud.shatterRoots.includes(ud.parts.headGroup));
   check('base transforms kept OFF the registry (parts.base undefined)', !!ud.partBaseTransforms && !!ud.partBaseTransforms.headGroup && ud.parts.base === undefined);
+  check('scarf + tail present in registry and shatter roots (PR C)', !!ud.parts.scarf && !!ud.parts.scarfTail && ud.shatterRoots.includes(ud.parts.scarfTail));
   check('face/hat are children of the head cluster (head bob keeps them attached)',
     ud.parts.head.parent === ud.parts.headGroup &&
     ud.parts.leftEye.parent === ud.parts.headGroup &&
