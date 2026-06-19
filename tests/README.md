@@ -136,7 +136,10 @@ from `npm test` because the emulator requires a local Java runtime.
 ### Browser Tests
 
 Append a `?test=` parameter to the game URL to load a suite in-browser; results
-display on-screen. Available parameters:
+display on-screen. The game must be **served** (`npm start` or `npm run dev` — Vite
+on port 8080); after the ES-module migration the suites can no longer load from a
+`file://` / `open index.html` null origin (see
+[`ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §2.2). Available parameters:
 
 | Parameter | Suite |
 |-----------|-------|
@@ -149,59 +152,59 @@ display on-screen. Available parameters:
 | `?test=regression` | Regression tests |
 | `?test=unified` | All suites (controls, camera, audio, gameplay, tree, avalanche, regression) |
 
-1. Open the game with the test parameter:
+1. Serve the game, then open the test URL:
 ```
-open index.html?test=true
+http://localhost:8080/?test=true
 ```
-   Or load the game in a browser with `?test=true` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The tests will run automatically and display results in the top-left corner of the screen
 
 ### Browser Regression Tests
 
-1. Open the game with the regression test parameter:
+1. Serve the game, then open the regression test URL:
 ```
-open index.html?test=regression
+http://localhost:8080/?test=regression
 ```
-   Or load the game in a browser with `?test=regression` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The regression tests will run automatically and display results in the top-left corner of the screen
 
 ### Browser Tree Collision Tests
 
-1. Open the game with the tree tests parameter:
+1. Serve the game, then open the tree tests URL:
 ```
-open index.html?test=trees
+http://localhost:8080/?test=trees
 ```
-   Or load the game in a browser with `?test=trees` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The tree collision tests will run automatically and display results in the top-left corner of the screen
 
 ### Browser Audio Tests
 
-1. Open the game with the audio tests parameter:
+1. Serve the game, then open the audio tests URL:
 ```
-open index.html?test=audio
+http://localhost:8080/?test=audio
 ```
-   Or load the game in a browser with `?test=audio` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The audio tests will run automatically and display results on the screen
 
 ### Browser Avalanche Tests
 
-1. Open the game with the avalanche tests parameter:
+1. Serve the game, then open the avalanche tests URL:
 ```
-open index.html?test=avalanche
+http://localhost:8080/?test=avalanche
 ```
-   Or load the game in a browser with `?test=avalanche` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The avalanche tests will run automatically and display results on the screen
 
 ### Unified Test Runner
 
-Run all tests in sequence:
+Run all tests in sequence (serve first with `npm start`):
 ```
-open index.html?test=unified
+http://localhost:8080/?test=unified
 ```
    This will run all test suites (controls, camera, audio, gameplay, tree, avalanche, regression) in sequence with a unified results display
 
