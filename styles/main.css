@@ -968,9 +968,15 @@ body.start-screen-active #authContainer {
    gets `intro-active` only during the fly-over (snowglider.ts) and it is removed
    the instant the run begins, so this never affects live gameplay. The Skip
    button (#introSkipBtn) is created by intro.ts with its own inline styles and is
-   intentionally left visible. */
+   intentionally left visible.
+   `#courseHud` is included because resetSnowman() -> CourseModule.reset() sets it
+   to `display: flex` (inline) before `intro-active` is added; the `!important`
+   here overrides that inline value so the course progress/ghost HUD stays hidden
+   for the whole cinematic. (The split-flash div is opacity:0 and never fires
+   during the intro, so it needs no rule.) */
 body.intro-active #controlsInfo,
 body.intro-active #gameStatsContainer,
+body.intro-active #courseHud,
 body.intro-active #resetBtn,
 body.intro-active #cameraToggleBtn {
   display: none !important;
