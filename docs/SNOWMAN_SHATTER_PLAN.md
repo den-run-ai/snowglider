@@ -17,9 +17,12 @@ Three user-visible upgrades, in rising order of risk:
    skis: head bob, a settle-bounce on landing, lean into carves. Makes the snowman read
    as *alive* rather than a rigid stack of spheres.
 2. **Breaks down on impact** — on a **crash** (tree / rock / off-mountain / fell-off /
-   avalanche burial — *not* a finish), the snowman bursts apart: the three balls, hat,
-   nose, arms, and buttons fly off as tumbling fragments while a puff of snow splashes
-   out. The classic SkiFree-style wipeout.
+   avalanche burial — *not* a finish), the snowman bursts apart: the three balls, arms,
+   and buttons fly off as separate tumbling fragments and the **head cluster (head + face +
+   hat) breaks off as one unit**, everything bursting into snow chunks wrapped in a puff of
+   snow. The classic SkiFree-style wipeout. *(Letting the hat and nose fly off as
+   recognizable individual pieces — separate shatter roots + cloning their real part meshes
+   instead of generic chunks — is a documented fidelity follow-up; see §5.1 / §7.2.)*
 3. **Scarf** *(optional follow-up — see §12 PR C)* — a red knitted scarf around the neck
    with a tail that trails in the wind. **Deferred out of the core work**: the
    overlapping neck geometry and trailing tail are the fiddliest, most iteration-prone
@@ -181,6 +184,16 @@ group.userData.parts = {
 // `part.isMesh` (§7.2): own-clone a Mesh directly, but traverse a Group to its child meshes
 // (or spawn a generic chunk at the group's world transform). Every entry is a renderable
 // Object3D.
+//
+// TRADE-OFF (bot review): listing `headGroup` (not its members) means the head, face, and
+// hat break off as ONE cluster fragment rather than the hat/nose flying off as separate
+// recognizable pieces. The shipped PR B spawns generic snow chunks per root, so the whole
+// snowman (head cluster included) bursts into snow — consistent, and the user's core ask
+// ("balls breaking + snow splash") is met. Letting the hat/nose fly off as recognizable
+// individual pieces is a documented FIDELITY FOLLOW-UP: list `nose`/`hatBase`/`hatTop`
+// (and `head`/`leftEye`/`rightEye`) here in place of `headGroup`, and have §7.2 own-CLONE
+// each distinctive mesh (so a black hat / orange nose fly, not white chunks). Deferred to
+// keep PR B small and the head-bob cluster intact.
 group.userData.shatterRoots = [
   bottom, middle, headGroup,
   leftArmGroup, rightArmGroup,
@@ -446,9 +459,16 @@ Minimal, localized edits:
    `state.avalanche`). Because `state` is **module-scoped** and we add no new `window.*`
    bridge, expose a read seam on the **existing** `window.testHooks` surface so the browser
    test can observe debris without reaching `state`:
+   `if (!window.testHooks) window.testHooks = {};`
    `window.testHooks.isDebrisActive = () => !!state.debris && state.debris.active;` — a
    deliberate test hook like the collision hooks (`window.testHooks.forceTreeCollision`),
    **not** a per-module namespace bridge, so it stays within the sanctioned test seam.
+   **Guard the create and install it from/after the `Snowman.addTestHooks(...)` path, NOT
+   at this construct step** — at construction `window.testHooks` may not exist yet (it's
+   created lazily by `addTestHooks` or the `animate()` fallback), so a bare
+   `window.testHooks.isDebrisActive = …` would throw during module init in a normal run.
+   (The shipped PR B installs it right after the eager `addTestHooks` call, guarded — see
+   `src/snowglider.ts`.)
 2. **Per frame**, after the existing `updateSnowman(delta)` + splash, call
    `Flex.update(snowman, delta, motionFromUpdateResult)`. (The wrapper already has the
    `UpdateResult` in scope — `player`/the return value — so `speed`, `technique`,
