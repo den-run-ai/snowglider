@@ -137,7 +137,19 @@ async function main() {
   });
   shareBtn1.click();
   await new Promise((r) => setTimeout(r, 0));
-  check('clicking Share copies a stable public link', typeof clipboardText === 'string' && clipboardText.includes('https://snowglider.ai/'));
+  // The clipboard fallback writes "<message>\n<url>"; validate the URL line by
+  // parsing it and checking the parsed origin (a substring/`includes` host check
+  // is unsafe — e.g. https://snowglider.ai.evil.com would pass).
+  let copiedToPublicSite = false;
+  if (typeof clipboardText === 'string') {
+    try {
+      const shareUrl = new URL(clipboardText.trim().split('\n').pop());
+      copiedToPublicSite = shareUrl.protocol === 'https:' && shareUrl.host === 'snowglider.ai';
+    } catch {
+      copiedToPublicSite = false;
+    }
+  }
+  check('clicking Share copies a stable public link', copiedToPublicSite);
   check('Share button reflects the copied state', /copied/i.test(shareBtn1.textContent || ''));
   delete global.navigator;
 
