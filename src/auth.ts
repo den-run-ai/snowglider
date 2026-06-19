@@ -147,6 +147,7 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
           }
           console.log("Calling resetLoginButton..."); // Log before reset
           resetLoginButton(); // Ensure button is in default state after successful login
+          notifyAuthChanged(); // Let read-only consumers (e.g. start screen) refresh
           console.log("Finished processing signed-in state in onAuthStateChanged."); // Log completion
         } else {
           // User is signed out
@@ -160,6 +161,7 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
           updateUIForLoggedOutUser();
           console.log("Calling resetLoginButton..."); // Log before reset
           resetLoginButton(); // Ensure button is in default state after logout
+          notifyAuthChanged(); // Let read-only consumers (e.g. start screen) refresh
           console.log("Finished processing signed-out state in onAuthStateChanged."); // Log completion
         }
         // --- End Edit 1 ---
@@ -182,6 +184,19 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
 
   // Set up login/logout buttons (even if auth failed, to avoid errors)
   setupAuthButtons();
+}
+
+// Broadcast a signed-in-state change so read-only consumers (e.g. the start-screen
+// onboarding UI in src/ui/start-menu.ts) can refresh without duplicating the auth
+// wiring or hooking the internal onAuthStateChanged listener. Fired on both login
+// and logout, after the auth/profile UI and ScoresModule have been updated.
+// Guarded so a missing/odd window (tests, non-DOM hosts) can't break auth flow.
+function notifyAuthChanged() {
+  try {
+    window.dispatchEvent(new CustomEvent('snowglider:auth-changed'));
+  } catch (e) {
+    console.warn("Could not dispatch snowglider:auth-changed event:", e);
+  }
 }
 
 // Update UI when user is logged in

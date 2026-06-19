@@ -10,7 +10,10 @@
 // Focus: the deferred-start state machine that two prior bug fixes added —
 //   080bb29 "Fix deferred start before game scripts load"
 //   6429cfa "Preserve start gesture after deferred load"
-// plus the build badge, about panel, and keyboard handlers.
+// plus the build badge, about panel, and keyboard handlers; and the onboarding
+// refresh added in PR #111 — the build-version footer (#buildBadge), the optional
+// sign-in hint, the Global Top Times preview, and the XSS-safe name escaping
+// (refreshStartAccountUI + escapeHtml).
 const { JSDOM } = require('jsdom');
 
 const dom = new JSDOM(`<!doctype html><html><head>
@@ -22,10 +25,13 @@ const dom = new JSDOM(`<!doctype html><html><head>
       <button id="aboutGameButton">About</button>
     </div>
     <div id="controlsGuide"></div>
+    <div id="startLeaderboard" style="display:none"></div>
+    <p id="startSignInHint" style="display:none"></p>
     <div id="keyboardHint"></div>
     <div id="aboutGamePanel" style="display:none">
       <button id="closeAboutButton">Close</button>
     </div>
+    <div id="buildBadge"></div>
   </div>
   <canvas id="gameCanvas" style="display:none"></canvas>
 </body></html>`, { url: 'https://snowglider.ai/' });
@@ -75,10 +81,11 @@ async function main() {
   const keyboardHint = document.getElementById('keyboardHint');
 
   console.log('\n--- build badge ---');
-  check('addBuildBadge renders the build id into the start button',
-    /Start Game/.test(btn.innerHTML) &&
-    /build-badge/.test(btn.innerHTML) &&
-    /2026-06-18 12:00/.test(btn.innerHTML));
+  // PR #111 moved the badge off the "Start Game" CTA into an unobtrusive footer.
+  check('addBuildBadge renders the build id into the #buildBadge footer',
+    document.getElementById('buildBadge').textContent === 'build 2026-06-18 12:00');
+  check('addBuildBadge no longer injects a pill into the start button',
+    !/build-badge/.test(btn.innerHTML));
 
   console.log('\n--- deferred start before game scripts load (080bb29) ---');
   delete window.initializeGameWithAudio; // game scripts not ready yet
@@ -138,6 +145,191 @@ async function main() {
   await flush();
   check('clicking Start runs the start flow (after async audio unlock)',
     launches === 1 && startContainer.style.display === 'none');
+
+  console.log('\n--- onboarding: optional sign-in hint + Global Top Times (refreshStartAccountUI) ---');
+  const refresh = SM.refreshStartAccountUI;
+  const lb = document.getElementById('startLeaderboard');
+  const hint = document.getElementById('startSignInHint');
+  check('exposes refreshStartAccountUI', typeof refresh === 'function');
+
+  function setAccount({ firebase, authState, getLeaderboard }) {
+    window.AuthModule = {
+      isFirebaseAvailable: () => firebase,
+      getAuthState: () => authState
+    };
+    window.ScoresModule = getLeaderboard ? { getLeaderboard } : {};
+  }
+  function resetAccountDom() {
+    lb.style.display = 'none';
+    lb.innerHTML = '';
+    hint.style.display = 'none';
+    hint.innerHTML = '';
+  }
+  async function settle() {
+    await flush();
+    await flush();
+    await flush();
+  }
+
+  // Signed out (real auth present): show the hint, hide the leaderboard. The
+  // Firestore rules deny leaderboard reads for signed-out users, so we must not
+  // even attempt the read — no false "No times yet", no permission error.
+  resetAccountDom();
+  let leaderboardReads = 0;
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => { leaderboardReads++; return []; }
+  });
+  refresh();
+  await settle();
+  check('signed out: sign-in hint shown', hint.style.display === 'block');
+  check('signed out: leaderboard hidden', lb.style.display === 'none');
+  check('signed out: getLeaderboard is NOT called (Firestore rules deny it)',
+    leaderboardReads === 0);
+
+  // Auth up but Firestore disabled (localhost/127.0.0.1 + file:// fallback): the
+  // hint advertises leaderboard saving that can't work there, so it must stay
+  // hidden even when signed out.
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: false },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('signed out + Firestore disabled: sign-in hint hidden', hint.style.display === 'none');
+  check('signed out + Firestore disabled: leaderboard hidden', lb.style.display === 'none');
+
+  // Signed in, empty leaderboard -> preview hidden (an empty [] is indistinguishable
+  // from a swallowed read error, so we never claim "No times yet"), hint hidden.
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'u1', displayName: 'Ada' }, isSignedIn: true },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('signed in: sign-in hint hidden', hint.style.display === 'none');
+  check('signed in + empty/unavailable leaderboard: preview hidden (no false empty state)',
+    lb.style.display === 'none');
+
+  // Signed in, populated leaderboard -> top-5 table with 2-decimal times.
+  resetAccountDom();
+  const many = Array.from({ length: 7 }, (_, i) => ({ userId: 'p' + i, time: 10 + i }));
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
+    getLeaderboard: () => many
+  });
+  refresh();
+  await settle();
+  check('populated leaderboard is shown', lb.style.display === 'block');
+  check('leaderboard renders at most the top 5 rows (+1 header)',
+    lb.querySelectorAll('table tr').length === 6);
+  check('leaderboard formats times to 2 decimals', lb.innerHTML.includes('10.00s'));
+
+  // Current user is highlighted and shown by display name.
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Ada Lovelace' }, isSignedIn: true },
+    getLeaderboard: () => [{ userId: 'other', time: 12.3 }, { userId: 'me', time: 13.5 }]
+  });
+  refresh();
+  await settle();
+  check('current user row gets the current-user-score class',
+    !!lb.querySelector('tr.current-user-score'));
+  check('current user shown by display name', lb.innerHTML.includes('Ada Lovelace'));
+
+  // XSS: a malicious display name is HTML-escaped (escapeHtml), not injected live.
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: '<img src=x onerror=alert(1)>' }, isSignedIn: true },
+    getLeaderboard: () => [{ userId: 'me', time: 9.9 }]
+  });
+  refresh();
+  await settle();
+  check('malicious display name is escaped (no live <img> injected)',
+    lb.querySelector('img') === null && lb.innerHTML.includes('&lt;img'));
+
+  // getLeaderboard rejection is swallowed and hides the board.
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
+    getLeaderboard: () => Promise.reject(new Error('offline'))
+  });
+  lb.style.display = 'block';
+  refresh();
+  await settle();
+  check('getLeaderboard rejection hides the leaderboard', lb.style.display === 'none');
+
+  // ScoresModule present but without getLeaderboard (defensive) -> board hidden.
+  resetAccountDom();
+  window.AuthModule = {
+    isFirebaseAvailable: () => ({ auth: true, firestore: true }),
+    getAuthState: () => ({ user: { uid: 'me' }, isSignedIn: true })
+  };
+  window.ScoresModule = {};
+  lb.style.display = 'block';
+  refresh();
+  await settle();
+  check('ScoresModule without getLeaderboard hides the leaderboard',
+    lb.style.display === 'none');
+
+  // Stale-read guard: a signed-in getLeaderboard() still in flight when the player
+  // logs out must NOT re-show the board after the logout refresh has hidden it.
+  resetAccountDom();
+  let resolveSlow;
+  const slow = new Promise((res) => { resolveSlow = res; });
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
+    getLeaderboard: () => slow
+  });
+  refresh(); // signed-in read starts, in flight (unresolved)
+  // Player logs out before it resolves; the newer refresh hides the board.
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('logout hides the board while the prior signed-in read is still in flight',
+    lb.style.display === 'none');
+  resolveSlow([{ userId: 'me', time: 5.0 }]); // the stale signed-in read finally resolves
+  await settle();
+  check('stale in-flight leaderboard read is discarded after logout (board stays hidden)',
+    lb.style.display === 'none');
+
+  // The start menu re-renders when auth.ts broadcasts snowglider:auth-changed
+  // (login/logout), so signing in from the start screen isn't stale until reload.
+  // Here we change account state but do NOT call refresh() directly — the wired
+  // listener must do it in response to the event.
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Signed In' }, isSignedIn: true },
+    getLeaderboard: () => [{ userId: 'me', time: 7.25 }]
+  });
+  window.dispatchEvent(new window.Event('snowglider:auth-changed'));
+  await settle();
+  check('snowglider:auth-changed re-renders the account UI without a manual refresh',
+    lb.style.display === 'block' && lb.innerHTML.includes('7.25s'));
+
+  // No AuthModule/ScoresModule at all (file:// / offline) -> everything hidden.
+  resetAccountDom();
+  window.AuthModule = undefined;
+  window.ScoresModule = undefined;
+  refresh();
+  await settle();
+  check('no auth/scores modules: sign-in hint hidden', hint.style.display === 'none');
+  check('no auth/scores modules: leaderboard hidden', lb.style.display === 'none');
 
   console.log(`\nSTART MENU TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

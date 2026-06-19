@@ -23,6 +23,11 @@ const dom = new JSDOM(`<!doctype html><html><body>
 const { window } = dom;
 global.window = window;
 global.document = window.document;
+// auth.ts dispatches `new CustomEvent('snowglider:auth-changed')` on window. Bind
+// jsdom's CustomEvent on globalThis so the bare constructor builds an event from the
+// SAME realm as window — otherwise Node's built-in CustomEvent is rejected by
+// jsdom's window.dispatchEvent ("parameter 1 is not of type 'Event'").
+global.CustomEvent = window.CustomEvent;
 global.localStorage = (function () {
   let store = {};
   return {
@@ -83,6 +88,11 @@ async function main() {
   check('storageBucket is left untouched (dead rewrite removed)',
     config.storageBucket === 'sn0wglider.firebasestorage.app');
 
+  // PR #111: auth.ts broadcasts snowglider:auth-changed on login/logout so the
+  // start-screen onboarding UI can refresh without hooking the internal listener.
+  let authChangedEvents = 0;
+  window.addEventListener('snowglider:auth-changed', () => { authChangedEvents++; });
+
   console.log('\n--- Sign-in (popup success) ---');
   const loginBtn = window.document.getElementById('loginBtn');
   const authUI = window.document.getElementById('authUI');
@@ -103,7 +113,10 @@ async function main() {
     calls.logEvent.some(e => e.name === 'login' && e.params && e.params.method === 'GooglePopup'));
 
   // Firebase now reports the signed-in user via the captured callback.
+  const changedBeforeSignIn = authChangedEvents;
   fb.emitAuthState({ uid: 'u1', email: 'snow@glider.ai', displayName: 'Snow', photoURL: 'http://p/x.png' });
+  check('signed-in: dispatches snowglider:auth-changed for read-only consumers',
+    authChangedEvents === changedBeforeSignIn + 1);
   check('signed-in: profile UI shown, auth UI hidden',
     authUI.style.display === 'none' && profileUI.style.display === 'flex');
   check('signed-in: profile name populated',
@@ -118,7 +131,10 @@ async function main() {
   logoutBtn.dispatchEvent(new window.Event('click'));
   check('firebaseSignOut was invoked', calls.signOut === 1);
   await flush();
+  const changedBeforeSignOut = authChangedEvents;
   fb.emitAuthState(null); // Firebase reports signed-out
+  check('signed-out: dispatches snowglider:auth-changed for read-only consumers',
+    authChangedEvents === changedBeforeSignOut + 1);
   check('signed-out: auth UI shown again, profile hidden',
     authUI.style.display === 'flex' && profileUI.style.display === 'none');
   check('signed-out: getCurrentUser() is null', AuthModule.getCurrentUser() === null);

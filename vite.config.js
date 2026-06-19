@@ -7,6 +7,25 @@ import { defineConfig } from 'vite';
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const outDir = 'dist';
 
+// Replace the placeholder build-id meta in index.html with the actual build
+// timestamp, so the badge on the start screen can never go stale. Computed once
+// when the config is evaluated: build time for `vite build`, server-start time
+// for the dev/preview/puppeteer servers. Runs in both serve and build (no
+// `apply`), and only rewrites the meta content — index.html is otherwise
+// untouched and is emitted by Vite itself (copyStaticAppFiles does not copy it).
+function injectBuildId() {
+  const buildId = `${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+  return {
+    name: 'inject-build-id',
+    transformIndexHtml(html) {
+      return html.replace(
+        /(<meta name="build-id" content=")[^"]*(">)/,
+        `$1${buildId}$2`
+      );
+    }
+  };
+}
+
 function copyStaticAppFiles() {
   const entries = [
     ['src', 'src'],
@@ -128,5 +147,5 @@ export default defineConfig({
       }
     }
   },
-  plugins: [copyStaticAppFiles()]
+  plugins: [injectBuildId(), copyStaticAppFiles()]
 });

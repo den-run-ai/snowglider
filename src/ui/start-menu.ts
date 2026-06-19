@@ -11,16 +11,116 @@ import { AudioModule } from '../audio.js';
 
 (function () {
   let startGamePending = false;
+  // Monotonic token for refreshStartAccountUI: bumped on every call so a slow
+  // in-flight leaderboard read can detect that a newer refresh superseded it
+  // (e.g. the player logged out mid-read) and discard its now-stale result.
+  let accountRefreshSeq = 0;
 
   function addBuildBadge() {
     const buildMeta = document.querySelector('meta[name="build-id"]');
-    const build = buildMeta instanceof HTMLMetaElement
+    const build = buildMeta instanceof HTMLMetaElement && buildMeta.content
       ? buildMeta.content
       : new Date().toISOString().slice(0, 16).replace('T', ' ');
-    const btn = document.getElementById('startGameButton');
-    if (btn) {
-      btn.innerHTML = `Start Game <span class="build-badge">${build}</span>`;
+    // Show the build version as an unobtrusive footer on the start screen rather
+    // than as a pill on the primary "Start Game" CTA.
+    const badge = document.getElementById('buildBadge');
+    if (badge) {
+      badge.textContent = `build ${build}`;
     }
+  }
+
+  function escapeHtml(value: string) {
+    return String(value).replace(/[&<>"']/g, (ch) => {
+      switch (ch) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        default: return '&#39;';
+      }
+    });
+  }
+
+  // Populate the start-screen leaderboard preview and the optional sign-in hint.
+  // Reuses the live AuthModule/ScoresModule (the in-game #authContainer keeps the
+  // actual sign-in/profile state), so this only reads state — it never duplicates
+  // the auth wiring. Safe to call repeatedly; degrades to hidden when Firestore is
+  // unavailable (file:// / localhost / offline).
+  function refreshStartAccountUI() {
+    const auth = window.AuthModule;
+    const scores = window.ScoresModule;
+    const seq = ++accountRefreshSeq;
+
+    const firebase = auth && typeof auth.isFirebaseAvailable === 'function'
+      ? auth.isFirebaseAvailable()
+      : { auth: false, firestore: false };
+    const authState = auth && typeof auth.getAuthState === 'function'
+      ? auth.getAuthState()
+      : { user: null, isSignedIn: false };
+
+    const hint = document.getElementById('startSignInHint');
+    if (hint) {
+      // Only show when signing in can actually deliver the advertised benefit:
+      // real auth AND Firestore are up (the localhost/127.0.0.1 + file:// fallbacks
+      // skip Firestore, so leaderboard writes are no-ops there) and the player is
+      // signed out. Otherwise we'd advertise a global leaderboard that can't save.
+      hint.style.display = (firebase.auth && firebase.firestore && !authState.isSignedIn) ? 'block' : 'none';
+    }
+
+    const lb = document.getElementById('startLeaderboard');
+    if (!lb) {
+      return;
+    }
+    // The Firestore rules only permit leaderboard get/list for signed-in users
+    // (firestore.rules: `allow get, list: if isSignedIn()`). Reading while signed
+    // out is denied — ScoresModule.getLeaderboard() swallows that into an empty
+    // array (without disabling Firestore), which would otherwise render a
+    // misleading "No times yet" preview and log a permission error on every
+    // signed-out start screen. So only read once signed in; signed-out players get
+    // the sign-in hint instead.
+    if (!authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function') {
+      lb.style.display = 'none';
+      return;
+    }
+
+    Promise.resolve(scores.getLeaderboard())
+      .then((list) => {
+        // Discard a superseded read: if another refresh ran after this one (e.g.
+        // the player logged out while this signed-in read was in flight), don't
+        // clobber its result — otherwise a slow read could re-show the leaderboard
+        // on a now signed-out start screen (Firestore rules forbid that read).
+        if (seq !== accountRefreshSeq) {
+          return;
+        }
+        if (!Array.isArray(list) || list.length === 0) {
+          // getLeaderboard() resolves [] for BOTH a genuinely empty board and a
+          // swallowed read error (offline / transient Firestore failure), and
+          // isFirebaseAvailable() can still report Firestore "available" — so the
+          // two are indistinguishable here. Hide the preview rather than risk a
+          // false "No times yet" during an outage.
+          lb.style.display = 'none';
+          return;
+        }
+
+        const me = authState.user;
+        let html = '<h3>🏆 Global Top Times</h3><table><tr><th>#</th><th>Player</th><th>Time</th></tr>';
+        list.slice(0, 5).forEach((entry, index) => {
+          const isMe = me && entry.userId === me.uid;
+          const name = isMe ? (me.displayName || 'You') : `Player ${index + 1}`;
+          html += `<tr class="${isMe ? 'current-user-score' : ''}"><td>${index + 1}</td><td>${escapeHtml(name)}</td><td>${Number(entry.time).toFixed(2)}s</td></tr>`;
+        });
+        html += '</table>';
+        lb.innerHTML = html;
+        lb.style.display = 'block';
+      })
+      .catch(() => {
+        // Same staleness guard: don't let a superseded read's failure hide a board
+        // that a newer refresh has since populated.
+        if (seq !== accountRefreshSeq) {
+          return;
+        }
+        lb.style.display = 'none';
+      });
   }
 
   async function unlockAudioForStart(source: string) {
@@ -55,6 +155,8 @@ import { AudioModule } from '../audio.js';
     if (startContainer) {
       startContainer.style.display = 'none';
     }
+    // Drop the start-screen account-control elevation now that the game is shown.
+    document.body.classList.remove('start-screen-active');
 
     gameCanvas.style.display = 'block';
 
@@ -119,8 +221,11 @@ import { AudioModule } from '../audio.js';
 
   function initializeStartMenu() {
     addBuildBadge();
+    // Surface the account/sign-in control above the start overlay while it's up.
+    document.body.classList.add('start-screen-active');
     if ((window as any).SnowGliderGameScriptsReady) {
       startPendingGameIfReady();
+      refreshStartAccountUI();
     }
 
     const startGameButton = document.getElementById('startGameButton');
@@ -180,13 +285,24 @@ import { AudioModule } from '../audio.js';
   }
 
   document.addEventListener('DOMContentLoaded', initializeStartMenu);
-  window.addEventListener('snowglider:game-scripts-ready', startPendingGameIfReady);
+  window.addEventListener('snowglider:game-scripts-ready', function () {
+    startPendingGameIfReady();
+    // Render the leaderboard/sign-in state now, and again shortly after to catch
+    // Firebase auth + Firestore finishing their async init after scripts load.
+    refreshStartAccountUI();
+    setTimeout(refreshStartAccountUI, 1500);
+  });
+  // Re-render whenever auth state changes (auth.ts dispatches this on login/logout),
+  // so signing in from the elevated start-screen control immediately swaps the
+  // sign-in hint for the leaderboard instead of leaving stale state until reload.
+  window.addEventListener('snowglider:auth-changed', refreshStartAccountUI);
 
   window.SnowGliderStartMenu = {
     startGame,
     showAbout,
     hideAbout,
     initializeStartMenu,
-    startPendingGameIfReady
+    startPendingGameIfReady,
+    refreshStartAccountUI
   };
 })();
