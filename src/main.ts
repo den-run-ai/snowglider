@@ -27,6 +27,7 @@ import './mountains.js';
 import './snow.js';
 import './snowman.js';
 import './audio.js';
+import './sky.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

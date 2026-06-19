@@ -13,6 +13,21 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Visible sky — gradient sky + distance fog (#2)
+- Replaced the flat `scene.background = Color(0x87CEEB)` (and no fog) with a
+  graduated sky and matching horizon fog, in a new `src/sky.ts` module
+  (`Sky.applyGradientSky`).
+- The sky is a large `BackSide` dome whose vertex shader pins it to the far plane
+  (`gl_Position.z = gl_Position.w`), so it behaves as a skybox: it never clips
+  against the camera far plane and fills every pixel not covered by scene
+  geometry. The gradient is evaluated per-pixel from the view direction so it
+  tracks the chase camera's pitch.
+- `scene.fog` is a linear fog tinted to the dome's horizon colour, tuned to keep
+  the gameplay area crisp (`near = 140`) and fade only distant terrain / the far
+  peak (`far = 750`) so the slope no longer hard-cuts at the far plane.
+- Purely visual: no physics, collision, scoring, or lighting changes (the
+  directional light and its shadows are untouched).
+
 ### Skiing skill — carve vs. skid speed trade-off (#48 / #54)
 - Deepened the ski-technique model (P1 of [`ROADMAP.md`](ROADMAP.md)) from the
   intentionally-thin #56 first pass into a real speed-management trade-off: a
