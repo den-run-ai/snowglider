@@ -127,7 +127,7 @@ showGameOver(reason)
    ├─ if reason is a CRASH and !testMode and !reducedMotion-skip:
    │     Debris.shatter(scene, snowman, velocity, getTerrainHeight)
    │       ├─ hide snowman group
-   │       ├─ spawn fragments (cloned/parented parts) with burst velocities
+   │       ├─ spawn debris-owned fragment chunks (own geometry/material) with burst velocities
    │       ├─ Snow puff burst at impact
    │       └─ start own rAF settle loop (gravity + ground bounce + tumble, ~2.5s)
    │     EffectsModule.addShake(impactScaledBySpeed)   // reuse existing juice
@@ -147,7 +147,10 @@ At the end of `createSnowman`, alongside the existing ski refs, register every a
 
 ```ts
 // Cosmetic part registry — consumed by snowman-flex.ts (jiggle) and debris.ts (shatter).
-// Storing meshes (not indices) keeps both modules decoupled from child order.
+// INVARIANT: every value here is a renderable Object3D. The shatter path iterates this
+// object and reads each value's world transform / geometry / material, so it must never
+// contain a non-renderable entry (snapshots, flags, counters). Storing meshes (not
+// indices) keeps both modules decoupled from child order.
 group.userData.parts = {
   bottom, middle, head,            // the three snow balls
   leftEye, rightEye, nose,
@@ -158,14 +161,20 @@ group.userData.parts = {
   // animator and the shatter system treat these as present-or-absent, so the registry
   // simply gains two keys when PR C lands; nothing in A/B depends on them existing.
 };
-// Remember neutral local transforms so flex can animate as deltas and reset cleanly.
-group.userData.parts.base = recordBaseTransforms(group.userData.parts);
+// Neutral local transforms live in a SEPARATE map (not on .parts) precisely so the
+// shatter loop above can treat every .parts value as a renderable Object3D. A snapshot
+// stashed under parts.base would be a plain transform record, and a generic
+// `for (const p of Object.values(parts)) p.geometry…/p.getWorldPosition…` would throw on
+// it. Keyed by the same names so flex can pair part↔base.
+group.userData.partBaseTransforms = recordBaseTransforms(group.userData.parts);
 ```
 
 `recordBaseTransforms` snapshots each part's `position`/`scale`/`rotation` into a plain
 object so the flex animator can express everything as an offset from neutral and
-`Flex.reset()` can snap exactly back (no drift across runs). This is the same discipline
-the ski-pose code already uses with `leftSkiBaseX`/`rightSkiBaseX`.
+`Flex.reset()` can snap exactly back (no drift across runs). Keeping it off `.parts`
+(under `userData.partBaseTransforms`) is what lets the shatter code blindly iterate the
+registry. This is the same discipline the ski-pose code already uses with
+`leftSkiBaseX`/`rightSkiBaseX`.
 
 ### 5.2 Scarf geometry — *optional follow-up (PR C), NOT in the core work*
 
@@ -272,9 +281,24 @@ export class SnowmanDebris {
    free-flying fragments so the original stays intact for the next run (cheaper + safer
    than detaching real children).
 2. **Spawn fragments.** For each shatterable part in `userData.parts`, create a
-   lightweight fragment: reuse the part's geometry+material (clone the mesh, or better,
-   spawn a few generic snow-ball chunks sized from the part) positioned at the part's
-   current **world** transform. Give each:
+   lightweight fragment positioned at the part's current **world** transform. **Resource
+   ownership is load-bearing for the crash→restart cycle:** the snowman is only *hidden*
+   (step 1), so its geometry/material must survive. A bare `part.clone()` is **not safe** —
+   Three.js `Object3D.clone()` *shares* the source `geometry`/`material` by reference, so
+   disposing the fragment in `reset()` (§7.5) would dispose the still-hidden snowman's
+   originals and the next run would re-show it with freed buffers. Pick one of:
+   - **(preferred) generic fragment assets** — spawn a small pool of generic snow-ball
+     chunks from geometry/materials the debris system *owns* and creates once, sized/tinted
+     from the part. Nothing references the snowman's assets, so disposal is unambiguous and
+     the three balls cracking into 2–3 chunks each falls out naturally.
+   - **owned clones** — if a fragment must mirror a distinctive part (hat/nose/arms), clone
+     with explicit ownership: `mesh = new THREE.Mesh(part.geometry.clone(), part.material.clone())`
+     (clone-the-mesh alone is insufficient). Track these as "owned" so `reset()` disposes
+     only them.
+
+   Either way, tag each fragment's geometry/material as debris-owned (e.g. push into an
+   `ownedResources` set) so `reset()` disposes **exactly** what the debris system created
+   and never anything still wired to the snowman. Give each fragment:
    - initial velocity = inherited snowman `velocity` (×~0.6) **+** an outward radial
      burst (`6–11` u/s) **+** an upward pop (`4–8` u/s), scaled by impact speed;
    - a random angular velocity (`THREE.Vector3`) for tumbling;
@@ -326,9 +350,12 @@ renders via a small callback the orchestrator hands in (it already owns `rendere
 ### 7.5 `reset()`
 
 Mirror `AvalancheSystem.reset()`: remove every fragment + puff sprite from the scene,
-`geometry.dispose()` / `material.dispose()` on anything we cloned, clear arrays, stop the
-private rAF, and set `snowman.visible = true`. Called from both `resetSnowman()` and
-`restartGame()` so a new run always starts from a clean, visible snowman.
+then `geometry.dispose()` / `material.dispose()` **only on debris-owned resources** (the
+`ownedResources` set from §7.2 — never the snowman's shared geometry/material, or the
+re-shown snowman would render with freed buffers), clear arrays, stop the private rAF, and
+set `snowman.visible = true`. Called from both `resetSnowman()` and `restartGame()` so a
+new run always starts from a clean, visible snowman. The repeated crash→restart heap-leak
+check in §11 is what guards this.
 
 ---
 
@@ -377,7 +404,7 @@ already runs in `showGameOver`; the debris is independent of it.
 |-------|------|-------|
 | **Physics invariant** | Unchanged — assert no regression. Because the kernel is untouched, `npm run test:verify` must stay green **without** regenerating `snowman_baseline.js`. This is itself the proof that flex/shatter didn't leak into physics. | `tests/verification/physics_invariant_harness.js` (run, don't edit) |
 | **DOM smoke** | `createSnowman` still builds; assert the new `userData.parts` registry exists. (The `scarf`-present assertion is added by PR C.) | `tests/verification/dom_smoke_test.js` (extend) |
-| **Debris unit** | Headless with a mocked `THREE` + deterministic terrain fn: `shatter()` spawns N fragments and hides the snowman; `update(dt)` applies gravity and converges (fragments rest at/above terrain, loop returns false within ~2.5 s); `reset()` disposes and re-shows. Mirror the existing `avalanche-tests.js` harness. | new `tests/debris-tests.js` + `npm` script |
+| **Debris unit** | Headless with a mocked `THREE` + deterministic terrain fn: `shatter()` spawns N fragments and hides the snowman; `update(dt)` applies gravity and converges (fragments rest at/above terrain, loop returns false within ~2.5 s); `reset()` disposes **only debris-owned** geometry/material and re-shows the snowman with its original assets intact (assert the snowman's geometry/material were NOT disposed across a shatter→reset cycle). Mirror the existing `avalanche-tests.js` harness. | new `tests/debris-tests.js` + `npm` script |
 | **Flex unit** | `Flex.update` only mutates child transforms and is bounded (clamped lean, returns to base when idle / reduced-motion); `Flex.reset` restores base transforms exactly. | new `tests/snowman-flex-tests.js` |
 | **Browser** | Force a tree collision (existing `window.testHooks.forceTreeCollision`) and assert `snowman.visible === false` + debris active immediately after; assert restart re-shows the snowman. | extend `tests/browser-tests.js` |
 | **E2E** | Reuse the reset spec's "coast → crash" but assert the wipeout doesn't block `#resetBtn` (debris must not cover the button; keep overlay z-order intact). Watch the known reset-flake (see memory `e2e-reset-flake-overlay`). | `tests/e2e/` |
@@ -404,8 +431,10 @@ needs **no** change (kernel untouched) — explicitly note that in the PR descri
 - [ ] `npm run test:verify` green with **no** `snowman_baseline.js` change → proves the
       physics kernel is untouched (the load-bearing invariant).
 - [ ] Finish flow visually unchanged (no shatter on `"You reached the end of the slope!"`).
-- [ ] Every cloned geometry/material disposed on `reset()`; no leak across repeated
-      crash→restart cycles (watch heap in the browser test).
+- [ ] `reset()` disposes only debris-**owned** geometry/material (the `ownedResources`
+      set), never the snowman's shared assets; after a crash→restart the re-shown snowman
+      still renders (no freed-buffer artifacts). No leak across repeated crash→restart
+      cycles (watch heap in the browser test).
 - [ ] Debris does **not** render over `#resetBtn` / `#gameOverOverlay` interactive
       elements (guards the known e2e reset flake).
 - [ ] Test mode / `_testShowGameOverOverride` path skips shatter entirely.
@@ -436,9 +465,10 @@ wipeout work first, and quarantines the fiddly scarf so it can't hold them up.
 
 1. **Overlay timing** — delay the crash overlay ~700 ms so the wipeout is visible (§7.4),
    or keep the overlay immediate and accept a dimmed shatter? (Recommend the short delay.)
-2. **Fragment fidelity** — clone the actual parts (hat, nose, arms read clearly) vs.
-   generic snow-ball chunks (cheaper, more uniform)? (Recommend cloning the distinctive
-   parts + cracking the 3 balls into chunks.)
+2. **Fragment fidelity** — owned clones of the distinctive parts (hat, nose, arms read
+   clearly; clone with `geometry.clone()`/`material.clone()` so disposal is safe — §7.2)
+   vs. generic snow-ball chunks (cheaper, uniform, trivially debris-owned)? (Recommend
+   owned clones for the distinctive parts + generic chunks for the 3 balls.)
 3. **Scope of #53** — close #53 once A+B+C land, or close with A+B (flex + wipeout) and
    track the scarf (PR C) + further polish (snowballing-downhill after wipeout,
    celebratory finish animation) as follow-ups? The scarf is now explicitly a follow-up,
