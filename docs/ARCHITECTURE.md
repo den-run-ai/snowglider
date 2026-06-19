@@ -210,10 +210,14 @@ camera.position -= shake                          // revert so smoothing stays c
 > `publishGameGlobals()` proxy set stay in the coordinator. Extracted so far:
 > **`src/ui/collapsible-panel.ts`** (the shared collapse / resize / horizontal-swipe
 > behavior for the Game Stats and Game Controls panels, previously duplicated across
-> `initializeGameStats()` and `initializeControlsToggle()`) and **`src/ui/hud.ts`**
+> `initializeGameStats()` and `initializeControlsToggle()`), **`src/ui/hud.ts`**
 > (the Game Stats / Controls panel init plus the per-frame speed/position/technique
-> readouts and the live run timer). The coordinator passes the run state into these
-> as parameters rather than letting them reach back into its bindings.
+> readouts and the live run timer), and **`src/ui/result-overlay.ts`** (score-time
+> validation, the best-time / leaderboard / login-prompt game-over screen, and
+> `CourseModule.onFinish` — `createShowGameOver(deps)` returns the `showGameOver`
+> the coordinator still publishes on `window`). The coordinator passes the run state
+> and the overlay DOM nodes into these as parameters rather than letting them reach
+> back into its bindings.
 
 ---
 

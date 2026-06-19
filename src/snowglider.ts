@@ -40,6 +40,7 @@ import { Sky } from './sky.js';
 import type { RockPosition } from './mountains.js';
 import type { TreePosition } from './trees.js';
 import { initializeGameStats, initializeControlsToggle, updateStatsHud, updateTimerDisplay } from './ui/hud.js';
+import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();
@@ -309,37 +310,8 @@ const player = Physics.createPlayerState(Snow.getTerrainHeight);
 const pos = player.pos;
 const velocity = player.velocity;
 
-// Add timer and best time tracking (state.startTime / state.bestTime)
-const MIN_VALID_SCORE_TIME = 4;
-const MAX_VALID_SCORE_TIME = 600;
-
-function isValidScoreTime(time: number) {
-  if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
-    return window.ScoresModule.isValidScoreTime(time);
-  }
-  return typeof time === 'number' &&
-    Number.isFinite(time) &&
-    time >= MIN_VALID_SCORE_TIME &&
-    time <= MAX_VALID_SCORE_TIME;
-}
-
-function readStoredBestTime() {
-  const storedBestTime = localStorage.getItem('snowgliderBestTime');
-  if (!storedBestTime) {
-    return Infinity;
-  }
-
-  const parsedBestTime = parseFloat(storedBestTime);
-  if (isValidScoreTime(parsedBestTime)) {
-    return parsedBestTime;
-  }
-
-  console.warn("Ignoring invalid stored best time:", storedBestTime);
-  localStorage.removeItem('snowgliderBestTime');
-  return Infinity;
-}
-
 // Persisted best loaded once at module eval (may prune an invalid stored entry).
+// Score-time validation + best-time persistence live in ui/result-overlay.ts.
 state.bestTime = readStoredBestTime();
 
 // Initialize the stats display when DOM is loaded
@@ -583,193 +555,17 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-function getSignedInUser() {
-  const authModule = window.AuthModule;
-  if (!authModule) {
-    return null;
-  }
-
-  try {
-    return authModule.getCurrentUser?.() || authModule.getAuthState?.()?.user || null;
-  } catch (error) {
-    console.warn("Unable to read auth state:", error);
-    return null;
-  }
-}
-
-function removeLoginPrompt() {
-  const loginPrompt = document.getElementById('loginPrompt');
-  if (loginPrompt) {
-    loginPrompt.remove();
-  }
-}
-
-// Add these functions for game over handling
-// Expose showGameOver on window for test mocking
-function showGameOver(reason: string) {
-  // Allow tests to intercept showGameOver calls
-  if (window._testShowGameOverOverride) {
-    window._testShowGameOverOverride(reason);
-    return;
-  }
-  state.gameActive = false;
-
-  // Capture the best time BEFORE the finish branch updates it, so the result
-  // screen can report the delta and whether this run set a new record.
-  const previousBest = state.bestTime;
-
-  // Measure the finish elapsed ONCE and reuse it for both the best-time/score path
-  // and CourseModule.onFinish(). Otherwise a second performance.now() taken after the
-  // DOM/localStorage/score work could read later: a sub-millisecond personal best
-  // would be saved as a new record while the course screen sees elapsed >= previousBest,
-  // skips persisting the new ghost/splits, and shows a time that disagrees with the score.
-  const finishTime = (performance.now() - state.startTime) / 1000;
-  const hasValidFinishTime = isValidScoreTime(finishTime);
-
-  // Remove game-active class from body for styling
-  document.body.classList.remove('game-active');
-  
-  gameOverDetail.textContent = reason;
-  removeLoginPrompt();
-
-  // TODO: AUDIO DISABLED - Pause audio on game over (will be no-op if disabled)
-  if (AudioModule) {
-    AudioModule.enableSound(false);
-  }
-  
-  // Hide or collapse game stats container on game over
-  const gameStatsContainer = document.getElementById('gameStatsContainer');
-  if (gameStatsContainer) {
-    // Option 1: Collapse the stats
-    gameStatsContainer.classList.add('collapsed');
-    const toggleBtn = document.getElementById('toggleStats');
-    if (toggleBtn) {
-      toggleBtn.textContent = '▼';
-    }
-    
-    // Option 2 (alternative): Hide the stats completely
-    // gameStatsContainer.style.display = 'none';
-  }
-  
-  // Only update times if player reached the end successfully
-  if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
-    const currentTime = finishTime;
-    const isNewBestTime = currentTime < state.bestTime;
-    const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
-
-    // Record the score whenever the leaderboard API is available (it handles its own
-    // auth + persistence); otherwise fall back to persisting a new local best.
-    if (canRecordScore) {
-      window.AuthModule.recordScore(currentTime);
-    } else if (isNewBestTime) {
-      localStorage.setItem('snowgliderBestTime', String(currentTime));
-    }
-
-    // Show appropriate message based on time
-    if (isNewBestTime) {
-      state.bestTime = currentTime;
-      bestTimeDisplay.textContent = `New Best Time: ${state.bestTime.toFixed(2)}s`;
-      bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
-
-      // Update the best time in the game stats window too
-      const bestTimeElement = document.getElementById('bestTimeValue');
-      if (bestTimeElement) {
-        bestTimeElement.textContent = `${state.bestTime.toFixed(2)}s`;
-        bestTimeElement.style.color = '#ffff00'; // Highlight new record
-      }
-    } else {
-      bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${state.bestTime.toFixed(2)}s)`;
-      bestTimeDisplay.style.color = 'white';
-    }
-    
-    // Show login prompt if not logged in
-    if (!getSignedInUser()) {
-      const loginPrompt = document.createElement('p');
-      loginPrompt.textContent = 'Log in to save your score and see the leaderboard!';
-      loginPrompt.style.color = '#4285F4';
-      loginPrompt.style.fontStyle = 'italic';
-      loginPrompt.style.margin = '10px 0';
-      
-      // Insert before restart button
-      if (!document.getElementById('loginPrompt')) {
-        loginPrompt.id = 'loginPrompt';
-        gameOverOverlay.insertBefore(loginPrompt, restartButton);
-      }
-    }
-    
-    // Track successful run in Analytics
-    try {
-      // Only try to use analytics when properly initialized with modular SDK
-      if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-        // Using the direct logEvent function
-        window.firebaseModules.logEvent('complete_game', {
-          time: currentTime
-        });
-      }
-    } catch (e) {
-      console.log("Analytics tracking skipped:", (e as Error).message);
-    }
-  } else if (reason === "You reached the end of the slope!") {
-    console.warn("Finish reached with invalid elapsed time; score not recorded:", finishTime);
-    bestTimeDisplay.textContent = state.bestTime !== Infinity ?
-      `Best Time: ${state.bestTime.toFixed(2)}s` :
-      'No best time yet';
-    bestTimeDisplay.style.color = 'white';
-  } else {
-    // For failures (tree collision, falling, etc.), don't record or update best time
-    bestTimeDisplay.textContent = state.bestTime !== Infinity ? `Best Time: ${state.bestTime.toFixed(2)}s` : 'No best time yet';
-    bestTimeDisplay.style.color = 'white';
-    
-    // Track game over reason in Analytics
-    try {
-      // Only try to use analytics when properly initialized with modular SDK
-      if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-        // Using the direct logEvent function
-        window.firebaseModules.logEvent('game_over', {
-          reason: reason
-        });
-      }
-    } catch (e) {
-      console.log("Analytics tracking skipped:", (e as Error).message);
-    }
-  }
-  
-  // Get leaderboard if user is logged in
-  if (getSignedInUser()) {
-    // Get the leaderboard element
-    const leaderboardElement = document.getElementById('leaderboard');
-    
-    // Add to game over overlay if not already there
-    if (leaderboardElement && leaderboardElement.parentNode !== gameOverOverlay) {
-      gameOverOverlay.insertBefore(leaderboardElement, restartButton);
-      leaderboardElement.style.display = 'block';
-    }
-    
-    // Display leaderboard
-    window.AuthModule.displayLeaderboard();
-  }
-  
-  // Build the result screen (splits + medal) on a finish; otherwise just clear
-  // the live HUD/effects. The panel is inserted above the restart button.
-  if (CourseModule) {
-    const staleResult = document.getElementById('courseResult');
-    if (staleResult && staleResult.parentNode) staleResult.parentNode.removeChild(staleResult);
-    
-    if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
-      try {
-        const panel = CourseModule.onFinish(finishTime, previousBest);
-        if (panel) gameOverOverlay.insertBefore(panel, restartButton);
-      } catch (e) {
-        console.warn("Result screen failed:", (e as Error).message);
-      }
-    } else {
-      CourseModule.hideHud();
-    }
-  }
-  if (EffectsModule) EffectsModule.reset();
-  
-  gameOverOverlay.style.display = 'flex';
-}
+// Game-over / finish handling lives in ui/result-overlay.ts; the coordinator injects
+// the run state and the overlay DOM nodes it still owns. Bound as a `const` here so
+// it exists before the eager Snowman.addTestHooks(...) / window.showGameOver wiring
+// below uses it.
+const showGameOver = createShowGameOver({
+  state,
+  gameOverOverlay,
+  gameOverDetail,
+  restartButton,
+  bestTimeDisplay,
+});
 
 function restartGame() {
   gameOverOverlay.style.display = 'none';
