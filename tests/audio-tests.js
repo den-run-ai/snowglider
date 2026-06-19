@@ -218,6 +218,28 @@ import { AudioModule } from '../src/audio.js';
           'Button Icon',
           `Button shows correct icon: ${btn.textContent}`
         );
+
+        // Regression: on mobile the game's document-level touchstart handler
+        // calls preventDefault(), suppressing the synthesized click — so the
+        // button must respond to a real touch (touchend) too, not just click.
+        let touchEvt;
+        try {
+          touchEvt = new TouchEvent('touchend', { bubbles: true, cancelable: true });
+        } catch (e) {
+          // Some engines can't construct TouchEvent; fall back to a generic event
+          // that still triggers the same listener.
+          touchEvt = new Event('touchend', { bubbles: true, cancelable: true });
+        }
+        const before = AudioModule.getStatus().muted;
+        btn.dispatchEvent(touchEvt);
+        const afterTouch = AudioModule.getStatus().muted;
+        assert(
+          afterTouch !== before,
+          'Button Touch Toggles Mute',
+          `touchend on button changed muted ${before} -> ${afterTouch}`
+        );
+        // Restore prior state.
+        AudioModule.toggleMute();
       }
     }
     
