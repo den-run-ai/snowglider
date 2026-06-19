@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { gotoGame, startGame, getPos, getControls, waitForDownhillTravel } from './helpers';
 
 // Step 2 — real user-flow E2E. These drive the actual game through the menu and

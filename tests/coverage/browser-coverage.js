@@ -70,9 +70,61 @@ function extractInlineSourceMap(source) {
 }
 
 /**
- * Stop coverage on a page and fold every `src/` entry into `coverageMap`
- * (an `istanbul-lib-coverage` CoverageMap). Safe to call for multiple pages so a
- * single browser session can aggregate coverage across them.
+ * Engine-agnostic V8 → Istanbul fold for a single served-module coverage entry.
+ *
+ * Both Puppeteer and Playwright hand back raw V8 `FunctionCoverage[]` plus the
+ * served source text; they only name the fields differently (Puppeteer:
+ * `entry.text` + `entry.rawScriptCoverage.functions`; Playwright: `entry.source`
+ * + `entry.functions`). Callers normalize to this `{ url, source, functions }`
+ * shape so the conversion/attribution lives in exactly one place.
+ *
+ * Non-`/src/` URLs, sourceless entries, and malformed function arrays are dropped
+ * silently (returns false); conversion failures are warned and swallowed so one
+ * bad module never aborts a whole run.
+ *
+ * @param {import('istanbul-lib-coverage').CoverageMap} coverageMap
+ * @param {string} root absolute repo root used to resolve `/src/...` URLs
+ * @param {{ url: string, source?: string, functions?: any[] }} entry
+ * @returns {Promise<boolean>} whether the entry contributed coverage
+ */
+async function foldV8Entry(coverageMap, root, entry) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(entry.url).pathname);
+  } catch {
+    return false;
+  }
+  if (!SRC_URL_RE.test(pathname)) return false;
+  if (typeof entry.source !== 'string' || !Array.isArray(entry.functions)) return false;
+
+  const relative = pathname.replace(/^\//, '');
+  const scriptPath = path.resolve(root, relative);
+  const sourcemap = extractInlineSourceMap(entry.source);
+
+  try {
+    // wrapperLength 0: browser ES modules are not CJS-wrapped, so V8 offsets
+    // index the served source directly.
+    const converter = v8toIstanbul(scriptPath, 0, {
+      source: entry.source,
+      sourceMap: sourcemap ? { sourcemap } : undefined
+    });
+    await converter.load();
+    converter.applyCoverage(entry.functions);
+    // Identical instrumentation per file (same source + map), so Istanbul-level
+    // merge across duplicate URL queries for one module is safe here.
+    coverageMap.merge(libCoverage.createCoverageMap(converter.toIstanbul()));
+    converter.destroy();
+    return true;
+  } catch (err) {
+    console.warn(`Browser coverage: skipped ${relative} (${err.message})`);
+    return false;
+  }
+}
+
+/**
+ * Stop coverage on a Puppeteer page and fold every `src/` entry into
+ * `coverageMap` (an `istanbul-lib-coverage` CoverageMap). Safe to call for
+ * multiple pages so a single browser session can aggregate coverage across them.
  *
  * @param {import('puppeteer').Page} page
  * @param {import('istanbul-lib-coverage').CoverageMap} coverageMap
@@ -82,35 +134,12 @@ async function foldPageCoverage(page, coverageMap, root) {
   const entries = await page.coverage.stopJSCoverage();
 
   for (const entry of entries) {
-    let pathname;
-    try {
-      pathname = decodeURIComponent(new URL(entry.url).pathname);
-    } catch {
-      continue;
-    }
-    if (!SRC_URL_RE.test(pathname)) continue;
-    if (!entry.rawScriptCoverage || !Array.isArray(entry.rawScriptCoverage.functions)) continue;
-
-    const relative = pathname.replace(/^\//, '');
-    const scriptPath = path.resolve(root, relative);
-    const sourcemap = extractInlineSourceMap(entry.text);
-
-    try {
-      // wrapperLength 0: browser ES modules are not CJS-wrapped, so V8 offsets
-      // index the served source directly.
-      const converter = v8toIstanbul(scriptPath, 0, {
-        source: entry.text,
-        sourceMap: sourcemap ? { sourcemap } : undefined
-      });
-      await converter.load();
-      converter.applyCoverage(entry.rawScriptCoverage.functions);
-      // Identical instrumentation per file (same source + map), so Istanbul-level
-      // merge across duplicate URL queries for one module is safe here.
-      coverageMap.merge(libCoverage.createCoverageMap(converter.toIstanbul()));
-      converter.destroy();
-    } catch (err) {
-      console.warn(`Browser coverage: skipped ${relative} (${err.message})`);
-    }
+    const raw = entry.rawScriptCoverage;
+    await foldV8Entry(coverageMap, root, {
+      url: entry.url,
+      source: entry.text,
+      functions: raw && raw.functions
+    });
   }
 }
 
@@ -131,7 +160,9 @@ function writeBrowserReports(coverageMap, outDir) {
 module.exports = {
   startBrowserCoverage,
   foldPageCoverage,
+  foldV8Entry,
   writeBrowserReports,
   extractInlineSourceMap,
+  SRC_URL_RE,
   createCoverageMap: () => libCoverage.createCoverageMap({})
 };

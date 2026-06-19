@@ -10,10 +10,15 @@ import { defineConfig, devices } from '@playwright/test';
 // replacement). It exists for the things the Puppeteer/in-page `?test=` runner
 // can't reach: cross-browser engines (WebKit ≈ Safari), real menu+input user
 // flows, and emulated mobile touch. The Puppeteer runner keeps owning the unified
-// in-page suites and the honest-coverage pipeline; this never touches coverage.
+// in-page suites and the primary honest-coverage pipeline.
 //
 // It reuses the same Vite dev server the Puppeteer runner does, on a dedicated
 // port so the two can run side by side. Specs live in tests/e2e/.
+//
+// Coverage is opt-in and additive: with E2E_COVERAGE=1 the auto fixture in
+// tests/e2e/fixtures.ts collects Chromium V8 coverage and globalTeardown folds it
+// into coverage/e2e/lcov.info (issue #133). Unset (the default), it is a no-op and
+// the e2e run is unchanged.
 
 const PORT = Number(process.env.E2E_PORT || 8082);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
@@ -22,6 +27,8 @@ export default defineConfig({
   testDir: './tests/e2e',
   // Keep Playwright's failure artifacts under the already-gitignored test-results/.
   outputDir: './test-results/playwright',
+  // Folds any E2E_COVERAGE shards into coverage/e2e/lcov.info; no-op otherwise.
+  globalTeardown: './tests/e2e/global-teardown.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

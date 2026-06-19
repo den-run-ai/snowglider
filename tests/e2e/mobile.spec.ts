@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { gotoGame, startGame, getControls } from './helpers';
 
 // Step 3 — mobile touch + viewport E2E. Runs on an emulated iPhone (WebKit). The

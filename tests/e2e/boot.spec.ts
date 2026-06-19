@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 // Step 1 — cross-browser boot smoke. Runs on chromium + webkit (the closest CI
 // proxy for Safari). Nothing in the repo ran on the Safari engine before, so the

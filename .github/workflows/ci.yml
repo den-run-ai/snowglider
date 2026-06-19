@@ -100,8 +100,11 @@ jobs:
     name: Playwright E2E (cross-browser)
     runs-on: ubuntu-latest
     # Additive cross-browser/Safari + mobile-touch layer alongside the Puppeteer
-    # suite (which still owns the in-page suites + coverage). Runs independently of
-    # `test`; it does NOT gate the Pages deploy (build-pages only needs `test`).
+    # suite (which still owns the in-page suites + the primary coverage pipeline).
+    # Runs independently of `test`; it does NOT gate the Pages deploy (build-pages
+    # only needs `test`). E2E_COVERAGE makes the chromium project also emit V8
+    # coverage (coverage/e2e/lcov.info), uploaded to Codecov under the `e2e` flag so
+    # it is combined server-side without threading a file across jobs (issue #133).
     #
     # Runs inside the official Playwright image so the version-matched chromium +
     # webkit AND their ~180 OS packages are pre-baked. This removes the
@@ -134,6 +137,9 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+          # Collect Chromium V8 coverage during the e2e run; globalTeardown writes
+          # coverage/e2e/lcov.info. WebKit/mobile projects skip collection.
+          E2E_COVERAGE: '1'
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
@@ -142,6 +148,17 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+      - name: Upload e2e coverage to Codecov
+        uses: codecov/codecov-action@v7
+        # globalTeardown runs even when specs fail, so upload whatever coverage the
+        # chromium run produced. No-op when the file is absent (flag unset / nothing
+        # covered). Its own `e2e` flag keeps it additive to the `test` job's upload.
+        if: ${{ always() && hashFiles('coverage/e2e/lcov.info') != '' }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/e2e/lcov.info
+          flags: e2e
 
   build-pages:
     name: Build GitHub Pages artifact
