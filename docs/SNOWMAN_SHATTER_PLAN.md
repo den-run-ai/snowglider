@@ -147,10 +147,14 @@ At the end of `createSnowman`, alongside the existing ski refs, register every a
 
 ```ts
 // Cosmetic part registry — consumed by snowman-flex.ts (jiggle) and debris.ts (shatter).
-// INVARIANT: every value here is a renderable Object3D. The shatter path iterates this
-// object and reads each value's world transform / geometry / material, so it must never
-// contain a non-renderable entry (snapshots, flags, counters). Storing meshes (not
-// indices) keeps both modules decoupled from child order.
+// INVARIANT: every value here is a renderable Object3D — but NOT necessarily a Mesh.
+// leftArmGroup/rightArmGroup (and the PR-C scarfTail) are THREE.Group (createBranchArm()
+// returns a Group, src/snowman.ts:157), which have no .geometry/.material. So the shatter
+// loop MUST branch on type (§7.2): own-clone a Mesh's geometry/material directly, but for
+// a Group traverse to its child meshes (or spawn a generic chunk at the group's world
+// transform). The registry must still never hold a non-renderable entry (snapshots, flags,
+// counters) — that's why base transforms live in the separate partBaseTransforms map below.
+// Storing Object3Ds (not indices) keeps both modules decoupled from child order.
 group.userData.parts = {
   bottom, middle, head,            // the three snow balls
   leftEye, rightEye, nose,
@@ -218,7 +222,7 @@ amount of state (jiggle phase, settle spring) on `snowman.userData.flex`.
 export interface FlexMotion {
   speed: number;        // currentSpeed from UpdateResult
   technique: string;    // 'carve' | 'skid' | 'tuck' | … (for lean styling)
-  turnRate: number;     // signed: velocity.x / speed, drives lean (+ scarf swing in PR C)
+  turnRate: number;     // signed, zero-speed-guarded (0 when speed≈0), drives lean (+ scarf swing in PR C)
   justLanded: boolean;  // landingForce > threshold → settle bounce
   landingForce: number;
   isInAir: boolean;
@@ -250,6 +254,11 @@ reset cleanly):
 
 **Reduced motion:** `Flex.update` early-returns to base transforms (no jiggle/lean), so
 the snowman is simply rigid — identical silhouette, no motion.
+
+**Robustness:** `Flex.update` must stay finite on a zero-speed/zero-delta first frame —
+it treats `turnRate` as `0` when `speed ≈ 0` (§8) and clamps every output, so a `0/0`
+can never write a NaN rotation/scale onto the snowman. The flex-unit test asserts finite
+transforms for a `{ speed: 0 }` motion input.
 
 **Why a separate module, not inside `updateSnowman`:** keeps the physics kernel and its
 frozen baseline byte-identical (§3.1), and keeps R3's planned `snowman/pose.ts` split
@@ -291,10 +300,16 @@ export class SnowmanDebris {
      chunks from geometry/materials the debris system *owns* and creates once, sized/tinted
      from the part. Nothing references the snowman's assets, so disposal is unambiguous and
      the three balls cracking into 2–3 chunks each falls out naturally.
-   - **owned clones** — if a fragment must mirror a distinctive part (hat/nose/arms), clone
-     with explicit ownership: `mesh = new THREE.Mesh(part.geometry.clone(), part.material.clone())`
-     (clone-the-mesh alone is insufficient). Track these as "owned" so `reset()` disposes
-     only them.
+   - **owned clones** — if a fragment must mirror a distinctive *mesh* part (hat, nose,
+     buttons, eyes), clone with explicit ownership:
+     `mesh = new THREE.Mesh(part.geometry.clone(), part.material.clone())` (cloning the mesh
+     alone is insufficient — it keeps the shared buffers). Track these as "owned" so
+     `reset()` disposes only them.
+   - **Group parts** — `leftArmGroup`/`rightArmGroup` (and the PR-C `scarfTail`) are
+     `THREE.Group`s with **no `.geometry`/`.material`**, so a blind `part.geometry.clone()`
+     would throw or skip the arms. The loop must branch on `part.isMesh`: for a Group,
+     either traverse it and own-clone each child mesh into one fragment group, or (simpler)
+     spawn a single generic stick/snow chunk at the group's **world** transform.
 
    Either way, tag each fragment's geometry/material as debris-owned (e.g. push into an
    `ownedResources` set) so `reset()` disposes **exactly** what the debris system created
@@ -369,7 +384,11 @@ Minimal, localized edits:
 2. **Per frame**, after the existing `updateSnowman(delta)` + splash, call
    `Flex.update(snowman, delta, motionFromUpdateResult)`. (The wrapper already has the
    `UpdateResult` in scope — `player`/the return value — so `speed`, `technique`,
-   `justLanded`, `landingForce`, `isInAir` are in hand; `turnRate = velocity.x / speed`.)
+   `justLanded`, `landingForce`, `isInAir` are in hand.) Derive turn rate with a
+   **zero-speed guard**: `turnRate = speed > 1e-3 ? velocity.x / speed : 0`. On the first
+   frame after start/restart `speed` can be `0` (and `delta` `0`), so an unguarded
+   `velocity.x / speed` is `0/0 = NaN`; that NaN would flow into the lean/scarf rotations
+   and scales and corrupt the visible snowman until the next reset.
 3. **In `showGameOver(reason)`**, *after* the `_testShowGameOverOverride` early return and
    setting `gameActive = false`, add a crash branch:
 
@@ -405,7 +424,7 @@ already runs in `showGameOver`; the debris is independent of it.
 | **Physics invariant** | Unchanged — assert no regression. Because the kernel is untouched, `npm run test:verify` must stay green **without** regenerating `snowman_baseline.js`. This is itself the proof that flex/shatter didn't leak into physics. | `tests/verification/physics_invariant_harness.js` (run, don't edit) |
 | **DOM smoke** | `createSnowman` still builds; assert the new `userData.parts` registry exists. (The `scarf`-present assertion is added by PR C.) | `tests/verification/dom_smoke_test.js` (extend) |
 | **Debris unit** | Headless with a mocked `THREE` + deterministic terrain fn: `shatter()` spawns N fragments and hides the snowman; `update(dt)` applies gravity and converges (fragments rest at/above terrain, loop returns false within ~2.5 s); `reset()` disposes **only debris-owned** geometry/material and re-shows the snowman with its original assets intact (assert the snowman's geometry/material were NOT disposed across a shatter→reset cycle). Mirror the existing `avalanche-tests.js` harness. | new `tests/debris-tests.js` + `npm` script |
-| **Flex unit** | `Flex.update` only mutates child transforms and is bounded (clamped lean, returns to base when idle / reduced-motion); `Flex.reset` restores base transforms exactly. | new `tests/snowman-flex-tests.js` |
+| **Flex unit** | `Flex.update` only mutates child transforms and is bounded (clamped lean, returns to base when idle / reduced-motion); stays **finite** for a `{ speed: 0, delta: 0 }` frame (no NaN); `Flex.reset` restores base transforms exactly. | new `tests/snowman-flex-tests.js` |
 | **Browser** | Force a tree collision (existing `window.testHooks.forceTreeCollision`) and assert `snowman.visible === false` + debris active immediately after; assert restart re-shows the snowman. | extend `tests/browser-tests.js` |
 | **E2E** | Reuse the reset spec's "coast → crash" but assert the wipeout doesn't block `#resetBtn` (debris must not cover the button; keep overlay z-order intact). Watch the known reset-flake (see memory `e2e-reset-flake-overlay`). | `tests/e2e/` |
 
@@ -438,6 +457,10 @@ needs **no** change (kernel untouched) — explicitly note that in the PR descri
 - [ ] Debris does **not** render over `#resetBtn` / `#gameOverOverlay` interactive
       elements (guards the known e2e reset flake).
 - [ ] Test mode / `_testShowGameOverOverride` path skips shatter entirely.
+- [ ] Shatter loop branches on `part.isMesh` — Group parts (arms, PR-C scarf tail) are
+      traversed or replaced with a generic chunk, never `part.geometry.clone()`'d directly.
+- [ ] `Flex.update` is NaN-safe on a zero-speed/zero-delta frame (epsilon-guarded
+      `turnRate`, clamped outputs); no NaN rotation/scale ever reaches the snowman.
 - [ ] No new `window.*` per-module bridge; modules `import` directly and are imported by
       `main.ts`.
 - [ ] *(PR C only)* Scarf doesn't alter collision radius, spawn pose, or terrain tests.
@@ -465,10 +488,12 @@ wipeout work first, and quarantines the fiddly scarf so it can't hold them up.
 
 1. **Overlay timing** — delay the crash overlay ~700 ms so the wipeout is visible (§7.4),
    or keep the overlay immediate and accept a dimmed shatter? (Recommend the short delay.)
-2. **Fragment fidelity** — owned clones of the distinctive parts (hat, nose, arms read
+2. **Fragment fidelity** — owned clones of the distinctive *mesh* parts (hat, nose read
    clearly; clone with `geometry.clone()`/`material.clone()` so disposal is safe — §7.2)
-   vs. generic snow-ball chunks (cheaper, uniform, trivially debris-owned)? (Recommend
-   owned clones for the distinctive parts + generic chunks for the 3 balls.)
+   vs. generic snow-ball chunks (cheaper, uniform, trivially debris-owned)? Note the arms
+   are `THREE.Group`s, so "fidelity" there means traversing/cloning their child meshes
+   (§7.2 Group-parts bullet), not a single `geometry.clone()`. (Recommend owned clones for
+   the distinctive mesh parts + generic chunks for the 3 balls and the arms.)
 3. **Scope of #53** — close #53 once A+B+C land, or close with A+B (flex + wipeout) and
    track the scarf (PR C) + further polish (snowballing-downhill after wipeout,
    celebratory finish animation) as follow-ups? The scarf is now explicitly a follow-up,
