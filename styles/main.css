@@ -580,17 +580,55 @@ canvas { display: block; }
 #profileUI {
   display: none;
   align-items: center;
+  gap: 8px;
   color: white;
 }
-#profileAvatar {
+/* Account chip: avatar + name, rendered as a borderless button. */
+#profileChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: white;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+/* In guest mode the chip is interactive (unfolds the upgrade options). */
+#profileUI.guest #profileChip {
+  cursor: pointer;
+}
+#profileUI.guest #profileChip::after {
+  content: '▾';
+  font-size: 10px;
+  opacity: 0.85;
+}
+#profileUI.guest.expanded #profileChip::after {
+  content: '▴';
+}
+/* Generated avatar: a colored circle with initials or a glyph (background-color +
+   text are set inline by renderAvatar; a real photo is set as background-image). */
+#profileAvatar,
+.avatar {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  flex: 0 0 auto;
+  user-select: none;
 }
 #profileName {
   font-size: 14px;
-  margin-right: 8px;
   max-width: 90px; /* Prevent long names from causing overflow */
   overflow: hidden;
   text-overflow: ellipsis;

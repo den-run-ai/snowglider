@@ -162,10 +162,11 @@
   <div id="authContainer">
     <div id="authUI">
       <!--
-        Provider buttons. GitHub/Apple only work once their providers are enabled
-        in the Firebase console (GitHub OAuth app; Apple Service ID). auth.ts wires
-        each by id and skips any that are absent, so buttons can ship ahead of the
-        server-side config without breaking sign-in.
+        Provider buttons. auth.ts wires each by id and skips any that are absent,
+        so buttons can ship ahead of (or behind) the server-side Firebase config.
+        Apple is intentionally omitted until its Service ID is configured — re-add
+        <button id="appleLoginBtn" class="provider-btn provider-apple"><span>Sign in with Apple</span></button>
+        once enabled and auth.ts will pick it up (PROVIDER_BUTTONS already lists it).
       -->
       <button id="loginBtn" class="provider-btn provider-google">
         <span>Login with Google</span>
@@ -173,16 +174,18 @@
       <button id="githubLoginBtn" class="provider-btn provider-github">
         <span>Login with GitHub</span>
       </button>
-      <button id="appleLoginBtn" class="provider-btn provider-apple">
-        <span>Sign in with Apple</span>
-      </button>
       <button id="guestLoginBtn" class="provider-btn provider-guest">
         <span>Play as Guest</span>
       </button>
     </div>
     <div id="profileUI">
-      <img id="profileAvatar" src="" alt="Profile">
-      <span id="profileName"></span>
+      <!-- Compact account chip. The avatar is generated (random color + initials or
+           a snow glyph) when there's no provider photo. For guests, clicking the chip
+           unfolds #authUI to reveal the "sign in to save" upgrade options. -->
+      <button id="profileChip" type="button" title="Account">
+        <span id="profileAvatar" class="avatar"></span>
+        <span id="profileName"></span>
+      </button>
       <button id="logoutBtn">Logout</button>
     </div>
   </div>

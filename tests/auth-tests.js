@@ -21,7 +21,7 @@ const dom = new JSDOM(`<!doctype html><html><body>
     <button id="guestLoginBtn">Play as Guest</button>
   </div>
   <div id="profileUI" style="display:none">
-    <img id="profileAvatar" src=""><span id="profileName"></span>
+    <button id="profileChip"><span id="profileAvatar" class="avatar"></span><span id="profileName"></span></button>
     <button id="logoutBtn">Logout</button>
   </div>
 </body></html>`, { url: 'https://snowglider.ai/' });
@@ -126,10 +126,19 @@ async function main() {
     authUI.style.display === 'none' && profileUI.style.display === 'flex');
   check('signed-in: profile name populated',
     window.document.getElementById('profileName').textContent === 'Snow');
+  check('signed-in: avatar uses the provider photo when present',
+    /url\("?http:\/\/p\/x\.png"?\)/.test(window.document.getElementById('profileAvatar').style.backgroundImage));
   check('signed-in: getAuthState reflects the user',
     AuthModule.isUserSignedIn() === true && AuthModule.getAuthState().user.uid === 'u1');
   check('signed-in: login button reset to default label',
     loginBtn.disabled === false && /Login with Google/.test(loginBtn.textContent));
+
+  // A user with no photo gets a generated avatar: initials on a deterministic color.
+  fb.emitAuthState({ uid: 'u2', email: 'jane.doe@x.io', displayName: 'Jane Doe', photoURL: null });
+  check('signed-in (no photo): avatar shows initials + generated color',
+    window.document.getElementById('profileAvatar').textContent === 'JD' &&
+    /rgb\(/.test(window.document.getElementById('profileAvatar').style.backgroundColor));
+  fb.emitAuthState({ uid: 'u1', email: 'snow@glider.ai', displayName: 'Snow', photoURL: 'http://p/x.png' });
 
   console.log('\n--- Sign-out ---');
   const logoutBtn = window.document.getElementById('logoutBtn');
@@ -238,13 +247,22 @@ async function main() {
   // Firebase reports the anonymous user. The guest is kept OFF the leaderboard:
   // recordScore must not write a Firestore identity even though logged-in chrome shows.
   localStorage.clear();
+  const profileChip = window.document.getElementById('profileChip');
+  const profileAvatar = window.document.getElementById('profileAvatar');
   fb.emitAuthState({ uid: 'guest1', isAnonymous: true, email: null, displayName: null });
-  // The provider buttons (#authUI) MUST stay visible for a guest, since a provider
-  // click is the only entry point to the in-place upgrade (linkWithPopup). The guest
-  // also gets a lightweight "Guest" profile + logout.
-  check('anonymous guest: provider buttons stay visible for in-place upgrade',
-    authUI.style.display === 'flex' && profileUI.style.display === 'flex' &&
+  // For a guest the login options are FOLDED behind the avatar chip (not cluttering
+  // the panel), but must stay reachable: the chip is in "guest" mode and the avatar
+  // shows generated content (a glyph, since a guest has no name).
+  check('anonymous guest: login options folded behind the chip',
+    authUI.style.display === 'none' && profileUI.style.display === 'flex' &&
+    profileUI.classList.contains('guest') &&
     window.document.getElementById('profileName').textContent === 'Guest');
+  check('anonymous guest: avatar has a generated glyph + background color',
+    profileAvatar.textContent.length > 0 && /rgb\(/.test(profileAvatar.style.backgroundColor));
+  // Clicking the chip unfolds #authUI so the guest can pick a provider to upgrade.
+  profileChip.dispatchEvent(new window.Event('click'));
+  check('anonymous guest: clicking the chip reveals the provider buttons for upgrade',
+    authUI.style.display === 'flex' && profileUI.classList.contains('expanded'));
   check('anonymous guest: AuthModule still reports signed-in (for UI/onboarding)',
     AuthModule.isUserSignedIn() === true);
   AuthModule.recordScore(12.34); // guest finishes a run
