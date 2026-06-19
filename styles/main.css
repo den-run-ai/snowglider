@@ -962,3 +962,16 @@ body.start-screen-active #authContainer {
     padding: 12px 24px;
   }
 }
+
+/* Intro fly-over (issue #51): while the cinematic establishing shot plays, hide
+   the in-game HUD and on-screen buttons so the mountain reads cleanly. The body
+   gets `intro-active` only during the fly-over (snowglider.ts) and it is removed
+   the instant the run begins, so this never affects live gameplay. The Skip
+   button (#introSkipBtn) is created by intro.ts with its own inline styles and is
+   intentionally left visible. */
+body.intro-active #controlsInfo,
+body.intro-active #gameStatsContainer,
+body.intro-active #resetBtn,
+body.intro-active #cameraToggleBtn {
+  display: none !important;
+}
