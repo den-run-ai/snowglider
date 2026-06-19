@@ -30,6 +30,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `docs/PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
 - `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
 - `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis
+- `docs/REFACTORING_SNOWGLIDER_SNOWMAN.md` - Line-level plan to split the two largest modules (`snowglider.ts`/`snowman.ts`), operationalizing Roadmap Stages R2/R3
 - `docs/TYPESCRIPT_MIGRATION.md` - TypeScript migration plan and phase status (migration complete; all `src/` is `.ts` under `"strict": true`)
 - `docs/THREEJS_UPGRADE.md` - Staged three.js upgrade plan from r160 to latest
 

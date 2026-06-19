@@ -204,6 +204,11 @@ Local Mode boot fallback, and the remaining test/runtime `window.*` hooks
 migrated. **Tracking issues:** refactor `index.html` into CSS + main (**#33**),
 refactor `snowglider` into a thinner UI/game module (**#34**).
 
+> **Line-level plan for the two largest modules:** Stages R2 and R3 below are
+> operationalized — current line-ranges mapped to target modules, the `window.*`
+> and `Snowman.*` contracts to preserve, and a mergeable PR sequence — in
+> [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md).
+
 ### Stage R1 — Split the page shell first — ✅ shipped
 
 Lowest-risk extraction from `index.html`; this stage has landed (file names
@@ -272,9 +277,14 @@ rest only after the boot and orchestrator work has landed:
   detection, and crash/finish reason strings.
 - `src/snowman/test-hooks.ts` for browser collision hooks.
 
-Keep `window.Snowman.updateSnowman(...)`, `window.Snowman.resetSnowman(...)`,
-and `window.Snowman.addTestHooks(...)` as compatibility wrappers at first.
-Internally delegate to smaller modules without changing the public signatures.
+Keep the **ESM `Snowman` named export from `./snowman.js`**
+(`Snowman.createSnowman` / `resetSnowman` / `updateSnowman` / `addTestHooks`) as the
+stable surface, internally delegating to the smaller modules without changing the
+public signatures. There is **no** `window.Snowman` global to preserve — the ESM app
+exposes none (it exists only in the frozen `tests/verification/snowman_baseline.js`
+snapshot), and re-adding one would violate the no-per-module-`window`-bridge rule.
+See [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md) for the
+exact contract and the facade detail.
 
 ### Guardrails
 
