@@ -204,8 +204,18 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
   tailSeg2.rotation.z = -0.18;
   tailSeg2.castShadow = true;
   scarfTail.add(tailSeg2);
-  scarfTail.position.set(0.3, 6.0, 0.55); // drape down the front, slightly to one side
+  // Anchor at the neck-front and DRAPE FORWARD so the tail hangs in front of the middle
+  // snowball instead of being buried inside it: the middle sphere (center y=4.5, r=1.5)
+  // bulges out to z≈1.1–1.3 over the tail's vertical range, so a straight tail at z≈0.55
+  // would be occluded by the opaque body. Tilting the group forward (rotation.x ≈ -0.6)
+  // sends its local -Y axis down-and-out (+z), keeping the tail just outside the chest
+  // surface and visible in the front/chase view. Flex preserves this drape (it offsets
+  // rotation.x from the base) and only swings rotation.z in the wind.
+  scarfTail.position.set(0.3, 6.25, 0.75); // neck-front, just outside the narrow neck
+  scarfTail.rotation.x = -0.8;             // drape forward over the chest (clears the snowball)
   group.add(scarfTail);
+  // Verified: at the resting base angle and the flex-animated grounded (+0.1) and
+  // airborne (-0.3) offsets, both tail segments stay in front of the body spheres.
 
   // --- Head cluster (issue #53) ---------------------------------------------
   // Parent the head sphere AND its accessories (eyes, nose, hat) into one
