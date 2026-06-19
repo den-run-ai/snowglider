@@ -327,10 +327,17 @@ export class SnowmanDebris {
    Three.js `Object3D.clone()` *shares* the source `geometry`/`material` by reference, so
    disposing the fragment in `reset()` (§7.5) would dispose the still-hidden snowman's
    originals and the next run would re-show it with freed buffers. Pick one of:
-   - **(preferred) generic fragment assets** — spawn a small pool of generic snow-ball
-     chunks from geometry/materials the debris system *owns* and creates once, sized/tinted
-     from the part. Nothing references the snowman's assets, so disposal is unambiguous and
-     the three balls cracking into 2–3 chunks each falls out naturally.
+   - **(preferred) generic fragment assets** — generic snow-ball chunks from geometry/
+     materials the debris system *owns*, sized/tinted from the part. Nothing references the
+     snowman's assets, so disposal is unambiguous and the three balls cracking into 2–3
+     chunks each falls out naturally. **Allocate these per shatter** (and dispose them in
+     `reset()`, §7.5), *not* once at construction — `reset()` runs on every restart and
+     disposes all debris-owned geometry/material, so a constructor-owned pool would be
+     freed after the first crash and the next crash would reuse disposed buffers. (If a
+     persistent pool is ever preferred for GC churn, it must be kept alive until a single
+     final `dispose()` and **not** touched by per-run `reset()`.) The shipped `debris.ts`
+     allocates per shatter — `shatter()` calls `reset()` first, then creates fresh owned
+     assets — so this is consistent.
    - **owned clones** — if a fragment must mirror a distinctive *mesh* part (hat, nose,
      buttons, eyes), clone with explicit ownership:
      `mesh = new THREE.Mesh(part.geometry.clone(), part.material.clone())` (cloning the mesh
