@@ -973,11 +973,16 @@ body.start-screen-active #authContainer {
    to `display: flex` (inline) before `intro-active` is added; the `!important`
    here overrides that inline value so the course progress/ghost HUD stays hidden
    for the whole cinematic. (The split-flash div is opacity:0 and never fires
-   during the intro, so it needs no rule.) */
+   during the intro, so it needs no rule.)
+   `.touch-control` covers the mobile on-screen steering/jump zones, which
+   Controls.setupControls() appends to <body> on touch UAs; hide them too so the
+   mobile fly-over is as clean as desktop. The Skip button (#introSkipBtn,
+   zIndex 1200) is a separate element and stays visible. */
 body.intro-active #controlsInfo,
 body.intro-active #gameStatsContainer,
 body.intro-active #courseHud,
 body.intro-active #resetBtn,
-body.intro-active #cameraToggleBtn {
+body.intro-active #cameraToggleBtn,
+body.intro-active .touch-control {
   display: none !important;
 }
