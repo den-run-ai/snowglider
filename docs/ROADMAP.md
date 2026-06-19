@@ -203,6 +203,11 @@ Local Mode boot fallback, and the remaining test/runtime `window.*` hooks
 migrated. **Tracking issues:** refactor `index.html` into CSS + main (**#33**),
 refactor `snowglider` into a thinner UI/game module (**#34**).
 
+> **Line-level plan for the two largest modules:** Stages R2 and R3 below are
+> operationalized — current line-ranges mapped to target modules, the `window.*`
+> and `Snowman.*` contracts to preserve, and a mergeable PR sequence — in
+> [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md).
+
 ### Stage R1 — Split the page shell first — ✅ shipped
 
 Lowest-risk extraction from `index.html`; this stage has landed (file names
