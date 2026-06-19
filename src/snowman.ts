@@ -15,9 +15,8 @@
 // UpdateResult, …) that physics.ts / hud.ts consume.
 //
 // NOTE: the physics-invariant harness (tests/verification/physics_invariant_harness.js)
-// runs under bare Node with NO `.js`->`.ts` resolve hook, so it cannot resolve this
-// facade's `./snowman/index.js` re-export. It imports the relocated implementation
-// directly (`src/snowman/index.ts`) instead; keep that harness import in sync if this
-// facade ever changes. `src/snowman/index.ts` stays free of *relative* imports so it
-// remains loadable under that bare-Node harness.
+// self-registers the same `.js`->`.ts` resolver used by the Node suites before
+// importing this facade. That keeps `npm run test:verify` aligned with the app's
+// public `./snowman.js` seam even as `src/snowman/index.ts` delegates to smaller
+// submodules.
 export * from './snowman/index.js';
