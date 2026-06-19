@@ -212,9 +212,11 @@ reflect what exists today):
 - ✅ `file://`/Local Mode auth/score mocks in `src/boot/local-auth.js`.
 - ✅ Firebase defaults/init-json handling in `src/boot/firebase-bootstrap.js`.
 - ✅ Script loading replaced — the nested `onload` pyramid is gone; the bundle
-  entry `src/main.ts` (Vite) eagerly imports the game modules, and
-  `src/boot/script-loader.ts` survives only to append the optional browser-test
-  suite (its `GAME_SCRIPT_ORDER` is now empty).
+  entry `src/main.ts` (Vite) eagerly imports the game modules. `src/boot/script-loader.ts`
+  remains the **startup driver**: its `DOMContentLoaded` handler still sequences auth,
+  the `window.__loadSnowGliderOrchestrator` import, readiness, and audio preload (see
+  `ARCHITECTURE.md` §2.2). Its `GAME_SCRIPT_ORDER` is now empty and it only *additionally*
+  appends the browser-test suite when `?test=` is present — it is **not** a test-only shim.
 - ✅ Start/about menu behavior moved to `src/ui/start-menu.ts`.
 
 The old fixed script order is **obsolete** — modules resolve each other through

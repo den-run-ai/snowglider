@@ -136,8 +136,9 @@ from `npm test` because the emulator requires a local Java runtime.
 ### Browser Tests
 
 Append a `?test=` parameter to the game URL to load a suite in-browser; results
-display on-screen. The game must be **served** (`npm start` or `npm run dev` — Vite
-on port 8080); after the ES-module migration the suites can no longer load from a
+display on-screen. The game must be **served** — `npm start` runs Vite on port 8080
+(the `?test=` URLs below assume that port); `npm run dev` also works but uses the
+port Vite prints. After the ES-module migration the suites can no longer load from a
 `file://` / `open index.html` null origin (see
 [`ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §2.2). Available parameters:
 
