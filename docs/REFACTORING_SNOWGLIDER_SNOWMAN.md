@@ -13,8 +13,9 @@
 
 `src/snowglider.ts` (1373 lines) and `src/snowman.ts` (1023 lines) are by a wide
 margin the two largest modules in the tree — the next largest is `src/scores.ts`
-at 649 lines. Both are "god modules" that mix several unrelated concerns, which is
-exactly the friction the roadmap flags: every gameplay or UI change has to touch a
+at 649 lines. Both are large, multi-responsibility modules that mix several
+unrelated concerns, which is exactly the friction the roadmap flags: every
+gameplay or UI change has to touch a
 1000+ line file, and the physics math is buried in the same file as DOM and test
 plumbing.
 
