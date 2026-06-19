@@ -306,6 +306,13 @@ window.initializeGameWithAudio = function() {
         document.body.classList.remove('intro-active');
         // Re-seat the camera manager's smoothing at the settled pose, then run.
         cameraManager.initialize(snowman.position, snowman.rotation);
+        // Start the run timer at the hand-off, not before the fly-over. resetSnowman()
+        // (above) set state.startTime ~4 s ago; without this the cinematic's duration
+        // would be added to the first run's time, splits, and any best-time/leaderboard
+        // submission. The HUD/course/score all measure from state.startTime, so re-seat
+        // it the instant gameplay actually begins. (The skip path keeps the original
+        // timing — it activates synchronously after resetSnowman.)
+        state.startTime = performance.now();
         startGameplayLoop(true);
       },
     });
