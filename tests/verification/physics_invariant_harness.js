@@ -228,6 +228,71 @@ console.log('  baseline finalSpeed:', fo.toFixed(2), '| current finalSpeed:', fm
 console.log('  PASS:', scrubAtSpeed ? 'edge scrub active at speed ✅' : 'no scrub ❌');
 if (!scrubAtSpeed) hardFail = true;
 
+// 6) Parallel turn reachable: a sustained, committed carve (held Right) must lock
+// the edge in far enough to read as a "parallel" turn — the mastery tier above
+// carve (issue #48). carveCharge builds only while steering, so this is also gated
+// behind input and cannot affect coasting. [GATING]
+function simulateTech(updateFn, controls, seed, { steps = 120, dt = 1 / 60, z0 = -40, vz0 = -12 } = {}) {
+  const rng = makeRng(seed); Math.random = rng;
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: z0, y: getTerrainHeight(0, z0) };
+  const velocity = { x: 0, z: vz0 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, z0),
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  const seen = new Set();
+  for (let i = 0; i < steps; i++) {
+    st = updateFn(snowman, dt, pos, velocity, st.isInAir, st.verticalVelocity, st.lastTerrainHeight,
+      st.airTime, st.jumpCooldown, controls, st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown,
+      3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {});
+    if (st.technique) seen.add(st.technique);
+    if (pos.z < -195) break;
+  }
+  return { seen };
+}
+const parRun = simulateTech(mod, RIGHT, 777);
+const reachesParallel = parRun.seen.has('parallel');
+console.log('\n--- Parallel turn: sustained committed carve reaches the parallel tier [GATING] ---');
+console.log('  techniques seen on held-Right:', [...parRun.seen].join(', '));
+console.log('  PASS:', reachesParallel ? 'committed carve locks into a parallel turn ✅' : 'never reached parallel ❌');
+if (!reachesParallel) hardFail = true;
+
+// 7) Hop turn (Jump + steer): a quick edge-set pivot that snaps the heading toward
+// the steer direction MUCH harder than a plain steering frame, and scrubs speed
+// (issue #48). Both probes share an identical 20-frame held-Right prefix (same
+// seed), then differ only on the final frame: plain Right vs Right+Jump. [GATING]
+const RIGHTJUMP = { left: false, right: true, up: false, down: false, jump: true };
+function hopProbe(updateFn, lastControls, seed, { K = 20, vz0 = -16 } = {}) {
+  const rng = makeRng(seed); Math.random = rng;
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: -40, y: getTerrainHeight(0, -40) };
+  const velocity = { x: 0, z: vz0 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, -40),
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  const step = (ctrl) => {
+    st = updateFn(snowman, 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity, st.lastTerrainHeight,
+      st.airTime, st.jumpCooldown, ctrl, st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown,
+      3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {});
+  };
+  for (let i = 0; i < K; i++) step(RIGHT);
+  const headingBefore = Math.atan2(velocity.x, velocity.z);
+  const speedBefore = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+  step(lastControls);
+  const heading = Math.atan2(velocity.x, velocity.z);
+  const speed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+  return { deflect: Math.abs(heading - headingBefore), speedBefore, speed, technique: st.technique };
+}
+const plainStep = hopProbe(mod, RIGHT, 4242);
+const hopStep = hopProbe(mod, RIGHTJUMP, 4242);
+const hopPivotsHarder = hopStep.deflect > plainStep.deflect * 1.5;
+const hopScrubs = hopStep.speed < hopStep.speedBefore;
+console.log('\n--- Hop turn: Jump + steer pivots harder and scrubs speed [GATING] ---');
+console.log('  plain-steer heading deflect:', plainStep.deflect.toFixed(3), 'rad');
+console.log('  hop-turn    heading deflect:', hopStep.deflect.toFixed(3), 'rad', '| technique:', hopStep.technique);
+console.log('  hop speed:', hopStep.speedBefore.toFixed(2), '->', hopStep.speed.toFixed(2));
+console.log('  PASS:', hopPivotsHarder ? `hop snaps heading ~${(hopStep.deflect / Math.max(plainStep.deflect, 1e-6)).toFixed(1)}x harder ✅` : 'hop pivot too weak ❌');
+console.log('  PASS:', hopScrubs ? 'hop scrubs speed ✅' : 'hop did not scrub ❌');
+if (!hopPivotsHarder || !hopScrubs) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();

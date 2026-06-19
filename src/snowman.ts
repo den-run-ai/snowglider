@@ -78,7 +78,7 @@ export interface CameraManagerLike {
 export type ShowGameOverFn = (reason: string) => void;
 
 /** Ski technique surfaced for the HUD + ski pose. */
-type SkiTechnique = 'air' | 'glide' | 'snowplow' | 'skid' | 'carve' | 'tuck';
+type SkiTechnique = 'air' | 'glide' | 'snowplow' | 'skid' | 'carve' | 'parallel' | 'tuck' | 'hop';
 
 /** Per-frame physics output returned by updateSnowman. */
 export interface UpdateResult {
@@ -383,11 +383,43 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     isInAir = true;
   }
   
-  // Manual jump with spacebar or touch
+  // Manual jump / hop turn with spacebar or touch (grounded, off cooldown).
+  // Plain Jump = a straight pop into the air. Jump WHILE steering Left/Right = a
+  // hop turn (issue #48): a quick edge-set pivot that snaps the heading toward the
+  // steer direction and scrubs speed — the steep-terrain "hop the skis around and
+  // set them down pointing the new way" move. It trades speed (HOP_SPEED_KEEP < 1)
+  // for a sharper direction change than carving can give, and lands you on a fresh
+  // edge committed to the new direction (carveCharge reset, lastSteerDir set). It
+  // is fully gated behind explicit jump+steer input, so the no-input invariant and
+  // every plain-steering harness check are untouched.
   if (controls.jump && !isInAir && jumpCooldown <= 0) {
-    verticalVelocity = 10 + (currentSpeed * 0.5);
-    isInAir = true;
-    jumpCooldown = 0.5; // Prevent jump spam
+    const hopSteer = (controls.left ? -1 : 0) + (controls.right ? 1 : 0);
+    if (hopSteer !== 0) {
+      const HOP_PIVOT_ANGLE = 0.4; // rad (~23°) the velocity heading snaps per hop
+      const HOP_SPEED_KEEP = 0.82; // a hop turn scrubs ~18% of horizontal speed
+      const HOP_POP = 5.0;         // small vertical pop, well below a full jump
+      const HOP_COOLDOWN = 0.45;   // s; prevents hop spam
+      // Rotate the horizontal velocity toward the steer direction (right => +x).
+      const theta = hopSteer * HOP_PIVOT_ANGLE;
+      const c = Math.cos(theta), s = Math.sin(theta);
+      const nvx = velocity.x * c - velocity.z * s;
+      const nvz = velocity.x * s + velocity.z * c;
+      velocity.x = nvx * HOP_SPEED_KEEP;
+      velocity.z = nvz * HOP_SPEED_KEEP;
+      verticalVelocity = HOP_POP;
+      isInAir = true;
+      jumpCooldown = HOP_COOLDOWN;
+      // Land on a fresh edge committed to the new direction.
+      if (snowman.userData) {
+        snowman.userData.carveCharge = 0;
+        snowman.userData.lastSteerDir = hopSteer;
+      }
+      technique = 'hop';
+    } else {
+      verticalVelocity = 10 + (currentSpeed * 0.5);
+      isInAir = true;
+      jumpCooldown = 0.5; // Prevent jump spam
+    }
   }
   
   // Update vertical position and velocity when in air
@@ -499,6 +531,7 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     const CARVE_RELEASE_RATE = 3.0;  // edge releases ~2x faster than it engages
     const CARVE_SCRUB_RELIEF = 0.8;  // a locked carve sheds up to 80% of edge wash-out
     const TURN_TAX = 0.01;           // small always-on turn cost so a turn is never free
+    const PARALLEL_LOCK = 0.85;      // carveCharge past this = a mastered parallel turn
 
     const ud = snowman.userData || (snowman.userData = {});
     let carveCharge = ud.carveCharge || 0;
@@ -527,18 +560,26 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
       // locked carve (carveCharge→1) sheds most of it; a skid (carveCharge→0)
       // keeps all of it.
       const edgeScrub = 0.06 * speedFactor2 * (1 - grip * 0.85) * (1 - CARVE_SCRUB_RELIEF * carveCharge);
-      // Plus an always-on turn tax (scaled by speed) so committing to a turn
-      // still costs a little versus straight-lining — turning is never free, but
-      // a clean carve is cheap.
-      skidScrub = edgeScrub + TURN_TAX * speedFactor2;
+      // Plus an always-on turn tax (scaled by speed) so committing to a turn still
+      // costs a little versus straight-lining — turning is never free, but a clean
+      // carve is cheap. A fully-locked PARALLEL turn (carveCharge past the 0.85
+      // parallel threshold — skis together and rolled onto edge) is the most
+      // efficient turn there is, so the tax fades out across the parallel lock:
+      // mastering the carve into a parallel turn makes it nearly free. Below 0.85
+      // `parallelLock` is 0, so carve/skid feel and the gating carve-vs-skid check
+      // are byte-identical.
+      const parallelLock = Math.min(1, Math.max(0, (carveCharge - PARALLEL_LOCK) / (1 - PARALLEL_LOCK)));
+      skidScrub = edgeScrub + TURN_TAX * speedFactor2 * (1 - parallelLock);
     }
 
-    // Expose technique for HUD + ski pose: a turn only reads as a "carve" once the
-    // edge has actually locked in; until then (and after any reversal) it's a skid.
+    // Expose technique for HUD + ski pose. A turn reads as a "skid" until the edge
+    // locks in (carveCharge), then a "carve", and finally a "parallel" turn once
+    // the edge is fully committed past PARALLEL_LOCK — the mastery tier above the
+    // beginner snowplow wedge.
     technique = 'glide';
     if (isInAir) technique = 'air';
     else if (snowplow) technique = 'snowplow';
-    else if (steering !== 0) technique = carveCharge > 0.55 ? 'carve' : 'skid';
+    else if (steering !== 0) technique = carveCharge > PARALLEL_LOCK ? 'parallel' : (carveCharge > 0.55 ? 'carve' : 'skid');
     else if (controls.up) technique = 'tuck';
     
     // Only use automatic turning if no user input
@@ -583,12 +624,27 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     velocity.x *= (1 - totalFriction);
     velocity.z *= (1 - totalFriction);
     
-    // Show the current technique on the snowman (snowplow forms a ski wedge).
+    // Show the current technique on the snowman: a snowplow forms a beginner ski
+    // wedge (tips inward), while a parallel turn draws the skis together and rolls
+    // them onto their edges into the turn (angulation) — visually distinct from the
+    // wedge. Purely cosmetic; none of this touches the physics.
     if (snowman.userData && snowman.userData.leftSki && snowman.userData.rightSki) {
       const ls = snowman.userData.leftSki, rs = snowman.userData.rightSki;
+      const lerp = Math.min(1, delta * 10);
       const wedge = snowplow ? 0.35 : 0.0; // radians; tips angled inward
-      ls.rotation.y += ((-wedge) - ls.rotation.y) * Math.min(1, delta * 10);
-      rs.rotation.y += ((wedge) - rs.rotation.y) * Math.min(1, delta * 10);
+      ls.rotation.y += ((-wedge) - ls.rotation.y) * lerp;
+      rs.rotation.y += ((wedge) - rs.rotation.y) * lerp;
+      // Parallel angulation: both skis edge the same way (into the turn) and slide
+      // toward each other; everything relaxes back to neutral otherwise.
+      const isParallel = technique === 'parallel';
+      const edge = isParallel ? steering * 0.28 : 0.0;
+      const draw = isParallel ? 0.35 : 0.0;
+      const lbx = (snowman.userData.leftSkiBaseX ?? -1) + draw;
+      const rbx = (snowman.userData.rightSkiBaseX ?? 1) - draw;
+      ls.rotation.z += (edge - ls.rotation.z) * lerp;
+      rs.rotation.z += (edge - rs.rotation.z) * lerp;
+      ls.position.x += (lbx - ls.position.x) * lerp;
+      rs.position.x += (rbx - rs.position.x) * lerp;
       snowman.userData.technique = technique;
     }
     

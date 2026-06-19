@@ -115,7 +115,12 @@ function getActiveUser() {
 
   try {
     const authStateUser = authModule.getAuthState?.()?.user || authModule.getCurrentUser?.();
-    if (authStateUser) {
+    // Anonymous "guest" users have no leaderboard identity: AuthModule still
+    // reports them as signed in (so the UI shows logged-in chrome), but their best
+    // time must stay local until they upgrade to a real provider (which reuses the
+    // same uid and re-fires this path with isAnonymous === false). Skipping them
+    // here ensures a guest finishing a run never writes to users/leaderboard.
+    if (authStateUser && !authStateUser.isAnonymous) {
       currentUser = authStateUser;
       return authStateUser;
     }

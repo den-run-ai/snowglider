@@ -1,5 +1,5 @@
 // auth.ts - Firebase Authentication module for SnowGlider
-// Uses Firebase modular SDK (Popup-only Google Sign-In)
+// Uses Firebase modular SDK (popup-based federated sign-in + anonymous guest)
 //
 // Phase 3.8 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
 // (implied for a real `.ts` file). The module keeps its existing Firebase-typed
@@ -17,11 +17,21 @@ window.__FIREBASE_DEFAULTS__ = {}; // Ensure this exists early
 /**
  * Firebase Authentication Module for SnowGlider
  *
- * This module handles user authentication (Google Popup) and profile management.
- * Score tracking and leaderboard functionality have been moved to scores.js.
+ * This module handles user authentication and profile management. Score tracking
+ * and leaderboard functionality have been moved to scores.js.
+ *
+ * Sign-in methods (all popup-based; see PROVIDER_BUTTONS + signInAsGuest):
+ * - Google, GitHub, and Apple via signInWithPopup
+ * - Anonymous "play as guest" via signInAnonymously
+ * - Guests upgrade in place via linkWithPopup so their uid/best-time carries over
+ *
+ * Provider availability is gated by the Firebase console: GitHub needs an OAuth
+ * app, Apple needs an Apple Service ID (paid Apple Developer Program). A button
+ * absent from the DOM is simply skipped, so the markup can ship a provider before
+ * it is enabled server-side without breaking sign-in.
  *
  * Features:
- * - Google authentication with signInWithPopup
+ * - Multi-provider authentication with signInWithPopup / signInAnonymously
  * - User profile management
  * - Integration with ScoresModule for best time tracking
  */
@@ -37,13 +47,19 @@ let firebaseApp: FirebaseApp | null = null; // Keep track of the app instance
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup, // Using popup exclusively
+  GithubAuthProvider,
+  OAuthProvider, // Apple (and other generic OAuth) via OAuthProvider('apple.com')
+  signInWithPopup, // Popup flow for every federated provider
+  signInAnonymously, // "Play as guest" — no account required
+  linkWithPopup, // Upgrade a guest in place so their uid + progress carries over
   signOut as firebaseSignOut,
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
   type User,
   type Auth,
+  type AuthProvider,
+  type UserCredential,
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
 import {
   getFirestore,
@@ -125,53 +141,19 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
       // Set up auth state observer - This handles UI updates after login/logout
       console.log("Attaching onAuthStateChanged listener..."); // Log before attaching
       onAuthStateChanged(auth, user => {
-        // --- Edit 1: Add detailed logging inside the callback ---
         console.log(">>> onAuthStateChanged triggered <<<"); // Log entry into the callback
         if (user) {
-          // User is signed in
-          console.log("Auth state changed: User IS signed in", user.uid, user.email);
-          currentUser = user;
-          console.log("Calling updateUIForLoggedInUser..."); // Log before UI update
-          updateUIForLoggedInUser(user);
-          
-          // Update user in ScoresModule AFTER UI updates to ensure proper sequence
-          console.log("Updating ScoresModule with current user..."); // Log before update
-          ScoresModule.setCurrentUser(user);
-          
-          if (firestore) {
-            // Use setTimeout to ensure auth state is fully stabilized before syncing
-            setTimeout(() => {
-              console.log("Calling syncUserData with delay..."); // Log before sync
-              syncUserData(user); // Sync data if firestore is available
-            }, 100); // Small delay to ensure auth state stabilizes
-          }
-          console.log("Calling resetLoginButton..."); // Log before reset
-          resetLoginButton(); // Ensure button is in default state after successful login
-          notifyAuthChanged(); // Let read-only consumers (e.g. start screen) refresh
-          console.log("Finished processing signed-in state in onAuthStateChanged."); // Log completion
+          handleSignedInUser(user);
         } else {
-          // User is signed out
-          console.log("Auth state changed: User IS signed out");
-          currentUser = null;
-          
-          // Clear user in ScoresModule
-          ScoresModule.setCurrentUser(null);
-          
-          console.log("Calling updateUIForLoggedOutUser..."); // Log before UI update
-          updateUIForLoggedOutUser();
-          console.log("Calling resetLoginButton..."); // Log before reset
-          resetLoginButton(); // Ensure button is in default state after logout
-          notifyAuthChanged(); // Let read-only consumers (e.g. start screen) refresh
-          console.log("Finished processing signed-out state in onAuthStateChanged."); // Log completion
+          handleSignedOutUser();
         }
-        // --- End Edit 1 ---
       });
       console.log("onAuthStateChanged listener attached successfully."); // Confirm attachment
     } else {
       // Handle case where auth failed to initialize
       console.error("Auth service failed to initialize. Auth features disabled.");
       updateUIForLoggedOutUser(); // Show logged-out state
-      resetLoginButton(); // Ensure button is usable (though login will fail)
+      resetAuthButtons(); // Ensure buttons are usable (though login will fail)
     }
   } catch (e) {
     // Catch errors during initializeApp or other setup steps
@@ -179,7 +161,7 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
     console.error("Firebase setup failed:", err.message, err.stack);
     auth = firestore = analytics = null; // Ensure services are null on failure
     updateUIForLoggedOutUser();
-    resetLoginButton();
+    resetAuthButtons();
   }
 
   // Set up login/logout buttons (even if auth failed, to avoid errors)
@@ -197,6 +179,53 @@ function notifyAuthChanged() {
   } catch (e) {
     console.warn("Could not dispatch snowglider:auth-changed event:", e);
   }
+}
+
+// Apply the signed-in state. Shared by the onAuthStateChanged listener and the
+// guest-upgrade path (linkWithPopup keeps the same uid and may not re-fire the
+// observer), so both routes drive identical UI + scoring updates.
+function handleSignedInUser(user: User) {
+  console.log("Auth state changed: User IS signed in", user.uid, user.email,
+    user.isAnonymous ? '(anonymous guest)' : '');
+  currentUser = user;
+
+  // Anonymous guests are intentionally kept OUT of Firestore and the global
+  // leaderboard: they have no displayName/email and would show up as "Anonymous".
+  // We tell ScoresModule there is no signed-in user, so a guest's best time is
+  // tracked locally (localStorage) only. When they later upgrade to a real
+  // provider (linkWithPopup, same uid), this runs again with isAnonymous === false
+  // and syncUserData backfills that local best to the leaderboard.
+  if (user.isAnonymous) {
+    // Keep the provider buttons (#authUI) visible so the guest can upgrade IN
+    // PLACE via linkWithPopup — those buttons are the only entry point to the
+    // upgrade flow, so the full logged-in chrome (which hides #authUI) would make
+    // it unreachable. Show a lightweight "Guest" indicator + logout alongside.
+    updateUIForGuestUser();
+    ScoresModule.setCurrentUser(null);
+  } else {
+    updateUIForLoggedInUser(user);
+    // Update user in ScoresModule AFTER UI updates to ensure proper sequence
+    ScoresModule.setCurrentUser(user);
+    if (firestore) {
+      // Small delay to ensure auth state is fully stabilized before syncing
+      setTimeout(() => syncUserData(user), 100);
+    }
+  }
+
+  resetAuthButtons(); // Ensure buttons are in default state after successful login
+  notifyAuthChanged(); // Let read-only consumers (e.g. start screen) refresh
+  console.log("Finished processing signed-in state.");
+}
+
+// Apply the signed-out state (also covers a failed/cleared session).
+function handleSignedOutUser() {
+  console.log("Auth state changed: User IS signed out");
+  currentUser = null;
+  ScoresModule.setCurrentUser(null); // Clear user in ScoresModule
+  updateUIForLoggedOutUser();
+  resetAuthButtons(); // Ensure buttons are in default state after logout
+  notifyAuthChanged(); // Let read-only consumers (e.g. start screen) refresh
+  console.log("Finished processing signed-out state.");
 }
 
 // Update UI when user is logged in
@@ -247,104 +276,240 @@ function updateUIForLoggedInUser(user: User) {
 function updateUIForLoggedOutUser() {
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
-  
+
   if (!authUI || !profileUI) return;
-  
+
   authUI.style.display = 'flex';
   profileUI.style.display = 'none';
 }
 
-// Reset login button to default state
-function resetLoginButton() {
-  const loginBtn = document.getElementById('loginBtn') as HTMLButtonElement;
-  if (loginBtn) {
-    loginBtn.textContent = 'Login with Google';
-    loginBtn.disabled = false;
-    loginBtn.classList.remove('signing-in');
-    // No longer need 'retry-auth' class related to redirect failures
-    loginBtn.classList.remove('retry-auth');
+// Update UI for an anonymous "guest" session. Unlike a fully logged-in user, we
+// keep the provider buttons (#authUI) visible so the guest can upgrade in place
+// (a provider click becomes a linkWithPopup on the same uid). We also show a small
+// "Guest" profile + logout so they can see they're playing as a guest and can end
+// the session. The provider button labels double as the "sign in to save" affordance.
+function updateUIForGuestUser() {
+  const authUI = document.getElementById('authUI');
+  const profileUI = document.getElementById('profileUI');
+  const profileName = document.getElementById('profileName');
+  const profileAvatar = document.getElementById('profileAvatar') as HTMLImageElement;
+
+  if (!authUI || !profileUI) {
+    console.error("updateUIForGuestUser: Could not find authUI or profileUI elements!");
+    return;
   }
+
+  authUI.style.display = 'flex';     // keep provider buttons available for upgrade
+  profileUI.style.display = 'flex';  // show the guest indicator + logout
+  if (profileName) profileName.textContent = 'Guest';
+  if (profileAvatar) profileAvatar.style.display = 'none';
+}
+
+// Provider metadata for the buttons in #authUI. Each federated provider maps a
+// button id -> default label + analytics method + a factory that builds a fresh
+// Firebase auth provider (providers are single-use, so we build one per sign-in).
+// The anonymous `guestLoginBtn` has no provider and is wired separately.
+type ProviderButton = {
+  id: string;
+  label: string;
+  method: string;
+  makeProvider: () => AuthProvider;
+};
+
+const PROVIDER_BUTTONS: ProviderButton[] = [
+  {
+    id: 'loginBtn',
+    label: 'Login with Google',
+    method: 'GooglePopup',
+    makeProvider: () => {
+      const provider = new GoogleAuthProvider();
+      provider.addScope('profile');
+      provider.addScope('email');
+      provider.setCustomParameters({ prompt: 'select_account' }); // Prompt account picker
+      return provider;
+    }
+  },
+  {
+    id: 'githubLoginBtn',
+    label: 'Login with GitHub',
+    method: 'GitHubPopup',
+    makeProvider: () => {
+      const provider = new GithubAuthProvider();
+      provider.addScope('read:user'); // Public profile only; no repo scopes
+      return provider;
+    }
+  },
+  {
+    id: 'appleLoginBtn',
+    label: 'Sign in with Apple',
+    method: 'ApplePopup',
+    makeProvider: () => {
+      const provider = new OAuthProvider('apple.com');
+      provider.addScope('email');
+      provider.addScope('name');
+      return provider;
+    }
+  }
+];
+
+const GUEST_BUTTON = { id: 'guestLoginBtn', label: 'Play as Guest' };
+
+// Every auth button that should be enabled/disabled/reset together.
+function allAuthButtonMeta() {
+  return [...PROVIDER_BUTTONS, GUEST_BUTTON];
+}
+
+// Reset all present auth buttons to their default, enabled state. (Replaces the
+// old single-button resetLoginButton; a missing button id is simply skipped.)
+function resetAuthButtons() {
+  allAuthButtonMeta().forEach(({ id, label }) => {
+    const btn = document.getElementById(id) as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.textContent = label;
+    btn.disabled = false;
+    btn.classList.remove('signing-in');
+    btn.classList.remove('retry-auth'); // legacy redirect-retry class
+  });
+}
+
+// Mark a sign-in as in flight: disable every auth button (so a second provider
+// can't open a competing popup) and show the active one as "Signing In...".
+function setAuthButtonsBusy(activeBtn: HTMLButtonElement) {
+  allAuthButtonMeta().forEach(({ id }) => {
+    const btn = document.getElementById(id) as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.disabled = true;
+    if (btn === activeBtn) {
+      btn.textContent = 'Signing In...';
+      btn.classList.add('signing-in');
+    }
+  });
+}
+
+// Shared sign-in error handling for every provider and the guest path.
+function handleSignInError(error: { code?: string; message?: string }) {
+  console.error("Sign-in error:", error.code, error.message);
+  if (error.code === 'auth/popup-blocked') {
+    alert('Popup blocked by browser. Please allow popups for this site and try again.');
+  } else if (error.code === 'auth/popup-closed-by-user' ||
+             error.code === 'auth/cancelled-popup-request') {
+    // Benign: the user closed the popup, or a second sign-in superseded this one
+    // (rapid double-tap). Don't alert — just allow a retry.
+    console.log('Sign-in cancelled (popup closed or superseded):', error.code);
+  } else if (error.code === 'auth/account-exists-with-different-credential') {
+    // The email is already linked to a different provider.
+    alert('An account already exists with this email using a different sign-in method. ' +
+          'Please sign in with that method instead.');
+  } else {
+    alert(`Error during sign-in: ${error.message}`);
+  }
+  resetAuthButtons(); // Re-enable buttons on any error to allow a retry
+}
+
+// Federated (Google/GitHub/Apple) popup sign-in. If the current user is an
+// anonymous guest we LINK the credential to their uid (upgrade in place) so their
+// session and best time carry over; if that provider account already exists we
+// fall back to a normal sign-in (the local best time still reconciles through
+// syncUserData on the resulting auth-state change).
+function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
+  if (btn.disabled) return; // already in flight
+
+  if (!auth) {
+    console.error("Auth service not available. Cannot sign in.");
+    alert("Authentication service is currently unavailable. Please try again later.");
+    resetAuthButtons();
+    return;
+  }
+
+  setAuthButtonsBusy(btn);
+  const provider = meta.makeProvider();
+  const guest = auth.currentUser;
+  const upgrading = !!guest && guest.isAnonymous;
+  console.log(`Sign-in initiated (${meta.method})${upgrading ? ' as guest upgrade' : ''}.`);
+
+  // Tracks whether we upgraded the guest IN PLACE (linkWithPopup kept the same
+  // uid). Only that path applies the user directly, because it may not re-fire
+  // onAuthStateChanged. The credential-already-in-use fallback below is a real new
+  // sign-in (different uid), which the observer DOES fire for — so we leave it off.
+  let linkedInPlace = false;
+
+  const flow: Promise<UserCredential> = upgrading
+    ? linkWithPopup(guest!, provider)
+        .then(result => { linkedInPlace = true; return result; })
+        .catch(error => {
+          if (error.code === 'auth/credential-already-in-use' ||
+              error.code === 'auth/email-already-in-use') {
+            console.log('Guest upgrade: provider account already exists, signing in instead.');
+            return signInWithPopup(auth!, provider);
+          }
+          throw error;
+        })
+    : signInWithPopup(auth, provider);
+
+  flow
+    .then(result => {
+      console.log(`Popup sign-in successful (${meta.method}) for:`, result.user.email);
+      if (analytics) {
+        logEvent(analytics, 'login', { method: meta.method });
+      }
+      if (linkedInPlace) {
+        handleSignedInUser(result.user);
+      }
+    })
+    .catch(handleSignInError);
+}
+
+// Anonymous "play as guest" — no account, no popup. onAuthStateChanged then runs
+// with isAnonymous === true, which keeps the guest out of the global leaderboard.
+function signInAsGuest(btn: HTMLButtonElement) {
+  if (btn.disabled) return;
+
+  if (!auth) {
+    console.error("Auth service not available. Cannot start guest session.");
+    alert("Authentication service is currently unavailable. Please try again later.");
+    resetAuthButtons();
+    return;
+  }
+
+  setAuthButtonsBusy(btn);
+  console.log("Guest sign-in initiated (anonymous).");
+  signInAnonymously(auth)
+    .then(result => {
+      console.log("Guest (anonymous) sign-in successful:", result.user.uid);
+      if (analytics) {
+        logEvent(analytics, 'login', { method: 'Anonymous' });
+      }
+    })
+    .catch(handleSignInError);
+}
+
+// Bind click + touchend for an auth button. We bind both because, on the game
+// page, controls.js installs a document-level touchstart preventDefault that
+// suppresses the synthetic click — so touch sign-in must also fire from 'touchend',
+// which is still a valid popup user-activation gesture. onActivate preventDefaults
+// (so a tap won't also emit a click) and each sign-in path bails while the button
+// is disabled, so the pair can't open two popups. 'touchend' (not 'touchstart') is
+// deliberate: touchstart fires before the tap completes and is a weaker popup
+// gesture on iOS.
+function bindAuthButton(id: string, handler: (btn: HTMLButtonElement) => void) {
+  const btn = document.getElementById(id) as HTMLButtonElement | null;
+  if (!btn) return;
+  const onActivate = (e: Event) => {
+    if (e) e.preventDefault();
+    handler(btn);
+  };
+  btn.addEventListener('click', onActivate);
+  btn.addEventListener('touchend', onActivate, { passive: false });
 }
 
 // Set up login/logout button handlers
 function setupAuthButtons() {
-  // Login button
-  const loginBtn = document.getElementById('loginBtn') as HTMLButtonElement;
-  if (loginBtn) {
-    // Function to handle sign-in process using Popup
-    const handleSignIn = (e: Event) => {
-      if (e) e.preventDefault(); // Prevent default button action
-
-      // Ignore repeat taps while a sign-in is already in flight. The button is
-      // disabled below, but this also guards against any environment that fires
-      // a second activation before the disabled state takes effect.
-      if (loginBtn.disabled) {
-        return;
-      }
-
-      // Check if auth is available before attempting login
-      if (!auth) {
-          console.error("Auth service not available. Cannot sign in.");
-          alert("Authentication service is currently unavailable. Please try again later.");
-          resetLoginButton(); // Reset button state
-          return;
-      }
-
-      // Update button state
-      loginBtn.textContent = 'Signing In...';
-      loginBtn.disabled = true;
-      loginBtn.classList.add('signing-in');
-
-      console.log("Sign-in initiated via", e ? e.type : 'programmatic');
-
-      const provider = new GoogleAuthProvider();
-      provider.addScope('profile');
-      provider.addScope('email');
-      provider.setCustomParameters({ 'prompt': 'select_account' }); // Prompt user to select account
-
-      console.log("Using signInWithPopup for authentication.");
-      signInWithPopup(auth, provider)
-        .then(result => {
-          // Success is primarily handled by onAuthStateChanged listener
-          console.log("Popup sign-in successful for:", result.user.email);
-          if (analytics) {
-            logEvent(analytics, 'login', { method: 'GooglePopup' });
-          }
-          // No need to reset button here; onAuthStateChanged will update UI
-        })
-        .catch(error => {
-          console.error("signInWithPopup error:", error.code, error.message);
-          // Provide user feedback for common errors
-          if (error.code === 'auth/popup-blocked') {
-             alert('Popup blocked by browser. Please allow popups for this site and try again.');
-          } else if (error.code === 'auth/popup-closed-by-user' ||
-                     error.code === 'auth/cancelled-popup-request') {
-             // Benign: the user closed the popup, or a second sign-in superseded
-             // this one (rapid double-tap). Don't alert — just allow a retry.
-             console.log('Sign-in cancelled (popup closed or superseded):', error.code);
-          } else {
-             // Generic error message for other issues
-             alert(`Error during sign-in: ${error.message}`);
-          }
-          // Reset button on any popup error to allow retry
-          resetLoginButton();
-        });
-    };
-
-    // Sign-in must work on both desktop and touch. We bind 'touchend' AND 'click':
-    //  - On the game page, Controls.setupControls() (controls.js) installs a
-    //    document-level touchstart preventDefault, which suppresses the synthetic
-    //    click on this button — so a 'click'-only handler would never fire after the
-    //    game scripts load. 'touchend' is a valid user-activation gesture for
-    //    signInWithPopup that the global handler does NOT suppress.
-    //  - On desktop (no touch) only 'click' fires.
-    // handleSignIn calls preventDefault() (so the touchend tap won't also emit a
-    // click) and bails while the button is disabled, so the pair can't open two
-    // popups. We deliberately use 'touchend', not 'touchstart': touchstart fires
-    // before the tap completes and is a weaker popup gesture on iOS.
-    loginBtn.addEventListener('click', handleSignIn);
-    loginBtn.addEventListener('touchend', handleSignIn, { passive: false });
-  }
+  // Federated provider buttons (Google always present; GitHub/Apple optional).
+  PROVIDER_BUTTONS.forEach(meta => {
+    bindAuthButton(meta.id, btn => runProviderSignIn(meta, btn));
+  });
+  // Anonymous guest button (optional).
+  bindAuthButton(GUEST_BUTTON.id, signInAsGuest);
 
   // Logout button
   const logoutBtn = document.getElementById('logoutBtn') as HTMLButtonElement;
@@ -565,4 +730,4 @@ const AuthModule = {
 export default AuthModule;
 window.AuthModule = AuthModule;
 
-console.log("Auth module (popup-only) successfully loaded and exported");
+console.log("Auth module (multi-provider popup + guest) successfully loaded and exported");

@@ -113,7 +113,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
 | `EffectsModule` | `effects.ts` | IIFE | Avalanche warning UI + camera FOV/shake |
 | `CourseModule` | `course.ts` | IIFE | Gates, split timing, ghost racing, result screen |
-| `AuthModule` | `auth.ts` | ES module | Firebase auth, user UI, Firestore lifecycle (also `window.AuthModule`) |
+| `AuthModule` | `auth.ts` | ES module | Multi-provider Firebase auth (Google/GitHub/Apple/anonymous), user UI, Firestore lifecycle (also `window.AuthModule`) |
 | `ScoresModule` | `scores.ts` | ES module | Best-time recording, leaderboard, Firestore writes (also `window.ScoresModule`) |
 
 ### What still lives on `window`
@@ -215,6 +215,19 @@ state, so keyboard and touch are interchangeable. Button touch handlers wire
 ---
 
 ## 7. Auth, scoring & persistence
+
+**Sign-in providers.** `auth.ts` offers popup-based **Google, GitHub, and Apple**
+sign-in plus an **anonymous "Play as Guest"** option. Each `#authUI` button is wired
+by id from a `PROVIDER_BUTTONS` table (Google `signInWithPopup`, GitHub
+`GithubAuthProvider`, Apple `OAuthProvider('apple.com')`) with `signInAsGuest`
+calling `signInAnonymously`; a button absent from the DOM is skipped, so markup can
+ship ahead of the server-side provider config. A signed-in **anonymous guest who
+picks a real provider is upgraded in place via `linkWithPopup`** (same uid, progress
+carries over); if that provider account already exists it falls back to a normal
+`signInWithPopup`. Anonymous guests are deliberately kept **out of Firestore and the
+global leaderboard** — `auth.ts` passes `null` to `ScoresModule.setCurrentUser` and
+`scores.ts` `getActiveUser()` skips `isAnonymous` users — so a guest's best time
+stays in `localStorage` until they upgrade, at which point `syncUserData` backfills it.
 
 Three runtime modes, auto-detected:
 
