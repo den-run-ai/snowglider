@@ -38,6 +38,7 @@ import { AudioModule } from './audio.js';
 import { Physics } from './physics.js';
 import type { RockPosition } from './mountains.js';
 import type { TreePosition } from './trees.js';
+import { setupCollapsiblePanel } from './ui/collapsible-panel.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();
@@ -334,78 +335,18 @@ state.bestTime = readStoredBestTime();
 
 // Initialize game stats functionality
 function initializeGameStats() {
-  console.log("Initializing game stats");
   const bestTimeElement = document.getElementById('bestTimeValue');
   if (bestTimeElement) {
     bestTimeElement.textContent = state.bestTime !== Infinity ? `${state.bestTime.toFixed(2)}s` : '--';
   }
-  
-  // Add game stats toggle functionality
-  const statsContainer = document.getElementById('gameStatsContainer');
-  const toggleStatsBtn = document.getElementById('toggleStats');
-  const statsHeader = document.getElementById('gameStatsHeader');
-  
-  if (statsContainer && toggleStatsBtn && statsHeader) {
-    console.log("Setting up game stats toggle");
-    // Function to toggle stats visibility
-    const toggleStats = function() {
-      console.log("Toggle stats called, current state:", statsContainer.classList.contains('collapsed'));
-      statsContainer.classList.toggle('collapsed');
-      toggleStatsBtn.textContent = statsContainer.classList.contains('collapsed') ? '▼' : '▲';
-    };
-    
-    // Add click and touch event listeners
-    toggleStatsBtn.addEventListener('click', function(e) {
-      console.log("Toggle button clicked");
-      e.stopPropagation();
-      toggleStats();
-    });
-    
-    statsHeader.addEventListener('click', function(e) {
-      console.log("Stats header clicked");
-      toggleStats();
-    });
-    
-    statsHeader.addEventListener('touchend', function(e) {
-      console.log("Stats header touch end");
-      e.preventDefault();
-      toggleStats();
-    }, { passive: false });
-    
-    // Add horizontal swipe handler for the stats window
-    let touchStartX = 0;
-    
-    statsHeader.addEventListener('touchstart', function(e) {
-      touchStartX = e.touches[0].clientX;
-    }, { passive: true });
-    
-    statsHeader.addEventListener('touchmove', function(e) {
-      const touchX = e.touches[0].clientX;
-      const diff = touchX - touchStartX;
-      
-      // If swiping left and stats expanded, collapse them
-      if (diff < -30 && !statsContainer.classList.contains('collapsed')) {
-        console.log("Swipe left detected, collapsing");
-        statsContainer.classList.add('collapsed');
-        toggleStatsBtn.textContent = '▼';
-        e.preventDefault();
-      }
-      
-      // If swiping right and stats collapsed, expand them
-      if (diff > 30 && statsContainer.classList.contains('collapsed')) {
-        console.log("Swipe right detected, expanding");
-        statsContainer.classList.remove('collapsed');
-        toggleStatsBtn.textContent = '▲';
-        e.preventDefault();
-      }
-    }, { passive: false });
-  } else {
-    console.warn("Game stats elements not found:", {
-      statsContainer: !!statsContainer,
-      toggleStatsBtn: !!toggleStatsBtn,
-      statsHeader: !!statsHeader
-    });
-  }
+
+  // Game stats panel collapse/swipe behavior (shared with the Controls panel).
+  setupCollapsiblePanel({
+    name: 'game stats',
+    containerId: 'gameStatsContainer',
+    toggleButtonId: 'toggleStats',
+    headerId: 'gameStatsHeader',
+  });
 }
 
 // Initialize the stats display when DOM is loaded
@@ -1009,126 +950,17 @@ restartButton.addEventListener('click', restartGame);
 
 // Function to initialize controls toggle
 function initializeControlsToggle() {
-  console.log("Initializing controls toggle");
-  const controlsInfo = document.getElementById('controlsInfo');
-  const toggleButton = document.getElementById('toggleControls');
-  const controlsHeader = document.getElementById('controlsHeader');
-  const controlsContent = document.getElementById('controlsContent');
-  
-  if (controlsInfo && toggleButton && controlsHeader) {
-    console.log("Setting up controls toggle");
-    
-    // Ensure previous event listeners are removed (if possible)
-    try {
-      controlsHeader.replaceWith(controlsHeader.cloneNode(true));
-      const newControlsHeader = document.getElementById('controlsHeader')!;
-      const newToggleButton = document.getElementById('toggleControls')!;
-
-      // Setup the toggle functionality
-      const toggleControls = function() {
-        console.log("Toggle controls called, current state:", controlsInfo.classList.contains('collapsed'));
-        if (controlsInfo.classList.contains('collapsed')) {
-          controlsInfo.classList.remove('collapsed');
-          newToggleButton.textContent = '▲';
-        } else {
-          controlsInfo.classList.add('collapsed');
-          newToggleButton.textContent = '▼';
-        }
-      };
-      
-      // Add click listener to both the button and header
-      newToggleButton.addEventListener('click', function(e) {
-        console.log("Controls toggle button clicked");
-        e.stopPropagation(); // Prevent triggering the header click
-        toggleControls();
-      });
-      
-      newControlsHeader.addEventListener('click', function(e) {
-        console.log("Controls header clicked");
-        toggleControls();
-      });
-      
-      // Add touch events for better mobile experience
-      newControlsHeader.addEventListener('touchend', function(e) {
-        console.log("Controls header touch end");
-        e.preventDefault(); // Prevent default touch behavior
-        toggleControls();
-      }, { passive: false });
-      
-      // Auto-collapse on small screens
-      const handleScreenSizeChange = () => {
-        if (window.innerWidth <= 480 || 
-            (window.innerWidth <= 768 && window.innerHeight <= 500)) {
-          // Auto-collapse on small screens and landscape mobile
-          if (!controlsInfo.classList.contains('collapsed')) {
-            console.log("Auto-collapsing controls for small screen");
-            controlsInfo.classList.add('collapsed');
-            newToggleButton.textContent = '▼';
-          }
-        }
-      };
-      
-      // Check on resize
-      window.addEventListener('resize', handleScreenSizeChange);
-      
-      // Check on initial load
-      handleScreenSizeChange();
-      
-      // Add horizontal swipe handler for the controls (like Game Stats)
-      let touchStartX = 0;
-      
-      newControlsHeader.addEventListener('touchstart', function(e) {
-        touchStartX = e.touches[0].clientX;
-      }, { passive: true });
-      
-      newControlsHeader.addEventListener('touchmove', function(e) {
-        const touchX = e.touches[0].clientX;
-        const diff = touchX - touchStartX;
-        
-        // If swiping left and controls expanded, collapse them
-        if (diff < -30 && !controlsInfo.classList.contains('collapsed')) {
-          console.log("Swipe left detected, collapsing controls");
-          controlsInfo.classList.add('collapsed');
-          newToggleButton.textContent = '▼';
-          e.preventDefault();
-        }
-        
-        // If swiping right and controls collapsed, expand them
-        if (diff > 30 && controlsInfo.classList.contains('collapsed')) {
-          console.log("Swipe right detected, expanding controls");
-          controlsInfo.classList.remove('collapsed');
-          newToggleButton.textContent = '▲';
-          e.preventDefault();
-        }
-      }, { passive: false });
-    } catch (e) {
-      console.error("Error setting up controls toggle:", e);
-      
-      // Fall back to simple toggle without cloning
-      const toggleControls = function() {
-        if (controlsInfo.classList.contains('collapsed')) {
-          controlsInfo.classList.remove('collapsed');
-          toggleButton.textContent = '▲';
-        } else {
-          controlsInfo.classList.add('collapsed');
-          toggleButton.textContent = '▼';
-        }
-      };
-      
-      toggleButton.addEventListener('click', function(e) {
-        e.stopPropagation();
-        toggleControls();
-      });
-      
-      controlsHeader.addEventListener('click', toggleControls);
-    }
-  } else {
-    console.warn("Controls elements not found:", {
-      controlsInfo: !!controlsInfo,
-      toggleButton: !!toggleButton,
-      controlsHeader: !!controlsHeader
-    });
-  }
+  // Controls panel collapse/swipe behavior (shared with the Game Stats panel).
+  // Resets stale listeners and auto-collapses on small screens — this is invoked
+  // more than once (DOMContentLoaded + initializeGameWithAudio).
+  setupCollapsiblePanel({
+    name: 'controls',
+    containerId: 'controlsInfo',
+    toggleButtonId: 'toggleControls',
+    headerId: 'controlsHeader',
+    resetListeners: true,
+    autoCollapseOnSmallScreens: true,
+  });
 }
 
 // Initialize controls toggle when DOM is loaded
