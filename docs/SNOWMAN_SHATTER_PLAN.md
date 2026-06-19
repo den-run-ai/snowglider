@@ -13,15 +13,19 @@
 
 Three user-visible upgrades, in rising order of risk:
 
-1. **Scarf** — give the snowman a red knitted scarf around the neck, with a tail that
-   trails in the wind. (Pure model geometry.)
-2. **Flexible / "wiggly" snowman** — the body squashes, stretches, and jiggles as it
-   skis: head bob, scarf trailing on velocity, a settle-bounce on landing, lean into
-   carves. Makes the snowman read as *alive* rather than a rigid stack of spheres.
-3. **Breaks down on impact** — on a **crash** (tree / rock / off-mountain / fell-off /
+1. **Flexible / "wiggly" snowman** — the body squashes, stretches, and jiggles as it
+   skis: head bob, a settle-bounce on landing, lean into carves. Makes the snowman read
+   as *alive* rather than a rigid stack of spheres.
+2. **Breaks down on impact** — on a **crash** (tree / rock / off-mountain / fell-off /
    avalanche burial — *not* a finish), the snowman bursts apart: the three balls, hat,
-   nose, arms, buttons, and scarf fly off as tumbling fragments while a puff of snow
-   splashes out. The classic SkiFree-style wipeout.
+   nose, arms, and buttons fly off as tumbling fragments while a puff of snow splashes
+   out. The classic SkiFree-style wipeout.
+3. **Scarf** *(optional follow-up — see §12 PR C)* — a red knitted scarf around the neck
+   with a tail that trails in the wind. **Deferred out of the core work**: the
+   overlapping neck geometry and trailing tail are the fiddliest, most iteration-prone
+   piece of #53, so it's quarantined into its own PR. The flex animator and shatter
+   system are both built to pick the scarf up automatically once it exists, so A/B don't
+   depend on it and it can land later or be dropped.
 
 **The single hard constraint:** none of this may touch the deterministic skiing
 physics. Flex and shatter are *cosmetic* layers that live **outside** the
@@ -95,11 +99,11 @@ Two new files + small, surgical edits to three existing ones.
 ```
 NEW  src/debris.ts        SnowmanDebris: shatter fragments + snow-puff burst + own
                           settle loop, terrain-aware, disposable. (class, like avalanche)
-NEW  src/snowman-flex.ts  Flex: cosmetic squash/stretch/jiggle/scarf-trail animator.
-                          Pure function over (group, dt, motion) — no physics.
+NEW  src/snowman-flex.ts  Flex: cosmetic squash/stretch/jiggle animator (scarf-trail
+                          branch is dormant until PR C). Pure fn over (group, dt, motion).
 
-EDIT src/snowman.ts       createSnowman(): tag parts into group.userData.parts {…};
-                          add the scarf geometry. NO change to updateSnowman.
+EDIT src/snowman.ts       createSnowman(): tag parts into group.userData.parts {…}.
+                          (Scarf geometry is the optional PR C.) NO change to updateSnowman.
 EDIT src/snowglider.ts    main loop calls Flex.update(...) each frame after physics;
                           showGameOver() triggers Debris.shatter() on crash reasons;
                           resetSnowman()/restartGame() call Debris.reset() + Flex.reset().
@@ -133,7 +137,7 @@ showGameOver(reason)
 
 ---
 
-## 5. Feature 1 — Tag the model & add the scarf (`src/snowman.ts`)
+## 5. Tag the model (`src/snowman.ts`)
 
 ### 5.1 Part registry
 
@@ -150,7 +154,9 @@ group.userData.parts = {
   button1, button2, button3,
   leftArmGroup, rightArmGroup,
   hatBase, hatTop,
-  scarf, scarfTail,                // added below
+  // scarf, scarfTail — added by the optional scarf follow-up (PR C). Both the flex
+  // animator and the shatter system treat these as present-or-absent, so the registry
+  // simply gains two keys when PR C lands; nothing in A/B depends on them existing.
 };
 // Remember neutral local transforms so flex can animate as deltas and reset cleanly.
 group.userData.parts.base = recordBaseTransforms(group.userData.parts);
@@ -161,11 +167,14 @@ object so the flex animator can express everything as an offset from neutral and
 `Flex.reset()` can snap exactly back (no drift across runs). This is the same discipline
 the ski-pose code already uses with `leftSkiBaseX`/`rightSkiBaseX`.
 
-### 5.2 Scarf geometry
+### 5.2 Scarf geometry — *optional follow-up (PR C), NOT in the core work*
 
-A simple, cheap scarf: a flattened torus (the wrap) at the neck seam (~`y = 6.2`, between
-the `middle` top and the `head`) plus a short two-segment tail hanging over the front in
-red wool. Keep it low-poly (matches the rest of the model) and `castShadow = true`:
+Deferred because the overlapping neck geometry + a trailing tail is the fiddliest,
+highest-risk piece of #53. Captured here as a ready reference for PR C; A and B ship
+scarf-free. A simple, cheap scarf: a flattened torus (the wrap) at the neck seam
+(~`y = 6.2`, between the `middle` top and the `head`) plus a short two-segment tail
+hanging over the front in red wool. Keep it low-poly (matches the rest of the model) and
+`castShadow = true`:
 
 ```ts
 const scarfMaterial = new THREE.MeshStandardMaterial({ color: 0xCC2222, roughness: 1.0 });
@@ -183,8 +192,9 @@ group.add(scarfTail);
 ```
 
 This is additive geometry only — it does not touch physics, collision radius, or the
-spawn pose, so terrain/physics tests are unaffected. The DOM smoke test gets one new
-assertion (§8).
+spawn pose, so terrain/physics tests are unaffected. PR C adds the two `scarf`/`scarfTail`
+keys to the part registry plus one DOM-smoke assertion; until it lands, the flex and
+shatter modules simply run scarf-free.
 
 ---
 
@@ -199,7 +209,7 @@ amount of state (jiggle phase, settle spring) on `snowman.userData.flex`.
 export interface FlexMotion {
   speed: number;        // currentSpeed from UpdateResult
   technique: string;    // 'carve' | 'skid' | 'tuck' | … (for lean styling)
-  turnRate: number;     // signed: velocity.x / speed, drives lean + scarf swing
+  turnRate: number;     // signed: velocity.x / speed, drives lean (+ scarf swing in PR C)
   justLanded: boolean;  // landingForce > threshold → settle bounce
   landingForce: number;
   isInAir: boolean;
@@ -224,8 +234,10 @@ reset cleanly):
 - **Carve lean.** On `carve`/`parallel`, lean the upper balls + hat into the turn
   (`turnRate`-scaled, clamped) — a *cosmetic* lean layered on top of the kernel's
   existing body tilt, addressing the "flexible" ask without spine math.
-- **Scarf trail.** Swing `scarfTail` opposite to travel/turn (trails behind) with a sine
-  flutter scaled by speed; in air it lifts. Cheap, sells "wind."
+- **Scarf trail** *(only when the scarf exists — PR C)*. If `parts.scarfTail` is present,
+  swing it opposite to travel/turn (trails behind) with a sine flutter scaled by speed; in
+  air it lifts. Guarded so the animator is a no-op on the scarf when it's absent — A ships
+  without this branch active.
 
 **Reduced motion:** `Flex.update` early-returns to base transforms (no jiggle/lean), so
 the snowman is simply rigid — identical silhouette, no motion.
@@ -364,7 +376,7 @@ already runs in `showGameOver`; the debris is independent of it.
 | Layer | What | Where |
 |-------|------|-------|
 | **Physics invariant** | Unchanged — assert no regression. Because the kernel is untouched, `npm run test:verify` must stay green **without** regenerating `snowman_baseline.js`. This is itself the proof that flex/shatter didn't leak into physics. | `tests/verification/physics_invariant_harness.js` (run, don't edit) |
-| **DOM smoke** | `createSnowman` still builds; assert the new `userData.parts` registry exists and a `scarf` mesh is present. | `tests/verification/dom_smoke_test.js` (extend) |
+| **DOM smoke** | `createSnowman` still builds; assert the new `userData.parts` registry exists. (The `scarf`-present assertion is added by PR C.) | `tests/verification/dom_smoke_test.js` (extend) |
 | **Debris unit** | Headless with a mocked `THREE` + deterministic terrain fn: `shatter()` spawns N fragments and hides the snowman; `update(dt)` applies gravity and converges (fragments rest at/above terrain, loop returns false within ~2.5 s); `reset()` disposes and re-shows. Mirror the existing `avalanche-tests.js` harness. | new `tests/debris-tests.js` + `npm` script |
 | **Flex unit** | `Flex.update` only mutates child transforms and is bounded (clamped lean, returns to base when idle / reduced-motion); `Flex.reset` restores base transforms exactly. | new `tests/snowman-flex-tests.js` |
 | **Browser** | Force a tree collision (existing `window.testHooks.forceTreeCollision`) and assert `snowman.visible === false` + debris active immediately after; assert restart re-shows the snowman. | extend `tests/browser-tests.js` |
@@ -399,20 +411,26 @@ needs **no** change (kernel untouched) — explicitly note that in the PR descri
 - [ ] Test mode / `_testShowGameOverOverride` path skips shatter entirely.
 - [ ] No new `window.*` per-module bridge; modules `import` directly and are imported by
       `main.ts`.
-- [ ] Scarf doesn't alter collision radius, spawn pose, or terrain tests.
+- [ ] *(PR C only)* Scarf doesn't alter collision radius, spawn pose, or terrain tests.
 
 ## 12. Suggested PR breakdown (mergeable, low-risk first)
 
-1. **PR A — Scarf + part registry + flex** (no game-over changes): add scarf geometry,
-   `userData.parts`, `src/snowman-flex.ts`, wire `Flex.update`/`Flex.reset`. Lowest risk;
-   ships the "scarf + flexible" half of #53 on its own. Tests: DOM smoke + flex unit +
-   verify-green.
+1. **PR A — Part registry + flex** (no game-over changes, **no scarf**): add the
+   `userData.parts` registry and `src/snowman-flex.ts`, wire `Flex.update`/`Flex.reset`.
+   Lowest risk; ships the "flexible/wiggly" half of #53 on its own. Tests: DOM smoke +
+   flex unit + verify-green.
 2. **PR B — Crash shatter**: `src/debris.ts`, the `showGameOver` crash branch, the
    reset/restart cleanup, the optional overlay delay. Ships "breaks down on impact."
    Tests: debris unit + browser crash test + e2e.
+3. **PR C — Scarf (optional follow-up)**: add the scarf/tail geometry (§5.2), the two
+   `scarf`/`scarfTail` keys in the registry, the flex scarf-trail branch (§6), and a DOM-
+   smoke assertion. **Quarantined on purpose** — the overlapping neck geometry / trailing
+   tail is the riskiest, most iteration-prone piece, and A/B don't depend on it (both
+   treat the scarf as present-or-absent). Can land any time after A, or be dropped without
+   affecting A/B.
 
-Splitting this way keeps each PR's blast radius small and lets the expressive-pose work
-land even if the shatter timing needs iteration.
+Splitting this way keeps each PR's blast radius small, lands the expressive-pose and
+wipeout work first, and quarantines the fiddly scarf so it can't hold them up.
 
 ## 13. Open questions (for the maintainer)
 
@@ -421,5 +439,7 @@ land even if the shatter timing needs iteration.
 2. **Fragment fidelity** — clone the actual parts (hat, nose, arms read clearly) vs.
    generic snow-ball chunks (cheaper, more uniform)? (Recommend cloning the distinctive
    parts + cracking the 3 balls into chunks.)
-3. **Scope of #53** — close #53 with A+B, or keep it open for follow-on polish
-   (snowballing-downhill after wipeout, celebratory finish animation)?
+3. **Scope of #53** — close #53 once A+B+C land, or close with A+B (flex + wipeout) and
+   track the scarf (PR C) + further polish (snowballing-downhill after wipeout,
+   celebratory finish animation) as follow-ups? The scarf is now explicitly a follow-up,
+   so A+B alone are a coherent shippable slice.
