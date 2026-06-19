@@ -26,6 +26,7 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
+import { buildResultShareData, shareResult } from './share.js';
 
 /** Terrain sampler injected via {@link CourseModule.init}. */
 export type TerrainHeightFn = (x: number, z: number) => number;
@@ -638,7 +639,45 @@ export const CourseModule = (function () {
     });
     panel.appendChild(table);
 
+    // Share button (native Web Share API + clipboard fallback). It is only ever
+    // built here, inside the finish result panel, so it appears solely on a valid
+    // successful finish and is cleaned up with the panel on restart.
+    panel.appendChild(buildShareButton(totalTime, isBest));
+
     return panel;
+  }
+
+  function buildShareButton(totalTime: number, isBest: boolean): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.id = 'shareResultBtn';
+    btn.type = 'button';
+    const defaultLabel = '🔗 Share Result';
+    btn.textContent = defaultLabel;
+    Object.assign(btn.style, {
+      marginTop: '14px', width: '100%', padding: '10px 14px',
+      fontSize: '15px', fontWeight: '700', color: '#fff', cursor: 'pointer',
+      background: 'linear-gradient(90deg,#0984e3,#74b9ff)', border: 'none',
+      borderRadius: '10px', fontFamily: 'Arial, sans-serif',
+      touchAction: 'manipulation', userSelect: 'none'
+    });
+    btn.style.setProperty('-webkit-tap-highlight-color', 'rgba(255,255,255,0.4)');
+
+    let busy = false;
+    btn.addEventListener('click', () => {
+      if (busy) return;
+      busy = true;
+      shareResult(buildResultShareData(totalTime, isBest)).then((outcome) => {
+        const label =
+          outcome === 'shared' ? '✅ Shared!' :
+          outcome === 'copied' ? '✅ Link copied!' :
+          outcome === 'unavailable' ? '⚠️ Sharing unavailable' :
+          defaultLabel; // 'cancelled' — user dismissed; restore quietly
+        if (label === defaultLabel) { busy = false; return; }
+        btn.textContent = label;
+        setTimeout(() => { btn.textContent = defaultLabel; busy = false; }, 1800);
+      }).catch(() => { busy = false; });
+    });
+    return btn;
   }
 
   return {

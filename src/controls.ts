@@ -493,8 +493,12 @@ function setupButtonTouchHandlers() {
           target.id === 'gameOverOverlay' &&
           target.style.display === 'flex') {
         
-        // Game over overlay is now visible, add touch handler to restart button
-        const restartButton = document.querySelector('#gameOverOverlay button');
+        // Game over overlay is now visible, add touch handler to restart button.
+        // Use the child combinator: the restart button is a direct child of the
+        // overlay, whereas the finish result panel's "Share Result" button is a
+        // nested descendant — a plain `#gameOverOverlay button` would match that
+        // share button first (depth-first) and misbind restart on touch devices.
+        const restartButton = document.querySelector('#gameOverOverlay > button');
         if (restartButton && !restartButton.getAttribute('touch-handler-added')) {
           restartButton.addEventListener('touchstart', (event) => {
             event.preventDefault();

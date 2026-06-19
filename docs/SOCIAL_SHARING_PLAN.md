@@ -1,7 +1,12 @@
 # Social Sharing Implementation Plan
 
-This is a planning-only proposal for adding lightweight social sharing to the
-finish result flow. It does not implement the feature yet.
+> **Status: Implemented (#157).** This document is the original proposal; the
+> feature now ships in `src/share.ts` (helpers) wired into the `src/course.ts`
+> finish result panel. See the [CHANGELOG](CHANGELOG.md) entry "Social sharing"
+> for what landed. The sections below are preserved as the design rationale.
+
+This was a planning-only proposal for adding lightweight social sharing to the
+finish result flow.
 
 ## Goal
 

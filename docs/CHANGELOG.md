@@ -13,6 +13,36 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Social sharing — "Share Result" on the finish screen (#157)
+- New `src/share.ts` module implements the plan in
+  [`SOCIAL_SHARING_PLAN.md`](SOCIAL_SHARING_PLAN.md): lightweight sharing of a
+  finished run with no sign-in, backend, or per-platform SDK.
+  - `buildResultShareData(time, isNewBest, href?)` builds deterministic share
+    copy ("I finished SnowGlider in 42.13s…" / "New SnowGlider personal best:…").
+  - `cleanShareUrl(href)` keeps shared links stable and public: it strips
+    local-only query params (`?test=…`) and the hash, and collapses
+    local/dev/`file:`/unparseable URLs to the canonical `https://snowglider.ai/`.
+  - `shareResult(data)` uses the native Web Share API when available (from the
+    button's user gesture) and falls back to `navigator.clipboard.writeText()`
+    on absence or any non-cancel failure; a user-cancelled share sheet
+    (`AbortError`) is respected (no clipboard write). It never rejects.
+- The course result panel (`src/course.ts`) appends one **🔗 Share Result**
+  button, so it appears only on a valid successful finish and is cleaned up with
+  the panel on restart. The button label reflects the outcome (Shared / Link
+  copied / unavailable) and a best-effort `share_result` Analytics event is
+  logged through the existing `window.firebaseModules.logEvent` seam.
+- Fixed a latent touch-binding bug surfaced by the nested button: the game-over
+  `MutationObserver` in `src/controls.ts` selected `#gameOverOverlay button`
+  (first descendant, depth-first), which would now match the nested Share button
+  and misbind restart on touch devices. Switched to the child combinator
+  `#gameOverOverlay > button` so it always targets the direct-child restart
+  button.
+- Tests: new `tests/share-tests.js` (`npm run test:share`, 31 checks) for copy
+  formatting, URL cleanup, and the share/clipboard/Analytics outcomes; the
+  `dom_smoke_test` now asserts the Share button appears only in finish panels and
+  copies a stable public link; the controls test guards the restart/share
+  touch-binding regression.
+
 ### Visible sky — gradient sky, atmospheric sky + sun, distance fog (#2)
 - Replaced the flat `scene.background = Color(0x87CEEB)` (and no fog) with a
   graduated sky and matching horizon fog, in a new `src/sky.ts` module.

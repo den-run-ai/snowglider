@@ -121,6 +121,26 @@ async function main() {
   const ghostLast = ghostSaved[ghostSaved.length - 1];
   check('ghost final sample keeps real x (Gap 3, not snapped to 0)', Math.abs(ghostLast.x - 0) > 0.5 && ghostLast.z === cfg.FINISH_Z);
 
+  // Social sharing (docs/SOCIAL_SHARING_PLAN.md): the "Share Result" button is built
+  // only inside the finish result panel, so it appears solely on a valid finish.
+  const shareBtn1 = panel1.querySelector('#shareResultBtn');
+  check('finish result panel includes a Share button', !!shareBtn1);
+  check('Share button is labelled "Share Result"', /Share Result/.test(shareBtn1 ? shareBtn1.textContent : ''));
+
+  // Clicking it uses the clipboard fallback (no navigator.share under jsdom) and
+  // reflects the outcome in the label. Install a clipboard spy via defineProperty
+  // because Node exposes a getter-only `navigator` global.
+  let clipboardText = null;
+  Object.defineProperty(global, 'navigator', {
+    value: { clipboard: { writeText: async (txt) => { clipboardText = txt; } } },
+    configurable: true, writable: true
+  });
+  shareBtn1.click();
+  await new Promise((r) => setTimeout(r, 0));
+  check('clicking Share copies a stable public link', typeof clipboardText === 'string' && clipboardText.includes('https://snowglider.ai/'));
+  check('Share button reflects the copied state', /copied/i.test(shareBtn1.textContent || ''));
+  delete global.navigator;
+
   // Second run, faster: should read as a new record and a ghost should now exist + interpolate.
   Course.reset(); // loads the stored ghost AND best splits (Gap 2 fix)
   let t2 = 0;
@@ -133,13 +153,15 @@ async function main() {
   const panelText2 = panel2.textContent || '';
   check('faster second run reports a new record', /record/i.test(panelText2));
   check('result panel contains a split table (Δ Best)', /Δ Best/.test(panelText2));
+  check('second finish panel also includes a Share button', !!panel2.querySelector('#shareResultBtn'));
 
   // Gap 2 regression: after a personal best, reset() must reload bestSplits, so the
   // second run's result table shows real per-split deltas instead of the "—" placeholder.
   // (Scope the check to the split table — the "X — new personal best!" line legitimately
-  // uses an em dash as a separator, so checking the whole panel would false-positive.)
+  // uses an em dash as a separator, so checking the whole panel would false-positive.
+  // The split table sits immediately before the Share button, which is appended last.)
   const EM_DASH = String.fromCharCode(0x2014);
-  const deltaTable = panel2.lastElementChild; // split table is appended last in the panel
+  const deltaTable = panel2.querySelector('#shareResultBtn').previousElementSibling;
   check('best-split deltas not stale after PB (Gap 2)',
     !!deltaTable && deltaTable.textContent.indexOf(EM_DASH) === -1);
 
