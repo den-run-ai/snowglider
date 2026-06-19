@@ -126,7 +126,15 @@ files.
 
 #### Firebase Configuration
 1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com/)
-2. Enable Google Authentication in the Firebase console
+2. Enable the sign-in providers you want in the Firebase console. SnowGlider wires
+   buttons for Google, GitHub, Apple, and Anonymous ("Play as Guest"):
+   - **Google** / **Anonymous** — enable in Authentication → Sign-in method (no extra setup).
+   - **GitHub** — register a GitHub OAuth app and paste its client ID/secret into Firebase.
+   - **Apple** — requires a paid Apple Developer account and an Apple Service ID.
+   A provider button whose backend isn't enabled simply errors on click; `auth.ts`
+   skips any button absent from the DOM, so you can ship buttons incrementally. Guests
+   are anonymous: their best time stays local and is backfilled to the leaderboard only
+   if they later upgrade to a real provider (same uid, via account linking).
 3. Create a Firestore database in the Firebase console
 4. Register your web app in Firebase to get configuration keys
 5. Update the Firebase configuration in `src/boot/firebase-bootstrap.js`:

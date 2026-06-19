@@ -116,11 +116,22 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 
 ## Authentication Implementation
 - Use popup-only authentication flow for all devices (mobile and desktop)
+- Multiple sign-in providers wired in `auth.ts` from a `PROVIDER_BUTTONS` table:
+  Google, GitHub (`GithubAuthProvider`), Apple (`OAuthProvider('apple.com')`), plus
+  anonymous "Play as Guest" (`signInAnonymously`). Add a provider by extending that
+  table and adding a button with the matching id; a button absent from the DOM is skipped.
+- Anonymous guests are kept OUT of Firestore and the global leaderboard: `auth.ts`
+  passes `null` to `ScoresModule.setCurrentUser` and `scores.ts` `getActiveUser()`
+  skips `isAnonymous` users. A guest who later signs in with a real provider is
+  upgraded in place via `linkWithPopup` (same uid), and `syncUserData` backfills
+  their local best time to the leaderboard. Preserve this guard when touching auth/scores.
 - Set `window.FIREBASE_MANUAL_INIT = true` to prevent 404 errors 
 - Implement specialized handling for popup-blocked and popup-closed-by-user errors
 - Provide graceful degradation to localStorage when Firebase is unavailable
 - Include visual state indicators during the authentication process
 - Maintain automatic detection between development and production environments
+- GitHub/Apple require server-side Firebase console config (OAuth app; Apple Service ID);
+  the buttons exist but only succeed once those providers are enabled.
 
 ## Scoring and Leaderboard Implementation
 - User scoring and leaderboard functionality is managed by the ScoresModule in `scores.ts`
