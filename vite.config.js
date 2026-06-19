@@ -56,23 +56,57 @@ function copyStaticAppFiles() {
         force: true
       });
 
-      // Publish the single three.js ESM build the page import map points at
+      // Publish the three.js ESM build the page import map points at
       // (`/node_modules/three/build/three.module.min.js`). The bundled game never
       // hits the import map (Vite inlines three into the hashed chunk), but the
       // verbatim-copied browser tests in dist/tests load as `<script type="module">`
       // and import bare `three`, so on Pages — where node_modules is NOT published —
       // they'd 404 and the `?test=…` entry points would fail before registering
-      // their window.run*Tests hooks. Copying just this one file (not all of
-      // node_modules) keeps those deployed test pages resolving three (issue #84).
-      const threeRel = path.join('node_modules', 'three', 'build', 'three.module.min.js');
-      await mkdir(path.join(distDir, path.dirname(threeRel)), { recursive: true });
-      await cp(path.join(rootDir, threeRel), path.join(distDir, threeRel), { force: true });
+      // their window.run*Tests hooks. Since three@0.184 the module build is no
+      // longer self-contained — `three.module.min.js` imports `./three.core.min.js`
+      // (and a later release could split further) — so follow the relative-import
+      // graph and copy every referenced build file, not just the entry. Still only
+      // the three build dir, never all of node_modules (issue #84).
+      const threeBuildRel = path.join('node_modules', 'three', 'build');
+      await mkdir(path.join(distDir, threeBuildRel), { recursive: true });
+      await copyThreeBuildGraph(
+        path.join(rootDir, threeBuildRel),
+        path.join(distDir, threeBuildRel),
+        'three.module.min.js'
+      );
 
       await transpileCopiedTypeScriptSources(path.join(distDir, 'src'));
       await rewriteCopiedThreeImports(path.join(distDir, 'src'));
       await rewriteCopiedThreeImports(path.join(distDir, 'tests'));
     }
   };
+}
+
+// Copy a three.js build entry file plus everything it pulls in through relative
+// (`./…`) import specifiers, transitively. three's ESM build was a single
+// self-contained file through r160 but split into `three.module.min.js` +
+// `three.core.min.js` by 0.184, so publishing only the entry leaves the deployed
+// `?test=…` pages 404-ing the core chunk. Walking the local import graph copies
+// exactly the referenced sibling files (and survives any further split) without
+// pulling in unrelated build artifacts (webgpu/tsl/etc.).
+async function copyThreeBuildGraph(srcBuildDir, destBuildDir, entryFile) {
+  const seen = new Set();
+  const queue = [entryFile];
+
+  while (queue.length > 0) {
+    const name = queue.shift();
+    if (seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+
+    const source = await readFile(path.join(srcBuildDir, name), 'utf8');
+    await writeFile(path.join(destBuildDir, name), source);
+
+    for (const match of source.matchAll(/(?:from|import)\s*['"]\.\/([\w.-]+)['"]/g)) {
+      queue.push(match[1]);
+    }
+  }
 }
 
 async function transpileCopiedTypeScriptSources(srcDir) {
