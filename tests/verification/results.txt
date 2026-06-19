@@ -11,7 +11,7 @@ Tests completed: 5 passed, 0 failed
 Summary: 3 passed, 0 failed
 Tests completed: 10 passed, 0 failed
   PASS: IDENTICAL ✅
-  PASS: turning free ❌ (known: technique model is intentionally thin — see Gap 4 / issues #48,#54)
+  PASS: carve holds speed (+43% vs skid) ✅   (carve-vs-skid trade-off now GATING — issues #48/#54)
 INVARIANT HARNESS: OK ✅ (safety invariant + technique gating checks hold)
 SMOKE TEST TOTAL: 18 passed, 0 failed
 EXIT: 0

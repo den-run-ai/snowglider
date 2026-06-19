@@ -13,6 +13,22 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Skiing skill — carve vs. skid speed trade-off (#48 / #54)
+- Deepened the ski-technique model (P1 of [`ROADMAP.md`](ROADMAP.md)) from the
+  intentionally-thin #56 first pass into a real speed-management trade-off: a
+  committed carve holds speed, while panic-steering (reversing the edge or
+  yanking a fresh one) scrubs it.
+- Added a `carveCharge` edge-engagement state that builds while the player holds
+  one steering direction (~0.66 s to lock in) and collapses on any reversal; the
+  edge wash-out scales down with it, plus a small always-on turn tax so
+  straight-lining stays the fastest line. The HUD `technique` now reads `carve`
+  only once the edge is locked, otherwise `skid`.
+- No-input coasting stays byte-for-byte identical to the frozen baseline (the
+  load-bearing verification invariant). The verification harness's old
+  terrain-dependent "turn vs. coast" diagnostic is replaced by a **gating**
+  carve-vs-skid check: linked carves must finish meaningfully faster (>12%;
+  measured ≈40%) than chatter-skidding the same fall line.
+
 ### Gameplay
 - Large exposed rocks now participate in collision detection with a distinct rock
   crash reason, while small half-buried stones remain decorative terrain detail.

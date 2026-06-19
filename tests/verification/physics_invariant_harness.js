@@ -8,11 +8,13 @@
 //   baseline: tests/verification/snowman_baseline.js  (frozen pre-feature snapshot)
 //   current : ../../src/snowman.js
 //
-// The process exit code is gated ONLY on that invariant (check 1) plus the
-// clearly-correct technique checks (brake slows you; modified scrubs >= original;
-// edge scrub at speed). Check 3 ("a turn should cost speed vs coasting") is a
-// diagnostic for the deliberately-thin technique model and is reported but does NOT
-// fail the build — deepening it is a tracked design decision, not a regression.
+// The process exit code is gated on that invariant (check 1) plus the
+// clearly-correct technique checks (brake slows you; a committed carve holds more
+// speed than panic-steering; modified scrubs >= original; edge scrub at speed).
+// Check 3 used to be a non-gating diagnostic for the deliberately-thin technique
+// model ("a turn should cost speed vs coasting"); issues #48/#54 deepened that
+// model into a real carve-vs-skid speed trade-off, so check 3 is now the GATING
+// carve-vs-skid comparison (with the old terrain-dependent line kept as 3b diag).
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -84,6 +86,28 @@ function simulate(updateFn, controls, seed, steps = 220, dt = 1 / 60) {
            distance: -15 - pos.z, steps: traj.length, technique: st.technique };
 }
 
+// Like simulate(), but the controls are a per-frame function ctrl(i) so we can
+// drive distinct steering *patterns* (a held carve vs. chatter-skidding). Used by
+// the carve-vs-skid gating check; configurable entry speed/position so both
+// patterns share the same terrain envelope.
+function simulateCtrl(updateFn, ctrl, seed, { steps = 120, dt = 1 / 60, z0 = -40, vz0 = -20 } = {}) {
+  const rng = makeRng(seed);
+  Math.random = rng;
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: z0, y: getTerrainHeight(0, z0) };
+  const velocity = { x: 0, z: vz0 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, z0),
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  for (let i = 0; i < steps; i++) {
+    st = updateFn(snowman, dt, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, ctrl(i),
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {});
+    if (pos.z < -195) break;
+  }
+  return { finalSpeed: Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z), x: pos.x };
+}
+
 // The frozen baseline is still a classic script, so it loads via vm.runInContext.
 // src/snowman is now an ES module (issue #84, PR 2.8) and can't be evaluated
 // that way, so import the REAL module and read its updateSnowman directly. The
@@ -106,6 +130,7 @@ global.window = global.window || { location: { search: '' } };
 const NONE = { left: false, right: false, up: false, down: false, jump: false };
 const DOWN = { left: false, right: false, up: false, down: true, jump: false };
 const RIGHT = { left: false, right: true, up: false, down: false, jump: false };
+const LEFT = { left: true, right: false, up: false, down: false, jump: false };
 
 let hardFail = false; // gates the exit code on safety-critical checks only
 
@@ -139,14 +164,36 @@ console.log('  PASS:', brakeOk ? 'brake slows you ✅' : 'no slowdown ❌');
 console.log('  PASS:', noReverse ? 'brake does not reverse uphill ✅' : `reverses uphill (distance ${plow.distance.toFixed(2)}) ❌`);
 if (!brakeOk || !noReverse) hardFail = true;
 
-// 3) Hard turning at speed should scrub speed vs coasting straight [DIAGNOSTIC ONLY]
+// 3) Carve vs skid: a committed carve must hold meaningfully more speed than
+// panic-steering [GATING]. This is the speed-management trade-off from issues
+// #48/#54 — the deepening the technique model was "intentionally thin" on.
+// Both runs link turns that oscillate around the fall line (they end at nearly
+// the same x, so terrain is shared); they differ only in *reversal frequency*:
+//   - carve   : long, committed arcs (24-frame edges) — carveCharge locks in.
+//   - chatter : reverse the edge every other frame — carveCharge never engages.
+// The chatter run must finish clearly slower. (Measured spread ~40%+; the gate
+// requires a conservative 12% so it stays robust, not flaky.)
+const PERIOD = 24;
+const carveCtrl = (i) => (Math.floor(i / PERIOD) % 2 === 0 ? RIGHT : LEFT);
+const chatterCtrl = (i) => (i % 2 === 0 ? RIGHT : LEFT);
+const carveRun = simulateCtrl(mod, carveCtrl, 777);
+const chatterRun = simulateCtrl(mod, chatterCtrl, 777);
+const carveSpread = carveRun.finalSpeed / chatterRun.finalSpeed - 1;
+const carveHoldsSpeed = carveSpread > 0.12;
+console.log('\n--- Carve vs skid: linked carves vs chatter-skidding [GATING] ---');
+console.log('  carve   finalSpeed:', carveRun.finalSpeed.toFixed(2), '@x', carveRun.x.toFixed(1));
+console.log('  chatter finalSpeed:', chatterRun.finalSpeed.toFixed(2), '@x', chatterRun.x.toFixed(1));
+console.log('  PASS:', carveHoldsSpeed
+  ? `carve holds speed (+${(carveSpread * 100).toFixed(0)}% vs skid) ✅`
+  : `carve advantage too small (+${(carveSpread * 100).toFixed(0)}%) ❌`);
+if (!carveHoldsSpeed) hardFail = true;
+
+// 3b) A turn at speed still costs speed (no free lunch) [DIAGNOSTIC]. Compared
+// against a held-Right coast reference, which on this synthetic radial terrain
+// curves onto a steeper line, so this stays informational rather than gating.
 const turn = simulate(mod, RIGHT, 777);
-const turnCostsSpeed = turn.finalSpeed < coast.finalSpeed;
-console.log('\n--- Carving/skid (current): hold Right vs coast straight [DIAGNOSTIC] ---');
-console.log('  coast finalSpeed:', coast.finalSpeed.toFixed(2));
-console.log('  turn  finalSpeed:', turn.finalSpeed.toFixed(2), '| technique:', turn.technique);
-console.log('  PASS:', turnCostsSpeed ? 'turning costs speed ✅'
-  : 'turning free ❌ (known: technique model is intentionally thin — see Gap 4 / issues #48,#54)');
+console.log('  diag: held-Right', turn.finalSpeed.toFixed(2), 'vs meander-coast', coast.finalSpeed.toFixed(2),
+  '| technique:', turn.technique, '(terrain-dependent; not gated)');
 
 // 4) Same Right input: current should be <= baseline (added scrub) [GATING]
 const turnOrig = simulate(orig, RIGHT, 777);

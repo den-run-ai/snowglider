@@ -118,10 +118,19 @@ identical to the pre-technique physics** — see §6.
 
 | Technique | Trigger | Effect |
 |-----------|---------|--------|
-| **Carve** | Left/Right, smooth/slow | Holds speed; `turnForce = 16` |
-| **Skid**  | Left/Right, hard at speed | Washes edges out, scrubs speed (`skidScrub`) |
+| **Carve** | Left/Right, *committed* (held in one direction) | Holds speed: a locked edge sheds most of the wash-out (`turnForce = 16`) |
+| **Skid**  | Left/Right, freshly set or *reversed* (panic-steer) | Edge washes out and scrubs speed (`skidScrub` near full) |
 | **Snowplow** | Down | Sheds real speed, but sharper, planted turns (`turnForce = 24`, grip = 1.0); skis form a wedge |
 | **Tuck**  | Up, no steer | Least friction, most speed, least control (`accel = 10` on `-z`) |
+
+**Edge engagement — the carve/skid trade-off (issues #48 / #54).** A turn is only a
+skill if a clean, committed turn costs less speed than a panicked one. `carveCharge`
+∈ [0,1] tracks how locked-in the current edge is: it builds while the player holds
+*one* steering direction and collapses to 0 the instant they reverse it or first set
+an edge out of a straight line. A locked carve sheds most of the edge wash-out; a
+fresh or reversed edge keeps it. So anticipating and holding a smooth line keeps
+speed, while flip-flopping the skis bleeds it. The state lives on `snowman.userData`
+(like the pose state), persists across frames, and is cleared by `resetSnowman`.
 
 Key terms:
 
@@ -133,15 +142,27 @@ turnForce   = 16.0
             = 14.0  if currentSpeed > 18 (no snowplow)// hard to wrench skis at speed
 left/right:  velocity.x ∓= turnForce * delta
 
+// Edge engagement (per-frame, on snowman.userData):
+if steering != 0:
+    carveCharge = (steering == lastSteerDir)          // same way as last frame?
+                ? min(1, carveCharge + delta * 1.5)   // ~0.66 s of a held turn locks it in
+                : 0                                    // reversal / fresh edge breaks it
+else:
+    carveCharge = max(0, carveCharge - delta * 3.0)   // releases ~2x faster than it engages
+
 skidScrub = 0  unless (steering && currentSpeed > 4):
     speedFactor2 = min(1, currentSpeed / 22)
     grip = snowplow ? 1.0 : terrainGrip
-    skidScrub = 0.06 * speedFactor2 * (1 - grip*0.85) // ~0 .. 0.06, added to friction
+    edgeScrub = 0.06 * speedFactor2 * (1 - grip*0.85) * (1 - 0.8 * carveCharge)
+    skidScrub = edgeScrub + 0.01 * speedFactor2       // + always-on turn tax (never free)
 ```
 
-`technique` is classified each frame (`carve` vs `skid` switches at
-`skidScrub > 0.025`) and returned for the HUD and ski-wedge pose
-(`wedge = 0.35 rad` lerped onto the ski meshes).
+`technique` is classified each frame (a steered turn reads as `carve` once
+`carveCharge > 0.55`, otherwise `skid`) and returned for the HUD and ski-wedge pose
+(`wedge = 0.35 rad` lerped onto the ski meshes). The always-on turn tax keeps a turn
+from ever being entirely free at speed, so straight-lining stays the fastest line and
+turning is a genuine speed-management choice — while a clean carve still finishes far
+faster than chatter-skidding (≈40% in the verification harness, §6).
 
 ### 3.4 Snowplow brake (and why it is clamped)
 
@@ -278,7 +299,10 @@ compares trajectories against a frozen baseline. Two properties make this work:
    terrain-grip term only affects carve/skid, never base coast friction. This is
    asserted, not assumed — `tests/verification/physics_invariant_harness.js`
    reports max abs trajectory difference `0` for the coasting case and gates its
-   exit code on it.
+   exit code on it. The same harness also gates the **carve-vs-skid trade-off**:
+   linked, committed carves must finish meaningfully faster (gate: >12%; measured
+   ≈40%) than chatter-skidding the same fall line, alongside the snowplow-brake,
+   `scrub ≥ baseline`, and high-speed edge-scrub checks.
 2. **Sources of randomness.** `Math.random()` appears in the idle auto-turn
    (§3.5), in terrain mesh noise/bumps, and in avalanche spawn/velocity. The
    verification harness injects a seeded RNG and a deterministic terrain so runs
