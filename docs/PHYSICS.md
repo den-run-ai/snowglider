@@ -118,10 +118,12 @@ identical to the pre-technique physics** — see §6.
 
 | Technique | Trigger | Effect |
 |-----------|---------|--------|
-| **Carve** | Left/Right, *committed* (held in one direction) | Holds speed: a locked edge sheds most of the wash-out (`turnForce = 16`) |
 | **Skid**  | Left/Right, freshly set or *reversed* (panic-steer) | Edge washes out and scrubs speed (`skidScrub` near full) |
+| **Carve** | Left/Right, *committed* (held in one direction) | Holds speed: a locked edge sheds most of the wash-out (`turnForce = 16`) |
+| **Parallel** | Left/Right, fully committed (`carveCharge > 0.85`) | The mastery tier of the carve: the always-on turn tax fades out (nearly free turn); skis draw together and roll onto edge |
 | **Snowplow** | Down | Sheds real speed, but sharper, planted turns (`turnForce = 24`, grip = 1.0); skis form a wedge |
 | **Tuck**  | Up, no steer | Least friction, most speed, least control (`accel = 10` on `-z`) |
+| **Hop turn** | Jump **+** Left/Right (grounded) | A quick edge-set pivot: snaps heading ~0.4 rad toward the steer, scrubs ~18% speed, small pop; lands on a fresh edge (see §4) |
 
 **Edge engagement — the carve/skid trade-off (issues #48 / #54).** A turn is only a
 skill if a clean, committed turn costs less speed than a panicked one. `carveCharge`
@@ -154,14 +156,23 @@ skidScrub = 0  unless (steering && currentSpeed > 4):
     speedFactor2 = min(1, currentSpeed / 22)
     grip = snowplow ? 1.0 : terrainGrip
     edgeScrub = 0.06 * speedFactor2 * (1 - grip*0.85) * (1 - 0.8 * carveCharge)
-    skidScrub = edgeScrub + 0.01 * speedFactor2       // + always-on turn tax (never free)
+    // Parallel-turn tax relief: the turn tax fades out across the parallel lock
+    // (carveCharge 0.85 -> 1), so a mastered parallel turn is nearly free. Below
+    // 0.85 parallelLock == 0, so carve/skid is byte-identical to before.
+    parallelLock = clamp01((carveCharge - 0.85) / (1 - 0.85))
+    skidScrub = edgeScrub + 0.01 * speedFactor2 * (1 - parallelLock)
 ```
 
-`technique` is classified each frame (a steered turn reads as `carve` once
-`carveCharge > 0.55`, otherwise `skid`) and returned for the HUD and ski-wedge pose
-(`wedge = 0.35 rad` lerped onto the ski meshes). The always-on turn tax keeps a turn
-from ever being entirely free at speed, so straight-lining stays the fastest line and
-turning is a genuine speed-management choice — while a clean carve still finishes far
+`technique` is classified each frame and returned for the HUD and ski pose: a steered
+turn reads as `skid` until the edge locks in, `carve` once `carveCharge > 0.55`, and
+finally **`parallel`** once `carveCharge > 0.85` (the `PARALLEL_LOCK` threshold) — the
+mastery tier above the beginner snowplow wedge. The snowplow forms a ski wedge
+(`wedge = 0.35 rad`); a parallel turn instead draws the skis together and rolls them
+onto their edges into the turn (angulation). The pose is purely cosmetic — it never
+touches the physics. The always-on turn tax keeps a turn from ever being entirely
+free at speed (until the parallel tier relieves it), so straight-lining stays the
+fastest line and turning is a genuine speed-management choice — while a clean carve
+still finishes far
 faster than chatter-skidding (≈40% in the verification harness, §6).
 
 ### 3.4 Snowplow brake (and why it is clamped)
@@ -213,9 +224,20 @@ velocity.x += sin(turnPhase*0.3) * (turnAmplitude*0.7) * delta * turnIntensity *
 if (!isInAir && heightDifference < -0.8 && currentSpeed > 12 && jumpCooldown <= 0):
     verticalVelocity = 6 + currentSpeed * 0.3 ; isInAir = true
 
-// Manual jump (Space / touch):
-if (jump && !isInAir && jumpCooldown <= 0):
+// Manual jump (Space / touch) — straight pop when NOT steering:
+if (jump && !isInAir && jumpCooldown <= 0 && steering == 0):
     verticalVelocity = 10 + currentSpeed * 0.5 ; isInAir = true ; jumpCooldown = 0.5
+
+// Hop turn — Jump WHILE steering Left/Right (issue #48). A quick edge-set pivot:
+// rotate the horizontal velocity toward the steer direction and scrub speed, with
+// a small pop; land on a fresh edge committed to the new direction. Gated entirely
+// behind jump+steer input, so it touches no coasting/plain-steer path.
+if (jump && !isInAir && jumpCooldown <= 0 && steering != 0):
+    theta = steering * 0.4                          // HOP_PIVOT_ANGLE (~23°), right => +x
+    (velocity.x, velocity.z) = rotate(velocity, theta) * 0.82   // HOP_SPEED_KEEP (scrub ~18%)
+    verticalVelocity = 5.0                          // HOP_POP (small, < a full jump)
+    isInAir = true ; jumpCooldown = 0.45            // HOP_COOLDOWN
+    carveCharge = 0 ; lastSteerDir = steering       // re-set the edge for the new line
 
 // While airborne:
 airTime += delta
@@ -302,7 +324,11 @@ compares trajectories against a frozen baseline. Two properties make this work:
    exit code on it. The same harness also gates the **carve-vs-skid trade-off**:
    linked, committed carves must finish meaningfully faster (gate: >12%; measured
    ≈40%) than chatter-skidding the same fall line, alongside the snowplow-brake,
-   `scrub ≥ baseline`, and high-speed edge-scrub checks.
+   `scrub ≥ baseline`, high-speed edge-scrub, **parallel-turn-reachable** (a held,
+   committed carve must lock into the `parallel` tier), and **hop-turn** (Jump+steer
+   must snap the heading far harder than a plain steer frame *and* scrub speed)
+   checks. The parallel/hop additions are all gated behind steering or jump+steer
+   input, so none of them perturb the no-input identity above.
 2. **Sources of randomness.** `Math.random()` appears in the idle auto-turn
    (§3.5), in terrain mesh noise/bumps, and in avalanche spawn/velocity. The
    verification harness injects a seeded RNG and a deterministic terrain so runs
@@ -417,6 +443,9 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Accel (tuck) | 10 | `snowman.js` |
 | Brake decel | 14 | `snowman.js` |
 | Max skid scrub | 0.06 | `snowman.js` |
+| Carve build / release rate | 1.5 / 3.0 per s | `snowman.js` |
+| Parallel-turn lock threshold | `carveCharge > 0.85` | `snowman.js` |
+| Hop turn pivot / speed-keep / pop / cooldown | 0.4 rad / 0.82 / 5.0 / 0.45 s | `snowman.js` |
 | Manual / auto jump impulse | `10 + v*0.5` / `6 + v*0.3` | `snowman.js` |
 | Max tilt | 0.25 rad (~14°) | `snowman.js` |
 | Tree collision radius | 2.5 | `snowman.js` |

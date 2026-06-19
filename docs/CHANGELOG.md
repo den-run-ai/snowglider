@@ -13,6 +13,29 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Skiing skill — parallel turns & hop turns (completes #48)
+- Added the two remaining ski techniques from #48 (P1 of [`ROADMAP.md`](ROADMAP.md)),
+  on top of the carve/skid/snowplow/tuck model: **parallel turns** and **hop turns**.
+- **Parallel turn** — the mastery tier above a carve. Once a committed carve locks
+  the edge fully in (`carveCharge > 0.85`, the `PARALLEL_LOCK` threshold), the
+  always-on turn tax fades out so a perfectly-held turn is nearly free, and the HUD
+  reads `🎿 Parallel`. The snowman draws its skis together and rolls them onto edge
+  (angulation), visually distinct from the beginner snowplow wedge. The pose is
+  cosmetic; the only physics change (tax relief) is confined to `carveCharge > 0.85`,
+  so carve/skid feel below that — and the gating carve-vs-skid check — are unchanged.
+- **Hop turn** — Jump **+** Left/Right while grounded performs a quick edge-set
+  pivot instead of a straight jump: it snaps the heading ~0.4 rad toward the steer
+  direction, scrubs ~18% of speed, gives a small pop, and lands you on a fresh edge
+  committed to the new line (`carveCharge` reset). It trades speed for a sharper
+  direction change than carving can give — the steep-terrain / tight-spot move.
+  Plain Jump (no steer) is unchanged.
+- Determinism preserved: both mechanics are gated behind steering or jump+steer
+  input, so no-input coasting stays byte-for-byte identical to the frozen baseline.
+  The verification harness gains two **gating** checks — a held committed carve must
+  reach the `parallel` tier, and a hop turn must pivot far harder than a plain steer
+  frame *and* scrub speed. `npm test` (incl. verify + contract) and the 87-test
+  browser suite stay green.
+
 ### Skiing skill — carve vs. skid speed trade-off (#48 / #54)
 - Deepened the ski-technique model (P1 of [`ROADMAP.md`](ROADMAP.md)) from the
   intentionally-thin #56 first pass into a real speed-management trade-off: a
