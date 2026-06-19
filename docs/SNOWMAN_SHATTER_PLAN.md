@@ -376,9 +376,14 @@ self-terminates when `update()` returns false.
 > **Overlay timing (user-visible, flag this for review).** The `#gameOverOverlay` is 70%
 > black and would dim the wipeout. Proposal: on a **crash**, delay showing the overlay by
 > ~700 ms (a `setTimeout`) so the shatter plays at full brightness, then fade it in;
-> **finish** stays immediate (unchanged). Alternative if we want zero timing change: show
-> the overlay immediately and accept the dimmed shatter behind it. Pick one in review —
-> see Open Questions §11.
+> **finish** stays immediate (unchanged). **If implemented with `setTimeout`, the timer id
+> MUST be stored (e.g. a module-scoped `crashOverlayTimer`) and cleared in `resetSnowman`/
+> `restartGame` (§8.4).** `showGameOver` has already set `gameActive = false` while the
+> Reset control stays visible (and tests call the restart helpers directly), so a
+> reset/restart *before* the timer fires would otherwise re-show `#gameOverOverlay` over
+> the fresh run or strand it inactive behind a stale overlay. Alternative if we want zero
+> timing change: show the overlay immediately and accept the dimmed shatter behind it. Pick
+> one in review — see Open Questions §11.
 
 ### 7.5 `reset()`
 
@@ -398,7 +403,12 @@ Minimal, localized edits:
 
 1. **Construct once** near the avalanche setup: `const debris = new SnowmanDebris();
    debris.setTerrainFunction(Snow.getTerrainHeight);` (store on `state` like
-   `state.avalanche`).
+   `state.avalanche`). Because `state` is **module-scoped** and we add no new `window.*`
+   bridge, expose a read seam on the **existing** `window.testHooks` surface so the browser
+   test can observe debris without reaching `state`:
+   `window.testHooks.isDebrisActive = () => !!state.debris && state.debris.active;` — a
+   deliberate test hook like the collision hooks (`window.testHooks.forceTreeCollision`),
+   **not** a per-module namespace bridge, so it stays within the sanctioned test seam.
 2. **Per frame**, after the existing `updateSnowman(delta)` + splash, call
    `Flex.update(snowman, delta, motionFromUpdateResult)`. (The wrapper already has the
    `UpdateResult` in scope — `player`/the return value — so `speed`, `technique`,
@@ -435,7 +445,10 @@ Minimal, localized edits:
    crash-only overlay delay (§7.4).
 4. **In `resetSnowman()` and `restartGame()`**: call `state.debris?.reset(scene)` and
    `Flex.reset(snowman)` before re-initializing the camera, so the fragments are gone and
-   the snowman is visible and back to neutral pose.
+   the snowman is visible and back to neutral pose. **If the crash-only overlay delay
+   (§7.4) is implemented, also `clearTimeout(crashOverlayTimer)` and null it here** — a
+   restart inside the ~700 ms window must not let the pending callback re-show
+   `#gameOverOverlay` over the fresh run.
 5. **`src/main.ts`**: add `import './debris.js';` / `import './snowman-flex.js';` (the
    `.js` specifier resolving to `.ts`, per the repo import convention) so they join the
    bundle graph; the orchestrator imports the named exports directly.
@@ -453,7 +466,7 @@ already runs in `showGameOver`; the debris is independent of it.
 | **DOM smoke** | `createSnowman` still builds; assert the new `userData.parts` registry exists. (The `scarf`-present assertion is added by PR C.) | `tests/verification/dom_smoke_test.js` (extend) |
 | **Debris unit** | Headless with a mocked `THREE` + deterministic terrain fn: `shatter()` spawns N fragments and hides the snowman; `update(dt)` applies gravity and converges (fragments rest at/above terrain, loop returns false within ~2.5 s); `reset()` disposes **only debris-owned** geometry/material and re-shows the snowman with its original assets intact (assert the snowman's geometry/material were NOT disposed across a shatter→reset cycle). Mirror the existing `avalanche-tests.js` harness. | new `tests/debris-tests.js` + `npm` script |
 | **Flex unit** | `Flex.update` only mutates child transforms and is bounded (clamped lean, returns to base when idle / reduced-motion); stays **finite** for a `{ speed: 0, delta: 0 }` frame (no NaN); `Flex.reset` restores base transforms exactly. | new `tests/snowman-flex-tests.js` |
-| **Browser** | Set `window.testHooks.debrisEnabled = true` (the §8.3 opt-in that re-enables shatter under `?test=`), then force a tree collision (`window.testHooks.forceTreeCollision`) and assert `snowman.visible === false` + `state.debris.active` immediately after; assert restart re-shows the snowman. Every other suite leaves the flag unset, so debris stays off for them and the e2e reset spec. | extend `tests/browser-tests.js` |
+| **Browser** | Set `window.testHooks.debrisEnabled = true` (the §8.3 opt-in that re-enables shatter under `?test=`), then force a tree collision (`window.testHooks.forceTreeCollision`) and assert `snowman.visible === false` + `window.testHooks.isDebrisActive()` (the read seam from §8.1 — `state` is module-scoped, so the test reads through `testHooks`, never `state.debris`) immediately after; assert restart re-shows the snowman. Every other suite leaves the flag unset, so debris stays off for them and the e2e reset spec. | extend `tests/browser-tests.js` |
 | **E2E** | Reuse the reset spec's "coast → crash" but assert the wipeout doesn't block `#resetBtn` (debris must not cover the button; keep overlay z-order intact). Watch the known reset-flake (see memory `e2e-reset-flake-overlay`). | `tests/e2e/` |
 
 Docs to update in the same PR (Roadmap guardrail): `ARCHITECTURE.md` (new modules in the
@@ -489,6 +502,11 @@ needs **no** change (kernel untouched) — explicitly note that in the PR descri
       `_testShowGameOverOverride` still short-circuits the unit path.
 - [ ] Debris settle loop repaints via the injected `render` callback (animate() has
       stopped after game over) — fragments are actually drawn, not just updated off-screen.
+- [ ] Debris active state is read in tests via the `window.testHooks.isDebrisActive()`
+      seam, not module-scoped `state.debris` (no new `window.*` bridge added).
+- [ ] If the crash overlay delay is used, its `setTimeout` id is stored and
+      `clearTimeout`'d in `resetSnowman`/`restartGame` — a restart inside the delay window
+      can't re-show or strand `#gameOverOverlay`.
 - [ ] Shatter loop branches on `part.isMesh` — Group parts (arms, PR-C scarf tail) are
       traversed or replaced with a generic chunk, never `part.geometry.clone()`'d directly.
 - [ ] `Flex.update` is NaN-safe on a zero-speed/zero-delta frame (epsilon-guarded
@@ -518,8 +536,9 @@ wipeout work first, and quarantines the fiddly scarf so it can't hold them up.
 
 ## 13. Open questions (for the maintainer)
 
-1. **Overlay timing** — delay the crash overlay ~700 ms so the wipeout is visible (§7.4),
-   or keep the overlay immediate and accept a dimmed shatter? (Recommend the short delay.)
+1. **Overlay timing** — delay the crash overlay ~700 ms so the wipeout is visible (§7.4;
+   the delay timer must be stored and cleared on reset/restart), or keep the overlay
+   immediate and accept a dimmed shatter? (Recommend the short delay.)
 2. **Fragment fidelity** — owned clones of the distinctive *mesh* parts (hat, nose read
    clearly; clone with `geometry.clone()`/`material.clone()` so disposal is safe — §7.2)
    vs. generic snow-ball chunks (cheaper, uniform, trivially debris-owned)? Note the arms
