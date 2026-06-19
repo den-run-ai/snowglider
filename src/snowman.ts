@@ -304,6 +304,9 @@ function resetSnowman(snowman: THREE.Object3D, pos: PlayerPos, velocity: PlanarV
     snowman.userData.targetRotationY = Math.PI; // Default facing downhill
     snowman.userData.currentRotX = 0;
     snowman.userData.currentRotZ = 0;
+    // Clear edge-engagement state so a new run starts with no locked carve.
+    snowman.userData.carveCharge = 0;
+    snowman.userData.lastSteerDir = 0;
   }
   
   // Force all rotations to be explicit - avoid any chance of NaN or unexpected values
@@ -477,22 +480,65 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
       }
     }
 
-    // Edge skid / carve quality: only meaningful while steering. A clean carve
-    // keeps speed; yanking the skis sideways at speed scrubs it. Snowplow adds
-    // grip, so braking through a turn stays controlled instead of washing out.
+    // --- Edge engagement: carve vs skid (issues #48 / #54) -------------------
+    // Turning is only a real *skill* if a clean, committed turn costs less speed
+    // than a panicked one. `carveCharge` (0..1) tracks how "locked in" the
+    // current edge is: it builds while the player commits to ONE steering
+    // direction and collapses to 0 the instant they reverse or first set an edge
+    // from straight. A locked carve sheds little speed; a fresh or reversed edge
+    // washes out sideways and scrubs hard. So anticipating and holding a smooth
+    // line keeps speed, while flip-flopping the skis bleeds it — the
+    // speed-management trade-off the roadmap calls for.
+    //
+    // The state lives on snowman.userData (like `technique` and the pose state)
+    // so it persists across frames without widening the updateSnowman contract,
+    // and resetSnowman clears it between runs. Crucially it is *read/written but
+    // never used to alter velocity when the player gives no steering input*, so
+    // the no-input coasting path stays byte-identical to the frozen baseline.
+    const CARVE_BUILD_RATE = 1.5;    // ~0.66s of a held turn to lock the carve in
+    const CARVE_RELEASE_RATE = 3.0;  // edge releases ~2x faster than it engages
+    const CARVE_SCRUB_RELIEF = 0.8;  // a locked carve sheds up to 80% of edge wash-out
+    const TURN_TAX = 0.01;           // small always-on turn cost so a turn is never free
+
+    const ud = snowman.userData || (snowman.userData = {});
+    let carveCharge = ud.carveCharge || 0;
+    let lastSteerDir = ud.lastSteerDir || 0;
+    if (steering !== 0) {
+      // Same direction as last frame => the edge keeps engaging; a reversal or a
+      // fresh edge out of a straight line breaks it and starts the carve over.
+      carveCharge = steering === lastSteerDir
+        ? Math.min(1, carveCharge + delta * CARVE_BUILD_RATE)
+        : 0;
+      lastSteerDir = steering;
+    } else {
+      carveCharge = Math.max(0, carveCharge - delta * CARVE_RELEASE_RATE);
+      lastSteerDir = 0;
+    }
+    ud.carveCharge = carveCharge;
+    ud.lastSteerDir = lastSteerDir;
+
+    // Edge skid / carve drag: only meaningful while steering. Snowplow adds grip,
+    // so braking through a turn stays controlled instead of washing out.
     let skidScrub = 0;
     if (steering !== 0 && currentSpeed > 4) {
       const speedFactor2 = Math.min(1, currentSpeed / 22);
       const grip = snowplow ? 1.0 : terrainGrip;
-      // Sharper turn relative to grip => more scrub. Range roughly 0..0.06.
-      skidScrub = 0.06 * speedFactor2 * (1 - grip * 0.85);
+      // Edge wash-out: sharper turn relative to grip => more scrub (~0..0.06). A
+      // locked carve (carveCharge→1) sheds most of it; a skid (carveCharge→0)
+      // keeps all of it.
+      const edgeScrub = 0.06 * speedFactor2 * (1 - grip * 0.85) * (1 - CARVE_SCRUB_RELIEF * carveCharge);
+      // Plus an always-on turn tax (scaled by speed) so committing to a turn
+      // still costs a little versus straight-lining — turning is never free, but
+      // a clean carve is cheap.
+      skidScrub = edgeScrub + TURN_TAX * speedFactor2;
     }
 
-    // Expose technique for HUD + ski pose.
+    // Expose technique for HUD + ski pose: a turn only reads as a "carve" once the
+    // edge has actually locked in; until then (and after any reversal) it's a skid.
     technique = 'glide';
     if (isInAir) technique = 'air';
     else if (snowplow) technique = 'snowplow';
-    else if (steering !== 0) technique = skidScrub > 0.025 ? 'skid' : 'carve';
+    else if (steering !== 0) technique = carveCharge > 0.55 ? 'carve' : 'skid';
     else if (controls.up) technique = 'tuck';
     
     // Only use automatic turning if no user input
