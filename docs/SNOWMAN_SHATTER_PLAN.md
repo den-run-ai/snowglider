@@ -82,11 +82,14 @@ These come straight from the Roadmap "Guardrails" and `PHYSICS.md` §6:
 4. **Respect `prefers-reduced-motion`** — reduced motion skips the flying-fragment
    tumble and the lingering jiggle; it still hides the snowman and shows a single small
    snow puff so the crash still reads, but with no large motion.
-5. **Gate on test mode.** When `window.isTestMode` is set or `_testShowGameOverOverride`
-   intercepts, skip the shatter entirely so headless/browser suites and the e2e reset
-   spec are unaffected (the reset-flake spec already fights overlay z-order — see the
-   `e2e-reset-flake-overlay` note; the debris must not add a new moving cover over
-   `#resetBtn`).
+5. **Gate on test mode — with an explicit opt-in.** By default, when `window.isTestMode`
+   is set (or `_testShowGameOverOverride` intercepts) the shatter is skipped, so headless/
+   browser suites and the e2e reset spec are unaffected (the reset-flake spec already
+   fights overlay z-order — see the `e2e-reset-flake-overlay` note; the debris must not add
+   a new moving cover over `#resetBtn`). But a blanket `!isTestMode` gate would make the
+   shatter path itself **untestable** in the browser harness (which always runs under
+   `?test=`), so the gate also honors an explicit `window.testHooks.debrisEnabled` opt-in
+   that the dedicated debris test sets and every other suite leaves unset (§8.3, §9).
 6. **Behavior-preserving for the finish.** A successful finish must look exactly as it
    does today (result screen, ghost, medal). Shatter is crash-only.
 
@@ -124,12 +127,14 @@ On crash:
 
 ```
 showGameOver(reason)
-   ├─ if reason is a CRASH and !testMode and !reducedMotion-skip:
-   │     Debris.shatter(scene, snowman, velocity, getTerrainHeight)
+   ├─ if reason is a CRASH and debris-allowed (default; opt-in under ?test=):
+   │     Debris.shatter(scene, snowman, velocity, { reducedMotion, render })
+   │       │   (terrain comes from an earlier setTerrainFunction(); render =
+   │       │    () => renderer.render(scene, camera) since animate() has stopped)
    │       ├─ hide snowman group
    │       ├─ spawn debris-owned fragment chunks (own geometry/material) with burst velocities
    │       ├─ Snow puff burst at impact
-   │       └─ start own rAF settle loop (gravity + ground bounce + tumble, ~2.5s)
+   │       └─ start own rAF settle loop (gravity + ground bounce + tumble, repaint each tick, ~2.5s)
    │     EffectsModule.addShake(impactScaledBySpeed)   // reuse existing juice
    │     (optionally) delay #gameOverOverlay ~700ms so the wipeout is the star
    └─ … existing overlay / score / result logic unchanged
@@ -277,7 +282,11 @@ false.
 ```ts
 export class SnowmanDebris {
   setTerrainFunction(fn: (x: number, z: number) => number): void;
-  shatter(scene, snowman, velocity, opts?: { reducedMotion?: boolean }): void;
+  // `render` repaints the canvas each settle tick — REQUIRED: showGameOver has already
+  // set gameActive=false, so animate() is no longer rendering (§7.4). The orchestrator
+  // passes () => renderer.render(scene, camera).
+  shatter(scene, snowman, velocity,
+          opts?: { reducedMotion?: boolean; render?: () => void }): void;
   update(dt: number): boolean;   // returns true while still settling
   reset(scene): void;            // dispose fragments, re-show snowman
   get active(): boolean;
@@ -347,13 +356,22 @@ short on restart).
 
 ### 7.4 Settle loop & the `gameActive` interaction
 
-`showGameOver` sets `state.gameActive = false`, which halts `animate()`. Rather than
-complicate the main loop's gating, **`SnowmanDebris` runs its own `requestAnimationFrame`
-loop** while settling (the avalanche-style `update(dt)` ticked from a private rAF). It
-renders via a small callback the orchestrator hands in (it already owns `renderer`,
-`scene`, `camera`), or — simpler — the orchestrator keeps calling
-`renderer.render(scene, camera)` from the debris tick. The loop self-terminates when
-`update()` returns false. This keeps the change to the main loop near-zero.
+`showGameOver` sets `state.gameActive = false`, which halts `animate()` — so **after the
+crash frame nothing repaints the canvas**. `SnowmanDebris` therefore runs its own
+`requestAnimationFrame` loop while settling (the avalanche-style `update(dt)` ticked from a
+private rAF) **and must repaint each tick itself**: `shatter()` takes a `render` callback
+(§7.1) and the orchestrator passes `() => renderer.render(scene, camera)` (it owns
+`renderer`/`scene`/`camera`). Without that callback the fragments would update but the
+frozen canvas would never show them — exactly the gap the explicit `render` param closes.
+The camera stays where the crash left it (the camera manager isn't ticking); if we later
+want it to track the debris, the same callback is the place to nudge it. The loop
+self-terminates when `update()` returns false.
+
+> **Alternative considered:** keep the main `animate()` loop alive on a `state.debrisActive`
+> flag instead of a private rAF. Rejected as the default because it spreads debris state
+> into the main-loop gating; the self-contained loop + injected `render` keeps the
+> orchestrator change to ~3 lines. (It also means the test path needs an explicit opt-in
+> rather than riding the live loop — see §3 / §9.)
 
 > **Overlay timing (user-visible, flag this for review).** The `#gameOverOverlay` is 70%
 > black and would dim the wipeout. Proposal: on a **crash**, delay showing the overlay by
@@ -395,9 +413,19 @@ Minimal, localized edits:
    ```ts
    const isFinish = reason === "You reached the end of the slope!";
    const crash = !isFinish;
-   if (crash && !window.isTestMode && state.debris) {
+   // Off under ?test= by DEFAULT (protects the e2e reset-flake + headless suites), but
+   // the dedicated debris browser test opts in via window.testHooks.debrisEnabled so the
+   // real shatter path is still covered (§9). _testShowGameOverOverride already
+   // short-circuited above for the unit-level mocks. Gating on isTestMode alone would
+   // make the live game UNtestable here — that's why the opt-in exists.
+   const allowDebris = !window.isTestMode ||
+     !!(window.testHooks && window.testHooks.debrisEnabled);
+   if (crash && allowDebris && state.debris) {
      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-     state.debris.shatter(scene, snowman, velocity, { reducedMotion: !!reduced });
+     state.debris.shatter(scene, snowman, velocity, {
+       reducedMotion: !!reduced,
+       render: () => renderer.render(scene, camera), // §7.4: animate() has stopped
+     });
      if (EffectsModule) EffectsModule.addShake(/* impact ∝ speed */);
    }
    ```
@@ -425,7 +453,7 @@ already runs in `showGameOver`; the debris is independent of it.
 | **DOM smoke** | `createSnowman` still builds; assert the new `userData.parts` registry exists. (The `scarf`-present assertion is added by PR C.) | `tests/verification/dom_smoke_test.js` (extend) |
 | **Debris unit** | Headless with a mocked `THREE` + deterministic terrain fn: `shatter()` spawns N fragments and hides the snowman; `update(dt)` applies gravity and converges (fragments rest at/above terrain, loop returns false within ~2.5 s); `reset()` disposes **only debris-owned** geometry/material and re-shows the snowman with its original assets intact (assert the snowman's geometry/material were NOT disposed across a shatter→reset cycle). Mirror the existing `avalanche-tests.js` harness. | new `tests/debris-tests.js` + `npm` script |
 | **Flex unit** | `Flex.update` only mutates child transforms and is bounded (clamped lean, returns to base when idle / reduced-motion); stays **finite** for a `{ speed: 0, delta: 0 }` frame (no NaN); `Flex.reset` restores base transforms exactly. | new `tests/snowman-flex-tests.js` |
-| **Browser** | Force a tree collision (existing `window.testHooks.forceTreeCollision`) and assert `snowman.visible === false` + debris active immediately after; assert restart re-shows the snowman. | extend `tests/browser-tests.js` |
+| **Browser** | Set `window.testHooks.debrisEnabled = true` (the §8.3 opt-in that re-enables shatter under `?test=`), then force a tree collision (`window.testHooks.forceTreeCollision`) and assert `snowman.visible === false` + `state.debris.active` immediately after; assert restart re-shows the snowman. Every other suite leaves the flag unset, so debris stays off for them and the e2e reset spec. | extend `tests/browser-tests.js` |
 | **E2E** | Reuse the reset spec's "coast → crash" but assert the wipeout doesn't block `#resetBtn` (debris must not cover the button; keep overlay z-order intact). Watch the known reset-flake (see memory `e2e-reset-flake-overlay`). | `tests/e2e/` |
 
 Docs to update in the same PR (Roadmap guardrail): `ARCHITECTURE.md` (new modules in the
@@ -456,7 +484,11 @@ needs **no** change (kernel untouched) — explicitly note that in the PR descri
       cycles (watch heap in the browser test).
 - [ ] Debris does **not** render over `#resetBtn` / `#gameOverOverlay` interactive
       elements (guards the known e2e reset flake).
-- [ ] Test mode / `_testShowGameOverOverride` path skips shatter entirely.
+- [ ] Under `?test=`, shatter is off by default (protects the e2e reset spec) but the
+      dedicated debris browser test re-enables it via `window.testHooks.debrisEnabled`;
+      `_testShowGameOverOverride` still short-circuits the unit path.
+- [ ] Debris settle loop repaints via the injected `render` callback (animate() has
+      stopped after game over) — fragments are actually drawn, not just updated off-screen.
 - [ ] Shatter loop branches on `part.isMesh` — Group parts (arms, PR-C scarf tail) are
       traversed or replaced with a generic chunk, never `part.geometry.clone()`'d directly.
 - [ ] `Flex.update` is NaN-safe on a zero-speed/zero-delta frame (epsilon-guarded
