@@ -206,11 +206,13 @@ camera.position -= shake                          // revert so smoothing stays c
 > `snowglider.ts` is being thinned into `src/game/*` (scene / loop / lifecycle) and
 > `src/ui/*` (HUD, overlays), and `snowman.ts` into `src/snowman/*`. Mechanical,
 > behavior-preserving moves only — the published `window.*` hooks and the
-> `publishGameGlobals()` proxy set stay in the coordinator. The first extracted
-> piece is **`src/ui/collapsible-panel.ts`**, the shared collapse / resize /
-> horizontal-swipe behavior for the Game Stats and Game Controls panels that was
-> previously duplicated across `initializeGameStats()` and
-> `initializeControlsToggle()`.
+> `publishGameGlobals()` proxy set stay in the coordinator. Extracted so far:
+> **`src/ui/collapsible-panel.ts`** (the shared collapse / resize / horizontal-swipe
+> behavior for the Game Stats and Game Controls panels, previously duplicated across
+> `initializeGameStats()` and `initializeControlsToggle()`) and **`src/ui/hud.ts`**
+> (the Game Stats / Controls panel init plus the per-frame speed/position/technique
+> readouts and the live run timer). The coordinator passes the run state into these
+> as parameters rather than letting them reach back into its bindings.
 
 ---
 

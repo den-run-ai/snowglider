@@ -38,7 +38,7 @@ import { AudioModule } from './audio.js';
 import { Physics } from './physics.js';
 import type { RockPosition } from './mountains.js';
 import type { TreePosition } from './trees.js';
-import { setupCollapsiblePanel } from './ui/collapsible-panel.js';
+import { initializeGameStats, initializeControlsToggle, updateStatsHud, updateTimerDisplay } from './ui/hud.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();
@@ -333,26 +333,10 @@ function readStoredBestTime() {
 // Persisted best loaded once at module eval (may prune an invalid stored entry).
 state.bestTime = readStoredBestTime();
 
-// Initialize game stats functionality
-function initializeGameStats() {
-  const bestTimeElement = document.getElementById('bestTimeValue');
-  if (bestTimeElement) {
-    bestTimeElement.textContent = state.bestTime !== Infinity ? `${state.bestTime.toFixed(2)}s` : '--';
-  }
-
-  // Game stats panel collapse/swipe behavior (shared with the Controls panel).
-  setupCollapsiblePanel({
-    name: 'game stats',
-    containerId: 'gameStatsContainer',
-    toggleButtonId: 'toggleStats',
-    headerId: 'gameStatsHeader',
-  });
-}
-
 // Initialize the stats display when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing game stats");
-  initializeGameStats();
+  initializeGameStats(state.bestTime);
 });
 
 // Add best time to game over overlay
@@ -382,7 +366,7 @@ function resetSnowman() {
   Controls.resetControls();
   
   state.startTime = performance.now(); // Reset the timer when starting a new run
-  updateTimerDisplay();
+  updateTimerDisplay(state.gameActive, state.startTime, state.bestTime);
   
   // Reset course (gates/splits/ghost) and effects (avalanche UI, FOV, shake) for the new run
   lastTechnique = 'glide';
@@ -457,51 +441,8 @@ function updateSnowman(delta: number) {
     showGameOver: activeShowGameOver
   });
 
-  // Update game stats display
-  // Format speed with color based on value
-  const speed = result.currentSpeed.toFixed(1);
-  let speedColor = '#FFFFFF'; // Default white
-  
-  // Color code speed (green for slow, yellow for medium, red for fast)
-  if (result.currentSpeed > 20) {
-    speedColor = '#FF5252'; // Red for fast
-  } else if (result.currentSpeed > 12) {
-    speedColor = '#FFD700'; // Yellow for medium
-  } else if (result.currentSpeed > 5) {
-    speedColor = '#4CAF50'; // Green for good speed
-  }
-  
-  // Update individual stat elements
-  const speedElement = document.getElementById('speedValue');
-  if (speedElement) {
-    speedElement.textContent = speed;
-    speedElement.style.color = speedColor;
-  }
-  
-  const positionElement = document.getElementById('positionValue');
-  if (positionElement) {
-    positionElement.textContent = `${pos.x.toFixed(0)},${pos.z.toFixed(0)}`;
-  }
-  
-  const groundElement = document.getElementById('groundStatus');
-  if (groundElement) {
-    if (player.isInAir) {
-      groundElement.innerHTML = '🚀 JUMP!';
-      groundElement.style.color = '#00FFFF';
-    } else {
-      // Reflect the active ski technique so skill is legible in the HUD.
-      const techMap: Record<string, { txt: string; color: string }> = {
-        carve:    { txt: '🎿 Carving',  color: '#55efc4' },
-        skid:     { txt: '💨 Skidding', color: '#ffeaa7' },
-        snowplow: { txt: '🍕 Snowplow', color: '#74b9ff' },
-        tuck:     { txt: '🏎️ Tuck',     color: '#ff7675' },
-        glide:    { txt: '⛷️ Ground',   color: '#AAFFAA' }
-      };
-      const t = techMap[result.technique] || techMap.glide;
-      groundElement.innerHTML = t.txt;
-      groundElement.style.color = t.color;
-    }
-  }
+  // Update game stats display (speed/position/technique)
+  updateStatsHud(result, pos, player.isInAir);
   lastTechnique = result.technique;
 
   // Camera shake on a meaningful landing (scales with time spent aloft).
@@ -607,7 +548,7 @@ function animate(time: number) {
     snowman.position.set(playerPosBefore.x, playerPosBefore.y, playerPosBefore.z);
     
     updateCamera();
-    updateTimerDisplay(); // Update the timer display
+    updateTimerDisplay(state.gameActive, state.startTime, state.bestTime); // Update the timer display
     
     // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
     // the positional offset so the camera manager's own smoothing stays clean.
@@ -948,45 +889,11 @@ Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
 // Add event listener to restart button
 restartButton.addEventListener('click', restartGame);
 
-// Function to initialize controls toggle
-function initializeControlsToggle() {
-  // Controls panel collapse/swipe behavior (shared with the Game Stats panel).
-  // Resets stale listeners and auto-collapses on small screens — this is invoked
-  // more than once (DOMContentLoaded + initializeGameWithAudio).
-  setupCollapsiblePanel({
-    name: 'controls',
-    containerId: 'controlsInfo',
-    toggleButtonId: 'toggleControls',
-    headerId: 'controlsHeader',
-    resetListeners: true,
-    autoCollapseOnSmallScreens: true,
-  });
-}
-
 // Initialize controls toggle when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing controls toggle");
   initializeControlsToggle();
 });
-
-// Update timer display during gameplay
-function updateTimerDisplay() {
-  if (state.gameActive) {
-    const currentTime = (performance.now() - state.startTime) / 1000;
-
-    // Update the current time element in game stats
-    const currentTimeElement = document.getElementById('currentTime');
-    if (currentTimeElement) {
-      currentTimeElement.textContent = `${currentTime.toFixed(2)}s`;
-    }
-
-    // Keep best time updated
-    const bestTimeElement = document.getElementById('bestTimeValue');
-    if (bestTimeElement) {
-      bestTimeElement.textContent = state.bestTime !== Infinity ? `${state.bestTime.toFixed(2)}s` : '--';
-    }
-  }
-}
 
 // Function to initialize the game with audio - called from the start button
 // TODO: AUDIO DISABLED - Function name kept for compatibility, audio calls will be no-ops
@@ -1035,7 +942,7 @@ window.initializeGameWithAudio = function() {
   Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
   
   // Make sure game stats and controls are properly initialized and visible
-  initializeGameStats();
+  initializeGameStats(state.bestTime);
   initializeControlsToggle();
   
   // Initialize Game Stats
@@ -1050,7 +957,7 @@ window.initializeGameWithAudio = function() {
     }
     
     // Update initial values
-    updateTimerDisplay();
+    updateTimerDisplay(state.gameActive, state.startTime, state.bestTime);
   }
   
   // Initialize Controls
