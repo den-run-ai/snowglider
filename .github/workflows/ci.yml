@@ -12,7 +12,13 @@ permissions:
 
 concurrency:
   group: ci-cd-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR pushes to save CI minutes, but never cancel a run on
+  # main: a push to main ends in the Pages deploy, and cancelling it mid-flight
+  # surfaces as a red "Failed to deploy" on the Deployments page (and, if it
+  # were the last successful run, could leave the site on stale content). Two
+  # merges landing seconds apart used to cancel the earlier deploy this way;
+  # letting main runs finish lets their deploys queue instead.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
