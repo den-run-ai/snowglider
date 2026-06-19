@@ -328,9 +328,13 @@ function updateUIForGuestUser() {
     return;
   }
 
-  authUI.style.display = 'none';     // folded by default; revealed via the chip
+  // Only FOLD the provider buttons when there's a chip to unfold them again.
+  // Pages without #profileChip (e.g. the standalone auth.html, or any future host)
+  // keep #authUI visible so the in-place guest upgrade stays reachable.
+  const hasChip = !!document.getElementById('profileChip');
+  authUI.style.display = hasChip ? 'none' : 'flex';
   profileUI.style.display = 'flex';
-  profileUI.classList.add('guest');  // CSS shows an "expand to upgrade" caret
+  profileUI.classList.toggle('guest', hasChip); // caret hint only when foldable
   profileUI.classList.remove('expanded');
   if (profileName) profileName.textContent = 'Guest';
   if (profileAvatar) renderAvatar(profileAvatar, { isAnonymous: true, uid: currentUser?.uid });
@@ -342,7 +346,8 @@ function updateUIForGuestUser() {
 // The anonymous `guestLoginBtn` has no provider and is wired separately.
 type ProviderButton = {
   id: string;
-  label: string;
+  label: string;   // full label / accessible text (also the fallback for plain buttons)
+  short: string;   // compact label shown under the brand icon in #authUI
   method: string;
   makeProvider: () => AuthProvider;
 };
@@ -351,6 +356,7 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   {
     id: 'loginBtn',
     label: 'Login with Google',
+    short: 'Google',
     method: 'GooglePopup',
     makeProvider: () => {
       const provider = new GoogleAuthProvider();
@@ -363,6 +369,7 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   {
     id: 'githubLoginBtn',
     label: 'Login with GitHub',
+    short: 'GitHub',
     method: 'GitHubPopup',
     makeProvider: () => {
       const provider = new GithubAuthProvider();
@@ -373,6 +380,7 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   {
     id: 'appleLoginBtn',
     label: 'Sign in with Apple',
+    short: 'Apple',
     method: 'ApplePopup',
     makeProvider: () => {
       const provider = new OAuthProvider('apple.com');
@@ -383,20 +391,32 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   }
 ];
 
-const GUEST_BUTTON = { id: 'guestLoginBtn', label: 'Play as Guest' };
+const GUEST_BUTTON = { id: 'guestLoginBtn', label: 'Play as Guest', short: 'Guest' };
 
 // Every auth button that should be enabled/disabled/reset together.
 function allAuthButtonMeta() {
   return [...PROVIDER_BUTTONS, GUEST_BUTTON];
 }
 
+// Set a button's visible label without clobbering its icon. Icon buttons (#authUI
+// in index.html) hold an inline brand <svg> + a `.provider-label` span, so we write
+// to that span; plain text buttons (auth.html, the test DOM) have no span, so we
+// fall back to textContent.
+function setButtonLabel(btn: HTMLElement, text: string) {
+  const labelEl = btn.querySelector('.provider-label');
+  if (labelEl) labelEl.textContent = text;
+  else btn.textContent = text;
+}
+
 // Reset all present auth buttons to their default, enabled state. (Replaces the
 // old single-button resetLoginButton; a missing button id is simply skipped.)
 function resetAuthButtons() {
-  allAuthButtonMeta().forEach(({ id, label }) => {
-    const btn = document.getElementById(id) as HTMLButtonElement | null;
+  allAuthButtonMeta().forEach((meta) => {
+    const btn = document.getElementById(meta.id) as HTMLButtonElement | null;
     if (!btn) return;
-    btn.textContent = label;
+    // Icon buttons restore the short label under the icon; plain buttons restore
+    // the full label.
+    setButtonLabel(btn, btn.querySelector('.provider-label') ? meta.short : meta.label);
     btn.disabled = false;
     btn.classList.remove('signing-in');
     btn.classList.remove('retry-auth'); // legacy redirect-retry class
@@ -404,15 +424,17 @@ function resetAuthButtons() {
 }
 
 // Mark a sign-in as in flight: disable every auth button (so a second provider
-// can't open a competing popup) and show the active one as "Signing In...".
+// can't open a competing popup) and flag the active one as signing in. Icon buttons
+// keep their icon and show the busy state via the `.signing-in` class; plain text
+// buttons swap to "Signing In...".
 function setAuthButtonsBusy(activeBtn: HTMLButtonElement) {
   allAuthButtonMeta().forEach(({ id }) => {
     const btn = document.getElementById(id) as HTMLButtonElement | null;
     if (!btn) return;
     btn.disabled = true;
     if (btn === activeBtn) {
-      btn.textContent = 'Signing In...';
       btn.classList.add('signing-in');
+      if (!btn.querySelector('.provider-label')) btn.textContent = 'Signing In...';
     }
   });
 }
