@@ -276,9 +276,14 @@ rest only after the boot and orchestrator work has landed:
   detection, and crash/finish reason strings.
 - `src/snowman/test-hooks.ts` for browser collision hooks.
 
-Keep `window.Snowman.updateSnowman(...)`, `window.Snowman.resetSnowman(...)`,
-and `window.Snowman.addTestHooks(...)` as compatibility wrappers at first.
-Internally delegate to smaller modules without changing the public signatures.
+Keep the **ESM `Snowman` named export from `./snowman.js`**
+(`Snowman.createSnowman` / `resetSnowman` / `updateSnowman` / `addTestHooks`) as the
+stable surface, internally delegating to the smaller modules without changing the
+public signatures. There is **no** `window.Snowman` global to preserve — the ESM app
+exposes none (it exists only in the frozen `tests/verification/snowman_baseline.js`
+snapshot), and re-adding one would violate the no-per-module-`window`-bridge rule.
+See [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md) for the
+exact contract and the facade detail.
 
 ### Guardrails
 

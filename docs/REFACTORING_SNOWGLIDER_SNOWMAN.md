@@ -176,15 +176,26 @@ Block 3 is the part the earlier draft mis-routed: it is **not** in `addTestHooks
 `updateSnowman` (otherwise crashes and course completion break), and `test-hooks.ts`
 takes `addTestHooks`. Because the collision check is part of the per-frame step,
 `collision.ts` exports something the step calls each frame (e.g.
-`detectCollisionsAndFinish(snowman, pos, isInAir, verticalVelocity, treePositions,
-rockPositions, gameActive, showGameOver, getTerrainHeight)`), not a teardown hook.
-**The air state is load-bearing**, not optional: the block gates hazard clearance on
-it — a high jump over a tree is `isInAir && verticalVelocity > 0 && pos.y > treeTop+5`
-(snowman.ts:751–780), rock clearance is `isInAir && pos.y > rockTop+0.5`, and the
-fall check is `!isInAir && pos.y < terrain - fallThreshold`. Omitting `isInAir`/
-`verticalVelocity` from the seam would force the extracted code to read stale globals
-or treat valid jumps over hazards as crashes. Keep the `showGameOver` wiring and
-every reason string byte-identical (see Contracts below).
+`detectCollisionsAndFinish(snowman, pos, isInAir, verticalVelocity,
+terrainHeightAtPosition, treePositions, rockPositions, gameActive, showGameOver)`),
+not a teardown hook. Two seam inputs are **load-bearing**, not conveniences:
+
+- **Air state** (`isInAir`, `verticalVelocity`): the block gates hazard clearance on
+  it — a high jump over a tree is `isInAir && verticalVelocity > 0 && pos.y > treeTop+5`
+  (snowman.ts:751–780), rock clearance is `isInAir && pos.y > rockTop+0.5`, and the
+  fall check is `!isInAir && pos.y < terrain - fallThreshold`. Omitting it would treat
+  valid jumps over hazards as crashes.
+- **The pre-step terrain sample** (`terrainHeightAtPosition`): `updateSnowman` samples
+  it once at snowman.ts:345 using the **pre-step** `pos.x/pos.z`, then advances `pos`
+  by velocity (snowman.ts:598–600), and the fall / off-terrain checks at 815 and 831
+  reuse that **same pre-step value** — they do *not* resample at the advanced position.
+  So pass the sampled height through (or a small collision-state object carrying it);
+  do **not** hand the block only `getTerrainHeight` and resample with the post-step
+  `pos`, which would shift fall/off-terrain outcomes on steep terrain and break the
+  "mechanical" guarantee.
+
+Keep the `showGameOver` wiring and every reason string byte-identical (see Contracts
+below).
 
 ### Target layout
 
