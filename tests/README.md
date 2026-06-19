@@ -222,10 +222,18 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
   to the baseline (max abs difference `0`); the harness's exit code gates on it.
   It also confirms the snowplow brake and edge-skid scrub behave as designed. See
   [`PHYSICS.md` §6](../docs/PHYSICS.md) for the seam this protects.
-- **`snowman_baseline.js`** — the frozen pre-feature snapshot of `updateSnowman`.
-  Regenerate it **only** on a deliberate physics change:
-  `git show <ref>:src/snowman.ts > tests/verification/snowman_baseline.js`
-  (re-add the file header), then re-run `npm run test:verify`.
+- **`snowman_baseline.js`** — the frozen pre-feature snapshot of `updateSnowman`,
+  kept as a **classic script** (global `THREE`, ends in
+  `window.Snowman = { … }`, no ESM `import`/`export`) because the harness loads it via
+  `vm.runInContext` and reads `window.Snowman.updateSnowman`. Regenerate it **only** on a
+  deliberate physics change, and **not** by copying `src/snowman.ts` verbatim — that file
+  is an ES module, so a raw `git show <ref>:src/snowman.ts > …snowman_baseline.js` would
+  write `import`/`export` with no `window.Snowman` and break `npm run test:verify`. Instead
+  port the changed `updateSnowman` (and the helpers it calls) into the classic-wrapper shape
+  above: drop the `import * as THREE from 'three'` line (the harness supplies a global
+  `THREE` stub) and the `export`s, keep the trailing
+  `const Snowman = { … }; if (typeof window !== 'undefined') window.Snowman = Snowman;`
+  block, re-add the file header, then re-run `npm run test:verify`.
 - **`dom_smoke_test.js`** — boots `effects.ts` + `course.ts` under jsdom with a
   mocked THREE: both modules build their DOM/gates, the per-frame loop runs, every
   checkpoint and the finish are reached, the ghost trajectory and best splits

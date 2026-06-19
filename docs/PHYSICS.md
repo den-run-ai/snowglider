@@ -285,9 +285,19 @@ compares trajectories against a frozen baseline. Two properties make this work:
    are reproducible. If you add randomness to the grounded path, keep it behind an
    input gate or the invariant harness will (correctly) fail.
 
-Regenerate the baseline only on a **deliberate** physics change:
-`git show <ref>:src/snowman.ts > tests/verification/snowman_baseline.js`
-(re-add the header), then re-run `npm run test:verify`.
+Regenerate the baseline only on a **deliberate** physics change — and note it is
+**not** a verbatim copy of `src/snowman.ts`. The harness loads the baseline as a
+*classic script* through `vm.runInContext` and reads `window.Snowman.updateSnowman`,
+whereas `src/snowman.ts` is an ES module (`import * as THREE from 'three'`,
+`export const Snowman`). A raw `git show <ref>:src/snowman.ts > …snowman_baseline.js`
+would therefore write ESM `import`/`export` with no `window.Snowman`, and the next
+`npm run test:verify` would fail. Instead, port the changed `updateSnowman` (plus the
+helpers it calls) into the existing classic-wrapper shape: drop the
+`import * as THREE from 'three'` line (the harness supplies a global `THREE` stub) and
+the `export`s, and keep the trailing
+`const Snowman = { … }; if (typeof window !== 'undefined') window.Snowman = Snowman;`
+block. Re-add the header, then re-run `npm run test:verify`. (`tests/README.md` carries
+the same note.)
 
 ---
 
