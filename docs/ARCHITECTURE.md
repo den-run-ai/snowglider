@@ -104,6 +104,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `Mountains` | `mountains.ts` | object + fns | Terrain height field, gradient, mesh, rocks / `rockPositions`, `SimplexNoise` |
 | `Trees` | `trees.ts` | object + fns | Tree meshes + placement; returns `treePositions` |
 | `Snow` | `snow.ts` | object + fns | Snowflakes + ski snow-splash particles |
+| `Sky` | `sky.ts` | object + fns | Preetham atmospheric sky + sun & horizon distance fog (gradient-dome fallback), issue #2 |
 | `Camera` | `camera.ts` | `class Camera` | Chase/orbit camera positioning & look-ahead |
 | `Snowman` | `snowman.ts` | object + fns | Snowman model, `updateSnowman` physics, test hooks |
 | `Physics` | `physics.ts` | object + fns | Typed per-frame `PlayerState` container over the snowman kernel |

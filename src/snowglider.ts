@@ -36,6 +36,7 @@ import { EffectsModule, type ShakeOffset } from './effects.js';
 import { AvalancheSystem } from './avalanche.js';
 import { AudioModule } from './audio.js';
 import { Physics } from './physics.js';
+import { Sky } from './sky.js';
 import type { RockPosition } from './mountains.js';
 import type { TreePosition } from './trees.js';
 
@@ -56,7 +57,9 @@ Controls.setupControls();
 const THREECompat = THREE as any;
 THREECompat.ColorManagement.enabled = false;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87CEEB);
+// Sky background + distance fog are applied after the lights are set up
+// (see Sky.applyGradientSky below) so the gradient sky / horizon fog replace the
+// old flat `scene.background = Color(0x87CEEB)` (issue #2).
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 (renderer as any).outputColorSpace = THREECompat.LinearSRGBColorSpace;
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -161,6 +164,12 @@ directionalLight.castShadow = true;
 directionalLight.shadow.mapSize.width = 2048;
 directionalLight.shadow.mapSize.height = 2048;
 scene.add(directionalLight);
+
+// --- Sky & fog ---
+// Preetham atmospheric sky + sun, with horizon-tinted distance fog (issue #2).
+// The sun direction is the directional light's position so the visible sun and
+// the cast shadows agree. (Sky.applyGradientSky is a lighter-weight fallback.)
+Sky.applyAtmosphericSky(scene, directionalLight.position);
 
 // --- Create main game objects ---
 // Store terrain in a global for precise object positioning

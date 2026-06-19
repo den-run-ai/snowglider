@@ -13,6 +13,33 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Visible sky — gradient sky, atmospheric sky + sun, distance fog (#2)
+- Replaced the flat `scene.background = Color(0x87CEEB)` (and no fog) with a
+  graduated sky and matching horizon fog, in a new `src/sky.ts` module.
+- **Tier 1 — gradient sky + fog (`Sky.applyGradientSky`, kept as a fallback):**
+  a large `BackSide` dome whose vertex shader pins it to the far plane
+  (`gl_Position.z = gl_Position.w`), so it behaves as a skybox: it never clips
+  against the camera far plane and fills every pixel not covered by scene
+  geometry. The gradient is evaluated per-pixel from the view direction so it
+  tracks the chase camera's pitch.
+- **Tier 2 — atmospheric sky + sun (`Sky.applyAtmosphericSky`, what the game
+  uses):** the Preetham daylight model ported from three.js's
+  `examples/jsm/objects/Sky.js`, inlined so it imports only bare `three` (a
+  `three/addons/*` specifier would 404 on the verbatim-copied dist `?test=`
+  pages). The sun direction is the scene's directional-light position, so the
+  visible sun disc and the cast shadows agree. Scattering params lean slightly
+  clearer than three's ACES demo because the project runs the legacy colour
+  pipeline (no tone mapping); an `exposure` uniform stands in for
+  `renderer.toneMappingExposure`.
+- `scene.fog` is a linear fog tinted to the horizon colour, tuned to keep the
+  gameplay area crisp (`near = 140`) and fade only distant terrain / the far
+  peak (`far = 750`) so the slope no longer hard-cuts at the far plane.
+- Purely visual: no physics, collision, scoring, or lighting changes (the
+  directional light and its shadows are untouched).
+- The exact sky look (turbidity / rayleigh / exposure / fog tint) was set under
+  the legacy pipeline and is tunable — eyeball on-device and adjust the
+  constants in `src/sky.ts` if needed.
+
 ### Skiing skill — parallel turns & hop turns (completes #48)
 - Added the two remaining ski techniques from #48 (P1 of [`ROADMAP.md`](ROADMAP.md)),
   on top of the carve/skid/snowplow/tuck model: **parallel turns** and **hop turns**.
