@@ -571,6 +571,85 @@ function addRocks(scene: THREE.Scene): RockPosition[] {
   return collisionRockPositions;
 }
 
+// Shared craggy normal map for all rocks (issue #17, Stage 2). Built once and
+// reused across the few hundred rock meshes — cheap, and avoids per-rock canvas
+// work. Lazily created so it's only touched in a DOM/browser context (createRock
+// is browser-only via createTerrain/addRocks); returns null elsewhere so the
+// material simply renders without it. Same legacy-pipeline / NoColorSpace
+// handling as the snow normal map above.
+let rockNormalTexture: THREE.CanvasTexture | null = null;
+function getRockNormalTexture(): THREE.CanvasTexture | null {
+  if (rockNormalTexture) return rockNormalTexture;
+  if (typeof document === 'undefined') return null;
+  const SIZE = 128;
+  const height = new Float32Array(SIZE * SIZE);
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const u = x / SIZE, v = y / SIZE;
+      // Chaotic high-frequency relief for a rough rock face (tileable).
+      let h = 0.5 * Math.sin(2 * Math.PI * (5 * u + 3 * v) + 0.4);
+      h += 0.4 * Math.sin(2 * Math.PI * (9 * u - 7 * v) + 1.1);
+      h += 0.3 * Math.sin(2 * Math.PI * (17 * u + 11 * v) + 2.3);
+      h += 0.2 * Math.sin(2 * Math.PI * 23 * u) * Math.sin(2 * Math.PI * 29 * v);
+      height[y * SIZE + x] = h;
+    }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = SIZE;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(SIZE, SIZE);
+  const data = image.data;
+  const STRENGTH = 2.5;
+  const wrap = (i: number) => (i + SIZE) % SIZE;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const hl = height[y * SIZE + wrap(x - 1)];
+      const hr = height[y * SIZE + wrap(x + 1)];
+      const hd = height[wrap(y - 1) * SIZE + x];
+      const hu = height[wrap(y + 1) * SIZE + x];
+      let nx = -(hr - hl) * STRENGTH;
+      let ny = -(hu - hd) * STRENGTH;
+      const nz = 1.0;
+      const len = Math.hypot(nx, ny, nz);
+      nx /= len; ny /= len;
+      const idx = (y * SIZE + x) * 4;
+      data[idx] = (nx * 0.5 + 0.5) * 255;
+      data[idx + 1] = (ny * 0.5 + 0.5) * 255;
+      data[idx + 2] = (nz / len * 0.5 + 0.5) * 255;
+      data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.NoColorSpace;
+  rockNormalTexture = tex;
+  return tex;
+}
+
+/**
+ * Bake snow accumulation into a rock's vertex colours: upward-facing faces gather
+ * snow (toward white), the rest keep the rock's base grey. The deformed
+ * dodecahedron is non-indexed, so each vertex carries its own face normal — the
+ * snow settles cleanly per-face on top. Multiplied in via `vertexColors`; rocks
+ * are scenery (not in any physics/determinism path), so the look is the only
+ * contract. Mutates `geometry` in place; call after `computeVertexNormals()`.
+ */
+function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Color): void {
+  const normals = geometry.attributes.normal.array as Float32Array;
+  const count = geometry.attributes.position.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const ny = normals[i * 3 + 1];
+    const t = Math.min(1, Math.max(0, (ny - 0.25) / (0.7 - 0.25)));
+    const snow = t * t * (3 - 2 * t); // smoothstep up-facing band -> snow amount
+    colors[i * 3] = rockColor.r + (1 - rockColor.r) * snow;
+    colors[i * 3 + 1] = rockColor.g + (1 - rockColor.g) * snow;
+    colors[i * 3 + 2] = rockColor.b + (1 - rockColor.b) * snow;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
 // Create a rock with variable size
 function createRock(size: number): THREE.Mesh {
   // Use dodecahedron as base shape for rocks
@@ -587,15 +666,22 @@ function createRock(size: number): THREE.Mesh {
   }
   geometry.computeVertexNormals();
   
-  // Create rock material with varying colors
+  // Snow gathers on the rock's up-facing faces (baked into vertex colours); the
+  // base grey rides in the same attribute, so the material colour stays white and
+  // is modulated per-vertex. A shared craggy normal map adds surface roughness
+  // without extra geometry. (issue #17, Stage 2)
   const grayness = 0.4 + Math.random() * 0.3;
   const rockColor = new THREE.Color(grayness, grayness, grayness);
-  
+  applyRockSnowColors(geometry, rockColor);
+
   const rockMaterial = new THREE.MeshStandardMaterial({
-    color: rockColor,
+    color: 0xffffff,
     roughness: 0.8,
     metalness: 0.2,
-    flatShading: true
+    flatShading: true,
+    vertexColors: true,
+    normalMap: getRockNormalTexture(),
+    normalScale: new THREE.Vector2(0.4, 0.4)
   });
   
   const rock = new THREE.Mesh(geometry, rockMaterial);
