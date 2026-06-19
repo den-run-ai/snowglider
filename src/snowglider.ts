@@ -166,9 +166,10 @@ directionalLight.shadow.mapSize.height = 2048;
 scene.add(directionalLight);
 
 // --- Sky & fog ---
-// Gradient sky dome + horizon-tinted distance fog (issue #2). Replaces the flat
-// blue clear colour so the terrain reads with depth and fades into a horizon.
-Sky.applyGradientSky(scene);
+// Preetham atmospheric sky + sun, with horizon-tinted distance fog (issue #2).
+// The sun direction is the directional light's position so the visible sun and
+// the cast shadows agree. (Sky.applyGradientSky is a lighter-weight fallback.)
+Sky.applyAtmosphericSky(scene, directionalLight.position);
 
 // --- Create main game objects ---
 // Store terrain in a global for precise object positioning

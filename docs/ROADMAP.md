@@ -111,9 +111,9 @@ Timer/best-time and leaderboard existed, but there was no reason to play 20 runs
 
 A skiing game lives on speed readability and mountain atmosphere.
 
-- **Shipped:** speed-based FOV (widens at speed) and camera shake on hard landings / avalanche proximity.
-- **Remaining (○):** snow trails carved from the back of the skis, weather variation and a day→sunset→night skybox, stronger slope contrast and obstacle silhouettes, depth cues, a readable horizon, and an intro fly-over of the mountain.
-- **Open issues:** intro fly-over (**#51**), plus open issues on lighting/shadows, snow/tree/rock/snowman textures, and a visible sky.
+- **Shipped:** speed-based FOV (widens at speed), camera shake on hard landings / avalanche proximity, and a **visible sky** — a Preetham atmospheric sky with a sun aligned to the directional light, plus horizon distance fog so terrain reads with depth instead of hard-cutting at the far plane (**#2**, `src/sky.ts`).
+- **Remaining (○):** snow trails carved from the back of the skis, weather variation and a day→sunset→night skybox (the sky module is a static daytime sky for now), stronger slope contrast and obstacle silhouettes, depth cues, and an intro fly-over of the mountain.
+- **Open issues:** intro fly-over (**#51**), plus open issues on lighting/shadows and snow/tree/rock/snowman textures. Visible sky (**#2**) is ◐ partial — static sky shipped; clouds / day-night cycle remain.
 
 ### 8. Audio consistency and completion — ○ open
 
@@ -322,7 +322,7 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Gyro/tilt controls | #24 | ○ open |
 | Lighting and shadows | #18 | ○ open |
 | Textures (snow, trees, rocks, snowman) | #17 | ○ open |
-| Visible sky | #2 | ○ open |
+| Visible sky | #2 | ◐ partial — atmospheric sky + sun + horizon fog shipped (`src/sky.ts`); clouds / day-night cycle open |
 
 ### Infrastructure, tooling & exploratory
 
