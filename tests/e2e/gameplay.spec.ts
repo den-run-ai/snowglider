@@ -57,6 +57,23 @@ test.describe('gameplay flow', () => {
     const start = await getPos(page);
     expect(start, 'run did not publish a player position').not.toBeNull();
 
+    // Remove the random hazards before skiing. The snowman coasts an unseeded,
+    // randomly-generated tree/rock field with no input, so it can crash
+    // mid-coast; the resulting game-over overlay (full-screen, z-index 1000) then
+    // covers #resetBtn and the click retries until the test times out (the
+    // observed CI flake). Clearing the live collision arrays in place (they are
+    // the same refs the physics reads each frame — snowglider.ts publishes
+    // window.treePositions/rockPositions = the stepPlayer args) keeps the run
+    // live so we exercise the *real*, hit-tested Reset button click below — a
+    // forced/dispatched click would instead mask a genuinely covered/unusable
+    // button. Done here rather than in a shared helper to keep the hazard removal
+    // scoped to the one spec that needs a guaranteed-survivable coast.
+    await page.evaluate(() => {
+      const w = window as unknown as { treePositions?: unknown[]; rockPositions?: unknown[] };
+      if (Array.isArray(w.treePositions)) w.treePositions.length = 0;
+      if (Array.isArray(w.rockPositions)) w.rockPositions.length = 0;
+    });
+
     // Ski some distance downhill, then hit the on-screen Reset button.
     await waitForDownhillTravel(page, start!.z, 10);
     await page.click('#resetBtn');
