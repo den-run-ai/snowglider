@@ -136,7 +136,7 @@ showGameOver(reason)
    │       ├─ spawn debris-owned fragment chunks (own geometry/material) with burst velocities
    │       ├─ Snow puff burst at impact
    │       └─ start own rAF settle loop (gravity + ground bounce + tumble, repaint each tick, ~2.5s)
-   │     EffectsModule.addShake(impactScaledBySpeed)   // reuse existing juice
+   │     (crash thud deferred — addShake can't render after animate() stops; do it in the debris render callback, §7.2 step 4)
    │     (#gameOverOverlay shows immediately as today — dimmed shatter; ~700ms delay is opt-in polish, §7.4)
    └─ … existing overlay / score / result logic unchanged
 ```
@@ -362,8 +362,16 @@ export class SnowmanDebris {
 3. **Snow puff.** Fire a one-shot burst from the existing snow-splash texture/material at
    the impact point (a dozen-ish sprites with the same gravity/fade as `updateSnowSplash`),
    so the break-up is wrapped in a cloud of powder — the "balls with snow splashing" ask.
-4. **Juice.** `EffectsModule.addShake(clamp(impactSpeed * k))` for a crash thud (already
-   `prefers-reduced-motion`-aware inside effects).
+4. **Juice (deferred — see caveat).** A crash thud via camera shake is desirable, but
+   **`EffectsModule.addShake()` will NOT render after a crash**: it only *queues* shake for
+   `EffectsModule.tickCamera()`, which runs in the normal `animate()` render path —
+   and `showGameOver` has already stopped that loop (§7.4), while the later
+   `EffectsModule.reset()` clears the queued impulse anyway. So a bare `addShake` here is
+   dead. To actually render a thud, the **debris settle loop's `render` callback must apply
+   its own decaying shake offset to `camera.position` before `renderer.render(...)` and
+   revert it after** (the same apply-then-revert pattern the main loop uses, but driven by
+   the debris rAF). PR B **ships without the shake** to keep the change small; this is
+   captured as a clear follow-up.
 5. Start the settle loop (§7.4).
 
 ### 7.3 Per-fragment physics (cosmetic, terrain-aware)
@@ -468,7 +476,9 @@ Minimal, localized edits:
        reducedMotion: !!reduced,
        render: () => renderer.render(scene, camera), // §7.4: animate() has stopped
      });
-     if (EffectsModule) EffectsModule.addShake(/* impact ∝ speed */);
+     // NB: no EffectsModule.addShake() here — animate() has stopped, so tickCamera()
+     // never applies it and EffectsModule.reset() below would clear it (§7.2 step 4).
+     // A crash thud must be rendered inside the debris render callback instead (follow-up).
    }
    ```
 
@@ -514,7 +524,7 @@ needs **no** change (kernel untouched) — explicitly note that in the PR descri
 - **Fragment cap** ≈24 chunks + ≈12 puff sprites; reuse the snow-splash material. One-shot,
   disposed on reset — no steady-state cost during normal play (debris only exists post-crash).
 - **`prefers-reduced-motion`**: flex → rigid; shatter → hide snowman + single small puff,
-  no flying tumble, no `addShake` (effects already honors it).
+  no flying tumble. (No crash shake regardless — it's deferred, §7.2 step 4.)
 - **Mobile**: the settle loop is short and low-count; gate fragment sub-cracking behind a
   simple device/perf check if needed (optional, can follow the roadmap's perf-scaling item).
 
