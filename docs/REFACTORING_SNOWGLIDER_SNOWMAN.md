@@ -58,7 +58,7 @@ The prior infrastructure work already did the *state* slice of R2: the typed
 | 711–875 | `showGameOver(reason)` | `src/ui/result-overlay.ts` |
 | 876–926 | `restartGame()` + `window.restartGame` | `src/game/lifecycle.ts` |
 | 927–959 | `toggleCameraView()` + `window.toggleCameraView` | `src/game/lifecycle.ts` |
-| 960–1003 | `addTestHooks(...)` | `src/game/test-hooks.ts` |
+| 960–1003 | local `addTestHooks(...)` shim — **DEAD/incomplete duplicate**: never called by bare name (all live sites call `Snowman.addTestHooks` at 606/1005/1203); installs only `forceTreeCollision` + an "Other test hooks…" placeholder | **delete — do not extract** |
 | 1004–1133 | `initializeControlsToggle()` | `src/ui/collapsible-panel.ts` |
 | 1134–1153 | `updateTimerDisplay()` | `src/ui/hud.ts` |
 | 1154–1303 | `window.initializeGameWithAudio` boot hook | stays in `snowglider.ts` (coordinator) |
@@ -69,13 +69,14 @@ The prior infrastructure work already did the *state* slice of R2: the typed
 
 ```
 src/
-  snowglider.ts            # thin coordinator: wires the pieces, owns the boot hook
+  snowglider.ts            # thin coordinator: wires the pieces, owns the boot hook,
+                           # publishGameGlobals(), isTestMode flag + test-mode auto-start,
+                           # and the eager Snowman.addTestHooks(...) wiring calls
   game/
     scene-setup.ts         # scene, renderer, lights, terrain, trees, snowman,
                            # snow particles, avalanche, course/effects construction
     main-loop.ts           # animate() ordering, updateSnowman/updateCamera, resize
     lifecycle.ts           # reset, restart, game-active transitions, camera toggle
-    test-hooks.ts          # window.testHooks / collision flags for browser tests
   ui/
     hud.ts                 # stats panel, timer, speed color, position, technique
     result-overlay.ts      # game-over/finish overlay, best-time, login prompt,
@@ -101,7 +102,12 @@ just the function hooks. There are two groups; both must be preserved.
 - Functions: `window.resetSnowman`, `window.restartGame`, `window.showGameOver`,
   `window.toggleCameraView`, `window.initializeGameWithAudio`
 - Data/flags: `window.terrainMesh`, `window.treePositions`, `window.rockPositions`,
-  `window.isTestMode`, `window.testHooks`, `window.testCollisionDetected`
+  `window.isTestMode`
+
+(`window.testHooks` and `window.testCollisionDetected` are **not** eager snowglider
+globals — they are installed/set by `Snowman.addTestHooks` and its hook callbacks,
+so they are preserved by R3 step 12, not by anything R2 extracts. The dead local
+`addTestHooks` shim that also touched them is deleted in step 6.)
 
 **2. The `publishGameGlobals()` proxy set** (lines 1304–1357 — `Object.defineProperty`
 getters/setters that bridge module-local bindings to `window`). The suites read
@@ -170,9 +176,15 @@ Block 3 is the part the earlier draft mis-routed: it is **not** in `addTestHooks
 `updateSnowman` (otherwise crashes and course completion break), and `test-hooks.ts`
 takes `addTestHooks`. Because the collision check is part of the per-frame step,
 `collision.ts` exports something the step calls each frame (e.g.
-`detectCollisionsAndFinish(snowman, pos, treePositions, rockPositions, gameActive,
-showGameOver, getTerrainHeight)`), not a teardown hook. Keep the `showGameOver`
-wiring and every reason string byte-identical (see Contracts below).
+`detectCollisionsAndFinish(snowman, pos, isInAir, verticalVelocity, treePositions,
+rockPositions, gameActive, showGameOver, getTerrainHeight)`), not a teardown hook.
+**The air state is load-bearing**, not optional: the block gates hazard clearance on
+it — a high jump over a tree is `isInAir && verticalVelocity > 0 && pos.y > treeTop+5`
+(snowman.ts:751–780), rock clearance is `isInAir && pos.y > rockTop+0.5`, and the
+fall check is `!isInAir && pos.y < terrain - fallThreshold`. Omitting `isInAir`/
+`verticalVelocity` from the seam would force the extracted code to read stale globals
+or treat valid jumps over hazards as crashes. Keep the `showGameOver` wiring and
+every reason string byte-identical (see Contracts below).
 
 ### Target layout
 
@@ -248,8 +260,14 @@ suite (below) and updates `docs/ARCHITECTURE.md` in the same PR.
    prompt, leaderboard, `onFinish`. (Carries the score-validation helpers.)
 4. `src/game/scene-setup.ts` — construction of scene/objects/systems.
 5. `src/game/main-loop.ts` — `animate()` + per-frame update helpers.
-6. `src/game/lifecycle.ts` + `src/game/test-hooks.ts` — reset/restart/toggle and
-   the test globals. `snowglider.ts` is now a thin coordinator.
+6. `src/game/lifecycle.ts` — reset/restart/toggle. **Delete the dead local
+   `addTestHooks` shim (960–1003)** rather than extracting it — it is never called
+   and is a stale, incomplete duplicate of `Snowman.addTestHooks`. The real browser
+   tree/regression hooks (`checkTreeCollision`, `checkExtendedTerrainCollision`, …)
+   come from `Snowman.addTestHooks`, whose *implementation* moves later in R3 step 12
+   (`src/snowman/test-hooks.ts`); the coordinator just keeps calling it. `publishGameGlobals()`,
+   the `isTestMode` flag, and the test-mode auto-start stay in the coordinator (they
+   proxy the coordinator's own bindings). `snowglider.ts` is now a thin coordinator.
 
 **R3 (snowman) — only after R2 lands:**
 
