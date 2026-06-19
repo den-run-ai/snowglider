@@ -26,6 +26,7 @@ import './trees.js';
 import './mountains.js';
 import './snow.js';
 import './snowman.js';
+import './snowman-flex.js';
 import './audio.js';
 import './sky.js';
 

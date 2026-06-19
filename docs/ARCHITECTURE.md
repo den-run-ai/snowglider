@@ -107,6 +107,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `Sky` | `sky.ts` | object + fns | Preetham atmospheric sky + sun & horizon distance fog (gradient-dome fallback), issue #2 |
 | `Camera` | `camera.ts` | `class Camera` | Chase/orbit camera positioning & look-ahead |
 | `Snowman` | `snowman.ts` | object + fns | Snowman model, `updateSnowman` physics, test hooks |
+| `Flex` | `snowman-flex.ts` | object + fns | Cosmetic snowman flex (squash/jiggle, head-cluster bob/lean, landing settle); runs after physics, never touches the kernel (#53) |
 | `Physics` | `physics.ts` | object + fns | Typed per-frame `PlayerState` container over the snowman kernel |
 | `AudioModule` | `audio.ts` | IIFE | Native HTML5 background music (gated by `AUDIO_ENABLED`) |
 | `Controls` | `controls.ts` | object + fns | Keyboard + touch input → shared `controls` state |

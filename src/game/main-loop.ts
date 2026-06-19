@@ -8,6 +8,7 @@
 import { Controls } from '../controls.js';
 import { Snow } from '../snow.js';
 import { Snowman } from '../snowman.js';
+import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../physics.js';
@@ -61,6 +62,19 @@ export function createMainLoop(deps: MainLoopDeps) {
     if (result.justLanded && result.landingForce > 0.25 && EffectsModule) {
       EffectsModule.addShake(Math.min(1.2, result.landingForce * 0.6));
     }
+
+    // Cosmetic flexibility / jiggle (issue #53). Purely visual: runs AFTER the physics
+    // kernel so it can read the per-frame result, and only writes child-mesh transforms —
+    // it never touches pos/velocity, so the physics-invariant harness is unaffected.
+    const flexSpeed = result.currentSpeed;
+    Flex.update(snowman, delta, {
+      speed: flexSpeed,
+      technique: result.technique,
+      turnRate: flexSpeed > 1e-3 ? velocity.x / flexSpeed : 0, // zero-speed guard (no 0/0 NaN)
+      justLanded: result.justLanded,
+      landingForce: result.landingForce,
+      isInAir: player.isInAir
+    });
 
     // Update timer in the updateTimerDisplay function which is called separately
   }

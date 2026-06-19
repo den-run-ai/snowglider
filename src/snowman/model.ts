@@ -181,13 +181,77 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
   rightSki.add(rightSkiTip);
   group.add(rightSki);
   
+  // --- Head cluster (issue #53) ---------------------------------------------
+  // Parent the head sphere AND its accessories (eyes, nose, hat) into one
+  // neck-pivoted group so the flexibility/jiggle layer (src/snowman-flex.ts) can
+  // bob/lean the whole face + hat together instead of sliding the accessories off a
+  // bare head mesh. Re-basing each child's y by NECK_Y keeps world positions
+  // identical at rest, so this is purely structural — no visual or physics change.
+  // headGroup is a THREE.Group (no geometry/material), which the PR-B shatter loop
+  // handles via its isMesh branch (the whole head breaks off as one piece).
+  const NECK_Y = 6.0; // top of the middle sphere / base of the head — a natural pivot
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, NECK_Y, 0);
+  for (const part of [head, leftEye, rightEye, nose, hatBase, hatTop]) {
+    part.position.y -= NECK_Y;   // into headGroup-local space (identical world y)
+    headGroup.add(part);         // Object3D.add() reparents from `group`
+  }
+  group.add(headGroup);
+
   // Keep references + neutral pose so ski technique (e.g. snowplow wedge) can be shown.
   group.userData = group.userData || {};
   group.userData.leftSki = leftSki;
   group.userData.rightSki = rightSki;
   group.userData.leftSkiBaseX = leftSki.position.x;
   group.userData.rightSkiBaseX = rightSki.position.x;
-  
+
+  // --- Cosmetic part registries (issue #53) ---------------------------------
+  // FLEX registry: fine-grained animatable refs read by src/snowman-flex.ts. Every
+  // value is a renderable Object3D; headGroup is the neck-pivoted cluster above.
+  group.userData.parts = {
+    bottom, middle,
+    headGroup, head,
+    leftEye, rightEye, nose,
+    button1, button2, button3,
+    leftArmGroup, rightArmGroup,
+    hatBase, hatTop
+  };
+  // SHATTER roots: the flat list of TOP-LEVEL rigid pieces the PR-B debris system
+  // flings, so accessories ride with their cluster instead of being double-spawned.
+  // headGroup + arms are THREE.Groups; the shatter loop branches on `part.isMesh`.
+  group.userData.shatterRoots = [
+    bottom, middle, headGroup,
+    leftArmGroup, rightArmGroup,
+    button1, button2, button3
+  ];
+  // Neutral local transforms, kept OFF the registries so a generic loop over .parts
+  // / .shatterRoots only ever sees renderable Object3Ds. Keyed by the same names so
+  // the flex layer can pair part <-> base and restore exactly on reset.
+  group.userData.partBaseTransforms = recordBaseTransforms(group.userData.parts);
+
   scene.add(group);
   return group;
+}
+
+/** A plain-number snapshot of a part's neutral local transform. */
+interface BaseTransform {
+  position: { x: number; y: number; z: number };
+  scale: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number };
+}
+
+/** Snapshot each part's neutral local position/scale/rotation so the cosmetic flex
+ *  layer can animate as offsets from neutral and restore exactly on reset. Stored as
+ *  plain numbers (not Vector3/Euler) so the baseline survives independent of the live
+ *  object's later mutation. */
+function recordBaseTransforms(parts: Record<string, THREE.Object3D>): Record<string, BaseTransform> {
+  const out: Record<string, BaseTransform> = {};
+  for (const [key, p] of Object.entries(parts)) {
+    out[key] = {
+      position: { x: p.position.x, y: p.position.y, z: p.position.z },
+      scale: { x: p.scale.x, y: p.scale.y, z: p.scale.z },
+      rotation: { x: p.rotation.x, y: p.rotation.y, z: p.rotation.z }
+    };
+  }
+  return out;
 }

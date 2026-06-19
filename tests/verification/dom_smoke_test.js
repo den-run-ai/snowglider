@@ -146,6 +146,35 @@ async function main() {
   Course.hideHud();
   check('hideHud() runs without throwing', true);
 
+  // ---- Snowman model: head cluster + part registries + flex (issue #53) ----
+  // Import the submodules directly (not the snowman.ts facade): this harness runs
+  // under plain `node` without the .js->.ts resolver, and model.ts/snowman-flex.ts
+  // only depend on (type-only, for flex) three, so they load headless. createSnowman
+  // builds real three geometry/materials, which need no WebGL.
+  console.log('\n--- Snowman model (flex registries) ---');
+  const { createSnowman } = await import('../../src/snowman/model.ts');
+  const { Flex } = await import('../../src/snowman-flex.ts');
+  const snowman = createSnowman(new RealTHREE.Scene());
+  const ud = snowman.userData;
+  check('createSnowman builds a fine-grained part registry', !!ud && !!ud.parts && !!ud.parts.headGroup && !!ud.parts.head && !!ud.parts.bottom);
+  check('shatterRoots is a flat list including the head cluster', Array.isArray(ud.shatterRoots) && ud.shatterRoots.includes(ud.parts.headGroup));
+  check('base transforms kept OFF the registry (parts.base undefined)', !!ud.partBaseTransforms && !!ud.partBaseTransforms.headGroup && ud.parts.base === undefined);
+  check('face/hat are children of the head cluster (head bob keeps them attached)',
+    ud.parts.head.parent === ud.parts.headGroup &&
+    ud.parts.leftEye.parent === ud.parts.headGroup &&
+    ud.parts.hatTop.parent === ud.parts.headGroup);
+  // Re-basing the cluster must keep world positions identical at rest (~head y=7).
+  const headWorld = new RealTHREE.Vector3();
+  ud.parts.head.getWorldPosition(headWorld);
+  check('head world position preserved at rest (~y=7, x~0)', Math.abs(headWorld.y - 7.0) < 1e-6 && Math.abs(headWorld.x) < 1e-6);
+  // Flex drives the REAL snowman finitely, then resets clean.
+  Flex.update(snowman, 1 / 60, { speed: 18, technique: 'carve', turnRate: 0.6, justLanded: true, landingForce: 0.9, isInAir: false });
+  check('Flex.update mutates the real snowman finitely', Number.isFinite(ud.parts.head.scale.y) && Number.isFinite(ud.parts.headGroup.rotation.z));
+  Flex.reset(snowman);
+  check('Flex.reset restores the head cluster to neutral',
+    Math.abs(ud.parts.headGroup.position.y - ud.partBaseTransforms.headGroup.position.y) < 1e-9 &&
+    Math.abs(ud.parts.head.scale.y - 1) < 1e-9);
+
   console.log(`\nSMOKE TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }
