@@ -33,6 +33,10 @@ export function createLifecycle(deps: LifecycleDeps) {
     // new run starts clean (issue #53). Purely visual; no physics impact.
     Flex.reset(snowman);
 
+    // Clear any crash-shatter wipeout: dispose its (debris-owned) fragments and re-show
+    // the snowman, so a restart always begins with a clean, visible snowman (#53).
+    if (state.debris) state.debris.reset();
+
     // Reset avalanche system
     const avalanche = state.avalanche;
     if (avalanche) {
