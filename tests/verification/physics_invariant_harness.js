@@ -17,6 +17,7 @@
 // carve-vs-skid comparison (with the old terrain-dependent line kept as 3b diag).
 const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const vm = require('vm');
 
 // --- Shared deterministic terrain (mirrors mountains.js downhill shape, no noise) ---
@@ -115,18 +116,17 @@ function simulateCtrl(updateFn, ctrl, seed, { steps = 120, dt = 1 / 60, z0 = -40
 // the harness injects terrain + controls as arguments (snowman reads no terrain
 // globals). The async import means the checks run inside an async IIFE.
 //
-// Phase 3.7 (issue #84): snowman was renamed `.js` -> `.ts`. This harness runs
-// under `npm run test:verify` (no `.js`->`.ts` resolve hook), and it imports
-// snowman directly, so use the real `.ts` extension (Node strips the erasable
-// types natively, like avalanche.ts).
+// Phase 3.7 (issue #84): snowman was renamed `.js` -> `.ts` and then moved behind
+// a thin `src/snowman.ts` facade (`export * from './snowman/index.js'`).
 //
-// Stage R3 (issue #34): the implementation moved to `src/snowman/index.ts` behind a
-// thin `src/snowman.ts` facade (`export * from './snowman/index.js'`). Bare Node here
-// can't resolve that facade's `.js` re-export, so import the relocated implementation
-// directly. `index.ts` stays free of relative imports, so this loads under bare Node.
+// Stage R3.8 (issue #34): `index.ts` now imports smaller snowman submodules via
+// `.js` specifiers, matching the app's source convention. Register the same
+// `.js` -> `.ts` resolver used by the Node suites before importing the public facade
+// so `npm run test:verify` still works when run directly.
 (async () => {
 const orig = loadUpdate(path.join(__dirname, 'snowman_baseline.js'));
-const mod = (await import('../../src/snowman/index.ts')).Snowman.updateSnowman;
+await import(pathToFileURL(path.join(__dirname, '..', 'loaders', 'register-ts-resolve.mjs')).href);
+const mod = (await import('../../src/snowman.ts')).Snowman.updateSnowman;
 // updateSnowman reads window.treeCollisionRadius / window.location.search for its
 // test-hook + debug-logging paths; the frozen baseline gets these from its vm
 // sandbox, so provide the same minimal stub on the global for the imported module.
