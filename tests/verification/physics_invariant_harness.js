@@ -119,9 +119,14 @@ function simulateCtrl(updateFn, ctrl, seed, { steps = 120, dt = 1 / 60, z0 = -40
 // under `npm run test:verify` (no `.js`->`.ts` resolve hook), and it imports
 // snowman directly, so use the real `.ts` extension (Node strips the erasable
 // types natively, like avalanche.ts).
+//
+// Stage R3 (issue #34): the implementation moved to `src/snowman/index.ts` behind a
+// thin `src/snowman.ts` facade (`export * from './snowman/index.js'`). Bare Node here
+// can't resolve that facade's `.js` re-export, so import the relocated implementation
+// directly. `index.ts` stays free of relative imports, so this loads under bare Node.
 (async () => {
 const orig = loadUpdate(path.join(__dirname, 'snowman_baseline.js'));
-const mod = (await import('../../src/snowman.ts')).Snowman.updateSnowman;
+const mod = (await import('../../src/snowman/index.ts')).Snowman.updateSnowman;
 // updateSnowman reads window.treeCollisionRadius / window.location.search for its
 // test-hook + debug-logging paths; the frozen baseline gets these from its vm
 // sandbox, so provide the same minimal stub on the global for the imported module.
