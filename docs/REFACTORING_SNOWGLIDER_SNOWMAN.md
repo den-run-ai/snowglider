@@ -253,11 +253,28 @@ suite (below) and updates `docs/ARCHITECTURE.md` in the same PR.
 
 **R3 (snowman) — only after R2 lands:**
 
-7. `src/snowman/types.ts` + `src/snowman/index.ts` scaffold, **and convert
-   `src/snowman.ts` into a `export * from './snowman/index.js';` facade** (re-export
-   only; no logic moves yet). This first PR proves the import seam is invisible —
-   `./snowman.js` must keep resolving and the full suite must stay green before any
-   logic moves in steps 8–11.
+7. **Relocate the implementation behind the facade — do not scaffold an empty one.**
+   `src/snowman.ts` is currently the *only* module that defines `Snowman` and the
+   exported types, so flipping it to `export * from './snowman/index.js';` before any
+   code moves would leave nothing to re-export and break every `./snowman.js` import.
+   Instead, in one PR `git mv src/snowman.ts src/snowman/index.ts` (the whole
+   implementation moves wholesale — `Snowman` + types land in `index.ts`), then add a
+   thin new `src/snowman.ts` that re-exports it. Nothing is *decomposed* yet
+   (`model`/`physics`/`pose`/`collision` still live inside `index.ts`); steps 8–12
+   carve pieces out of `index.ts` into siblings afterward. This PR's only job is to
+   prove the import seam is invisible, so the full suite must stay green first.
+
+   **Two resolution gotchas this PR must handle (both verified in the tree):**
+   - `tests/verification/physics_invariant_harness.js:100` imports the live module
+     **directly** as `import('../../src/snowman.ts')` and reads `.Snowman.updateSnowman`.
+     The new `src/snowman.ts` facade keeps that path valid only if it actually
+     re-exports `Snowman` — confirm with `npm run test:verify`.
+   - `npm run test:verify` runs under bare Node with **no `.js`→`.ts` resolve hook**
+     (that is why the harness uses an explicit `.ts` specifier). A facade body of
+     `export * from './snowman/index.js'` would try to resolve a non-existent
+     `index.js`. So either give `test:verify` the same resolve hook the other suites
+     use, or repoint the harness import to the relocated implementation
+     (`src/snowman/index.ts`). Pick one in this PR and note it in `package.json`/docs.
 8. `src/snowman/model.ts` — `createSnowman()` (no physics touched).
 9. `src/snowman/pose.ts` — pull the pose block (~606–690) out of `updateSnowman()`
    as `applyPose(...)`; physics integration stays put. **Verify byte-identical.**
@@ -271,8 +288,14 @@ suite (below) and updates `docs/ARCHITECTURE.md` in the same PR.
 12. `src/snowman/test-hooks.ts` — extract `addTestHooks` (browser `window.testHooks`
     shims only).
 
-Each snowman PR keeps `Snowman.*` and `window.Snowman.*` as the stable surface;
-internals delegate to the new modules without changing signatures.
+Each snowman PR keeps the **ESM `Snowman` named export from `./snowman.js`** as the
+stable surface (`Snowman.createSnowman` / `resetSnowman` / `updateSnowman` /
+`addTestHooks`); internals delegate to the new modules without changing signatures.
+There is **no** `window.Snowman` to preserve — the ESM app exposes no such global
+(it exists only in the frozen `tests/verification/snowman_baseline.js` snapshot), and
+re-adding one would violate the project's no-per-module-`window`-bridge rule. (The
+live `window.testHooks` shims from `addTestHooks` are the only window surface here,
+and they stay.)
 
 ## Verification (run after every PR)
 
