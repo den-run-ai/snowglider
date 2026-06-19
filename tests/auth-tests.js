@@ -239,8 +239,12 @@ async function main() {
   // recordScore must not write a Firestore identity even though logged-in chrome shows.
   localStorage.clear();
   fb.emitAuthState({ uid: 'guest1', isAnonymous: true, email: null, displayName: null });
-  check('anonymous guest: logged-in chrome shown (profile UI)',
-    authUI.style.display === 'none' && profileUI.style.display === 'flex');
+  // The provider buttons (#authUI) MUST stay visible for a guest, since a provider
+  // click is the only entry point to the in-place upgrade (linkWithPopup). The guest
+  // also gets a lightweight "Guest" profile + logout.
+  check('anonymous guest: provider buttons stay visible for in-place upgrade',
+    authUI.style.display === 'flex' && profileUI.style.display === 'flex' &&
+    window.document.getElementById('profileName').textContent === 'Guest');
   check('anonymous guest: AuthModule still reports signed-in (for UI/onboarding)',
     AuthModule.isUserSignedIn() === true);
   AuthModule.recordScore(12.34); // guest finishes a run

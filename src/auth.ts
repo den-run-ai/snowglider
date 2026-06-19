@@ -188,7 +188,6 @@ function handleSignedInUser(user: User) {
   console.log("Auth state changed: User IS signed in", user.uid, user.email,
     user.isAnonymous ? '(anonymous guest)' : '');
   currentUser = user;
-  updateUIForLoggedInUser(user);
 
   // Anonymous guests are intentionally kept OUT of Firestore and the global
   // leaderboard: they have no displayName/email and would show up as "Anonymous".
@@ -197,8 +196,14 @@ function handleSignedInUser(user: User) {
   // provider (linkWithPopup, same uid), this runs again with isAnonymous === false
   // and syncUserData backfills that local best to the leaderboard.
   if (user.isAnonymous) {
+    // Keep the provider buttons (#authUI) visible so the guest can upgrade IN
+    // PLACE via linkWithPopup — those buttons are the only entry point to the
+    // upgrade flow, so the full logged-in chrome (which hides #authUI) would make
+    // it unreachable. Show a lightweight "Guest" indicator + logout alongside.
+    updateUIForGuestUser();
     ScoresModule.setCurrentUser(null);
   } else {
+    updateUIForLoggedInUser(user);
     // Update user in ScoresModule AFTER UI updates to ensure proper sequence
     ScoresModule.setCurrentUser(user);
     if (firestore) {
@@ -271,11 +276,33 @@ function updateUIForLoggedInUser(user: User) {
 function updateUIForLoggedOutUser() {
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
-  
+
   if (!authUI || !profileUI) return;
-  
+
   authUI.style.display = 'flex';
   profileUI.style.display = 'none';
+}
+
+// Update UI for an anonymous "guest" session. Unlike a fully logged-in user, we
+// keep the provider buttons (#authUI) visible so the guest can upgrade in place
+// (a provider click becomes a linkWithPopup on the same uid). We also show a small
+// "Guest" profile + logout so they can see they're playing as a guest and can end
+// the session. The provider button labels double as the "sign in to save" affordance.
+function updateUIForGuestUser() {
+  const authUI = document.getElementById('authUI');
+  const profileUI = document.getElementById('profileUI');
+  const profileName = document.getElementById('profileName');
+  const profileAvatar = document.getElementById('profileAvatar') as HTMLImageElement;
+
+  if (!authUI || !profileUI) {
+    console.error("updateUIForGuestUser: Could not find authUI or profileUI elements!");
+    return;
+  }
+
+  authUI.style.display = 'flex';     // keep provider buttons available for upgrade
+  profileUI.style.display = 'flex';  // show the guest indicator + logout
+  if (profileName) profileName.textContent = 'Guest';
+  if (profileAvatar) profileAvatar.style.display = 'none';
 }
 
 // Provider metadata for the buttons in #authUI. Each federated provider maps a
