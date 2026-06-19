@@ -66,10 +66,18 @@ in document order before `DOMContentLoaded`):
   course) so they join the graph, and three.js is bundled by Vite (or import-mapped
   from `node_modules` in raw source). The orchestrator `snowglider.ts` imports them
   too and drives the game.
-- `src/boot/script-loader.ts` — formerly the ordered classic-script loader; its
-  `GAME_SCRIPT_ORDER` is now **empty** (every game module loads via `main.ts`), so
-  it survives only to append the browser-test suite when a `?test=` parameter is
-  present.
+- `src/boot/script-loader.ts` — the **startup driver**, and still load-bearing for
+  normal play. Its `DOMContentLoaded` handler `initializeGameScripts()` sequences
+  boot: it waits for the auth fallback (`SnowGliderFirebase.waitForAuthModule()`),
+  initializes Auth (`initializeAuthModule()`), then dynamically imports and runs the
+  `snowglider.ts` orchestrator through `window.__loadSnowGliderOrchestrator` (set by
+  `main.ts`; if the hook is missing the chain rejects rather than hanging), and
+  finally announces readiness (`window.SnowGliderGameScriptsReady` + the
+  `snowglider:game-scripts-ready` event) and pre-loads audio. Its
+  `GAME_SCRIPT_ORDER` is now **empty** (every game module loads via `main.ts`) and
+  it appends the browser-test suite only when a `?test=` parameter is present — but
+  **do not mistake it for a test-only shim**: bypass or remove it outside `?test=`
+  and the orchestrator never runs, so the game never starts.
 - `src/ui/start-menu.ts` — owns the start/about menu handlers and forwards game
   start to `window.initializeGameWithAudio()`.
 
