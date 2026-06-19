@@ -143,17 +143,36 @@ no-input physics path must stay **byte-identical** through the split.
 | 25–99 | Shared interfaces/types (`PlayerPos`, `UpdateResult`, …) | `src/snowman/types.ts` |
 | 100–290 | `createSnowman()` — spheres, eyes, nose, buttons, stick arms, hat, skis | `src/snowman/model.ts` |
 | 291–326 | `resetSnowman()` | `src/snowman/physics.ts` |
-| 327–856 | `updateSnowman()` — gravity, friction, jump/air control, ski technique, snowplow braking, skid/carve, idle turning **(physics)** + heading, terrain tilt, jump tilt, turn lean, ski-wedge pose **(pose)** | split: `src/snowman/physics.ts` + `src/snowman/pose.ts` |
-| 857–1014 | `addTestHooks()` — tree collision, boundary, finish detection, crash/finish reason strings, browser hooks | `src/snowman/collision.ts` + `src/snowman/test-hooks.ts` |
+| 327–605 | `updateSnowman()` **physics** — gravity, friction, jump/air control, ski technique, snowplow braking, skid/carve, idle turning, apply-velocity, store terrain height | `src/snowman/physics.ts` |
+| 606–690 | `updateSnowman()` **pose** — heading smoothing, terrain tilt, jump tilt, turn lean, ski-wedge | `src/snowman/pose.ts` |
+| 691–838 | `updateSnowman()` **gameplay collision + finish** — off-terrain/fall, tree collision, rock collision, boundary check, crash/finish **reason strings**, and the in-loop `showGameOver(reason)` call | `src/snowman/collision.ts` |
+| 839–855 | `updateSnowman()` return of updated state (`UpdateResult`) | `src/snowman/physics.ts` (it is the step's return) |
+| 857–1014 | `addTestHooks()` — **browser test hooks only** (`window.testHooks.forceTreeCollision` / `checkTreeCollision` / `checkExtendedTerrainCollision`); duplicate test-only collision shims, **not** the live gameplay checks above | `src/snowman/test-hooks.ts` |
 | 1015–1023 | `Snowman` export object | `src/snowman/index.ts` (re-export) |
 
-`updateSnowman` is ~530 lines and is the crux. It has a clean internal seam
-already marked by comments: everything up to *"Update snowman position and
-rotation"* is the physics integration that produces the new `pos`/`velocity`/air
-state; everything after is **pose** (heading smoothing, terrain/jump tilt, turn
-lean, ski-wedge). The pose section reads the post-physics state and writes only to
-the `THREE.Object3D` — it does not feed back into physics — so it can move to
-`pose.ts` as a pure `applyPose(snowman, state)` call at the end of the step.
+`updateSnowman` is ~530 lines and is the crux. It runs **three** blocks in order,
+each marked by comments:
+
+1. **Physics integration** (up to *"Update snowman position and rotation"*, ~327–605)
+   produces the new `pos`/`velocity`/air state → `physics.ts`.
+2. **Pose** (*"Update snowman position and rotation"* through the jump-lean, ~606–690)
+   reads the post-physics state and writes only to the `THREE.Object3D`; it does not
+   feed back into physics, so it can move to `pose.ts` as a pure
+   `applyPose(snowman, state)` call → `pose.ts`.
+3. **Gameplay collision + finish detection** (*"Check if snowman is off the terrain
+   or falling"* through the reason block, ~691–838) is the *real* tree/rock/boundary/
+   end-of-slope logic — it builds the reason string and calls `showGameOver(reason)`
+   in the loop → `collision.ts`.
+
+Block 3 is the part the earlier draft mis-routed: it is **not** in `addTestHooks`.
+`addTestHooks` (857–1014) only installs duplicate test-only collision shims on
+`window.testHooks`. So `collision.ts` must take the in-loop block from
+`updateSnowman` (otherwise crashes and course completion break), and `test-hooks.ts`
+takes `addTestHooks`. Because the collision check is part of the per-frame step,
+`collision.ts` exports something the step calls each frame (e.g.
+`detectCollisionsAndFinish(snowman, pos, treePositions, rockPositions, gameActive,
+showGameOver, getTerrainHeight)`), not a teardown hook. Keep the `showGameOver`
+wiring and every reason string byte-identical (see Contracts below).
 
 ### Target layout
 
@@ -168,8 +187,9 @@ src/
     model.ts          # createSnowman() geometry/materials/arms/hat/skis
     physics.ts        # resetSnowman() + the integration half of updateSnowman()
     pose.ts           # heading/tilt/lean/ski-wedge animation
-    collision.ts      # tree/boundary/finish detection + reason strings
-    test-hooks.ts     # browser collision hooks (window.testHooks)
+    collision.ts      # IN-LOOP tree/rock/boundary/finish detection + reason strings
+                      # + showGameOver call (extracted from updateSnowman, ~691-838)
+    test-hooks.ts     # browser TEST hooks only (window.testHooks), from addTestHooks
 ```
 
 **Keep a root `src/snowman.ts` facade.** The live importers — `src/main.ts`
@@ -202,9 +222,12 @@ review.
   re-exporting from `src/snowman/index.ts` (see Target layout above) must remain
   until the importers are deliberately repointed — `src/snowman/index.ts` alone
   does **not** satisfy `./snowman.js`.
-- The finish reason string **`"You reached the end of the slope!"`** (snowman.ts
-  produces it at line 782; snowglider.ts keys three branches off it). Do not
-  re-word, re-case, or re-derive it.
+- The finish reason string **`"You reached the end of the slope!"`** (produced by
+  the in-loop collision block in `snowman.ts` at line 828, moving to `collision.ts`;
+  `snowglider.ts` keys three branches off it). Do not re-word, re-case, or re-derive
+  it. The full reason set — `"BANG!!! You hit a tree!"`, `"BANG!!! You hit a rock!"`,
+  `"You went off the mountain!"`, `"You fell off the terrain!"`, `"You crashed!"` —
+  and the `showGameOver(reason)` call must move with that block intact.
 - No change to the no-input physics path. The physics-invariant harness and the
   `snowman_baseline.js` baseline are the contract; coasting must stay
   byte-identical.
@@ -236,10 +259,17 @@ suite (below) and updates `docs/ARCHITECTURE.md` in the same PR.
    `./snowman.js` must keep resolving and the full suite must stay green before any
    logic moves in steps 8–11.
 8. `src/snowman/model.ts` — `createSnowman()` (no physics touched).
-9. `src/snowman/pose.ts` — pull the pose half out of `updateSnowman()` as
-   `applyPose(...)`; physics integration stays put. **Verify byte-identical.**
-10. `src/snowman/physics.ts` (or `step.ts`) — the integration half + `resetSnowman`.
-11. `src/snowman/collision.ts` + `src/snowman/test-hooks.ts`.
+9. `src/snowman/pose.ts` — pull the pose block (~606–690) out of `updateSnowman()`
+   as `applyPose(...)`; physics integration stays put. **Verify byte-identical.**
+10. `src/snowman/physics.ts` (or `step.ts`) — the integration block (~327–605) +
+    the step return + `resetSnowman`.
+11. `src/snowman/collision.ts` — extract the **in-loop** gameplay collision/finish
+    block (~691–838) from `updateSnowman` as a per-frame `detectCollisionsAndFinish(...)`
+    call. Highest-risk gameplay move: it owns crash + course-completion behavior and
+    the `showGameOver` reason strings, so gate it on the puppeteer crash/finish tests,
+    not just the physics-invariant harness.
+12. `src/snowman/test-hooks.ts` — extract `addTestHooks` (browser `window.testHooks`
+    shims only).
 
 Each snowman PR keeps `Snowman.*` and `window.Snowman.*` as the stable surface;
 internals delegate to the new modules without changing signatures.
