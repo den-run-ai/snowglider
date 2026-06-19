@@ -222,11 +222,19 @@ camera.position -= shake                          // revert so smoothing stays c
 > `rockPositions` / `isTestMode` data globals), and **`src/game/main-loop.ts`**
 > (the per-frame run loop: `createMainLoop(deps)` returns `updateSnowman` /
 > `updateCamera` / `animate` / `startLoop` / `handleResize`; it owns the private
-> `lastTime`, and lifecycle code calls `startLoop()` to seed+kick the loop). The
-> coordinator calls `setupScene()` once, destructures the handles the
-> loop/lifecycle/proxies use, builds the loop, and passes run state + overlay DOM
-> nodes into the modules as parameters rather than letting them reach back into its
-> bindings.
+> `lastTime`, and lifecycle code calls `startLoop()` to seed+kick the loop), and
+> **`src/game/lifecycle.ts`** (`createLifecycle(deps)` returns `resetSnowman` /
+> `restartGame` / `toggleCameraView` + `initLifecycleUI()`, which wires the reset /
+> camera-toggle / restart DOM controls). The coordinator calls `setupScene()` once,
+> destructures the handles the loop/lifecycle/proxies use, builds the loop and
+> lifecycle, and passes run state + overlay DOM nodes into the modules as parameters
+> rather than letting them reach back into its bindings.
+>
+> After R2, `snowglider.ts` is a ~380-line coordinator: imports + `setupScene()` /
+> `createMainLoop()` / `createLifecycle()` wiring, the eager `Snowman.addTestHooks`
+> calls, `window.initializeGameWithAudio`, `publishGameGlobals()`, and the test-mode
+> auto-start. (The dead local `addTestHooks` shim was deleted — the real browser hooks
+> come from `Snowman.addTestHooks`.) `snowman.ts` is the next target (Stage R3).
 
 ---
 
