@@ -228,51 +228,80 @@ function handleSignedOutUser() {
   console.log("Finished processing signed-out state.");
 }
 
-// Update UI when user is logged in
+// --- Generated avatar (random color + content) for users without a photo ---
+// Snow-themed glyphs used when there's no name to derive initials from (e.g. an
+// anonymous guest). The pick + color are deterministic from a seed, so they stay
+// stable for the session but vary between users.
+const AVATAR_GLYPHS = ['⛄', '🎿', '🏂', '❄️', '🏔️', '🐧', '🧣', '🌨️'];
+
+function hashString(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = (h * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+// Deterministic, pleasant background color from a seed string.
+function avatarColor(seed: string): string {
+  return `hsl(${hashString(seed) % 360}, 60%, 45%)`;
+}
+
+// Up to two initials from a display name or email local-part.
+function avatarInitials(name: string): string {
+  const base = name.replace(/@.*/, '').replace(/[^A-Za-z0-9]+/g, ' ').trim();
+  const parts = base.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return '';
+}
+
+// Paint #profileAvatar: the real photo if present, otherwise a generated avatar
+// with a random color plus either the user's initials or a random snow glyph.
+function renderAvatar(el: HTMLElement, user: {
+  isAnonymous?: boolean; uid?: string;
+  displayName?: string | null; email?: string | null; photoURL?: string | null;
+}) {
+  const seed = user.uid || user.displayName || user.email || 'guest';
+  el.textContent = '';
+  el.style.backgroundImage = '';
+  el.classList.add('avatar');
+  el.style.display = 'flex';
+
+  if (!user.isAnonymous && user.photoURL) {
+    el.style.backgroundImage = `url("${user.photoURL}")`;
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+    el.style.backgroundColor = 'transparent';
+    return;
+  }
+
+  el.style.backgroundColor = avatarColor(seed);
+  const name = user.isAnonymous ? '' : (user.displayName || user.email || '');
+  el.textContent = avatarInitials(name) || AVATAR_GLYPHS[hashString(seed) % AVATAR_GLYPHS.length];
+}
+
+// Update UI when a real (non-anonymous) user is logged in: show the compact avatar
+// chip + name + logout, and fold the provider buttons away entirely.
 function updateUIForLoggedInUser(user: User) {
-  // --- Edit 2: Add logging inside UI update function ---
-  console.log("updateUIForLoggedInUser: Attempting to update UI for", user?.email);
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
   const profileName = document.getElementById('profileName');
-  const profileAvatar = document.getElementById('profileAvatar') as HTMLImageElement;
+  const profileAvatar = document.getElementById('profileAvatar');
 
   if (!authUI || !profileUI) {
     console.error("updateUIForLoggedInUser: Could not find authUI or profileUI elements!");
     return;
   }
-  console.log("updateUIForLoggedInUser: Found UI elements.");
 
-  // Update display
-  authUI.style.display = 'none';
+  authUI.style.display = 'none';     // login options folded once signed in
   profileUI.style.display = 'flex';
-  console.log("updateUIForLoggedInUser: Set authUI display=none, profileUI display=flex");
-
-  if (profileName) {
-    profileName.textContent = user.displayName || user.email;
-    console.log("updateUIForLoggedInUser: Set profile name to", profileName.textContent);
-  } else {
-    console.warn("updateUIForLoggedInUser: profileName element not found.");
-  }
-
-  // Set profile image if available
-  if (profileAvatar) {
-    if (user.photoURL) {
-      profileAvatar.src = user.photoURL;
-      profileAvatar.style.display = 'block';
-      console.log("updateUIForLoggedInUser: Set profile avatar src to", user.photoURL);
-    } else {
-      profileAvatar.style.display = 'none';
-      console.log("updateUIForLoggedInUser: Hiding profile avatar (no photoURL).");
-    }
-  } else {
-     console.warn("updateUIForLoggedInUser: profileAvatar element not found.");
-  }
-  console.log("updateUIForLoggedInUser: UI update complete.");
-  // --- End Edit 2 ---
+  profileUI.classList.remove('guest', 'expanded');
+  if (profileName) profileName.textContent = user.displayName || user.email || '';
+  if (profileAvatar) renderAvatar(profileAvatar, user);
 }
 
-// Update UI when user is logged out
+// Update UI when user is logged out: provider buttons visible, profile hidden.
 function updateUIForLoggedOutUser() {
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
@@ -281,28 +310,34 @@ function updateUIForLoggedOutUser() {
 
   authUI.style.display = 'flex';
   profileUI.style.display = 'none';
+  profileUI.classList.remove('guest', 'expanded');
 }
 
-// Update UI for an anonymous "guest" session. Unlike a fully logged-in user, we
-// keep the provider buttons (#authUI) visible so the guest can upgrade in place
-// (a provider click becomes a linkWithPopup on the same uid). We also show a small
-// "Guest" profile + logout so they can see they're playing as a guest and can end
-// the session. The provider button labels double as the "sign in to save" affordance.
+// Update UI for an anonymous "guest" session. The login options are FOLDED behind
+// the avatar chip so the panel isn't cluttered, but stay reachable: clicking the
+// chip toggles #authUI back on, where a provider click upgrades the guest in place
+// (linkWithPopup, same uid). A "Guest" label + logout remain visible.
 function updateUIForGuestUser() {
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
   const profileName = document.getElementById('profileName');
-  const profileAvatar = document.getElementById('profileAvatar') as HTMLImageElement;
+  const profileAvatar = document.getElementById('profileAvatar');
 
   if (!authUI || !profileUI) {
     console.error("updateUIForGuestUser: Could not find authUI or profileUI elements!");
     return;
   }
 
-  authUI.style.display = 'flex';     // keep provider buttons available for upgrade
-  profileUI.style.display = 'flex';  // show the guest indicator + logout
+  // Only FOLD the provider buttons when there's a chip to unfold them again.
+  // Pages without #profileChip (e.g. the standalone auth.html, or any future host)
+  // keep #authUI visible so the in-place guest upgrade stays reachable.
+  const hasChip = !!document.getElementById('profileChip');
+  authUI.style.display = hasChip ? 'none' : 'flex';
+  profileUI.style.display = 'flex';
+  profileUI.classList.toggle('guest', hasChip); // caret hint only when foldable
+  profileUI.classList.remove('expanded');
   if (profileName) profileName.textContent = 'Guest';
-  if (profileAvatar) profileAvatar.style.display = 'none';
+  if (profileAvatar) renderAvatar(profileAvatar, { isAnonymous: true, uid: currentUser?.uid });
 }
 
 // Provider metadata for the buttons in #authUI. Each federated provider maps a
@@ -311,7 +346,8 @@ function updateUIForGuestUser() {
 // The anonymous `guestLoginBtn` has no provider and is wired separately.
 type ProviderButton = {
   id: string;
-  label: string;
+  label: string;   // full label / accessible text (also the fallback for plain buttons)
+  short: string;   // compact label shown under the brand icon in #authUI
   method: string;
   makeProvider: () => AuthProvider;
 };
@@ -320,6 +356,7 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   {
     id: 'loginBtn',
     label: 'Login with Google',
+    short: 'Google',
     method: 'GooglePopup',
     makeProvider: () => {
       const provider = new GoogleAuthProvider();
@@ -332,6 +369,7 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   {
     id: 'githubLoginBtn',
     label: 'Login with GitHub',
+    short: 'GitHub',
     method: 'GitHubPopup',
     makeProvider: () => {
       const provider = new GithubAuthProvider();
@@ -342,6 +380,7 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   {
     id: 'appleLoginBtn',
     label: 'Sign in with Apple',
+    short: 'Apple',
     method: 'ApplePopup',
     makeProvider: () => {
       const provider = new OAuthProvider('apple.com');
@@ -352,20 +391,32 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   }
 ];
 
-const GUEST_BUTTON = { id: 'guestLoginBtn', label: 'Play as Guest' };
+const GUEST_BUTTON = { id: 'guestLoginBtn', label: 'Play as Guest', short: 'Guest' };
 
 // Every auth button that should be enabled/disabled/reset together.
 function allAuthButtonMeta() {
   return [...PROVIDER_BUTTONS, GUEST_BUTTON];
 }
 
+// Set a button's visible label without clobbering its icon. Icon buttons (#authUI
+// in index.html) hold an inline brand <svg> + a `.provider-label` span, so we write
+// to that span; plain text buttons (auth.html, the test DOM) have no span, so we
+// fall back to textContent.
+function setButtonLabel(btn: HTMLElement, text: string) {
+  const labelEl = btn.querySelector('.provider-label');
+  if (labelEl) labelEl.textContent = text;
+  else btn.textContent = text;
+}
+
 // Reset all present auth buttons to their default, enabled state. (Replaces the
 // old single-button resetLoginButton; a missing button id is simply skipped.)
 function resetAuthButtons() {
-  allAuthButtonMeta().forEach(({ id, label }) => {
-    const btn = document.getElementById(id) as HTMLButtonElement | null;
+  allAuthButtonMeta().forEach((meta) => {
+    const btn = document.getElementById(meta.id) as HTMLButtonElement | null;
     if (!btn) return;
-    btn.textContent = label;
+    // Icon buttons restore the short label under the icon; plain buttons restore
+    // the full label.
+    setButtonLabel(btn, btn.querySelector('.provider-label') ? meta.short : meta.label);
     btn.disabled = false;
     btn.classList.remove('signing-in');
     btn.classList.remove('retry-auth'); // legacy redirect-retry class
@@ -373,15 +424,17 @@ function resetAuthButtons() {
 }
 
 // Mark a sign-in as in flight: disable every auth button (so a second provider
-// can't open a competing popup) and show the active one as "Signing In...".
+// can't open a competing popup) and flag the active one as signing in. Icon buttons
+// keep their icon and show the busy state via the `.signing-in` class; plain text
+// buttons swap to "Signing In...".
 function setAuthButtonsBusy(activeBtn: HTMLButtonElement) {
   allAuthButtonMeta().forEach(({ id }) => {
     const btn = document.getElementById(id) as HTMLButtonElement | null;
     if (!btn) return;
     btn.disabled = true;
     if (btn === activeBtn) {
-      btn.textContent = 'Signing In...';
       btn.classList.add('signing-in');
+      if (!btn.querySelector('.provider-label')) btn.textContent = 'Signing In...';
     }
   });
 }
@@ -400,6 +453,10 @@ function handleSignInError(error: { code?: string; message?: string }) {
     // The email is already linked to a different provider.
     alert('An account already exists with this email using a different sign-in method. ' +
           'Please sign in with that method instead.');
+  } else if (error.code === 'auth/operation-not-allowed') {
+    // The provider isn't enabled in the Firebase console yet (e.g. Apple before
+    // its Service ID is set up). Show a friendly message instead of the raw error.
+    alert("That sign-in method isn't available yet. Please use another option.");
   } else {
     alert(`Error during sign-in: ${error.message}`);
   }
@@ -510,6 +567,25 @@ function setupAuthButtons() {
   });
   // Anonymous guest button (optional).
   bindAuthButton(GUEST_BUTTON.id, signInAsGuest);
+
+  // Profile chip: in guest mode it folds/unfolds the provider buttons (#authUI) so
+  // a guest can reveal the "sign in to save" upgrade options. For a fully signed-in
+  // user it does nothing (login options stay hidden).
+  const profileChip = document.getElementById('profileChip');
+  if (profileChip) {
+    const toggleGuestUpgrade = (e: Event) => {
+      if (e) e.preventDefault();
+      if (!currentUser || !currentUser.isAnonymous) return;
+      const authUI = document.getElementById('authUI');
+      const profileUI = document.getElementById('profileUI');
+      if (!authUI) return;
+      const collapsed = authUI.style.display === 'none';
+      authUI.style.display = collapsed ? 'flex' : 'none';
+      if (profileUI) profileUI.classList.toggle('expanded', collapsed);
+    };
+    profileChip.addEventListener('click', toggleGuestUpgrade);
+    profileChip.addEventListener('touchend', toggleGuestUpgrade, { passive: false });
+  }
 
   // Logout button
   const logoutBtn = document.getElementById('logoutBtn') as HTMLButtonElement;

@@ -17,11 +17,13 @@ const dom = new JSDOM(`<!doctype html><html><body>
   <div id="authUI" style="display:flex">
     <button id="loginBtn">Login with Google</button>
     <button id="githubLoginBtn">Login with GitHub</button>
-    <button id="appleLoginBtn">Sign in with Apple</button>
+    <!-- appleLoginBtn is icon-style (svg + .provider-label) to exercise the
+         label-span branch of setButtonLabel/resetAuthButtons. -->
+    <button id="appleLoginBtn"><svg class="provider-icon"></svg><span class="provider-label">Apple</span></button>
     <button id="guestLoginBtn">Play as Guest</button>
   </div>
   <div id="profileUI" style="display:none">
-    <img id="profileAvatar" src=""><span id="profileName"></span>
+    <button id="profileChip"><span id="profileAvatar" class="avatar"></span><span id="profileName"></span></button>
     <button id="logoutBtn">Logout</button>
   </div>
 </body></html>`, { url: 'https://snowglider.ai/' });
@@ -126,10 +128,19 @@ async function main() {
     authUI.style.display === 'none' && profileUI.style.display === 'flex');
   check('signed-in: profile name populated',
     window.document.getElementById('profileName').textContent === 'Snow');
+  check('signed-in: avatar uses the provider photo when present',
+    /url\("?http:\/\/p\/x\.png"?\)/.test(window.document.getElementById('profileAvatar').style.backgroundImage));
   check('signed-in: getAuthState reflects the user',
     AuthModule.isUserSignedIn() === true && AuthModule.getAuthState().user.uid === 'u1');
   check('signed-in: login button reset to default label',
     loginBtn.disabled === false && /Login with Google/.test(loginBtn.textContent));
+
+  // A user with no photo gets a generated avatar: initials on a deterministic color.
+  fb.emitAuthState({ uid: 'u2', email: 'jane.doe@x.io', displayName: 'Jane Doe', photoURL: null });
+  check('signed-in (no photo): avatar shows initials + generated color',
+    window.document.getElementById('profileAvatar').textContent === 'JD' &&
+    /rgb\(/.test(window.document.getElementById('profileAvatar').style.backgroundColor));
+  fb.emitAuthState({ uid: 'u1', email: 'snow@glider.ai', displayName: 'Snow', photoURL: 'http://p/x.png' });
 
   console.log('\n--- Sign-out ---');
   const logoutBtn = window.document.getElementById('logoutBtn');
@@ -214,14 +225,22 @@ async function main() {
   fb.emitAuthState(null); // settle to signed-out, re-enable buttons
 
   // Apple: OAuthProvider('apple.com') popup logged with method 'ApplePopup'.
+  // appleBtn is icon-style, so its busy/reset must go through the .provider-label
+  // span (not textContent) to avoid wiping the inline SVG icon.
   fb.setNextPopupResult({ resolve: { user: { email: 'apple@glider.ai' } } });
   const popupsBeforeApple = calls.signInWithPopup;
   appleBtn.dispatchEvent(new window.Event('click'));
+  check('icon button busy keeps its label (icon preserved; no "Signing In..." text clobber)',
+    appleBtn.classList.contains('signing-in') &&
+    appleBtn.querySelector('.provider-label').textContent === 'Apple');
   await flush();
   check('Apple button opens a popup', calls.signInWithPopup === popupsBeforeApple + 1);
   check("'login' analytics logged with ApplePopup method",
     calls.logEvent.some(e => e.name === 'login' && e.params && e.params.method === 'ApplePopup'));
+  appleBtn.querySelector('.provider-label').textContent = 'XXX'; // mangle to prove reset rewrites it
   fb.emitAuthState(null);
+  check('icon button reset rewrites the short label via .provider-label',
+    appleBtn.querySelector('.provider-label').textContent === 'Apple' && appleBtn.disabled === false);
 
   console.log('\n--- Anonymous "play as guest" ---');
   const guestBtn = window.document.getElementById('guestLoginBtn');
@@ -238,13 +257,22 @@ async function main() {
   // Firebase reports the anonymous user. The guest is kept OFF the leaderboard:
   // recordScore must not write a Firestore identity even though logged-in chrome shows.
   localStorage.clear();
+  const profileChip = window.document.getElementById('profileChip');
+  const profileAvatar = window.document.getElementById('profileAvatar');
   fb.emitAuthState({ uid: 'guest1', isAnonymous: true, email: null, displayName: null });
-  // The provider buttons (#authUI) MUST stay visible for a guest, since a provider
-  // click is the only entry point to the in-place upgrade (linkWithPopup). The guest
-  // also gets a lightweight "Guest" profile + logout.
-  check('anonymous guest: provider buttons stay visible for in-place upgrade',
-    authUI.style.display === 'flex' && profileUI.style.display === 'flex' &&
+  // For a guest the login options are FOLDED behind the avatar chip (not cluttering
+  // the panel), but must stay reachable: the chip is in "guest" mode and the avatar
+  // shows generated content (a glyph, since a guest has no name).
+  check('anonymous guest: login options folded behind the chip',
+    authUI.style.display === 'none' && profileUI.style.display === 'flex' &&
+    profileUI.classList.contains('guest') &&
     window.document.getElementById('profileName').textContent === 'Guest');
+  check('anonymous guest: avatar has a generated glyph + background color',
+    profileAvatar.textContent.length > 0 && /rgb\(/.test(profileAvatar.style.backgroundColor));
+  // Clicking the chip unfolds #authUI so the guest can pick a provider to upgrade.
+  profileChip.dispatchEvent(new window.Event('click'));
+  check('anonymous guest: clicking the chip reveals the provider buttons for upgrade',
+    authUI.style.display === 'flex' && profileUI.classList.contains('expanded'));
   check('anonymous guest: AuthModule still reports signed-in (for UI/onboarding)',
     AuthModule.isUserSignedIn() === true);
   AuthModule.recordScore(12.34); // guest finishes a run
@@ -326,6 +354,16 @@ async function main() {
   fb.emitAuthState(null);
   check('getUserIdToken resolves null when no user is signed in',
     (await AuthModule.getUserIdToken()) === null);
+
+  console.log('\n--- Guest fold guard: no #profileChip keeps upgrade reachable ---');
+  // On a page without #profileChip (e.g. auth.html), the guest UI must NOT fold the
+  // provider buttons — there'd be no way to unfold them, leaving upgrade unreachable.
+  const chip = window.document.getElementById('profileChip');
+  chip.remove();
+  fb.emitAuthState({ uid: 'guestNoChip', isAnonymous: true, email: null, displayName: null });
+  check('guest without a chip: provider buttons stay visible (not folded)',
+    authUI.style.display === 'flex' && profileUI.classList.contains('guest') === false);
+  fb.emitAuthState(null);
 
   console.log(`\nAUTH TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

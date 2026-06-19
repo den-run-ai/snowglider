@@ -96,12 +96,16 @@
         <div id="authUI">
             <button id="loginBtn">Login with Google</button>
             <button id="githubLoginBtn">Login with GitHub</button>
-            <button id="appleLoginBtn">Sign in with Apple</button>
             <button id="guestLoginBtn">Play as Guest</button>
         </div>
         <div id="profileUI">
-            <img id="profileAvatar" src="" alt="Profile">
-            <span id="profileName"></span>
+            <!-- #profileChip is required for the guest fold/unfold: clicking it
+                 reveals #authUI so a guest can upgrade in place. Without it,
+                 updateUIForGuestUser keeps #authUI visible (never folds). -->
+            <button id="profileChip" type="button" title="Account">
+                <span id="profileAvatar" class="avatar"></span>
+                <span id="profileName"></span>
+            </button>
             <button id="logoutBtn">Logout</button>
         </div>
         <div id="status" class="status"></div>

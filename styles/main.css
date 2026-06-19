@@ -357,11 +357,12 @@ canvas { display: block; }
   }
 
   /* Make provider buttons smaller on mobile */
-  #loginBtn,
   .provider-btn {
-    font-size: 12px;
-    padding: 4px 8px;
+    width: 52px;
+    padding: 6px 3px;
+    font-size: 10px;
   }
+  .provider-icon { width: 20px; height: 20px; }
 
   /* Make the profile UI smaller on mobile */
   #profileUI {
@@ -490,107 +491,105 @@ canvas { display: block; }
 */
 #authUI {
   display: flex;
-  flex-direction: column; /* Stack the provider buttons in the narrow panel */
-  align-items: stretch;
+  flex-direction: row;        /* compact icon row instead of full-width stack */
+  flex-wrap: wrap;
+  justify-content: flex-end;  /* align to the panel's right edge */
   gap: 6px;
 }
 /*
- * Shared base for every provider button. #loginBtn keeps its own block below for
- * the Google brand color and the ripple ::after; the GitHub/Apple/Guest buttons
- * inherit structure here and set only their brand color.
+ * Compact brand-icon button: an inline-SVG brand mark stacked over a short label
+ * (Google / GitHub / Guest). The buttons share one translucent style with a small
+ * brand-colored underline, rather than a full brand-colored bar each.
  */
 .provider-btn {
-  color: white;
-  border: none;
-  padding: 10px 18px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 3px;
+  width: 60px;
+  padding: 7px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.10);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
-  transition: transform 0.1s ease, background-color 0.2s ease;
-  min-height: 36px;
-  position: relative;
+  transition: transform 0.1s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
-.provider-btn:active, .provider-btn.signing-in {
-  transform: scale(0.98);
-}
-.provider-github { background-color: #24292e; }
-.provider-github:hover { background-color: #1b1f23; }
-.provider-apple { background-color: #000000; }
-.provider-apple:hover { background-color: #1a1a1a; }
-.provider-guest { background-color: #555555; }
-.provider-guest:hover { background-color: #444444; }
-#loginBtn {
-  background-color: #4285F4;
-  color: white;
-  border: none;
-  /* Increased padding for larger touch target */
-  padding: 10px 18px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500; /* Slightly bolder text */
-  display: flex;
-  align-items: center;
-  justify-content: center; /* Center text */
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation; /* Better touch response */
-  /* Prevent text selection */
-  user-select: none;
-  -webkit-user-select: none;
-  /* Add transition for smoother visual feedback */
-  transition: transform 0.1s ease, background-color 0.2s ease;
-  min-height: 36px; /* Ensure consistent height */
-  min-width: 120px; /* Ensure sufficient width for touch */
-  position: relative; /* For ::after pseudo-element */
-  overflow: visible; /* Allow overflow for glow effect */
-}
-#loginBtn:hover {
-  background-color: #3367D6;
-}
-#loginBtn:active, #loginBtn.signing-in {
-  background-color: #2A56C6; /* Feedback for touch action */
-  transform: scale(0.98); /* Visual feedback */
-}
-/* Add ripple effect on touch */
-#loginBtn::after {
-  content: '';
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  top: 0;
-  left: 0;
-  background-color: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
-}
-#loginBtn:active::after, #loginBtn.signing-in::after {
-  opacity: 1;
-  transition: opacity 0s;
-}
+.provider-btn:hover { background-color: rgba(255, 255, 255, 0.20); }
+.provider-btn:active { transform: scale(0.96); }
+.provider-icon { width: 22px; height: 22px; display: block; pointer-events: none; }
+.provider-label { pointer-events: none; }
+/* Small brand accent so the buttons stay recognizable at a glance. */
+.provider-google { border-bottom: 2px solid #4285F4; }
+.provider-github { border-bottom: 2px solid #6e5494; }
+.provider-apple  { border-bottom: 2px solid #cccccc; }
+.provider-guest  { border-bottom: 2px solid #8a8a8a; }
+/* Busy state: the active button dims + pulses while its popup is open; the others
+   just dim to show they're temporarily disabled. */
+.provider-btn:disabled { cursor: default; }
+.provider-btn:disabled:not(.signing-in) { opacity: 0.5; }
+.provider-btn.signing-in { animation: provider-pulse 1s ease-in-out infinite; }
+@keyframes provider-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.9; } }
 #profileUI {
   display: none;
   align-items: center;
+  gap: 8px;
   color: white;
 }
-#profileAvatar {
+/* Account chip: avatar + name, rendered as a borderless button. */
+#profileChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: white;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+/* In guest mode the chip is interactive (unfolds the upgrade options). */
+#profileUI.guest #profileChip {
+  cursor: pointer;
+}
+#profileUI.guest #profileChip::after {
+  content: '▾';
+  font-size: 10px;
+  opacity: 0.85;
+}
+#profileUI.guest.expanded #profileChip::after {
+  content: '▴';
+}
+/* Generated avatar: a colored circle with initials or a glyph (background-color +
+   text are set inline by renderAvatar; a real photo is set as background-image). */
+#profileAvatar,
+.avatar {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  flex: 0 0 auto;
+  user-select: none;
 }
 #profileName {
   font-size: 14px;
-  margin-right: 8px;
   max-width: 90px; /* Prevent long names from causing overflow */
   overflow: hidden;
   text-overflow: ellipsis;
