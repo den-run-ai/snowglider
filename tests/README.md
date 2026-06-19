@@ -136,7 +136,11 @@ from `npm test` because the emulator requires a local Java runtime.
 ### Browser Tests
 
 Append a `?test=` parameter to the game URL to load a suite in-browser; results
-display on-screen. Available parameters:
+display on-screen. The game must be **served** — `npm start` runs Vite on port 8080
+(the `?test=` URLs below assume that port); `npm run dev` also works but uses the
+port Vite prints. After the ES-module migration the suites can no longer load from a
+`file://` / `open index.html` null origin (see
+[`ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §2.2). Available parameters:
 
 | Parameter | Suite |
 |-----------|-------|
@@ -149,59 +153,59 @@ display on-screen. Available parameters:
 | `?test=regression` | Regression tests |
 | `?test=unified` | All suites (controls, camera, audio, gameplay, tree, avalanche, regression) |
 
-1. Open the game with the test parameter:
+1. Serve the game, then open the test URL:
 ```
-open index.html?test=true
+http://localhost:8080/?test=true
 ```
-   Or load the game in a browser with `?test=true` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The tests will run automatically and display results in the top-left corner of the screen
 
 ### Browser Regression Tests
 
-1. Open the game with the regression test parameter:
+1. Serve the game, then open the regression test URL:
 ```
-open index.html?test=regression
+http://localhost:8080/?test=regression
 ```
-   Or load the game in a browser with `?test=regression` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The regression tests will run automatically and display results in the top-left corner of the screen
 
 ### Browser Tree Collision Tests
 
-1. Open the game with the tree tests parameter:
+1. Serve the game, then open the tree tests URL:
 ```
-open index.html?test=trees
+http://localhost:8080/?test=trees
 ```
-   Or load the game in a browser with `?test=trees` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The tree collision tests will run automatically and display results in the top-left corner of the screen
 
 ### Browser Audio Tests
 
-1. Open the game with the audio tests parameter:
+1. Serve the game, then open the audio tests URL:
 ```
-open index.html?test=audio
+http://localhost:8080/?test=audio
 ```
-   Or load the game in a browser with `?test=audio` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The audio tests will run automatically and display results on the screen
 
 ### Browser Avalanche Tests
 
-1. Open the game with the avalanche tests parameter:
+1. Serve the game, then open the avalanche tests URL:
 ```
-open index.html?test=avalanche
+http://localhost:8080/?test=avalanche
 ```
-   Or load the game in a browser with `?test=avalanche` appended to the URL
+   (run `npm start` first; the suites need the Vite-served origin, not `file://`)
 
 2. The avalanche tests will run automatically and display results on the screen
 
 ### Unified Test Runner
 
-Run all tests in sequence:
+Run all tests in sequence (serve first with `npm start`):
 ```
-open index.html?test=unified
+http://localhost:8080/?test=unified
 ```
    This will run all test suites (controls, camera, audio, gameplay, tree, avalanche, regression) in sequence with a unified results display
 
@@ -218,10 +222,18 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
   to the baseline (max abs difference `0`); the harness's exit code gates on it.
   It also confirms the snowplow brake and edge-skid scrub behave as designed. See
   [`PHYSICS.md` §6](../docs/PHYSICS.md) for the seam this protects.
-- **`snowman_baseline.js`** — the frozen pre-feature snapshot of `updateSnowman`.
-  Regenerate it **only** on a deliberate physics change:
-  `git show <ref>:src/snowman.js > tests/verification/snowman_baseline.js`
-  (re-add the file header), then re-run `npm run test:verify`.
+- **`snowman_baseline.js`** — the frozen pre-feature snapshot of `updateSnowman`,
+  kept as a **classic script** (global `THREE`, ends in
+  `window.Snowman = { … }`, no ESM `import`/`export`) because the harness loads it via
+  `vm.runInContext` and reads `window.Snowman.updateSnowman`. Regenerate it **only** on a
+  deliberate physics change, and **not** by copying `src/snowman.ts` verbatim — that file
+  is an ES module, so a raw `git show <ref>:src/snowman.ts > …snowman_baseline.js` would
+  write `import`/`export` with no `window.Snowman` and break `npm run test:verify`. Instead
+  port the changed `updateSnowman` (and the helpers it calls) into the classic-wrapper shape
+  above: drop the `import * as THREE from 'three'` line (the harness supplies a global
+  `THREE` stub) and the `export`s, keep the trailing
+  `const Snowman = { … }; if (typeof window !== 'undefined') window.Snowman = Snowman;`
+  block, re-add the file header, then re-run `npm run test:verify`.
 - **`dom_smoke_test.js`** — boots `effects.ts` + `course.ts` under jsdom with a
   mocked THREE: both modules build their DOM/gates, the per-frame loop runs, every
   checkpoint and the finish are reached, the ghost trajectory and best splits

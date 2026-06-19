@@ -37,29 +37,29 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - [`CHANGELOG.md`](docs/CHANGELOG.md) — notable changes, including the skill/structure layer (#56) and the full audio history
 - [`tests/README.md`](tests/README.md) — test types, commands, and the verification harness
 - [`ROADMAP.md`](docs/ROADMAP.md) — feature roadmap and gap analysis
-- [`TYPESCRIPT_MIGRATION.md`](docs/TYPESCRIPT_MIGRATION.md) — incremental `@ts-check`/TypeScript migration plan and phase status
+- [`TYPESCRIPT_MIGRATION.md`](docs/TYPESCRIPT_MIGRATION.md) — TypeScript migration plan and phase status (migration complete)
 - [`THREEJS_UPGRADE.md`](docs/THREEJS_UPGRADE.md) — staged three.js upgrade plan from r160 to latest
 
 ## Project Structure
-- `index.html` - Main entry point and HTML structure (loads boot scripts from `src/boot/`)
+- `index.html` - Main entry point and HTML structure (loads the Vite ES-module bundle entry `src/main.ts` plus the boot/UI module scripts)
 - `auth.html` - Standalone authentication page
 - `styles/` - Page-level CSS for the static site shell
-- `src/` - Application JavaScript modules:
-  - `boot/` - Local auth fallback, Firebase bootstrap, and ordered script loader
-  - `ui/start-menu.js` - Start/about menu behavior
-  - `snowglider.js` - Core game loop and initialization
-  - `snowman.js` - Snowman model creation and physics
-  - `mountains.js` - Terrain generation and mountain features
-  - `trees.js` - Tree creation and placement
-  - `avalanche.js` - Avalanche system with snow boulder physics and burial detection
-  - `course.js` - Course structure: checkpoint gates, split timing, ghost racing, and result screen
-  - `effects.js` - Avalanche warning UI (banner, danger meter, vignette) and camera juice (speed FOV, shake)
-  - `camera.js` - Camera management and tracking
-  - `snow.js` - Utility functions and snow effects
-  - `controls.js` - Keyboard and touch controls
-  - `audio.js` - Background music and sound control system
-  - `auth.js` - Firebase authentication and user management
-  - `scores.js` - User scoring and leaderboard functionality
+- `src/` - Application TypeScript ES modules (bundled by Vite):
+  - `boot/` - Classic-script local-auth fallback + Firebase bootstrap (`.js`), and `script-loader.ts` (the startup driver: sequences auth, the orchestrator import, and audio preload)
+  - `ui/start-menu.ts` - Start/about menu behavior
+  - `snowglider.ts` - Core game loop and initialization
+  - `snowman.ts` - Snowman model creation and physics
+  - `mountains.ts` - Terrain generation and mountain features
+  - `trees.ts` - Tree creation and placement
+  - `avalanche.ts` - Avalanche system with snow boulder physics and burial detection
+  - `course.ts` - Course structure: checkpoint gates, split timing, ghost racing, and result screen
+  - `effects.ts` - Avalanche warning UI (banner, danger meter, vignette) and camera juice (speed FOV, shake)
+  - `camera.ts` - Camera management and tracking
+  - `snow.ts` - Utility functions and snow effects
+  - `controls.ts` - Keyboard and touch controls
+  - `audio.ts` - Background music and sound control system
+  - `auth.ts` - Firebase authentication and user management
+  - `scores.ts` - User scoring and leaderboard functionality
 - `assets/` - Media (audio, video) tracked with Git LFS
 - `tests/` - Testing framework for game components
 - `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (run via `npm run test:verify`)
@@ -107,8 +107,8 @@ files.
 1. Clone the repository
 2. Install dependencies with `npm ci`
 3. Run locally using one of these options:
-   - **Option 1:** Run with Vite: `npm run dev` (full features)
-   - **Option 2:** Run the legacy static server: `npm start` (full features)
+   - **Option 1:** `npm run dev` — Vite dev server (full features)
+   - **Option 2:** `npm start` — the same Vite dev server, pinned to port 8080 (full features)
    - Direct `file://` opens are not supported after the ES-module migration.
 
 #### Local Development Notes

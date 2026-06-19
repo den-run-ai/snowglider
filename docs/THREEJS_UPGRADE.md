@@ -13,6 +13,11 @@
   `require('three')`). No bundler, no build step.
 - **After PR #76:** three.js **0.160.0** in both the CDN tag and npm, with
   `@types/three@0.160.0` checked by the TypeScript Phase 1 gate from main.
+- **Since then (TypeScript migration #84/#98 complete):** the CDN `<script>` global was
+  removed (TS PR 2.10) and the codebase went full ESM + Vite. three.js **0.160.0** is now
+  single-sourced from **npm** — bundled by Vite for the deploy, and import-mapped from
+  `node_modules` on the raw-source path (`npm start`, puppeteer). **This unblocks Stage B**:
+  its only blocker (ES modules / TS Phase 2) has landed. See Phase B below.
 - **Latest:** three.js **0.184.0** / `@types/three` **0.184.1** (npm, at time of writing).
 - **Guardrail:** `npm test`, `npm run lint`, `npm run typecheck`, the verification harness,
   and the puppeteer browser smoke must stay green after every step. No step may leave `main`
@@ -40,10 +45,9 @@ TypeScript migration**. Therefore:
    global. This is where the *real* work and visual risk live: it crosses the **color-management
    default (r152)** and the **physically-correct-lights default (r155)**. Independently
    shippable in PR #76, with the TypeScript checker already active. **High value, self-contained.**
-2. **Stage B — r160 → latest, after ES modules exist.** Sequenced **after** TS-migration
-   Phase 2. `THREE` comes from npm via `import * as THREE from 'three'` (bundler) or an
-   **import map** (keeps the no-build static-site model). Mostly mechanical once Stage A's
-   color/lighting tuning is already done.
+2. **Stage B — r160 → latest.** Was sequenced **after** TS-migration Phase 2; **that has since
+   landed** (along with Phase 3), so `THREE` now comes from npm via `import * as THREE from 'three'`
+   and the Vite bundle. Mostly mechanical once Stage A's color/lighting tuning is already done.
 
 > This **refines** the note in [`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md)
 > ("upgrade three.js off r134 … sequence it after Phase 2"). True for *latest*, but you don't
@@ -190,25 +194,26 @@ Shippable as its own PR; after PR #74, the Phase 1 TypeScript checker is an addi
 
 ## Phase B — r160 → latest (≈0.184), after ES modules
 
-**Blocked on TypeScript-migration Phase 2** (ES modules + bundler/import-map). r161+ ship no
-global build, so `THREE` must be imported, not read off `window`. Do **not** start Phase B until
-`index.html` loads modules instead of the `<script>`-chain in [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.2.
+**Now unblocked.** This stage was gated on TypeScript-migration Phase 2 (ES modules + bundler);
+that has since shipped, along with Phase 3 — all of `src/` is `.ts`, Vite-bundled (see
+[`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.2).
+`index.html` already loads ES modules and `THREE` is imported from npm, not read off `window`, so
+the r161+ ESM-only requirement is satisfied. Phase B is just a version bump on the existing model,
+to schedule whenever the visual-gate work below is done.
 
 ### B.1 Source `THREE` as a module
 
-Once modules exist, two ways to get latest three while keeping deploys sane:
+The path is already chosen: modules `import * as THREE from 'three'` and the app is Vite-bundled,
+so Stage B reduces to bumping the npm dependency.
 
-- **Import map (keeps the no-build static-site model — preferred if staying build-less):**
-  ```html
-  <script type="importmap">
-  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js" } }
-  </script>
-  ```
-  Modules then `import * as THREE from 'three'`. No bundler, still copy-deploys to Pages, but
-  **note `file://` import maps are blocked by CORS** — `open index.html` would need the dev
-  server (`npm start`). Weigh against the `file://`-fallback design in `ARCHITECTURE.md` §7.
-- **Bundler (Vite):** per `TYPESCRIPT_MIGRATION.md` §2.1; `import * as THREE from 'three'`,
-  `npm i three@0.184`, build to `dist/`, deploy `dist/`.
+- **Bundler (Vite) — the current model:** per `TYPESCRIPT_MIGRATION.md` §2.1. Modules already do
+  `import * as THREE from 'three'`; `npm i three@0.184` (+ matching `@types/three`), Vite bundles
+  it, deploy `dist/`. The raw-source/puppeteer path resolves bare `three` through the `index.html`
+  import map pointed at `node_modules`, so bump that map's target in lockstep.
+- **Import map to a CDN (historical alternative, no longer the project's model):** before Vite
+  landed, the plan was to keep the no-build static site by import-mapping `three` to a CDN
+  `three.module.js`. Moot now that the build step exists — noted only for context. (`file://`
+  import maps are blocked by CORS anyway, and `open index.html` is no longer a supported run mode.)
 
 ### B.2 Bump and clear the r160→r184 deltas
 

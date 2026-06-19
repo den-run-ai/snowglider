@@ -4,10 +4,13 @@
 
 ## Status
 
-- **Current:** Phase 1 hardened **and Phase 2 (the conversion phase) complete** (see issue #84 for
-  the per-PR plan). Every `src/**/*.js` carries `// @ts-check`, `tsc --noEmit` is green and **blocking
-  in CI**, and `tsconfig` sets `"checkJs": true` so any *new* source file is type-checked by default.
-  **Every game module is now an ES module** that `import * as THREE from 'three'` (the npm package —
+- **Current:** Migration complete — **Phases 1, 2, and 3 have all shipped to `main`** (issues
+  #35/#84/#98, all closed). Every `src/**` module is now **`.ts`** (only the two classic `boot/*.js`
+  bootstrap scripts stay JS by design); `tsconfig` is fully **`"strict": true`**, `tsc --noEmit` is
+  green and **blocking in CI**, and `typescript-eslint` lints the `.ts` sources (PR 3.18). The only
+  remaining work is the **optional, non-exit-blocking** typed-`GameState` consolidation (Phase 3,
+  item marked `[~]`) and the separately-tracked three.js r160→latest upgrade. **Every game module is
+  now an ES module** that `import * as THREE from 'three'` (the npm package —
   the CDN UMD global is gone) and imports the others directly. `auth.js` / `scores.js` were already
   ES modules for Firebase, and the final classic module **`audio.js`** plus the boot/UI scripts
   (**`src/boot/script-loader.js`**, **`src/ui/start-menu.js`**) and all seven browser test suites are
@@ -68,9 +71,9 @@ Highest ROI is **typed game-state + the pure-logic modules you already test** (p
 
 Goal: lock in a known-good state so every later phase is measurable.
 
-- [ ] Confirm `npm test` and `npm run lint` are green on a clean checkout. Record current `c8` coverage as the baseline.
-- [ ] Tag the pre-migration commit (e.g. `pre-ts-baseline`) so any phase can be bisected against it.
-- [ ] Skim `ARCHITECTURE.md` §3 (global namespace) and §4 (injection seams) — the seams (`setTerrainFunction`, etc.) are your future typed boundaries.
+- [x] Confirm `npm test` and `npm run lint` are green on a clean checkout. Record current `c8` coverage as the baseline.
+- [x] Tag the pre-migration commit (e.g. `pre-ts-baseline`) so any phase can be bisected against it.
+- [x] Skim `ARCHITECTURE.md` §3 (global namespace) and §4 (injection seams) — the seams (`setTerrainFunction`, etc.) are your future typed boundaries.
 
 **No code changes. Nothing to revert.**
 
@@ -153,9 +156,9 @@ Treat `globals.d.ts` and the eslint globals list as **one logical thing kept in 
 
 You already standardize on "JSDoc-style comments for public functions" (`CLAUDE.md`). Now make those JSDoc comments *typed*, and flip files on one at a time:
 
-- [ ] Add `// @ts-check` to the top of a file, run `npx tsc --noEmit`, fix what it flags, commit.
-- [ ] Recommended order (pure logic first — highest value, already test-protected): **`avalanche.js` → `course.js` → `camera.js` → `trees.js` → `controls.js` → `effects.js` → `snow.js` → `mountains.js` → `snowman.js` → `snowglider.js`**. (`auth.js` / `scores.js` can go in parallel — they're already modules and Firebase ships its own types.)
-- [ ] Define **domain typedefs** early (in JSDoc or `types/`), since they pay off immediately:
+- [x] Add `// @ts-check` to the top of a file, run `npx tsc --noEmit`, fix what it flags, commit.
+- [x] Recommended order (pure logic first — highest value, already test-protected): **`avalanche.js` → `course.js` → `camera.js` → `trees.js` → `controls.js` → `effects.js` → `snow.js` → `mountains.js` → `snowman.js` → `snowglider.js`**. (`auth.js` / `scores.js` can go in parallel — they're already modules and Firebase ships its own types.)
+- [x] Define **domain typedefs** early (in JSDoc or `types/`), since they pay off immediately:
 
 ```ts
 /** @typedef {'start'|'racing'|'finished'|'crashed'} GamePhase */
@@ -189,8 +192,8 @@ These map straight onto state you already track (`velocity`, `verticalVelocity`,
 "typecheck": "tsc --noEmit"
 ```
 
-- [ ] Add a `typecheck` step to your existing `.github/` workflow (run it alongside `lint` and `test`).
-- [ ] Optionally gate it as `"warn"`-equivalent first (don't fail the build) until `src/` is clean, then make it blocking.
+- [x] Add a `typecheck` step to your existing `.github/` workflow (run it alongside `lint` and `test`).
+- [x] Optionally gate it as `"warn"`-equivalent first (don't fail the build) until `src/` is clean, then make it blocking.
 
 **Exit criteria for Phase 1:** every `src/*.js` has `// @ts-check`, `tsc --noEmit` is green and blocking in CI, `npm test` still green, deploy untouched. **At this point you can keep shipping features in JS indefinitely with a real safety net.** Phases 2–3 are optional and only worth it if you're committing to long-term growth.
 
@@ -219,8 +222,8 @@ export default defineConfig({
 });
 ```
 
-- [ ] Replace the CDN `<script src=".../0.160.0/three.min.js">` and the nested `src/*.js` injection in `index.html` with a single module entry: `<script type="module" src="/src/snowglider.js"></script>`. Vite resolves the import graph and ordering for you.
-- [ ] Update the GitHub Pages workflow to `npm run build` and deploy `dist/` (e.g. via `actions/deploy-pages`), keeping the `CNAME` file in the published output.
+- [x] Replace the CDN `<script src=".../0.160.0/three.min.js">` and the nested `src/*.js` injection in `index.html` with a single module entry: `<script type="module" src="/src/snowglider.js"></script>`. Vite resolves the import graph and ordering for you.
+- [x] Update the GitHub Pages workflow to `npm run build` and deploy `dist/` (e.g. via `actions/deploy-pages`), keeping the `CNAME` file in the published output.
 
 > ⚠️ **Vite does not type-check** — it strips types and bundles. Keep `tsc --noEmit` in CI as the *real* type gate. Optionally add `vite-plugin-checker` for in-editor/dev feedback.
 
@@ -275,7 +278,7 @@ The first `.ts` rename, done as a standalone PR to prove the end-to-end pipeline
   - **Array state** that inferred `never[]` is now explicitly typed (`treePositions: TreePosition[]`, scores' `LeaderboardScore[]`; `getLeaderboard()` got an explicit `Promise<LeaderboardScore[]>` return so its empty-array fallbacks stop poisoning the resolved type).
   - **Lazily-built UI handles** (`EffectsModule`'s `ui`, the course HUD) are atomic, so members became required behind a single nullable/guarded reference.
   - **Canvas + DOM lookups:** `getContext('2d')` and known-present `getElementById` results use `!` (behavior-identical — still throws if genuinely absent); optional/best-effort lookups use guards or `?.`.
-- [ ] Then ratchet the rest: `noImplicitAny` → `strictFunctionTypes` → full `"strict": true`. One flag per PR; never big-bang `strict`.
+- [x] Then ratchet the rest: `noImplicitAny` → `strictFunctionTypes` → full `"strict": true`. One flag per PR; never big-bang `strict`.
   - [x] **`noImplicitAny`** — done (`noImplicitAny: true` in `tsconfig.json`). Fixed 91 implicit-`any` spots across 7 files, behavior-preserving: the Firebase modules carried the bulk (their `let auth/firestore/analytics/currentUser` module state was untyped, poisoning every read) and are now typed with the Firebase-provided `Auth`/`Firestore`/`Analytics`/`User`/`FirebaseOptions` types; remaining params got concrete types (`number`/`string`/`THREE.Scene`/`Event`/`TerrainHeightFn`). Two index maps (`script-loader`'s `TEST_SCRIPTS`, snowglider's `techMap`) became `Record<string, …>`, and snowglider's `live` accessor object — whose `/** @type {Record<string, PropertyDescriptor>} */` JSDoc went **inert** when the file was renamed `.js`→`.ts` — got a real TS annotation (JSDoc `@type` is ignored in `.ts` files; watch for this on other renamed modules). `src/boot/local-auth.js` stays `.js`, so its `time` params use JSDoc `@param`.
   - [x] **`strictFunctionTypes`** — done (`strictFunctionTypes: true`). Zero code changes: the codebase already passes contravariant function-parameter checks. Type-only/runtime-inert flag (tsc `noEmit`; Vite strips types regardless), verified green via typecheck + lint + build.
   - [x] **`strictBindCallApply`** — done (`strictBindCallApply: true`). One fix: `firebase-bootstrap.js`'s `fetch` interceptor called `originalFetch.apply(this, arguments)` (untyped `IArguments`); now `originalFetch.call(this, url, options)` using the wrapper's already-typed params — behavior-identical. Full gate set green (incl. firebase-bootstrap 5/5, browser 87/0).

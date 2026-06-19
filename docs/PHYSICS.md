@@ -29,7 +29,7 @@ Companion docs: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how the modules fit togeth
 
 Terrain is the foundation of every other system: skiing forces, tree/rock
 placement, gates, and the avalanche all sample terrain height. Implemented in
-[`src/mountains.js`](src/mountains.js).
+[`src/mountains.ts`](src/mountains.ts).
 
 ### 2.1 Height field
 
@@ -84,7 +84,7 @@ sample (`sampleDist = 0.4`) for stability.
 
 ## 3. Skiing model
 
-Implemented in [`src/snowman.js`](src/snowman.js) `updateSnowman()`. Each frame,
+Implemented in [`src/snowman.ts`](src/snowman.ts) `updateSnowman()`. Each frame,
 grounded, the order is: detect landing → compute slope forces → apply ski
 technique → friction → integrate → orient/tilt → collision & bounds.
 
@@ -223,7 +223,7 @@ trigger a proportional camera shake on touchdown.
 `treeCollisionRadius = 2.5`. A collision ends the run **unless** the snowman is
 genuinely clearing the tree: `isInAir && verticalVelocity > 0 && pos.y > treeY + 5`
 allows jumping over. (Test modes widen the epsilon and add force-collision hooks —
-see [`src/snowman.js`](src/snowman.js) `addTestHooks`.)
+see [`src/snowman.ts`](src/snowman.ts) `addTestHooks`.)
 
 ### 5.2 Rocks
 
@@ -285,16 +285,26 @@ compares trajectories against a frozen baseline. Two properties make this work:
    are reproducible. If you add randomness to the grounded path, keep it behind an
    input gate or the invariant harness will (correctly) fail.
 
-Regenerate the baseline only on a **deliberate** physics change:
-`git show <ref>:src/snowman.js > tests/verification/snowman_baseline.js`
-(re-add the header), then re-run `npm run test:verify`.
+Regenerate the baseline only on a **deliberate** physics change — and note it is
+**not** a verbatim copy of `src/snowman.ts`. The harness loads the baseline as a
+*classic script* through `vm.runInContext` and reads `window.Snowman.updateSnowman`,
+whereas `src/snowman.ts` is an ES module (`import * as THREE from 'three'`,
+`export const Snowman`). A raw `git show <ref>:src/snowman.ts > …snowman_baseline.js`
+would therefore write ESM `import`/`export` with no `window.Snowman`, and the next
+`npm run test:verify` would fail. Instead, port the changed `updateSnowman` (plus the
+helpers it calls) into the existing classic-wrapper shape: drop the
+`import * as THREE from 'three'` line (the harness supplies a global `THREE` stub) and
+the `export`s, and keep the trailing
+`const Snowman = { … }; if (typeof window !== 'undefined') window.Snowman = Snowman;`
+block. Re-add the header, then re-run `npm run test:verify`. (`tests/README.md` carries
+the same note.)
 
 ---
 
 ## 7. Avalanche
 
-Implemented in [`src/avalanche.js`](src/avalanche.js) (`AvalancheSystem`), driven
-from the main loop in [`src/snowglider.js`](src/snowglider.js).
+Implemented in [`src/avalanche.ts`](src/avalanche.ts) (`AvalancheSystem`), driven
+from the main loop in [`src/snowglider.ts`](src/snowglider.ts).
 
 ### 7.1 Trigger
 
@@ -340,7 +350,7 @@ if (pos.y < floorY + radius):                  // ground contact
 
 ## 8. Course timing & ghost
 
-Implemented in [`src/course.js`](src/course.js). Physics-adjacent: it reads the
+Implemented in [`src/course.ts`](src/course.ts). Physics-adjacent: it reads the
 snowman's position but applies no forces (gates are decorative and never collide).
 
 - Geometry: `START_Z = -15`, `FINISH_Z = -195`, checkpoints at `-60, -105, -150`,
@@ -357,7 +367,7 @@ snowman's position but applies no forces (gates are decorative and never collide
 
 ## 9. Camera "juice"
 
-Implemented in [`src/effects.js`](src/effects.js); applied in the render step and
+Implemented in [`src/effects.ts`](src/effects.ts); applied in the render step and
 then reverted so the camera manager's smoothing never re-ingests its own shake.
 
 - **Speed FOV.** `BASE_FOV = 75` widens toward `MAX_FOV = 88` as speed approaches
