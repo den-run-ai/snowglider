@@ -80,7 +80,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - **Functions**: Use function declarations with descriptive names
 - **Documentation**: JSDoc-style comments for public functions
 - **Classes**: ES6 class syntax with clear method responsibilities
-- **Dependencies**: Three.js via npm (`three@0.160.0`, r160) — bundled by Vite, import-mapped from `node_modules` in raw source (no CDN); Firebase v11.5.0
+- **Dependencies**: Three.js via npm (`three@0.184.0`) — bundled by Vite, import-mapped from `node_modules` in raw source (no CDN); Firebase v11.5.0
 - **Imports**: ES module `import`/`export` throughout; cross-module imports use a `.js` specifier that resolves to the `.ts` source (e.g. `import { Mountains } from './mountains.js'`)
 - **Error Handling**: Validation with boundary checks, meaningful console logging
 - **Testing**: Browser-based with visual feedback, unified test runner
