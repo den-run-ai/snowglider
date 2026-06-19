@@ -215,8 +215,13 @@ camera.position -= shake                          // revert so smoothing stays c
 > readouts and the live run timer), and **`src/ui/result-overlay.ts`** (score-time
 > validation, the best-time / leaderboard / login-prompt game-over screen, and
 > `CourseModule.onFinish` — `createShowGameOver(deps)` returns the `showGameOver`
-> the coordinator still publishes on `window`). The coordinator passes the run state
-> and the overlay DOM nodes into these as parameters rather than letting them reach
+> the coordinator still publishes on `window`), and **`src/game/scene-setup.ts`**
+> (the one-shot `setupScene()` builder: scene / renderer / camera / overlay DOM /
+> lighting / terrain / avalanche / trees / snowman / snow / course+effects; it also
+> owns the `GameState` type and the eager `window.terrainMesh` / `treePositions` /
+> `rockPositions` / `isTestMode` data globals). The coordinator calls `setupScene()`
+> once, destructures the handles the loop/lifecycle/proxies use, and passes run state
+> + overlay DOM nodes into the UI modules as parameters rather than letting them reach
 > back into its bindings.
 
 ---
