@@ -240,9 +240,10 @@ camera.position -= shake                          // revert so smoothing stays c
 > **`src/snowman/index.ts`** behind a thin **`src/snowman.ts`** facade
 > (`export * from './snowman/index.js'`) so every `./snowman.js` importer keeps
 > resolving a sibling file. R3.8 moved model construction into
-> **`src/snowman/model.ts`**; the verification harness self-registers the same
+> **`src/snowman/model.ts`**, and R3.9 moved heading/tilt/ski-pose animation into
+> **`src/snowman/pose.ts`**. The verification harness self-registers the same
 > `.js` -> `.ts` resolver as the Node suites before importing the facade, so the
-> public seam remains the thing under test as steps 9–12 carve `pose` / `physics` /
+> public seam remains the thing under test as steps 10–12 carve `physics` /
 > `collision` / `test-hooks` out of `index.ts`.
 
 ---
