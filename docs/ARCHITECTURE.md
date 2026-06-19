@@ -202,6 +202,17 @@ camera.position -= shake                          // revert so smoothing stays c
  showGameOver(reason) ─→ Course.onFinish ─→ Scores.recordScore ─→ (localStorage + Firestore)
 ```
 
+> **Refactor in progress (Stages R2/R3, see
+> [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md)):**
+> `snowglider.ts` is being thinned into `src/game/*` (scene / loop / lifecycle) and
+> `src/ui/*` (HUD, overlays), and `snowman.ts` into `src/snowman/*`. Mechanical,
+> behavior-preserving moves only — the published `window.*` hooks and the
+> `publishGameGlobals()` proxy set stay in the coordinator. The first extracted
+> piece is **`src/ui/collapsible-panel.ts`**, the shared collapse / resize /
+> horizontal-swipe behavior for the Game Stats and Game Controls panels that was
+> previously duplicated across `initializeGameStats()` and
+> `initializeControlsToggle()`.
+
 ---
 
 ## 6. Input
