@@ -137,7 +137,7 @@ showGameOver(reason)
    │       ├─ Snow puff burst at impact
    │       └─ start own rAF settle loop (gravity + ground bounce + tumble, repaint each tick, ~2.5s)
    │     EffectsModule.addShake(impactScaledBySpeed)   // reuse existing juice
-   │     (optionally) delay #gameOverOverlay ~700ms so the wipeout is the star
+   │     (#gameOverOverlay shows immediately as today — dimmed shatter; ~700ms delay is opt-in polish, §7.4)
    └─ … existing overlay / score / result logic unchanged
 ```
 
@@ -396,17 +396,19 @@ self-terminates when `update()` returns false.
 > orchestrator change to ~3 lines. (It also means the test path needs an explicit opt-in
 > rather than riding the live loop — see §3 / §9.)
 
-> **Overlay timing (user-visible, flag this for review).** The `#gameOverOverlay` is 70%
-> black and would dim the wipeout. Proposal: on a **crash**, delay showing the overlay by
-> ~700 ms (a `setTimeout`) so the shatter plays at full brightness, then fade it in;
-> **finish** stays immediate (unchanged). **If implemented with `setTimeout`, the timer id
-> MUST be stored (e.g. a module-scoped `crashOverlayTimer`) and cleared in `resetSnowman`/
-> `restartGame` (§8.4).** `showGameOver` has already set `gameActive = false` while the
-> Reset control stays visible (and tests call the restart helpers directly), so a
-> reset/restart *before* the timer fires would otherwise re-show `#gameOverOverlay` over
-> the fresh run or strand it inactive behind a stale overlay. Alternative if we want zero
-> timing change: show the overlay immediately and accept the dimmed shatter behind it. Pick
-> one in review — see Open Questions §11.
+> **Overlay timing (RESOLVED — PR B ships the overlay immediate; delay is opt-in polish).**
+> The `#gameOverOverlay` is 70% black and dims the wipeout. A `setTimeout` delay (~700 ms
+> before showing the overlay on a **crash**) makes the shatter pop, but it drags in real
+> race complexity: the timer must be stored (`crashOverlayTimer`) and cleared on
+> reset/restart, **and** the cancel path must *re-arm the run* — `resetSnowman()` (the
+> visible `#resetBtn`, and the e2e reset spec) only resets physics; it does **not** set
+> `gameActive = true` or restart `animate()` (that's `restartGame()`), so cancelling the
+> timer alone would leave the fresh run frozen behind a cancelled overlay. **PR B therefore
+> ships the overlay immediate (zero timing change, `finish` and crash both unchanged from
+> today)** — the shatter still renders via the debris loop, just dimmed behind the overlay —
+> which sidesteps the timer, the re-arm, and the e2e-reset-flake interaction entirely. The
+> delay is kept as opt-in polish (§11 Q1) with the two requirements above if anyone enables
+> it later.
 
 ### 7.5 `reset()`
 
@@ -464,14 +466,16 @@ Minimal, localized edits:
    ```
 
    Everything else in `showGameOver` (best-time, login prompt, leaderboard, result
-   screen, `EffectsModule.reset()`, overlay) is unchanged — except the optional
-   crash-only overlay delay (§7.4).
+   screen, `EffectsModule.reset()`, overlay) is unchanged — the overlay shows immediately
+   as today (the ~700 ms delay is opt-in polish, §7.4).
 4. **In `resetSnowman()` and `restartGame()`**: call `state.debris?.reset(scene)` and
    `Flex.reset(snowman)` before re-initializing the camera, so the fragments are gone and
-   the snowman is visible and back to neutral pose. **If the crash-only overlay delay
-   (§7.4) is implemented, also `clearTimeout(crashOverlayTimer)` and null it here** — a
-   restart inside the ~700 ms window must not let the pending callback re-show
-   `#gameOverOverlay` over the fresh run.
+   the snowman is visible and back to neutral pose. **(Opt-in delay only — dormant in PR B,
+   which ships the overlay immediate.)** If the crash overlay delay (§7.4) is ever enabled,
+   `clearTimeout(crashOverlayTimer)` and null it here **and re-arm the run** — because
+   `resetSnowman()` does not set `gameActive`/restart `animate()` on its own, the bare
+   Reset path must route through `restartGame()` (or replicate its re-arm) when it cancels a
+   pending overlay, or the run is stranded inactive behind the cancelled overlay.
 5. **`src/main.ts`**: add `import './debris.js';` / `import './snowman-flex.js';` (the
    `.js` specifier resolving to `.ts`, per the repo import convention) so they join the
    bundle graph; the orchestrator imports the named exports directly.
@@ -527,9 +531,10 @@ needs **no** change (kernel untouched) — explicitly note that in the PR descri
       stopped after game over) — fragments are actually drawn, not just updated off-screen.
 - [ ] Debris active state is read in tests via the `window.testHooks.isDebrisActive()`
       seam, not module-scoped `state.debris` (no new `window.*` bridge added).
-- [ ] If the crash overlay delay is used, its `setTimeout` id is stored and
-      `clearTimeout`'d in `resetSnowman`/`restartGame` — a restart inside the delay window
-      can't re-show or strand `#gameOverOverlay`.
+- [ ] PR B ships the overlay **immediate** (no delay/timer). If the opt-in delay is ever
+      added, its `setTimeout` id is stored and `clearTimeout`'d in `resetSnowman`/
+      `restartGame`, **and** the cancel path re-arms the run (routes through `restartGame`)
+      so a Reset in the window can't re-show *or* strand `#gameOverOverlay`.
 - [ ] Shatter loop iterates `userData.shatterRoots` (top-level pieces), branches on
       `part.isMesh` — Group parts (`headGroup`, arms, PR-C scarf tail) are traversed or
       replaced with a generic chunk, never `part.geometry.clone()`'d directly; accessories
@@ -551,8 +556,8 @@ needs **no** change (kernel untouched) — explicitly note that in the PR descri
    Lowest risk; ships the "flexible/wiggly" half of #53 on its own. Tests: DOM smoke +
    flex unit + verify-green.
 2. **PR B — Crash shatter**: `src/debris.ts`, the `showGameOver` crash branch, the
-   reset/restart cleanup, the optional overlay delay. Ships "breaks down on impact."
-   Tests: debris unit + browser crash test + e2e.
+   reset/restart cleanup. Overlay stays immediate (the delay is deferred polish). Ships
+   "breaks down on impact." Tests: debris unit + browser crash test + e2e.
 3. **PR C — Scarf (optional follow-up)**: add the scarf/tail geometry (§5.2), the two
    `scarf`/`scarfTail` keys in the registry, the flex scarf-trail branch (§6), and a DOM-
    smoke assertion. **Quarantined on purpose** — the overlapping neck geometry / trailing
@@ -565,9 +570,10 @@ wipeout work first, and quarantines the fiddly scarf so it can't hold them up.
 
 ## 13. Open questions (for the maintainer)
 
-1. **Overlay timing** — delay the crash overlay ~700 ms so the wipeout is visible (§7.4;
-   the delay timer must be stored and cleared on reset/restart), or keep the overlay
-   immediate and accept a dimmed shatter? (Recommend the short delay.)
+1. **Overlay timing** — PR B ships the overlay **immediate** (dimmed shatter, zero race
+   risk). Worth adding the ~700 ms delay as later polish for a brighter wipeout? It needs
+   the cancel-timer **and** re-arm handling (§7.4/§8.4) and must dodge the e2e reset flake.
+   (Recommend immediate for now; revisit once the wipeout itself is tuned.)
 2. **Fragment fidelity** — owned clones of the distinctive *mesh* parts (hat, nose read
    clearly; clone with `geometry.clone()`/`material.clone()` so disposal is safe — §7.2)
    vs. generic snow-ball chunks (cheaper, uniform, trivially debris-owned)? Note the arms
