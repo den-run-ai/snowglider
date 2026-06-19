@@ -31,12 +31,13 @@ import { Controls } from './controls.js';
 import { Snow } from './snow.js';
 import { Snowman } from './snowman.js';
 import { CourseModule } from './course.js';
-import { EffectsModule, type ShakeOffset } from './effects.js';
+import { EffectsModule } from './effects.js';
 import { AudioModule } from './audio.js';
 import { Physics } from './physics.js';
-import { initializeGameStats, initializeControlsToggle, updateStatsHud, updateTimerDisplay } from './ui/hud.js';
+import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
-import { setupScene, AVALANCHE_TRIGGER_DISTANCE } from './game/scene-setup.js';
+import { setupScene } from './game/scene-setup.js';
+import { createMainLoop } from './game/main-loop.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();
@@ -59,9 +60,6 @@ const {
   snowSplash,
   state,
 } = setupScene();
-
-// Active ski technique tracked across frames (HUD + reset); loop/lifecycle state.
-let lastTechnique = 'glide';
 
 // --- Snowman Position & Reset ---
 // The per-frame player physics state lives in one typed PlayerState object
@@ -114,7 +112,6 @@ function resetSnowman() {
   updateTimerDisplay(state.gameActive, state.startTime, state.bestTime);
   
   // Reset course (gates/splits/ghost) and effects (avalanche UI, FOV, shake) for the new run
-  lastTechnique = 'glide';
   if (CourseModule) CourseModule.reset();
   if (EffectsModule) EffectsModule.reset();
   
@@ -162,162 +159,12 @@ cameraToggleBtn.addEventListener('touchend', function(event) {
 
 document.body.appendChild(cameraToggleBtn);
 
-// --- Update Snowman: Physics-based Movement ---
-function updateSnowman(delta: number) {
-  // We no longer need to add test hooks every frame as they're set up at initialization
-  // and after resets. This improves performance.
-  const activeShowGameOver = typeof window.showGameOver === 'function'
-    ? window.showGameOver
-    : showGameOver;
-  
-  // Advance the player one frame. Physics.stepPlayer wraps Snowman.updateSnowman
-  // (the unchanged physics kernel) and writes the mutated scalars back into the
-  // typed `player` state, returning the per-frame result for the HUD/camera.
-  const result = Physics.stepPlayer(player, {
-    snowman,
-    delta,
-    controls: Controls.getControls(),
-    getTerrainHeight: Snow.getTerrainHeight,
-    getTerrainGradient: Snow.getTerrainGradient,
-    getDownhillDirection: Snow.getDownhillDirection,
-    treePositions,
-    rockPositions,
-    gameActive: state.gameActive,
-    showGameOver: activeShowGameOver
-  });
-
-  // Update game stats display (speed/position/technique)
-  updateStatsHud(result, pos, player.isInAir);
-  lastTechnique = result.technique;
-
-  // Camera shake on a meaningful landing (scales with time spent aloft).
-  if (result.justLanded && result.landingForce > 0.25 && EffectsModule) {
-    EffectsModule.addShake(Math.min(1.2, result.landingForce * 0.6));
-  }
-  
-  // Update timer in the updateTimerDisplay function which is called separately
-}
-
-// --- Update Camera: Follow the Snowman ---
-function updateCamera() {
-  // Simply delegate to the camera manager
-  cameraManager.update(
-    snowman.position,
-    snowman.rotation,
-    velocity,
-    Snow.getTerrainHeight
-  );
-}
-
 // --- Initial Camera Setup ---
 // Initialize camera with the snowman's position and rotation
 cameraManager.initialize(
   new THREE.Vector3(pos.x, pos.y, pos.z),
   new THREE.Euler(0, Math.PI, 0) // Snowman starts facing down the mountain (π radians)
 );
-
-// --- Animation Loop ---
-let lastTime = 0;
-function animate(time: number) {
-  if (state.gameActive) {
-    requestAnimationFrame(animate);
-    const delta = Math.min((time - lastTime) / 1000, 0.1); // Cap delta to avoid jumps
-    lastTime = time;
-    
-    // Only set up test hooks if they're missing
-    if (!window.testHooks) {
-      console.log("Test hooks missing in animation loop, reinstalling");
-      // addTestHooks(pos, showGameOver, getTerrainHeight) — matches the two other
-      // call sites; the stray `gameActive` arg here was a latent bug (it landed in
-      // the getTerrainHeight slot), surfaced by the type-checker.
-      Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
-    }
-    
-    updateSnowman(delta);
-    Snow.updateSnowflakes(delta, pos, scene);
-    
-    // --- Course progress: split timing, progress HUD, ghost racing ---
-    if (CourseModule) {
-      const elapsed = (performance.now() - state.startTime) / 1000;
-      CourseModule.update(pos, elapsed, snowman);
-    }
-    
-    // --- Avalanche Logic ---
-    const avalanche = state.avalanche;
-    if (avalanche) {
-      // Trigger avalanche based on distance traveled (simple geometric trigger)
-      // Player starts at z=-15 and moves in -Z direction (downhill)
-      const distanceTraveled = state.lastAvalancheZ - pos.z;
-      
-      if (!state.avalancheTriggered && distanceTraveled > AVALANCHE_TRIGGER_DISTANCE) {
-        avalanche.trigger(snowman.position);
-        state.avalancheTriggered = true;
-        console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
-      }
-      
-      // Update avalanche physics
-      avalanche.update(delta);
-      
-      // Check for burial (collision with avalanche)
-      if (avalanche.checkBurial(snowman.position)) {
-        showGameOver("Buried by avalanche!");
-      }
-      
-      // Reset avalanche if it has passed the player (survived!)
-      if (state.avalancheTriggered && avalanche.hasPassed(snowman.position)) {
-        console.log("Avalanche passed - player survived!");
-        avalanche.reset();
-        state.avalancheTriggered = false;
-        state.lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
-      }
-      
-      // Telegraph the threat: banner, "distance behind you" meter, vignette, shake.
-      if (EffectsModule) {
-        const avActive = state.avalancheTriggered && avalanche.active;
-        const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
-        EffectsModule.updateAvalanche(avActive, avDist);
-      }
-    }
-    
-    // Save player position before snow splash effect updates
-    const playerPosBefore = { 
-      x: snowman.position.x, 
-      y: snowman.position.y, 
-      z: snowman.position.z 
-    };
-    
-    // Update snow splash particles - pass all required parameters
-    Snow.updateSnowSplash(snowSplash, delta, snowman, velocity, player.isInAir, scene);
-    
-    // Ensure snowman position wasn't affected by particles
-    snowman.position.set(playerPosBefore.x, playerPosBefore.y, playerPosBefore.z);
-    
-    updateCamera();
-    updateTimerDisplay(state.gameActive, state.startTime, state.bestTime); // Update the timer display
-    
-    // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
-    // the positional offset so the camera manager's own smoothing stays clean.
-    let _shake: ShakeOffset | null = null;
-    if (EffectsModule) {
-      const spd = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
-      _shake = EffectsModule.tickCamera(camera, delta, spd);
-    }
-    renderer.render(scene, camera);
-    if (_shake) {
-      camera.position.x -= _shake.x;
-      camera.position.y -= _shake.y;
-      camera.position.z -= _shake.z;
-    }
-  } else if (state.animationRunning) {
-    state.animationRunning = false;
-  }
-}
-
-// --- Handle Window Resize ---
-window.addEventListener('resize', () => {
-  cameraManager.handleResize();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
 
 // Game-over / finish handling lives in ui/result-overlay.ts; the coordinator injects
 // the run state and the overlay DOM nodes it still owns. Bound as a `const` here so
@@ -330,6 +177,25 @@ const showGameOver = createShowGameOver({
   restartButton,
   bestTimeDisplay,
 });
+
+// --- Per-frame run loop (see game/main-loop.ts) ---
+// Built after showGameOver (a loop dependency) exists. The loop owns `lastTime`;
+// lifecycle code calls startLoop() to seed it and kick requestAnimationFrame.
+// updateCamera/updateSnowman are re-published on window by publishGameGlobals below.
+const { updateSnowman, updateCamera, startLoop, handleResize } = createMainLoop({
+  state,
+  player,
+  scene,
+  camera,
+  renderer,
+  cameraManager,
+  snowman,
+  snowSplash,
+  treePositions,
+  rockPositions,
+  showGameOver,
+});
+window.addEventListener('resize', handleResize);
 
 function restartGame() {
   gameOverOverlay.style.display = 'none';
@@ -371,8 +237,7 @@ function restartGame() {
   // Reset animation if it was stopped
   if (!state.animationRunning) {
     state.animationRunning = true;
-    lastTime = performance.now();
-    animate(lastTime);
+    startLoop();
   }
 }
 // Make restartGame accessible globally for touch handler
@@ -568,8 +433,7 @@ window.initializeGameWithAudio = function() {
       document.body.classList.add('game-active');
 
       // Start animation loop
-      lastTime = performance.now();
-      animate(lastTime);
+      startLoop();
 
       // Show a "Get Ready" message
       setTimeout(() => {
@@ -585,8 +449,7 @@ window.initializeGameWithAudio = function() {
     document.body.classList.add('game-active');
     
     // Start animation loop
-    lastTime = performance.now();
-    animate(lastTime);
+    startLoop();
   }
   
   console.log("Game started successfully!");

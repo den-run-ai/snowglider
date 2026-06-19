@@ -218,10 +218,14 @@ camera.position -= shake                          // revert so smoothing stays c
 > (the one-shot `setupScene()` builder: scene / renderer / camera / overlay DOM /
 > lighting / terrain / avalanche / trees / snowman / snow / course+effects; it also
 > owns the `GameState` type and the eager `window.terrainMesh` / `treePositions` /
-> `rockPositions` / `isTestMode` data globals). The coordinator calls `setupScene()`
-> once, destructures the handles the loop/lifecycle/proxies use, and passes run state
-> + overlay DOM nodes into the UI modules as parameters rather than letting them reach
-> back into its bindings.
+> `rockPositions` / `isTestMode` data globals), and **`src/game/main-loop.ts`**
+> (the per-frame run loop: `createMainLoop(deps)` returns `updateSnowman` /
+> `updateCamera` / `animate` / `startLoop` / `handleResize`; it owns the private
+> `lastTime`, and lifecycle code calls `startLoop()` to seed+kick the loop). The
+> coordinator calls `setupScene()` once, destructures the handles the
+> loop/lifecycle/proxies use, builds the loop, and passes run state + overlay DOM
+> nodes into the modules as parameters rather than letting them reach back into its
+> bindings.
 
 ---
 
