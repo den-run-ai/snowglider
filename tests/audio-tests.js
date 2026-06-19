@@ -221,14 +221,15 @@ import { AudioModule } from '../src/audio.js';
 
         // Regression: on mobile the game's document-level touchstart handler
         // calls preventDefault(), suppressing the synthesized click — so the
-        // button must respond to a real touch (touchend) too, not just click.
+        // button must respond to a real touch too, not just click. It toggles on
+        // touchstart (mirroring the reset/camera buttons).
         let touchEvt;
         try {
-          touchEvt = new TouchEvent('touchend', { bubbles: true, cancelable: true });
+          touchEvt = new TouchEvent('touchstart', { bubbles: true, cancelable: true });
         } catch (e) {
           // Some engines can't construct TouchEvent; fall back to a generic event
           // that still triggers the same listener.
-          touchEvt = new Event('touchend', { bubbles: true, cancelable: true });
+          touchEvt = new Event('touchstart', { bubbles: true, cancelable: true });
         }
         const before = AudioModule.getStatus().muted;
         btn.dispatchEvent(touchEvt);
@@ -236,10 +237,31 @@ import { AudioModule } from '../src/audio.js';
         assert(
           afterTouch !== before,
           'Button Touch Toggles Mute',
-          `touchend on button changed muted ${before} -> ${afterTouch}`
+          `touchstart on button changed muted ${before} -> ${afterTouch}`
         );
-        // Restore prior state.
-        AudioModule.toggleMute();
+        // The button's touch handler must stopPropagation so the tap never reaches
+        // the game's document-level control handlers (otherwise it can corrupt
+        // touchState and leave controls stuck). A propagation-stopped event won't
+        // bubble to a document listener.
+        let propagated = false;
+        const docProbe = () => { propagated = true; };
+        // Bubble phase, matching controls.ts's document-level touchstart listener.
+        document.addEventListener('touchstart', docProbe);
+        let probeEvt;
+        try {
+          probeEvt = new TouchEvent('touchstart', { bubbles: true, cancelable: true });
+        } catch (e) {
+          probeEvt = new Event('touchstart', { bubbles: true, cancelable: true });
+        }
+        btn.dispatchEvent(probeEvt);
+        document.removeEventListener('touchstart', docProbe);
+        assert(
+          propagated === false,
+          'Button Touch Isolated From Controls',
+          'touchstart on button does not bubble to document control handlers'
+        );
+        // Restore prior state (two toggles above => muted flipped twice => back to
+        // `before`; nothing to undo).
       }
     }
     
