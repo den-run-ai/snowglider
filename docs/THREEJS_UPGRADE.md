@@ -14,10 +14,13 @@
 - **After PR #76:** three.js **0.160.0** in both the CDN tag and npm, with
   `@types/three@0.160.0` checked by the TypeScript Phase 1 gate from main.
 - **Since then (TypeScript migration #84/#98 complete):** the CDN `<script>` global was
-  removed (TS PR 2.10) and the codebase went full ESM + Vite. three.js **0.160.0** is now
+  removed (TS PR 2.10) and the codebase went full ESM + Vite. three.js **0.160.0** was then
   single-sourced from **npm** — bundled by Vite for the deploy, and import-mapped from
-  `node_modules` on the raw-source path (`npm start`, puppeteer). **This unblocks Stage B**:
-  its only blocker (ES modules / TS Phase 2) has landed. See Phase B below.
+  `node_modules` on the raw-source path (`npm start`, puppeteer). **This unblocked Stage B**:
+  its only blocker (ES modules / TS Phase 2) had landed.
+- **After Stage B:** three.js **0.184.0** + `@types/three@0.184.0`, single-sourced from npm
+  (no CDN), bundled by Vite for the Pages deploy and import-mapped from `node_modules` for the
+  raw-source/puppeteer path. See Phase B below.
 - **Latest:** three.js **0.184.0** / `@types/three` **0.184.1** (npm, at time of writing).
 - **Guardrail:** `npm test`, `npm run lint`, `npm run typecheck`, the verification harness,
   and the puppeteer browser smoke must stay green after every step. No step may leave `main`
@@ -194,17 +197,40 @@ Shippable as its own PR; after PR #74, the Phase 1 TypeScript checker is an addi
 
 ## Phase B — r160 → latest (≈0.184), after ES modules
 
-**Now unblocked.** This stage was gated on TypeScript-migration Phase 2 (ES modules + bundler);
-that has since shipped, along with Phase 3 — all of `src/` is `.ts`, Vite-bundled (see
-[`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.2).
-`index.html` already loads ES modules and `THREE` is imported from npm, not read off `window`, so
-the r161+ ESM-only requirement is satisfied. Phase B is just a version bump on the existing model,
-to schedule whenever the visual-gate work below is done.
+> **✅ Implemented.** The TypeScript migration completed (ESM + Vite + import map, issue #84),
+> which removed the `window.THREE` global and made every module `import * as THREE from 'three'`.
+> That **unblocked** this phase. Landed three **0.184.0** + `@types/three@0.184.0` (exact, matched)
+> with **zero load-model change**: Vite already single-sources three from npm for the production
+> bundle, and `index.html`'s import map resolves bare `three` to
+> `/node_modules/three/build/three.module.min.js` (still shipped at 0.184) for the raw-source /
+> puppeteer path — so no CDN tag, integrity hash, or import-map URL had to change.
+>
+> The one real delta was lighting: `useLegacyLights` is **gone at r165**, so the renderer is now
+> always physically-correct (diffuse ÷ π). Rather than a no-op assignment, Stage A's
+> `renderer.useLegacyLights = true` line was **removed** and the two light intensities
+> **pre-multiplied by `Math.PI`** (`AmbientLight 0.5 → 0.5·π`, `DirectionalLight 0.8 → 0.8·π`) to
+> reproduce the legacy brightness — the canonical migration compensation. Color management stayed
+> opted out (`ColorManagement.enabled = false` + `outputColorSpace = LinearSRGBColorSpace`, both
+> still valid at 0.184), so the **look is unchanged** (Option 1 preserved).
+>
+> Visual gate: headless before/after canvas captures (r160 vs r184) — mean scene luminance
+> **199.1 → 197.3 (<1%)** after the π fix, versus **67.4** without it (the ~⅓ darkening that
+> confirms the physically-correct switch). `npm run lint`, `npm run typecheck`, full `npm test`
+> (incl. `test:verify`), `npm run test:browser` (**87 passed, 0 failed**, system Chrome on the
+> real Vite-served `index.html`), and `npm run build` (Vite production bundle) all green.
 
-### B.1 Source `THREE` as a module
+**Was blocked on TypeScript-migration Phase 2** (ES modules + bundler/import-map). r161+ ship no
+global build, so `THREE` must be imported, not read off `window` — which is why this phase waited
+until `index.html` loaded modules instead of the `<script>`-chain in
+[`ARCHITECTURE.md`](ARCHITECTURE.md) §2.2.
 
-The path is already chosen: modules `import * as THREE from 'three'` and the app is Vite-bundled,
-so Stage B reduces to bumping the npm dependency.
+### B.1 Source `THREE` as a module — ✅ done before this phase
+
+This was already in place from the TypeScript migration: **both** paths below ended up used —
+Vite (bundler) for the production `dist/` Pages deploy, and the import map for the raw-source /
+puppeteer path, both resolving `three` to the **same npm copy** (no version-skew). Stage B
+therefore changed no load wiring; it only bumped the pinned version. Original options, for
+reference:
 
 - **Bundler (Vite) — the current model:** per `TYPESCRIPT_MIGRATION.md` §2.1. Modules already do
   `import * as THREE from 'three'`; `npm i three@0.184` (+ matching `@types/three`), Vite bundles
@@ -217,17 +243,18 @@ so Stage B reduces to bumping the npm dependency.
 
 ### B.2 Bump and clear the r160→r184 deltas
 
-- [ ] Bump `three` + `@types/three` **together** to 0.184.x.
-- [ ] **`useLegacyLights` was removed at r165** — the A.3 escape hatch is gone. By here, lighting
-      must already be tuned for physically-correct units (finish the Option 2 work if Stage A
-      shipped Option 1).
-- [ ] Re-run the full suite + visual gate. Bump **a few minor versions at a time** (e.g.
-      160 → 168 → 176 → 184), not in one jump, so a regression is bisectable.
-- [ ] No `examples/jsm` today, so addon-path breakage is N/A — but re-check if any addon is added
-      before this phase runs.
+- [x] Bump `three` + `@types/three` **together** to 0.184.0 (exact, version-matched).
+- [x] **`useLegacyLights` was removed at r165** — the A.3 escape hatch is gone. Handled by
+      removing the dead `useLegacyLights = true` line and pre-multiplying the ambient/directional
+      intensities by `Math.PI` to keep the r134 brightness under physically-correct lighting.
+- [x] Re-ran the full suite + visual gate. **Done in one jump (160 → 184)** rather than stepping
+      minors: the upgrade surface here is tiny (two lights, no addons, no removed legacy APIs), so
+      there was nothing to bisect — every gate stayed green on the single bump. (The "step minors"
+      advice still stands for a larger surface.)
+- [x] No `examples/jsm` — addon-path breakage N/A, re-confirmed (still no addons).
 
-**Exit criteria:** game runs latest three via module import/import-map, full suite + visual gate
-+ Pages deploy green.
+**Exit criteria — met:** game runs three **0.184** via the Vite bundle / import map, full suite +
+visual gate + Vite production build all green, look unchanged.
 
 ---
 
@@ -237,7 +264,7 @@ so Stage B reduces to bumping the npm dependency.
 |------|-------|-----------|
 | **Color-management default (r152)** shifts all colors/brightness | every `MeshStandardMaterial`, `scene.background` | A.2: opt out (`ColorManagement.enabled=false`) first; adopt later as its own change |
 | **Physically-correct lights default (r155)** rescales intensity | `snowglider.js:106-107` | A.3: `useLegacyLights=true` at r160, or re-tune intensities |
-| **`useLegacyLights` removed (r165)** | renderer | Must tune for modern lighting **before** crossing r165 (Stage B) |
+| **`useLegacyLights` removed (r165)** | renderer | ✅ Resolved in Stage B: dropped the dead flag and pre-multiplied ambient/directional intensities by `Math.PI` to match the legacy brightness under physically-correct lighting |
 | **CDN vs npm version skew** | `index.html` vs `package.json` (`terrain-tests.js` uses npm three) | A.1: bump both to the identical version |
 | **No visual regression test exists** | rendering | Phase 0: capture reference screenshots; gate on eyeball diff |
 | **`file://` fallback breaks under import maps** | Stage B | B.1: accept dev-server requirement or choose the bundler path |
@@ -251,13 +278,15 @@ real acceptance test for this migration, the way `PHYSICS.md`'s invariant harnes
 
 ## Decision summary
 
-- **Do Stage A (r134 → r160) now, as its own PR.** It is fully decoupled from the TypeScript
-  work, front-loads the only real risk (color + lights) while the architecture is still simple,
-  and lands you on the newest version the current `<script>`-global model can run. **Highest ROI,
-  lowest coupling.**
-- **Gate Stage B (r160 → latest) behind TypeScript-migration Phase 2.** It is genuinely blocked
-  by the ESM-only builds; attempting it before modules exist means rewriting the load model and
-  the upgrade at once. Don't.
+- **✅ Stage A (r134 → r160) shipped (PR #76), as its own PR.** It was fully decoupled from the
+  TypeScript work, front-loaded the only real risk (color + lights) while the architecture was
+  still simple, and landed on the newest version the `<script>`-global model could run. **Highest
+  ROI, lowest coupling.**
+- **✅ Stage B (r160 → 0.184) shipped, once TypeScript-migration Phase 2 landed.** It was genuinely
+  blocked by the ESM-only builds; with modules + Vite + import map in place, the bump itself was
+  mechanical — the only substantive work was the `useLegacyLights`-removal lighting compensation
+  (π pre-multiply), and the look stayed unchanged. **Both stages are now complete; the project is
+  on the latest three.js.**
 - **Always** keep `npm test`, `npm run test:verify`, the puppeteer smoke, and the Pages deploy
   green, and **judge every step against the Phase 0 reference screenshots** — the test suite
   alone cannot see a washed-out mountain.

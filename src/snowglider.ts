@@ -43,18 +43,22 @@ import type { TreePosition } from './trees.js';
 Controls.setupControls();
 
 // --- Scene, Renderer and Camera ---
-// three.js r160 enables color management (r152+) and physically-correct lights
+// three.js enables color management (r152+) and physically-correct lights
 // (r155+ default) out of the box, both of which would shift SnowGlider's colors
-// and brightness. Opt out to preserve the original r134 look on this version
-// bump; adopting modern color/lighting is a deliberate later change.
-// (See docs/THREEJS_UPGRADE.md, Stage A.)
+// and brightness. We preserve the original r134 look:
+//  - Color: opt out of color management so authored hex colors render as-is.
+//  - Lighting: r165 REMOVED the `useLegacyLights` escape hatch, so the renderer
+//    is now always physically-correct. Physically-correct lighting divides the
+//    diffuse term by π, so the directional/ambient intensities are pre-multiplied
+//    by Math.PI at their definitions below to reproduce the legacy brightness.
+// Adopting modern color/lighting is a deliberate later change.
+// (See docs/THREEJS_UPGRADE.md, Stage B.)
 const THREECompat = THREE as any;
 THREECompat.ColorManagement.enabled = false;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 (renderer as any).outputColorSpace = THREECompat.LinearSRGBColorSpace;
-(renderer as any).useLegacyLights = true;
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 // Update to assign renderer to a specific div with an ID
@@ -147,8 +151,11 @@ AudioModule.setupUI();
 // and run/scoring fields.
 
 // --- Lighting ---
-scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+// Intensities are pre-multiplied by Math.PI to preserve the original r134
+// brightness under three.js physically-correct lighting (forced on since the
+// r165 removal of `useLegacyLights`); see the renderer setup note above.
+scene.add(new THREE.AmbientLight(0xffffff, 0.5 * Math.PI));
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8 * Math.PI);
 directionalLight.position.set(50, 100, 50);
 directionalLight.castShadow = true;
 directionalLight.shadow.mapSize.width = 2048;
