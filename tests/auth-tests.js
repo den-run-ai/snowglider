@@ -14,7 +14,12 @@ const { JSDOM } = require('jsdom');
 
 // ---- jsdom environment with the auth UI markup auth.js expects ----
 const dom = new JSDOM(`<!doctype html><html><body>
-  <div id="authUI" style="display:flex"><button id="loginBtn">Login with Google</button></div>
+  <div id="authUI" style="display:flex">
+    <button id="loginBtn">Login with Google</button>
+    <button id="githubLoginBtn">Login with GitHub</button>
+    <button id="appleLoginBtn">Sign in with Apple</button>
+    <button id="guestLoginBtn">Play as Guest</button>
+  </div>
   <div id="profileUI" style="display:none">
     <img id="profileAvatar" src=""><span id="profileName"></span>
     <button id="logoutBtn">Logout</button>
@@ -189,6 +194,98 @@ async function main() {
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
   check('unknown error: shows a generic alert', alerts.length === 1 && /boom/.test(alerts[0]));
+
+  console.log('\n--- GitHub & Apple provider sign-in ---');
+  const githubBtn = window.document.getElementById('githubLoginBtn');
+  const appleBtn = window.document.getElementById('appleLoginBtn');
+
+  // GitHub: a federated popup logged with method 'GitHubPopup'.
+  fb.setNextPopupResult({ resolve: { user: { email: 'gh@glider.ai' } } });
+  const popupsBeforeGh = calls.signInWithPopup;
+  githubBtn.dispatchEvent(new window.Event('click'));
+  check('GitHub button opens a popup and shows "Signing In..."',
+    calls.signInWithPopup === popupsBeforeGh + 1 &&
+    githubBtn.disabled === true && /Signing In/.test(githubBtn.textContent));
+  check('starting one sign-in disables the other provider buttons too (no competing popups)',
+    loginBtn.disabled === true && appleBtn.disabled === true);
+  await flush();
+  check("'login' analytics logged with GitHubPopup method",
+    calls.logEvent.some(e => e.name === 'login' && e.params && e.params.method === 'GitHubPopup'));
+  fb.emitAuthState(null); // settle to signed-out, re-enable buttons
+
+  // Apple: OAuthProvider('apple.com') popup logged with method 'ApplePopup'.
+  fb.setNextPopupResult({ resolve: { user: { email: 'apple@glider.ai' } } });
+  const popupsBeforeApple = calls.signInWithPopup;
+  appleBtn.dispatchEvent(new window.Event('click'));
+  await flush();
+  check('Apple button opens a popup', calls.signInWithPopup === popupsBeforeApple + 1);
+  check("'login' analytics logged with ApplePopup method",
+    calls.logEvent.some(e => e.name === 'login' && e.params && e.params.method === 'ApplePopup'));
+  fb.emitAuthState(null);
+
+  console.log('\n--- Anonymous "play as guest" ---');
+  const guestBtn = window.document.getElementById('guestLoginBtn');
+  fb.setNextPopupResult(null);
+  const anonBefore = calls.signInAnonymously;
+  const popupsBeforeGuest = calls.signInWithPopup;
+  guestBtn.dispatchEvent(new window.Event('click'));
+  check('guest button calls signInAnonymously and opens no popup',
+    calls.signInAnonymously === anonBefore + 1 && calls.signInWithPopup === popupsBeforeGuest);
+  await flush();
+  check("'login' analytics logged with Anonymous method",
+    calls.logEvent.some(e => e.name === 'login' && e.params && e.params.method === 'Anonymous'));
+
+  // Firebase reports the anonymous user. The guest is kept OFF the leaderboard:
+  // recordScore must not write a Firestore identity even though logged-in chrome shows.
+  localStorage.clear();
+  fb.emitAuthState({ uid: 'guest1', isAnonymous: true, email: null, displayName: null });
+  check('anonymous guest: logged-in chrome shown (profile UI)',
+    authUI.style.display === 'none' && profileUI.style.display === 'flex');
+  check('anonymous guest: AuthModule still reports signed-in (for UI/onboarding)',
+    AuthModule.isUserSignedIn() === true);
+  AuthModule.recordScore(12.34); // guest finishes a run
+  await flush();
+  check('anonymous guest: recordScore writes NO leaderboard entry for the guest',
+    fb.read('leaderboard', 'guest1') === undefined &&
+    !calls.setDoc.some(c => c.path === 'leaderboard/guest1'));
+  localStorage.clear(); // isolate from the backstop test below
+  fb.emitAuthState(null);
+
+  console.log('\n--- Guest upgrade (link in place) ---');
+  // A signed-in anonymous guest upgrading via a provider LINKS (keeps the uid)
+  // rather than opening a fresh signInWithPopup, so their progress carries over.
+  fb.setAuthCurrentUser({ uid: 'guest1', isAnonymous: true });
+  fb.setNextLinkResult({ resolve: { user: { uid: 'guest1', isAnonymous: false, email: 'gh@glider.ai', displayName: 'GH' } } });
+  const linksBefore = calls.linkWithPopup;
+  const popupsBeforeUpgrade = calls.signInWithPopup;
+  githubBtn.dispatchEvent(new window.Event('click'));
+  await flush();
+  check('guest upgrade: uses linkWithPopup (keeps uid), not signInWithPopup',
+    calls.linkWithPopup === linksBefore + 1 && calls.signInWithPopup === popupsBeforeUpgrade);
+  check('guest upgrade: applies the now-named user directly (uid preserved, no longer anonymous)',
+    !!AuthModule.getAuthState().user && AuthModule.getAuthState().user.uid === 'guest1' &&
+    AuthModule.getAuthState().user.isAnonymous === false);
+  await new Promise(r => setTimeout(r, 120)); // drain the upgrade's syncUserData timer while localStorage is clear
+  await flush();
+  fb.setAuthCurrentUser(null);
+  fb.emitAuthState(null);
+
+  // Fallback: the provider account already exists -> linkWithPopup rejects with
+  // credential-already-in-use -> fall back to a normal signInWithPopup.
+  fb.setAuthCurrentUser({ uid: 'guest2', isAnonymous: true });
+  fb.setNextLinkResult({ reject: { code: 'auth/credential-already-in-use', message: 'exists' } });
+  fb.setNextPopupResult({ resolve: { user: { uid: 'existing1', email: 'existing@glider.ai', displayName: 'Existing' } } });
+  const linksBefore2 = calls.linkWithPopup;
+  const popupsBefore2 = calls.signInWithPopup;
+  appleBtn.dispatchEvent(new window.Event('click'));
+  await flush();
+  await flush();
+  check('guest upgrade fallback: link rejects -> signInWithPopup is used instead',
+    calls.linkWithPopup === linksBefore2 + 1 && calls.signInWithPopup === popupsBefore2 + 1);
+  fb.setAuthCurrentUser(null);
+  fb.emitAuthState(null);
+  fb.setNextPopupResult(null);
+  fb.setNextLinkResult(null);
 
   console.log('\n--- syncUserData login backstop + id token + direct sign-out ---');
   // A valid local best present at sign-in must be backfilled by the delayed

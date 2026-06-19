@@ -356,8 +356,9 @@ canvas { display: block; }
     padding: 3px;
   }
 
-  /* Make login button smaller on mobile */
-  #loginBtn {
+  /* Make provider buttons smaller on mobile */
+  #loginBtn,
+  .provider-btn {
     font-size: 12px;
     padding: 4px 8px;
   }
@@ -489,8 +490,43 @@ canvas { display: block; }
 */
 #authUI {
   display: flex;
-  align-items: center;
+  flex-direction: column; /* Stack the provider buttons in the narrow panel */
+  align-items: stretch;
+  gap: 6px;
 }
+/*
+ * Shared base for every provider button. #loginBtn keeps its own block below for
+ * the Google brand color and the ripple ::after; the GitHub/Apple/Guest buttons
+ * inherit structure here and set only their brand color.
+ */
+.provider-btn {
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.1s ease, background-color 0.2s ease;
+  min-height: 36px;
+  position: relative;
+}
+.provider-btn:active, .provider-btn.signing-in {
+  transform: scale(0.98);
+}
+.provider-github { background-color: #24292e; }
+.provider-github:hover { background-color: #1b1f23; }
+.provider-apple { background-color: #000000; }
+.provider-apple:hover { background-color: #1a1a1a; }
+.provider-guest { background-color: #555555; }
+.provider-guest:hover { background-color: #444444; }
 #loginBtn {
   background-color: #4285F4;
   color: white;

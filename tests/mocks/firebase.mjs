@@ -34,13 +34,16 @@ export const calls = {
   logEvent: [],
   // firebase-auth.js call counters (used by the auth harness)
   signInWithPopup: 0,
+  signInAnonymously: 0,
+  linkWithPopup: 0,
   signOut: 0,
   setPersistence: 0
 };
 
 // firebase-auth.js control surface, driven by the auth harness.
 let authStateCallback = null; // the onAuthStateChanged listener auth.ts registers
-let nextPopupResult = null;   // controls how the next signInWithPopup resolves/rejects
+let nextPopupResult = null;   // controls how the next signInWithPopup/signInAnonymously resolves/rejects
+let nextLinkResult = null;    // controls how the next linkWithPopup resolves/rejects (guest upgrade)
 
 // Sentinels handed back to callers that ask the SDK for the service instances.
 export const firestoreInstance = { __firestore: true };
@@ -89,6 +92,8 @@ export function reset() {
   calls.getDocs = [];
   calls.logEvent = [];
   calls.signInWithPopup = 0;
+  calls.signInAnonymously = 0;
+  calls.linkWithPopup = 0;
   calls.signOut = 0;
   calls.setPersistence = 0;
   pendingWritePath = null;
@@ -96,6 +101,8 @@ export function reset() {
   timestampCounter = 0;
   authStateCallback = null;
   nextPopupResult = null;
+  nextLinkResult = null;
+  authInstance.currentUser = null;
 }
 
 export function seed(collectionName, id, value) {
@@ -265,12 +272,70 @@ export class GoogleAuthProvider {
   }
 }
 
+// GitHub provider — same shape as Google (no-arg constructor).
+export class GithubAuthProvider {
+  constructor() {
+    this.providerId = 'github.com';
+    this.scopes = [];
+    this.params = {};
+  }
+  addScope(scope) {
+    this.scopes.push(scope);
+  }
+  setCustomParameters(params) {
+    this.params = params;
+  }
+}
+
+// Generic OAuth provider — Apple uses new OAuthProvider('apple.com').
+export class OAuthProvider {
+  constructor(providerId) {
+    this.providerId = providerId;
+    this.scopes = [];
+    this.params = {};
+  }
+  addScope(scope) {
+    this.scopes.push(scope);
+  }
+  setCustomParameters(params) {
+    this.params = params;
+  }
+}
+
 export function signInWithPopup() {
   calls.signInWithPopup++;
   if (nextPopupResult && nextPopupResult.reject) {
     return Promise.reject(nextPopupResult.reject);
   }
   return Promise.resolve(nextPopupResult ? nextPopupResult.resolve : { user: { email: 'x@y.z' } });
+}
+
+// Anonymous "play as guest". Shares nextPopupResult for error injection; the
+// default resolves to a fresh anonymous user (isAnonymous: true, no email).
+export function signInAnonymously() {
+  calls.signInAnonymously++;
+  if (nextPopupResult && nextPopupResult.reject) {
+    return Promise.reject(nextPopupResult.reject);
+  }
+  return Promise.resolve(
+    nextPopupResult && nextPopupResult.resolve
+      ? nextPopupResult.resolve
+      : { user: { uid: 'anon-1', isAnonymous: true, email: null, displayName: null } }
+  );
+}
+
+// Upgrade a guest in place. Driven by setNextLinkResult so the harness can model
+// both a clean link and the credential-already-in-use fallback to signInWithPopup.
+export function linkWithPopup(user, _provider) {
+  calls.linkWithPopup++;
+  if (nextLinkResult && nextLinkResult.reject) {
+    return Promise.reject(nextLinkResult.reject);
+  }
+  return Promise.resolve(
+    nextLinkResult
+      ? nextLinkResult.resolve
+      : { user: { ...user, isAnonymous: false, email: 'upgraded@glider.ai', displayName: 'Upgraded' } }
+  );
 }
 
 // auth.ts imports this as `signOut as firebaseSignOut`.
@@ -292,9 +357,19 @@ export const browserLocalPersistence = { __persistence: 'local' };
 
 // ---- auth test control surface ----
 
-/** Set how the next signInWithPopup() resolves: { resolve } or { reject }. */
+/** Set how the next signInWithPopup()/signInAnonymously() resolves: { resolve } or { reject }. */
 export function setNextPopupResult(result) {
   nextPopupResult = result;
+}
+
+/** Set how the next linkWithPopup() (guest upgrade) resolves: { resolve } or { reject }. */
+export function setNextLinkResult(result) {
+  nextLinkResult = result;
+}
+
+/** Seed auth.currentUser so the guest-upgrade branch (isAnonymous) can be driven. */
+export function setAuthCurrentUser(user) {
+  authInstance.currentUser = user;
 }
 
 /** The onAuthStateChanged listener auth.ts registered (null until initializeAuth). */
