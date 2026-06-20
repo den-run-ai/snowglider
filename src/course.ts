@@ -26,7 +26,8 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
-import { buildResultShareData, shareResult } from './share.js';
+import { buildShareControls } from './ui/share-menu.js';
+import type { CaptureContext } from './share-card.js';
 
 /** Terrain sampler injected via {@link CourseModule.init}. */
 export type TerrainHeightFn = (x: number, z: number) => number;
@@ -54,6 +55,11 @@ export interface CourseInitOptions {
   scene: THREE.Scene;
   getTerrainHeight: TerrainHeightFn;
   createSnowman: CreateSnowmanFn;
+  // Optional renderer/camera so the result screen's "Save image" share can
+  // capture the live game frame (see src/share-card.ts). Omitted in headless
+  // tests, where the share card falls back to a gradient background.
+  renderer?: THREE.WebGLRenderer;
+  camera?: THREE.Camera;
 }
 
 /** Result of {@link medalFor}: which medal a finished run earned. */
@@ -101,6 +107,8 @@ export const CourseModule = (function () {
   let scene: THREE.Scene | null = null;
   let getTerrainHeight: TerrainHeightFn | null = null;
   let createSnowman: CreateSnowmanFn | null = null;
+  let renderer: THREE.WebGLRenderer | null = null;  // for share-image frame capture
+  let camera: THREE.Camera | null = null;
 
   let gateGroup: THREE.Group | null = null;        // container for all gate meshes
   let ghost: THREE.Object3D | null = null;         // ghost snowman group (or null)
@@ -379,6 +387,8 @@ export const CourseModule = (function () {
     scene = opts.scene;
     getTerrainHeight = opts.getTerrainHeight;
     createSnowman = opts.createSnowman;
+    renderer = opts.renderer ?? null;
+    camera = opts.camera ?? null;
 
     // Load persisted bests
     loadBests();
@@ -596,6 +606,7 @@ export const CourseModule = (function () {
 
     // Split table
     const table = document.createElement('div');
+    table.id = 'resultSplitTable';
     Object.assign(table.style, {
       display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '4px 14px',
       fontSize: '13px', alignItems: 'center'
@@ -639,45 +650,24 @@ export const CourseModule = (function () {
     });
     panel.appendChild(table);
 
-    // Share button (native Web Share API + clipboard fallback). It is only ever
-    // built here, inside the finish result panel, so it appears solely on a valid
-    // successful finish and is cleaned up with the panel on restart.
-    panel.appendChild(buildShareButton(totalTime, isBest));
+    // Share controls (hybrid: native sheet on mobile, per-platform menu +
+    // screenshot card on desktop). Built only here, inside the finish result
+    // panel, so they appear solely on a valid successful finish and are cleaned
+    // up with the panel on restart. See src/ui/share-menu.ts.
+    panel.appendChild(buildShareControls({
+      time: totalTime,
+      isBest,
+      getCapture: getCaptureContext,
+    }));
 
     return panel;
   }
 
-  function buildShareButton(totalTime: number, isBest: boolean): HTMLButtonElement {
-    const btn = document.createElement('button');
-    btn.id = 'shareResultBtn';
-    btn.type = 'button';
-    const defaultLabel = '🔗 Share Result';
-    btn.textContent = defaultLabel;
-    Object.assign(btn.style, {
-      marginTop: '14px', width: '100%', padding: '10px 14px',
-      fontSize: '15px', fontWeight: '700', color: '#fff', cursor: 'pointer',
-      background: 'linear-gradient(90deg,#0984e3,#74b9ff)', border: 'none',
-      borderRadius: '10px', fontFamily: 'Arial, sans-serif',
-      touchAction: 'manipulation', userSelect: 'none'
-    });
-    btn.style.setProperty('-webkit-tap-highlight-color', 'rgba(255,255,255,0.4)');
-
-    let busy = false;
-    btn.addEventListener('click', () => {
-      if (busy) return;
-      busy = true;
-      shareResult(buildResultShareData(totalTime, isBest)).then((outcome) => {
-        const label =
-          outcome === 'shared' ? '✅ Shared!' :
-          outcome === 'copied' ? '✅ Link copied!' :
-          outcome === 'unavailable' ? '⚠️ Sharing unavailable' :
-          defaultLabel; // 'cancelled' — user dismissed; restore quietly
-        if (label === defaultLabel) { busy = false; return; }
-        btn.textContent = label;
-        setTimeout(() => { btn.textContent = defaultLabel; busy = false; }, 1800);
-      }).catch(() => { busy = false; });
-    });
-    return btn;
+  /** Provide the live renderer/scene/camera for share-image capture, or null
+   *  (headless tests / pre-init) so the card uses its gradient fallback. */
+  function getCaptureContext(): CaptureContext | null {
+    if (!renderer || !scene || !camera) return null;
+    return { renderer, scene, camera };
   }
 
   return {
