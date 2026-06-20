@@ -25,7 +25,7 @@ export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveli
  * Typed game state (Phase 3, issues #98/#84). Consolidates aliased mutable
  * module-scoped `let`s into one typed object — the real fix for the
  * shared-mutable-global aliasing that types alone can't catch (see
- * `TYPESCRIPT_MIGRATION.md`, "What TypeScript will not catch"). The browser
+ * `ARCHITECTURE.md`, "What the type system won't catch"). The browser
  * suites still drive these by their original bare names via the `window.*`
  * accessor proxy in the coordinator (the proxy reads/writes `state.*`).
  *
@@ -60,7 +60,7 @@ export function setupScene() {
   //    diffuse term by π, so the directional/ambient intensities are pre-multiplied
   //    by Math.PI at their definitions below to reproduce the legacy brightness.
   // Adopting modern color/lighting is a deliberate later change.
-  // (See docs/THREEJS_UPGRADE.md, Stage B.)
+  // (Adopted alongside the three.js r134 -> r160 -> 0.184 upgrade.)
   const THREECompat = THREE as any;
   THREECompat.ColorManagement.enabled = false;
   const scene = new THREE.Scene();

@@ -6,7 +6,7 @@
 // it lived as ~11 loose module-scoped `let`s/`const`s aliased across modules.
 // It now lives in one typed `PlayerState` object: the real fix for the
 // shared-mutable-global aliasing that types alone can't catch (see
-// `TYPESCRIPT_MIGRATION.md`, "What TypeScript will not catch").
+// `ARCHITECTURE.md`, "What the type system won't catch").
 //
 // The physics *math* is deliberately unchanged: it still lives in snowman.ts
 // (`Snowman.updateSnowman` / `Snowman.resetSnowman`). This module is the thin,

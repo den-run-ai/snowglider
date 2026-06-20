@@ -176,8 +176,7 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   samplers, and finally `AudioModule`). Remaining `window.*` handles are
   deliberate boot/auth/test seams, not module-namespace bridges.
 - Build, lint, `tsc --noEmit`, the Node suite, and the puppeteer browser suite
-  stay green; the Vite bundle and `CNAME`/Pages artifact are unchanged. See
-  [`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md) for the phase status.
+  stay green; the Vite bundle and `CNAME`/Pages artifact are unchanged.
 
 ### Onboarding / start screen
 - **Self-updating build badge.** The hand-maintained `build-id` meta (stuck at
