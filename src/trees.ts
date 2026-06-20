@@ -30,6 +30,81 @@ export interface TerrainGradient {
   z: number;
 }
 
+// --- Procedural tree textures (issue #17, Stage 4) ---
+// One bark normal map and one foliage normal map, shared across every tree (built
+// once, cached) so the few hundred trunks/cones reuse a single GPU upload each
+// instead of per-tree canvases. Lazily created and guarded on `document` so
+// createTree still runs headless (terrain-tests mocks it, but keep it safe).
+// Normal maps add surface relief while the existing per-tree HSL colours stay the
+// albedo. Authored for the legacy linear pipeline; flagged NoColorSpace. Mirrors
+// the snow/rock texture pattern in mountains.ts.
+let barkNormalTexture: THREE.CanvasTexture | null = null;
+let foliageNormalTexture: THREE.CanvasTexture | null = null;
+
+/** Build a tileable tangent-space normal map from a height(u,v) sampler. */
+function buildNormalTexture(size: number, strength: number, heightAt: (u: number, v: number) => number): THREE.CanvasTexture {
+  const h = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      h[y * size + x] = heightAt(x / size, y / size);
+    }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(size, size);
+  const data = image.data;
+  const wrap = (i: number) => (i + size) % size;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const hl = h[y * size + wrap(x - 1)], hr = h[y * size + wrap(x + 1)];
+      const hd = h[wrap(y - 1) * size + x], hu = h[wrap(y + 1) * size + x];
+      const nx = -(hr - hl) * strength, ny = -(hu - hd) * strength;
+      const len = Math.hypot(nx, ny, 1);
+      const idx = (y * size + x) * 4;
+      data[idx] = (nx / len * 0.5 + 0.5) * 255;
+      data[idx + 1] = (ny / len * 0.5 + 0.5) * 255;
+      data[idx + 2] = (1 / len * 0.5 + 0.5) * 255;
+      data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
+
+/** Vertical bark ridges (relief varies around the trunk, runs up it). */
+function getBarkNormal(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  if (!barkNormalTexture) {
+    barkNormalTexture = buildNormalTexture(128, 2.5, (u) => {
+      let s = 0.5 * Math.sin(2 * Math.PI * 8 * u);
+      s += 0.3 * Math.sin(2 * Math.PI * 17 * u + 1.3);
+      s += 0.2 * Math.sin(2 * Math.PI * 31 * u + 0.7);
+      return s;
+    });
+    barkNormalTexture.repeat.set(1, 3); // wrap once around, repeat up the trunk
+  }
+  return barkNormalTexture;
+}
+
+/** Isotropic dapple = needle clumps on the foliage cones. */
+function getFoliageNormal(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  if (!foliageNormalTexture) {
+    foliageNormalTexture = buildNormalTexture(128, 2.0, (u, v) => {
+      let h = 0.5 * Math.sin(2 * Math.PI * (6 * u + 4 * v) + 0.5);
+      h += 0.35 * Math.sin(2 * Math.PI * (11 * u - 9 * v) + 1.9);
+      h += 0.25 * Math.sin(2 * Math.PI * 19 * u) * Math.sin(2 * Math.PI * 17 * v);
+      return h;
+    });
+    foliageNormalTexture.repeat.set(3, 3);
+  }
+  return foliageNormalTexture;
+}
+
 // Create a more realistic tree with visible branches and variability
 function createTree(scale = 1.0): THREE.Group {
   const group = new THREE.Group();
@@ -51,7 +126,9 @@ function createTree(scale = 1.0): THREE.Group {
   const trunkHue = 0.08 + Math.random() * 0.04; // Brown hue variations
   const trunkMaterial = new THREE.MeshStandardMaterial({
     color: new THREE.Color().setHSL(trunkHue, 0.5, 0.3),
-    roughness: 0.9
+    roughness: 0.9,
+    normalMap: getBarkNormal(),
+    normalScale: new THREE.Vector2(0.7, 0.7)
   });
   
   const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
@@ -79,7 +156,9 @@ function createTree(scale = 1.0): THREE.Group {
     
     const coneMaterial = new THREE.MeshStandardMaterial({
       color: new THREE.Color().setHSL(greenHue, greenSaturation, greenLightness),
-      roughness: 0.8
+      roughness: 0.8,
+      normalMap: getFoliageNormal(),
+      normalScale: new THREE.Vector2(0.5, 0.5)
     });
     
     const cone = new THREE.Mesh(coneGeometry, coneMaterial);
