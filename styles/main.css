@@ -962,3 +962,27 @@ body.start-screen-active #authContainer {
     padding: 12px 24px;
   }
 }
+
+/* Intro fly-over (issue #51): while the cinematic establishing shot plays, hide
+   the in-game HUD and on-screen buttons so the mountain reads cleanly. The body
+   gets `intro-active` only during the fly-over (snowglider.ts) and it is removed
+   the instant the run begins, so this never affects live gameplay. The Skip
+   button (#introSkipBtn) is created by intro.ts with its own inline styles and is
+   intentionally left visible.
+   `#courseHud` is included because resetSnowman() -> CourseModule.reset() sets it
+   to `display: flex` (inline) before `intro-active` is added; the `!important`
+   here overrides that inline value so the course progress/ghost HUD stays hidden
+   for the whole cinematic. (The split-flash div is opacity:0 and never fires
+   during the intro, so it needs no rule.)
+   `.touch-control` covers the mobile on-screen steering/jump zones, which
+   Controls.setupControls() appends to <body> on touch UAs; hide them too so the
+   mobile fly-over is as clean as desktop. The Skip button (#introSkipBtn,
+   zIndex 1200) is a separate element and stays visible. */
+body.intro-active #controlsInfo,
+body.intro-active #gameStatsContainer,
+body.intro-active #courseHud,
+body.intro-active #resetBtn,
+body.intro-active #cameraToggleBtn,
+body.intro-active .touch-control {
+  display: none !important;
+}

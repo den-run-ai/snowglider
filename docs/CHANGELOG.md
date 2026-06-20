@@ -13,6 +13,33 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Intro fly-over — cinematic mountain establishing shot at game start (#51)
+- On the first real "Start Game" the camera now flies over the mountain before
+  the run begins: a wide establishing shot high above the peak that sweeps down
+  the course and settles into the gameplay chase pose. This turns the old blank
+  ~1.8 s "Loading…" pause into a cinematic, in a new `src/intro.ts` module
+  (`IntroModule.play`).
+- **Camera-only, zero gameplay impact.** The fly-over runs its own short
+  animation loop and renders the static scene; it never calls the physics kernel,
+  the snowman stays seated at the start gate, and the run timer does not start
+  until the fly-over hands off to the game loop. The no-input physics invariant is
+  therefore untouched (and the verification harness is unchanged).
+- **Skippable.** A "Skip ▶" button plus a pointer / Escape / Enter listener jumps
+  straight to the gameplay pose; movement keys (arrows/WASD/Space/V) are left for
+  the controls layer and never skip. The in-game HUD/buttons are hidden during the
+  fly-over (`body.intro-active`) so the shot reads cleanly.
+- **Automation- and motion-safe, by design.** The cinematic is skipped — and the
+  original Loading/Get-Ready timing reproduced byte-for-byte — for the `?test=`
+  browser suites (`window.isTestMode`), automated runs (`navigator.webdriver`,
+  i.e. Playwright/Puppeteer), and `prefers-reduced-motion`. So every existing
+  Node/browser/e2e test runs on the unchanged path (browser suite stays 87/0).
+  `?intro=force` plays it under automation (manual QA); `?intro=off` disables it.
+- **Tested without a browser.** The path math is plain-number Catmull-Rom (no
+  three.js, no DOM) and the clock / animation-frame scheduler are injectable
+  seams, so `tests/intro-tests.js` drives the whole fly-over to completion
+  deterministically (endpoint interpolation, skip path, mid-flight skip, terrain
+  clearance, single `onComplete`).
+
 ### Social sharing — "Share Result" on the finish screen (#157)
 - New `src/share.ts` module implements the plan in
   [`SOCIAL_SHARING_PLAN.md`](SOCIAL_SHARING_PLAN.md): lightweight sharing of a

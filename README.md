@@ -23,6 +23,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - Tree and exposed-rock obstacle detection with collision physics
 - **Avalanche system** - triggered when player travels far enough downhill, with tumbling snow boulders that can bury the player (game over)
 - Snow particle effects that respond to speed and turning
+- Cinematic intro fly-over of the mountain at game start (skippable)
 - Tracking camera that follows the snowman's movements
 - Background music (simplified native HTML5 audio; see the audio history in [`CHANGELOG.md`](docs/CHANGELOG.md))
 - Timer with best time tracking
@@ -54,6 +55,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
   - `avalanche.ts` - Avalanche system with snow boulder physics and burial detection
   - `course.ts` - Course structure: checkpoint gates, split timing, ghost racing, and result screen
   - `effects.ts` - Avalanche warning UI (banner, danger meter, vignette) and camera juice (speed FOV, shake)
+  - `intro.ts` - Cinematic "fly over the mountain" intro at game start (skippable; skipped under test/automation/reduced-motion)
   - `camera.ts` - Camera management and tracking
   - `snow.ts` - Utility functions and snow effects
   - `controls.ts` - Keyboard and touch controls
