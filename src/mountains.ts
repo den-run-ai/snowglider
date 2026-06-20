@@ -380,17 +380,72 @@ function applySnowVertexColors(geometry: THREE.BufferGeometry): void {
   const count = geometry.attributes.position.count;
   const colors = new Float32Array(count * 3);
   const snow = { r: 1.0, g: 1.0, b: 1.0 };
-  const shade = { r: 0.84, g: 0.88, b: 0.96 }; // bright, faintly cool powder shadow
+  const shade = { r: 0.93, g: 0.95, b: 0.99 }; // barely-cool powder shadow (almost white)
   for (let i = 0; i < count; i++) {
     const ny = normals[i * 3 + 1];
     // normal.y ~1 on flats, lower on pitches; remap the useful band to 0..1.
     const tilt = Math.min(1, Math.max(0, (1 - ny) / 0.4));
-    const t = tilt * 0.35; // even the steepest stays clearly snow, not grey
+    const t = tilt * 0.5; // gentle, near-white slope shading (lighting does the rest)
     colors[i * 3] = snow.r + (shade.r - snow.r) * t;
     colors[i * 3 + 1] = snow.g + (shade.g - snow.g) * t;
     colors[i * 3 + 2] = snow.b + (shade.b - snow.b) * t;
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+/**
+ * Give the snow surface *smoothed shading normals* without moving any vertex
+ * (issue #17 follow-up, per maintainer review on PR #181). The grey "grid lines"
+ * that survived the texture fix are the bumpy terrain's own facet normals being
+ * raked by the directional light — every little mogul/ridge gets a lit and a
+ * shaded face. We can't move the positions (physics rides the exact mesh via
+ * `heightMap`, and the two-formula terrain contract + invariant harness depend on
+ * it), but the *shading* normals are render-only. So we low-pass a throwaway clone
+ * of the height field and copy its normals onto the real geometry: the silhouette
+ * stays the skiable terrain, but the light sees a soft surface and the snow reads
+ * as deep powder instead of corduroy. Physics is untouched (it never reads mesh
+ * normals — slope forces use the analytic `getTerrainGradient`).
+ *
+ * `cols`/`rows` are the vertex counts (segments + 1) of the PlaneGeometry grid.
+ */
+function applySmoothShadingNormals(
+  geometry: THREE.BufferGeometry, cols: number, rows: number, passes: number
+): void {
+  const clone = geometry.clone();
+  const pos = clone.attributes.position.array as Float32Array;
+  // Pull the height (world y) of each grid vertex into a 2D buffer.
+  const h = new Float32Array(cols * rows);
+  for (let k = 0; k < cols * rows; k++) h[k] = pos[k * 3 + 1];
+  // Separable 3-tap box blur, edge-clamped, repeated for a gentle low-pass.
+  const tmp = new Float32Array(cols * rows);
+  for (let p = 0; p < passes; p++) {
+    // horizontal
+    for (let r = 0; r < rows; r++) {
+      const base = r * cols;
+      for (let c = 0; c < cols; c++) {
+        const l = h[base + Math.max(0, c - 1)];
+        const m = h[base + c];
+        const rr = h[base + Math.min(cols - 1, c + 1)];
+        tmp[base + c] = (l + m + rr) / 3;
+      }
+    }
+    // vertical
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < rows; r++) {
+        const u = tmp[Math.max(0, r - 1) * cols + c];
+        const m = tmp[r * cols + c];
+        const d = tmp[Math.min(rows - 1, r + 1) * cols + c];
+        h[r * cols + c] = (u + m + d) / 3;
+      }
+    }
+  }
+  // Write the smoothed heights back into the clone and let three compute robust,
+  // correctly-oriented normals from it; copy those onto the real geometry.
+  for (let k = 0; k < cols * rows; k++) pos[k * 3 + 1] = h[k];
+  clone.computeVertexNormals();
+  const smooth = clone.attributes.normal.array as Float32Array;
+  geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(smooth), 3));
+  clone.dispose();
 }
 
 // --- Terrain creation functions ---
@@ -450,7 +505,13 @@ function createTerrain(scene: THREE.Scene) {
     heightMap[`${Math.round(x*10)},${Math.round(z*10)}`] = y;
   }
   geometry.computeVertexNormals();
-  
+  // Smooth the *shading* normals (positions/physics untouched) so the directional
+  // light stops raking every terrain bump into a grey band (PR #181 review). Must
+  // run before applySnowVertexColors (which derives the slope tint from these
+  // normals) and must NOT be followed by another computeVertexNormals (it would
+  // overwrite them). PlaneGeometry(150,200 segments) => 151x201 grid vertices.
+  applySmoothShadingNormals(geometry, 151, 201, 7);
+
   // Snow surface material (issue #17): a bright, isotropically mottled near-white
   // albedo plus a soft *isotropic* micro-relief normal map (powder granulation, no
   // directional ripples) so the slope reads as deep snow that catches the light,
@@ -482,9 +543,10 @@ function createTerrain(scene: THREE.Scene) {
     window.terrainMesh = terrain;
   }
   
-  // Update terrain vertices after geometry changes
-  geometry.computeVertexNormals();
-  
+  // NOTE: do not recompute vertex normals here — applySmoothShadingNormals() above
+  // installed the smoothed snow-shading normals and a plain computeVertexNormals
+  // would overwrite them with the raw faceted ones (reintroducing the grey banding).
+
   // Debug log to verify our height map is working
   console.log(`Height map contains ${Object.keys(heightMap).length} terrain points`);
   

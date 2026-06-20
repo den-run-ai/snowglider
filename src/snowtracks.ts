@@ -1,10 +1,16 @@
-// snowtracks.ts - Dynamic ski-trail / snow-accumulation system (issue #17 follow-up).
+// snowtracks.ts - Temporary ski-track overlay (issue #17 follow-up).
 //
-// The static surface never "did anything" — falling snow had no visible effect, so
-// the slope read as inert. This adds the first *dynamic* snow response: the skis
-// carve faint trails into the surface as the snowman moves, and each trail then
-// fades over a few seconds as fresh snow accumulates back over it. That fade IS the
-// accumulation read — you see snow filling the groove back in.
+// The static surface never "did anything" as the snowman moved, so the slope read
+// as inert. This adds a transient track overlay: the skis carve faint grooves as
+// the snowman moves, and each groove fades over a few seconds (reading as fresh
+// snow settling back over it).
+//
+// Scope honesty (per PR #181 review): this is *temporary track feedback*, NOT a
+// snow-accumulation model. It does not model falling snow building up depth on the
+// surface or persistent compaction. A real accumulation pass would be a low-res
+// persistent `SnowDepthField` (snowfall raises depth, skis compact it into a track
+// mask, tracks refill over time, rocks/trees sample the same coverage) fed into the
+// terrain material — a separate, larger effort tracked as a follow-up.
 //
 // Contract & safety:
 //  - Purely cosmetic. It only READS snowman.position and the injected terrain

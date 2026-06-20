@@ -1,5 +1,5 @@
 /**
- * Snow trails / dynamic accumulation tests for SnowGlider (issue #17 follow-up).
+ * Temporary ski-track overlay tests for SnowGlider (issue #17 follow-up).
  *
  * Mirrors avalanche-tests.js: runs against the REAL `src/snowtracks.ts` ES module
  * and real three.js from npm. three's geometry/material/InstancedMesh constructors
