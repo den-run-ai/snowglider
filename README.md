@@ -44,30 +44,15 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 > [`ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Project Structure
-- `index.html` - Main entry point and HTML structure (loads the Vite ES-module bundle entry `src/main.ts` plus the boot/UI module scripts)
-- `auth.html` - Standalone authentication page
+- `index.html` / `auth.html` - Entry points (load the Vite bundle `src/main.ts`)
 - `styles/` - Page-level CSS for the static site shell
-- `src/` - Application TypeScript ES modules (bundled by Vite):
-  - `boot/` - Classic-script local-auth fallback + Firebase bootstrap (`.js`), and `script-loader.ts` (the startup driver: sequences auth, the orchestrator import, and audio preload)
-  - `ui/start-menu.ts` - Start/about menu behavior
-  - `snowglider.ts` - Core game loop and initialization
-  - `snowman.ts` - Snowman model creation and physics
-  - `mountains.ts` - Terrain generation and mountain features
-  - `trees.ts` - Tree creation and placement
-  - `avalanche.ts` - Avalanche system with snow boulder physics and burial detection
-  - `course.ts` - Course structure: checkpoint gates, split timing, ghost racing, and result screen
-  - `effects.ts` - Avalanche warning UI (banner, danger meter, vignette) and camera juice (speed FOV, shake)
-  - `intro.ts` - Cinematic "fly over the mountain" intro at game start (skippable; skipped under test/automation/reduced-motion)
-  - `camera.ts` - Camera management and tracking
-  - `snow.ts` - Utility functions and snow effects
-  - `controls.ts` - Keyboard and touch controls
-  - `audio.ts` - Background music and sound control system
-  - `auth.ts` - Firebase authentication and user management
-  - `scores.ts` - User scoring and leaderboard functionality
+- `src/` - Application TypeScript ES modules, bundled by Vite (game loop, terrain,
+  snowman + physics, camera, controls, audio, auth, scores, UI). See
+  [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full, maintained module map.
+- `src/boot/` - Classic-script auth fallback + Firebase bootstrap + startup driver
 - `assets/` - Media (audio, video) tracked with Git LFS
-- `tests/` - Testing framework for game components
-- `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (run via `npm run test:verify`)
-- `docs/` - Project documentation: `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md` (see [Documentation](#documentation))
+- `tests/`, `tests/verification/` - Node/browser/e2e suites and headless harnesses
+- `docs/` - `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md` (see [Documentation](#documentation))
 
 ## Controls
 
@@ -108,12 +93,18 @@ files.
 ## Development
 
 ### Local Development Setup
+**Prerequisite:** Node.js 22+ (matches CI). The Node test suite runs the
+TypeScript sources directly through Node's native type stripping, which requires
+Node 22 or newer.
+
 1. Clone the repository
 2. Install dependencies with `npm ci`
 3. Run locally using one of these options:
    - **Option 1:** `npm run dev` — Vite dev server (full features)
    - **Option 2:** `npm start` — the same Vite dev server, pinned to port 8080 (full features)
    - Direct `file://` opens are not supported after the ES-module migration.
+4. Before pushing, run the same checks CI does: `npm run lint`, `npm run typecheck`,
+   `npm test`, and `npm run build`.
 
 #### Local Development Notes
 - **Server mode (`npm run dev` or `npm start`):**
