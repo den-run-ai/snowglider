@@ -1,5 +1,5 @@
 /**
- * Unit tests for the typed player-physics state layer (src/physics.ts, PR 3.21).
+ * Unit tests for the typed player-physics state layer (src/player-state.ts, PR 3.21).
  *
  * Exercises the REAL Physics module against the REAL snowman.ts kernel to lock
  * the createPlayerState / resetPlayer / stepPlayer contract:
@@ -9,9 +9,9 @@
  *     and returns the per-frame result
  *   - coasting advances downhill (smoke test that the kernel is wired correctly)
  *
- * Run with the .js -> .ts resolve hook so physics.ts's `import './snowman.js'`
+ * Run with the .js -> .ts resolve hook so player-state.ts's `import './snowman.js'`
  * maps to snowman.ts (Node strips the erasable types natively):
- *   node --import ./tests/loaders/register-ts-resolve.mjs tests/physics-state-tests.js
+ *   node --import ./tests/loaders/register-ts-resolve.mjs tests/player-state-tests.js
  */
 
 // Deterministic hill, mirroring the physics-invariant harness (no per-vertex noise).
@@ -70,9 +70,9 @@ function runTest(name, fn) {
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
 
 (async () => {
-  const { Physics } = await import('../src/physics.js');
+  const { Physics } = await import('../src/player-state.js');
 
-  console.log('\n🏂 SNOWGLIDER PHYSICS STATE TESTS (physics.ts) 🏂');
+  console.log('\n🏂 SNOWGLIDER PLAYER STATE TESTS (player-state.ts) 🏂');
   console.log('================================================\n');
 
   runTest('createPlayerState seeds the documented initial state', () => {

@@ -241,11 +241,11 @@ mountains -> trees -> snow -> camera -> snowman -> audio -> controls
 every runtime concern. The TS migration already did the *state* slice of this:
 the mutable run/lifecycle state was folded into a typed `GameState`
 (**#118**/**#119**/**#121**) and the player physics state was extracted into
-`src/physics.ts` (**#120**). The *scene / loop / UI* extractions below have since
+`src/player-state.ts` (**#120**). The *scene / loop / UI* extractions below have since
 shipped — `src/game/` exists and `src/ui/` now holds four modules:
 
 - ✅ `game-state` — typed `GameState` (`pos`, `velocity`, air state, timers,
-  avalanche trigger state, technique) + `src/physics.ts` player-state layer.
+  avalanche trigger state, technique) + `src/player-state.ts` player-state layer.
 - ✅ `src/game/scene-setup.ts` for scene, renderer, lights, terrain, trees, snowman,
   snow particles, avalanche construction, and course/effects init.
 - ✅ `src/game/main-loop.ts` for the current `animate()` ordering.
@@ -264,7 +264,7 @@ tests still use them: `window.resetSnowman`, `window.restartGame`,
 ### Stage R3 — Split snowman only after R1/R2 — ✅ shipped
 
 `src/snowman.ts` is the highest-risk file because it contains the physics model
-and the deterministic verification seam. Note the typed `src/physics.ts`
+and the deterministic verification seam. Note the typed `src/player-state.ts`
 extracted in R2 is only the per-frame *state* container — the physics *math*
 (`Snowman.updateSnowman` / `Snowman.resetSnowman`) is reached through the stable
 `./snowman.js` facade so the physics-invariant harness stays byte-identical. The
@@ -344,7 +344,7 @@ several landed after this roadmap was first written):
 |-------|----------|--------|
 | TypeScript / ES-module migration | #35, #84, #98 | ✅ shipped — closed (all `src/` is `.ts`, `strict: true`, Vite bundle) |
 | Refactor `index.html` into CSS + main | #33 | ✅ Stage R1 shipped (`styles/main.css` + `src/boot/*` + `src/ui/start-menu.ts`) |
-| Refactor `snowglider` into a thinner UI/game module | #34 | ◐ partial — typed `GameState` + `src/physics.ts`; scene/loop/UI extraction still open |
+| Refactor `snowglider` into a thinner UI/game module | #34 | ◐ partial — typed `GameState` + `src/player-state.ts`; scene/loop/UI extraction still open |
 | Improve test coverage for RED files (scores, auth, controls, start-menu) | #126 | ◐ in progress (#128–#131) |
 | Update three.js + validate testing/audio | #29 | ✅ likely addressed by the r160 upgrade (#75/#76) + native-audio rewrite — candidate to close |
 | Leaderboard unavailable / sign-in dropout + testing | #28 | ◐ scores/auth hardening + tests (#67, #73, #128/#129); the specific dropout report not separately re-verified |

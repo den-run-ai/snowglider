@@ -108,7 +108,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `Camera` | `camera.ts` | `class Camera` | Chase/orbit camera positioning & look-ahead |
 | `Snowman` | `snowman.ts` | object + fns | Snowman model, `updateSnowman` physics, test hooks |
 | `Flex` | `snowman-flex.ts` | object + fns | Cosmetic snowman flex (squash/jiggle, head-cluster bob/lean, landing settle); runs after physics, never touches the kernel (#53) |
-| `Physics` | `physics.ts` | object + fns | Typed per-frame `PlayerState` container over the snowman kernel |
+| `Physics` | `player-state.ts` | object + fns | Typed per-frame `PlayerState` container over the snowman kernel |
 | `AudioModule` | `audio.ts` | IIFE | Native HTML5 background music (gated by `AUDIO_ENABLED`) |
 | `Controls` | `controls.ts` | object + fns | Keyboard + touch input → shared `controls` state |
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
@@ -175,7 +175,7 @@ and a mocked `THREE`.
 
 `snowglider.ts` owns the Three.js `scene`, `renderer`, `camera`/`cameraManager`,
 the shared mutable run state (now a typed `GameState` + the `Physics`
-player-state layer in `physics.ts`, see #118–#121: `pos`, `velocity`, `isInAir`,
+player-state layer in `player-state.ts`, see #118–#121: `pos`, `velocity`, `isInAir`,
 timers, avalanche flags),
 and the lifecycle: `initializeGameWithAudio()` (entry from the Start button) →
 `resetSnowman()` → `animate()`; `showGameOver(reason)` / `restartGame()`.
@@ -271,7 +271,7 @@ and the `PHYSICS.md` discipline, not the compiler:
 - **Coordinate-system / up-axis assumptions** in terrain and camera-follow logic.
 - **Aliasing of shared mutable state** (`scene`, `velocity`, `snowman`): types the
   reference, not action-at-a-distance from cross-module mutation. The typed
-  `GameState` + `src/physics.ts` `PlayerState` container is the mitigation, not types
+  `GameState` + `src/player-state.ts` `PlayerState` container is the mitigation, not types
   alone.
 - **Disposal you don't already do** — watch new geometry / material / texture
   creation in `snow.ts` / `effects.ts` / `mountains.ts`.

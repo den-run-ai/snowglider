@@ -31,7 +31,7 @@ import { Controls } from './controls.js';
 import { Snow } from './snow.js';
 import { Snowman } from './snowman.js';
 import { AudioModule } from './audio.js';
-import { Physics } from './physics.js';
+import { Physics } from './player-state.js';
 import { IntroModule, prefersReducedMotion } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
@@ -63,7 +63,7 @@ const {
 
 // --- Snowman Position & Reset ---
 // The per-frame player physics state lives in one typed PlayerState object
-// (src/physics.ts) instead of ~11 aliased module-scoped lets. `pos`/`velocity`
+// (src/player-state.ts) instead of ~11 aliased module-scoped lets. `pos`/`velocity`
 // are objects mutated in place and handed by reference to course/camera/snow/
 // snowman, so keep by-identity aliases for those existing call sites; the
 // reassigned scalars are accessed through `player.*` (and so is the window proxy)
@@ -391,7 +391,7 @@ window.initializeGameWithAudio = function() {
     // gameActive now lives on the typed `state` (GameState); the proxy backs the
     // bare handle with state.* so a test's `gameActive = true` flows to the live state.
     gameActive:         { get: () => state.gameActive,       set: (v) => { state.gameActive = v; } },
-    // Player physics scalars now live on the typed `player` state (src/physics.ts);
+    // Player physics scalars now live on the typed `player` state (src/player-state.ts);
     // the proxy reads/writes player.* so test reassignments hit the live state.
     isInAir:            { get: () => player.isInAir,          set: (v) => { player.isInAir = v; } },
     verticalVelocity:   { get: () => player.verticalVelocity, set: (v) => { player.verticalVelocity = v; } },

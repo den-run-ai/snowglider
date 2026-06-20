@@ -11,7 +11,7 @@ import { Snowman } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
-import { Physics, type PlayerState } from '../physics.js';
+import { Physics, type PlayerState } from '../player-state.js';
 import { updateStatsHud, updateTimerDisplay } from '../ui/hud.js';
 import { AVALANCHE_TRIGGER_DISTANCE, type SceneContext } from './scene-setup.js';
 

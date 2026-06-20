@@ -23,7 +23,7 @@ import { applySnowmanPose } from './pose.js';
 import { addTestHooks } from './test-hooks.js';
 
 // These contract types are exported so the typed player-state layer in
-// physics.ts (PR 3.21) shares snowman's exact call contract instead of
+// player-state.ts (PR 3.21) shares snowman's exact call contract instead of
 // re-declaring it. Exporting interfaces/types is purely additive and erasable.
 
 /** Mutable player position the physics integrates each frame. */

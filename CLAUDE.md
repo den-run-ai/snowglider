@@ -9,7 +9,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `auth.html` - Standalone Firebase authentication page (loads the `auth.ts` module)
 - `src/main.ts` - ES-module bundle entry; imports every game module into one graph
 - `src/snowglider.ts` - Game logic and Three.js implementation (the orchestrator)
-- `src/physics.ts` - Typed per-frame `PlayerState` layer over the `snowman.ts` kernel
+- `src/player-state.ts` - Typed per-frame `PlayerState` layer over the `snowman.ts` kernel
 - `src/snow.ts` - Utility functions and snow effects
 - `src/mountains.ts` - Natural backcountry terrain generation code
 - `src/trees.ts` - Tree creation and placement throughout the mountain

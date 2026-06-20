@@ -10,7 +10,7 @@ import { Flex } from '../snowman-flex.js';
 import { AudioModule } from '../audio.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
-import { Physics, type PlayerState } from '../physics.js';
+import { Physics, type PlayerState } from '../player-state.js';
 import { updateTimerDisplay } from '../ui/hud.js';
 import type { SceneContext } from './scene-setup.js';
 
