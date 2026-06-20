@@ -41,9 +41,8 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   clearance, single `onComplete`).
 
 ### Social sharing — "Share Result" on the finish screen (#157)
-- New `src/share.ts` module implements the plan in
-  [`SOCIAL_SHARING_PLAN.md`](SOCIAL_SHARING_PLAN.md): lightweight sharing of a
-  finished run with no sign-in, backend, or per-platform SDK.
+- New `src/share.ts` module: lightweight sharing of a finished run with no
+  sign-in, backend, or per-platform SDK.
   - `buildResultShareData(time, isNewBest, href?)` builds deterministic share
     copy ("I finished SnowGlider in 42.13s…" / "New SnowGlider personal best:…").
   - `cleanShareUrl(href)` keeps shared links stable and public: it strips
