@@ -49,6 +49,7 @@ const DAB_WIDTH = 0.55;           // cross-track width of one ski groove
 const DAB_LENGTH = 2.2;           // along-track length of one dab
 const SKI_HALF_GAUGE = 1.1;       // half the distance between the two ski grooves
 const SURFACE_LIFT = 0.06;        // sit just above terrain to avoid z-fighting
+const SLOPE_SAMPLE = 0.5;         // central-difference eps for the terrain normal
 const MIN_SPEED = 1.2;            // don't stamp when essentially stopped
 
 function prefersReducedMotion(): boolean {
@@ -70,12 +71,16 @@ export class SnowTrails {
   private px: Float32Array;
   private pz: Float32Array;
   private py: Float32Array;
-  private headings: Float32Array;
+  private quats: Float32Array; // per-dab orientation (x,y,z,w), pitched to the slope
   private next: number;
 
   private dummy: THREE.Object3D;
   private quat: THREE.Quaternion;
-  private axisY: THREE.Vector3;
+  // Scratch for building a slope-conforming orientation basis (no per-frame allocs).
+  private basis: THREE.Matrix4;
+  private vUp: THREE.Vector3;
+  private vFwd: THREE.Vector3;
+  private vRight: THREE.Vector3;
 
   // Stamp cadence: distance accumulated since the last pair of dabs.
   private lastX: number | null;
@@ -97,12 +102,15 @@ export class SnowTrails {
     this.px = new Float32Array(count);
     this.py = new Float32Array(count);
     this.pz = new Float32Array(count);
-    this.headings = new Float32Array(count);
+    this.quats = new Float32Array(count * 4);
     for (let i = 0; i < count; i++) this.ages[i] = Infinity; // start inactive
 
     this.dummy = new THREE.Object3D();
     this.quat = new THREE.Quaternion();
-    this.axisY = new THREE.Vector3(0, 1, 0);
+    this.basis = new THREE.Matrix4();
+    this.vUp = new THREE.Vector3();
+    this.vFwd = new THREE.Vector3();
+    this.vRight = new THREE.Vector3();
 
     // A flat quad lying in the XZ plane; the per-instance matrix scales/orients it.
     const geometry = new THREE.PlaneGeometry(1, 1);
@@ -138,15 +146,45 @@ export class SnowTrails {
     this.getTerrainHeight = fn;
   }
 
-  /** Drop one dab into the ring buffer at the given ski-groove position. */
+  /**
+   * Drop one dab into the ring buffer at the given ski-groove position, pitched to
+   * the local terrain slope. A flat horizontal dab on the downhill run (terrain
+   * drops ~0.12+/unit) would sink one end below the snow and get depth-culled, so
+   * the track flickers (PR #181 codex review). Here the dab's up axis is set to the
+   * terrain normal (finite-difference of getTerrainHeight) and its length axis to
+   * the heading projected onto that slope, so the whole quad sits just above the
+   * surface and reads as a continuous groove.
+   */
   private stampDab(x: number, z: number, heading: number): void {
     const i = this.next;
     this.next = (this.next + 1) % this.count;
-    const groundY = this.getTerrainHeight ? this.getTerrainHeight(x, z) : 0;
+    const getH = this.getTerrainHeight;
+    const groundY = getH ? getH(x, z) : 0;
     this.px[i] = x;
     this.pz[i] = z;
     this.py[i] = groundY + SURFACE_LIFT;
-    this.headings[i] = heading;
+
+    // Terrain normal from a central difference; identity (flat) when no sampler.
+    if (getH) {
+      const e = SLOPE_SAMPLE;
+      const nx = -(getH(x + e, z) - getH(x - e, z)) / (2 * e);
+      const nz = -(getH(x, z + e) - getH(x, z - e)) / (2 * e);
+      this.vUp.set(nx, 1, nz).normalize();
+    } else {
+      this.vUp.set(0, 1, 0);
+    }
+    // Heading direction (the dab's local +Z / length axis before conforming).
+    this.vFwd.set(Math.sin(heading), 0, Math.cos(heading));
+    // Orthonormal slope basis: right ⟂ up & heading, fwd back in the slope plane.
+    this.vRight.crossVectors(this.vUp, this.vFwd).normalize();
+    this.vFwd.crossVectors(this.vRight, this.vUp).normalize();
+    this.basis.makeBasis(this.vRight, this.vUp, this.vFwd);
+    this.quat.setFromRotationMatrix(this.basis);
+    this.quats[i * 4] = this.quat.x;
+    this.quats[i * 4 + 1] = this.quat.y;
+    this.quats[i * 4 + 2] = this.quat.z;
+    this.quats[i * 4 + 3] = this.quat.w;
+
     this.ages[i] = 0;
     this.lives[i] = TRAIL_LIFETIME;
   }
@@ -215,9 +253,10 @@ export class SnowTrails {
       }
       anyActive = true;
       const fade = 1 - next / this.lives[i]; // 1 fresh -> 0 covered
-      this.quat.setFromAxisAngle(this.axisY, this.headings[i]);
       this.dummy.position.set(this.px[i], this.py[i], this.pz[i]);
-      this.dummy.quaternion.copy(this.quat);
+      this.dummy.quaternion.set(
+        this.quats[i * 4], this.quats[i * 4 + 1], this.quats[i * 4 + 2], this.quats[i * 4 + 3]
+      );
       // Groove narrows as it fills in; length holds so it reads as a track, not a dot.
       this.dummy.scale.set(DAB_WIDTH * (0.35 + 0.65 * fade), 1, DAB_LENGTH);
       this.dummy.updateMatrix();

@@ -113,6 +113,23 @@ async function main() {
     assert(trails.activeCount() >= 2, 'moving on the ground should stamp dab pairs');
   });
 
+  runTest('Dabs conform to the terrain slope (not left flat)', () => {
+    // Terrain that drops along +z (height = -0.2*z) => surface normal tilts in z.
+    const trails = new SnowTrails(new THREE.Scene(), 40);
+    trails.setTerrainFunction((x, z) => -0.2 * z);
+    trails.update(0.1, snowmanAt(0, 0), false);
+    trails.update(0.1, snowmanAt(0, -5), false); // move -> stamp pairs
+    assert(trails.activeCount() > 0, 'should have stamped a dab to inspect');
+    // The instance's up axis (matrix column 1) should follow the terrain normal
+    // (~(0,1,0.2) normalized), i.e. a clearly non-zero z component — a flat dab
+    // would leave it at (0,1,0).
+    const m = new THREE.Matrix4();
+    trails.mesh.getMatrixAt(0, m);
+    const e = m.elements;
+    const upZ = e[6]; // z component of the local +Y axis after rotation (scaleY = 1)
+    assert(Math.abs(upZ) > 0.1, `dab up axis should tilt to the slope (got upZ=${upZ.toFixed(3)})`);
+  });
+
   runTest('No stamping while airborne', () => {
     const trails = makeTrails(60);
     trails.update(0.1, snowmanAt(0, 0), true);
