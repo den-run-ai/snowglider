@@ -13,6 +13,63 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Intro fly-over — cinematic mountain establishing shot at game start (#51)
+- On the first real "Start Game" the camera now flies over the mountain before
+  the run begins: a wide establishing shot high above the peak that sweeps down
+  the course and settles into the gameplay chase pose. This turns the old blank
+  ~1.8 s "Loading…" pause into a cinematic, in a new `src/intro.ts` module
+  (`IntroModule.play`).
+- **Camera-only, zero gameplay impact.** The fly-over runs its own short
+  animation loop and renders the static scene; it never calls the physics kernel,
+  the snowman stays seated at the start gate, and the run timer does not start
+  until the fly-over hands off to the game loop. The no-input physics invariant is
+  therefore untouched (and the verification harness is unchanged).
+- **Skippable.** A "Skip ▶" button plus a pointer / Escape / Enter listener jumps
+  straight to the gameplay pose; movement keys (arrows/WASD/Space/V) are left for
+  the controls layer and never skip. The in-game HUD/buttons are hidden during the
+  fly-over (`body.intro-active`) so the shot reads cleanly.
+- **Automation- and motion-safe, by design.** The cinematic is skipped — and the
+  original Loading/Get-Ready timing reproduced byte-for-byte — for the `?test=`
+  browser suites (`window.isTestMode`), automated runs (`navigator.webdriver`,
+  i.e. Playwright/Puppeteer), and `prefers-reduced-motion`. So every existing
+  Node/browser/e2e test runs on the unchanged path (browser suite stays 87/0).
+  `?intro=force` plays it under automation (manual QA); `?intro=off` disables it.
+- **Tested without a browser.** The path math is plain-number Catmull-Rom (no
+  three.js, no DOM) and the clock / animation-frame scheduler are injectable
+  seams, so `tests/intro-tests.js` drives the whole fly-over to completion
+  deterministically (endpoint interpolation, skip path, mid-flight skip, terrain
+  clearance, single `onComplete`).
+
+### Social sharing — "Share Result" on the finish screen (#157)
+- New `src/share.ts` module implements the plan in
+  [`SOCIAL_SHARING_PLAN.md`](SOCIAL_SHARING_PLAN.md): lightweight sharing of a
+  finished run with no sign-in, backend, or per-platform SDK.
+  - `buildResultShareData(time, isNewBest, href?)` builds deterministic share
+    copy ("I finished SnowGlider in 42.13s…" / "New SnowGlider personal best:…").
+  - `cleanShareUrl(href)` keeps shared links stable and public: it strips
+    local-only query params (`?test=…`) and the hash, and collapses
+    local/dev/`file:`/unparseable URLs to the canonical `https://snowglider.ai/`.
+  - `shareResult(data)` uses the native Web Share API when available (from the
+    button's user gesture) and falls back to `navigator.clipboard.writeText()`
+    on absence or any non-cancel failure; a user-cancelled share sheet
+    (`AbortError`) is respected (no clipboard write). It never rejects.
+- The course result panel (`src/course.ts`) appends one **🔗 Share Result**
+  button, so it appears only on a valid successful finish and is cleaned up with
+  the panel on restart. The button label reflects the outcome (Shared / Link
+  copied / unavailable) and a best-effort `share_result` Analytics event is
+  logged through the existing `window.firebaseModules.logEvent` seam.
+- Fixed a latent touch-binding bug surfaced by the nested button: the game-over
+  `MutationObserver` in `src/controls.ts` selected `#gameOverOverlay button`
+  (first descendant, depth-first), which would now match the nested Share button
+  and misbind restart on touch devices. Switched to the child combinator
+  `#gameOverOverlay > button` so it always targets the direct-child restart
+  button.
+- Tests: new `tests/share-tests.js` (`npm run test:share`, 31 checks) for copy
+  formatting, URL cleanup, and the share/clipboard/Analytics outcomes; the
+  `dom_smoke_test` now asserts the Share button appears only in finish panels and
+  copies a stable public link; the controls test guards the restart/share
+  touch-binding regression.
+
 ### Visible sky — gradient sky, atmospheric sky + sun, distance fog (#2)
 - Replaced the flat `scene.background = Color(0x87CEEB)` (and no fog) with a
   graduated sky and matching horizon fog, in a new `src/sky.ts` module.
