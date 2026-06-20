@@ -13,6 +13,7 @@ import { Snowman } from '../snowman.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { AvalancheSystem } from '../avalanche.js';
+import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
 import type { RockPosition } from '../mountains.js';
@@ -38,6 +39,7 @@ export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveli
  */
 export interface GameState {
   avalanche: AvalancheSystem | null; // live avalanche system (null if module absent)
+  debris: SnowmanDebris | null;      // crash-shatter wipeout system (#53)
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
   lastAvalancheZ: number;            // z the trigger distance is measured from
   startTime: number;                 // performance.now() at run start (timer origin)
@@ -196,6 +198,7 @@ export function setupScene() {
   // run/scoring fields.
   const state: GameState = {
     avalanche: null,
+    debris: null,
     avalancheTriggered: false,
     lastAvalancheZ: 0,
     startTime: 0,
@@ -214,6 +217,13 @@ export function setupScene() {
   } else {
     console.warn("Avalanche module not loaded - avalanche feature disabled");
   }
+
+  // --- Initialize Snowman crash-shatter (#53) ---
+  // The wipeout system. Constructed here so the coordinator can fire it from the
+  // crash branch of showGameOver; it owns its own settle loop and is terrain-aware.
+  const debris = new SnowmanDebris();
+  debris.setTerrainFunction(Snow.getTerrainHeight);
+  state.debris = debris;
 
   // We can't call Snow.addTrees directly, so let's create a global array
   let treePositions: TreePosition[] = [];

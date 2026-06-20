@@ -99,6 +99,29 @@ cameraManager.initialize(
   new THREE.Euler(0, Math.PI, 0) // Snowman starts facing down the mountain (π radians)
 );
 
+// Crash-shatter wipeout (#53): fire the snowman break-up on a crash. Built here where
+// scene/renderer/camera/snowman/velocity are in scope. Gated OFF under ?test= by
+// default (so the existing browser/e2e suites that crash a lot are unaffected), but
+// re-enabled by the explicit `window.testHooks.debrisEnabled` opt-in for the dedicated
+// debris test. The shatter starts its own settle loop and repaints via the render
+// callback, because the main animation loop has stopped (state.gameActive=false).
+function triggerCrashShatter(_reason: string) {
+  const debris = state.debris;
+  if (!debris) return;
+  // Off in automated environments by default: ?test= browser suites (window.isTestMode)
+  // AND Playwright e2e (navigator.webdriver, which loads the game without ?test=). The
+  // dedicated debris browser test re-enables it via the explicit window.testHooks.debrisEnabled
+  // opt-in. Real players always get the wipeout.
+  const automated = window.isTestMode || (typeof navigator !== 'undefined' && !!navigator.webdriver);
+  const allowDebris = !automated || !!(window.testHooks && window.testHooks.debrisEnabled);
+  if (!allowDebris) return;
+  const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  debris.shatter(scene, snowman, velocity, {
+    reducedMotion: reduced,
+    render: () => renderer.render(scene, camera)
+  });
+}
+
 // Game-over / finish handling lives in ui/result-overlay.ts; the coordinator injects
 // the run state and the overlay DOM nodes it still owns. Bound as a `const` here so
 // it exists before the eager Snowman.addTestHooks(...) / window.showGameOver wiring
@@ -109,6 +132,7 @@ const showGameOver = createShowGameOver({
   gameOverDetail,
   restartButton,
   bestTimeDisplay,
+  onCrash: triggerCrashShatter,
 });
 
 // --- Per-frame run loop (see game/main-loop.ts) ---
@@ -154,6 +178,12 @@ window.showGameOver = showGameOver;
 // This is important for browser tests that run soon after page load
 console.log("Initializing test hooks on startup");
 Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
+
+// Read seam for the debris browser test: `state` is module-scoped and we add no new
+// window.* bridge, so expose the debris-active flag on the existing window.testHooks
+// surface (a deliberate test hook, like forceTreeCollision — not a module bridge).
+if (!window.testHooks) window.testHooks = {};
+window.testHooks.isDebrisActive = () => !!state.debris && state.debris.active;
 
 // Initialize controls toggle when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {

@@ -18,6 +18,7 @@ import * as THREE from 'three';
 // imports (e.g. snow.js imports Mountains/Trees, camera.js imports Mountains), so
 // the import order below is no longer load-bearing.
 import './avalanche.js';
+import './debris.js';
 import './course.js';
 import './camera.js';
 import './controls.js';

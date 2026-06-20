@@ -112,6 +112,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `AudioModule` | `audio.ts` | IIFE | Native HTML5 background music (gated by `AUDIO_ENABLED`) |
 | `Controls` | `controls.ts` | object + fns | Keyboard + touch input → shared `controls` state |
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
+| `SnowmanDebris` | `debris.ts` | `class` | Crash-shatter wipeout: owned snow-ball fragments + puff, own settle loop, terrain-aware, disposable (#53) |
 | `EffectsModule` | `effects.ts` | IIFE | Avalanche warning UI + camera FOV/shake |
 | `IntroModule` | `intro.ts` | IIFE | Cinematic "fly over the mountain" intro at game start (issue #51) |
 | `CourseModule` | `course.ts` | IIFE | Gates, split timing, ghost racing, result screen |

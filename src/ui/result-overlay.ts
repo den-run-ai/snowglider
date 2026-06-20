@@ -74,13 +74,19 @@ export interface ResultOverlayDeps {
   gameOverDetail: HTMLElement;
   restartButton: HTMLElement;
   bestTimeDisplay: HTMLElement;
+  // Optional crash-only side effect (#53): fires the snowman-shatter wipeout on a
+  // crash (any non-finish reason), built by the coordinator where the scene/snowman/
+  // renderer are in scope. Kept as an injected hook so this UI module stays free of
+  // three.js. The overlay itself is unchanged (shown immediately, as before).
+  onCrash?: (reason: string) => void;
 }
 
 // Build the showGameOver(reason) handler bound to the injected overlay/state. The
 // body is the original snowglider.ts implementation verbatim (deps are destructured
 // under the same names it used as module-locals).
 export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) => void {
-  const { state, gameOverOverlay, gameOverDetail, restartButton, bestTimeDisplay } = deps;
+  const { state, gameOverOverlay, gameOverDetail, restartButton, bestTimeDisplay, onCrash } = deps;
+  const FINISH_REASON = "You reached the end of the slope!";
 
   return function showGameOver(reason: string) {
     // Allow tests to intercept showGameOver calls
@@ -89,6 +95,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       return;
     }
     state.gameActive = false;
+
+    // Fire the crash-shatter wipeout on a crash (any non-finish reason): tree/rock
+    // hit, off-mountain, fell-off, or avalanche burial. The finish is never a crash.
+    // The hook handles its own test-mode gate + reduced-motion; failures here must not
+    // block the overlay below.
+    if (onCrash && reason !== FINISH_REASON) {
+      try { onCrash(reason); } catch (e) { console.warn("Crash effect failed:", (e as Error).message); }
+    }
 
     // Capture the best time BEFORE the finish branch updates it, so the result
     // screen can report the delta and whether this run set a new record.
