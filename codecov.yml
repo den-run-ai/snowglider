@@ -1,14 +1,27 @@
-# Coverage is reported (badge + PR annotations) but never gates a PR.
-# See docs/CHANGELOG.md (#122): "Coverage stays informational and non-gating."
-# Without this file Codecov applies its default `project` status (auto target,
-# 0% threshold), which fails on ANY decrease — e.g. a -0.12% dip from adding a
-# couple of debug log lines. `informational: true` keeps the report while never
-# blocking the merge.
+# Coverage now GATES every PR at 90%. This reverses the earlier "informational,
+# non-gating" policy (#122): the suite now exercises the previously browser-only
+# fallback paths — boot/local-auth.js, boot/firebase-bootstrap.js, the collapsible
+# HUD panel, the game-over result overlay, and the snowman collision test hooks —
+# which lifts the project to ~92%. With that headroom a 90% floor no longer flaps on
+# a couple of debug log lines (the failure mode that made #122 turn gating off).
+#
+# - project: overall coverage must stay >= 90%. The small threshold absorbs the
+#   line-count noise between the Node, browser, and e2e sessions Codecov merges
+#   server-side (a few tenths of a percent run to run).
+# - patch: new / changed lines in a PR must be >= 90% covered, so new code cannot
+#   erode the floor. Test files live outside src/ and carry no coverage, so a
+#   tests-only PR has no coverable diff and passes.
+#
+# NOTE: these statuses post pass/fail on the PR but do not block a merge on their
+# own. To make them required, add the `codecov/project` and `codecov/patch` checks
+# to the branch protection rule for `main`.
 coverage:
   status:
     project:
       default:
-        informational: true
+        target: 90%
+        threshold: 0.5%
     patch:
       default:
-        informational: true
+        target: 90%
+        threshold: 0%
