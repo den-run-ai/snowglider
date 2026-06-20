@@ -159,7 +159,18 @@ export function setupScene() {
   // Intensities are pre-multiplied by Math.PI to preserve the original r134
   // brightness under three.js physically-correct lighting (forced on since the
   // r165 removal of `useLegacyLights`); see the renderer setup note above.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.5 * Math.PI));
+  //
+  // A HemisphereLight (issue #18) takes over most of the old flat AmbientLight as
+  // the scene fill: pale sky-blue from above, a cooler snow-bounce from below.
+  // Unlike a uniform ambient it shades by surface orientation, so the procedural
+  // snow/rock normal maps and slope shading (issue #17) actually read in the
+  // shadows instead of being washed flat. A small ambient floor remains so nothing
+  // goes pure black. The up-facing fill (ambient + hemi*sky ≈ 0.5) is held near the
+  // old 0.5*pi so directly-lit white snow doesn't clip any harder under the legacy
+  // no-tone-mapping pipeline — the change is in the *direction-dependence* and tint
+  // of the fill, not its peak brightness.
+  scene.add(new THREE.AmbientLight(0xffffff, 0.15 * Math.PI));
+  scene.add(new THREE.HemisphereLight(0xcfe2f7, 0x9aa7b6, 0.45 * Math.PI));
   const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8 * Math.PI);
   directionalLight.position.set(50, 100, 50);
   directionalLight.castShadow = true;

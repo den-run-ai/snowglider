@@ -114,6 +114,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
 | `SnowmanDebris` | `debris.ts` | `class` | Crash-shatter wipeout: owned snow-ball fragments + puff, own settle loop, terrain-aware, disposable (#53) |
 | `EffectsModule` | `effects.ts` | IIFE | Avalanche warning UI + camera FOV/shake |
+| `IntroModule` | `intro.ts` | IIFE | Cinematic "fly over the mountain" intro at game start (issue #51) |
 | `CourseModule` | `course.ts` | IIFE | Gates, split timing, ghost racing, result screen |
 | `AuthModule` | `auth.ts` | ES module | Multi-provider Firebase auth (Google/GitHub/Apple/anonymous), user UI, Firestore lifecycle (also `window.AuthModule`) |
 | `ScoresModule` | `scores.ts` | ES module | Best-time recording, leaderboard, Firestore writes (also `window.ScoresModule`) |
@@ -179,6 +180,16 @@ timers, avalanche flags),
 and the lifecycle: `initializeGameWithAudio()` (entry from the Start button) →
 `resetSnowman()` → `animate()`; `showGameOver(reason)` / `restartGame()`.
 
+On the first real start, `initializeGameWithAudio()` plays a **cinematic intro
+fly-over** (`IntroModule.play`, `intro.ts`, issue #51) before `animate()` runs:
+the camera sweeps over the mountain and settles into the gameplay chase pose, then
+`startGameplayLoop()` flips the run flags and starts the loop. The fly-over runs
+its own short animation loop and only renders the static scene — it never calls
+the physics kernel, so the run timer and the no-input invariant are untouched. It
+is skipped (reproducing the original Loading/Get-Ready timing exactly) for the
+`?test=` suites (`window.isTestMode`), automated runs (`navigator.webdriver`), and
+`prefers-reduced-motion`; `?intro=force` / `?intro=off` override that for QA.
+
 Per-frame order in `animate(time)` (each step depends on the previous):
 
 ```
@@ -243,10 +254,13 @@ camera.position -= shake                          // revert so smoothing stays c
 > (`export * from './snowman/index.js'`) so every `./snowman.js` importer keeps
 > resolving a sibling file. R3.8 moved model construction into
 > **`src/snowman/model.ts`**, and R3.9 moved heading/tilt/ski-pose animation into
-> **`src/snowman/pose.ts`**. The verification harness self-registers the same
-> `.js` -> `.ts` resolver as the Node suites before importing the facade, so the
-> public seam remains the thing under test as steps 10–12 carve `physics` /
-> `collision` / `test-hooks` out of `index.ts`.
+> **`src/snowman/pose.ts`**. R3.10 moved reset + movement integration into
+> **`src/snowman/physics.ts`**. R3.11 moved tree/rock/bounds/end-of-run checks
+> into **`src/snowman/collision.ts`**, and R3.12 moved browser-test hook wiring
+> into **`src/snowman/test-hooks.ts`**. The verification harness self-registers
+> the same `.js` -> `.ts` resolver as the Node suites before importing the facade,
+> so the public seam remains the thing under test while `index.ts` keeps the
+> exported snowman contract types and update orchestration.
 
 ---
 

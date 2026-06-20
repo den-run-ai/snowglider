@@ -120,23 +120,24 @@ function applyGradientSky(scene: THREE.Scene): void {
 // `renderer.toneMappingExposure` knob the addon would otherwise use.
 
 // Scattering parameters (tunable). With no tone mapping (legacy pipeline) the
-// shader's HDR output would clip the green/blue channels to white across most of
-// the sky at the addon's usual exposure, so `SKY_EXPOSURE` is set low to keep
-// the whole dome in-gamut: this yields zenith ≈ (88,136,196), mid-sky ≈
-// (122,182,237) and a pale, hazy horizon ≈ (209,229,235) — a cheerful clear-sky
-// blue that brackets the old flat 0x87CEEB without any channel clipping. The
-// numbers were chosen by evaluating the fragment math directly; eyeball and
-// adjust if the on-device look differs.
+// shader's HDR output clips the green/blue channels to white at the addon's usual
+// exposure, so `SKY_EXPOSURE` is kept modest to stay in-gamut — but tuned bright
+// for a cheerful, sunny feel rather than a dull steel blue: zenith ≈ (113,175,252),
+// mid-sky ≈ (157,234,255), and a bright sunny horizon. A higher exposure than the
+// first pass (0.35 → 0.45) lifts the whole dome toward a vivid azure while the
+// zenith blue stays just below clipping. The numbers were chosen by evaluating
+// the fragment math directly; eyeball and adjust if the on-device look differs.
 const SKY_TURBIDITY = 8.0;
 const SKY_RAYLEIGH = 3.0;
 const SKY_MIE_COEFFICIENT = 0.005;
 const SKY_MIE_DIRECTIONAL_G = 0.8;
-const SKY_EXPOSURE = 0.35;
+const SKY_EXPOSURE = 0.45;
 
-// Distance fog tuned to the atmospheric horizon colour (a pale, hazy blue) so
-// terrain fades into the sky seamlessly. Same near/far envelope as the gradient
-// sky so the gameplay area stays crisp.
-const ATMOSPHERE_FOG_COLOR = 0xd1e5eb;
+// Distance fog tuned to the atmospheric horizon (a bright pale blue) so terrain
+// fades into the sky seamlessly; kept slightly bluer than the near-white horizon
+// so distant terrain still reads with depth. Same near/far envelope as the
+// gradient sky so the gameplay area stays crisp.
+const ATMOSPHERE_FOG_COLOR = 0xdbeaf5;
 
 const SKY_SHADER = {
   uniforms: {
