@@ -32,6 +32,7 @@ import { Snow } from './snow.js';
 import { Snowman } from './snowman.js';
 import { AudioModule } from './audio.js';
 import { Physics } from './physics.js';
+import { IntroModule, prefersReducedMotion } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { setupScene } from './game/scene-setup.js';
@@ -160,6 +161,27 @@ document.addEventListener('DOMContentLoaded', function() {
   initializeControlsToggle();
 });
 
+// Activate the live run: flip the run-loop flags and kick off the animation loop.
+// Factored out so the start button, the cinematic intro's completion, and the
+// reduced-motion/automation fallback all hand off to the game loop identically.
+function startGameplayLoop(showGetReady: boolean) {
+  state.gameActive = true;
+  state.animationRunning = true;
+
+  // Add game-active class to body for styling
+  document.body.classList.add('game-active');
+
+  // Start animation loop (the loop owns `lastTime`; startLoop seeds it — main-loop.ts)
+  startLoop();
+
+  // Show a "Get Ready" message a beat after the run begins (first start only)
+  if (showGetReady) {
+    setTimeout(() => {
+      AudioModule.showMessage("Get Ready!", 1000);
+    }, 1500);
+  }
+}
+
 // Function to initialize the game with audio - called from the start button
 // TODO: AUDIO DISABLED - Function name kept for compatibility, audio calls will be no-ops
 window.initializeGameWithAudio = function() {
@@ -248,39 +270,61 @@ window.initializeGameWithAudio = function() {
     }
   }
   
-  // Display a short loading message if this is the first initialization
-  if (!state.gameInitialized) {
-    // Show a loading indicator while THREE.js initializes
+  // Hand off to the game loop. New for issue #51: on the first real start the
+  // camera flies over the mountain first (IntroModule), turning the old blank
+  // "Loading…" pause into a cinematic establishing shot. The fly-over is skipped —
+  // and the original Loading/Get-Ready timing preserved byte-for-byte — for the
+  // ?test= browser suites (window.isTestMode), automated runs (navigator.webdriver,
+  // e.g. Playwright/Puppeteer), and prefers-reduced-motion, so no existing test is
+  // perturbed and motion-sensitive players opt out. `?intro=force` plays it even
+  // under automation (manual QA / a dedicated e2e); `?intro=off` disables it.
+  const search = (typeof window !== 'undefined' && window.location) ? window.location.search : '';
+  const forceIntro = search.includes('intro=force');
+  const disableIntro = search.includes('intro=off');
+  const automated = typeof navigator !== 'undefined' && navigator.webdriver === true;
+  const skipIntro = disableIntro || (!forceIntro && (!!window.isTestMode || automated || prefersReducedMotion()));
+  const playIntro = !skipIntro && !state.gameInitialized;
+
+  if (playIntro) {
+    // First real start: fly over the mountain, then drop into gameplay. The
+    // fly-over settles into the live chase pose, so capture it from the camera
+    // manager (resetSnowman already seated the snowman at the start gate above).
+    state.gameInitialized = true;
+    cameraManager.initialize(snowman.position, snowman.rotation);
+    const endPosition = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+    const endTarget = { x: snowman.position.x, y: snowman.position.y, z: snowman.position.z };
+    // Hide the in-game HUD/buttons so the establishing shot reads cleanly (CSS
+    // keys off `intro-active`); removed on completion/skip below.
+    document.body.classList.add('intro-active');
+    IntroModule.play({
+      camera,
+      endPosition,
+      endTarget,
+      getTerrainHeight: Snow.getTerrainHeight,
+      render: () => { renderer.render(scene, camera); },
+      onComplete: () => {
+        document.body.classList.remove('intro-active');
+        // Re-seat the camera manager's smoothing at the settled pose, then run.
+        cameraManager.initialize(snowman.position, snowman.rotation);
+        // Start the run timer at the hand-off, not before the fly-over. resetSnowman()
+        // (above) set state.startTime ~4 s ago; without this the cinematic's duration
+        // would be added to the first run's time, splits, and any best-time/leaderboard
+        // submission. The HUD/course/score all measure from state.startTime, so re-seat
+        // it the instant gameplay actually begins. (The skip path keeps the original
+        // timing — it activates synchronously after resetSnowman.)
+        state.startTime = performance.now();
+        startGameplayLoop(true);
+      },
+    });
+  } else if (!state.gameInitialized) {
+    // First start, but the cinematic is skipped (test/automation/reduced-motion):
+    // reproduce the original short loading message + delayed activation exactly.
     AudioModule.showMessage("Loading game...", 1500);
     state.gameInitialized = true;
-
-    // Short delay to allow for visual transition
-    setTimeout(() => {
-      // Activate the game after a short delay for visual feedback
-      state.gameActive = true;
-      state.animationRunning = true;
-
-      // Add game-active class to body for styling
-      document.body.classList.add('game-active');
-
-      // Start animation loop
-      startLoop();
-
-      // Show a "Get Ready" message
-      setTimeout(() => {
-        AudioModule.showMessage("Get Ready!", 1000);
-      }, 1500);
-    }, 1800);
+    setTimeout(() => { startGameplayLoop(true); }, 1800);
   } else {
-    // If already initialized once, just restart immediately
-    state.gameActive = true;
-    state.animationRunning = true;
-    
-    // Add game-active class to body for styling
-    document.body.classList.add('game-active');
-    
-    // Start animation loop
-    startLoop();
+    // Already initialized once: restart immediately.
+    startGameplayLoop(false);
   }
   
   console.log("Game started successfully!");

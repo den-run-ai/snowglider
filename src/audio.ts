@@ -94,10 +94,28 @@ export const AudioModule = (function() {
     `;
     updateButtonUI(btn);
 
-    btn.addEventListener('click', () => {
-      AudioModule.toggleMute();
-      // Button UI is already updated by toggleMute()
-    });
+    // Button UI is already updated by toggleMute().
+    const handleToggle = () => { AudioModule.toggleMute(); };
+
+    // Desktop / pointer devices.
+    btn.addEventListener('click', handleToggle);
+
+    // Mobile: the game registers a document-level `touchstart` handler that calls
+    // preventDefault() (controls.ts), which suppresses the browser's synthesized
+    // `click` for the tap — so the click listener above never fires on touch and
+    // the button appears dead. Handle the tap explicitly on `touchstart`, mirroring
+    // the reset/camera buttons. stopPropagation() keeps the tap fully out of the
+    // control system: because the document handler never *sees* this touchstart it
+    // never records the touch id in touchState.touches, so there is no orphaned
+    // entry for the (unhandled) touchend to leave behind — which would otherwise
+    // block the `touches.length === 0` reset and leave controls stuck. The unhandled
+    // touchend still bubbles to the document, where its `delete` is a harmless no-op.
+    // preventDefault() suppresses the synthesized click so mute isn't toggled twice.
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleToggle();
+    }, { passive: false });
 
     document.body.appendChild(btn);
   }

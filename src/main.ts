@@ -29,6 +29,7 @@ import './snowman.js';
 import './snowman-flex.js';
 import './audio.js';
 import './sky.js';
+import './intro.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;

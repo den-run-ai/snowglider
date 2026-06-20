@@ -92,6 +92,7 @@ npm run test:tree-collision # Tree collision tests
 npm run test:avalanche      # Avalanche physics tests
 npm run test:auth           # Auth module tests with mocked Firebase
 npm run test:scores         # Scores module tests with mocked Firestore
+npm run test:intro          # Intro fly-over module (path math, skip, completion)
 npm run test:firebase       # Firestore Security Rules tests (requires Java)
 npm run test:verify         # Verification harness (physics invariant + DOM smoke)
 ```

@@ -112,9 +112,9 @@ Timer/best-time and leaderboard existed, but there was no reason to play 20 runs
 
 A skiing game lives on speed readability and mountain atmosphere.
 
-- **Shipped:** speed-based FOV (widens at speed), camera shake on hard landings / avalanche proximity, and a **visible sky** — a Preetham atmospheric sky with a sun aligned to the directional light, plus horizon distance fog so terrain reads with depth instead of hard-cutting at the far plane (**#2**, `src/sky.ts`).
-- **Remaining (○):** snow trails carved from the back of the skis, weather variation and a day→sunset→night skybox (the sky module is a static daytime sky for now), stronger slope contrast and obstacle silhouettes, depth cues, and an intro fly-over of the mountain.
-- **Open issues:** intro fly-over (**#51**), plus open issues on lighting/shadows and snow/tree/rock/snowman textures. Visible sky (**#2**) is ◐ partial — static sky shipped; clouds / day-night cycle remain.
+- **Shipped:** speed-based FOV (widens at speed), camera shake on hard landings / avalanche proximity, a **visible sky** — a Preetham atmospheric sky with a sun aligned to the directional light, plus horizon distance fog so terrain reads with depth instead of hard-cutting at the far plane (**#2**, `src/sky.ts`) — and a **cinematic intro fly-over** of the mountain at game start (**#51**, `src/intro.ts`): a wide establishing shot that sweeps down the course and settles into the gameplay pose, skippable and disabled under test/automation/reduced-motion.
+- **Remaining (○):** snow trails carved from the back of the skis, weather variation and a day→sunset→night skybox (the sky module is a static daytime sky for now), stronger slope contrast and obstacle silhouettes, and depth cues.
+- **Open issues:** lighting/shadows and snow/tree/rock/snowman textures. Intro fly-over (**#51**) ✅ shipped (`src/intro.ts`). Visible sky (**#2**) is ◐ partial — static sky shipped; clouds / day-night cycle remain.
 
 ### 8. Audio consistency and completion — ○ open
 
@@ -167,7 +167,7 @@ A phased plan that several of the review passes converge on:
 |-------|------|------|--------|
 | **P0 — Make it feel like a game** | Give runs a shape | Finish line, checkpoints, split times, result screen, medals, restart/replay flow | ✅ shipped (#56) |
 | **P1 — Make skiing skillful** | Reward technique | Carving / snowplow / straight-line modes, speed loss on turns, terrain-dependent friction, meaningful jumps | ◐ mostly shipped (#56, #136, #146) — carve/snowplow/tuck + the carve-vs-skid speed trade-off + parallel/hop turns (#48) all land; meaningful jumps (#47) and ski poles (#52) still open |
-| **P2 — Make it memorable** | Atmosphere & drama | Better mountain visuals, avalanche warning, expressive snowman, scarf/poles, intro fly-over, ghost racer | ◐ avalanche warning + ghost racer shipped (#56); visuals/snowman/poles/fly-over open |
+| **P2 — Make it memorable** | Atmosphere & drama | Better mountain visuals, avalanche warning, expressive snowman, scarf/poles, intro fly-over, ghost racer | ◐ avalanche warning + ghost racer (#56), visible sky (#2), and the intro fly-over (#51) shipped; expressive snowman/scarf/poles open |
 | **P3 — Make it social / AI** | Retention | Daily challenge, ghost leaderboard, AI coach, shareable replay | ○ open |
 
 ---
@@ -322,7 +322,7 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Avalanche effects and controls | #44 | ◐ effects in #56; controls open |
 | Expressive snowman (scarf, flexible, breaks on impact) | #53 | ◐ partial — flexible/"wiggly" snowman shipped (`src/snowman-flex.ts`: squash/jiggle, head-cluster bob/lean, landing settle); crash shatter + scarf are the stacked follow-ups (plan: `SNOWMAN_SHATTER_PLAN.md`) |
 | Ski poles and planting | #52 | ○ open |
-| Intro fly-over of the mountain | #51 | ○ open |
+| Intro fly-over of the mountain | #51 | ✅ shipped — cinematic camera fly-over at game start (`src/intro.ts`) |
 | Mobile music-disable button broken *(bug)* | #50 | ○ open |
 | Jumping should help avoid obstacles/avalanches | #47 | ○ open |
 | Freestyle ski tricks | #32 | ○ open |
