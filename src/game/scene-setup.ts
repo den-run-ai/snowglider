@@ -13,6 +13,7 @@ import { Snowman } from '../snowman.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { AvalancheSystem } from '../avalanche.js';
+import { SnowTrails } from '../snowtracks.js';
 import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
@@ -39,6 +40,7 @@ export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveli
  */
 export interface GameState {
   avalanche: AvalancheSystem | null; // live avalanche system (null if module absent)
+  snowTrails: SnowTrails | null;     // dynamic ski-trail / snow-accumulation visuals (#17)
   debris: SnowmanDebris | null;      // crash-shatter wipeout system (#53)
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
   lastAvalancheZ: number;            // z the trigger distance is measured from
@@ -200,6 +202,7 @@ export function setupScene() {
   // run/scoring fields.
   const state: GameState = {
     avalanche: null,
+    snowTrails: null,
     debris: null,
     avalancheTriggered: false,
     lastAvalancheZ: 0,
@@ -219,6 +222,13 @@ export function setupScene() {
   } else {
     console.warn("Avalanche module not loaded - avalanche feature disabled");
   }
+
+  // --- Initialize dynamic ski trails / snow accumulation (#17) ---
+  // Purely cosmetic; terrain-aware like the avalanche. Skis carve fading grooves
+  // that fresh snow covers back over. Never touches physics/pos/velocity.
+  const snowTrails = new SnowTrails(scene);
+  snowTrails.setTerrainFunction(Snow.getTerrainHeight);
+  state.snowTrails = snowTrails;
 
   // --- Initialize Snowman crash-shatter (#53) ---
   // The wipeout system. Constructed here so the coordinator can fire it from the

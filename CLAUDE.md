@@ -14,6 +14,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/mountains.ts` - Natural backcountry terrain generation code
 - `src/trees.ts` - Tree creation and placement throughout the mountain
 - `src/avalanche.ts` - Avalanche system with snow boulder physics and burial detection
+- `src/snowtracks.ts` - Dynamic ski trails / snow accumulation (cosmetic, terrain-aware, never touches physics)
 - `src/course.ts` - Checkpoint gates, split timing, ghost racing, and result screen
 - `src/effects.ts` - Avalanche warning UI and camera juice (speed FOV, shake)
 - `src/intro.ts` - Cinematic "fly over the mountain" intro at game start (issue #51; skippable, skipped under test/automation/reduced-motion)

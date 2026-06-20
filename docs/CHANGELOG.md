@@ -54,6 +54,33 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   coasting trajectory as byte-identical to the baseline, and every technique gating
   check holds. Constants updated in [`PHYSICS.md`](PHYSICS.md).
 
+### Realistic snow surface (no grey grid) + dynamic ski trails (#17)
+- **Killed the grey "grid lines."** The snow surface read as a striped grey sheet:
+  the procedural normal map (`createSnowNormalTexture` in `src/mountains.ts`) summed
+  wind-ripple waves that were all biased to one diagonal and tiled `8×10`, so the
+  directional light raked them into regular diagonal stripes; the per-vertex slope
+  "wind crust" was a strong grey-blue (`0.66, 0.72, 0.82` at up to 0.6) that greyed
+  every pitch. The relief is now **isotropic, high-frequency snow grain** (many
+  mixed-direction waves, repeat `16×20`, `normalScale 0.12`) that mip-maps to smooth
+  at distance — sparkle up close, no stripes — and the slope tint is a faint, bright
+  cool *shadow* (`0.84, 0.88, 0.96` at up to 0.35) so pitches stay snow, not grey.
+  The albedo is brighter and isotropically mottled with a sparse sparkle, and the
+  material is matte powder (`roughness 0.92`).
+- **Deeper snow accumulation on rocks.** `applyRockSnowColors` widens/saturates the
+  up-facing snow band (`0.05..0.55` toward a faintly cool white) and the rock
+  material drops to `metalness 0` so rocks read as snow-capped stone instead of the
+  shiny grey crystals they were.
+- **Dynamic ski trails / snow accumulation groundwork — new `src/snowtracks.ts`.**
+  `SnowTrails` carves faint grooves behind the skis as the snowman moves and then
+  fades each one over a few seconds as fresh snow accumulates back over it (the fade
+  *is* the accumulation read). It is a fixed instanced-quad ring-buffer pool (one
+  draw call), terrain-aware via `setTerrainFunction`, `prefers-reduced-motion`-aware,
+  cleared on reset, and **purely cosmetic** — it only reads `snowman.position`, never
+  the physics kernel/`pos`/`velocity`, so the physics-invariant harness still reports
+  byte-identical no-input coasting. Threaded through `GameState.snowTrails`,
+  constructed in `game/scene-setup.ts`, stepped in `game/main-loop.ts`, reset in
+  `game/lifecycle.ts`. Covered by `tests/snowtrails-tests.js` (`npm run test:snowtrails`).
+
 ### Rename `src/physics.ts` → `src/player-state.ts` (#178)
 - The repo had two files named `physics.ts` at different levels: the top-level
   one (the typed per-frame `PlayerState` container + step/reset wiring) and the

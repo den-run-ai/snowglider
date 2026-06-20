@@ -37,6 +37,9 @@ export function createLifecycle(deps: LifecycleDeps) {
     // the snowman, so a restart always begins with a clean, visible snowman (#53).
     if (state.debris) state.debris.reset();
 
+    // Clear ski trails so a new run starts on a fresh, untracked slope (#17).
+    if (state.snowTrails) state.snowTrails.reset();
+
     // Reset avalanche system
     const avalanche = state.avalanche;
     if (avalanche) {

@@ -110,6 +110,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       updateSnowman(delta);
       Snow.updateSnowflakes(delta, pos, scene);
 
+      // Dynamic ski trails / snow accumulation (#17): carve fading grooves behind
+      // the skis that fresh snow covers back over. Purely cosmetic — reads position
+      // only, never the physics state.
+      state.snowTrails?.update(delta, snowman, player.isInAir);
+
       // --- Course progress: split timing, progress HUD, ghost racing ---
       if (CourseModule) {
         const elapsed = (performance.now() - state.startTime) / 1000;
