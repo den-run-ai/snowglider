@@ -3,9 +3,8 @@
 > Implementation proposal for **[issue #53](https://github.com/den-run-ai/snowglider/issues/53)**
 > — *"more realistic snowman: scarf, flexible, breaks down on impact"* — and Roadmap
 > **Finding #11 (Personality & fail-state fun)** / **P2 (Make it memorable)**. This is a
-> design/plan doc in the spirit of [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md):
-> it specifies the modules, the data flow, the code seams, and a mergeable PR sequence
-> so the actual implementation PR(s) are mechanical.
+> design/plan doc: it specifies the modules, the data flow, the code seams, and a
+> mergeable PR sequence so the actual implementation PR(s) are mechanical.
 
 ---
 
