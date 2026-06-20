@@ -181,6 +181,42 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
   rightSki.add(rightSkiTip);
   group.add(rightSki);
   
+  // --- Scarf (issue #53, optional follow-up PR C) ---------------------------
+  // A red wool scarf: a torus wrap at the narrow neck seam + a short two-segment tail
+  // draped down the front. The tail is its own neck-pivoted group so the flex layer can
+  // swing it in the wind (Flex already handles `scarfTail` present-or-absent), and both
+  // join the registries below so the crash shatter flings them too. Kept OUT of the head
+  // cluster so head bob doesn't drag the scarf.
+  const scarfMaterial = new THREE.MeshStandardMaterial({ color: 0xCC2222, roughness: 1.0 });
+  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.26, 8, 16), scarfMaterial);
+  scarf.position.set(0, 6.1, 0);
+  scarf.rotation.x = Math.PI / 2; // lie flat around the neck
+  scarf.castShadow = true;
+  group.add(scarf);
+
+  const scarfTail = new THREE.Group();
+  const tailSeg1 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.7, 0.16), scarfMaterial);
+  tailSeg1.position.y = -0.35;
+  tailSeg1.castShadow = true;
+  scarfTail.add(tailSeg1);
+  const tailSeg2 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.6, 0.14), scarfMaterial);
+  tailSeg2.position.set(0.04, -0.9, 0);
+  tailSeg2.rotation.z = -0.18;
+  tailSeg2.castShadow = true;
+  scarfTail.add(tailSeg2);
+  // Anchor at the neck-front and DRAPE FORWARD so the tail hangs in front of the middle
+  // snowball instead of being buried inside it: the middle sphere (center y=4.5, r=1.5)
+  // bulges out to z≈1.1–1.3 over the tail's vertical range, so a straight tail at z≈0.55
+  // would be occluded by the opaque body. Tilting the group forward (rotation.x ≈ -0.6)
+  // sends its local -Y axis down-and-out (+z), keeping the tail just outside the chest
+  // surface and visible in the front/chase view. Flex preserves this drape (it offsets
+  // rotation.x from the base) and only swings rotation.z in the wind.
+  scarfTail.position.set(0.3, 6.25, 0.75); // neck-front, just outside the narrow neck
+  scarfTail.rotation.x = -0.8;             // drape forward over the chest (clears the snowball)
+  group.add(scarfTail);
+  // Verified: at the resting base angle and the flex-animated grounded (+0.1) and
+  // airborne (-0.3) offsets, both tail segments stay in front of the body spheres.
+
   // --- Head cluster (issue #53) ---------------------------------------------
   // Parent the head sphere AND its accessories (eyes, nose, hat) into one
   // neck-pivoted group so the flexibility/jiggle layer (src/snowman-flex.ts) can
@@ -214,15 +250,18 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
     leftEye, rightEye, nose,
     button1, button2, button3,
     leftArmGroup, rightArmGroup,
-    hatBase, hatTop
+    hatBase, hatTop,
+    scarf, scarfTail
   };
   // SHATTER roots: the flat list of TOP-LEVEL rigid pieces the PR-B debris system
   // flings, so accessories ride with their cluster instead of being double-spawned.
-  // headGroup + arms are THREE.Groups; the shatter loop branches on `part.isMesh`.
+  // headGroup + arms (+ scarfTail) are THREE.Groups; the shatter loop branches on
+  // `part.isMesh` (the scarf wrap is a Mesh).
   group.userData.shatterRoots = [
     bottom, middle, headGroup,
     leftArmGroup, rightArmGroup,
-    button1, button2, button3
+    button1, button2, button3,
+    scarf, scarfTail
   ];
   // Neutral local transforms, kept OFF the registries so a generic loop over .parts
   // / .shatterRoots only ever sees renderable Object3Ds. Keyed by the same names so

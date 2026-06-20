@@ -320,7 +320,7 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Ski techniques (snowplow/pizza, parallel, carving, hop, straight-line) | #48 | ✅ all named techniques in: snowplow/carve/tuck (#56), carve-vs-skid trade-off (#136), parallel + hop turns (#146) — candidate to close |
 | Avalanche trigger notification + visibility from behind | #49 | ◐ warning UI + danger meter in #56; in-scene cloud/shadow open |
 | Avalanche effects and controls | #44 | ◐ effects in #56; controls open |
-| Expressive snowman (scarf, flexible, breaks on impact) | #53 | ◐ partial — flexible/"wiggly" snowman (`src/snowman-flex.ts`) **and** crash-shatter wipeout (`src/debris.ts`: balls break into snow chunks + puff on any crash) shipped; only the optional scarf remains (plan: `SNOWMAN_SHATTER_PLAN.md`) |
+| Expressive snowman (scarf, flexible, breaks on impact) | #53 | ✅ all three shipped — flexible/"wiggly" snowman (`src/snowman-flex.ts`), crash-shatter wipeout (`src/debris.ts`: balls break into snow chunks + puff on any crash), and a red scarf (wrap + wind-trailing tail). Candidate to close (plan: `SNOWMAN_SHATTER_PLAN.md`) |
 | Ski poles and planting | #52 | ○ open |
 | Intro fly-over of the mountain | #51 | ✅ shipped — cinematic camera fly-over at game start (`src/intro.ts`) |
 | Mobile music-disable button broken *(bug)* | #50 | ○ open |
