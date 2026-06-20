@@ -6,6 +6,7 @@
 
 import { Controls } from '../controls.js';
 import { Snow } from '../snow.js';
+import { Flex } from '../snowman-flex.js';
 import { AudioModule } from '../audio.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
@@ -27,6 +28,10 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Reset the snowman + player physics state (position, velocity, camera, and the
     // air/auto-turn scalars) to the start of a run.
     Physics.resetPlayer(player, snowman, Snow.getTerrainHeight, cameraManager);
+
+    // Snap the cosmetic flex layer (squash/jiggle/head-bob) back to a neutral pose so a
+    // new run starts clean (issue #53). Purely visual; no physics impact.
+    Flex.reset(snowman);
 
     // Reset avalanche system
     const avalanche = state.avalanche;
