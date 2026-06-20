@@ -121,21 +121,37 @@ async function main() {
   const ghostLast = ghostSaved[ghostSaved.length - 1];
   check('ghost final sample keeps real x (Gap 3, not snapped to 0)', Math.abs(ghostLast.x - 0) > 0.5 && ghostLast.z === cfg.FINISH_Z);
 
-  // Social sharing (CHANGELOG #157): the "Share Result" button is built
-  // only inside the finish result panel, so it appears solely on a valid finish.
+  // Social sharing (see docs/CHANGELOG.md): the result panel hosts a hybrid share
+  // control built only inside the finish result panel, so it appears solely on a
+  // valid finish. On desktop (no navigator.share under jsdom) the primary button
+  // toggles a menu of per-platform links + "Save image" + "Copy link".
   const shareBtn1 = panel1.querySelector('#shareResultBtn');
   check('finish result panel includes a Share button', !!shareBtn1);
   check('Share button is labelled "Share Result"', /Share Result/.test(shareBtn1 ? shareBtn1.textContent : ''));
 
-  // Clicking it uses the clipboard fallback (no navigator.share under jsdom) and
-  // reflects the outcome in the label. Install a clipboard spy via defineProperty
-  // because Node exposes a getter-only `navigator` global.
+  const shareMenu1 = panel1.querySelector('#shareMenu');
+  check('share menu is present but hidden until toggled', !!shareMenu1 && shareMenu1.style.display === 'none');
+  check('share menu lists all six social platforms',
+    shareMenu1 ? shareMenu1.querySelectorAll('[data-platform]').length === 6 : false);
+  check('share menu includes the Copy-link action', !!(shareMenu1 && shareMenu1.querySelector('#shareCopyBtn')));
+  // The Save-image (Instagram) action stays visible on every device, so it is a
+  // panel-level sibling of the toggle menu rather than inside it.
+  check('Save-image (Instagram) action is always visible', !!panel1.querySelector('#shareImageBtn'));
+
+  // Desktop: clicking the primary button reveals the explicit menu (jsdom has no
+  // navigator.share, so prefersNativeShare() is false and we don't open a sheet).
+  shareBtn1.click();
+  check('clicking Share Result opens the menu on desktop', shareMenu1.style.display === 'block');
+
+  // "Copy link" uses the clipboard fallback. Install a clipboard spy via
+  // defineProperty because Node exposes a getter-only `navigator` global.
   let clipboardText = null;
   Object.defineProperty(global, 'navigator', {
     value: { clipboard: { writeText: async (txt) => { clipboardText = txt; } } },
     configurable: true, writable: true
   });
-  shareBtn1.click();
+  const copyBtn1 = shareMenu1.querySelector('#shareCopyBtn');
+  copyBtn1.click();
   await new Promise((r) => setTimeout(r, 0));
   // The clipboard fallback writes "<message>\n<url>"; validate the URL line by
   // parsing it and checking the parsed origin (a substring/`includes` host check
@@ -149,8 +165,8 @@ async function main() {
       copiedToPublicSite = false;
     }
   }
-  check('clicking Share copies a stable public link', copiedToPublicSite);
-  check('Share button reflects the copied state', /copied/i.test(shareBtn1.textContent || ''));
+  check('Copy link copies a stable public link', copiedToPublicSite);
+  check('Copy link reflects the copied state', /copied/i.test(copyBtn1.textContent || ''));
   delete global.navigator;
 
   // Second run, faster: should read as a new record and a ghost should now exist + interpolate.
@@ -169,11 +185,11 @@ async function main() {
 
   // Gap 2 regression: after a personal best, reset() must reload bestSplits, so the
   // second run's result table shows real per-split deltas instead of the "—" placeholder.
-  // (Scope the check to the split table — the "X — new personal best!" line legitimately
-  // uses an em dash as a separator, so checking the whole panel would false-positive.
-  // The split table sits immediately before the Share button, which is appended last.)
+  // (Scope the check to the split table by id — the "X — new personal best!" line
+  // legitimately uses an em dash as a separator, so checking the whole panel would
+  // false-positive.)
   const EM_DASH = String.fromCharCode(0x2014);
-  const deltaTable = panel2.querySelector('#shareResultBtn').previousElementSibling;
+  const deltaTable = panel2.querySelector('#resultSplitTable');
   check('best-split deltas not stale after PB (Gap 2)',
     !!deltaTable && deltaTable.textContent.indexOf(EM_DASH) === -1);
 

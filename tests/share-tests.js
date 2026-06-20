@@ -25,7 +25,9 @@ function clearGlobal(name) {
 
 async function main() {
   const {
-    buildResultShareData, cleanShareUrl, shareMessage, shareResult
+    buildResultShareData, cleanShareUrl, shareMessage, shareResult,
+    buildShareLinks, prefersNativeShare, shareImageFile, copyShareMessage,
+    formatRunSeconds, SHARE_PLATFORMS
   } = await import('../src/share.ts');
 
   // ---- buildResultShareData: deterministic copy ----
@@ -121,6 +123,75 @@ async function main() {
   setGlobal('window', { firebaseModules: { logEvent: () => { throw new Error('analytics down'); } } });
   setGlobal('navigator', { clipboard: { writeText: async () => {} } });
   check('analytics failure does not break sharing', (await shareResult(data)) === 'copied');
+  clearGlobal('window');
+
+  // ---- formatRunSeconds: shared 2-decimal clock (also used by the share card) ----
+  console.log('\n--- formatRunSeconds ---');
+  check('formats to 2 decimals', formatRunSeconds(42.129) === '42.13');
+  check('guards NaN -> 0.00', formatRunSeconds(NaN) === '0.00');
+  check('guards negative -> 0.00', formatRunSeconds(-3) === '0.00');
+
+  // ---- buildShareLinks: per-platform web share-intent URLs ----
+  console.log('\n--- buildShareLinks ---');
+  // Pass a dirty href so the cleaned (?test stripped) url flows through the links.
+  const linkData = buildResultShareData(42.13, true, 'https://snowglider.ai/?test=unified&ref=tw');
+  const links = buildShareLinks(linkData);
+  const encUrl = encodeURIComponent('https://snowglider.ai/?ref=tw');
+  const encText = encodeURIComponent('New SnowGlider personal best: 42.13s. Can you beat it?');
+  const encTextUrl = encodeURIComponent('New SnowGlider personal best: 42.13s. Can you beat it? https://snowglider.ai/?ref=tw');
+  check('all six platforms present', Object.keys(links).length === 6 && SHARE_PLATFORMS.length === 6);
+  check('x/twitter intent carries cleaned url + text', links.x === `https://twitter.com/intent/tweet?text=${encText}&url=${encUrl}`);
+  check('facebook sharer carries only the url', links.facebook === `https://www.facebook.com/sharer/sharer.php?u=${encUrl}`);
+  check('linkedin carries only the url', links.linkedin === `https://www.linkedin.com/sharing/share-offsite/?url=${encUrl}`);
+  check('whatsapp carries text + url combined', links.whatsapp === `https://wa.me/?text=${encTextUrl}`);
+  check('reddit carries url + title', links.reddit === `https://www.reddit.com/submit?url=${encUrl}&title=${encText}`);
+  check('telegram carries url + text', links.telegram === `https://t.me/share/url?url=${encUrl}&text=${encText}`);
+  check('every intent is a valid https URL', Object.values(links).every((u) => {
+    try { return new URL(u).protocol === 'https:'; } catch { return false; }
+  }));
+
+  // ---- prefersNativeShare: native sheet only on touch/mobile ----
+  console.log('\n--- prefersNativeShare ---');
+  setGlobal('window', {});
+  setGlobal('navigator', {});
+  check('no navigator.share -> desktop menu (false)', prefersNativeShare() === false);
+  setGlobal('navigator', { share: async () => {}, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', maxTouchPoints: 0 });
+  check('desktop Safari (share, no touch) -> menu (false)', prefersNativeShare() === false);
+  setGlobal('navigator', { share: async () => {}, userAgent: 'Mozilla/5.0 (Macintosh)', maxTouchPoints: 5 });
+  check('touch device (maxTouchPoints>0) -> native (true)', prefersNativeShare() === true);
+  setGlobal('navigator', { share: async () => {}, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)', maxTouchPoints: 0 });
+  check('mobile UA -> native (true)', prefersNativeShare() === true);
+  setGlobal('navigator', { share: async () => {}, userAgent: 'X', maxTouchPoints: 0 });
+  setGlobal('window', { matchMedia: (q) => ({ matches: q === '(pointer: coarse)' }) });
+  check('coarse pointer (matchMedia) -> native (true)', prefersNativeShare() === true);
+  clearGlobal('window');
+
+  // ---- copyShareMessage: explicit "Copy link" action ----
+  console.log('\n--- copyShareMessage ---');
+  let cm = null;
+  setGlobal('navigator', { clipboard: { writeText: async (t) => { cm = t; } } });
+  check('copyShareMessage writes the joined message + returns true',
+    (await copyShareMessage(data)) === true && cm === shareMessage(data));
+  setGlobal('navigator', {});
+  check('copyShareMessage with no clipboard returns false', (await copyShareMessage(data)) === false);
+
+  // ---- shareImageFile: native file share (the only path to Instagram) ----
+  console.log('\n--- shareImageFile ---');
+  const blob = new Blob(['fake-png'], { type: 'image/png' });
+  setGlobal('navigator', {});
+  check('no navigator.share -> image share unavailable', (await shareImageFile(blob, data)) === 'unavailable');
+  setGlobal('navigator', { share: async () => {}, canShare: () => false });
+  check('canShare rejects files -> unavailable', (await shareImageFile(blob, data)) === 'unavailable');
+  let sharedFiles = null;
+  setGlobal('navigator', { share: async (d) => { sharedFiles = d.files; }, canShare: () => true });
+  check('native file share succeeds -> shared', (await shareImageFile(blob, data)) === 'shared');
+  check('native file share receives a single File payload',
+    Array.isArray(sharedFiles) && sharedFiles.length === 1 && sharedFiles[0] instanceof File);
+  setGlobal('navigator', {
+    share: async () => { const e = new Error('cancel'); e.name = 'AbortError'; throw e; },
+    canShare: () => true
+  });
+  check('user cancels file share -> cancelled', (await shareImageFile(blob, data)) === 'cancelled');
 
   clearGlobal('navigator');
   clearGlobal('window');

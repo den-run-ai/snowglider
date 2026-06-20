@@ -67,7 +67,9 @@ export function setupScene() {
   // Sky background + distance fog are applied after the lights are set up
   // (see Sky.applyGradientSky below) so the gradient sky / horizon fog replace the
   // old flat `scene.background = Color(0x87CEEB)` (issue #2).
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  // preserveDrawingBuffer keeps the back buffer readable after a frame so the
+  // result screen's "Save image" share can capture it (src/share-card.ts).
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   (renderer as any).outputColorSpace = THREECompat.LinearSRGBColorSpace;
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
@@ -278,7 +280,9 @@ export function setupScene() {
       CourseModule.init({
         scene: scene,
         getTerrainHeight: Snow.getTerrainHeight,
-        createSnowman: Snowman.createSnowman
+        createSnowman: Snowman.createSnowman,
+        renderer: renderer,
+        camera: camera
       });
       console.log("Course module initialized (gates, splits, ghost)");
     } catch (e) {

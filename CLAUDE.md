@@ -71,6 +71,18 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   ```
 - Use the same `Authorization: Bearer $TOKEN` for other GitHub API calls (PR status, `commits/<sha>/check-runs`, comments).
 - Never echo the token into normal output, logs, or commits.
+- **Include screenshots in the PR for any user-visible / UI / visual change** (new
+  UI, layout, terrain/lighting/snowman visuals, share/result screens, etc.). Drive
+  the real app locally (vite dev server + puppeteer with `PUPPETEER_EXECUTABLE_PATH`
+  pointing at system Chrome — see [`tests/puppeteer-runner.js`](tests/puppeteer-runner.js))
+  to capture the actual rendered feature, and embed the image(s) in the PR body.
+  Show before/after when changing existing visuals.
+- **Do not commit screenshots/PNGs into the repo tree** (keep `main` text-only;
+  media uses Git LFS). Host PR screenshots off-tree and embed them by URL: push the
+  PNG(s) to a throwaway `assets/*` branch via the Git Data API (create blob →
+  tree → a parentless commit → `refs/heads/assets/<name>`), then embed
+  `https://raw.githubusercontent.com/<owner>/<repo>/assets/<name>/<file>.png`.
+  Confirm each raw URL returns HTTP 200 before relying on it in the PR body.
 
 ## Code Style Guidelines
 - **Indentation**: 2 spaces

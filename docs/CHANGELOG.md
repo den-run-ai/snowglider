@@ -13,6 +13,44 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Social sharing — desktop platform menu + screenshot card
+- Fixes the original "Share Result" being useless for social on desktop. The
+  native Web Share API was the only path, but on macOS/desktop the OS share sheet
+  only lists system targets (AirDrop / Mail / Messages) — never social sites —
+  and Messages often opened with an empty body. The native sheet is still used on
+  mobile/touch (where it surfaces installed social apps), but desktop now gets an
+  explicit menu of web share-intent links.
+- `src/share.ts` additions:
+  - `buildShareLinks(data)` — deterministic, URL-encoded web share-intent links
+    for **X/Twitter, Facebook, LinkedIn, WhatsApp, Reddit, Telegram** (Facebook
+    and LinkedIn carry only the URL per their policy; the rest carry the brag
+    text too). `SHARE_PLATFORMS` drives the menu order/labels.
+  - `prefersNativeShare()` — true only on touch/mobile (where `navigator.share`
+    lists social apps and can file-share to Instagram), so desktop falls through
+    to the explicit menu.
+  - `shareImageFile(blob, data)` — shares a rendered run image via the native
+    file-share sheet (the only way to reach Instagram, which has no web
+    share-intent URL); returns `'unavailable'` so the caller can fall back to a
+    download. `copyShareMessage(data)` backs the explicit "Copy link" action.
+- New `src/share-card.ts` — the **screenshot + card overlay**: `captureGameFrame`
+  re-renders the live frame and reads it back as a PNG (enabled by
+  `preserveDrawingBuffer: true` on the renderer in `game/scene-setup.ts`), and
+  `composeShareCard` draws it as the background of a 1080×1350 (Instagram-portrait)
+  card with the time/branding overlaid. `buildShareCardBlob` + `downloadBlob`
+  tie it together; everything degrades to a gradient card if capture is
+  unavailable.
+- New `src/ui/share-menu.ts` — the hybrid result-screen control: a primary
+  **🔗 Share Result** button that calls the native sheet on mobile or toggles the
+  per-platform menu (social links + **📸 Save image (Instagram)** + **🔗 Copy
+  link**) on desktop. Every menu button stops `touchstart` propagation so
+  `controls.ts`'s document-level `preventDefault` can't kill its synthesized
+  click on mobile (same class of fix as #173). `course.ts` now receives the
+  `renderer`/`camera` (via `CourseModule.init`) to feed frame capture.
+- Tests: `tests/share-tests.js` extended to 54 checks (`buildShareLinks`,
+  `prefersNativeShare`, `shareImageFile`, `copyShareMessage`, `formatRunSeconds`);
+  `tests/verification/dom_smoke_test.js` updated for the menu UX (menu hidden →
+  opens on click, six platforms present, Copy link copies a stable public link).
+
 ### Intro fly-over — cinematic mountain establishing shot at game start (#51)
 - On the first real "Start Game" the camera now flies over the mountain before
   the run begins: a wide establishing shot high above the peak that sweeps down
