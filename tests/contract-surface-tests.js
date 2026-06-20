@@ -17,7 +17,7 @@
 //
 //   The one runtime assertion is the `./snowman.js` import seam (R3's #1 risk): the
 //   facade must keep resolving the `Snowman` object for main.ts / snowglider.ts /
-//   physics.ts / tests. snowman.ts touches no WebGL at import time, so that one is safe
+//   player-state.ts / tests. snowman.ts touches no WebGL at import time, so that one is safe
 //   to load. Run via the `test:contract` npm script (needs the .js->.ts resolve hook).
 const fs = require('fs');
 const path = require('path');
@@ -139,16 +139,16 @@ check('finish reason is produced (assigned) at least once', producer >= 1);
 check('finish reason is compared in >= 3 branches', consumer >= 3);
 check('finish reason literal spans >= 2 files (producer + consumer survive the split)', filesWithLiteral >= 2);
 
-// === Section E — physics.ts -> snowman.js types seam (source-level) ===
-// physics.ts imports the snowman *types* via the `./snowman.js` specifier; the facade
+// === Section E — player-state.ts -> snowman.js types seam (source-level) ===
+// player-state.ts imports the snowman *types* via the `./snowman.js` specifier; the facade
 // must keep that specifier resolving after the snowman/ split.
-console.log('--- E. physics.ts -> ./snowman.js import seam ---');
-check('physics.ts imports from "./snowman.js"',
-  /from\s*['"]\.\/snowman\.js['"]/.test(srcFiles['physics.ts'] || ''));
+console.log('--- E. player-state.ts -> ./snowman.js import seam ---');
+check('player-state.ts imports from "./snowman.js"',
+  /from\s*['"]\.\/snowman\.js['"]/.test(srcFiles['player-state.ts'] || ''));
 
 // === Section D — Snowman runtime import seam (the one boot-safe runtime check) ===
 // Proves `./snowman.js` resolves to the Snowman object with its 4 public methods — the
-// specifier main.ts / snowglider.ts / physics.ts / browser-tests.js all use. Under the
+// specifier main.ts / snowglider.ts / player-state.ts / browser-tests.js all use. Under the
 // .js->.ts resolve hook this loads snowman.ts today and the facade after R3's step 7.
 async function main() {
   console.log('--- D. ./snowman.js runtime import seam ---');

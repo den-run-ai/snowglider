@@ -6,13 +6,13 @@
 //   - src/main.ts            (side-effect import, keeps it in the bundle graph)
 //   - src/snowglider.ts      (import { Snowman })
 //   - src/game/*.ts          (import { Snowman })
-//   - src/physics.ts         (imports the contract *types*)
+//   - src/player-state.ts    (imports the contract *types*)
 //   - src/ui/hud.ts          (imports PlayerPos / UpdateResult types)
 //   - tests/browser-tests.js (import { Snowman } from '../src/snowman.js')
 //   - tests/contract-surface-tests.js (runtime import, via the .js->.ts hook)
 //
 // `export *` re-exports the `Snowman` object AND every contract type (PlayerPos,
-// UpdateResult, …) that physics.ts / hud.ts consume.
+// UpdateResult, …) that player-state.ts / hud.ts consume.
 //
 // NOTE: the physics-invariant harness (tests/verification/physics_invariant_harness.js)
 // self-registers the same `.js`->`.ts` resolver used by the Node suites before

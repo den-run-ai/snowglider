@@ -1,4 +1,4 @@
-// physics.ts - Typed player-physics state container + per-frame stepping for SnowGlider.
+// player-state.ts - Typed player-physics state container + per-frame stepping for SnowGlider.
 //
 // Phase 3.21 (issues #84, #98): extracts the player's per-frame physics *state*
 // — the cluster of mutable scalars (air / jump / auto-turn) plus the shared

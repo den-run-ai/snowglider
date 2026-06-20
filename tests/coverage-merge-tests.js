@@ -54,7 +54,7 @@ function recordsFor(lcov, sf) {
 // --- Report A: c8-style. File covered, plus an `--all` empty-report placeholder. ---
 const reportA = [
   'TN:',
-  'SF:src/physics.ts',
+  'SF:src/player-state.ts',
   'FN:10,stepPlayer',
   'FNDA:3,stepPlayer',
   'FNF:1',
@@ -86,7 +86,7 @@ const reportA = [
 // --- Report B: browser-style. Adds coverage for the same and the browser-only file. ---
 const reportB = [
   'TN:',
-  'SF:src/physics.ts',
+  'SF:src/player-state.ts',
   'FN:10,stepPlayer',
   'FNDA:5,stepPlayer',
   'FNF:1',
@@ -117,7 +117,7 @@ const reportB = [
 
 const merged = mergeLcovText([reportA, reportB]);
 
-const physics = recordsFor(merged, 'src/physics.ts');
+const physics = recordsFor(merged, 'src/player-state.ts');
 check('line hits sum across reports', physics.lines['2'] === 7, `got DA:2,${physics.lines['2']}`);
 check('line covered in only one report becomes covered',
   physics.counters.LH === 3 && physics.counters.LF === 3,

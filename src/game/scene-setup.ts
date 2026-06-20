@@ -34,7 +34,7 @@ export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveli
  *  - PR 3.20: the run/scoring lifecycle (`startTime`, `bestTime`).
  *  - PR 3.22: the run-loop lifecycle flags (`gameActive`, `animationRunning`,
  *    `gameInitialized`).
- * The per-frame player physics state lives in the typed `physics.ts` module
+ * The per-frame player physics state lives in the typed `player-state.ts` module
  * (PR 3.21); future PRs can fold more cohesive subsets in the same way.
  */
 export interface GameState {
