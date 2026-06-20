@@ -13,6 +13,17 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Rename `src/physics.ts` → `src/player-state.ts` (#178)
+- The repo had two files named `physics.ts` at different levels: the top-level
+  one (the typed per-frame `PlayerState` container + step/reset wiring) and the
+  physics *math* kernel at `src/snowman/physics.ts`. The top-level file holds no
+  physics math, so the shared name was confusing.
+- Renamed it to `player-state.ts` (and the matching `tests/physics-state-tests.js`
+  → `tests/player-state-tests.js` plus its `test:physics` script). Pure rename:
+  all import specifiers, the contract-surface seam, and doc references were
+  updated; the `snowman/physics.ts` kernel and the exported `Physics` API object
+  are unchanged.
+
 ### Social sharing — desktop platform menu + screenshot card
 - Fixes the original "Share Result" being useless for social on desktop. The
   native Web Share API was the only path, but on macOS/desktop the OS share sheet
@@ -50,7 +61,6 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   `prefersNativeShare`, `shareImageFile`, `copyShareMessage`, `formatRunSeconds`);
   `tests/verification/dom_smoke_test.js` updated for the menu UX (menu hidden →
   opens on click, six platforms present, Copy link copies a stable public link).
-
 ### Intro fly-over — cinematic mountain establishing shot at game start (#51)
 - On the first real "Start Game" the camera now flies over the mountain before
   the run begins: a wide establishing shot high above the peak that sweeps down
