@@ -15,7 +15,7 @@
 //
 // Design principles:
 // 1. Native HTML5 Audio element - no library dependencies
-// 2. Single track only (drum_loop) - no track switching complexity
+// 2. Single track only (bad_cat) - no track switching complexity
 // 3. Only 2 state variables - muted and initialized
 // 4. No pre-loading - load when user clicks play
 // 5. No visibility change handling - let browser manage it
@@ -48,7 +48,7 @@ export const AudioModule = (function() {
   let muted = false;
   let initialized = false;
 
-  const AUDIO_PATH = 'assets/drum_loop_are_you_heaven.wav';
+  const AUDIO_PATH = 'assets/skullbeatz_bad_cat.mp3';
 
   // Load mute preference from localStorage
   function loadPreferences() {
@@ -200,7 +200,7 @@ export const AudioModule = (function() {
         disabled: false,
         muted,
         playing: audio ? !audio.paused : false,
-        currentTrack: 'drum_loop'
+        currentTrack: 'bad_cat'
       };
     },
 
@@ -210,7 +210,7 @@ export const AudioModule = (function() {
 
     // Compatibility stubs for existing code. preloadAudio accepts (and ignores) a
     // track name for parity with the old Howler API surface — the boot
-    // script-loader still calls preloadAudio('drum_loop').
+    // script-loader still calls preloadAudio('bad_cat').
     preloadAudio: function(_track?: string) { return Promise.resolve(); },
     playPreloadedAudio: function() { return this.startAudio(); },
     resumeAudioContext: function() { return Promise.resolve(); },

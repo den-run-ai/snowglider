@@ -105,7 +105,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - Provide visual feedback for touch controls on mobile devices
 - Automatically detect device type to enable appropriate controls
 ## Audio Implementation (ENABLED — simplified native HTML5)
-- **Audio is enabled** via `AUDIO_ENABLED = true` in `src/audio.ts`. The current implementation is the simplified, dependency-free native HTML5 `<audio>` approach: a single background-music track (`assets/drum_loop_are_you_heaven.wav`), two state variables (`muted`, `initialized`), loaded on first play, with no visibility-change handling (the browser manages it). Howler.js and Three.js Audio were both removed.
+- **Audio is enabled** via `AUDIO_ENABLED = true` in `src/audio.ts`. The current implementation is the simplified, dependency-free native HTML5 `<audio>` approach: a single background-music track (`assets/skullbeatz_bad_cat.mp3`), two state variables (`muted`, `initialized`), loaded on first play, with no visibility-change handling (the browser manages it). Howler.js and Three.js Audio were both removed.
 - To disable: set `AUDIO_ENABLED = false` in `src/audio.ts` (all public methods early-exit).
 - The previous Howler.js API surface is kept as no-op/Promise stubs for backward compatibility (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …), so the existing callers in `index.html` keep working without change.
 - **Caveats:** the in-page audio control button CSS is still commented out in `index.html`, and while desktop and the automated suite pass, mobile playback (iOS Safari silent switch, Android Chrome) is **not yet verified on real devices** — test thoroughly there before relying on it.
