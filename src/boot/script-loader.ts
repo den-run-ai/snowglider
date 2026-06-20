@@ -140,7 +140,7 @@ import { AudioModule } from '../audio.js';
   function preloadAudio() {
     setTimeout(() => {
       if (AudioModule && typeof AudioModule.preloadAudio === 'function') {
-        AudioModule.preloadAudio('drum_loop')
+        AudioModule.preloadAudio('bad_cat')
           .then(() => {
             console.log("Audio pre-loaded and ready for user interaction");
           })

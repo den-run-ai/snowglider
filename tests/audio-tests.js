@@ -106,9 +106,9 @@ import { AudioModule } from '../src/audio.js';
       );
       
       assert(
-        status.currentTrack === 'drum_loop',
+        status.currentTrack === 'bad_cat',
         'Current Track',
-        'Default track is drum_loop'
+        'Default track is bad_cat'
       );
     }
     
@@ -186,7 +186,7 @@ import { AudioModule } from '../src/audio.js';
       });
       
       // preloadAudio should return a promise
-      const result = AudioModule.preloadAudio('drum_loop');
+      const result = AudioModule.preloadAudio('bad_cat');
       assert(
         result instanceof Promise,
         'preloadAudio Promise',
