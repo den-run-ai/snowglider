@@ -205,10 +205,11 @@ Local Mode boot fallback, and the remaining test/runtime `window.*` hooks
 migrated. **Tracking issues:** refactor `index.html` into CSS + main (**#33**),
 refactor `snowglider` into a thinner UI/game module (**#34**).
 
-> **Line-level plan for the two largest modules:** Stages R2 and R3 below are
-> operationalized — current line-ranges mapped to target modules, the `window.*`
-> and `Snowman.*` contracts to preserve, and a mergeable PR sequence — in
-> [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md).
+> **Update — Stages R2 and R3 have shipped.** `snowglider.ts` is now a ~380-line
+> coordinator (`src/game/*` for scene / loop / lifecycle, `src/ui/*` for HUD and
+> overlays) and `snowman.ts` is a thin facade over `src/snowman/*`. The stage
+> descriptions below are kept for context; `ARCHITECTURE.md` §5 has the current
+> module map.
 
 ### Stage R1 — Split the page shell first — ✅ shipped
 
@@ -234,25 +235,25 @@ mountains -> trees -> snow -> camera -> snowman -> audio -> controls
           -> avalanche -> effects -> course -> snowglider -> tests
 ```
 
-### Stage R2 — Thin the game orchestrator — ◐ partial
+### Stage R2 — Thin the game orchestrator — ✅ shipped
 
 `src/snowglider.ts` should become a small coordinator instead of the owner of
 every runtime concern. The TS migration already did the *state* slice of this:
 the mutable run/lifecycle state was folded into a typed `GameState`
 (**#118**/**#119**/**#121**) and the player physics state was extracted into
-`src/physics.ts` (**#120**). The *scene / loop / UI* extractions below are still
-open (no `src/game/` dir yet; `src/ui/` currently holds only `start-menu.ts`):
+`src/physics.ts` (**#120**). The *scene / loop / UI* extractions below have since
+shipped — `src/game/` exists and `src/ui/` now holds four modules:
 
-- ◐ `game-state` — done as typed `GameState` (`pos`, `velocity`, air state, timers,
+- ✅ `game-state` — typed `GameState` (`pos`, `velocity`, air state, timers,
   avalanche trigger state, technique) + `src/physics.ts` player-state layer.
-- ○ `src/game/scene-setup.ts` for scene, renderer, lights, terrain, trees, snowman,
+- ✅ `src/game/scene-setup.ts` for scene, renderer, lights, terrain, trees, snowman,
   snow particles, avalanche construction, and course/effects init.
-- ○ `src/game/main-loop.ts` for the current `animate()` ordering.
-- ○ `src/game/lifecycle.ts` for start, reset, restart, and game-active transitions.
-- ○ `src/ui/hud.ts` for stats, timer, speed color, position, and technique display.
-- ○ `src/ui/result-overlay.ts` for game-over/finish overlay, local best display,
+- ✅ `src/game/main-loop.ts` for the current `animate()` ordering.
+- ✅ `src/game/lifecycle.ts` for start, reset, restart, and game-active transitions.
+- ✅ `src/ui/hud.ts` for stats, timer, speed color, position, and technique display.
+- ✅ `src/ui/result-overlay.ts` for game-over/finish overlay, local best display,
   login prompt, leaderboard insertion, and `CourseModule.onFinish(...)`.
-- ○ `src/ui/collapsible-panel.ts` for shared Game Stats / Game Controls
+- ✅ `src/ui/collapsible-panel.ts` for shared Game Stats / Game Controls
   collapse, resize, and swipe behavior.
 
 Keep these globals stable during the first pass because controls and browser
@@ -260,14 +261,14 @@ tests still use them: `window.resetSnowman`, `window.restartGame`,
 `window.showGameOver`, `window.toggleCameraView`, and
 `window.initializeGameWithAudio`.
 
-### Stage R3 — Split snowman only after R1/R2 — ○ mostly open
+### Stage R3 — Split snowman only after R1/R2 — ✅ shipped
 
 `src/snowman.ts` is the highest-risk file because it contains the physics model
 and the deterministic verification seam. Note the typed `src/physics.ts`
 extracted in R2 is only the per-frame *state* container — the physics *math*
-(`Snowman.updateSnowman` / `Snowman.resetSnowman`) deliberately still lives in
-`snowman.ts` so the physics-invariant harness stays byte-identical. Split the
-rest only after the boot and orchestrator work has landed:
+(`Snowman.updateSnowman` / `Snowman.resetSnowman`) is reached through the stable
+`./snowman.js` facade so the physics-invariant harness stays byte-identical. The
+split landed after the boot and orchestrator work:
 
 - `src/snowman/model.ts` for geometry, materials, arms, hat, skis, and scene add.
 - `src/snowman/physics.ts` for gravity, friction, jumping, air control, ski
@@ -284,8 +285,7 @@ stable surface, internally delegating to the smaller modules without changing th
 public signatures. There is **no** `window.Snowman` global to preserve — the ESM app
 exposes none (it exists only in the frozen `tests/verification/snowman_baseline.js`
 snapshot), and re-adding one would violate the no-per-module-`window`-bridge rule.
-See [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md) for the
-exact contract and the facade detail.
+`ARCHITECTURE.md` §5 documents the resulting facade and module map.
 
 ### Guardrails
 
@@ -320,7 +320,7 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Ski techniques (snowplow/pizza, parallel, carving, hop, straight-line) | #48 | ✅ all named techniques in: snowplow/carve/tuck (#56), carve-vs-skid trade-off (#136), parallel + hop turns (#146) — candidate to close |
 | Avalanche trigger notification + visibility from behind | #49 | ◐ warning UI + danger meter in #56; in-scene cloud/shadow open |
 | Avalanche effects and controls | #44 | ◐ effects in #56; controls open |
-| Expressive snowman (scarf, flexible, breaks on impact) | #53 | ✅ all three shipped — flexible/"wiggly" snowman (`src/snowman-flex.ts`), crash-shatter wipeout (`src/debris.ts`: balls break into snow chunks + puff on any crash), and a red scarf (wrap + wind-trailing tail). Candidate to close (plan: `SNOWMAN_SHATTER_PLAN.md`) |
+| Expressive snowman (scarf, flexible, breaks on impact) | #53 | ✅ all three shipped — flexible/"wiggly" snowman (`src/snowman-flex.ts`), crash-shatter wipeout (`src/debris.ts`: balls break into snow chunks + puff on any crash), and a red scarf (wrap + wind-trailing tail). Candidate to close |
 | Ski poles and planting | #52 | ○ open |
 | Intro fly-over of the mountain | #51 | ✅ shipped — cinematic camera fly-over at game start (`src/intro.ts`) |
 | Mobile music-disable button broken *(bug)* | #50 | ○ open |

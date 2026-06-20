@@ -215,12 +215,11 @@ camera.position -= shake                          // revert so smoothing stays c
  showGameOver(reason) ─→ Course.onFinish ─→ Scores.recordScore ─→ (localStorage + Firestore)
 ```
 
-> **Refactor in progress (Stages R2/R3, see
-> [`REFACTORING_SNOWGLIDER_SNOWMAN.md`](REFACTORING_SNOWGLIDER_SNOWMAN.md)):**
-> `snowglider.ts` is being thinned into `src/game/*` (scene / loop / lifecycle) and
+> **Coordinator split (Stages R2/R3) — complete.**
+> `snowglider.ts` was thinned into `src/game/*` (scene / loop / lifecycle) and
 > `src/ui/*` (HUD, overlays), and `snowman.ts` into `src/snowman/*`. Mechanical,
 > behavior-preserving moves only — the published `window.*` hooks and the
-> `publishGameGlobals()` proxy set stay in the coordinator. Extracted so far:
+> `publishGameGlobals()` proxy set stay in the coordinator. The extracted modules:
 > **`src/ui/collapsible-panel.ts`** (the shared collapse / resize / horizontal-swipe
 > behavior for the Game Stats and Game Controls panels, previously duplicated across
 > `initializeGameStats()` and `initializeControlsToggle()`), **`src/ui/hud.ts`**
@@ -249,7 +248,7 @@ camera.position -= shake                          // revert so smoothing stays c
 > auto-start. (The dead local `addTestHooks` shim was deleted — the real browser hooks
 > come from `Snowman.addTestHooks`.)
 >
-> Stage R3 (in progress) splits `snowman.ts`: the implementation moved to
+> Stage R3 split `snowman.ts`: the implementation moved to
 > **`src/snowman/index.ts`** behind a thin **`src/snowman.ts`** facade
 > (`export * from './snowman/index.js'`) so every `./snowman.js` importer keeps
 > resolving a sibling file. R3.8 moved model construction into
@@ -261,6 +260,21 @@ camera.position -= shake                          // revert so smoothing stays c
 > the same `.js` -> `.ts` resolver as the Node suites before importing the facade,
 > so the public seam remains the thing under test while `index.ts` keeps the
 > exported snowman contract types and update orchestration.
+
+### What the type system won't catch
+
+`strict` TypeScript closed the structural-type gaps, but the bugs that matter most
+here are **semantic** and compile clean either way — keep them under the test suite
+and the `PHYSICS.md` discipline, not the compiler:
+
+- **Radians vs degrees** in `heading` / rotation math — types see `number` either way.
+- **Coordinate-system / up-axis assumptions** in terrain and camera-follow logic.
+- **Aliasing of shared mutable state** (`scene`, `velocity`, `snowman`): types the
+  reference, not action-at-a-distance from cross-module mutation. The typed
+  `GameState` + `src/physics.ts` `PlayerState` container is the mitigation, not types
+  alone.
+- **Disposal you don't already do** — watch new geometry / material / texture
+  creation in `snow.ts` / `effects.ts` / `mountains.ts`.
 
 ---
 

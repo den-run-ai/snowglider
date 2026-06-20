@@ -4,7 +4,7 @@
 > symlink to this file, so Claude Code and Codex (and other agents) read identical guidance.
 
 ## Project Overview
-SnowGlider is a Three.js animation/game featuring a snowman skiing on natural backcountry mountain terrain. It is a **Vite-bundled, ES-module TypeScript** app — the TypeScript migration is complete (see [`docs/TYPESCRIPT_MIGRATION.md`](docs/TYPESCRIPT_MIGRATION.md)): `index.html` loads the bundle entry `src/main.ts` (plus the `boot/`/`ui/` module scripts) as `<script type="module">`, and `npm run build` emits static `dist/` output for GitHub Pages. The core files are:
+SnowGlider is a Three.js animation/game featuring a snowman skiing on natural backcountry mountain terrain. It is a **Vite-bundled, ES-module TypeScript** app — the TypeScript migration is complete (all `src/` is `.ts` under `"strict": true`): `index.html` loads the bundle entry `src/main.ts` (plus the `boot/`/`ui/` module scripts) as `<script type="module">`, and `npm run build` emits static `dist/` output for GitHub Pages. The core files are:
 - `index.html` - Main entry point and UI (loads the Vite bundle entry `src/main.ts`)
 - `auth.html` - Standalone Firebase authentication page (loads the `auth.ts` module)
 - `src/main.ts` - ES-module bundle entry; imports every game module into one graph
@@ -30,10 +30,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `docs/ARCHITECTURE.md` - Module system, load order, game loop, and Firebase/scoring subsystem
 - `docs/PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
 - `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
-- `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis
-- `docs/REFACTORING_SNOWGLIDER_SNOWMAN.md` - Line-level plan to split the two largest modules (`snowglider.ts`/`snowman.ts`), operationalizing Roadmap Stages R2/R3
-- `docs/TYPESCRIPT_MIGRATION.md` - TypeScript migration plan and phase status (migration complete; all `src/` is `.ts` under `"strict": true`)
-- `docs/THREEJS_UPGRADE.md` - Staged three.js upgrade plan from r160 to latest
+- `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis (includes the now-shipped R2/R3 refactor stages)
 
 ## Commands
 - Install dependencies: `npm ci`

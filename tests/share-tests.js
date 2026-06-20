@@ -1,6 +1,6 @@
 // share-tests.js
 // Focused, headless coverage for src/share.ts — the social-sharing helper behind
-// the finish result screen's "Share Result" button (docs/SOCIAL_SHARING_PLAN.md).
+// the finish result screen's "Share Result" button (see CHANGELOG #157).
 //
 // share.ts imports nothing (no three.js / Firebase / DOM module), so we import the
 // REAL `.ts` directly — Node 23 type-strips it and c8 instruments it with correct

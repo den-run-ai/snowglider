@@ -76,9 +76,8 @@ module.exports = [
   // typescript-eslint parser + recommended rules (non-type-checked — `tsc
   // --noEmit` remains the type gate). Severities are downgraded to "warn" to
   // mirror the JS block (warnings don't fail `eslint .`), and a few rules are
-  // relaxed for deliberate migration patterns documented in
-  // docs/TYPESCRIPT_MIGRATION.md (intentional `any` boot/test seams, the
-  // `window.*` handle casts).
+  // relaxed for deliberate migration patterns (intentional `any` boot/test
+  // seams, the `window.*` handle casts).
   ...tseslint.config({
     files: ["**/*.ts"],
     extends: [tseslint.configs.recommended],
@@ -93,7 +92,7 @@ module.exports = [
       // and don't fight unused vars during the migration.
       "@typescript-eslint/no-unused-vars": "off",
       // Deliberate `any` lives only in boot/test seams + untyped Firestore
-      // DocumentData (see TYPESCRIPT_MIGRATION.md exit criteria).
+      // DocumentData.
       "@typescript-eslint/no-explicit-any": "warn"
     }
   }),

@@ -121,7 +121,7 @@ async function main() {
   const ghostLast = ghostSaved[ghostSaved.length - 1];
   check('ghost final sample keeps real x (Gap 3, not snapped to 0)', Math.abs(ghostLast.x - 0) > 0.5 && ghostLast.z === cfg.FINISH_Z);
 
-  // Social sharing (docs/SOCIAL_SHARING_PLAN.md): the "Share Result" button is built
+  // Social sharing (CHANGELOG #157): the "Share Result" button is built
   // only inside the finish result panel, so it appears solely on a valid finish.
   const shareBtn1 = panel1.querySelector('#shareResultBtn');
   check('finish result panel includes a Share button', !!shareBtn1);

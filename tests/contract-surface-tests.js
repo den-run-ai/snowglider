@@ -1,7 +1,7 @@
 // contract-surface-tests.js
 // Refactor-invariant guard for the public/test contract surface that the R2/R3
-// split (docs/REFACTORING_SNOWGLIDER_SNOWMAN.md, issue #34) must keep intact while
-// it moves code between files.
+// split (issue #34; see the Refactoring Roadmap in docs/ROADMAP.md) must keep
+// intact while it moves code between files.
 //
 // WHY THIS IS A SOURCE-CONTRACT TEST, NOT A BOOT TEST:
 //   `snowglider.ts` constructs a real `THREE.WebGLRenderer` at module top level, so

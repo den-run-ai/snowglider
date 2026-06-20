@@ -2,7 +2,7 @@
 //
 // Lets a player share a completed run without sign-in, a backend endpoint, or a
 // per-platform SDK. The course result panel wires a single "Share Result" button
-// to shareResult(); see docs/SOCIAL_SHARING_PLAN.md for the original proposal.
+// to shareResult(); see the "Social sharing" entry in docs/CHANGELOG.md.
 //
 // Two pieces, kept deliberately small and side-effect-light:
 //   - buildResultShareData(time, isNewBest): deterministic share copy (no DOM /

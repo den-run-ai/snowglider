@@ -41,9 +41,8 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   clearance, single `onComplete`).
 
 ### Social sharing — "Share Result" on the finish screen (#157)
-- New `src/share.ts` module implements the plan in
-  [`SOCIAL_SHARING_PLAN.md`](SOCIAL_SHARING_PLAN.md): lightweight sharing of a
-  finished run with no sign-in, backend, or per-platform SDK.
+- New `src/share.ts` module: lightweight sharing of a finished run with no
+  sign-in, backend, or per-platform SDK.
   - `buildResultShareData(time, isNewBest, href?)` builds deterministic share
     copy ("I finished SnowGlider in 42.13s…" / "New SnowGlider personal best:…").
   - `cleanShareUrl(href)` keeps shared links stable and public: it strips
@@ -176,8 +175,7 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   samplers, and finally `AudioModule`). Remaining `window.*` handles are
   deliberate boot/auth/test seams, not module-namespace bridges.
 - Build, lint, `tsc --noEmit`, the Node suite, and the puppeteer browser suite
-  stay green; the Vite bundle and `CNAME`/Pages artifact are unchanged. See
-  [`TYPESCRIPT_MIGRATION.md`](TYPESCRIPT_MIGRATION.md) for the phase status.
+  stay green; the Vite bundle and `CNAME`/Pages artifact are unchanged.
 
 ### Onboarding / start screen
 - **Self-updating build badge.** The hand-maintained `build-id` meta (stuck at
