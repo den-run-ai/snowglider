@@ -137,14 +137,27 @@ async function main() {
   console.log('\n--- restart button via game-over MutationObserver ---');
   let restarts = 0;
   window.restartGame = () => { restarts++; };
+  // Simulate a successful finish: the course result panel (with a nested "Share
+  // Result" button) is inserted before the restart button. The observer must bind
+  // the touch->restart handler to the DIRECT-child restart button, not the nested
+  // share button that comes first in depth-first document order.
+  const overlay = document.getElementById('gameOverOverlay');
+  const resultPanel = document.createElement('div');
+  resultPanel.id = 'courseResult';
+  resultPanel.innerHTML = '<button id="shareResultBtn">Share Result</button>';
+  overlay.insertBefore(resultPanel, overlay.querySelector('button'));
   // The observer attaches a touch handler to the restart button when the overlay
   // becomes visible (style.display = 'flex').
-  document.getElementById('gameOverOverlay').style.display = 'flex';
+  overlay.style.display = 'flex';
   await flush();
   await flush();
-  const restartButton = document.querySelector('#gameOverOverlay button');
+  const restartButton = document.querySelector('#gameOverOverlay > button');
   dispatchTouch('touchstart', restartButton, [{ identifier: 5, clientX: 0, clientY: 0 }]);
   check('restart button touchstart invokes window.restartGame', restarts === 1);
+  // Touching the nested share button must NOT restart the game (regression guard:
+  // the observer used to bind restart to the first descendant button).
+  dispatchTouch('touchstart', document.getElementById('shareResultBtn'), [{ identifier: 6, clientX: 0, clientY: 0 }]);
+  check('share button touchstart does NOT invoke window.restartGame', restarts === 1);
 
   console.log('\n--- resetControls ---');
   keydown('ArrowRight');
