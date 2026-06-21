@@ -13,6 +13,14 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Snow rendering & lighting guide (docs)
+- Added [`docs/SNOW_RENDERING.md`](SNOW_RENDERING.md) plus
+  `docs/snow-lighting-model.svg`, versioning the rationale behind the snow-lighting
+  stack (issues #17/#18/#2): warm sun + cool skylight + AO for snow form, the
+  whiteout / grey-corduroy / muddy-snow failure modes to avoid, the merged static
+  light values, and the per-layer ownership boundaries the sun cycle (#163) must
+  respect. Linked from [`ARCHITECTURE.md`](ARCHITECTURE.md). Docs-only.
+
 ### Avalanche powder cloud (issue #49)
 - An approaching avalanche now kicks up a **billowing cloud of snow powder** as it
   tumbles down the slope, so it reads as a rolling wall of snow instead of a bare
