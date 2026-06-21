@@ -7,6 +7,7 @@
 
 import { Controls } from '../controls.js';
 import { Snow } from '../snow.js';
+import { Sky } from '../sky.js';
 import { Snowman } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
@@ -114,6 +115,10 @@ export function createMainLoop(deps: MainLoopDeps) {
       // the skis that fresh snow covers back over. Purely cosmetic — reads position
       // only, never the physics state.
       state.snowTrails?.update(delta, snowman, player.isInAir);
+
+      // Advance the golden-hour↔midday sun cycle (sun position/colour, sky
+      // exposure, fog). Purely atmospheric; a no-op under reduced motion. (#163)
+      Sky.update(delta);
 
       // --- Course progress: split timing, progress HUD, ghost racing ---
       if (CourseModule) {

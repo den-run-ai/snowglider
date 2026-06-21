@@ -187,10 +187,15 @@ export function setupScene() {
   scene.add(directionalLight);
 
   // --- Sky & fog ---
-  // Preetham atmospheric sky + sun, with horizon-tinted distance fog (issue #2).
-  // The sun direction is the directional light's position so the visible sun and
-  // the cast shadows agree. (Sky.applyGradientSky is a lighter-weight fallback.)
-  Sky.applyAtmosphericSky(scene, directionalLight.position);
+  // Preetham atmospheric sky + sun, with horizon-tinted distance fog (issue #2),
+  // plus the Tier 3 golden-hour↔midday sun cycle (#163). The directional light's
+  // current position/colour/intensity (set just above) are captured as the static
+  // midday endpoint, then the cycle drives it (so the visible sun and cast shadows
+  // track together) and the sky/fog; it is advanced by `Sky.update(delta)` in the
+  // main loop and freezes at the captured midday under prefers-reduced-motion. The
+  // HemisphereLight/AmbientLight are intentionally not handed to the cycle — it must
+  // not touch the snow's cool-shadow fill. (Sky.applyGradientSky is a fallback.)
+  Sky.applyAtmosphericSky(scene, directionalLight);
 
   // --- Create main game objects ---
   // Store terrain in a global for precise object positioning
