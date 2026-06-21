@@ -95,10 +95,10 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
     } else {
       // Reflect the active ski technique so skill is legible in the HUD.
       const techMap: Record<string, { txt: string; color: string }> = {
-        parallel: { txt: '🎿 Parallel', color: '#00d2ff' },
-        carve:    { txt: '🎿 Carving',  color: '#55efc4' },
-        hop:      { txt: '🦘 Hop turn', color: '#fab1a0' },
-        skid:     { txt: '💨 Skidding', color: '#ffeaa7' },
+        parallel: { txt: '🎿 Parallel (skid)', color: '#ffeaa7' },
+        carve:    { txt: '🎿 Carving',        color: '#55efc4' },
+        hop:      { txt: '🦘 Hop turn',       color: '#fab1a0' },
+        skid:     { txt: '💨 Skidding',       color: '#ffeaa7' },
         snowplow: { txt: '🍕 Snowplow', color: '#74b9ff' },
         tuck:     { txt: '🏎️ Tuck',     color: '#ff7675' },
         glide:    { txt: '⛷️ Ground',   color: '#AAFFAA' }

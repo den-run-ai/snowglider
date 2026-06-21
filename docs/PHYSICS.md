@@ -116,65 +116,66 @@ Layered on top of the arcade handling. **When the player gives no steering and n
 brake input, `turnForce`/accel are unchanged and `skidScrub == 0`, so coasting is
 identical to the pre-technique physics** — see §6.
 
+There are **two** steered turns — a skidded parallel turn and a carve — plus the
+snowplow wedge. They are the two ends of one axis (`carveCharge`, below): how
+committed the edge is sets the turn's radius, its speed scrub, *and* its pose, so
+they read clearly differently to drive and to watch.
+
 | Technique | Trigger | Effect |
 |-----------|---------|--------|
-| **Skid**  | Left/Right, freshly set or *reversed* (panic-steer) | Edge washes out and scrubs speed (`skidScrub` near full) |
-| **Carve** | Left/Right, *committed* (held in one direction) | Holds speed: a locked edge sheds most of the wash-out (`turnForce = 16`) |
-| **Parallel** | Left/Right, fully committed (`carveCharge > 0.85`) | The mastery tier of the carve: the always-on turn tax fades out (nearly free turn); skis draw together and roll onto edge |
+| **Parallel (skidded)** | Left/Right, uncommitted (fresh, *reversed*, or abrupt) | Skis brush sideways and **scrub speed** (`skidScrub` near full); **tighter** turn (`turnForce → 19`); skis stay flatter, body upright |
+| **Carve** | Left/Right, *committed* (held smoothly, `carveCharge > 0.6`) | **Holds speed** — the locked edge sheds ~92% of the wash-out; **wider** arc (`turnForce → 10`); skis roll onto edge + draw together with a deep body lean. The mastery turn above a parallel |
 | **Snowplow** | Down | Sheds real speed, but sharper, planted turns (`turnForce = 24`, grip = 1.0); skis form a wedge |
 | **Tuck**  | Up, no steer | Least friction, most speed, least control (`accel = 10` on `-z`) |
 | **Hop turn** | Jump **+** Left/Right (grounded) | A quick edge-set pivot: snaps heading ~0.4 rad toward the steer, scrubs ~18% speed, small pop; lands on a fresh edge (see §4) |
 
-**Edge engagement — the carve/skid trade-off (issues #48 / #54).** A turn is only a
+**Edge engagement — carve vs. skidded parallel (issues #48 / #54).** A turn is only a
 skill if a clean, committed turn costs less speed than a panicked one. `carveCharge`
 ∈ [0,1] tracks how locked-in the current edge is: it builds while the player holds
 *one* steering direction and collapses to 0 the instant they reverse it or first set
-an edge out of a straight line. A locked carve sheds most of the edge wash-out; a
-fresh or reversed edge keeps it. So anticipating and holding a smooth line keeps
-speed, while flip-flopping the skis bleeds it. The state lives on `snowman.userData`
-(like the pose state), persists across frames, and is cleared by `resetSnowman`.
+an edge out of a straight line. Past `CARVE_LOCK = 0.6` the turn is a **carve** (wide
+arc, holds speed); below it the turn is a **skidded parallel** turn (tighter, scrubs
+speed). So anticipating and holding a smooth line carves and keeps speed, while
+abrupt or flip-flopping steering skids and bleeds it. The state lives on
+`snowman.userData` (like the pose state), persists across frames, and is cleared by
+`resetSnowman`.
 
 Key terms:
 
 ```
 terrainGrip = 0.6 + min(0.4, steepness * 0.5)        // more bite on pitches
 
-turnForce   = 16.0
-            = 24.0  if snowplow                       // planted wedge steers harder
-            = 14.0  if currentSpeed > 18 (no snowplow)// hard to wrench skis at speed
-left/right:  velocity.x ∓= turnForce * delta
-
 // Edge engagement (per-frame, on snowman.userData):
 if steering != 0:
     carveCharge = (steering == lastSteerDir)          // same way as last frame?
-                ? min(1, carveCharge + delta * 1.5)   // ~0.66 s of a held turn locks it in
+                ? min(1, carveCharge + delta * 1.5)   // ~0.4 s of a held turn locks the carve in
                 : 0                                    // reversal / fresh edge breaks it
 else:
     carveCharge = max(0, carveCharge - delta * 3.0)   // releases ~2x faster than it engages
 
+// Turn RADIUS is the inverse of commitment (a carve can't be whipped tight):
+turnForce   = 24.0                                    if snowplow   // tightest, planted wedge
+            = 19.0 + (10.0 - 19.0) * carveCharge      otherwise     // 19 skid (tight) -> 10 carve (wide)
+            *= 0.85                                    if currentSpeed > 18 (no snowplow)
+left/right:  velocity.x ∓= turnForce * delta
+
 skidScrub = 0  unless (steering && currentSpeed > 4):
     speedFactor2 = min(1, currentSpeed / 22)
     grip = snowplow ? 1.0 : terrainGrip
-    edgeScrub = 0.06 * speedFactor2 * (1 - grip*0.85) * (1 - 0.8 * carveCharge)
-    // Parallel-turn tax relief: the turn tax fades out across the parallel lock
-    // (carveCharge 0.85 -> 1), so a mastered parallel turn is nearly free. Below
-    // 0.85 parallelLock == 0, so carve/skid is byte-identical to before.
-    parallelLock = clamp01((carveCharge - 0.85) / (1 - 0.85))
-    skidScrub = edgeScrub + 0.01 * speedFactor2 * (1 - parallelLock)
+    edgeScrub = 0.10 * speedFactor2 * (1 - grip*0.85) * (1 - 0.92 * carveCharge)  // carve sheds ~92%
+    skidScrub = edgeScrub + 0.008 * speedFactor2 * (1 - carveCharge)              // turn tax, faded by a carve
 ```
 
 `technique` is classified each frame and returned for the HUD and ski pose: a steered
-turn reads as `skid` until the edge locks in, `carve` once `carveCharge > 0.55`, and
-finally **`parallel`** once `carveCharge > 0.85` (the `PARALLEL_LOCK` threshold) — the
-mastery tier above the beginner snowplow wedge. The snowplow forms a ski wedge
-(`wedge = 0.35 rad`) with the **tips converging and the tails splayed out** (a real
-"pizza"); a parallel turn instead draws the skis together and rolls them
-onto their edges into the turn (angulation). The pose is purely cosmetic — it never
-touches the physics. The always-on turn tax keeps a turn from ever being entirely
-free at speed (until the parallel tier relieves it), so straight-lining stays the
-fastest line and turning is a genuine speed-management choice — while a clean carve
-still finishes far
-faster than chatter-skidding (≈40% in the verification harness, §6).
+turn reads as **`parallel`** (skidded) until the edge locks in, then **`carve`** once
+`carveCharge > CARVE_LOCK` (0.6). The snowplow forms a ski wedge (`wedge = 0.35 rad`)
+with the **tips converging and the tails splayed out** (a real "pizza"); a **carve**
+rolls the skis hard onto their edges, draws them together, and inclines the whole body
+into the turn (lean clamp raised to ~0.42 rad); a **skidded parallel** turn keeps the
+skis flatter and the body upright. The pose is purely cosmetic — it never touches the
+physics. The always-on turn tax (faded out by a carve) keeps turning from ever being
+entirely free, so straight-lining stays the fastest line and a clean carve still
+finishes far faster than chatter-skidding (≈30%+ in the verification harness, §6).
 
 ### 3.4 Snowplow brake (and why it is clamped)
 
@@ -469,12 +470,14 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Ground gravity (slope pull) | 9.8 | `snowman.js` |
 | Air gravity | 16 | `snowman.js` |
 | Base / max coast friction | 0.012 / 0.032 | `snowman.js` |
-| Turn force (normal/snowplow/fast) | 16 / 24 / 14 | `snowman.js` |
+| Turn force (parallel/snowplow/carve) | 19 / 24 / 10 (×0.85 over 18 u/s) | `snowman.js` |
 | Accel (tuck) | 10 | `snowman.js` |
 | Brake decel | 14 | `snowman.js` |
-| Max skid scrub | 0.06 | `snowman.js` |
+| Max skid scrub (uncommitted) | 0.10 + 0.008 tax | `snowman.js` |
+| Carve scrub relief | 0.92 | `snowman.js` |
 | Carve build / release rate | 1.5 / 3.0 per s | `snowman.js` |
-| Parallel-turn lock threshold | `carveCharge > 0.85` | `snowman.js` |
+| Carve lock threshold | `carveCharge > 0.6` | `snowman.js` |
+| Carve body-lean clamp | 0.42 rad (~24°) | `snowman.js` |
 | Hop turn pivot / speed-keep / pop / cooldown | 0.4 rad / 0.82 / 5.0 / 0.45 s | `snowman.js` |
 | Manual / auto jump impulse | `10 + v*0.5` / `6 + v*0.3` | `snowman.js` |
 | Max tilt | 0.25 rad (~14°) | `snowman.js` |

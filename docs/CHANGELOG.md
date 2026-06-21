@@ -13,6 +13,32 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Carve vs. parallel turns — make the two distinct (follow-up to #185)
+- The carve/parallel split shipped in #146/#185 was **almost indistinguishable and
+  not faithful to real skiing**: both were the same input (just hold a turn), they
+  differed only by a tiny turn-tax fading out, "carve" had *no* distinct pose at all,
+  and the hierarchy was backwards (it treated parallel as the mastery tier *above*
+  carve — in reality a carve is the advanced form of a parallel turn).
+- Reworked into **two clearly distinct steered turns** (snowplow unchanged):
+  - **Parallel (skidded)** — the default/uncommitted turn: brushes the skis, **scrubs
+    speed**, and turns **tighter** (`turnForce → 19`); skis stay flatter, body upright.
+  - **Carve** — a committed, smoothly-held turn (`carveCharge > 0.6`): **holds speed**
+    (sheds ~92% of the edge wash-out) and draws a **wider** arc (`turnForce → 10`),
+    with the skis rolled onto edge + drawn together and a **deep body inclination**
+    into the turn (lean clamp raised to ~0.42 rad). The mastery turn above a parallel.
+  - Turn **radius** is now the inverse of commitment (a carve can't be whipped tight),
+    so the two *feel* different to drive, not just post different numbers.
+- Input is unchanged (no new keys): hold a smooth line → it locks into a carve; abrupt
+  or reversed steering stays a skidded parallel turn. HUD + the in-game/start-menu
+  technique guides + `PHYSICS.md` §3.3 updated to match.
+- **Test-safe.** Every change stays behind the steering gate, so the no-input coasting
+  path is **byte-identical to the frozen baseline** (no baseline regen needed); the
+  invariant harness still reports `max abs diff 0` and all technique gating checks pass
+  (the "parallel-reachable" check is now "carve-reachable"). A new side-by-side
+  technique-comparison harness (`npm run test:turn-styles`) drives a held carve vs. a
+  skidded parallel turn from the same start and asserts the carve holds more speed and
+  arcs wider, with the parallel scrubbing more and turning tighter.
+
 ### Fix: start-screen leaderboard rows clipped at full height
 - The **Global Top Times** preview (`#startLeaderboard`) on the start screen was
   truncated — only the header and the first few of the top-5 rows showed, with the

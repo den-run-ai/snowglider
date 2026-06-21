@@ -233,10 +233,10 @@ console.log('  baseline finalSpeed:', fo.toFixed(2), '| current finalSpeed:', fm
 console.log('  PASS:', scrubAtSpeed ? 'edge scrub active at speed ✅' : 'no scrub ❌');
 if (!scrubAtSpeed) hardFail = true;
 
-// 6) Parallel turn reachable: a sustained, committed carve (held Right) must lock
-// the edge in far enough to read as a "parallel" turn — the mastery tier above
-// carve (issue #48). carveCharge builds only while steering, so this is also gated
-// behind input and cannot affect coasting. [GATING]
+// 6) Carve reachable: a sustained, committed turn (held Right) must lock the edge
+// in far enough to read as a "carve" — the speed-holding mastery turn above the
+// uncommitted skidded "parallel" turn (issues #48/#54). carveCharge builds only
+// while steering, so this is also gated behind input and cannot affect coasting. [GATING]
 function simulateTech(updateFn, controls, seed, { steps = 120, dt = 1 / 60, z0 = -40, vz0 = -12 } = {}) {
   const rng = makeRng(seed); Math.random = rng;
   const snowman = fakeSnowman();
@@ -255,11 +255,11 @@ function simulateTech(updateFn, controls, seed, { steps = 120, dt = 1 / 60, z0 =
   return { seen };
 }
 const parRun = simulateTech(mod, RIGHT, 777);
-const reachesParallel = parRun.seen.has('parallel');
-console.log('\n--- Parallel turn: sustained committed carve reaches the parallel tier [GATING] ---');
+const reachesCarve = parRun.seen.has('carve');
+console.log('\n--- Carve: sustained committed turn reaches the carve tier [GATING] ---');
 console.log('  techniques seen on held-Right:', [...parRun.seen].join(', '));
-console.log('  PASS:', reachesParallel ? 'committed carve locks into a parallel turn ✅' : 'never reached parallel ❌');
-if (!reachesParallel) hardFail = true;
+console.log('  PASS:', reachesCarve ? 'committed turn locks into a carve ✅' : 'never reached carve ❌');
+if (!reachesCarve) hardFail = true;
 
 // 7) Hop turn (Jump + steer): a quick edge-set pivot that snaps the heading toward
 // the steer direction MUCH harder than a plain steering frame, and scrubs speed

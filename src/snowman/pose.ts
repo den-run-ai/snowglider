@@ -29,9 +29,10 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   } = state;
 
   // Show the current technique on the snowman: a snowplow forms a beginner ski
-  // wedge ("pizza" — tips together, tails apart), while a parallel turn draws the
-  // skis together and rolls them onto their edges into the turn (angulation) —
-  // visually distinct from the wedge. Purely cosmetic; none of this touches the physics.
+  // wedge ("pizza" — tips together, tails apart); a carve rolls the skis hard onto
+  // their edges and draws them together (paired with a deep body lean below); a
+  // skidded parallel turn keeps the skis flatter and brushing. Purely cosmetic; none
+  // of this touches the physics.
   if (!isInAir && snowman.userData && snowman.userData.leftSki && snowman.userData.rightSki) {
     const ls = snowman.userData.leftSki, rs = snowman.userData.rightSki;
     const lerp = Math.min(1, delta * 10);
@@ -42,11 +43,16 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
     // snowplow). The opposite signs would splay the tips out (a reverse wedge).
     ls.rotation.y += ((wedge) - ls.rotation.y) * lerp;
     rs.rotation.y += ((-wedge) - rs.rotation.y) * lerp;
-    // Parallel angulation: both skis edge the same way (into the turn) and slide
-    // toward each other; everything relaxes back to neutral otherwise.
-    const isParallel = technique === 'parallel';
-    const edge = isParallel ? steering * 0.28 : 0.0;
-    const draw = isParallel ? 0.35 : 0.0;
+    // Make the two steered turns read clearly differently on the snowman:
+    //   - CARVE: skis rolled hard onto their edges into the turn and drawn tight
+    //     together (angulation) — paired below with a deep body inclination. The
+    //     signature "on a rail" carve look.
+    //   - PARALLEL (skidded): skis stay flatter and at roughly neutral width, brushing
+    //     across the snow rather than knifing in.
+    // Purely cosmetic; none of this touches the physics.
+    let edge = 0.0, draw = 0.0;
+    if (technique === 'carve') { edge = steering * 0.5; draw = 0.4; }
+    else if (technique === 'parallel') { edge = steering * 0.1; draw = 0.05; }
     const lbx = (snowman.userData.leftSkiBaseX ?? -1) + draw;
     const rbx = (snowman.userData.rightSkiBaseX ?? 1) - draw;
     ls.rotation.z += (edge - ls.rotation.z) * lerp;
@@ -117,10 +123,15 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   
   // Add more controlled turning tilt with speed-based scaling
   const turnTiltFactor = Math.min(0.3, currentSpeed / 25); // Less tilt at lower speeds
-  const turnTilt = velocity.x * turnTiltFactor;
-  
+  // A committed carve inclines the whole body hard into the turn (angulation/
+  // inclination) — the signature carve look, and the strongest cue separating it
+  // from a flatter, upright skidded parallel turn. Amplify the lean and raise the
+  // clamp during a carve; every other technique keeps the original gentle lean.
+  const isCarve = technique === 'carve';
+  const turnTilt = velocity.x * turnTiltFactor * (isCarve ? 2.0 : 1.0);
+
   // Limit maximum tilt angles to prevent unrealistic leaning
-  const maxTiltAngle = 0.25; // Reduced to about 14 degrees maximum tilt
+  const maxTiltAngle = isCarve ? 0.42 : 0.25; // ~24° into a carve, ~14° otherwise
   
   // Apply smoothing and clamping to rotation values
   const targetRotX = gradZ * 0.3 + jumpTilt; // Add jump tilt to X rotation
