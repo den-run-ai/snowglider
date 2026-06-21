@@ -71,21 +71,42 @@ function openIntent(url: string, platform: SharePlatform): void {
   }
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Build a 16×16 inline SVG of a brand logo (a single 24×24-viewBox path),
+ *  tinted with the brand color. Used for the per-platform share buttons. */
+function brandIcon(pathData: string, color: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.style.flex = '0 0 auto';
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', pathData);
+  path.setAttribute('fill', color);
+  svg.appendChild(path);
+  return svg;
+}
+
 function makeSocialRow(data: ReturnType<typeof buildResultShareData>): HTMLDivElement {
   const links = buildShareLinks(data);
   const row = document.createElement('div');
   Object.assign(row.style, {
     display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '10px',
   });
-  for (const { key, label, icon } of SHARE_PLATFORMS) {
+  for (const { key, label, iconPath, color } of SHARE_PLATFORMS) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.id = `share-${key}-btn`;
     btn.setAttribute('data-platform', key);
     btn.title = `Share on ${label}`;
     btn.setAttribute('aria-label', `Share on ${label}`);
-    btn.textContent = `${icon} ${label}`;
+    btn.appendChild(brandIcon(iconPath, color));
+    btn.appendChild(document.createTextNode(label));
     Object.assign(btn.style, {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
       padding: '8px 6px', fontSize: '13px', fontWeight: '700', color: '#fff',
       cursor: 'pointer', border: 'none', borderRadius: '8px',
       background: 'rgba(255,255,255,0.14)', fontFamily: 'Arial, sans-serif',
