@@ -34,19 +34,22 @@ interface FlexState { t: number; settle: number; settleVel: number; leanZ: numbe
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
 
-// --- tuning (all small + clamped, so the snowman reads as alive but never breaks) ---
+// --- tuning (clamped, so the snowman reads as clearly alive but never breaks) ---
+// Amplitudes are sized to be visible at the follow-cam distance: the earlier values
+// (~1.5% squash / 0.05u bob) rounded to nothing on screen (issue #53 follow-up).
 const BREATHE_FREQ = 6.0;       // rad/s of the squash-stretch wobble
-const BREATHE_BASE = 0.015;     // idle squash amplitude (1.5%)
-const BREATHE_SPEED = 0.020;    // extra amplitude at full speed
-const BREATHE_AIR = 0.008;      // quieter breathing while airborne
+const BREATHE_BASE = 0.04;      // idle squash amplitude (4%)
+const BREATHE_SPEED = 0.06;     // extra amplitude at full speed (=> ~10% squashing fast)
+const BREATHE_AIR = 0.02;       // quieter breathing while airborne
 const SPEED_REF = 18;           // speed at which the "fast" terms saturate
 const SETTLE_K = 50;            // landing-spring stiffness
 const SETTLE_C = 12;            // landing-spring damping
-const SETTLE_CLAMP = 0.25;      // max squash from a landing
+const SETTLE_CLAMP = 0.30;      // max squash from a landing
 const BOB_FREQ = 5.0;           // head bob rad/s
-const BOB_AMP = 0.05;           // head bob world units
-const LAG_TARGET = 0.12;        // how far the head trails into a turn (rad)
-const LEAN_TARGET = 0.16;       // carve lean of the head cluster (rad)
+const BOB_AMP = 0.16;           // head bob world units
+const LAG_TARGET = 0.20;        // how far the head trails into a turn (rad)
+const LEAN_TARGET = 0.28;       // carve lean of the head cluster (rad)
+const LEAN_GLIDE = 0.5;         // fraction of the lean kept when not actively carving
 
 const BALLS: ReadonlyArray<string> = ['bottom', 'middle', 'head'];
 const BALL_PHASE: ReadonlyArray<number> = [0, 1.1, 2.2]; // stagger so the stack ripples
@@ -85,7 +88,7 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
 
   // Landing settle: a downward squash impulse that springs back to neutral.
   if (m.justLanded && finite(m.landingForce) > 0.25) {
-    fs.settleVel -= clamp(finite(m.landingForce) * 0.9, 0, 1.2);
+    fs.settleVel -= clamp(finite(m.landingForce) * 1.4, 0, 1.8);
   }
   fs.settleVel += (-SETTLE_K * fs.settle - SETTLE_C * fs.settleVel) * dt;
   fs.settle += fs.settleVel * dt;
@@ -110,16 +113,19 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
     hg.position.set(hb.position.x, hb.position.y + clamp(bob, -0.3, 0.3), hb.position.z);
 
     const targetLag = -turn * LAG_TARGET;
+    // Lean into every turn (the most readable cue), just deeper when actively carving.
+    // The old hard gate left the lean at 0 for the default `glide`/`snowplow` techniques,
+    // i.e. most of normal play, so it was never seen.
     const carving = !air && (m.technique === 'carve' || m.technique === 'parallel' || m.technique === 'skid');
-    const targetLean = carving ? -turn * LEAN_TARGET : 0;
+    const targetLean = air ? 0 : -turn * LEAN_TARGET * (carving ? 1 : LEAN_GLIDE);
     fs.lagY += (targetLag - fs.lagY) * clamp(dt * 6, 0, 1);
     fs.leanZ += (targetLean - fs.leanZ) * clamp(dt * 5, 0, 1);
     fs.lagY = finite(fs.lagY); fs.leanZ = finite(fs.leanZ);
 
     hg.rotation.set(
       hb.rotation.x + clamp(fs.settle * 0.25, -0.1, 0.1),
-      hb.rotation.y + clamp(fs.lagY, -0.2, 0.2),
-      hb.rotation.z + clamp(fs.leanZ, -0.22, 0.22)
+      hb.rotation.y + clamp(fs.lagY, -0.28, 0.28),
+      hb.rotation.z + clamp(fs.leanZ, -0.34, 0.34)
     );
   }
 
