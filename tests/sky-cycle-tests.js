@@ -170,6 +170,30 @@ function test(name, fn) {
   });
 
   // -------------------------------------------------------------------------
+  test('golden colour endpoints honour the scene colour-management opt-out (codex #163)', () => {
+    // Production builds the scene with three colour management OFF (scene-setup opts
+    // out before lights/fog are created). sky.ts is imported earlier, while CM is
+    // still ON — so a module-scope golden Color endpoint would be linearised at
+    // import and, lerped against the raw captured midday colours, render golden hour
+    // muddy/dark. The endpoints must be built inside applyAtmosphericSky, under the
+    // same opted-out regime, so their raw RGB matches the authored hex.
+    const prevCM = THREE.ColorManagement.enabled;
+    try {
+      THREE.ColorManagement.enabled = false;
+      const { scene, directional } = makeScene();
+      Sky.applyAtmosphericSky(scene, directional);
+      Sky.update(Sky.CYCLE_DURATION_S / 2); // golden hour, p == 0 → endpoints exactly
+      const close = (a, b, label) =>
+        assert.ok(Math.abs(a.r - b.r) < 1e-6 && Math.abs(a.g - b.g) < 1e-6 && Math.abs(a.b - b.b) < 1e-6,
+          `${label}: got (${a.r},${a.g},${a.b}) vs raw (${b.r},${b.g},${b.b}) — colour spaces mixed`);
+      close(scene.fog.color, new THREE.Color(0xe6dcc8), 'golden fog raw-sRGB');
+      close(directional.color, new THREE.Color(0xffc89e), 'golden sun raw-sRGB');
+    } finally {
+      THREE.ColorManagement.enabled = prevCM;
+    }
+  });
+
+  // -------------------------------------------------------------------------
   test('golden hour does not wash the whole mountain warm (fill stays static & cool)', () => {
     const { scene, ambient, hemisphere, directional } = makeScene();
     Sky.applyAtmosphericSky(scene, directional);

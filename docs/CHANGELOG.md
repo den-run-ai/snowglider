@@ -13,6 +13,22 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Codex review follow-ups on the snow/light stack (#163, #181)
+- **Golden hour no longer renders muddy (sky.ts, #163).** The cycle's golden-hour
+  `THREE.Color` endpoints were built at module load — *before* `scene-setup` opts out
+  of three's colour management (`ColorManagement.enabled = false`) — so they were
+  sRGB→linear converted while the captured midday colours (built after the opt-out)
+  stayed raw. `lerpColors` then mixed two colour spaces and darkened/muddied golden
+  hour. The endpoints are now constructed inside `applyAtmosphericSky` under the same
+  opted-out regime, so the authored hues survive. Guarded by a new `test:sky` check.
+- **Ski trails no longer clump on fast/hitchy frames (snowtracks.ts, #181).** The
+  stamping loop emitted every missed `STAMP_SPACING` dab at the *current* position, so
+  a fast glide, a frame hitch, or the capped `0.1 s` delta stacked a clump of dabs
+  under the snowman and left the crossed segment untracked. Missed stamps are now
+  interpolated along the segment travelled that frame, with the residual carried
+  across frames so spacing stays even. New `test:snowtrails` regression check. Both
+  fixes are render-only — the physics-invariant harness stays byte-identical.
+
 ### Golden-hour ↔ midday sun cycle (#163)
 - The atmospheric sky (#2) now **gently breathes between the static midday and a
   low, warm golden hour and back** on a 90 s loop, so the light feels alive without

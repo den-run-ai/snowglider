@@ -113,6 +113,27 @@ async function main() {
     assert(trails.activeCount() >= 2, 'moving on the ground should stamp dab pairs');
   });
 
+  runTest('A fast/hitchy frame spreads its dabs along the path, not stacked (#181)', () => {
+    const trails = makeTrails(220);
+    trails.update(0.1, snowmanAt(0, 0), false);    // anchor
+    // One frame covering ~10x STAMP_SPACING (a hitch / fast glide / capped delta).
+    trails.update(0.1, snowmanAt(0, -11), false);
+    assert(trails.activeCount() >= 10, `a fast frame should lay many dabs, got ${trails.activeCount()}`);
+    // Collect the z of every *active* dab (non-zero scale in its instance matrix).
+    const m = new THREE.Matrix4();
+    const zs = [];
+    for (let i = 0; i < trails.count; i++) {
+      trails.mesh.getMatrixAt(i, m);
+      const e = m.elements;
+      if (Math.hypot(e[0], e[1], e[2]) > 1e-4) zs.push(e[14]); // e[14] = z
+    }
+    const maxZ = Math.max(...zs); // nearest the segment start (~ -1.1)
+    const minZ = Math.min(...zs); // nearest the segment end   (~ -11)
+    // The pre-fix code stamped every miss at the endpoint, so the span was ~0.
+    assert(maxZ - minZ > 5, `dabs must spread along the 11-unit path; span was ${(maxZ - minZ).toFixed(2)}`);
+    assert(maxZ > -3, `a dab should land near the segment start; nearest was z=${maxZ.toFixed(2)}`);
+  });
+
   runTest('Dabs conform to the terrain slope (not left flat)', () => {
     // Terrain that drops along +z (height = -0.2*z) => surface normal tilts in z.
     const trails = new SnowTrails(new THREE.Scene(), 40);
