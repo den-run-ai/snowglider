@@ -126,10 +126,21 @@ slide" beat the issue asks for. Gated behind manual jump + avalanche-active, so 
 never touches the normal physics path.
 
 ### 3.6 Scoring surface
-- **On-slope:** reuse `CourseModule.showFlash(html, color)` for transient toasts
-  ("✈ AIR 1.2s — CLEAN", "CLEARED!", "DODGED!").
-- **Per run:** accumulate an `airScore` (airtime + clean bonuses + clears + dodges),
-  show it on the result screen via `CourseModule.onFinish` /
+- **On-slope:** transient toasts ("✈ AIR 1.2s — CLEAN", "CLEARED!", "DODGED!").
+  The flash UI already exists — `CourseModule` builds a `hud.flash` element in
+  `buildHud` and its split-timing toasts call a **private** `showFlash(html, color)`
+  (`src/course.ts:198`). That function is *not* on the module's public surface
+  (today it returns only `{ init, reset, update, hideHud, onFinish, _config }`), so
+  `main-loop.ts` cannot call it as-is. **Phase 1 must add a one-line public
+  delegate** — e.g. `flash(html, color)` added to the returned object, forwarding to
+  the existing `showFlash` — reusing the same DOM element and styling the split
+  toasts already use. *(Thanks to the codex review for catching that `showFlash` is
+  private.)*
+- **Per run:** accumulate an `airScore` (airtime + clean bonuses + clears + dodges).
+  Surface it on the result screen — note `CourseModule.onFinish(totalTime,
+  previousBest)` (`src/course.ts:525`) is public but has no air-score parameter
+  today, so Phase 1 either **extends its signature** (e.g. an optional `airScore`)
+  or has the course read a value handed to it from the loop — and renders it in
   [`src/ui/result-overlay.ts`](../src/ui/result-overlay.ts), plus an optional HUD
   line in [`src/ui/hud.ts`](../src/ui/hud.ts).
 - **Leaderboard:** out of scope for the initial cut (open question §8).
@@ -140,8 +151,8 @@ never touches the normal physics path.
 |---|---|
 | `src/snowman/physics.ts` | `playerJump` provenance; gated clean-landing boost vs. scrub; landing-quality calc. **The deterministic kernel — additive, input-gated only.** |
 | `src/snowman/index.ts` | Extend `UpdateResult` with the new outputs (e.g. `landingQuality`, `airScoreDelta`); these are surfaced for the loop/HUD just like `technique`/`justLanded`/`landingForce` today. |
-| `src/game/main-loop.ts` | Consume the new result fields: fire `showFlash`, accumulate run `airScore`, keep the existing landing camera shake. |
-| `src/course.ts` | Hold/format `airScore`; show it on the result screen via `onFinish`; reuse `showFlash`. |
+| `src/game/main-loop.ts` | Consume the new result fields: fire the new `CourseModule.flash(...)` toast, accumulate run `airScore`, keep the existing landing camera shake. |
+| `src/course.ts` | **Add a public `flash(html, color)`** delegating to the existing private `showFlash`; hold/format `airScore`; **extend `onFinish`** to accept/show it. |
 | `src/ui/hud.ts`, `src/ui/result-overlay.ts` | Optional air-score readouts. |
 | `src/avalanche.ts` / `src/effects.ts` | Phase 2 dodge window: query proximity (`checkBurial`/distance) and grant the grace/boost. |
 | `docs/PHYSICS.md` | Update §4 (Jumps & air) and §10 constants; note the new gated landing branch. |
