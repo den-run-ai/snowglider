@@ -316,10 +316,19 @@ const SUN_ELEV_MIN_DEG = 14;
 // Golden-hour endpoints (the midday endpoints are captured at setup). All stay
 // bounded under the static guide so golden hour is warmer/dimmer than midday and
 // never brightens past it.
-const GOLDEN_DIR_COLOR = new THREE.Color(0xffc89e);     // warm low sun
+//
+// The colour endpoints are kept as hex and turned into THREE.Color objects inside
+// applyAtmosphericSky — NOT at module load. scene-setup opts out of three's colour
+// management (`ColorManagement.enabled = false`) only when setupScene() runs, which
+// is *after* this module is imported. Building Color endpoints up here would convert
+// the sRGB hex into linear working space, while the captured midday colours are built
+// after the opt-out and stay raw; lerpColors would then mix two colour spaces and
+// render golden hour muddy/dark. Constructing both under the same opted-out regime
+// keeps the authored hues. (codex review, #163.)
+const GOLDEN_DIR_COLOR_HEX = 0xffc89e;                  // warm low sun
 const GOLDEN_DIR_INTENSITY_FACTOR = 0.8;                // × captured midday intensity (dimmer)
 const GOLDEN_EXPOSURE = 0.38;                           // < captured midday exposure
-const GOLDEN_FOG_COLOR = new THREE.Color(0xe6dcc8);     // warm pale haze, still soft
+const GOLDEN_FOG_COLOR_HEX = 0xe6dcc8;                  // warm pale haze, still soft
 
 interface SunCycle {
   material: THREE.ShaderMaterial;
@@ -329,6 +338,10 @@ interface SunCycle {
   enabled: boolean;
   reducedMotion: boolean;
   elapsed: number;
+  // Golden-hour colour endpoints, built under the same colour-management regime as
+  // the captured midday colours below so lerpColors stays in one colour space.
+  goldenDirColor: THREE.Color;
+  goldenFogColor: THREE.Color;
   // Captured static-midday snapshot (the cycle's bright endpoint).
   midday: {
     sunDir: THREE.Vector3;   // unit
@@ -396,10 +409,10 @@ function applyProgress(c: SunCycle, p: number): void {
     m.dirIntensity,
     p
   );
-  c.directionalLight.color.lerpColors(GOLDEN_DIR_COLOR, m.dirColor, p);
-  c.fog.color.lerpColors(GOLDEN_FOG_COLOR, m.fogColor, p);
+  c.directionalLight.color.lerpColors(c.goldenDirColor, m.dirColor, p);
+  c.fog.color.lerpColors(c.goldenFogColor, m.fogColor, p);
   if (c.scene.background instanceof THREE.Color) {
-    c.scene.background.lerpColors(GOLDEN_FOG_COLOR, m.bgColor, p);
+    c.scene.background.lerpColors(c.goldenFogColor, m.bgColor, p);
   }
 }
 
@@ -449,6 +462,10 @@ function applyAtmosphericSky(
     enabled: options.enabled ?? SUN_CYCLE_ENABLED,
     reducedMotion: options.reducedMotion ?? detectReducedMotion(),
     elapsed: 0,
+    // Built here (after scene-setup's ColorManagement opt-out) so they share the
+    // captured midday colours' regime — see GOLDEN_*_HEX.
+    goldenDirColor: new THREE.Color(GOLDEN_DIR_COLOR_HEX),
+    goldenFogColor: new THREE.Color(GOLDEN_FOG_COLOR_HEX),
     midday: {
       sunDir: pos.clone().normalize(),
       distance: pos.length(),

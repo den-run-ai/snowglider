@@ -211,21 +211,46 @@ export class SnowTrails {
         const dx = px - this.lastX;
         const dz = pz - this.lastZ;
         const moved = Math.sqrt(dx * dx + dz * dz);
-        this.sinceStamp += moved;
+        const prevX = this.lastX;
+        const prevZ = this.lastZ;
         this.lastX = px;
         this.lastZ = pz;
-        if (moved / Math.max(delta, 1e-3) > MIN_SPEED) {
-          while (this.sinceStamp >= STAMP_SPACING) {
-            this.sinceStamp -= STAMP_SPACING;
-            // Two grooves, offset left/right of travel by the ski gauge.
-            const sin = Math.sin(heading);
-            const cos = Math.cos(heading);
-            // Lateral (cross-track) offset = perpendicular to heading in XZ.
-            const offX = cos * SKI_HALF_GAUGE;
-            const offZ = -sin * SKI_HALF_GAUGE;
-            this.stampDab(px + offX, pz + offZ, heading);
-            this.stampDab(px - offX, pz - offZ, heading);
+        if (moved > 0 && moved / Math.max(delta, 1e-3) > MIN_SPEED) {
+          // Lay each missed stamp ALONG the segment travelled this frame, not all at
+          // the current position. A fast or hitchy frame (or the capped 0.1s delta)
+          // can cover several `STAMP_SPACING`s at once; stamping them all at `px/pz`
+          // stacked a clump of dabs under the snowman and left the crossed segment
+          // untracked (grooves became blobs + gaps). `sinceStamp` carries the residual
+          // distance across frames so spacing stays even. (codex review, #181.)
+          const inv = 1 / moved;
+          const ux = dx * inv;
+          const uz = dz * inv;
+          // Two grooves, offset left/right of travel by the ski gauge.
+          const sin = Math.sin(heading);
+          const cos = Math.cos(heading);
+          // Lateral (cross-track) offset = perpendicular to heading in XZ.
+          const offX = cos * SKI_HALF_GAUGE;
+          const offZ = -sin * SKI_HALF_GAUGE;
+          // First stamp completes the spacing left over from the previous frame.
+          let dist = STAMP_SPACING - this.sinceStamp;
+          if (dist > moved) {
+            this.sinceStamp += moved;
+          } else {
+            let lastDist = 0;
+            while (dist <= moved) {
+              const sx = prevX + ux * dist;
+              const sz = prevZ + uz * dist;
+              this.stampDab(sx + offX, sz + offZ, heading);
+              this.stampDab(sx - offX, sz - offZ, heading);
+              lastDist = dist;
+              dist += STAMP_SPACING;
+            }
+            this.sinceStamp = moved - lastDist;
           }
+        } else {
+          // Creeping/stopped: accumulate travel (capped) but don't lay grooves at a
+          // crawl, and don't let a backlog build up that would dump on the next glide.
+          this.sinceStamp = Math.min(this.sinceStamp + moved, STAMP_SPACING);
         }
       }
     } else {
