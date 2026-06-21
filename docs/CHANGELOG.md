@@ -30,9 +30,11 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   CLEAN replaces the airtime scrub with a small, capped (≤6%) forward impulse (a
   well-aimed jump becomes a speed tool, mirroring the #136 model); OK is neutral;
   SKETCHY keeps today's scrub.
-- **Scoring surface** — `CourseModule` gains a public `flash()` delegate and an
-  `addAirScore()` accumulator; the main loop toasts `✈ AIR <t>s — <grade>` on a graded
-  landing and banks a per-run **air score** shown on the result screen.
+- **Scoring surface** — `CourseModule` gains a public `flashAir(quality, seconds)`
+  toast and an `addAirScore()` accumulator; the main loop toasts `✈ AIR <t>s · <grade>`
+  on a graded landing and banks a per-run **air score** shown on the result screen. The
+  score is banked from *inside* the kernel step (before its synchronous finish check),
+  so a jump that lands on the finish frame still counts on the result screen.
 - **New gating harness checks**: takeoff precedence, landing-grade (clean faster than
   sketchy), and the provenance gate (a non-player landing earns no boost / score).
 - Phases 2 (obstacle-clear scoring + avalanche-dodge window) and 3 (#32 tricks) remain

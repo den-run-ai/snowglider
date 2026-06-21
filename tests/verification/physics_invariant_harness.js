@@ -351,12 +351,17 @@ function landProbe(updateFn, vx, vz, airTime, playerJump, seed = 999) {
 // (CLEAN) and (V,0) is crossed up (SKETCHY).
 const cleanLand = landProbe(mod, 0, -18, 1.5, true);
 const sketchyLand = landProbe(mod, 18, 0, 1.5, true);
+// A middling alignment (~0.7 vs the (0,-1) fall line at (0,-60)) lands in the OK band:
+// neither boosted nor scrubbed, but still scored for the airtime.
+const okLand = landProbe(mod, 13, -13, 1.5, true);
 const gradeOk = cleanLand.quality === 'clean' && sketchyLand.quality === 'sketchy' &&
-  cleanLand.speedAfter > sketchyLand.speedAfter && cleanLand.airScore > sketchyLand.airScore;
-console.log('\n--- Landing grade: CLEAN manual jump finishes faster than SKETCHY [GATING] ---');
+  okLand.quality === 'ok' && cleanLand.speedAfter > okLand.speedAfter &&
+  okLand.speedAfter > sketchyLand.speedAfter && cleanLand.airScore > sketchyLand.airScore;
+console.log('\n--- Landing grade: CLEAN > OK > SKETCHY finishing speed [GATING] ---');
 console.log('  clean   :', cleanLand.quality, '| speedAfter', cleanLand.speedAfter.toFixed(2), '| airScore', cleanLand.airScore);
+console.log('  ok      :', okLand.quality, '| speedAfter', okLand.speedAfter.toFixed(2), '| airScore', okLand.airScore);
 console.log('  sketchy :', sketchyLand.quality, '| speedAfter', sketchyLand.speedAfter.toFixed(2), '| airScore', sketchyLand.airScore);
-console.log('  PASS:', gradeOk ? 'clean boosts, sketchy scrubs ✅' : 'grade did not separate clean/sketchy ❌');
+console.log('  PASS:', gradeOk ? 'clean boosts > ok neutral > sketchy scrubs ✅' : 'grade did not separate clean/ok/sketchy ❌');
 if (!gradeOk) hardFail = true;
 
 // 10) Provenance gate: a NON-player landing (auto-jump / hop, playerJump=false) is

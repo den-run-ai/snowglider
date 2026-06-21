@@ -68,6 +68,10 @@ export interface StepDeps {
   rockPositions: RockPos[];
   gameActive: boolean;
   showGameOver: ShowGameOverFn;
+  // Meaningful jumps (#47): bank a manual jump's air score from inside the kernel
+  // step, *before* its synchronous finish check can build the result screen. Optional
+  // so headless callers (the physics-invariant harness) need not provide it.
+  bankAirScore?: (delta: number) => void;
 }
 
 /** Build the initial run state (matches the orchestrator's old module-scoped
@@ -121,7 +125,7 @@ function stepPlayer(player: PlayerState, deps: StepDeps): UpdateResult {
     player.lastTerrainHeight, player.airTime, player.jumpCooldown, deps.controls,
     player.turnPhase, player.currentTurnDirection, player.turnChangeCooldown, TURN_AMPLITUDE,
     deps.getTerrainHeight, deps.getTerrainGradient, deps.getDownhillDirection,
-    deps.treePositions, deps.gameActive, deps.showGameOver, deps.rockPositions
+    deps.treePositions, deps.gameActive, deps.showGameOver, deps.rockPositions, deps.bankAirScore
   );
 
   // Write the mutable scalars back (pos/velocity were mutated in place above).

@@ -201,6 +201,65 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     assert(reason === '', `expected descending-jump clearance with no crash, got "${reason}"`);
   });
 
+  // Meaningful jumps (#47): a manual jump that lands on the same frame the player
+  // crosses the finish must have its air score banked BEFORE the kernel's synchronous
+  // finish check fires showGameOver (which builds the result screen). Guards the codex
+  // P2 finding — without the in-step bankAirScore call the last jump would be missing
+  // from the result. We assert the call ORDER (bank then finish), not just that both ran.
+  runTest('air score banks before the finish check (finish-frame jump still counts)', () => {
+    const p = Physics.createPlayerState(getTerrainHeight);
+    const snowman = fakeSnowman();
+    snowman.userData.playerJump = true;             // this air phase is a manual jump
+    p.pos.x = 0;
+    p.pos.z = -194.9;                               // one step above the finish (z < -195)
+    p.pos.y = getTerrainHeight(0, p.pos.z) - 0.01;  // just below terrain => lands this frame
+    p.velocity.x = 0;
+    p.velocity.z = -22;                             // crosses the line this frame; aligned => CLEAN
+    p.isInAir = true;
+    p.verticalVelocity = 0;
+    p.airTime = 1.5;                                // => airScoreDelta > 0
+    p.lastTerrainHeight = getTerrainHeight(0, p.pos.z);
+
+    const calls = [];
+    let banked = 0;
+    Physics.stepPlayer(p, {
+      ...stepDeps(snowman),
+      gameActive: true,
+      bankAirScore(delta) { banked = delta; calls.push('bank'); },
+      showGameOver(reason) { calls.push('finish:' + reason); }
+    });
+
+    assert(banked > 0, `expected a positive banked air score, got ${banked}`);
+    assert(calls[0] === 'bank', `air score must bank before the finish; order was ${JSON.stringify(calls)}`);
+    assert(calls.some(c => c.indexOf('finish:You reached the end') === 0),
+      `expected the finish to fire this frame; calls were ${JSON.stringify(calls)}`);
+  });
+
+  // The same flag-gating must hold the other way: a NON-manual landing (playerJump
+  // false) never banks an air score, even on the finish frame.
+  runTest('a non-manual landing banks no air score', () => {
+    const p = Physics.createPlayerState(getTerrainHeight);
+    const snowman = fakeSnowman();
+    snowman.userData.playerJump = false;            // auto-jump / hop landing
+    p.pos.x = 0;
+    p.pos.z = -70;
+    p.pos.y = getTerrainHeight(0, p.pos.z) - 0.01;  // lands this frame
+    p.velocity.x = 0;
+    p.velocity.z = -16;
+    p.isInAir = true;
+    p.airTime = 1.5;
+    p.lastTerrainHeight = getTerrainHeight(0, p.pos.z);
+
+    let banked = 0;
+    const result = Physics.stepPlayer(p, {
+      ...stepDeps(snowman),
+      bankAirScore(delta) { banked += delta; }
+    });
+
+    assert(banked === 0, `non-manual landing must not bank air score, banked ${banked}`);
+    assert(result.landingQuality === null && result.airScoreDelta === 0, 'no grade / score on a non-manual landing');
+  });
+
   console.log('\n================================================');
   console.log(`Tests completed: ${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);

@@ -193,6 +193,15 @@ async function main() {
   check('best-split deltas not stale after PB (Gap 2)',
     !!deltaTable && deltaTable.textContent.indexOf(EM_DASH) === -1);
 
+  // flashAir (meaningful jumps #47): the on-slope air toast routes through the shared
+  // #courseFlash element with the air time + grade label.
+  Course.flashAir('clean', 1.234);
+  const flashEl = window.document.getElementById('courseFlash');
+  check('flashAir shows air time + CLEAN grade (#47)',
+    !!flashEl && /CLEAN/.test(flashEl.innerHTML) && /1\.2s/.test(flashEl.innerHTML));
+  Course.flashAir('sketchy', 0.8);
+  check('flashAir maps the SKETCHY grade (#47)', /SKETCHY/.test(flashEl.innerHTML));
+
   // Air score (meaningful jumps #47): banked air-score points show on the result
   // screen, and a run with no banked air omits the readout entirely.
   check('result panel omits air score when none banked (#47)', !panel2.querySelector('#resultAirScore'));

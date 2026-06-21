@@ -116,7 +116,7 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
                       turnPhase: number, currentTurnDirection: number, turnChangeCooldown: number, turnAmplitude: number,
                       getTerrainHeight: TerrainHeightFn, getTerrainGradient: TerrainVecFn, getDownhillDirection: TerrainVecFn,
                       treePositions: TreePos[], gameActive: boolean, showGameOver: ShowGameOverFn,
-                      rockPositions: RockPos[] = []): UpdateResult {
+                      rockPositions: RockPos[] = [], bankAirScore?: (delta: number) => void): UpdateResult {
   const { terrainHeightAtPosition, result } = stepSnowmanPhysics(
     snowman,
     delta,
@@ -153,6 +153,15 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
 
   isInAir = result.isInAir;
   verticalVelocity = result.verticalVelocity;
+
+  // Bank a graded manual-jump's air score BEFORE the finish/collision check below.
+  // detectCollisionsAndFinish can fire showGameOver synchronously on the finish frame
+  // (pos.z < -195), which builds the result screen via CourseModule.onFinish — so if a
+  // manual jump lands on the same frame the player crosses the line, banking here is
+  // what gets that last jump's score onto the result screen (meaningful jumps #47).
+  // Gated on airScoreDelta > 0 (a player-jump landing only), so the no-input path and
+  // the physics-invariant harness — which passes no bankAirScore — are untouched.
+  if (bankAirScore && result.airScoreDelta > 0) bankAirScore(result.airScoreDelta);
 
   detectCollisionsAndFinish({
     pos,

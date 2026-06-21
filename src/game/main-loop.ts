@@ -53,7 +53,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       treePositions,
       rockPositions,
       gameActive: state.gameActive,
-      showGameOver: activeShowGameOver
+      showGameOver: activeShowGameOver,
+      // Meaningful jumps (#47): bank a manual jump's air score from inside the step,
+      // before its synchronous finish check can build the result screen — so a jump
+      // landed on the finish frame still counts (see Snowman.updateSnowman).
+      bankAirScore: (points: number) => { if (CourseModule) CourseModule.addAirScore(points); }
     });
 
     // Update game stats display (speed/position/technique)
@@ -65,14 +69,11 @@ export function createMainLoop(deps: MainLoopDeps) {
     }
 
     // Meaningful jumps (#47): on a graded *manual*-jump landing, toast the air time
-    // + landing grade and bank the air score. landingQuality is non-null only for a
-    // player-initiated jump, so auto-jumps / hop turns / coasting never toast or score.
+    // + grade. landingQuality is non-null only for a player-initiated jump, so
+    // auto-jumps / hop turns / coasting never toast. (The air score itself is banked
+    // inside the step via bankAirScore above, so a finish-frame jump still counts.)
     if (result.justLanded && result.landingQuality && CourseModule) {
-      const q = result.landingQuality;
-      const label = q === 'clean' ? 'CLEAN' : q === 'ok' ? 'OK' : 'SKETCHY';
-      const color = q === 'clean' ? '#55efc4' : q === 'ok' ? '#74b9ff' : '#ff7675';
-      CourseModule.flash(`✈ AIR ${result.landingForce.toFixed(1)}s — ${label}`, color);
-      CourseModule.addAirScore(result.airScoreDelta);
+      CourseModule.flashAir(result.landingQuality, result.landingForce);
     }
 
     // Cosmetic flexibility / jiggle (issue #53). Purely visual: runs AFTER the physics

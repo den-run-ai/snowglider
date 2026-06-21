@@ -272,9 +272,12 @@ jumpCooldown = 0.3
 `landingForce` (seconds aloft) and `justLanded` are returned so the main loop can
 trigger a proportional camera shake on touchdown. `landingQuality` (CLEAN/OK/SKETCHY,
 null off a manual landing) and `airScoreDelta` are also returned: the loop toasts
-`✈ AIR <t>s — <grade>` via `CourseModule.flash(...)` and banks `airScoreDelta` into a
-per-run **air score** shown on the result screen. **All of this is gated on the
-`playerJump` provenance flag** (set true only at a deliberate straight-jump takeoff,
+`✈ AIR <t>s · <grade>` via `CourseModule.flashAir(...)` and banks `airScoreDelta` into a
+per-run **air score** shown on the result screen. The score is banked from *inside* the
+kernel step (`Snowman.updateSnowman`, via an injected `bankAirScore` callback) **before**
+its synchronous finish/collision check, so a jump that lands on the same frame the player
+crosses the finish line is still counted on the result screen. **All of this is gated on
+the `playerJump` provenance flag** (set true only at a deliberate straight-jump takeoff,
 false at auto-jump/hop takeoffs, cleared on landing and in `resetSnowman`), so the
 auto-jump / hop / coasting landing path is byte-identical to before — see §6 and the
 new gating checks in the invariant harness.
