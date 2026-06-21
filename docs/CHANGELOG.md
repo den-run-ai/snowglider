@@ -13,6 +13,32 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Golden-hour ↔ midday sun cycle (#163)
+- The atmospheric sky (#2) now **gently breathes between the static midday and a
+  low, warm golden hour and back** on a 90 s loop, so the light feels alive without
+  re-balancing how snow reads. It is a **bounded atmospheric layer on top of the
+  settled static snow-lighting look** (#181 / [`SNOW_RENDERING.md`](SNOW_RENDERING.md)),
+  not a readability pass — re-integrated onto the `src/game/*` structure that the old
+  PR predated.
+- **Captures the merged static state as its bright endpoint.** At setup
+  `Sky.applyAtmosphericSky(scene, directionalLight)` snapshots the directional sun's
+  position/colour/intensity, the Preetham `sunPosition`/`exposure`, and the fog /
+  background, then drives **only** those toward warmer, dimmer golden-hour values and
+  back. Midday and every frozen state are a **bit-for-bit copy** of that snapshot.
+- **Stays in its lane.** The cycle never touches the `HemisphereLight` (the snow's
+  cool-shadow fill), the `AmbientLight`, snow albedo/vertex tint, or terrain — so the
+  warm-sun / cool-shadow snow form is preserved and the mountain is never washed warm
+  or pushed back toward the old `0.5 * Math.PI` ambient whiteout. Advanced by
+  `Sky.update(delta)` in `game/main-loop.ts`; **frozen at midday** under
+  `prefers-reduced-motion` and the `SUN_CYCLE_ENABLED` switch.
+- **Low-sun guard.** The golden-hour sun is held at `SUN_ELEV_MIN = 14°` while the
+  periodic `sin(x*0.2)*cos(z*0.3)` terrain ridge survives (issue #188: `12–15°` until
+  fBm/domain-warp terrain lands; `8°` only after). Purely visual — the physics-invariant
+  harness stays byte-identical. Covered by `tests/sky-cycle-tests.js`
+  (`npm run test:sky`): captured-midday equality, reduced-motion / disabled freeze,
+  hemisphere & ambient untouched, sun above the horizon, warmer/dimmer golden hour,
+  monotonic half-cycles, and periodicity.
+
 ### Snow rendering & lighting guide (docs)
 - Added [`docs/SNOW_RENDERING.md`](SNOW_RENDERING.md) plus
   `docs/snow-lighting-model.svg`, versioning the rationale behind the snow-lighting

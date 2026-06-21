@@ -114,7 +114,7 @@ A skiing game lives on speed readability and mountain atmosphere.
 
 - **Shipped:** speed-based FOV (widens at speed), camera shake on hard landings / avalanche proximity, a **visible sky** — a Preetham atmospheric sky with a sun aligned to the directional light, plus horizon distance fog so terrain reads with depth instead of hard-cutting at the far plane (**#2**, `src/sky.ts`) — a **cinematic intro fly-over** of the mountain at game start (**#51**, `src/intro.ts`): a wide establishing shot that sweeps down the course and settles into the gameplay pose, skippable and disabled under test/automation/reduced-motion — a **de-striped, smooth-shaded snow surface** (diagonal texture stripes removed + render-only *smoothed shading normals* so the bumpy terrain stops reading as grey bands + softer light + snow-capped rocks; physics height field untouched; **#17**, `src/mountains.ts`), and **temporary ski tracks** that fade behind the skis (**#17**, `src/snowtracks.ts`).
 - **Remaining (○):** a real **snow-accumulation model** (persistent `SnowDepthField`: snowfall raises depth, skis compact tracks, tracks refill over time — visual-only first, fed into the terrain material; the current ski tracks are transient feedback, not accumulation); replacing the periodic `sin(x*0.2)*cos(z*0.3)` terrain ridge with layered fBm/domain-warp so the geometry itself stops banding (a separate terrain PR — touches the height contract + physics tests); weather variation and a day→sunset→night skybox; stronger slope contrast and obstacle silhouettes; and depth cues.
-- **Open issues:** lighting/shadows and snow/tree/rock/snowman textures (**#17** snow surface + dynamic trails now ◐ partial). Intro fly-over (**#51**) ✅ shipped (`src/intro.ts`). Visible sky (**#2**) is ◐ partial — static sky shipped; clouds / day-night cycle remain.
+- **Open issues:** lighting/shadows and snow/tree/rock/snowman textures (**#17** snow surface + dynamic trails now ◐ partial). Intro fly-over (**#51**) ✅ shipped (`src/intro.ts`). Visible sky (**#2**) is ◐ partial — static sky + a bounded golden-hour↔midday sun cycle (#163) shipped; clouds / full night path remain.
 
 ### 8. Audio consistency and completion — ○ open
 
@@ -333,7 +333,7 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Gyro/tilt controls | #24 | ○ open |
 | Lighting and shadows | #18 | ○ open |
 | Textures (snow, trees, rocks, snowman) | #17 | ◐ partial — snow-surface texture (grid-line fix → isotropic powder), snow-capped rocks, tree bark/foliage, and dynamic ski trails shipped (`src/mountains.ts`, `src/trees.ts`, `src/snowtracks.ts`); snowman texture open |
-| Visible sky | #2 | ◐ partial — atmospheric sky + sun + horizon fog shipped (`src/sky.ts`); clouds / day-night cycle open |
+| Visible sky | #2 | ◐ partial — atmospheric sky + sun + horizon fog + a bounded golden-hour↔midday **sun cycle** shipped (`src/sky.ts`, #163); clouds / full night path open |
 
 ### Infrastructure, tooling & exploratory
 

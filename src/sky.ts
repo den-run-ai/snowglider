@@ -285,23 +285,204 @@ function createAtmosphericSky(sunDirection: THREE.Vector3): THREE.Mesh {
   return sky;
 }
 
+// --- Tier 3: sun cycle (golden hour ↔ midday) -----------------------------
+//
+// A bounded atmospheric layer on top of the *settled static snow-lighting look*
+// (issues #17/#18 — see docs/SNOW_RENDERING.md). It is NOT a snow-readability
+// pass: it only sweeps the sun between the captured static midday and a low,
+// warm golden hour and back, so the light feels alive without re-balancing how
+// snow reads. Full night is intentionally skipped (it needs stars/moon + a dark
+// path, tracked under #2).
+//
+// What it drives, in lockstep: the directional light (position so shadows track
+// the sun, plus a warm→white colour and a dimmer-at-golden-hour intensity), the
+// Preetham `sunPosition`/`exposure` uniforms, and the fog/background tint.
+//
+// What it must NEVER touch (snow form lives here, not in the cycle): the
+// HemisphereLight (the cool-shadow fill), the AmbientLight, snow albedo/vertex
+// tint, and terrain normals/height. The midday endpoint is captured from the
+// merged static scene at setup — never hardcoded — so `prefers-reduced-motion`
+// and the `SUN_CYCLE_ENABLED` switch reproduce the approved static sky exactly.
+
+const SUN_CYCLE_ENABLED = true;
+const CYCLE_DURATION_S = 90;          // one full midday → golden → midday loop
+
+// Low-sun guard. The terrain still has the periodic `sin(x*0.2)*cos(z*0.3)`
+// ridge that bands under a hard low sun, so the golden-hour sun is held at a
+// safe elevation (issue #188: 12–15° until fBm/domain-warp terrain lands; 8° is
+// only allowed once that ridge is gone or visually proven safe).
+const SUN_ELEV_MIN_DEG = 14;
+
+// Golden-hour endpoints (the midday endpoints are captured at setup). All stay
+// bounded under the static guide so golden hour is warmer/dimmer than midday and
+// never brightens past it.
+const GOLDEN_DIR_COLOR = new THREE.Color(0xffc89e);     // warm low sun
+const GOLDEN_DIR_INTENSITY_FACTOR = 0.8;                // × captured midday intensity (dimmer)
+const GOLDEN_EXPOSURE = 0.38;                           // < captured midday exposure
+const GOLDEN_FOG_COLOR = new THREE.Color(0xe6dcc8);     // warm pale haze, still soft
+
+interface SunCycle {
+  material: THREE.ShaderMaterial;
+  fog: THREE.Fog;
+  scene: THREE.Scene;
+  directionalLight: THREE.DirectionalLight;
+  enabled: boolean;
+  reducedMotion: boolean;
+  elapsed: number;
+  // Captured static-midday snapshot (the cycle's bright endpoint).
+  midday: {
+    sunDir: THREE.Vector3;   // unit
+    distance: number;
+    azimuth: number;         // radians
+    elevation: number;       // radians
+    dirColor: THREE.Color;
+    dirIntensity: number;
+    exposure: number;
+    fogColor: THREE.Color;
+    bgColor: THREE.Color;
+  };
+}
+
+let cycle: SunCycle | null = null;
+
 /**
- * Apply the Tier 2 Preetham atmospheric sky (with a sun) and matching distance
- * fog. `sunDirection` should be the scene's directional-light direction so the
- * visible sun and the cast shadows agree (magnitude is ignored).
+ * Cycle progress `p` for an elapsed time. `p = 1` is the captured static midday,
+ * `p = 0` is golden hour. First load (`elapsed = 0`) starts at midday and the
+ * curve eases smoothly between the two endpoints with period `CYCLE_DURATION_S`.
+ * Pure + exported for headless tests.
  */
-function applyAtmosphericSky(scene: THREE.Scene, sunDirection: THREE.Vector3): void {
+function cycleProgress(elapsed: number): number {
+  const phase = ((elapsed + CYCLE_DURATION_S / 2) % CYCLE_DURATION_S) / CYCLE_DURATION_S;
+  return (1 - Math.cos(2 * Math.PI * phase)) / 2;
+}
+
+/** Unit sun direction for a cycle progress `p`, swept from the captured midday. */
+function sunDirAt(c: SunCycle, p: number): THREE.Vector3 {
+  const elev = THREE.MathUtils.lerp(
+    THREE.MathUtils.degToRad(SUN_ELEV_MIN_DEG),
+    c.midday.elevation,
+    p
+  );
+  const az = c.midday.azimuth; // azimuth fixed to the captured static sun
+  const cosE = Math.cos(elev);
+  return new THREE.Vector3(cosE * Math.sin(az), Math.sin(elev), cosE * Math.cos(az));
+}
+
+/** Drive the live scene objects to the captured static-midday endpoint exactly. */
+function applyMidday(c: SunCycle): void {
+  const m = c.midday;
+  c.material.uniforms.sunPosition.value.copy(m.sunDir);
+  c.material.uniforms.exposure.value = m.exposure;
+  c.directionalLight.position.copy(m.sunDir).multiplyScalar(m.distance);
+  c.directionalLight.intensity = m.dirIntensity;
+  c.directionalLight.color.copy(m.dirColor);
+  c.fog.color.copy(m.fogColor);
+  if (c.scene.background instanceof THREE.Color) c.scene.background.copy(m.bgColor);
+}
+
+/** Drive the live scene objects for a cycle progress `p` (golden → captured midday). */
+function applyProgress(c: SunCycle, p: number): void {
+  // Snap to the exact captured snapshot at (or imperceptibly close to) midday so
+  // the frozen/midpoint state is a bit-for-bit copy, not a trig/lerp rebuild.
+  if (p >= 1 - 1e-9) { applyMidday(c); return; }
+
+  const m = c.midday;
+  const sunDir = sunDirAt(c, p);
+  c.material.uniforms.sunPosition.value.copy(sunDir);
+  c.material.uniforms.exposure.value = THREE.MathUtils.lerp(GOLDEN_EXPOSURE, m.exposure, p);
+  c.directionalLight.position.copy(sunDir).multiplyScalar(m.distance);
+  c.directionalLight.intensity = THREE.MathUtils.lerp(
+    m.dirIntensity * GOLDEN_DIR_INTENSITY_FACTOR,
+    m.dirIntensity,
+    p
+  );
+  c.directionalLight.color.lerpColors(GOLDEN_DIR_COLOR, m.dirColor, p);
+  c.fog.color.lerpColors(GOLDEN_FOG_COLOR, m.fogColor, p);
+  if (c.scene.background instanceof THREE.Color) {
+    c.scene.background.lerpColors(GOLDEN_FOG_COLOR, m.bgColor, p);
+  }
+}
+
+/** Options to force the freeze paths in headless tests; production passes none. */
+export interface AtmosphericSkyOptions {
+  enabled?: boolean;
+  reducedMotion?: boolean;
+}
+
+function detectReducedMotion(): boolean {
+  return typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * Apply the Tier 2 Preetham atmospheric sky (with a sun) + the Tier 3 sun cycle
+ * and matching distance fog. `directionalLight` is the scene's static key light:
+ * its current position/colour/intensity are captured as the bright *midday*
+ * endpoint, and the cycle then drives it (and the sky/fog) so the visible sun and
+ * the cast shadows stay in sync. Call `Sky.update(dt)` each frame to animate it;
+ * it freezes at the captured midday under `prefers-reduced-motion` or when the
+ * cycle is disabled, reproducing the static sky exactly. The HemisphereLight and
+ * AmbientLight are deliberately not passed in — the cycle must not touch them.
+ */
+function applyAtmosphericSky(
+  scene: THREE.Scene,
+  directionalLight: THREE.DirectionalLight,
+  options: AtmosphericSkyOptions = {}
+): void {
   scene.background = new THREE.Color(ATMOSPHERE_FOG_COLOR);
-  scene.fog = new THREE.Fog(ATMOSPHERE_FOG_COLOR, FOG_NEAR, FOG_FAR);
-  scene.add(createAtmosphericSky(sunDirection));
+  const fog = new THREE.Fog(ATMOSPHERE_FOG_COLOR, FOG_NEAR, FOG_FAR);
+  scene.fog = fog;
+
+  const sky = createAtmosphericSky(directionalLight.position);
+  scene.add(sky);
+  const material = sky.material as THREE.ShaderMaterial;
+
+  // Capture the merged static state as the bright midday endpoint.
+  const pos = directionalLight.position.clone();
+  const horiz = Math.hypot(pos.x, pos.z);
+  cycle = {
+    material,
+    fog,
+    scene,
+    directionalLight,
+    enabled: options.enabled ?? SUN_CYCLE_ENABLED,
+    reducedMotion: options.reducedMotion ?? detectReducedMotion(),
+    elapsed: 0,
+    midday: {
+      sunDir: pos.clone().normalize(),
+      distance: pos.length(),
+      azimuth: Math.atan2(pos.x, pos.z),
+      elevation: Math.atan2(pos.y, horiz),
+      dirColor: directionalLight.color.clone(),
+      dirIntensity: directionalLight.intensity,
+      exposure: material.uniforms.exposure.value as number,
+      fogColor: fog.color.clone(),
+      bgColor: (scene.background as THREE.Color).clone()
+    }
+  };
+
+  // First load is the captured static midday (a bit-for-bit copy).
+  applyMidday(cycle);
+}
+
+/** Advance the sun cycle by `dt` seconds. No-op when frozen (reduced motion / disabled). */
+function update(dt: number): void {
+  if (!cycle || !cycle.enabled || cycle.reducedMotion) return;
+  cycle.elapsed += dt;
+  applyProgress(cycle, cycleProgress(cycle.elapsed));
 }
 
 export const Sky = {
   applyGradientSky,
   applyAtmosphericSky,
+  update,
+  cycleProgress,
   ZENITH_COLOR,
   HORIZON_COLOR,
   ATMOSPHERE_FOG_COLOR,
   FOG_NEAR,
-  FOG_FAR
+  FOG_FAR,
+  CYCLE_DURATION_S,
+  SUN_ELEV_MIN_DEG
 };
