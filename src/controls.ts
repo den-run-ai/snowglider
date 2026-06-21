@@ -218,13 +218,26 @@ function setupTouchControls() {
   // Update regions when window is resized
   window.addEventListener('resize', updateTouchRegions);
   
+  // Touches that begin inside a scrollable UI panel (the Controls / Ski Techniques
+  // guides) must be handed to the browser so the panel can scroll natively. The
+  // document-level handlers below otherwise call preventDefault() on every move —
+  // killing the scroll — and would also mis-read the drag as ski steering. A
+  // TouchEvent's target stays the element the gesture started on, so excluding these
+  // targets lets the overflow areas scroll without leaking into gameplay input.
+  const isScrollableUiTouch = (event: TouchEvent): boolean => {
+    const target = event.target as Element | null;
+    return !!(target && typeof target.closest === 'function' &&
+      target.closest('#controlsGuide, #controlsContent'));
+  };
+
   // Handle touch start
   const handleTouchStart = (event: TouchEvent) => {
+    if (isScrollableUiTouch(event)) return; // let the controls guide scroll natively
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();
     }
-    
+
     // Process each touch point
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
@@ -235,14 +248,15 @@ function setupTouchControls() {
       };
     }
   };
-  
+
   // Handle touch move
   const handleTouchMove = (event: TouchEvent) => {
+    if (isScrollableUiTouch(event)) return; // let the controls guide scroll natively
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();
     }
-    
+
     // Process each touch point
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
@@ -253,14 +267,15 @@ function setupTouchControls() {
       };
     }
   };
-  
+
   // Handle touch end
   const handleTouchEnd = (event: TouchEvent) => {
+    if (isScrollableUiTouch(event)) return; // matches the start/move early-out above
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();
     }
-    
+
     // Process each touch point being removed
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];

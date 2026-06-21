@@ -113,6 +113,37 @@ async function main() {
   check('touch in the centre region sets jump', controls.jump === true);
   dispatchTouch('touchend', document, [{ identifier: 2, clientX: W / 2, clientY: H / 2 }]);
 
+  console.log('\n--- scrollable controls guide: touch passthrough (mobile) ---');
+  // A touch that begins inside #controlsContent (the Ski Techniques scroller) must be
+  // left to the browser: NOT preventDefaulted (so the panel scrolls natively) and NOT
+  // read as ski steering — even when its coordinates fall in a control region.
+  const guide = document.createElement('div');
+  guide.id = 'controlsContent';
+  const guideRow = document.createElement('div');
+  guideRow.className = 'control-item';
+  guide.appendChild(guideRow);
+  document.body.appendChild(guide);
+  controls.left = false;
+  // Sanity: a normal document touch in the left region IS preventDefaulted.
+  const gameEvt = new window.Event('touchstart', { bubbles: true, cancelable: true });
+  gameEvt.changedTouches = [{ identifier: 7, clientX: W / 6, clientY: H / 2 }];
+  document.dispatchEvent(gameEvt);
+  check('a normal game touch is preventDefaulted', gameEvt.defaultPrevented === true);
+  dispatchTouch('touchend', document, [{ identifier: 7, clientX: W / 6, clientY: H / 2 }]);
+
+  controls.left = false;
+  // Same left-region coordinates, but the gesture starts on the scroller row.
+  const point = [{ identifier: 8, clientX: W / 6, clientY: H / 2 }];
+  for (const type of ['touchstart', 'touchmove', 'touchend']) {
+    const evt = new window.Event(type, { bubbles: true, cancelable: true });
+    evt.changedTouches = point;
+    guideRow.dispatchEvent(evt);
+    check(`${type} inside #controlsContent is NOT preventDefaulted (native scroll)`,
+      evt.defaultPrevented === false);
+  }
+  check('a drag inside #controlsContent is never read as ski steering', controls.left === false);
+  document.body.removeChild(guide);
+
   console.log('\n--- visual touch controls (mobile) ---');
   check('mobile setup creates the 5 visual touch-control overlays',
     document.querySelectorAll('.touch-control').length === 5);

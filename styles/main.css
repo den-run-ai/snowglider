@@ -55,6 +55,8 @@ canvas { display: block; }
   transition: all 0.3s ease;
   overflow-x: hidden;
   overflow-y: auto; /* Scroll if the techniques don't fit, so every row stays reachable */
+  touch-action: pan-y; /* allow native vertical scroll on touch (controls.ts skips these touches) */
+  -webkit-overflow-scrolling: touch;
 }
 
 #controlsInfo.collapsed {
@@ -708,6 +710,8 @@ canvas { display: block; }
   text-align: left;
   max-height: 240px; /* Add max height (room for the Ski Techniques rows) */
   overflow-y: auto; /* Make scrollable if needed */
+  touch-action: pan-y; /* allow native vertical scroll on touch (controls.ts skips these touches) */
+  -webkit-overflow-scrolling: touch;
 }
 
 #controlsGuide h3 {
