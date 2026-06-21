@@ -298,6 +298,38 @@ console.log('  PASS:', hopPivotsHarder ? `hop snaps heading ~${(hopStep.deflect 
 console.log('  PASS:', hopScrubs ? 'hop scrubs speed ✅' : 'hop did not scrub ❌');
 if (!hopPivotsHarder || !hopScrubs) hardFail = true;
 
+// 8) Takeoff precedence + provenance (meaningful jumps #47, §3.1). On a single
+// frame that *also* satisfies the terrain auto-jump condition (a steep lip at
+// speed), pressing Jump must win: it produces the stronger manual pop and stamps
+// the air phase `playerJump = true`, while the unpressed lip stays the weaker
+// auto-jump stamped `playerJump = false`. This guards both the `!controls.jump`
+// auto-jump guard and the userData provenance lifecycle. [GATING]
+const JUMP = { left: false, right: false, up: false, down: false, jump: true };
+function lipFrame(updateFn, controls) {
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: -50, y: getTerrainHeight(0, -50) };
+  const velocity = { x: 0, z: -16 }; // speed 16 > the movingFast (>12) gate
+  // Pretend last frame's terrain was 5 u higher so heightDifference < -0.8 fires.
+  const lastTerrainHeight = getTerrainHeight(0, -50) + 5;
+  const r = updateFn(snowman, 1 / 60, pos, velocity, false, 0, lastTerrainHeight,
+    0, 0, controls, 0, 0, 3, 3.0,
+    getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {});
+  return { vv: r.verticalVelocity, inAir: r.isInAir, playerJump: !!snowman.userData.playerJump };
+}
+const autoLip = lipFrame(mod, NONE);
+const jumpLip = lipFrame(mod, JUMP);
+const precedenceOk = autoLip.inAir && jumpLip.inAir &&
+  jumpLip.vv > autoLip.vv &&            // manual pop is stronger than the auto pop
+  jumpLip.playerJump === true &&        // pressed lip credited to the player
+  autoLip.playerJump === false;         // unpressed lip stays an auto-jump
+console.log('\n--- Takeoff precedence: Jump wins over the terrain auto-jump on a lip [GATING] ---');
+console.log('  auto-jump (no input): vv', autoLip.vv.toFixed(2), '| playerJump', autoLip.playerJump);
+console.log('  manual jump (Jump)  : vv', jumpLip.vv.toFixed(2), '| playerJump', jumpLip.playerJump);
+console.log('  PASS:', precedenceOk
+  ? 'pressed lip = stronger player jump; unpressed lip = auto-jump ✅'
+  : 'jump did not win the lip frame / provenance wrong ❌');
+if (!precedenceOk) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();

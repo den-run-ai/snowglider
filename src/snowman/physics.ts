@@ -43,6 +43,9 @@ export function resetSnowman(
     // Clear edge-engagement state so a new run starts with no locked carve.
     snowman.userData.carveCharge = 0;
     snowman.userData.lastSteerDir = 0;
+    // Clear jump provenance so a new run never inherits a stale "this air phase was
+    // a deliberate jump" flag from the previous run (meaningful jumps #47, §3.1).
+    snowman.userData.playerJump = false;
   }
   
   // Force all rotations to be explicit - avoid any chance of NaN or unexpected values
@@ -96,16 +99,21 @@ export function stepSnowmanPhysics(
     isInAir = false;
     pos.y = terrainHeightAtPosition;
     justLanded = true;
-    
+
+    // Consume the takeoff provenance: the air phase that just ended is over, so the
+    // grounded / between-jumps state must read as non-rewarding (#47, §3.1). A reward
+    // gated on this flag is added in a later step; for now we only clear it so it can
+    // never leak across jumps. Auto-jump / hop landings keep today's exact scrub.
+    if (snowman.userData) snowman.userData.playerJump = false;
+
     // Landing impact based on air time and height
     const landingImpact = Math.min(0.5, airTime * 0.15);
     landingForce = airTime; // seconds aloft; used for camera shake on touchdown
-    const currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
-    
+
     // Reduce speed on landing
     velocity.x *= (1 - landingImpact);
     velocity.z *= (1 - landingImpact);
-    
+
     // Reset jump-related variables
     verticalVelocity = 0;
     airTime = 0;
@@ -124,10 +132,19 @@ export function stepSnowmanPhysics(
   const currentSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
   const movingFast = currentSpeed > 12;
   
-  // Auto-jump when going downhill after a steep uphill section
-  if (!isInAir && heightDifference < -0.8 && movingFast && jumpCooldown <= 0) {
+  // Auto-jump when going downhill after a steep uphill section.
+  // Skipped while the player is holding Jump so a deliberate jump input wins over
+  // the terrain auto-jump on a combined lip+jump frame (#47, §3.1 takeoff precedence):
+  // because the manual / hop branch below is gated on `!isInAir`, an auto-jump that
+  // fired here first would otherwise swallow the press and stamp it as a non-player
+  // jump. The extra `!controls.jump` term is a no-op on every no-input / coasting
+  // frame, so the frozen baseline and all plain auto-jumps stay byte-identical.
+  if (!isInAir && !controls.jump && heightDifference < -0.8 && movingFast && jumpCooldown <= 0) {
     verticalVelocity = 6 + (currentSpeed * 0.3);
     isInAir = true;
+    // Terrain auto-jump is never player-initiated — stamp provenance false so its
+    // landing keeps today's scrub and the no-input baseline never moves (§3.1).
+    if (snowman.userData) snowman.userData.playerJump = false;
   }
   
   // Manual jump / hop turn with spacebar or touch (grounded, off cooldown).
@@ -160,12 +177,18 @@ export function stepSnowmanPhysics(
       if (snowman.userData) {
         snowman.userData.carveCharge = 0;
         snowman.userData.lastSteerDir = hopSteer;
+        // A hop turn is a steering move, not a straight jump — it earns no jump
+        // reward, so its landing keeps today's scrub (§3.1).
+        snowman.userData.playerJump = false;
       }
       technique = 'hop';
     } else {
       verticalVelocity = 10 + (currentSpeed * 0.5);
       isInAir = true;
       jumpCooldown = 0.5; // Prevent jump spam
+      // Deliberate straight jump: mark this air phase player-initiated so the landing
+      // can grade it and award the clean-landing boost / air score (§3.1).
+      if (snowman.userData) snowman.userData.playerJump = true;
     }
   }
   
