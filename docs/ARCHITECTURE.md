@@ -2,7 +2,8 @@
 
 How the pieces fit together: the static module system, load order, the global
 namespace and injection seams, the per-frame data flow, and the Firebase/scoring
-subsystem. For the simulation itself see [`PHYSICS.md`](PHYSICS.md); for tests see
+subsystem. For the simulation itself see [`PHYSICS.md`](PHYSICS.md); for how snow is
+lit and shaded see [`SNOW_RENDERING.md`](SNOW_RENDERING.md); for tests see
 [`tests/README.md`](../tests/README.md).
 
 ---
