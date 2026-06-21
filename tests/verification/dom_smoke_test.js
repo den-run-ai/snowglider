@@ -236,11 +236,19 @@ async function main() {
   av.setTerrainFunction(() => 0);
   check('powder sprite pool built under a DOM', Array.isArray(av.powder) && av.powder.length > 0);
   check('powder starts fully inactive', av.powder.every(p => p.userData.active === false));
+  // Inactive puffs must be visible=false so three skips them in the render
+  // traversal/transparent sort on the idle menu/gameplay path (perf, esp. mobile).
+  check('inactive powder is hidden from the renderer', av.powder.every(p => p.visible === false));
   av.trigger({ x: 0, y: 12, z: -50 });
   for (let i = 0; i < 10; i++) av.update(0.05);
-  check('powder activates while the slide is live', av.powder.some(p => p.userData.active === true));
+  const live = av.powder.filter(p => p.userData.active === true);
+  check('powder activates while the slide is live', live.length > 0);
+  check('live puffs are flipped visible, idle puffs stay hidden',
+    live.every(p => p.visible === true) &&
+    av.powder.every(p => p.visible === p.userData.active));
   av.reset();
   check('reset() clears every powder puff', av.powder.every(p => p.userData.active === false));
+  check('reset() re-hides every puff from the renderer', av.powder.every(p => p.visible === false));
   av.dispose();
   check('dispose() empties the powder pool', av.powder.length === 0);
 

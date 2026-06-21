@@ -408,7 +408,9 @@ the same sprite approach as the ski snow-splash in `snow.ts`, not the boulders'
   `document` exists** — the headless Node avalanche tests construct the system with
   no DOM, so the pool stays empty and every powder call is a no-op there. Driven
   from inside `update(dt)` (so it only runs while the slide is `active`), cleared by
-  `reset()` (`_hidePowder`), and freed by `dispose()`.
+  `reset()` (`_hidePowder`), and freed by `dispose()`. Inactive puffs are kept
+  `visible = false` so three skips them in the render traversal / transparent sort on
+  the idle menu/gameplay path; emission flips a puff visible only while it is live.
 - **Emission.** Each frame `_updatePowder` spawns ~3–7 puffs at random boulders,
   near each boulder's base, inheriting a fraction of its velocity plus an upward
   loft and lateral spread. Round-robin over the pool; emission stops early once all

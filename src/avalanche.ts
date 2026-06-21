@@ -145,7 +145,8 @@ export class AvalancheSystem {
 
     for (let i = 0; i < POWDER_COUNT; i++) {
       const sprite = new THREE.Sprite(base.clone());
-      sprite.scale.set(0, 0, 0); // start invisible
+      sprite.scale.set(0, 0, 0);
+      sprite.visible = false; // skip render traversal/sort until emitted
       sprite.userData = {
         active: false,
         life: 0,
@@ -281,6 +282,7 @@ export class AvalancheSystem {
       ud.life -= dt;
       if (ud.life <= 0) {
         ud.active = false;
+        sprite.visible = false; // drop it from the render traversal again
         sprite.scale.set(0, 0, 0);
         sprite.material.opacity = 0;
         continue;
@@ -339,6 +341,7 @@ export class AvalancheSystem {
       ud.maxLife = 1.1 + Math.random() * 1.4;
       ud.life = ud.maxLife;
       ud.active = true;
+      sprite.visible = true; // back into the render traversal while it's live
       sprite.scale.set(ud.size, ud.size, ud.size);
       sprite.material.opacity = 0; // ramps in on the next update
     }
@@ -403,6 +406,7 @@ export class AvalancheSystem {
   _hidePowder(): void {
     for (const sprite of this.powder) {
       sprite.userData.active = false;
+      sprite.visible = false; // keep inactive puffs out of the render traversal
       sprite.scale.set(0, 0, 0);
       sprite.material.opacity = 0;
     }
