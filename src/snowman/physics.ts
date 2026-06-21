@@ -198,8 +198,8 @@ export function stepSnowmanPhysics(
     // Dynamic friction based on speed - less friction at lower speeds for smoother acceleration
     // This prevents the jittery start by reducing initial resistance
     const speedFactor = Math.min(1, currentSpeed / 8);
-    const baseFriction = 0.015; // Lower base friction for smoother starts
-    const friction = baseFriction + (0.025 * speedFactor); // Maximum 0.04 at high speeds
+    const baseFriction = 0.012; // Lower base friction for smoother, glidier starts
+    const friction = baseFriction + (0.020 * speedFactor); // Maximum 0.032 at high speeds (faster cruising)
     
     // Apply forces to velocity (gravity pulls along slope direction) with smoother acceleration
     velocity.x += dir.x * steepness * gravity * delta;

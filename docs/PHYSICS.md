@@ -105,8 +105,8 @@ Dynamic friction that is gentle at low speed (smooth starts) and firmer at speed
 
 ```
 speedFactor = min(1, currentSpeed / 8)
-baseFriction = 0.015
-friction = baseFriction + 0.025 * speedFactor        // 0.015 .. 0.040
+baseFriction = 0.012
+friction = baseFriction + 0.020 * speedFactor        // 0.012 .. 0.032
 velocity *= (1 - (friction + skidScrub))             // skidScrub == 0 when coasting
 ```
 
@@ -167,7 +167,8 @@ skidScrub = 0  unless (steering && currentSpeed > 4):
 turn reads as `skid` until the edge locks in, `carve` once `carveCharge > 0.55`, and
 finally **`parallel`** once `carveCharge > 0.85` (the `PARALLEL_LOCK` threshold) — the
 mastery tier above the beginner snowplow wedge. The snowplow forms a ski wedge
-(`wedge = 0.35 rad`); a parallel turn instead draws the skis together and rolls them
+(`wedge = 0.35 rad`) with the **tips converging and the tails splayed out** (a real
+"pizza"); a parallel turn instead draws the skis together and rolls them
 onto their edges into the turn (angulation). The pose is purely cosmetic — it never
 touches the physics. The always-on turn tax keeps a turn from ever being entirely
 free at speed (until the parallel tier relieves it), so straight-lining stays the
@@ -467,7 +468,7 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Start position / velocity | `z=-15`, `vz=-3.0` | `snowman.js` |
 | Ground gravity (slope pull) | 9.8 | `snowman.js` |
 | Air gravity | 16 | `snowman.js` |
-| Base / max coast friction | 0.015 / 0.040 | `snowman.js` |
+| Base / max coast friction | 0.012 / 0.032 | `snowman.js` |
 | Turn force (normal/snowplow/fast) | 16 / 24 / 14 | `snowman.js` |
 | Accel (tuck) | 10 | `snowman.js` |
 | Brake decel | 14 | `snowman.js` |

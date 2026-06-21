@@ -33,6 +33,27 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   Node (12), browser-avalanche (19) and full browser (89) suites stay green. See
   [`PHYSICS.md`](PHYSICS.md) §7.5.
 
+### Ski techniques in the UI + snowplow wedge fix + slightly faster skiing
+- **Techniques exposed.** The skill layer (carve, parallel turn, snowplow/pizza,
+  tuck, hop turn) existed in the physics but was never explained to the player. A
+  new **"Ski Techniques"** subsection now lists each one — with the input that
+  triggers it — in both the start-menu controls guide and the in-game **Game
+  Controls** collapsible widget. The widget content now scrolls (`overflow-y:
+  auto`, taller `max-height`) so every technique row stays reachable.
+- **Snowplow wedge direction fixed.** The cosmetic snowplow pose had the ski
+  **tips splayed apart and tails together** — a reverse wedge, the opposite of a
+  real "pizza". `src/snowman/pose.ts` swung each ski the wrong way (the comment
+  said "tips inward" but the math pushed them out). Swapping the two `rotation.y`
+  signs makes the **tips converge and the tails splay out**, a proper snowplow.
+  Purely visual — no physics change.
+- **Slightly faster skiing.** Lowered coast friction (`baseFriction 0.015 → 0.012`,
+  high-speed term `0.025 → 0.020`, so the range is `0.012 .. 0.032`) for glidier
+  sustained skiing and a higher top speed. This changes the no-input coasting path,
+  so the frozen verification baseline (`tests/verification/snowman_baseline.js`)
+  was regenerated in lockstep — the invariant harness still reports the current
+  coasting trajectory as byte-identical to the baseline, and every technique gating
+  check holds. Constants updated in [`PHYSICS.md`](PHYSICS.md).
+
 ### Rename `src/physics.ts` → `src/player-state.ts` (#178)
 - The repo had two files named `physics.ts` at different levels: the top-level
   one (the typed per-frame `PlayerState` container + step/reset wiring) and the

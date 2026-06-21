@@ -51,10 +51,10 @@ canvas { display: block; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 300px; /* Height when expanded */
-  overflow-y: auto; /* Allow scrolling */
+  max-height: 70vh; /* Height when expanded; tall enough for the Ski Techniques rows */
   transition: all 0.3s ease;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto; /* Scroll if the techniques don't fit, so every row stays reachable */
 }
 
 #controlsInfo.collapsed {
@@ -138,6 +138,17 @@ canvas { display: block; }
   font-size: 13px;
   min-width: 45px;
   text-align: center;
+}
+
+/* Section divider used in both the start-menu guide and the in-game controls
+   widget to set the emergent "Ski Techniques" apart from the raw key bindings. */
+.control-subhead {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  font-weight: bold;
+  opacity: 0.85;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  padding-top: 8px;
 }
 
 #toggleControls {
@@ -695,7 +706,7 @@ canvas { display: block; }
   margin-bottom: 15px; /* Reduced from 30px */
   max-width: 500px;
   text-align: left;
-  max-height: 180px; /* Add max height */
+  max-height: 240px; /* Add max height (room for the Ski Techniques rows) */
   overflow-y: auto; /* Make scrollable if needed */
 }
 

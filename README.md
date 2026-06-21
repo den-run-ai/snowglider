@@ -66,6 +66,14 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - **V**: Toggle camera view
 - **Reset Button**: Start a new run
 
+### Ski Techniques
+Steering isn't just turning — how you work the edges changes your speed (see [`PHYSICS.md`](docs/PHYSICS.md) §3 for the model):
+- **Carve**: hold a steady turn (←/→ in one direction) to keep your speed through the arc.
+- **Parallel turn**: stay committed to the carve — the skis lock together and the turn becomes almost free (the mastery tier above a carve).
+- **Snowplow / "pizza"**: hold Brake (↓/S) to wedge the **ski tips together** (tails apart) and scrub speed or stop.
+- **Tuck**: hold Accelerate (↑/W) with no steering to straight-line for maximum speed.
+- **Hop turn**: Jump (Space) **while** steering (←/→) for a quick edge-set pivot on tight, steep terrain.
+
 ### Touch Controls (Mobile)
 - **Left Side of Screen**: Turn left
 - **Right Side of Screen**: Turn right
