@@ -13,6 +13,31 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Meaningful jumps — Phase 1 (#47)
+- Turns the already-bound but rewardless Jump into a real risk/reward mechanic.
+  Design doc: [`docs/MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md); model in
+  [`PHYSICS.md` §4](PHYSICS.md).
+- **Jump provenance** — a `snowman.userData.playerJump` flag with a fully-specified
+  lifecycle (set true at a deliberate straight-jump takeoff, false at auto-jump /
+  hop takeoffs, cleared on landing and in `resetSnowman`). Every reward is gated on
+  it, so auto-jump / hop / coasting paths are byte-identical and the physics-invariant
+  harness still reports coasting IDENTICAL to the frozen baseline (no regen).
+- **Takeoff precedence** — a deliberate Jump now wins over the terrain auto-jump on a
+  combined lip+jump frame (the auto-jump branch is skipped while Jump is held); a no-op
+  on every no-input frame.
+- **Landing-quality grade + clean boost** — a *manual* jump's landing is graded
+  CLEAN / OK / SKETCHY from how well the heading aligns with the fall line at touchdown.
+  CLEAN replaces the airtime scrub with a small, capped (≤6%) forward impulse (a
+  well-aimed jump becomes a speed tool, mirroring the #136 model); OK is neutral;
+  SKETCHY keeps today's scrub.
+- **Scoring surface** — `CourseModule` gains a public `flash()` delegate and an
+  `addAirScore()` accumulator; the main loop toasts `✈ AIR <t>s — <grade>` on a graded
+  landing and banks a per-run **air score** shown on the result screen.
+- **New gating harness checks**: takeoff precedence, landing-grade (clean faster than
+  sketchy), and the provenance gate (a non-player landing earns no boost / score).
+- Phases 2 (obstacle-clear scoring + avalanche-dodge window) and 3 (#32 tricks) remain
+  proposed.
+
 ### Codex review follow-ups on the snow/light stack (#163, #181)
 - **Golden hour no longer renders muddy (sky.ts, #163).** The cycle's golden-hour
   `THREE.Color` endpoints were built at module load — *before* `scene-setup` opts out

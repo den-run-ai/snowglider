@@ -1,6 +1,11 @@
 # Meaningful Jumps — Implementation Proposal (#47)
 
-> **Status:** initial proposal / design for review. Nothing here is implemented yet.
+> **Status:** **Phase 1 implemented in this PR** (provenance flag → landing-quality
+> grading → clean-landing speed boost → on-slope flash → per-run air score on the
+> result screen). Phases 2–3 below remain proposal/design. The kernel changes live in
+> [`src/snowman/physics.ts`](../src/snowman/physics.ts) and are documented in
+> [`PHYSICS.md` §4/§6/§10](PHYSICS.md); the new gating checks are in
+> `tests/verification/physics_invariant_harness.js`.
 > Tracking issue: [#47 — "jumping should help to avoid obstacles and maybe even some
 > avalanches"](https://github.com/den-run-ai/snowglider/issues/47); related
 > [#32 — freestyle ski tricks](https://github.com/den-run-ai/snowglider/issues/32).
@@ -190,9 +195,10 @@ snowplow, parallel, and hop checks. **Auto-jumps fire on the no-input path**, so
 
 ## 6. Scope & phasing
 
-- **Phase 1 (MVP, this proposal):** provenance flag → landing-quality grading →
-  clean-landing speed boost → on-slope flash → per-run air score on the result
-  screen. Kernel-additive, input-gated, self-contained.
+- **Phase 1 (MVP) — ✅ implemented in this PR:** provenance flag → landing-quality
+  grading → clean-landing speed boost → on-slope flash → per-run air score on the
+  result screen. Kernel-additive, input-gated, self-contained. The coasting baseline
+  was **not** regenerated; new manual-jump gating checks were added instead.
 - **Phase 2:** obstacle-clear scoring + the avalanche-dodge window (the #47
   headline) — needs the avalanche proximity/burial seam.
 - **Phase 3 (#32):** spins/grabs/style combos using the existing air control;

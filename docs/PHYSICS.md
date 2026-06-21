@@ -221,13 +221,18 @@ velocity.x += sin(turnPhase*0.3) * (turnAmplitude*0.7) * delta * turnIntensity *
 ## 4. Jumps & air
 
 ```
-// Auto-jump over terrain lips / moguls:
-if (!isInAir && heightDifference < -0.8 && currentSpeed > 12 && jumpCooldown <= 0):
-    verticalVelocity = 6 + currentSpeed * 0.3 ; isInAir = true
+// Auto-jump over terrain lips / moguls. Skipped while Jump is held so a deliberate
+// jump input wins on a combined lip+jump frame (meaningful jumps #47, §3.1); the
+// `!jump` term is a no-op on every no-input/coasting frame, so the baseline is
+// unchanged. A terrain auto-jump is never player-initiated: playerJump := false.
+if (!isInAir && !jump && heightDifference < -0.8 && currentSpeed > 12 && jumpCooldown <= 0):
+    verticalVelocity = 6 + currentSpeed * 0.3 ; isInAir = true ; playerJump = false
 
-// Manual jump (Space / touch) — straight pop when NOT steering:
+// Manual jump (Space / touch) — straight pop when NOT steering. Marks this air
+// phase player-initiated so the landing can grade it and award a boost (#47, §3.1).
 if (jump && !isInAir && jumpCooldown <= 0 && steering == 0):
     verticalVelocity = 10 + currentSpeed * 0.5 ; isInAir = true ; jumpCooldown = 0.5
+    playerJump = true
 
 // Hop turn — Jump WHILE steering Left/Right (issue #48). A quick edge-set pivot:
 // rotate the horizontal velocity toward the steer direction and scrub speed, with
@@ -239,6 +244,7 @@ if (jump && !isInAir && jumpCooldown <= 0 && steering != 0):
     verticalVelocity = 5.0                          // HOP_POP (small, < a full jump)
     isInAir = true ; jumpCooldown = 0.45            // HOP_COOLDOWN
     carveCharge = 0 ; lastSteerDir = steering       // re-set the edge for the new line
+    playerJump = false                              // a hop is a steering move, not a graded jump
 
 // While airborne:
 airTime += delta
@@ -247,15 +253,31 @@ pos.y += verticalVelocity * delta
 left/right: velocity.x ∓= 5.0 * delta          // limited air control
 velocity *= (1 - 0.01)                          // low air friction
 
-// Landing (pos.y <= terrain):
+// Landing (pos.y <= terrain). The landing reads + clears playerJump (consume the
+// provenance) and branches on it (meaningful jumps #47, §3.2/§3.3):
 landingImpact = min(0.5, airTime * 0.15)
-velocity *= (1 - landingImpact)                 // bleed speed on impact
 landingForce = airTime                          // fed to camera shake (EffectsModule)
+
+if (playerJump):                                // a graded *manual*-jump landing
+    alignment = dot(velocityHeading, downhill)  // cosine vs the fall line at touchdown
+    if   alignment > 0.85: quality = CLEAN  ; velocity *= (1 + min(0.06, airTime*0.04))  // boost
+    elif alignment > 0.55: quality = OK     ;                                            // neutral
+    else:                  quality = SKETCHY; velocity *= (1 - landingImpact)            // scrub
+    airScoreDelta = round(airTime*100 + (quality==CLEAN ? 50 : 0))
+else:                                           // auto-jump / hop — UNCHANGED from before
+    velocity *= (1 - landingImpact)             // bleed speed on impact
 jumpCooldown = 0.3
 ```
 
 `landingForce` (seconds aloft) and `justLanded` are returned so the main loop can
-trigger a proportional camera shake on touchdown.
+trigger a proportional camera shake on touchdown. `landingQuality` (CLEAN/OK/SKETCHY,
+null off a manual landing) and `airScoreDelta` are also returned: the loop toasts
+`✈ AIR <t>s — <grade>` via `CourseModule.flash(...)` and banks `airScoreDelta` into a
+per-run **air score** shown on the result screen. **All of this is gated on the
+`playerJump` provenance flag** (set true only at a deliberate straight-jump takeoff,
+false at auto-jump/hop takeoffs, cleared on landing and in `resetSnowman`), so the
+auto-jump / hop / coasting landing path is byte-identical to before — see §6 and the
+new gating checks in the invariant harness.
 
 ---
 
@@ -329,7 +351,14 @@ compares trajectories against a frozen baseline. Two properties make this work:
    committed carve must lock into the `parallel` tier), and **hop-turn** (Jump+steer
    must snap the heading far harder than a plain steer frame *and* scrub speed)
    checks. The parallel/hop additions are all gated behind steering or jump+steer
-   input, so none of them perturb the no-input identity above.
+   input, so none of them perturb the no-input identity above. The **meaningful
+   jumps** layer (#47, §4) adds three more: **takeoff precedence** (pressing Jump on
+   a terrain-lip frame yields the stronger *manual* takeoff stamped `playerJump`,
+   while an *unpressed* lip stays a byte-identical auto-jump), **landing grade** (a
+   CLEAN manual landing finishes faster and scores higher than a SKETCHY one from the
+   same speed + airtime), and the **provenance gate** (a non-player landing earns no
+   boost or air score). All three are gated on the `playerJump` flag, so the
+   auto-jump / coasting landing path stays byte-identical — no baseline regen needed.
 2. **Sources of randomness.** `Math.random()` appears in the idle auto-turn
    (§3.5), in terrain mesh noise/bumps, and in avalanche spawn/velocity. The
    verification harness injects a seeded RNG and a deterministic terrain so runs
@@ -477,6 +506,10 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Parallel-turn lock threshold | `carveCharge > 0.85` | `snowman.js` |
 | Hop turn pivot / speed-keep / pop / cooldown | 0.4 rad / 0.82 / 5.0 / 0.45 s | `snowman.js` |
 | Manual / auto jump impulse | `10 + v*0.5` / `6 + v*0.3` | `snowman.js` |
+| Landing scrub | `min(0.5, airTime*0.15)` | `snowman.js` |
+| Jump landing grade (CLEAN / OK align) | `> 0.85` / `> 0.55` | `snowman/physics.ts` |
+| Clean-landing boost (per s / cap) | `airTime*0.04` / `0.06` | `snowman/physics.ts` |
+| Air score (per s / clean bonus) | `airTime*100` / `+50` | `snowman/physics.ts` |
 | Max tilt | 0.25 rad (~14°) | `snowman.js` |
 | Tree collision radius | 2.5 | `snowman.js` |
 | Rock hazard min size / radius clamp | 1.25 / `1.25 .. 3.0` | `mountains.ts`, `snowman.ts` |
