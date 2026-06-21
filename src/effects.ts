@@ -160,8 +160,11 @@ export const EffectsModule = (function () {
     ui.meterLabelR.textContent = `${Math.max(0, distance).toFixed(0)} m behind`;
 
     // Vignette and shake scale with danger; only really bite when close.
+    // Keep the proximity shake subtle: enough to feel the threat from behind,
+    // but low enough that it doesn't fight the player's steering. The vignette
+    // and danger meter carry most of the telegraphing.
     ui.vignette.style.opacity = (danger * 0.9).toFixed(2);
-    proximityShake = reduceMotion ? 0 : danger * danger * 0.6;
+    proximityShake = reduceMotion ? 0 : danger * danger * 0.25;
 
     // Pulse the banner copy when it's almost on top of you.
     ui.banner.textContent = distance < WARN_NEAR + 6
