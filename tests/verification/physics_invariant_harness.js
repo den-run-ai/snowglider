@@ -330,6 +330,45 @@ console.log('  PASS:', precedenceOk
   : 'jump did not win the lip frame / provenance wrong ❌');
 if (!precedenceOk) hardFail = true;
 
+// 9) Landing-quality grade: a CLEAN manual-jump landing (heading aligned with the
+// fall line) must finish FASTER than a SKETCHY one (heading crossed up) from the
+// same speed + airtime — the clean-landing boost vs scrub (§3.2/§3.3). A single
+// landing frame with playerJump pre-stamped isolates the grade. [GATING]
+function landProbe(updateFn, vx, vz, airTime, playerJump, seed = 999) {
+  const rng = makeRng(seed); Math.random = rng;
+  const snowman = fakeSnowman();
+  snowman.userData.playerJump = playerJump;
+  const x = 0, z = -60, ground = getTerrainHeight(x, z);
+  const pos = { x, z, y: ground - 0.01 }; // just below terrain => lands this frame
+  const velocity = { x: vx, z: vz };
+  const r = updateFn(snowman, 1 / 60, pos, velocity, true, 0, ground,
+    airTime, 0, NONE, 0, 0, 3, 3.0,
+    getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {});
+  return { quality: r.landingQuality, airScore: r.airScoreDelta,
+           speedAfter: Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) };
+}
+// At (0,-60) the fall line points ~straight down-slope (-z), so (0,-V) is aligned
+// (CLEAN) and (V,0) is crossed up (SKETCHY).
+const cleanLand = landProbe(mod, 0, -18, 1.5, true);
+const sketchyLand = landProbe(mod, 18, 0, 1.5, true);
+const gradeOk = cleanLand.quality === 'clean' && sketchyLand.quality === 'sketchy' &&
+  cleanLand.speedAfter > sketchyLand.speedAfter && cleanLand.airScore > sketchyLand.airScore;
+console.log('\n--- Landing grade: CLEAN manual jump finishes faster than SKETCHY [GATING] ---');
+console.log('  clean   :', cleanLand.quality, '| speedAfter', cleanLand.speedAfter.toFixed(2), '| airScore', cleanLand.airScore);
+console.log('  sketchy :', sketchyLand.quality, '| speedAfter', sketchyLand.speedAfter.toFixed(2), '| airScore', sketchyLand.airScore);
+console.log('  PASS:', gradeOk ? 'clean boosts, sketchy scrubs ✅' : 'grade did not separate clean/sketchy ❌');
+if (!gradeOk) hardFail = true;
+
+// 10) Provenance gate: a NON-player landing (auto-jump / hop, playerJump=false) is
+// never graded or scored — no landingQuality, no airScore — even with an identical
+// heading + airtime to the CLEAN case above. Guards the §3.1 reward leak. [GATING]
+const autoLand = landProbe(mod, 0, -18, 1.5, false);
+const provenanceGated = autoLand.quality === null && autoLand.airScore === 0;
+console.log('\n--- Provenance gate: auto-jump landing earns no boost / score [GATING] ---');
+console.log('  auto landing:', 'quality', autoLand.quality, '| airScore', autoLand.airScore);
+console.log('  PASS:', provenanceGated ? 'non-player landing not rewarded ✅' : 'reward leaked to a non-player landing ❌');
+if (!provenanceGated) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();

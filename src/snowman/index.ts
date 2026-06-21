@@ -85,6 +85,10 @@ export type ShowGameOverFn = (reason: string) => void;
 /** Ski technique surfaced for the HUD + ski pose. */
 export type SkiTechnique = 'air' | 'glide' | 'snowplow' | 'skid' | 'carve' | 'parallel' | 'tuck' | 'hop';
 
+/** How a *manual* jump's landing was graded (meaningful jumps #47, §3.2). Null on
+ *  any non-manual-jump landing (auto-jump / hop / no landing this frame). */
+export type LandingQuality = 'clean' | 'ok' | 'sketchy';
+
 /** Per-frame physics output returned by updateSnowman. */
 export interface UpdateResult {
   isInAir: boolean;
@@ -99,6 +103,11 @@ export interface UpdateResult {
   technique: SkiTechnique;
   justLanded: boolean;
   landingForce: number;
+  // Meaningful jumps (#47): set only on the frame a *manual* (player-initiated)
+  // jump lands. `landingQuality` is null on every other frame; `airScoreDelta` is
+  // the air-score points earned this frame (0 unless a manual jump just landed).
+  landingQuality: LandingQuality | null;
+  airScoreDelta: number;
 }
 
 // Update snowman physics and movement
