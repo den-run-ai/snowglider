@@ -68,6 +68,30 @@ on the first draft for catching this.)*
 Every reward below is gated on `playerJump`, which — **with this lifecycle** — is
 what keeps the auto-jump / hop-turn / coasting trajectories byte-identical (§5).
 
+**Takeoff precedence — deliberate jump input must win over the terrain auto-jump.**
+Today the kernel evaluates the auto-jump (terrain-lip) branch *before* the
+manual/hop branch, and the manual branch is gated on `!isInAir`. So if the player
+presses Space/touch on the *same frame* a lip satisfies the auto-jump condition
+(`heightDifference < -0.8` at `speed > 12`), the auto-jump fires first and the
+deliberate press is swallowed — and under the lifecycle above that takeoff would be
+stamped `playerJump = false`, denying the boost / air score / dodge the player
+actually earned. The fix is to **let jump input win**: evaluate the manual/hop
+branch *before* the auto-jump branch (equivalently, skip the auto-jump branch when
+`controls.jump` is held). Because the manual/hop branch is fully gated on
+`controls.jump`, this reordering is a **no-op whenever jump is not pressed** — the
+no-input / coasting baseline and every plain auto-jump are byte-identical; only a
+jump-pressed lip frame changes, and it now produces the deliberate jump (or hop
+turn, if steering) the player asked for, correctly credited as `playerJump`. This
+also rescues hop turns from being eaten by a lip. *(Thanks to the codex review for
+the combined-frame case.)*
+
+> *Minimal alternative* if we want **zero** motion change on any path: keep the
+> current branch order but stamp `playerJump = controls.jump && steering === 0`
+> inside the auto-jump branch. That credits the press without changing any takeoff
+> velocity (the player gets the weaker auto-pop rather than a full jump, and a
+> jump+steer-on-lip still isn't a hop turn). The reorder above is preferred since
+> it gives the player the takeoff they actually requested; both are invariant-safe.
+
 ### 3.2 Landing-quality grading
 On landing of a *player* jump, grade the landing from the angle between the
 horizontal `velocity` and `getDownhillDirection(pos.x, pos.z)` at the landing
@@ -138,10 +162,13 @@ snowplow, parallel, and hop checks. **Auto-jumps fire on the no-input path**, so
    the same input-gating discipline #136/#146 used.
 2. **New gating harness checks** (mirroring the carve-vs-skid one): e.g. "a CLEAN,
    well-aimed player jump over a lip finishes faster than a SKETCHY one over the
-   same lip," an explicit "auto-jump landing trajectory unchanged" assertion, and a
+   same lip," an explicit "auto-jump landing trajectory unchanged" assertion, a
    **provenance check** — "a manual jump followed later by an auto-jump leaves the
-   auto-jump landing byte-identical" (directly guards the §3.1 leak the codex
-   review flagged).
+   auto-jump landing byte-identical" (guards the §3.1 leak) — and a **precedence
+   check** — "pressing jump on a terrain-lip frame produces a manual takeoff
+   credited as `playerJump`, while an *unpressed* lip frame stays a byte-identical
+   auto-jump" (guards the §3.1 takeoff-precedence fix). Both directly cover the
+   cases the codex review flagged.
 3. **Baseline regen only if the no-input path genuinely changes** — and per §6 it
    must be ported into the classic-wrapper shape (drop `import * as THREE`/`export`,
    keep the `window.Snowman` block), **not** `git show … > snowman_baseline.js`.
