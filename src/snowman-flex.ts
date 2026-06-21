@@ -142,10 +142,12 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
     hg.position.set(hb.position.x, hb.position.y + clamp(bob, -0.3, 0.3), hb.position.z);
 
     const targetLag = -turn * LAG_TARGET;
-    // Lean into every turn (the most readable cue), just deeper when actively carving.
-    // The old hard gate left the lean at 0 for the default `glide`/`snowplow` techniques,
-    // i.e. most of normal play, so it was never seen.
-    const carving = !air && (m.technique === 'carve' || m.technique === 'parallel' || m.technique === 'skid');
+    // Lean into every turn (the most readable cue), but only a committed CARVE gets the
+    // full deep head-cluster lean; a skidded parallel turn (and glide/snowplow) keep the
+    // lighter glide lean so the "skis flatter, body upright" parallel pose actually reads
+    // (the body-lean split is driven harder in pose.ts). Both stay above the old hard gate
+    // that left non-carve turns at 0.
+    const carving = !air && m.technique === 'carve';
     const targetLean = air ? 0 : -turn * LEAN_TARGET * (carving ? 1 : LEAN_GLIDE);
     fs.lagY += (targetLag - fs.lagY) * clamp(dt * 6, 0, 1);
     fs.leanZ += (targetLean - fs.leanZ) * clamp(dt * 5, 0, 1);
