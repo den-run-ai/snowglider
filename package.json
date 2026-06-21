@@ -5,7 +5,7 @@
   "main": "src/snowglider.js",
   "license": "MIT",
   "scripts": {
-    "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:avalanche && npm run test:auth && npm run test:local-auth && npm run test:scores && npm run test:start-menu && npm run test:collapsible && npm run test:result-overlay && npm run test:test-hooks && npm run test:controls && npm run test:flex && npm run test:debris && npm run test:intro && npm run test:contract && npm run test:share && npm run test:share-card && npm run test:share-menu && npm run test:audio-asset && npm run test:coverage-merge && npm run test:verify",
+    "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:avalanche && npm run test:auth && npm run test:local-auth && npm run test:scores && npm run test:start-menu && npm run test:collapsible && npm run test:result-overlay && npm run test:lifecycle && npm run test:test-hooks && npm run test:controls && npm run test:flex && npm run test:debris && npm run test:intro && npm run test:contract && npm run test:share && npm run test:share-card && npm run test:share-menu && npm run test:audio-asset && npm run test:coverage-merge && npm run test:verify",
     "test:terrain": "node --import ./tests/loaders/register-ts-resolve.mjs tests/terrain-tests.js",
     "test:physics": "node tests/physics-tests.js && node --import ./tests/loaders/register-ts-resolve.mjs tests/player-state-tests.js",
     "test:regression": "node --import ./tests/loaders/register-ts-resolve.mjs tests/regression-tests.js",
@@ -17,6 +17,7 @@
     "test:start-menu": "node --import ./tests/loaders/register-ts-resolve.mjs tests/start-menu-tests.js",
     "test:collapsible": "node --import ./tests/loaders/register-ts-resolve.mjs tests/collapsible-panel-tests.js",
     "test:result-overlay": "node --import ./tests/loaders/register-ts-resolve.mjs tests/result-overlay-tests.js",
+    "test:lifecycle": "node --import ./tests/loaders/register-ts-resolve.mjs tests/lifecycle-tests.js",
     "test:test-hooks": "node --import ./tests/loaders/register-ts-resolve.mjs tests/test-hooks-tests.js",
     "test:firebase": "npx -y firebase-tools@15.20.0 emulators:exec --project snowglider-rules-test --only firestore \"node tests/firestore-rules-tests.js\"",
     "test:controls": "node --import ./tests/loaders/register-ts-resolve.mjs tests/controls-node-tests.js",

@@ -29,15 +29,19 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   } = state;
 
   // Show the current technique on the snowman: a snowplow forms a beginner ski
-  // wedge (tips inward), while a parallel turn draws the skis together and rolls
-  // them onto their edges into the turn (angulation) — visually distinct from the
-  // wedge. Purely cosmetic; none of this touches the physics.
+  // wedge ("pizza" — tips together, tails apart), while a parallel turn draws the
+  // skis together and rolls them onto their edges into the turn (angulation) —
+  // visually distinct from the wedge. Purely cosmetic; none of this touches the physics.
   if (!isInAir && snowman.userData && snowman.userData.leftSki && snowman.userData.rightSki) {
     const ls = snowman.userData.leftSki, rs = snowman.userData.rightSki;
     const lerp = Math.min(1, delta * 10);
-    const wedge = technique === 'snowplow' ? 0.35 : 0.0; // radians; tips angled inward
-    ls.rotation.y += ((-wedge) - ls.rotation.y) * lerp;
-    rs.rotation.y += ((wedge) - rs.rotation.y) * lerp;
+    const wedge = technique === 'snowplow' ? 0.35 : 0.0; // radians; converge the tips ("pizza")
+    // Each ski's tip is at local +z and the skis sit at x = ∓1, so a POSITIVE
+    // rotation.y swings the left ski's tip toward center and a NEGATIVE one swings
+    // the right ski's tip toward center — tips meet, tails splay out (a real
+    // snowplow). The opposite signs would splay the tips out (a reverse wedge).
+    ls.rotation.y += ((wedge) - ls.rotation.y) * lerp;
+    rs.rotation.y += ((-wedge) - rs.rotation.y) * lerp;
     // Parallel angulation: both skis edge the same way (into the turn) and slide
     // toward each other; everything relaxes back to neutral otherwise.
     const isParallel = technique === 'parallel';
