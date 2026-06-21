@@ -13,6 +13,10 @@
 // native type-stripping both run it exactly as before.
 import * as THREE from 'three';
 
+// Number of billowing powder-cloud sprites kicked up by the slide (see the
+// `powder` field below). Sized like the ski snow-splash pool in snow.ts.
+const POWDER_COUNT = 260;
+
 /**
  * Minimal positional shape the avalanche reads. Accepts both a real
  * `THREE.Vector3` (the live game passes `snowman.position`) and the plain
@@ -41,6 +45,18 @@ export class AvalancheSystem {
   // Parameterised so `mesh.material` is the single MeshStandardMaterial we build
   // (not the default `Material | Material[]`), keeping `dispose()` type-safe.
   mesh: THREE.InstancedMesh<THREE.IcosahedronGeometry, THREE.MeshStandardMaterial>;
+
+  // --- Powder cloud (issue #49 / ROADMAP Finding 3) -------------------------
+  // A diffuse plume of billowing snow sprites kicked up by the tumbling boulders,
+  // so an approaching slide reads as a rolling cloud of powder and not just a
+  // cluster of spheres. Sprite-based (like the ski snow-splash in snow.ts) rather
+  // than instanced because each puff fades, expands and rotates independently.
+  // Built only when a DOM is present — the headless Node avalanche tests construct
+  // the system without a `document`, so the pool stays empty and the powder
+  // emit/update calls below are no-ops there.
+  powder: THREE.Sprite[];
+  powderNext: number;            // round-robin cursor into the powder pool
+  powderTexture: THREE.Texture | null;  // shared puff texture (disposed once)
 
   constructor(scene: THREE.Scene, count: number = 120) {
     this.scene = scene;
@@ -78,8 +94,72 @@ export class AvalancheSystem {
     this.mesh.frustumCulled = false;
     this.scene.add(this.mesh);
 
+    // Powder cloud pool (empty/no-op when there is no DOM, e.g. Node tests).
+    this.powder = [];
+    this.powderNext = 0;
+    this.powderTexture = null;
+    this._initPowder();
+
     // Hide initially
     this._hideAll();
+  }
+
+  // Build the billowing-powder sprite pool. Guarded on `document` so the headless
+  // Node avalanche tests (which `new AvalancheSystem(...)` without a DOM) skip it
+  // and the powder methods below safely operate on an empty pool.
+  _initPowder(): void {
+    if (typeof document === 'undefined') return;
+
+    // Soft, faintly cool-white radial puff that fades to transparent at the rim.
+    // Paint it only when a real 2D context is available; a headless DOM (jsdom in
+    // the smoke test) may expose only a partial stub, so guard the drawing and
+    // still build the pool below — degrading to a blank texture rather than
+    // silently disabling the effect.
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx && typeof ctx.createRadialGradient === 'function') {
+      const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(255,255,255,0.9)');
+      g.addColorStop(0.4, 'rgba(238,244,255,0.55)');
+      g.addColorStop(0.75, 'rgba(220,232,255,0.2)');
+      g.addColorStop(1, 'rgba(220,232,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 64, 64);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    this.powderTexture = texture;
+
+    // Template material. Cloned per particle so each puff fades/rotates on its own.
+    // Alpha (not additive) blending with depthWrite off so the cloud reads as a
+    // translucent billow against the bright snow rather than washing out to white.
+    const base = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      opacity: 0
+    });
+
+    for (let i = 0; i < POWDER_COUNT; i++) {
+      const sprite = new THREE.Sprite(base.clone());
+      sprite.scale.set(0, 0, 0); // start invisible
+      sprite.userData = {
+        active: false,
+        life: 0,
+        maxLife: 0,
+        vx: 0, vy: 0, vz: 0,
+        size: 0,
+        opacity0: 0,
+        rotSpeed: (Math.random() - 0.5) * 1.2
+      };
+      this.scene.add(sprite);
+      this.powder.push(sprite);
+    }
+
+    base.dispose(); // only the per-particle clones are kept
   }
 
   // Connect to terrain system
@@ -181,6 +261,87 @@ export class AvalancheSystem {
     }
 
     this.mesh.instanceMatrix.needsUpdate = true;
+
+    // Billowing powder kicked up by the tumbling boulders.
+    this._updatePowder(dt);
+  }
+
+  // Advance the existing powder puffs and spawn a few new ones from random
+  // boulders each frame, so a live slide trails a rolling cloud of snow. No-op
+  // when the pool is empty (headless Node). Driven only while `active`, since
+  // update() early-returns otherwise.
+  _updatePowder(dt: number): void {
+    if (this.powder.length === 0) return;
+
+    // 1) Integrate active puffs: drift, light gravity, air drag, expand + fade.
+    for (const sprite of this.powder) {
+      const ud = sprite.userData;
+      if (!ud.active) continue;
+
+      ud.life -= dt;
+      if (ud.life <= 0) {
+        ud.active = false;
+        sprite.scale.set(0, 0, 0);
+        sprite.material.opacity = 0;
+        continue;
+      }
+
+      sprite.position.x += ud.vx * dt;
+      sprite.position.y += ud.vy * dt;
+      sprite.position.z += ud.vz * dt;
+
+      ud.vy -= 4.5 * dt;               // light gravity: lofts, then settles
+      ud.vx *= (1 - 1.4 * dt);         // air drag billows and slows the spread
+      ud.vz *= (1 - 1.4 * dt);
+      ud.vy *= (1 - 0.6 * dt);
+
+      const ratio = ud.life / ud.maxLife;       // 1 at birth -> 0 at death
+      const grow = ud.size * (1 + (1 - ratio) * 2.0); // clouds expand as they age
+      sprite.scale.set(grow, grow, grow);
+
+      // Quick fade-in over the first ~12% of life, hold, then fade out below 55%.
+      const fade = Math.max(0, Math.min(1, Math.min((1 - ratio) / 0.12, ratio / 0.55)));
+      sprite.material.opacity = ud.opacity0 * fade;
+      sprite.material.rotation += ud.rotSpeed * dt;
+    }
+
+    // 2) Emit a handful of new puffs from random boulders (the cloud refills as
+    //    puffs expire; emission stops early once the pool is saturated).
+    const emit = 3 + Math.floor(Math.random() * 5); // ~3..7 per frame
+    for (let k = 0; k < emit; k++) {
+      // Find the next inactive puff (round-robin); bail this frame if all in use.
+      let n = this.powderNext;
+      let tries = 0;
+      while (this.powder[n].userData.active && tries < this.powder.length) {
+        n = (n + 1) % this.powder.length;
+        tries++;
+      }
+      this.powderNext = (n + 1) % this.powder.length;
+      if (tries >= this.powder.length) break;
+
+      const bi = Math.floor(Math.random() * this.count);
+      const bidx = bi * 3;
+      const r = this.sizes[bi];
+
+      const sprite = this.powder[n];
+      sprite.position.set(
+        this.positions[bidx]     + (Math.random() - 0.5) * (1.5 + r),
+        this.positions[bidx + 1] + 0.3 + Math.random() * r,
+        this.positions[bidx + 2] + (Math.random() - 0.5) * (1.5 + r)
+      );
+
+      const ud = sprite.userData;
+      ud.vx = this.velocities[bidx] * 0.25 + (Math.random() - 0.5) * 4;
+      ud.vy = 2 + Math.random() * 4;                           // loft upward
+      ud.vz = this.velocities[bidx + 2] * 0.35 - Math.random() * 1.5; // carried downhill
+      ud.size = 3 + Math.random() * 3.5 + r;
+      ud.opacity0 = 0.4 + Math.random() * 0.35;
+      ud.maxLife = 1.1 + Math.random() * 1.4;
+      ud.life = ud.maxLife;
+      ud.active = true;
+      sprite.scale.set(ud.size, ud.size, ud.size);
+      sprite.material.opacity = 0; // ramps in on the next update
+    }
   }
 
   // Check if player is buried by avalanche (collision = burial)
@@ -236,6 +397,16 @@ export class AvalancheSystem {
   reset(): void {
     this.active = false;
     this._hideAll();
+    this._hidePowder();
+  }
+
+  _hidePowder(): void {
+    for (const sprite of this.powder) {
+      sprite.userData.active = false;
+      sprite.scale.set(0, 0, 0);
+      sprite.material.opacity = 0;
+    }
+    this.powderNext = 0;
   }
 
   _hideAll(): void {
@@ -252,6 +423,16 @@ export class AvalancheSystem {
     this.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
+
+    for (const sprite of this.powder) {
+      this.scene.remove(sprite);
+      sprite.material.dispose();
+    }
+    this.powder.length = 0;
+    if (this.powderTexture) {
+      this.powderTexture.dispose();
+      this.powderTexture = null;
+    }
   }
 }
 

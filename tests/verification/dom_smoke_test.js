@@ -226,6 +226,24 @@ async function main() {
     Math.abs(ud.parts.headGroup.position.y - ud.partBaseTransforms.headGroup.position.y) < 1e-9 &&
     Math.abs(ud.parts.head.scale.y - 1) < 1e-9);
 
+  // ---- AvalancheSystem powder cloud (issue #49 / ROADMAP Finding 3) ----
+  // The billowing powder is sprite-based and only built when a DOM is present, so
+  // exercise it under jsdom: the pool must build, activate while the slide is live,
+  // clear on reset, and empty on dispose. (Pure JS three sprites need no WebGL.)
+  console.log('\n--- AvalancheSystem powder cloud ---');
+  const { AvalancheSystem } = await import('../../src/avalanche.ts');
+  const av = new AvalancheSystem(new RealTHREE.Scene(), 30);
+  av.setTerrainFunction(() => 0);
+  check('powder sprite pool built under a DOM', Array.isArray(av.powder) && av.powder.length > 0);
+  check('powder starts fully inactive', av.powder.every(p => p.userData.active === false));
+  av.trigger({ x: 0, y: 12, z: -50 });
+  for (let i = 0; i < 10; i++) av.update(0.05);
+  check('powder activates while the slide is live', av.powder.some(p => p.userData.active === true));
+  av.reset();
+  check('reset() clears every powder puff', av.powder.every(p => p.userData.active === false));
+  av.dispose();
+  check('dispose() empties the powder pool', av.powder.length === 0);
+
   console.log(`\nSMOKE TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }
