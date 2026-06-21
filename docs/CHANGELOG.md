@@ -13,6 +13,26 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Avalanche powder cloud (issue #49)
+- An approaching avalanche now kicks up a **billowing cloud of snow powder** as it
+  tumbles down the slope, so it reads as a rolling wall of snow instead of a bare
+  cluster of boulder spheres. This is the "in-scene cloud" remaining item under
+  ROADMAP Finding 3 (avalanche telegraphing) / issue #49 — complementing the
+  warning banner, danger meter, vignette and proximity shake shipped in #56.
+- Self-contained in `src/avalanche.ts`: a pool of `260` alpha-blended powder
+  sprites (`depthWrite: false`) — the same sprite approach as the ski snow-splash
+  in `snow.ts` — emitted from the tumbling boulders each frame from inside
+  `update()`, so no game-loop wiring changed. Each puff lofts, billows (drag +
+  light gravity), expands and fades over ~1–2.5 s.
+- **Purely cosmetic and test-safe.** The powder never touches `pos`/`velocity` or
+  the boulder physics, so the physics-invariant harness stays byte-identical and
+  the burial / `getClosestDistance` / `hasPassed` contracts are unchanged. The
+  pool builds only when a `document` is present, so the headless Node avalanche
+  tests are unaffected (powder is a no-op there). New DOM-smoke coverage exercises
+  the pool's build / activate / reset / dispose lifecycle under jsdom; existing
+  Node (12), browser-avalanche (19) and full browser (89) suites stay green. See
+  [`PHYSICS.md`](PHYSICS.md) §7.5.
+
 ### Rename `src/physics.ts` → `src/player-state.ts` (#178)
 - The repo had two files named `physics.ts` at different levels: the top-level
   one (the typed per-frame `PlayerState` container + step/reset wiring) and the

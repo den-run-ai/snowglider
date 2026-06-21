@@ -396,6 +396,35 @@ if (pos.y < floorY + radius):                  // ground contact
 | `getClosestDistance(playerPos)` | drives the warning UI | **2D** (x,z) nearest boulder |
 | `hasPassed(playerPos)` | "you survived" → reset | ≥ 80% of boulders at `z < playerZ - 10` |
 
+### 7.5 Powder cloud (purely cosmetic — issue #49)
+
+So an approaching slide reads as a rolling cloud of snow and not just a cluster of
+spheres, the tumbling boulders trail a **billowing powder plume**. It is a pool of
+`POWDER_COUNT = 260` additive-free (alpha-blended, `depthWrite: false`) sprites —
+the same sprite approach as the ski snow-splash in `snow.ts`, not the boulders'
+`InstancedMesh`, because each puff fades, expands and rotates independently.
+
+- **Lifecycle.** Built once in the constructor (`_initPowder`), but **only when a
+  `document` exists** — the headless Node avalanche tests construct the system with
+  no DOM, so the pool stays empty and every powder call is a no-op there. Driven
+  from inside `update(dt)` (so it only runs while the slide is `active`), cleared by
+  `reset()` (`_hidePowder`), and freed by `dispose()`. Inactive puffs are kept
+  `visible = false` so three skips them in the render traversal / transparent sort on
+  the idle menu/gameplay path; emission flips a puff visible only while it is live.
+- **Emission.** Each frame `_updatePowder` spawns ~3–7 puffs at random boulders,
+  near each boulder's base, inheriting a fraction of its velocity plus an upward
+  loft and lateral spread. Round-robin over the pool; emission stops early once all
+  puffs are in use, so the cloud reaches a steady density rather than growing
+  unbounded.
+- **Per-puff motion.** Light gravity (`4.5`) and strong air drag (`1.4/s`) so it
+  lofts then billows and settles; the sprite **expands** (up to ~3×) and fades over
+  a `1.1–2.5 s` life (quick fade-in, then fade-out below 55% life remaining).
+- **Determinism.** The powder is entirely cosmetic — it never reads or writes the
+  snowman's `pos`/`velocity` or the boulder physics, so the physics-invariant
+  harness and the burial/`getClosestDistance`/`hasPassed` contracts are unchanged.
+  It honors the snow-effects convention (like falling snow / ski splash) of running
+  regardless of `prefers-reduced-motion`, which gates only camera motion (§9).
+
 ---
 
 ## 8. Course timing & ghost
