@@ -112,6 +112,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `AudioModule` | `audio.ts` | IIFE | Native HTML5 background music (gated by `AUDIO_ENABLED`) |
 | `Controls` | `controls.ts` | object + fns | Keyboard + touch input → shared `controls` state |
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
+| `SnowTrails` | `snowtracks.ts` | `class` | Cosmetic **temporary** ski tracks: instanced grooves carved behind the skis that fade after a few seconds (transient feedback, not a snow-accumulation model); terrain-aware, reduced-motion-aware, never touches physics (#17) |
 | `SnowmanDebris` | `debris.ts` | `class` | Crash-shatter wipeout: owned snow-ball fragments + puff, own settle loop, terrain-aware, disposable (#53) |
 | `EffectsModule` | `effects.ts` | IIFE | Avalanche warning UI + camera FOV/shake |
 | `IntroModule` | `intro.ts` | IIFE | Cinematic "fly over the mountain" intro at game start (issue #51) |
@@ -196,6 +197,7 @@ Per-frame order in `animate(time)` (each step depends on the previous):
 delta = min((time - lastTime)/1000, 0.1)        // clamp
 updateSnowman(delta)                             // input + physics → pos/velocity
 Snow.updateSnowflakes(...)
+snowTrails.update(delta, snowman, isInAir)       // carve/fade ski grooves (cosmetic, reads pos only)
 CourseModule.update(pos, elapsed, snowman)       // splits, progress HUD, ghost
 avalanche.trigger/update/checkBurial/hasPassed   // + EffectsModule.updateAvalanche
 Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)

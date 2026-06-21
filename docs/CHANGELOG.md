@@ -54,6 +54,44 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   coasting trajectory as byte-identical to the baseline, and every technique gating
   check holds. Constants updated in [`PHYSICS.md`](PHYSICS.md).
 
+### Realistic snow surface — de-striped + smoothed shading + softer light (#17)
+All changes are **render-only**; the terrain height field, the two-formula contract,
+and the physics-invariant harness (byte-identical no-input coasting) are untouched.
+- **Killed the diagonal texture stripes.** The procedural snow normal map
+  (`createSnowNormalTexture` in `src/mountains.ts`) summed wind-ripple waves all
+  biased to one diagonal and tiled `8×10`, so the directional light raked them into
+  regular diagonal stripes. It is now **subtle, isotropic, high-frequency powder
+  grain** (mixed-direction waves, repeat `16×20`, `normalScale 0.12`) that mip-maps
+  to smooth at distance — close-up sparkle, no stripes.
+- **Smoothed snow *shading* normals (the real fix for the "grey lines").** The
+  remaining grey banding wasn't a texture — it was the bumpy terrain's own facet
+  normals being raked by the hard light (every mogul lit on one side, grey on the
+  other; the regular `sin(x*0.2)*cos(z*0.3)` ridge made it periodic). New
+  `applySmoothShadingNormals` low-passes a throwaway clone of the height field and
+  copies its normals onto the real geometry, so the **silhouette stays the exact
+  skiable terrain (physics rides the unchanged `heightMap`) but the light sees a
+  soft surface.** Physics never reads mesh normals (slope forces use the analytic
+  `getTerrainGradient`), so this is purely visual.
+- **Softer, less-raking light.** The hard sun is dialed down (`0.8π → 0.5π`) and the
+  orientation-aware sky fill raised (`HemisphereLight 0.45π → 0.62π`, neutral-er
+  tint; `AmbientLight 0.15π → 0.26π`) in `game/scene-setup.ts`, so deep powder reads
+  low-contrast (bright with gentle shadows) the way real snow does under an open sky.
+- **Near-white slope tint.** The per-vertex "wind crust" went from a strong grey-blue
+  (`0.66,0.72,0.82` @ ≤0.6) to a barely-cool near-white (`0.93,0.95,0.99` @ ≤0.5)
+  derived from the *smoothed* normals — it shapes without painting grey into the snow.
+- **Snow-capped rocks.** `applyRockSnowColors` widens/saturates the up-facing snow
+  band and the rock material drops to `metalness 0`, so rocks read as snow-covered
+  stone instead of shiny grey crystals.
+- **Temporary ski tracks — new `src/snowtracks.ts` (not an accumulation model).**
+  `SnowTrails` carves faint grooves behind the skis that fade over a few seconds
+  (reading as fresh snow settling back). It is **transient track feedback**, not
+  snow building up — a real accumulation pass (a persistent low-res `SnowDepthField`
+  fed into the terrain material) is a separate follow-up. Fixed instanced-quad
+  ring-buffer (one draw call), terrain-aware, `prefers-reduced-motion`-aware, cleared
+  on reset, and purely cosmetic (reads `snowman.position` only). Threaded through
+  `GameState.snowTrails` (`scene-setup` → `main-loop` → `lifecycle`). Covered by
+  `tests/snowtrails-tests.js` (`npm run test:snowtrails`).
+
 ### Rename `src/physics.ts` → `src/player-state.ts` (#178)
 - The repo had two files named `physics.ts` at different levels: the top-level
   one (the typed per-frame `PlayerState` container + step/reset wiring) and the

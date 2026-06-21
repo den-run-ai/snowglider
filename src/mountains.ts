@@ -248,10 +248,12 @@ function getDownhillDirection(x: number, z: number): TerrainVec2 {
 // across the 300x400 terrain plane without visible seams.
 
 /**
- * A subtle near-white snow albedo. Low-amplitude tileable mottling (a sum of
- * periodic waves, so it wraps) breaks up the dead-flat white without ever leaving
- * "snow" range, with a faint cool tint in the dips. Repeated at a low frequency
- * so the broad blotches read as drift/wind variation, not a tiled pattern.
+ * A bright near-white snow albedo for deep powder. Very low-amplitude *isotropic*
+ * mottling (a sum of periodic waves pointing in many directions, so no single
+ * orientation dominates and it never reads as a stripe) breaks up the dead-flat
+ * white without leaving "snow" range, plus a faint cold-blue cast in the dips and
+ * a sparse high-frequency sparkle. Repeated at a low frequency so the broad
+ * blotches read as wind-drifted powder, not a tiled pattern.
  */
 function createSnowAlbedoTexture(): THREE.CanvasTexture {
   const SIZE = 256;
@@ -263,47 +265,68 @@ function createSnowAlbedoTexture(): THREE.CanvasTexture {
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const u = x / SIZE, v = y / SIZE;
-      // Tileable low-frequency mottle, normalised to ~[-1, 1].
+      // Tileable low-frequency mottle from mixed directions (no dominant axis),
+      // normalised to ~[-1, 1].
       let n = Math.sin(2 * Math.PI * (1 * u + 2 * v));
-      n += 0.6 * Math.sin(2 * Math.PI * (3 * u - 1 * v) + 1.3);
-      n += 0.4 * Math.sin(2 * Math.PI * (2 * u + 3 * v) + 2.1);
-      n /= 2.0;
-      const base = 244 + n * 9;          // tight bright band (~235..253)
-      const cool = Math.max(0, -n) * 6;  // slightly bluer in the dips
+      n += 0.7 * Math.sin(2 * Math.PI * (2 * u - 3 * v) + 1.3);
+      n += 0.5 * Math.sin(2 * Math.PI * (-3 * u + 1 * v) + 2.1);
+      n += 0.4 * Math.sin(2 * Math.PI * (3 * u + 3 * v) + 0.7);
+      n /= 2.6;
+      // Sparse crystalline sparkle (product of high-freq periodics stays tileable).
+      const sparkle = Math.max(0, Math.sin(2 * Math.PI * 24 * u) * Math.sin(2 * Math.PI * 22 * v));
+      const base = 250 + n * 5 + sparkle * sparkle * 4; // very bright band (~245..255)
+      const cool = Math.max(0, -n) * 5;  // slightly bluer in the dips
       const idx = (y * SIZE + x) * 4;
-      data[idx] = base - cool;           // R
-      data[idx + 1] = base - cool * 0.4; // G
-      data[idx + 2] = Math.min(255, base); // B (kept full -> cool dips)
+      data[idx] = Math.min(255, base - cool);            // R
+      data[idx + 1] = Math.min(255, base - cool * 0.35); // G
+      data[idx + 2] = Math.min(255, base);               // B (kept full -> cool dips)
       data[idx + 3] = 255;
     }
   }
   ctx.putImageData(image, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(3, 4);
+  tex.repeat.set(2, 3);
   return tex;
 }
 
 /**
- * A tileable tangent-space normal map giving the snow its micro-relief: shallow
- * wind ripples / sastrugi plus a finer granular grain, so the large flat plane
- * catches the directional light instead of reading as a sheet. The height field
- * is a sum of integer-frequency waves (periodic => seamless), biased along one
- * axis so the ripples read as wind-blown drifts; normals are central differences
- * with wraparound.
+ * A tileable tangent-space normal map giving the snow its micro-relief: soft,
+ * *isotropic* powder granulation so the large flat plane catches the directional
+ * light as a gently broken surface instead of reading as a sheet. The previous
+ * version summed ripples that were all biased toward one diagonal, which tiled
+ * into visible "grey grid" stripes under the directional light (issue #17 follow-up);
+ * this version spreads the wave directions (mixed signs, no dominant axis) and
+ * leans on fine grain, so the relief reads as snow grain rather than corrugation.
+ * The height field is a sum of integer-frequency waves (periodic => seamless);
+ * normals are central differences with wraparound.
  */
 function createSnowNormalTexture(): THREE.CanvasTexture {
   const SIZE = 256;
   const height = new Float32Array(SIZE * SIZE);
+  // Many *high-frequency* waves pointing in many directions. Keeping every term
+  // high-frequency means the relief is sub-metre "snow tooth" that mip-maps away
+  // with distance (sparkle up close, smooth far) instead of the metre-scale
+  // ripples that tiled into visible diagonal bands. Mixed directions/signs keep it
+  // isotropic so no orientation reads as a stripe. Integer frequencies => seamless.
+  const waves: [number, number, number, number][] = [
+    [13, 17, 0.22, 0.4],
+    [19, -11, 0.20, 1.9],
+    [-7, 23, 0.18, 2.7],
+    [21, 9, 0.16, 0.9],
+    [11, -19, 0.15, 1.3],
+    [25, 5, 0.13, 2.1],
+    [-15, 13, 0.12, 0.6],
+    [9, 27, 0.11, 1.5],
+  ];
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const u = x / SIZE, v = y / SIZE;
-      // Wind ripples: low cross-axis freq, higher along-axis freq.
-      let h = 0.6 * Math.sin(2 * Math.PI * (3 * u + 1 * v));
-      h += 0.35 * Math.sin(2 * Math.PI * (7 * u + 2 * v) + 1.7);
-      h += 0.22 * Math.sin(2 * Math.PI * (13 * u + 5 * v) + 0.6);
-      // Fine granular grain (product of periodics stays tileable).
-      h += 0.12 * Math.sin(2 * Math.PI * 21 * u) * Math.sin(2 * Math.PI * 19 * v);
+      let h = 0;
+      for (let k = 0; k < waves.length; k++) {
+        const [fx, fz, a, p] = waves[k];
+        h += a * Math.sin(2 * Math.PI * (fx * u + fz * v) + p);
+      }
       height[y * SIZE + x] = h;
     }
   }
@@ -312,7 +335,7 @@ function createSnowNormalTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d')!;
   const image = ctx.createImageData(SIZE, SIZE);
   const data = image.data;
-  const STRENGTH = 2.0; // height -> slope gain
+  const STRENGTH = 1.5; // height -> slope gain
   const wrap = (i: number) => (i + SIZE) % SIZE;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
@@ -335,7 +358,7 @@ function createSnowNormalTexture(): THREE.CanvasTexture {
   ctx.putImageData(image, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(8, 10);
+  tex.repeat.set(16, 20); // fine: sub-metre grain that mip-maps to smooth at distance
   // Normal maps are data, not colour: keep them out of any sRGB decode. (The
   // project disables ColorManagement, so this is belt-and-suspenders.)
   tex.colorSpace = THREE.NoColorSpace;
@@ -344,27 +367,85 @@ function createSnowNormalTexture(): THREE.CanvasTexture {
 
 /**
  * Bake per-vertex snow shading into the terrain geometry: flat areas stay bright
- * snow, steeper faces tint toward a cool wind-scoured crust (read from the mesh
- * normal's tilt). Applied via `vertexColors`, so it adds slope-dependent depth
- * without touching the height field — physics is unaffected. Mutates `geometry`
- * in place; call after `computeVertexNormals()`.
+ * snow, steeper faces take only a faint, cool *shadow* tint (read from the mesh
+ * normal's tilt). The previous crust was a strong grey-blue (0.66, 0.72, 0.82)
+ * applied at up to 0.6, which — combined with the bumpy terrain — read as grey
+ * patches all over the snow; this keeps pitches bright and snowy with just a soft
+ * blue cast for depth, the way real powder shadows do. Applied via `vertexColors`,
+ * so it adds slope-dependent depth without touching the height field — physics is
+ * unaffected. Mutates `geometry` in place; call after `computeVertexNormals()`.
  */
 function applySnowVertexColors(geometry: THREE.BufferGeometry): void {
   const normals = geometry.attributes.normal.array as Float32Array;
   const count = geometry.attributes.position.count;
   const colors = new Float32Array(count * 3);
   const snow = { r: 1.0, g: 1.0, b: 1.0 };
-  const crust = { r: 0.66, g: 0.72, b: 0.82 }; // cool grey-blue wind crust
+  const shade = { r: 0.93, g: 0.95, b: 0.99 }; // barely-cool powder shadow (almost white)
   for (let i = 0; i < count; i++) {
     const ny = normals[i * 3 + 1];
     // normal.y ~1 on flats, lower on pitches; remap the useful band to 0..1.
-    const tilt = Math.min(1, Math.max(0, (1 - ny) / 0.35));
-    const t = tilt * 0.6; // even the steepest stays mostly snowy
-    colors[i * 3] = snow.r + (crust.r - snow.r) * t;
-    colors[i * 3 + 1] = snow.g + (crust.g - snow.g) * t;
-    colors[i * 3 + 2] = snow.b + (crust.b - snow.b) * t;
+    const tilt = Math.min(1, Math.max(0, (1 - ny) / 0.4));
+    const t = tilt * 0.5; // gentle, near-white slope shading (lighting does the rest)
+    colors[i * 3] = snow.r + (shade.r - snow.r) * t;
+    colors[i * 3 + 1] = snow.g + (shade.g - snow.g) * t;
+    colors[i * 3 + 2] = snow.b + (shade.b - snow.b) * t;
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+/**
+ * Give the snow surface *smoothed shading normals* without moving any vertex
+ * (issue #17 follow-up, per maintainer review on PR #181). The grey "grid lines"
+ * that survived the texture fix are the bumpy terrain's own facet normals being
+ * raked by the directional light — every little mogul/ridge gets a lit and a
+ * shaded face. We can't move the positions (physics rides the exact mesh via
+ * `heightMap`, and the two-formula terrain contract + invariant harness depend on
+ * it), but the *shading* normals are render-only. So we low-pass a throwaway clone
+ * of the height field and copy its normals onto the real geometry: the silhouette
+ * stays the skiable terrain, but the light sees a soft surface and the snow reads
+ * as deep powder instead of corduroy. Physics is untouched (it never reads mesh
+ * normals — slope forces use the analytic `getTerrainGradient`).
+ *
+ * `cols`/`rows` are the vertex counts (segments + 1) of the PlaneGeometry grid.
+ */
+function applySmoothShadingNormals(
+  geometry: THREE.BufferGeometry, cols: number, rows: number, passes: number
+): void {
+  const clone = geometry.clone();
+  const pos = clone.attributes.position.array as Float32Array;
+  // Pull the height (world y) of each grid vertex into a 2D buffer.
+  const h = new Float32Array(cols * rows);
+  for (let k = 0; k < cols * rows; k++) h[k] = pos[k * 3 + 1];
+  // Separable 3-tap box blur, edge-clamped, repeated for a gentle low-pass.
+  const tmp = new Float32Array(cols * rows);
+  for (let p = 0; p < passes; p++) {
+    // horizontal
+    for (let r = 0; r < rows; r++) {
+      const base = r * cols;
+      for (let c = 0; c < cols; c++) {
+        const l = h[base + Math.max(0, c - 1)];
+        const m = h[base + c];
+        const rr = h[base + Math.min(cols - 1, c + 1)];
+        tmp[base + c] = (l + m + rr) / 3;
+      }
+    }
+    // vertical
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < rows; r++) {
+        const u = tmp[Math.max(0, r - 1) * cols + c];
+        const m = tmp[r * cols + c];
+        const d = tmp[Math.min(rows - 1, r + 1) * cols + c];
+        h[r * cols + c] = (u + m + d) / 3;
+      }
+    }
+  }
+  // Write the smoothed heights back into the clone and let three compute robust,
+  // correctly-oriented normals from it; copy those onto the real geometry.
+  for (let k = 0; k < cols * rows; k++) pos[k * 3 + 1] = h[k];
+  clone.computeVertexNormals();
+  const smooth = clone.attributes.normal.array as Float32Array;
+  geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(smooth), 3));
+  clone.dispose();
 }
 
 // --- Terrain creation functions ---
@@ -424,22 +505,30 @@ function createTerrain(scene: THREE.Scene) {
     heightMap[`${Math.round(x*10)},${Math.round(z*10)}`] = y;
   }
   geometry.computeVertexNormals();
-  
-  // Snow surface material (issue #17): a subtly mottled near-white albedo plus a
-  // procedural micro-relief normal map (wind ripples / sastrugi) so the slope
-  // reads as a real snow surface that catches the light, instead of the old flat
-  // grey grid. Slope shading (bright snow -> cool wind crust on pitches) is baked
-  // into the geometry's vertex colours and multiplied in via `vertexColors`.
+  // Smooth the *shading* normals (positions/physics untouched) so the directional
+  // light stops raking every terrain bump into a grey band (PR #181 review). Must
+  // run before applySnowVertexColors (which derives the slope tint from these
+  // normals) and must NOT be followed by another computeVertexNormals (it would
+  // overwrite them). PlaneGeometry(150,200 segments) => 151x201 grid vertices.
+  applySmoothShadingNormals(geometry, 151, 201, 7);
+
+  // Snow surface material (issue #17): a bright, isotropically mottled near-white
+  // albedo plus a soft *isotropic* micro-relief normal map (powder granulation, no
+  // directional ripples) so the slope reads as deep snow that catches the light,
+  // instead of the old flat grey grid / diagonal striping. Slope shading (bright
+  // snow -> faint cool powder shadow on pitches) is baked into the geometry's
+  // vertex colours and multiplied in via `vertexColors`. A high roughness keeps it
+  // matte like real powder; the gentle normalScale avoids harsh corrugation.
   const albedo = createSnowAlbedoTexture();
   const normalMap = createSnowNormalTexture();
   applySnowVertexColors(geometry);
 
   const material = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.78,
+    roughness: 0.92,
     map: albedo,
     normalMap: normalMap,
-    normalScale: new THREE.Vector2(0.5, 0.5),
+    normalScale: new THREE.Vector2(0.12, 0.12),
     vertexColors: true
   });
   
@@ -454,9 +543,10 @@ function createTerrain(scene: THREE.Scene) {
     window.terrainMesh = terrain;
   }
   
-  // Update terrain vertices after geometry changes
-  geometry.computeVertexNormals();
-  
+  // NOTE: do not recompute vertex normals here — applySmoothShadingNormals() above
+  // installed the smoothed snow-shading normals and a plain computeVertexNormals
+  // would overwrite them with the raw faceted ones (reintroducing the grey banding).
+
   // Debug log to verify our height map is working
   console.log(`Height map contains ${Object.keys(heightMap).length} terrain points`);
   
@@ -639,13 +729,18 @@ function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Co
   const normals = geometry.attributes.normal.array as Float32Array;
   const count = geometry.attributes.position.count;
   const colors = new Float32Array(count * 3);
+  // Snow blanket toward a faintly cool white so the cap reads as snow, not blown
+  // highlight. The band starts lower and saturates sooner than before so up-facing
+  // faces are convincingly *covered* (the previous 0.25..0.70 band left rocks
+  // reading as bare grey crystals with only a faint dusting).
+  const snowCol = { r: 0.97, g: 0.98, b: 1.0 };
   for (let i = 0; i < count; i++) {
     const ny = normals[i * 3 + 1];
-    const t = Math.min(1, Math.max(0, (ny - 0.25) / (0.7 - 0.25)));
+    const t = Math.min(1, Math.max(0, (ny - 0.05) / (0.55 - 0.05)));
     const snow = t * t * (3 - 2 * t); // smoothstep up-facing band -> snow amount
-    colors[i * 3] = rockColor.r + (1 - rockColor.r) * snow;
-    colors[i * 3 + 1] = rockColor.g + (1 - rockColor.g) * snow;
-    colors[i * 3 + 2] = rockColor.b + (1 - rockColor.b) * snow;
+    colors[i * 3] = rockColor.r + (snowCol.r - rockColor.r) * snow;
+    colors[i * 3 + 1] = rockColor.g + (snowCol.g - rockColor.g) * snow;
+    colors[i * 3 + 2] = rockColor.b + (snowCol.b - rockColor.b) * snow;
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
@@ -676,8 +771,8 @@ function createRock(size: number): THREE.Mesh {
 
   const rockMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.8,
-    metalness: 0.2,
+    roughness: 0.9,
+    metalness: 0.0, // matte rock/snow, not the shiny grey crystal it read as before
     flatShading: true,
     vertexColors: true,
     normalMap: getRockNormalTexture(),

@@ -13,6 +13,7 @@ import { Snowman } from '../snowman.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { AvalancheSystem } from '../avalanche.js';
+import { SnowTrails } from '../snowtracks.js';
 import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
@@ -39,6 +40,7 @@ export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveli
  */
 export interface GameState {
   avalanche: AvalancheSystem | null; // live avalanche system (null if module absent)
+  snowTrails: SnowTrails | null;     // dynamic ski-trail / snow-accumulation visuals (#17)
   debris: SnowmanDebris | null;      // crash-shatter wipeout system (#53)
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
   lastAvalancheZ: number;            // z the trigger distance is measured from
@@ -162,18 +164,22 @@ export function setupScene() {
   // brightness under three.js physically-correct lighting (forced on since the
   // r165 removal of `useLegacyLights`); see the renderer setup note above.
   //
-  // A HemisphereLight (issue #18) takes over most of the old flat AmbientLight as
-  // the scene fill: pale sky-blue from above, a cooler snow-bounce from below.
-  // Unlike a uniform ambient it shades by surface orientation, so the procedural
-  // snow/rock normal maps and slope shading (issue #17) actually read in the
-  // shadows instead of being washed flat. A small ambient floor remains so nothing
-  // goes pure black. The up-facing fill (ambient + hemi*sky ≈ 0.5) is held near the
-  // old 0.5*pi so directly-lit white snow doesn't clip any harder under the legacy
-  // no-tone-mapping pipeline — the change is in the *direction-dependence* and tint
-  // of the fill, not its peak brightness.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.15 * Math.PI));
-  scene.add(new THREE.HemisphereLight(0xcfe2f7, 0x9aa7b6, 0.45 * Math.PI));
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8 * Math.PI);
+  // A HemisphereLight (issue #18) is the scene fill: pale sky-blue from above, a
+  // cooler snow-bounce from below. Unlike a uniform ambient it shades by surface
+  // orientation, so the procedural snow/rock normal maps and slope shading (issue
+  // #17) read instead of washing flat. A small ambient floor keeps nothing pure black.
+  //
+  // Snow-readability rebalance (issue #17 follow-up): the old split (directional
+  // 0.8π vs. fill ≈0.5) cast such hard shadows on the bumpy terrain that every
+  // mogul read as a grey band — the "grey lines" that survived the texture fix,
+  // because they are terrain *shadows*, not a texture. Real deep powder under an
+  // open sky is low-contrast: bright almost everywhere with soft shading. So the
+  // hard sun is dialed down (0.8π → 0.5π) and the orientation-aware sky fill up
+  // (hemi 0.45π → 0.62π, ambient 0.15π → 0.26π) — the slope still shapes, but the
+  // shadows go gentle instead of grey. Peak white stays roughly the same.
+  scene.add(new THREE.AmbientLight(0xffffff, 0.26 * Math.PI));
+  scene.add(new THREE.HemisphereLight(0xdcebfb, 0xbcc7d4, 0.62 * Math.PI));
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5 * Math.PI);
   directionalLight.position.set(50, 100, 50);
   directionalLight.castShadow = true;
   directionalLight.shadow.mapSize.width = 2048;
@@ -200,6 +206,7 @@ export function setupScene() {
   // run/scoring fields.
   const state: GameState = {
     avalanche: null,
+    snowTrails: null,
     debris: null,
     avalancheTriggered: false,
     lastAvalancheZ: 0,
@@ -219,6 +226,13 @@ export function setupScene() {
   } else {
     console.warn("Avalanche module not loaded - avalanche feature disabled");
   }
+
+  // --- Initialize dynamic ski trails / snow accumulation (#17) ---
+  // Purely cosmetic; terrain-aware like the avalanche. Skis carve fading grooves
+  // that fresh snow covers back over. Never touches physics/pos/velocity.
+  const snowTrails = new SnowTrails(scene);
+  snowTrails.setTerrainFunction(Snow.getTerrainHeight);
+  state.snowTrails = snowTrails;
 
   // --- Initialize Snowman crash-shatter (#53) ---
   // The wipeout system. Constructed here so the coordinator can fire it from the
