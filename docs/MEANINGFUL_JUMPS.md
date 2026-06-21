@@ -45,10 +45,28 @@ simply change the landing formula globally; see §5.
 
 ### 3.1 Jump provenance (the enabling primitive)
 Add a `playerJump` flag (stored on `snowman.userData`, exactly like `carveCharge`
-/ `lastSteerDir` today, and cleared in `resetSnowman`). Set it **only** in the
-manual-jump branch (`controls.jump && steering === 0`); leave it false for
-auto-jumps and hop turns. Every reward below is gated on `playerJump`, which is
-what keeps the no-input / coasting trajectory byte-identical (§5).
+/ `lastSteerDir` today). It marks **the current airborne phase** as a
+player-initiated straight jump, and needs a fully specified lifecycle so it can
+never leak across jumps within a run:
+
+- **Set explicitly at *every* takeoff.** `true` in the manual-jump branch
+  (`controls.jump && steering === 0`); `false` in the auto-jump (terrain-lip)
+  branch and the hop-turn branch. Writing it at each takeoff — not just the manual
+  one — means the previous air phase's value can never carry over.
+- **Clear on landing.** In the landing branch, read `playerJump` to choose the
+  reward, then set it back to `false`, so the grounded / between-jumps state is
+  unambiguously non-rewarding.
+- **Clear in `resetSnowman`** alongside `carveCharge` / `lastSteerDir`, so a new
+  run starts clean.
+
+This lifecycle is load-bearing: if the flag were cleared *only* in `resetSnowman`,
+then after one manual jump it would stay `true` for the rest of the run, and a
+later terrain auto-jump or hop turn would wrongly pass the reward gate and perturb
+a no-input / hop landing — breaking the §5 invariant. *(Thanks to the codex review
+on the first draft for catching this.)*
+
+Every reward below is gated on `playerJump`, which — **with this lifecycle** — is
+what keeps the auto-jump / hop-turn / coasting trajectories byte-identical (§5).
 
 ### 3.2 Landing-quality grading
 On landing of a *player* jump, grade the landing from the angle between the
@@ -111,13 +129,19 @@ never touches the normal physics path.
 differs from the frozen baseline by max-abs `0`, and also gates the carve-vs-skid,
 snowplow, parallel, and hop checks. **Auto-jumps fire on the no-input path**, so:
 
-1. **Every reward is gated on `playerJump`.** Auto-jump (and hop-turn) landings keep
-   today's exact `landingImpact`/`landingForce`, so the coasting baseline does not
-   move and `test:verify` max-diff stays `0`. This is the single most important
-   constraint — the same input-gating discipline #136/#146 used.
+1. **Every reward is gated on `playerJump`, with the §3.1 lifecycle.** Because the
+   flag is written at *every* takeoff (false for auto-jump/hop) and cleared on
+   landing, auto-jump and hop-turn landings keep today's exact
+   `landingImpact`/`landingForce` — even when they happen *after* a manual jump
+   earlier in the same run — so the coasting baseline does not move and
+   `test:verify` max-diff stays `0`. This is the single most important constraint —
+   the same input-gating discipline #136/#146 used.
 2. **New gating harness checks** (mirroring the carve-vs-skid one): e.g. "a CLEAN,
    well-aimed player jump over a lip finishes faster than a SKETCHY one over the
-   same lip," and an explicit "auto-jump landing trajectory unchanged" assertion.
+   same lip," an explicit "auto-jump landing trajectory unchanged" assertion, and a
+   **provenance check** — "a manual jump followed later by an auto-jump leaves the
+   auto-jump landing byte-identical" (directly guards the §3.1 leak the codex
+   review flagged).
 3. **Baseline regen only if the no-input path genuinely changes** — and per §6 it
    must be ported into the classic-wrapper shape (drop `import * as THREE`/`export`,
    keep the `window.Snowman` block), **not** `git show … > snowman_baseline.js`.
