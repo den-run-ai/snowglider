@@ -64,6 +64,17 @@ export function createMainLoop(deps: MainLoopDeps) {
       EffectsModule.addShake(Math.min(1.2, result.landingForce * 0.6));
     }
 
+    // Meaningful jumps (#47): on a graded *manual*-jump landing, toast the air time
+    // + landing grade and bank the air score. landingQuality is non-null only for a
+    // player-initiated jump, so auto-jumps / hop turns / coasting never toast or score.
+    if (result.justLanded && result.landingQuality && CourseModule) {
+      const q = result.landingQuality;
+      const label = q === 'clean' ? 'CLEAN' : q === 'ok' ? 'OK' : 'SKETCHY';
+      const color = q === 'clean' ? '#55efc4' : q === 'ok' ? '#74b9ff' : '#ff7675';
+      CourseModule.flash(`✈ AIR ${result.landingForce.toFixed(1)}s — ${label}`, color);
+      CourseModule.addAirScore(result.airScoreDelta);
+    }
+
     // Cosmetic flexibility / jiggle (issue #53). Purely visual: runs AFTER the physics
     // kernel so it can read the per-frame result, and only writes child-mesh transforms —
     // it never touches pos/velocity, so the physics-invariant harness is unaffected.

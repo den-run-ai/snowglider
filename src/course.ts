@@ -123,6 +123,7 @@ export const CourseModule = (function () {
   let recordSamples: GhostSample[] = []; // trajectory recorded this run
   let sampleAccum = 0;
   let runActive = false;
+  let airScore = 0;            // accumulated air-score for this run (meaningful jumps #47)
 
   // Combined list of split gates (checkpoints then finish)
   const splitPoints: SplitPoint[] = CHECKPOINT_Z.map((z, i) => ({ z, label: `CHECKPOINT ${i + 1}` }))
@@ -203,6 +204,20 @@ export const CourseModule = (function () {
     flashEl.style.opacity = '1';
     if (flashTimer) clearTimeout(flashTimer);
     flashTimer = setTimeout(() => { flashEl.style.opacity = '0'; }, 1600);
+  }
+
+  // Public delegate so the main loop can surface its own transient toasts
+  // (e.g. the meaningful-jumps "✈ AIR … — CLEAN" flash, #47 §3.6) through the
+  // same HUD flash element + styling the split timing already uses. showFlash
+  // itself stays private.
+  function flash(html: string, color?: string) {
+    showFlash(html, color);
+  }
+
+  // Bank air-score points earned this run (from a graded manual-jump landing in the
+  // physics kernel). Reset to 0 each run in reset(); surfaced on the result screen.
+  function addAirScore(points: number) {
+    if (points > 0) airScore += points;
   }
 
   // ---------------------------------------------------------------------------
@@ -406,6 +421,7 @@ export const CourseModule = (function () {
     recordSamples = [];
     sampleAccum = 0;
     runActive = true;
+    airScore = 0;
 
     // Refresh ghost + best splits in case a previous run set a new best.
     loadBests();
@@ -674,6 +690,8 @@ export const CourseModule = (function () {
     init,
     reset,
     update,
+    flash,
+    addAirScore,
     hideHud,
     onFinish,
     // exposed for potential tests
