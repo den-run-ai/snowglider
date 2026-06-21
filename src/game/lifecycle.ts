@@ -119,8 +119,10 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Reset camera initialization with current snowman position and rotation
     cameraManager.initialize(snowman.position, snowman.rotation);
 
-    // Update the camera mode text in the controls info
-    const viewControlItem = document.querySelector('#controlsContent .control-item:last-child');
+    // Update the camera mode text in the controls info. Target the camera row by a
+    // stable id (not :last-child) so appending more control items after it — e.g. the
+    // Ski Techniques rows — can't make the toggle rewrite the wrong row.
+    const viewControlItem = document.querySelector('#cameraViewControl');
     if (viewControlItem) {
       const keyBadge = viewControlItem.querySelector('.key-badge');
       const textSpan = viewControlItem.querySelector('span:last-child');
