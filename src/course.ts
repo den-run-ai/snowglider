@@ -620,6 +620,20 @@ export const CourseModule = (function () {
     }
     panel.appendChild(improve);
 
+    // Air score (meaningful jumps #47, §3.6): a per-run flourish, shown only when
+    // the run actually banked air from graded manual jumps, so a no-jump run's
+    // result screen is unchanged.
+    if (airScore > 0) {
+      const air = document.createElement('div');
+      air.id = 'resultAirScore';
+      Object.assign(air.style, {
+        display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px',
+        fontSize: '15px', fontWeight: '700', color: '#74b9ff'
+      });
+      air.innerHTML = `<span style="font-size:18px">✈</span> Air score <span style="color:#fff">${airScore}</span>`;
+      panel.appendChild(air);
+    }
+
     // Split table
     const table = document.createElement('div');
     table.id = 'resultSplitTable';
