@@ -239,6 +239,25 @@ export function terrainRidgeField(x: number, z: number): number {
   return fbm((x + wx * RIDGE_WARP_AMP) * RIDGE_FREQ, (z + wz * RIDGE_WARP_AMP) * RIDGE_FREQ);
 }
 
+// --- Deterministic forest-density field (terrain ↔ trees alignment) ---
+//
+// A pure [0, 1] function of world (x, z) describing how heavily forested a patch is:
+// broad conifer *stands* fading into open *clearings*. It reuses the same fixed-seed
+// fbm as the ridge field (NOT Math.random), so two independent consumers can read it
+// and agree spatially:
+//   - the terrain snow shading tints gentle, forested ground with a faint warm
+//     treeline cast (applySnowVertexColors), and
+//   - Trees.addTrees biases placement into the same stands and leaves the clearings
+//     open (src/trees.ts).
+// The net effect is that the trees and the ground beneath them read as one biome
+// instead of a uniform sprinkle. The low frequency makes the stands tens of units
+// across; the offset keeps the bands from locking onto the ridge lattice.
+const FOREST_FREQ = 0.018;
+export function forestDensityField(x: number, z: number): number {
+  const n = fbm(x * FOREST_FREQ + 17.3, z * FOREST_FREQ - 9.1);
+  return Math.min(1, Math.max(0, n * 0.9 + 0.5));
+}
+
 // --- Terrain utilities ---
 
 // Global height map for efficient lookup - will be populated when terrain is created
@@ -439,18 +458,37 @@ function createSnowNormalTexture(): THREE.CanvasTexture {
  */
 function applySnowVertexColors(geometry: THREE.BufferGeometry): void {
   const normals = geometry.attributes.normal.array as Float32Array;
+  const positions = geometry.attributes.position.array as Float32Array;
   const count = geometry.attributes.position.count;
   const colors = new Float32Array(count * 3);
   const snow = { r: 1.0, g: 1.0, b: 1.0 };
   const shade = { r: 0.93, g: 0.95, b: 0.99 }; // barely-cool powder shadow (almost white)
+  // Where conifer stands grow — gentle slopes inside the forest-density bands — the
+  // snow picks up a faint warm/green treeline cast from the canopy and needle litter
+  // showing through. It is deliberately low-amplitude (a tint, never dirt) and gated
+  // to gentle, forested ground, so the open snowfields in the clearings stay bright
+  // white. Driven by the SHARED forest field, so the ground visually ties to the
+  // trees that Trees.addTrees clusters into the very same stands.
+  const forestTint = { r: 0.83, g: 0.87, b: 0.75 };
   for (let i = 0; i < count; i++) {
     const ny = normals[i * 3 + 1];
     // normal.y ~1 on flats, lower on pitches; remap the useful band to 0..1.
     const tilt = Math.min(1, Math.max(0, (1 - ny) / 0.4));
     const t = tilt * 0.5; // gentle, near-white slope shading (lighting does the rest)
-    colors[i * 3] = snow.r + (shade.r - snow.r) * t;
-    colors[i * 3 + 1] = snow.g + (shade.g - snow.g) * t;
-    colors[i * 3 + 2] = snow.b + (shade.b - snow.b) * t;
+    let r = snow.r + (shade.r - snow.r) * t;
+    let g = snow.g + (shade.g - snow.g) * t;
+    let b = snow.b + (shade.b - snow.b) * t;
+    // Forest treeline tint: strongest on gentle, densely-forested ground; fades out
+    // on steep pitches and in the open clearings.
+    const gentle = Math.max(0, 1 - tilt * 1.4);
+    const stand = Math.max(0, (forestDensityField(positions[i * 3], positions[i * 3 + 2]) - 0.45) / 0.55);
+    const amt = gentle * stand * 0.26;
+    r += (forestTint.r - r) * amt;
+    g += (forestTint.g - g) * amt;
+    b += (forestTint.b - b) * amt;
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = g;
+    colors[i * 3 + 2] = b;
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
@@ -720,6 +758,52 @@ function addRocks(scene: THREE.Scene): RockPosition[] {
     }
   });
 
+  // Cliff outcrops: a sparse scatter of larger, craggy rock formations on the
+  // steepest flanks, kept well clear of the central ski corridor so they add drama
+  // and terrain diversity without walling off the run. Each outcrop is a tight
+  // cluster of 2-3 cliff blocks so it reads as a rocky band/buttress rather than one
+  // lone boulder. Like every rock these are decorative, but any block big enough and
+  // clear of the ski line/spawn pocket also registers as a collision hazard (radius
+  // capped at 3u, in sync with snowman collision) — you can't ski through a cliff.
+  for (let z = -180; z < 80; z += 30) {
+    for (let x = -130; x <= 130; x += 30) {
+      // Keep the whole formation off the centre line (the ski corridor is |x| < 5).
+      if (Math.abs(x) < 18) continue;
+      const cx = x + (Math.random() * 14 - 7);
+      const cz = z + (Math.random() * 14 - 7);
+      if (Math.abs(cx) < 16) continue;
+      if (Math.abs(cx) > 145 || Math.abs(cz) > 195) continue;
+
+      // Only on genuinely steep pitches, and not on every one even then.
+      const gradient = getTerrainGradient(cx, cz);
+      const steepness = Math.sqrt(gradient.x * gradient.x + gradient.z * gradient.z);
+      if (steepness < 0.22) continue;
+      if (Math.random() > 0.28 + steepness * 0.35) continue;
+
+      const baseSize = 3.0 + Math.random() * 2.0; // 3-5u cliff blocks
+      const blocks = 2 + Math.floor(Math.random() * 2); // 2-3 blocks per outcrop
+      for (let b = 0; b < blocks; b++) {
+        const bx = b === 0 ? cx : cx + (Math.random() * 6 - 3);
+        const bz = b === 0 ? cz : cz + (Math.random() * 6 - 3);
+        if (Math.abs(bx) < 14) continue; // never let a satellite block drift onto the line
+        const bSize = b === 0 ? baseSize : baseSize * (0.55 + Math.random() * 0.4);
+        const bHeight = getTerrainHeight(bx, bz);
+
+        const rock = createRock(bSize, { cliff: true });
+        rock.position.set(bx, bHeight - bSize * 0.28, bz);
+        rock.rotation.y = Math.random() * Math.PI * 2;
+        const g = getTerrainGradient(bx, bz);
+        rock.rotation.x = Math.atan(g.z) * 0.8;
+        rock.rotation.z = -Math.atan(g.x) * 0.8;
+        scene.add(rock);
+
+        if (rockIsCollisionHazard(bx, bz, bSize)) {
+          collisionRockPositions.push({ x: bx, y: bHeight, z: bz, size: bSize });
+        }
+      }
+    }
+  }
+
   console.log(`Mountains.addRocks: Created ${collisionRockPositions.length} rock positions for collision detection`);
   return collisionRockPositions;
 }
@@ -808,44 +892,87 @@ function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Co
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
 
-// Create a rock with variable size
-function createRock(size: number): THREE.Mesh {
-  // Use dodecahedron as base shape for rocks
-  const geometry = new THREE.DodecahedronGeometry(size, 1);
+// A small palette of realistic mountain-stone base tones (HSL). Snow accumulates on
+// top via applyRockSnowColors, so these are the bare-rock hues seen on the faces and
+// undersides: cool granite grey, dark slate/charcoal, warm brown/tan, an iron-stained
+// reddish, and a faint olive lichen. All kept low-saturation — real stone is mostly
+// desaturated — and weighted toward the greys/browns so the slope reads as natural
+// rock, not a gem field. Authored as setHSL values for the project's legacy linear
+// pipeline (ColorManagement disabled), matching the existing tree trunk/foliage
+// colours. Replaces the old uniform grey so the scattered rocks read as varied stone.
+interface RockStone { h: number; s: number; l: number; weight: number; }
+const ROCK_STONES: RockStone[] = [
+  { h: 0.60, s: 0.05, l: 0.46, weight: 4 }, // cool granite grey
+  { h: 0.62, s: 0.09, l: 0.30, weight: 3 }, // dark slate / charcoal
+  { h: 0.08, s: 0.20, l: 0.40, weight: 3 }, // warm brown / tan
+  { h: 0.04, s: 0.30, l: 0.34, weight: 2 }, // iron-stained reddish
+  { h: 0.22, s: 0.12, l: 0.42, weight: 1 }, // faint olive lichen
+];
+const ROCK_STONE_WEIGHT = ROCK_STONES.reduce((s, e) => s + e.weight, 0);
 
-  // Deform vertices slightly for more natural rock shape
+/**
+ * Pick a per-rock base colour: a weighted-random stone tone jittered in hue,
+ * saturation, and lightness so no two rocks read identical. `darken` (0..1) pushes a
+ * cliff/outcrop toward a deeper, more dramatic stone.
+ */
+function makeRockColor(darken = 0): THREE.Color {
+  let r = Math.random() * ROCK_STONE_WEIGHT;
+  let stone = ROCK_STONES[0];
+  for (const e of ROCK_STONES) { stone = e; r -= e.weight; if (r <= 0) break; }
+  const h = stone.h + (Math.random() - 0.5) * 0.03;
+  const s = Math.min(0.45, Math.max(0, stone.s + (Math.random() - 0.5) * 0.06));
+  const l = Math.min(0.7, Math.max(0.14, stone.l + (Math.random() - 0.5) * 0.12 - darken * 0.13));
+  return new THREE.Color().setHSL(h, s, l);
+}
+
+/** Options for createRock. `cliff` builds a larger, more angular, darker outcrop. */
+interface RockOptions { cliff?: boolean; }
+
+// Create a rock with variable size
+function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
+  const cliff = opts.cliff === true;
+  // Cliffs use detail 0 (sharper, blockier facets) and a stronger, vertically biased
+  // deformation so they read as craggy outcrops; ordinary rocks stay rounded boulders.
+  const geometry = new THREE.DodecahedronGeometry(size, cliff ? 0 : 1);
+
+  // Deform vertices for a more natural shape
   // (writable Float32Array under the read-only ArrayLike<number> type)
   const positions = geometry.attributes.position.array as Float32Array;
   for (let i = 0; i < positions.length; i += 3) {
-    const noise = Math.random() * 0.2;
-    positions[i] *= (1 + noise);
-    positions[i+1] *= (1 + noise);
-    positions[i+2] *= (1 + noise);
+    if (cliff) {
+      positions[i]     *= 1 + (Math.random() - 0.25) * 0.5;
+      positions[i + 1] *= 1 + Math.random() * 0.7;        // stretch upward -> taller crag
+      positions[i + 2] *= 1 + (Math.random() - 0.25) * 0.5;
+    } else {
+      const noise = Math.random() * 0.2;
+      positions[i]     *= (1 + noise);
+      positions[i + 1] *= (1 + noise);
+      positions[i + 2] *= (1 + noise);
+    }
   }
   geometry.computeVertexNormals();
-  
-  // Snow gathers on the rock's up-facing faces (baked into vertex colours); the
-  // base grey rides in the same attribute, so the material colour stays white and
-  // is modulated per-vertex. A shared craggy normal map adds surface roughness
-  // without extra geometry. (issue #17, Stage 2)
-  const grayness = 0.4 + Math.random() * 0.3;
-  const rockColor = new THREE.Color(grayness, grayness, grayness);
+
+  // Snow gathers on the rock's up-facing faces (baked into vertex colours); the base
+  // stone colour rides in the same attribute, so the material colour stays white and
+  // is modulated per-vertex. A shared craggy normal map adds surface roughness without
+  // extra geometry. (issue #17, Stage 2)
+  const rockColor = makeRockColor(cliff ? 1 : 0);
   applyRockSnowColors(geometry, rockColor);
 
   const rockMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.9,
+    roughness: cliff ? 0.95 : 0.9,
     metalness: 0.0, // matte rock/snow, not the shiny grey crystal it read as before
     flatShading: true,
     vertexColors: true,
     normalMap: getRockNormalTexture(),
-    normalScale: new THREE.Vector2(0.4, 0.4)
+    normalScale: new THREE.Vector2(cliff ? 0.6 : 0.4, cliff ? 0.6 : 0.4)
   });
-  
+
   const rock = new THREE.Mesh(geometry, rockMaterial);
   rock.castShadow = true;
   rock.receiveShadow = true;
-  
+
   return rock;
 }
 
@@ -864,6 +991,8 @@ export const Mountains = {
   getTerrainHeight,
   getTerrainGradient,
   getDownhillDirection,
+  terrainRidgeField,
+  forestDensityField,
   createTerrain,
   createRock,
   addRocks,
