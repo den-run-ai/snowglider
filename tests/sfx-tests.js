@@ -31,7 +31,7 @@ async function main() {
   // --- ski-edge swish gain -----------------------------------------------------
   check('carve: glide is silent', carveGainForTechnique('glide', 18) === 0);
   check('carve: air is silent', carveGainForTechnique('air', 18) === 0);
-  check('carve: a skid scrapes louder than a locked parallel', carveGainForTechnique('skid', 18) > carveGainForTechnique('parallel', 18));
+  check('carve: a skidded parallel scrapes louder than a committed carve', carveGainForTechnique('parallel', 18) > carveGainForTechnique('carve', 18));
   check('carve: tapers to silence when nearly stopped', carveGainForTechnique('skid', 0) === 0);
   check('carve: louder fast than slow (same technique)', carveGainForTechnique('carve', 12) > carveGainForTechnique('carve', 3));
   check('carve: speed taper saturates (clamped)', approx(carveGainForTechnique('skid', 50), carveGainForTechnique('skid', 12)));
