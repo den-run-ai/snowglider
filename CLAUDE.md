@@ -35,6 +35,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `docs/PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
 - `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
 - `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis (includes the now-shipped R2/R3 refactor stages)
+- `docs/ASSETS.md` - Where PR/issue screenshots and the `og:image` card live (a GitHub Release, **not** `assets/*` branches) and the `scripts/*-asset*.mjs` tooling
 
 ## Commands
 - Install dependencies: `npm ci`
@@ -82,11 +83,16 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   to capture the actual rendered feature, and embed the image(s) in the PR body.
   Show before/after when changing existing visuals.
 - **Do not commit screenshots/PNGs into the repo tree** (keep `main` text-only;
-  media uses Git LFS). Host PR screenshots off-tree and embed them by URL: push the
-  PNG(s) to a throwaway `assets/*` branch via the Git Data API (create blob →
-  tree → a parentless commit → `refs/heads/assets/<name>`), then embed
-  `https://raw.githubusercontent.com/<owner>/<repo>/assets/<name>/<file>.png`.
-  Confirm each raw URL returns HTTP 200 before relying on it in the PR body.
+  media uses Git LFS). Host PR screenshots on the `assets` **GitHub Release**, not
+  on `assets/*` branches (release assets stay out of git history; the old branch
+  pattern is retired — see [`docs/ASSETS.md`](docs/ASSETS.md)):
+  ```bash
+  node scripts/upload-release-asset.mjs shot.png --name pr<NN>-<label>.png
+  # prints https://github.com/<owner>/<repo>/releases/download/assets/<name>
+  ```
+  Embed the printed URL in the PR body (prefix `--name` with the PR/issue number,
+  since the asset namespace is flat). The `og:image` card is the asset `og-card.png`.
+  Confirm the URL returns HTTP 200 before relying on it.
 
 ## Code Style Guidelines
 - **Indentation**: 2 spaces

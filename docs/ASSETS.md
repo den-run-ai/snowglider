@@ -1,0 +1,93 @@
+# Image assets & screenshots
+
+SnowGlider hosts **non-code images** — PR/issue screenshots and the production
+`og:image` social card — on a single **GitHub Release** (tag `assets`) instead of
+the old `assets/*` orphan git branches.
+
+## Why not git branches
+
+The previous pattern pushed each batch of screenshots to its own orphan branch
+(`assets/social-sharing-shots`, `assets/ski-redesign-shots`, …) and embedded them
+via `raw.githubusercontent.com` URLs. That worked but had real downsides:
+
+- **Branch sprawl** — ~16 branches that look deletable and nearly got cleaned up
+  by accident.
+- **Clone bloat** — orphan-branch blobs (~42&nbsp;MB) land in every full `git fetch`,
+  permanently, even though they are never part of `main`.
+- **Fragile URLs** — `raw.githubusercontent.com` is rate-limited and not a CDN, and
+  the links break the moment anyone tidies the branches.
+
+## The model
+
+A GitHub Release is used purely as an object store:
+
+- Release assets live in GitHub's blob storage (`objects.githubusercontent.com`,
+  Fastly-backed) — they are **not** in the git object database, so they add
+  nothing to clone size and survive branch deletion.
+- Stable URL shape:
+  `https://github.com/<owner>/<repo>/releases/download/assets/<name>`
+  (302-redirects to the asset CDN with the right `Content-Type`).
+- Fully scriptable with the token `git push` already uses — no new account, no
+  DNS, no GitHub Pages change.
+
+The release is tagged `assets`, marked **prerelease / not latest**, so it never
+poses as a software release.
+
+> Note: this is GitHub's CDN, not an independent third-party store (Cloudflare R2,
+> S3, …). If a separate provider is ever wanted, the migration scripts below are
+> mostly reusable — both flows are just "upload bytes → get a URL".
+
+## Add a screenshot (going forward)
+
+```bash
+node scripts/upload-release-asset.mjs path/to/shot.png --name pr201-before.png
+# prints: https://github.com/<owner>/<repo>/releases/download/assets/pr201-before.png
+```
+
+Paste the printed URL into the PR/issue body. Do **not** create new `assets/*`
+branches. Prefix the `--name` with the PR/issue number to keep the (flat) asset
+namespace tidy.
+
+## The og:image card
+
+The social-share card is the asset named `og-card.png`. `index.html` references it
+from the `og:image` / `twitter:image` meta tags. When the card changes, re-upload
+`og-card.png` (same name) and re-run the Facebook / LinkedIn / X card debuggers so
+the scrapers re-cache.
+
+## One-time migration (operational runbook)
+
+These scripts moved the existing branch contents onto the release. They are kept
+for auditability and reuse; the steps that mutate the live repo are **gated** —
+run them deliberately.
+
+1. **Dry run** the move to preview the asset names:
+   ```bash
+   git fetch origin
+   node scripts/migrate-asset-branches.mjs --dry-run
+   ```
+2. **Migrate** (creates the `assets` release on first upload, writes
+   `asset-manifest.json` mapping old URL → new URL):
+   ```bash
+   node scripts/migrate-asset-branches.mjs
+   ```
+   Only media (`png/jpg/gif/webp/svg/mp4/…`) is moved — 49 images across the 16
+   branches. Two branches (`ski-design-proposal`, `snowman-flex-shots`) were
+   created as full repo mirrors, so they also carry source, CI workflows and the
+   game audio; those are intentionally **not** migrated. If a non-media artifact
+   on one of those branches is still wanted (e.g. the `ski_design_3d.py` mockup
+   generator), preserve it separately before deleting the branch in step 5.
+3. **Repoint the og:image** — update the two `og:image` / `twitter:image` URLs in
+   `index.html` to `.../releases/download/assets/og-card.png`, then verify with the
+   social card debuggers before continuing.
+4. **Rewrite old links** in existing PR/issue bodies & comments (preview first):
+   ```bash
+   node scripts/rewrite-asset-links.mjs --dry-run
+   node scripts/rewrite-asset-links.mjs
+   ```
+5. **Delete the retired branches** once steps 3–4 are verified:
+   ```bash
+   git push origin --delete $(git branch -r --list 'origin/assets/*' | sed 's#origin/##')
+   ```
+
+`asset-manifest.json` is generated output and is git-ignored.
