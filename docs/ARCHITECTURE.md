@@ -111,6 +111,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `Flex` | `snowman-flex.ts` | object + fns | Cosmetic snowman flex (squash/jiggle, head-cluster bob/lean, landing settle); runs after physics, never touches the kernel (#53) |
 | `Physics` | `player-state.ts` | object + fns | Typed per-frame `PlayerState` container over the snowman kernel |
 | `AudioModule` | `audio.ts` | IIFE | Native HTML5 background music (gated by `AUDIO_ENABLED`) |
+| `Sfx` | `sfx.ts` | IIFE | Procedural Web Audio sound effects (wind/carve/jump/land/avalanche/crash/finish, gated by `SFX_ENABLED`); synthesised at runtime (no assets), unlocked on the start gesture, off under automation, reads physics result only (#158) |
 | `Controls` | `controls.ts` | object + fns | Keyboard + touch input → shared `controls` state |
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
 | `SnowTrails` | `snowtracks.ts` | `class` | Cosmetic **temporary** ski tracks: instanced grooves carved behind the skis that fade after a few seconds (transient feedback, not a snow-accumulation model); terrain-aware, reduced-motion-aware, never touches physics (#17) |
@@ -197,10 +198,12 @@ Per-frame order in `animate(time)` (each step depends on the previous):
 ```
 delta = min((time - lastTime)/1000, 0.1)        // clamp
 updateSnowman(delta)                             // input + physics → pos/velocity
+  Flex.update(...)                               // cosmetic flex (reads result only)
+  Sfx.jump()/land(force)/updateSkiing(...)       // SFX: takeoff/touchdown + wind/edge bed (reads result only)
 Snow.updateSnowflakes(...)
 snowTrails.update(delta, snowman, isInAir)       // carve/fade ski grooves (cosmetic, reads pos only)
 CourseModule.update(pos, elapsed, snowman)       // splits, progress HUD, ghost
-avalanche.trigger/update/checkBurial/hasPassed   // + EffectsModule.updateAvalanche
+avalanche.trigger/update/checkBurial/hasPassed   // + EffectsModule.updateAvalanche + Sfx.setAvalanche
 Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
 updateCamera()                                   // cameraManager follows snowman
 updateTimerDisplay()
