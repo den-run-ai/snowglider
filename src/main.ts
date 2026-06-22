@@ -29,6 +29,7 @@ import './snow.js';
 import './snowman.js';
 import './snowman-flex.js';
 import './audio.js';
+import './sfx.js';
 import './sky.js';
 import './intro.js';
 
