@@ -13,6 +13,28 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Shaped skis — sidecut / camber / shovel / tail + cosmetic flex (#189)
+- The snowman's skis were two flat red `BoxGeometry` slabs with an angled box glued
+  on the front. They are now real ski shapes built from a **custom lofted
+  `BufferGeometry`** (`src/snowman/model.ts`, `buildSkiArm`): a sidecut top view
+  (wide shovel → narrow waist → medium tail), a smooth shovel/tip rise, a small tail
+  kick, rounded end caps, and a visible binding (plate + boot). Three materials give
+  a red top-sheet, a dark sintered base, and a steel-edge line accent (geometry
+  material groups).
+- Each ski is a **pose-owned root group** holding two pivot arms (tip + tail) that
+  overlap at the waist and are hidden under the binding, so the surface reads as one
+  continuous ski with no visible seam. `pose.ts` still owns the root transform
+  (snowplow wedge / parallel edge + draw); the arms only bend.
+- The cosmetic flex layer (`src/snowman-flex.ts`) gains a **ski-flex pass** that writes
+  *only* the arms' `rotation.x`: a gentle camber arch while gliding (with speed-chatter),
+  a reverse-camber compression spring on landings, tip-pressure in carves (scaled by
+  turn rate), a flatter/planted snowplow, and a de-cambered airborne ski. It never
+  touches position/velocity, honors `prefers-reduced-motion`, and leaves the
+  physics-invariant harness byte-identical (no baseline regeneration).
+- Tests: `tests/snowman-flex-tests.js` adds ski arms to the stub and asserts the
+  flex writes rotation only (position/scale/yaw/roll stay at base), a glide arch
+  appears, a carve adds tip-pressure, and `reset()` restores the arms.
+
 ### Aperiodic terrain ridge — kills the grey "corduroy" banding source (#188 step 3)
 - The terrain ridge in `mountains.ts` was the **periodic** `sin(x*0.2)*cos(z*0.3)`.
   A low directional sun raked that regular plaid into repeated grey bands (the
@@ -32,7 +54,6 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   invariant harness stays byte-identical; full Node suite, production build, and the
   browser suite (89/89) all pass. The companion change — dropping the low-sun guard
   toward 8° and retuning golden hour — is the separate **NS2** follow-up.
-
 ### Social sharing — link previews + screenshot in the mobile share
 - Follow-up to "desktop platform menu + screenshot card" below. Three gaps made
   sharing feel broken: shared links had no preview at all, Facebook/LinkedIn

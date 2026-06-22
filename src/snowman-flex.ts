@@ -29,7 +29,11 @@ export interface FlexMotion {
 
 interface XYZ { x: number; y: number; z: number; }
 interface BaseTransform { position: XYZ; scale: XYZ; rotation: XYZ; }
-interface FlexState { t: number; settle: number; settleVel: number; leanZ: number; lagY: number; }
+interface FlexState {
+  t: number; settle: number; settleVel: number; leanZ: number; lagY: number;
+  // Ski flex (issue #189): a smoothed base camber + a landing compression spring.
+  skiCamber: number; skiSettle: number; skiSettleVel: number;
+}
 
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
@@ -54,10 +58,35 @@ const LEAN_GLIDE = 0.5;         // fraction of the lean kept when not actively c
 const BALLS: ReadonlyArray<string> = ['bottom', 'middle', 'head'];
 const BALL_PHASE: ReadonlyArray<number> = [0, 1.1, 2.2]; // stagger so the stack ripples
 
+// --- ski flex tuning (issue #189) -------------------------------------------
+// The skis are split (in model.ts) into a tip arm (extends +z) and a tail arm (extends
+// -z) that pivot at the waist. Bending an arm's rotation.x raises/lowers that end:
+// for the +z tip a NEGATIVE angle lifts it, for the -z tail a POSITIVE angle lifts it,
+// so a positive "camber" lifts BOTH ends into an arch. Landing pushes camber negative
+// (reverse-camber compression); a carve adds tip-pressure (the shovel digs down).
+const SKI_CAMBER_GLIDE = 0.06;   // gentle unweighted arch while gliding
+const SKI_CAMBER_PLOW = 0.025;   // snowplow sits flatter / planted
+const SKI_CAMBER_AIR = 0.0;      // airborne ski de-cambers (relaxes flat)
+const SKI_TIP_GAIN = 1.0;        // tip-arm angle per unit camber
+const SKI_TAIL_GAIN = 0.8;       // tail kicks a little less than the shovel
+const SKI_CHATTER_FREQ = 34;     // rad/s of the speed-chatter vibration
+const SKI_CHATTER_AMP = 0.012;   // chatter amplitude at full speed
+const SKI_TIP_PRESS = 0.11;      // extra shovel bend in a full-rate carve
+const SKI_SETTLE_K = 60;         // landing-spring stiffness (skis)
+const SKI_SETTLE_C = 11;         // landing-spring damping (skis)
+const SKI_SETTLE_CLAMP = 0.18;   // max reverse-camber from a landing
+const SKI_ARM_CLAMP = 0.5;       // hard clamp on any ski-arm bend (rad)
+const SKI_TIP_PARTS: ReadonlyArray<string> = ['leftSkiTip', 'rightSkiTip'];
+const SKI_TAIL_PARTS: ReadonlyArray<string> = ['leftSkiTail', 'rightSkiTail'];
+
 function getState(ud: Record<string, unknown>): FlexState {
   let fs = ud.flex as FlexState | undefined;
-  if (!fs) { fs = { t: 0, settle: 0, settleVel: 0, leanZ: 0, lagY: 0 }; ud.flex = fs; }
+  if (!fs) { fs = freshState(); ud.flex = fs; }
   return fs;
+}
+
+function freshState(): FlexState {
+  return { t: 0, settle: 0, settleVel: 0, leanZ: 0, lagY: 0, skiCamber: SKI_CAMBER_GLIDE, skiSettle: 0, skiSettleVel: 0 };
 }
 
 function prefersReducedMotion(): boolean {
@@ -135,6 +164,43 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
     const swing = clamp(-turn * 0.4 + Math.sin(fs.t * 7.0) * 0.12 * (0.4 + speedN), -0.6, 0.6);
     tail.rotation.set(tb.rotation.x + (air ? -0.3 : 0.1), tb.rotation.y, tb.rotation.z + swing);
   }
+
+  // --- Ski flex (issue #189) -------------------------------------------------
+  // Bend the tip/tail arms (rotation.x ONLY) for camber, landing compression, and carve
+  // tip-pressure. The ski ROOT transform stays untouched (pose.ts owns the snowplow
+  // wedge / parallel edge + draw). Present-or-absent: no-ops on a snowman without arms.
+  if (parts.leftSkiTip || parts.rightSkiTip) {
+    const snowplow = !air && m.technique === 'snowplow';
+    const carving = !air && (m.technique === 'carve' || m.technique === 'parallel' || m.technique === 'skid');
+
+    // Smooth the resting camber between techniques so changes don't snap.
+    const camberTarget = air ? SKI_CAMBER_AIR : (snowplow ? SKI_CAMBER_PLOW : SKI_CAMBER_GLIDE);
+    fs.skiCamber += (camberTarget - fs.skiCamber) * clamp(dt * 6, 0, 1);
+    fs.skiCamber = finite(fs.skiCamber);
+
+    // Landing compression: a damped spring kicked toward reverse camber on touchdown.
+    if (m.justLanded && finite(m.landingForce) > 0.25) {
+      fs.skiSettleVel -= clamp(finite(m.landingForce) * 1.2, 0, 1.6);
+    }
+    fs.skiSettleVel += (-SKI_SETTLE_K * fs.skiSettle - SKI_SETTLE_C * fs.skiSettleVel) * dt;
+    fs.skiSettle += fs.skiSettleVel * dt;
+    fs.skiSettle = clamp(finite(fs.skiSettle), -SKI_SETTLE_CLAMP, SKI_SETTLE_CLAMP);
+    fs.skiSettleVel = finite(fs.skiSettleVel);
+
+    // Speed-chatter: a fast low-amplitude vibration of the whole arch while gliding.
+    const chatter = air ? 0 : Math.sin(fs.t * SKI_CHATTER_FREQ) * SKI_CHATTER_AMP * speedN;
+    const camber = fs.skiCamber + fs.skiSettle + chatter;       // signed arch (negative => reverse)
+    const tipPress = carving ? SKI_TIP_PRESS * Math.abs(turn) : 0; // shovel digs in mid-carve
+
+    for (const key of SKI_TIP_PARTS) {
+      const p = parts[key]; const b = base[key];
+      if (p && b) p.rotation.set(b.rotation.x + clamp(-camber * SKI_TIP_GAIN + tipPress, -SKI_ARM_CLAMP, SKI_ARM_CLAMP), b.rotation.y, b.rotation.z);
+    }
+    for (const key of SKI_TAIL_PARTS) {
+      const p = parts[key]; const b = base[key];
+      if (p && b) p.rotation.set(b.rotation.x + clamp(camber * SKI_TAIL_GAIN, -SKI_ARM_CLAMP, SKI_ARM_CLAMP), b.rotation.y, b.rotation.z);
+    }
+  }
 }
 
 /** Snap every flex-animated part back to its neutral transform and clear the flex
@@ -151,7 +217,7 @@ function reset(snowman: THREE.Object3D): void {
     p.scale.set(b.scale.x, b.scale.y, b.scale.z);
     p.rotation.set(b.rotation.x, b.rotation.y, b.rotation.z);
   }
-  ud.flex = { t: 0, settle: 0, settleVel: 0, leanZ: 0, lagY: 0 };
+  ud.flex = freshState();
 }
 
 export const Flex = { update, reset };
