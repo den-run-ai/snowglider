@@ -109,6 +109,31 @@ function simulateCtrl(updateFn, ctrl, seed, { steps = 120, dt = 1 / 60, z0 = -40
   return { finalSpeed: Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z), x: pos.x };
 }
 
+// Like simulateCtrl(), but on a CONSTANT-slope terrain (downhill is -z, steepness ==
+// `slope`) instead of the radial test hill. The radial hill gentles out underneath a
+// descending snowman, which masks the snowplow's steady-state force balance; a constant
+// slope shows it cleanly (e.g. a full wedge holding a terminal speed on a steep pitch).
+// currentTurnDirection starts at 0 and only flips after the ~3s auto-turn cooldown, so
+// for the short windows used here there is no auto-turn lateral velocity (vx stays 0).
+function simulateSlope(updateFn, ctrl, { slope, vz0 = -8, steps = 60, dt = 1 / 60, seed = 7 }) {
+  const gH = (x, z) => slope * z;          // z more negative => lower => downhill in -z
+  const gG = () => ({ x: 0, z: slope });
+  const gD = () => ({ x: 0, z: -1 });
+  Math.random = makeRng(seed);
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: 0, y: gH(0, 0) };
+  const velocity = { x: 0, z: vz0 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: gH(0, 0),
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  for (let i = 0; i < steps; i++) {
+    const c = typeof ctrl === 'function' ? ctrl(i) : ctrl;
+    st = updateFn(snowman, dt, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, c,
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0, gH, gG, gD, [], false, function () {});
+  }
+  return { finalSpeed: Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z), z: pos.z };
+}
+
 // The frozen baseline is still a classic script, so it loads via vm.runInContext.
 // src/snowman is now an ES module (issue #84, PR 2.8) and can't be evaluated
 // that way, so import the REAL module and read its updateSnowman directly. The
@@ -168,6 +193,90 @@ console.log('  plow  finalSpeed:', plow.finalSpeed.toFixed(2), 'distance:', plow
 console.log('  PASS:', brakeOk ? 'brake slows you ✅' : 'no slowdown ❌');
 console.log('  PASS:', noReverse ? 'brake does not reverse uphill ✅' : `reverses uphill (distance ${plow.distance.toFixed(2)}) ❌`);
 if (!brakeOk || !noReverse) hardFail = true;
+
+// 2b) Snowplow stop-vs-slow-down gradation [GATING]. The wedge is a hold ramp
+// (plowCharge): a quick TAP forms a shallow wedge that only trims speed, while a
+// sustained HOLD deepens into a full wedge that brakes far harder. Over one fixed
+// short window on the same moderate (~27deg) pitch the ordering must be
+// hold < tap < coast — deeper/longer wedge => more speed shed. (Issue #54.)
+const TAP_FRAMES = 18; // ~0.3s tap => a shallow wedge that only trims speed
+const gradOpt = { slope: 0.5, vz0: -5, steps: 45 };
+const gCoast = simulateSlope(mod, () => NONE, gradOpt).finalSpeed;
+const gTap   = simulateSlope(mod, (i) => (i < TAP_FRAMES ? DOWN : NONE), gradOpt).finalSpeed;
+const gHold  = simulateSlope(mod, () => DOWN, gradOpt).finalSpeed;
+const gradOk = gHold < gTap - 0.1 && gTap < gCoast - 0.1;
+console.log('\n--- Snowplow gradation: hold (full wedge) < tap (light wedge) < coast [GATING] ---');
+console.log('  coast:', gCoast.toFixed(2), '| tap:', gTap.toFixed(2), '| hold:', gHold.toFixed(2));
+console.log('  PASS:', gradOk ? 'deeper/longer wedge sheds more speed ✅' : 'gradation not monotonic ❌');
+if (!gradOk) hardFail = true;
+
+// 2c) Steep-slope failure, with the stop/fail boundary pinned to the Slope-HUD edge
+// [GATING]. The full wedge's deceleration is capped at the blue→black-diamond tier
+// edge (steepness 0.58 ≈ 30°), so the boundary must land *there*: a BLUE pitch just
+// under it stops, a BLACK pitch just over it can only be slowed, and steeper black is
+// faster still. The brake removes exactly its capped decel along travel (computed from
+// the post-gravity speed), and the coast friction vanishes as v→0, so neither pushes
+// the boundary past the HUD edge — this guards the regression codex flagged on #204
+// where the boundary sat ~36° and a "black" pitch could still be fully stopped. Run on
+// CONSTANT slopes so the steady state shows without the radial hill gentling out. This
+// graceful degradation is what makes the steep upper mountain (and avalanche escape)
+// actually demand real technique (#54).
+const blueStop   = simulateSlope(mod, () => DOWN, { slope: 0.54, vz0: -8, steps: 240 }).finalSpeed; // ~28°, blue
+const blackEdge  = simulateSlope(mod, () => DOWN, { slope: 0.62, vz0: -8, steps: 240 }).finalSpeed; // ~32°, just into black
+const blackSteep = simulateSlope(mod, () => DOWN, { slope: 0.85, vz0: -8, steps: 240 }).finalSpeed; // ~40°, deep black
+const steepFailOk = blueStop < 0.15 && blackEdge > 0.30 && blackSteep > blackEdge + 0.30;
+console.log('\n--- Snowplow steep-slope failure (boundary pinned to the 30° black edge) [GATING] ---');
+console.log('  blue  (~28°) full-plow finalSpeed:', blueStop.toFixed(2), '(should be ~0: stops)');
+console.log('  black (~32°) full-plow finalSpeed:', blackEdge.toFixed(2), '(should be > 0: cannot stop)');
+console.log('  black (~40°) full-plow finalSpeed:', blackSteep.toFixed(2), '(steeper => faster terminal)');
+console.log('  PASS:', steepFailOk ? 'stops on blue, only slows on black, monotonic on steeper ✅' : 'boundary not at the black edge ❌');
+if (!steepFailOk) hardFail = true;
+
+// 2d) Plow charge tracks Brake through the air [GATING]. The wedge depth must advance
+// from controls.down EVERY frame, not freeze while airborne — so releasing Brake on a
+// jump relaxes the wedge for the landing and holding it pre-builds. Otherwise tap-vs-hold
+// breaks around jumps (the regression codex flagged on #204). Braking itself stays
+// grounded-only; this only governs the charge level. Force a sustained airborne phase
+// (high above terrain, climbing) and read snowman.userData.plowCharge before/after.
+function airCharge(startCharge, ctrl, frames = 12) {
+  const sn = fakeSnowman(); sn.userData.plowCharge = startCharge;
+  const pos = { x: 0, z: -15, y: getTerrainHeight(0, -15) + 30 }; // well above ground => stays airborne
+  const vel = { x: 0, z: -3 };
+  let st = { isInAir: true, verticalVelocity: 5, lastTerrainHeight: getTerrainHeight(0, -15),
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  for (let i = 0; i < frames; i++) {
+    st = mod(sn, 1 / 60, pos, vel, st.isInAir, st.verticalVelocity, st.lastTerrainHeight, st.airTime,
+      st.jumpCooldown, ctrl, st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {});
+  }
+  return { plowCharge: sn.userData.plowCharge, airborne: st.isInAir };
+}
+const airReleased = airCharge(1.0, NONE);  // Brake released in the air => wedge relaxes
+const airHeld     = airCharge(0.0, DOWN);  // Brake held in the air => wedge pre-builds
+const airChargeOk = airReleased.airborne && airHeld.airborne
+  && airReleased.plowCharge < 0.7 && airHeld.plowCharge > 0.1;
+console.log('\n--- Snowplow charge tracks Brake through the air [GATING] ---');
+console.log('  released-in-air plowCharge 1.0 ->', airReleased.plowCharge.toFixed(2), '(should fall: wedge relaxes)');
+console.log('  held-in-air     plowCharge 0.0 ->', airHeld.plowCharge.toFixed(2), '(should rise: wedge pre-builds)');
+console.log('  PASS:', airChargeOk ? 'charge follows Brake mid-air, not frozen ✅' : 'charge frozen in air ❌');
+if (!airChargeOk) hardFail = true;
+
+// 2e) Brake overrides accelerate [GATING]. Up and Down are independent key states, and
+// the accelerate impulse (10) is stronger than a full wedge's brake cap (5.68); without
+// the snowplow gate on Up, holding W+S would accelerate downhill instead of braking. On
+// a green slope a full wedge + held Up must still STOP (not exceed plain coasting), and
+// must end far slower than Up-only (tuck). Guards the regression codex flagged on #204.
+const UP = { left: false, right: false, up: true, down: false, jump: false };
+const DOWNUP = { left: false, right: false, up: true, down: true, jump: false };
+const greenOpt = { slope: 0.30, vz0: -10, steps: 150 }; // ~17°, green: a full wedge stops here
+const brakeUp = simulateSlope(mod, () => DOWNUP, greenOpt).finalSpeed;
+const tuckUp  = simulateSlope(mod, () => UP, greenOpt).finalSpeed;
+const overrideOk = brakeUp < 0.5 && brakeUp < tuckUp - 2.0;
+console.log('\n--- Snowplow brake overrides accelerate (W+S held together) [GATING] ---');
+console.log('  brake+up (green) finalSpeed:', brakeUp.toFixed(2), '(should be ~0: brake wins)');
+console.log('  up-only  (tuck)  finalSpeed:', tuckUp.toFixed(2), '(accelerates)');
+console.log('  PASS:', overrideOk ? 'brake overrides simultaneous accelerate ✅' : 'accelerate beats brake ❌');
+if (!overrideOk) hardFail = true;
 
 // 3) Carve vs skid: a committed carve must hold meaningfully more speed than
 // panic-steering [GATING]. This is the speed-management trade-off from issues

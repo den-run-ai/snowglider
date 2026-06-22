@@ -19,12 +19,30 @@ const M_TO_FT = 3.280839895;     // metres → feet
 // downhill). Cosmetic only — it shifts the readout, not the physics.
 const BASE_ELEVATION_M = 1500;
 const RAD_TO_DEG = 180 / Math.PI;
-// Slope steepness colour tiers, in gradient magnitude (rise/run = tan θ).
-// Calibrated to the measured run: the skiable line sits around 15–40° (median
-// ~24°), so gentle flats read green, the typical pitch yellow, and only the
-// genuinely steep black-diamond sections (≈30°+) read red.
-const SLOPE_MODERATE = 0.32;     // ≈18° / 32% — green → yellow
-const SLOPE_STEEP = 0.58;        // ≈30° / 58% — yellow → red
+// Slope steepness tiers, in gradient magnitude (rise/run = tan θ), shown with the
+// familiar ski-trail difficulty marks (● green / ■ blue / ◆ black diamond).
+// Difficulty is relative to this run (the skiable line sits around 15–40°, median
+// ~24°, which is steep in absolute terms), and the boundaries double as the
+// snowplow's "can I stop here?" cue — the wedge can fully stop you up to the black
+// line and only checks speed beyond it (PHYSICS.md §3.4, issue #54).
+const SLOPE_MODERATE = 0.32;     // ≈18° / 32% — green (●) → blue (■)
+const SLOPE_STEEP = 0.58;        // ≈30° / 58% — blue (■) → black diamond (◆)
+// The raw per-frame gradient is noisy (high-frequency terrain detail makes it jump
+// several degrees frame-to-frame as the snowman moves), which made the readout — and
+// its difficulty tier — flicker. Smooth the *display* value with an exponential
+// moving average so it reads steadily; the physics is untouched (it uses its own raw
+// per-frame gradient). `null` until the first sample seeds it; reset on a new run.
+const SLOPE_SMOOTH = 0.12;       // EMA weight on each new sample (~0.4s settle @60fps)
+const SLOPE_TIER_HYST = 0.03;    // deadband around each tier edge so the label/colour
+                                 // doesn't dither when the pitch hovers on a boundary
+const SLOPE_TIERS = [
+  { mark: '●', name: 'Green', color: '#4CAF50' },
+  { mark: '■', name: 'Blue', color: '#4FC3F7' },
+  { mark: '◆', name: 'Black', color: '#FFFFFF' }, // white: a true-black glyph is invisible on the dark panel
+];
+const SLOPE_EDGES = [SLOPE_MODERATE, SLOPE_STEEP]; // green|blue edge, blue|black edge
+let smoothedSlope: number | null = null;
+let slopeTierIdx = 0;
 
 // Format a run time for the Game Stats panel. One decimal is plenty of
 // precision for the live readout, and keeps the values consistent wherever the
@@ -35,6 +53,9 @@ export function formatStatTime(seconds: number): string {
 
 // Wire up the Game Stats panel collapse/swipe behavior.
 export function initializeGameStats(): void {
+  // Re-seed the slope EMA + tier so a new run doesn't drift in from the last run.
+  smoothedSlope = null;
+  slopeTierIdx = 0;
   // Game stats panel collapse/swipe behavior (shared with the Controls panel).
   setupCollapsiblePanel({
     name: 'game stats',
@@ -90,17 +111,30 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
     altitudeElement.textContent = `${Math.round(altitudeM)} m (${Math.round(altitudeM * M_TO_FT)} ft)`;
   }
 
-  // Slope / incline of the terrain under the player, in degrees and percent
-  // grade (rise/run × 100). Color-coded like speed: green = gentle, yellow =
-  // moderate, red = steep.
+  // Slope / incline of the terrain under the player, in degrees and percent grade
+  // (rise/run × 100), tagged with the ski-trail difficulty mark for that pitch:
+  // ● green (gentle), ■ blue (moderate), ◆ black diamond (steep). The value is an
+  // EMA of the noisy per-frame gradient, and the difficulty tier only changes once
+  // the smoothed pitch is past an edge by SLOPE_TIER_HYST, so neither flickers.
   const slopeElement = document.getElementById('slopeValue');
   if (slopeElement) {
-    const slopeDeg = Math.round(Math.atan(slopeRatio) * RAD_TO_DEG);
-    const slopePct = Math.round(slopeRatio * 100);
-    slopeElement.textContent = `${slopeDeg}° (${slopePct}%)`;
-    slopeElement.style.color = slopeRatio > SLOPE_STEEP ? '#FF5252'
-      : slopeRatio > SLOPE_MODERATE ? '#FFD700'
-      : '#4CAF50';
+    smoothedSlope = smoothedSlope === null
+      ? slopeRatio
+      : smoothedSlope + (slopeRatio - smoothedSlope) * SLOPE_SMOOTH;
+    const slope = smoothedSlope;
+    // Hysteresis: step up only when clearly above the current band's top edge, and
+    // down only when clearly below its bottom edge (one step per frame; the EMA
+    // never jumps a whole band in a frame).
+    if (slopeTierIdx < SLOPE_EDGES.length && slope > SLOPE_EDGES[slopeTierIdx] + SLOPE_TIER_HYST) {
+      slopeTierIdx++;
+    } else if (slopeTierIdx > 0 && slope < SLOPE_EDGES[slopeTierIdx - 1] - SLOPE_TIER_HYST) {
+      slopeTierIdx--;
+    }
+    const tier = SLOPE_TIERS[slopeTierIdx];
+    const slopeDeg = Math.round(Math.atan(slope) * RAD_TO_DEG);
+    const slopePct = Math.round(slope * 100);
+    slopeElement.textContent = `${slopeDeg}° (${slopePct}%) ${tier.mark} ${tier.name}`;
+    slopeElement.style.color = tier.color;
   }
 
   const groundElement = document.getElementById('groundStatus');

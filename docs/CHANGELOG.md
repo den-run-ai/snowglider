@@ -13,6 +13,43 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Snowplow: stop vs. slow-down + steep-slope failure, aligned to the Slope HUD (#54)
+- The snowplow was a single on/off "pizza" brake that stopped you on **any** skiable
+  pitch. It is now a **graded wedge** with two real behaviors, tied to the terrain.
+- **Stop vs. slow-down (hold ramp).** A new `plowCharge ∈ [0,1]` on `snowman.userData`
+  builds while Brake (↓ / S) is held and decays on release (mirroring `carveCharge`).
+  The brake deceleration scales with it, so a **tap only trims speed** while a
+  **sustained hold deepens the wedge to a full stop**. The ski-wedge pose deepens with
+  the same charge (`wedge = 0.18 + 0.32·plowCharge`), so the intent reads on the skis.
+- **Steep-slope failure.** The full wedge's deceleration is **capped**, so where the
+  slope's gravity component exceeds it the wedge can only hold a slow **terminal
+  speed**, not stop — "you can't pizza a black diamond." This falls straight out of the
+  force balance (no special-casing) and makes the steep upper mountain / avalanche
+  escape demand carving or hop turns instead of a free stop anywhere.
+- **Aligned to the Slope HUD tiers (#201).** The two thresholds are the slope gravity
+  at the HUD's tier edges (`0.32 ≈ 18°` → `3.14 m/s²`, `0.58 ≈ 30°` → `5.68 m/s²`), so
+  the readout doubles as a "can I stop here?" cue: 🟢 green (<18°) a tap stops you;
+  🔵 blue (18–30°) needs a full wedge; ◆ black diamond (>30°) can only be slowed.
+- **Slope HUD relabeled to ski difficulty.** The Game Stats slope readout now shows the
+  familiar trail marks — `● Green` / `■ Blue` / `◆ Black` — instead of generic
+  green/yellow/red, matching the snowplow thresholds (`src/ui/hud.ts`).
+- **Slope readout de-flickered.** The raw per-frame gradient is noisy, so the readout
+  (and its tier) used to jump several degrees every frame. It is now an exponential
+  moving average, with hysteresis on the tier edges so the difficulty mark only flips
+  once the pitch is clearly past a boundary. Display-only — the physics still uses the
+  raw per-frame gradient.
+- Removed the old fixed `+3 m/s²` uphill nudge that rode alongside the brake: as a
+  constant it applied even to a feather-light wedge, which both stopped you on terrain
+  too steep to wedge and pushed the stop threshold past anything the run skis (defeating
+  both the gradation and the steep failure). The no-reverse guarantee comes from the
+  impulse clamp, which is retained.
+- **Invariant-safe**: all of this is gated on `controls.down`, so the no-input coasting
+  path stays byte-identical to the frozen baseline (no `snowman_baseline.js` regen).
+  New gating harness checks: the stop-vs-slow-down gradation (hold < tap < coast) and
+  steep-slope failure (a full wedge stalls on a black-diamond constant slope but stops
+  on a gentler one). Model + tier table in
+  [`PHYSICS.md` §3.4](PHYSICS.md#34-snowplow-brake-stop-slow-down-and-steep-slope-failure).
+
 ### Realistic rock colours + cliff outcrops + terrain/tree biome alignment
 - **Varied stone colours** — rocks no longer share one uniform grey. `createRock`
   now draws each rock's bare-stone base from a small weighted palette of realistic

@@ -30,7 +30,7 @@ and touch are fully interchangeable ([`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-i
 |---|---|---|---|
 | **← / →** or **A / D** | Tap left / right of screen | **Steer.** Default is a *parallel (skidded)* turn; holding a smooth line locks it into a *carve* — see Techniques below | [`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer), §3.6 |
 | **↑ / W** | Tap top of screen | **Speed up.** With no steering this is the *tuck* (least friction, most speed, least control) | [`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer) |
-| **↓ / S** | Tap bottom of screen | **Brake — snowplow / "pizza".** Sheds real speed along the travel direction; clamped so it never reverses uphill from a standstill | [`PHYSICS.md` §3.4](PHYSICS.md#34-snowplow-brake-and-why-it-is-clamped) |
+| **↓ / S** | Tap bottom of screen | **Brake — snowplow / "pizza".** A hold ramp: a tap only trims speed, a sustained hold deepens the wedge to a full stop — but only on green/blue pitches; a black-diamond slope is too steep to stop (only slows). Clamped so it never reverses uphill | [`PHYSICS.md` §3.4](PHYSICS.md#34-snowplow-brake-stop-slow-down-and-steep-slope-failure) |
 | **Space** | Tap center of screen | **Jump.** A straight pop when not steering; a *player-initiated* jump is graded on landing and can earn a capped speed boost | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air), [`MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md) |
 | **Space + ← / →** | (center + side) | **Hop turn.** A quick grounded edge-set pivot for tight, steep terrain: snaps the heading and scrubs speed with a small pop | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air) (hop turn) |
 | **V** | — | **Toggle camera view** (follow ↔ alternate) | [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input) |
@@ -54,7 +54,7 @@ scrub, *and* its pose. Full model and constants in
 |---|---|---|
 | **Parallel turn** (skidded) | Steer ← / → uncommitted (fresh, reversed, or abrupt) | Skis brush sideways and **scrub speed**; **tighter** arc, body upright. The entry turn |
 | **Carve** | Steer ← / → and *hold a smooth line* until the edge locks (`carveCharge > 0.6`) | The locked edge **holds speed**; **wider** arc with a deep body lean. The mastery turn above a parallel |
-| **Snowplow / pizza** | Hold Brake (↓ / S) | Wedge the ski tips together to scrub speed and **stop**; sharp, planted turns |
+| **Snowplow / pizza** | Brake (↓ / S) — tap to slow, hold to stop | Wedge the ski tips together: a tap trims speed, a held wedge deepens to a **stop**; sharp, planted turns. Too steep (black diamond ◆) and even a full wedge only slows — match the Slope HUD tier |
 | **Tuck** | Speed up (↑ / W) with **no steering** | Straight-line for **maximum speed** — least friction, least control |
 | **Hop turn** | **Jump + Steer** (Space + ← / →, grounded) | A quick pivot that snaps the heading and scrubs ~18% speed; for tight, steep terrain |
 

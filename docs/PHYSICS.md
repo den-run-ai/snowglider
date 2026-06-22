@@ -128,7 +128,7 @@ they read clearly differently to drive and to watch.
 |-----------|---------|--------|
 | **Parallel (skidded)** | Left/Right, uncommitted (fresh, *reversed*, or abrupt) | Skis brush sideways and **scrub speed** (`skidScrub` near full); **tighter** turn (`turnForce → 19`); skis stay flatter, body upright |
 | **Carve** | Left/Right, *committed* (held smoothly, `carveCharge > 0.6`) | **Holds speed** — the locked edge sheds ~92% of the wash-out; **wider** arc (`turnForce → 10`); skis roll onto edge + draw together with a deep body lean. The mastery turn above a parallel |
-| **Snowplow** | Down | Sheds real speed, but sharper, planted turns (`turnForce = 24`, grip = 1.0); skis form a wedge |
+| **Snowplow** | Down (hold ramp) | Sheds real speed, sharper planted turns (`turnForce = 24`, grip = 1.0); skis form a wedge that **deepens the longer you hold** (`plowCharge`): a tap only trims speed, a full wedge stops you — but only where the slope isn't too steep (§3.4) |
 | **Tuck**  | Up, no steer | Least friction, most speed, least control (`accel = 10` on `-z`) |
 | **Hop turn** | Jump **+** Left/Right (grounded) | A quick edge-set pivot: snaps heading ~0.4 rad toward the steer, scrubs ~18% speed, small pop; lands on a fresh edge (see §4) |
 
@@ -171,8 +171,9 @@ skidScrub = 0  unless (steering && currentSpeed > 4):
 
 `technique` is classified each frame and returned for the HUD and ski pose: a steered
 turn reads as **`parallel`** (skidded) until the edge locks in, then **`carve`** once
-`carveCharge > CARVE_LOCK` (0.6). The snowplow forms a ski wedge (`wedge = 0.35 rad`)
-with the **tips converging and the tails splayed out** (a real "pizza"); a **carve**
+`carveCharge > CARVE_LOCK` (0.6). The snowplow forms a ski wedge whose depth tracks the
+brake commitment (`wedge = 0.18 + 0.32 * plowCharge` rad — a light check that opens
+into a deep "pizza") with the **tips converging and the tails splayed out**; a **carve**
 rolls the skis hard onto their edges, draws them together, and inclines the whole body
 into the turn (lean clamp raised to ~0.42 rad); a **skidded parallel** turn keeps the
 skis flatter and the body upright. The pose is purely cosmetic — it never touches the
@@ -180,23 +181,56 @@ physics. The always-on turn tax (faded out by a carve) keeps turning from ever b
 entirely free, so straight-lining stays the fastest line and a clean carve still
 finishes far faster than chatter-skidding (≈30%+ in the verification harness, §6).
 
-### 3.4 Snowplow brake (and why it is clamped)
+### 3.4 Snowplow brake: stop, slow-down, and steep-slope failure
 
 Snowplow decelerates **along the actual direction of travel**, so it bleeds
-genuine speed rather than only downhill velocity:
+genuine speed rather than only downhill velocity. The wedge is a **hold ramp**, not an
+on/off brake: `plowCharge ∈ [0,1]` builds while Down is held and decays when released
+(mirroring `carveCharge`), and the deceleration scales with it. A tap gives a shallow
+wedge that only trims speed; a sustained hold deepens it into a full "pizza" that can
+bring you to a stop.
 
 ```
-if (snowplow && currentSpeed > 0.001):
-    brakeImpulse = min(14.0 * delta, currentSpeed)   // clamp: never reverse velocity
-    velocity -= (velocity / currentSpeed) * brakeImpulse
-    if (brakeImpulse < currentSpeed):                // only while still moving
-        velocity.z += 10.0 * delta * 0.3             // slight uphill control bias
+// wedge depth (per-frame, on snowman.userData; cleared by resetSnowman):
+plowCharge = snowplow ? min(1, plowCharge + delta * 1.6)   // ~0.6 s of holding => full wedge
+                      : max(0, plowCharge - delta * 4.0)   // relaxes quickly on release
+
+brakeSpeed = |velocity|                                    // AFTER this frame's gravity
+if (snowplow && brakeSpeed > 0.001):
+    brakeDecel   = 3.14 + (5.68 - 3.14) * plowCharge        // light -> full wedge
+    brakeImpulse = min(brakeDecel * delta, brakeSpeed)      // clamp: never reverse velocity
+    velocity    -= (velocity / brakeSpeed) * brakeImpulse
 ```
 
-The `min(..., currentSpeed)` clamp and the `brakeImpulse < currentSpeed` guard are
-load-bearing: without them, at low speed the subtraction overshoots zero and the
-control bias drives the snowman **uphill from a standstill**, letting players stall
-or climb the timed course by braking.
+The `min(..., brakeSpeed)` clamp is load-bearing: without it, at low speed the
+subtraction overshoots zero and drives the snowman **uphill from a standstill**,
+letting players stall or climb the timed course by braking. `brakeSpeed` is recomputed
+here from the **post-gravity** velocity (not the stale start-of-frame speed): scaling
+by the smaller pre-gravity speed over-removed velocity as it dropped, which pinned the
+snowman to a stop well past the cap (~36° rather than 30°), so a pitch the HUD calls
+black could still be fully stopped. Recomputing keeps the removed impulse exactly
+`brakeDecel · delta`, so the stop/fail boundary lands on the tier edge. (The earlier fixed
+`+3 m/s²` uphill nudge that rode alongside the brake was removed — as a *constant* it
+applied even to a feather-light wedge, which both stopped you on terrain too steep to
+wedge and pushed the stop threshold past anything the run actually skis; it is folded
+into `PLOW_MAX_DECEL`, and the clamp alone is what prevents reversal.)
+
+**Steep-slope failure.** Because the full wedge's deceleration is *capped*
+(`PLOW_MAX_DECEL`), it cannot stop you where the slope's gravity component
+`steepness × g` exceeds it — there it only holds a slow **terminal speed**. The two
+thresholds are pinned to the Slope-HUD colour tiers (PR #201, `src/ui/hud.ts`:
+`SLOPE_MODERATE = 0.32 ≈ 18°`, `SLOPE_STEEP = 0.58 ≈ 30°`) by setting each decel to the
+slope gravity at the tier edge (`0.32 × 9.8 = 3.14`, `0.58 × 9.8 = 5.68`), so the live
+readout doubles as a "can I stop here?" cue:
+
+| Slope HUD | Pitch | Light wedge (tap) | Full wedge (hold) |
+|-----------|-------|-------------------|-------------------|
+| 🟢 green  | < 18° | stops you | stops you |
+| 🟡 yellow | 18–30° | only slows | stops you |
+| 🔴 red    | > 30° | only slows | **only slows** (can't stop) |
+
+This graceful degradation is what makes the steep upper mountain — and outrunning an
+avalanche — actually demand carving/hopping instead of a free "pizza" anywhere (#54).
 
 ### 3.5 Automatic turning (idle wander)
 
@@ -507,7 +541,8 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Base / max coast friction | 0.012 / 0.032 | `snowman.js` |
 | Turn force (parallel/snowplow/carve) | 19 / 24 / 10 (×0.85 over 18 u/s) | `snowman.js` |
 | Accel (tuck) | 10 | `snowman.js` |
-| Brake decel | 14 | `snowman.js` |
+| Brake decel (light → full wedge) | 3.14 → 5.68 (lerp by `plowCharge`) | `snowman.js` |
+| Plow build / release rate | 1.6 / 4.0 per s | `snowman.js` |
 | Max skid scrub (uncommitted) | 0.10 + 0.008 tax | `snowman.js` |
 | Carve scrub relief | 0.92 | `snowman.js` |
 | Carve build / release rate | 1.5 / 3.0 per s | `snowman.js` |
