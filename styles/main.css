@@ -665,15 +665,25 @@ canvas { display: block; }
   left: 0;
   width: 100%;
   height: 100%;
+  /* Keep padding inside the 100% box so the overlay is exactly the viewport
+     size (otherwise height:100% + padding spills past the bottom edge). */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  /* `safe` keeps the content reachable when it is taller than the viewport
+     (e.g. at 100% zoom on a short window): plain `center` would push the
+     overflow off both edges with no way to scroll up to it. `safe` falls back
+     to start-alignment in that case so the whole panel stays scrollable. */
+  justify-content: safe center;
   align-items: center;
   background-color: rgba(0, 0, 0, 0.8);
   z-index: 2000;
   color: white;
   font-family: 'Arial', sans-serif;
   padding: 10px; /* Add padding to ensure content doesn't touch the edge */
+  /* Reserve room for the fixed #buildBadge footer so scrolled content never
+     hides behind it. */
+  padding-bottom: 30px;
   overflow-y: auto; /* Allow scrolling if needed */
 }
 
@@ -880,13 +890,21 @@ canvas { display: block; }
   opacity: 0.85;
 }
 
-/* Unobtrusive build-version footer (replaces the old pill on the CTA) */
+/* Unobtrusive build-version footer (replaces the old pill on the CTA).
+   Pinned to the bottom of the viewport so it stays visible even when the start
+   panel content is taller than the screen (it used to be the last flow item and
+   got clipped off the bottom at 100% zoom). It lives inside #startGameContainer,
+   so it is still hidden along with the overlay once the game starts. */
 #buildBadge {
-  margin-top: 10px;
+  position: fixed;
+  bottom: 8px;
+  left: 0;
+  right: 0;
   font: 500 11px system-ui, sans-serif;
   letter-spacing: 0.3px;
   color: rgba(255, 255, 255, 0.45);
   text-align: center;
+  pointer-events: none; /* purely informational — never intercept clicks */
 }
 
 /* While the start overlay is up, lift the account/sign-in control above it so
