@@ -32,17 +32,21 @@ import {
   terrainRidgeField,
   forestDensityField,
 } from './noise.js';
+import {
+  type TerrainVec2,
+  heightMap,
+  getTerrainHeight,
+  getTerrainGradient,
+  getDownhillDirection,
+  debugHeightMap,
+} from './terrain.js';
 
-// Re-export the deterministic noise fields so the public `./mountains.js` named
-// exports (`terrainRidgeField`, `forestDensityField`) and the terrain tests that
-// import `terrainRidgeField` directly keep resolving them through this hub.
+// Re-export the deterministic noise fields and the terrain sampler type so the
+// public `./mountains.js` named exports (`terrainRidgeField`, `forestDensityField`,
+// `TerrainVec2`) and the terrain tests that import `terrainRidgeField` directly keep
+// resolving them through this hub.
 export { terrainRidgeField, forestDensityField };
-
-/** A 2D vector in the terrain x/z plane: a gradient or a unit downhill direction. */
-export interface TerrainVec2 {
-  x: number;
-  z: number;
-}
+export type { TerrainVec2 };
 
 /** A placed rock's world position and size. */
 export interface RockPosition {
@@ -92,67 +96,6 @@ function rockIsCollisionHazard(x: number, z: number, size: number): boolean {
   const dz = z - SNOWMAN_START_Z;
   if (Math.sqrt(dx * dx + dz * dz) < ROCK_COLLISION_START_CLEAR_RADIUS + radius) return false;
   return true;
-}
-
-// --- Terrain utilities ---
-
-// Global height map for efficient lookup - will be populated when terrain is created
-const heightMap: Record<string, number> = {};
-
-// Calculate terrain height at (x, z)
-function getTerrainHeight(x: number, z: number): number {
-  // First check if we have this position in our cached height map
-  const key = `${Math.round(x*10)},${Math.round(z*10)}`;
-  if (heightMap[key] !== undefined) {
-    return heightMap[key];
-  }
-  
-  const distance = Math.sqrt(x * x + z * z);
-  
-  // Use EXACTLY the same formula as in terrain mesh creation
-  // Base mountain shape
-  let y = 40 * Math.exp(-distance / 40);
-  
-  // Add noise for natural backcountry terrain
-  y += 1.5 * Math.sin(x * 0.05) * Math.cos(z * 0.05) * (1 - Math.exp(-distance / 60));
-  
-  // Add additional terrain features and ridges (aperiodic — see terrainRidgeField).
-  // Damped toward the peak (like the low-freq term + mesh perlin) so the summit stays
-  // smooth and the relief grows down the slope where it reads as backcountry terrain.
-  y += terrainRidgeField(x, z) * 0.8 * (1 - Math.exp(-distance / 60));
-  
-  // Ensure downhill gradient in extended sections - create a consistent downhill slope
-  // This factor increases the further (more negative) z gets, creating a gradual slope
-  // Use a stronger gradient (0.12) to ensure consistent downhill even with terrain noise
-  if (z < -30) {
-    y += (z + 30) * 0.12; // This creates a consistent downhill gradient
-  }
-  
-  // Store in height map for future lookups
-  heightMap[key] = y;
-  return y;
-}
-
-// Calculate terrain gradient for physics and tree placement
-function getTerrainGradient(x: number, z: number): TerrainVec2 {
-  const eps = 0.1;
-  const h = getTerrainHeight(x, z);
-  const hX = getTerrainHeight(x + eps, z);
-  const hZ = getTerrainHeight(x, z + eps);
-  return { x: (hX - h) / eps, z: (hZ - h) / eps };
-}
-
-// Compute Downhill Direction (Approximate Gradient)
-function getDownhillDirection(x: number, z: number): TerrainVec2 {
-  const eps = 0.1;
-  const h = getTerrainHeight(x, z);
-  const hX = getTerrainHeight(x + eps, z);
-  const hZ = getTerrainHeight(x, z + eps);
-  const gradient = { x: (hX - h) / eps, z: (hZ - h) / eps };
-  // Downhill is opposite to the gradient
-  const dir = { x: -gradient.x, z: -gradient.z };
-  const len = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
-  return len ? { x: dir.x / len, z: dir.z / len } : { x: 0, z: 1 };
 }
 
 // --- Procedural snow surface textures (issue #17) ---
@@ -810,15 +753,6 @@ function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
   rock.receiveShadow = true;
 
   return rock;
-}
-
-// Debug utility to verify the height map is working
-function debugHeightMap(x: number, z: number): number {
-  const key = `${Math.round(x*10)},${Math.round(z*10)}`;
-  console.log(`Height Map Debug at (${x}, ${z}):`);
-  console.log(`- Height Map Entry: ${heightMap[key]}`);
-  console.log(`- Calculated Height: ${getTerrainHeight(x, z)}`);
-  return heightMap[key];
 }
 
 // Export all mountain-related functions and classes
