@@ -49,13 +49,16 @@ const MASTER_GAIN = 0.85;        // overall SFX headroom (leaves room for the mu
 const RAMP_TAU = 0.08;           // s; smoothing time-constant for continuous beds
 
 /** Per-technique base loudness of the ski-edge swish (before the speed taper).
- *  A skid scrapes hardest; a locked carve/parallel hisses; gliding straight is silent. */
+ *  A skidded parallel turn scrubs hardest; a committed carve hisses quieter; gliding
+ *  straight is silent. (#191: the low-charge skidded turn now reports 'parallel', and
+ *  the committed turn reports 'carve' — 'skid' is no longer emitted but kept as an
+ *  alias for the scrub so any caller passing it still sounds right.) */
 function techniqueEdge(technique: string): number {
   switch (technique) {
-    case 'skid': return 0.30;
+    case 'parallel': return 0.30; // skidded parallel scrubs hardest
+    case 'skid': return 0.30;     // legacy alias for the scrub (no longer emitted)
     case 'snowplow': return 0.26;
-    case 'carve': return 0.22;
-    case 'parallel': return 0.16;
+    case 'carve': return 0.18;    // a committed carve hisses, quieter than a scrub
     default: return 0; // glide / tuck / air / hop — no sustained edge noise
   }
 }
