@@ -307,10 +307,13 @@ function createAtmosphericSky(sunDirection: THREE.Vector3): THREE.Mesh {
 const SUN_CYCLE_ENABLED = true;
 const CYCLE_DURATION_S = 90;          // one full midday → golden → midday loop
 
-// Low-sun guard. The terrain still has the periodic `sin(x*0.2)*cos(z*0.3)`
-// ridge that bands under a hard low sun, so the golden-hour sun is held at a
-// safe elevation (issue #188: 12–15° until fBm/domain-warp terrain lands; 8° is
-// only allowed once that ridge is gone or visually proven safe).
+// Low-sun guard. The periodic `sin(x*0.2)*cos(z*0.3)` terrain ridge that used to
+// band under a hard low sun has been replaced by an aperiodic domain-warped fBm
+// (issue #188 step 3 / mountains.ts `terrainRidgeField`), so the banding source is
+// gone. The guard is still held at 14° here on purpose: lowering it toward 8° and
+// retuning the golden-hour endpoints (with a fresh `test:sky` capture) is the
+// separate NS2 follow-up, kept out of the terrain-only change so the sun-cycle
+// tests stay untouched.
 const SUN_ELEV_MIN_DEG = 14;
 
 // Golden-hour endpoints (the midday endpoints are captured at setup). All stay

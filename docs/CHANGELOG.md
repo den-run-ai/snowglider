@@ -13,6 +13,26 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Aperiodic terrain ridge — kills the grey "corduroy" banding source (#188 step 3)
+- The terrain ridge in `mountains.ts` was the **periodic** `sin(x*0.2)*cos(z*0.3)`.
+  A low directional sun raked that regular plaid into repeated grey bands (the
+  `Grey corduroy` failure mode in [`SNOW_RENDERING.md`](SNOW_RENDERING.md)) and was the
+  reason the sun cycle's low-sun guard (`SUN_ELEV_MIN_DEG`, `src/sky.ts`) had to sit
+  at 14°.
+- Replaced it with a **deterministic, domain-warped fBm** (`terrainRidgeField`): the
+  ridges now meander instead of forming a lattice, so a raking light has no periodicity
+  left to band. The field uses a fixed-seed integer hash (not the `Math.random`-seeded
+  `SimplexNoise`), so the terrain is stable across page loads and the Node
+  terrain/regression tests pin its shape; it is damped toward the peak with the same
+  `(1 - exp(-distance/60))` falloff as the existing perlin layer, so the summit stays
+  smooth and relief grows down the slope.
+- Applied to **both** the physics sampler (`getTerrainHeight`, ×0.8) and the visual
+  mesh (`createTerrain`, ×1.5), keeping their existing amplitude relationship.
+- **Invariant preserved:** the no-input coasting kernel is untouched, so the physics
+  invariant harness stays byte-identical; full Node suite, production build, and the
+  browser suite (89/89) all pass. The companion change — dropping the low-sun guard
+  toward 8° and retuning golden hour — is the separate **NS2** follow-up.
+
 ### Social sharing — link previews + screenshot in the mobile share
 - Follow-up to "desktop platform menu + screenshot card" below. Three gaps made
   sharing feel broken: shared links had no preview at all, Facebook/LinkedIn

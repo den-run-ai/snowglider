@@ -29,6 +29,7 @@ async function loadUtils() {
 // so it shadows the read-only `Utils` global instead of reassigning it.
 (async () => {
 const Utils = await loadUtils();
+const { terrainRidgeField } = await import('../src/mountains.js');
 
 // Custom assert functions
 function assert(condition, message) {
@@ -307,6 +308,52 @@ runTest('Collidable rocks avoid the ski line and spawn pocket', () => {
   assert(!isHazard(5.1, -150, 3.0), 'a size-3 rock at x=5.1 reaches into the |x|<5 ski lane, so it is excluded');
   assert(!isHazard(12, -15, 3.0), 'a size-3 rock 12u from the start reaches into the spawn pocket, so it is excluded');
   assert(isHazard(8.5, -150, 3.0), 'a size-3 rock fully clear of the corridor + radius is still a hazard');
+});
+
+// Test 9: Aperiodic ridge field (issue #188 step 3)
+// The terrain ridge used to be the periodic sin(x*0.2)*cos(z*0.3); it is now a
+// deterministic domain-warped fBm. Lock in the three properties the banding fix
+// depends on: deterministic, bounded, and genuinely aperiodic.
+runTest('Aperiodic ridge field', () => {
+  assert(typeof terrainRidgeField === 'function', 'mountains exports terrainRidgeField');
+
+  // Deterministic: same input -> same output, across calls (so terrain is stable
+  // across page loads and tests can pin it).
+  assertEquals(terrainRidgeField(12.5, -73.25), terrainRidgeField(12.5, -73.25),
+    'ridge field is deterministic for the same input');
+  assertEquals(terrainRidgeField(-40, -150), terrainRidgeField(-40, -150),
+    'ridge field is deterministic at a second point');
+
+  // Bounded near [-1, 1] (it is an fBm normalized to that range) so it can keep the
+  // ±0.8 / ±1.5 amplitudes without blowing up terrain height.
+  let lo = Infinity, hi = -Infinity;
+  for (let x = -120; x <= 120; x += 7) {
+    for (let z = -200; z <= 0; z += 7) {
+      const v = terrainRidgeField(x, z);
+      assert(!isNaN(v), `ridge field is finite at (${x}, ${z})`);
+      lo = Math.min(lo, v); hi = Math.max(hi, v);
+    }
+  }
+  assert(lo >= -1.2 && hi <= 1.2, `ridge field stays bounded (got [${lo.toFixed(2)}, ${hi.toFixed(2)}])`);
+  assert(lo < -0.2 && hi > 0.2, 'ridge field actually varies (not flat)');
+
+  // Aperiodic: the OLD ridge repeated every 2π/0.2 ≈ 31.4u in x and 2π/0.3 ≈ 20.9u
+  // in z. A field with those periods would (nearly) repeat under those shifts; the
+  // domain-warped fBm must not, or a raking low sun would still band. Require a
+  // clearly non-trivial change across the would-be periods at several samples.
+  const PX = 2 * Math.PI / 0.2, PZ = 2 * Math.PI / 0.3;
+  let repeats = 0, samples = 0;
+  for (let x = -60; x <= 60; x += 11) {
+    for (let z = -180; z <= -20; z += 13) {
+      samples++;
+      const dX = Math.abs(terrainRidgeField(x, z) - terrainRidgeField(x + PX, z));
+      const dZ = Math.abs(terrainRidgeField(x, z) - terrainRidgeField(x, z + PZ));
+      if (dX < 0.02 && dZ < 0.02) repeats++;
+    }
+  }
+  // Almost no sample should look periodic at the old periods.
+  assert(repeats <= samples * 0.05,
+    `ridge field is aperiodic (${repeats}/${samples} samples looked periodic at the old ridge periods)`);
 });
 
 // Print test summary
