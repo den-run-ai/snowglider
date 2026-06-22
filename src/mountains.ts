@@ -179,6 +179,66 @@ class SimplexNoise {
   }
 }
 
+// --- Deterministic aperiodic ridge field (issue #188 step 3) ---
+//
+// The terrain ridge used to be the *periodic* `Math.sin(x * 0.2) * Math.cos(z * 0.3)`.
+// A low directional sun raked that regular plaid into repeated grey "corduroy" bands
+// (the `Grey corduroy` failure mode in docs/SNOW_RENDERING.md) and pinned the sun
+// cycle's low-sun guard at 14° (`SUN_ELEV_MIN_DEG`, src/sky.ts). This replaces it with
+// a *deterministic* domain-warped fBm so the ridges meander instead of forming a
+// regular lattice — no periodicity, so nothing for a raking light to band, and a more
+// natural backcountry surface. It is deliberately deterministic (a fixed-seed integer
+// hash, NOT the `Math.random`-seeded SimplexNoise above) so the terrain is stable
+// across page loads and the Node terrain/regression tests can pin its shape.
+
+// Integer-lattice hash -> [0, 1). All 32-bit (Math.imul) so it is bit-exact and
+// deterministic for the same (ix, iz), including negative coordinates.
+function hashLattice(ix: number, iz: number): number {
+  let h = Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iz | 0, 0x165667b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+// Smooth (smoothstep-interpolated) value noise in [-1, 1].
+function valueNoise(x: number, z: number): number {
+  const x0 = Math.floor(x), z0 = Math.floor(z);
+  const fx = x - x0, fz = z - z0;
+  const u = fx * fx * (3 - 2 * fx);
+  const w = fz * fz * (3 - 2 * fz);
+  const n00 = hashLattice(x0, z0), n10 = hashLattice(x0 + 1, z0);
+  const n01 = hashLattice(x0, z0 + 1), n11 = hashLattice(x0 + 1, z0 + 1);
+  const nx0 = n00 + (n10 - n00) * u;
+  const nx1 = n01 + (n11 - n01) * u;
+  return (nx0 + (nx1 - nx0) * w) * 2 - 1;
+}
+
+// Fractional Brownian motion: 3 octaves, lacunarity 2, gain 0.5, normalized to ~[-1, 1].
+function fbm(x: number, z: number): number {
+  let sum = 0, amp = 0.5, freq = 1, norm = 0;
+  for (let o = 0; o < 3; o++) {
+    sum += amp * valueNoise(x * freq, z * freq);
+    norm += amp;
+    freq *= 2;
+    amp *= 0.5;
+  }
+  return sum / norm;
+}
+
+// The aperiodic ridge field in ~[-1, 1] that replaces `sin(x*0.2)*cos(z*0.3)`.
+// A low-frequency fBm warps the domain so the ridges curve and meander (natural
+// backcountry), and the warped fBm supplies the medium/fine relief.
+const RIDGE_FREQ = 0.06;   // base ridge scale (octaves add detail down to ~4u)
+const RIDGE_WARP_FREQ = 0.03;
+const RIDGE_WARP_AMP = 8;
+export function terrainRidgeField(x: number, z: number): number {
+  const wx = fbm(x * RIDGE_WARP_FREQ, z * RIDGE_WARP_FREQ);
+  const wz = fbm(x * RIDGE_WARP_FREQ + 5.2, z * RIDGE_WARP_FREQ - 3.7);
+  return fbm((x + wx * RIDGE_WARP_AMP) * RIDGE_FREQ, (z + wz * RIDGE_WARP_AMP) * RIDGE_FREQ);
+}
+
 // --- Terrain utilities ---
 
 // Global height map for efficient lookup - will be populated when terrain is created
@@ -201,8 +261,10 @@ function getTerrainHeight(x: number, z: number): number {
   // Add noise for natural backcountry terrain
   y += 1.5 * Math.sin(x * 0.05) * Math.cos(z * 0.05) * (1 - Math.exp(-distance / 60));
   
-  // Add additional terrain features and ridges
-  y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 0.8;
+  // Add additional terrain features and ridges (aperiodic — see terrainRidgeField).
+  // Damped toward the peak (like the low-freq term + mesh perlin) so the summit stays
+  // smooth and the relief grows down the slope where it reads as backcountry terrain.
+  y += terrainRidgeField(x, z) * 0.8 * (1 - Math.exp(-distance / 60));
   
   // Ensure downhill gradient in extended sections - create a consistent downhill slope
   // This factor increases the further (more negative) z gets, creating a gradual slope
@@ -484,8 +546,9 @@ function createTerrain(scene: THREE.Scene) {
     const key = `${Math.round(x*10)},${Math.round(z*10)}`;
     heightMap[key] = y;
     
-    // Add natural terrain features and ridges
-    y += Math.sin(x * 0.2) * Math.cos(z * 0.3) * 1.5;
+    // Add natural terrain features and ridges (aperiodic — see terrainRidgeField).
+    // Damped toward the peak like the perlin roughness above (same distance falloff).
+    y += terrainRidgeField(x, z) * 1.5 * (1 - Math.exp(-distance / 60));
     
     // Ensure downhill gradient in extended sections - create a consistent downhill slope
     // Must match getTerrainHeight implementation exactly!
