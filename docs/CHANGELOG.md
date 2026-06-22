@@ -13,6 +13,27 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Realistic rock colours + cliff outcrops + terrain/tree biome alignment
+- **Varied stone colours** — rocks no longer share one uniform grey. `createRock`
+  now draws each rock's bare-stone base from a small weighted palette of realistic
+  mountain tones (granite grey, slate/charcoal, warm brown/tan, iron-stained
+  reddish, faint olive lichen), jittered per rock. Snow still accumulates on the
+  up-facing faces, so the colour reads on the exposed pitches. Purely cosmetic
+  (`vertexColors`); no physics/determinism path touched.
+- **Cliff outcrops** — `addRocks` gains a sparse pass that places larger, more
+  angular, darker `createRock(size, { cliff: true })` blocks (in tight 2–3 block
+  clusters) on the steepest flanks, kept well clear of the central ski corridor and
+  spawn pocket. Big-enough blocks register as collision hazards via the existing
+  `rockIsCollisionHazard` rule (radius capped at 3u, in sync with snowman collision).
+- **Terrain ↔ tree biome alignment** — a new deterministic `Mountains.forestDensityField(x, z)`
+  (a fixed-seed fbm, like the ridge field) drives two consumers off one shared signal:
+  the terrain snow shading tints gentle, forested ground with a faint warm treeline
+  cast, and `Trees.addTrees` biases placement into the same stands (with a floor so
+  clearings never go fully bare). Trees now gather into stands with open snowfields
+  between, and the ground beneath them ties to the trees instead of a uniform sprinkle.
+- All cosmetic/scenery: the physics-invariant harness still reports coasting IDENTICAL,
+  and the Node + browser (94/0) suites stay green.
+
 ### Meaningful jumps — Phase 1 (#47)
 - Turns the already-bound but rewardless Jump into a real risk/reward mechanic.
   Design doc: [`docs/MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md); model in

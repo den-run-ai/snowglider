@@ -313,9 +313,17 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       const outerZone = Math.abs(x) >= 13 && Math.abs(x) < 18;
       const centerArea = innerZone || middleZone || outerZone;
       
-      // Adjust placement chance based on location
-      const treeChance = centerArea ? 0.65 : 0.7;  // Increased chance in center area
-      
+      // Adjust placement chance based on location, then bias it into the shared
+      // forest stands so trees gather where the terrain shows its treeline tint and
+      // thin out in the clearings between — instead of a uniform sprinkle. High
+      // density lowers the skip chance (more trees); a floor keeps clearings from
+      // ever going fully bare (extended terrain still gets trees). The field is the
+      // same one Mountains uses for the ground tint, so trees and ground align.
+      const forest = Mountains.forestDensityField ? Mountains.forestDensityField(xPos, zPos) : 0.5;
+      const standBias = (forest - 0.5) * 0.5; // ±0.25 around the base chance
+      const baseChance = centerArea ? 0.65 : 0.7; // higher chance in center area
+      const treeChance = Math.min(0.92, Math.max(0.45, baseChance - standBias));
+
       if(steepness < 0.5 && Math.random() > treeChance) {
         // Size variation by zone - smaller trees closer to the center path
         let sizeVariation = 1.0;
