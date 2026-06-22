@@ -57,6 +57,9 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
     let edge = 0.0, draw = 0.0;
     if (technique === 'carve') { edge = steering * 0.5; draw = 0.4; }
     else if (technique === 'parallel') { edge = steering * 0.1; draw = 0.05; }
+    // TUCK: skis stay flat (edge 0) but draw parallel and slightly narrow under the
+    // body for a clean aerodynamic stance — paired with the forward fold + crouch below.
+    else if (technique === 'tuck') { draw = 0.22; }
     const lbx = (snowman.userData.leftSkiBaseX ?? -1) + draw;
     const rbx = (snowman.userData.rightSkiBaseX ?? 1) - draw;
     ls.rotation.z += (edge - ls.rotation.z) * lerp;
@@ -105,7 +108,23 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   // Normalize rotation to 0-2pi range
   snowman.rotation.y = snowman.rotation.y % (Math.PI * 2);
   if (snowman.rotation.y < 0) snowman.rotation.y += Math.PI * 2;
-  
+
+  // Body crouch (cosmetic): fold the body lower for an aerodynamic TUCK and squat
+  // into a hard SNOWPLOW wedge (deeper as plowCharge builds, #54). Driven off
+  // scale.y about the foot-level origin — the skis sit at y≈0.1, so compressing y
+  // lowers the body toward the skis without lifting them off the snow (a real crouch,
+  // not a shrink). It is NOT a backward weight shift: a snowplow digs in with bent
+  // knees, not by leaning back. Relaxes to upright in the air. Never touches physics.
+  if (snowman.scale) { // real THREE.Object3D always has scale; the test mock may not
+    const plowCharge = (snowman.userData.plowCharge as number) || 0;
+    let crouchTarget = 1.0;
+    if (!isInAir) {
+      if (technique === 'tuck') crouchTarget = 0.86;                            // deep aero crouch
+      else if (technique === 'snowplow') crouchTarget = 1.0 - 0.10 * plowCharge; // squat into the wedge
+    }
+    snowman.scale.y += (crouchTarget - snowman.scale.y) * Math.min(1, delta * 8);
+  }
+
   // Calculate a tilt based on the slope and turning with improved smoothing
   // Use wider sample points for more stable gradients
   const sampleDist = 0.4; // Even wider sampling for stability
@@ -132,13 +151,23 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   // from a flatter, upright skidded parallel turn. Amplify the lean and raise the
   // clamp during a carve; every other technique keeps the original gentle lean.
   const isCarve = technique === 'carve';
+  const isTuck = technique === 'tuck';
   const turnTilt = velocity.x * turnTiltFactor * (isCarve ? 2.0 : 1.0);
+  // A TUCK folds the body forward into the fall line (nose-down = +rotation.x, the
+  // same sign as the descent jump lean) on top of the terrain pitch — the "going
+  // fast" cue that pairs with the crouch + drawn-in skis above. No-steer technique,
+  // so the roll axis stays ~0 here.
+  const tuckLean = isTuck ? 0.28 : 0.0; // ~16° forward fold over the terrain pitch
 
-  // Limit maximum tilt angles to prevent unrealistic leaning
-  const maxTiltAngle = isCarve ? 0.42 : 0.25; // ~24° into a carve, ~14° otherwise
-  
+  // Limit maximum tilt angles to prevent unrealistic leaning. Pitch (rotation.x) and
+  // roll (rotation.z) are clamped separately so a technique only relaxes the axis it
+  // needs: a carve inclines the body hard into the turn (roll), a tuck folds it
+  // forward (pitch). Carve/jump/coast pitch+roll are unchanged at 0.25 (0.42 carve).
+  const maxPitchAngle = isTuck ? 0.5 : (isCarve ? 0.42 : 0.25); // ~29° tuck fold, else as before
+  const maxRollAngle = isCarve ? 0.42 : 0.25;                   // ~24° into a carve, ~14° otherwise
+
   // Apply smoothing and clamping to rotation values
-  const targetRotX = gradZ * 0.3 + jumpTilt; // Add jump tilt to X rotation
+  const targetRotX = gradZ * 0.3 + jumpTilt + tuckLean; // terrain pitch + jump lean + tuck fold
   const targetRotZ = -gradX * 0.3 - turnTilt;
   
   // Significantly improve tilt smoothing
@@ -152,7 +181,7 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   snowman.userData.currentRotX += (targetRotX - snowman.userData.currentRotX) * tiltSmoothing;
   snowman.userData.currentRotZ += (targetRotZ - snowman.userData.currentRotZ) * tiltSmoothing;
   
-  // Apply clamped rotations 
-  snowman.rotation.x = Math.max(-maxTiltAngle, Math.min(maxTiltAngle, snowman.userData.currentRotX));
-  snowman.rotation.z = Math.max(-maxTiltAngle, Math.min(maxTiltAngle, snowman.userData.currentRotZ));
+  // Apply clamped rotations
+  snowman.rotation.x = Math.max(-maxPitchAngle, Math.min(maxPitchAngle, snowman.userData.currentRotX));
+  snowman.rotation.z = Math.max(-maxRollAngle, Math.min(maxRollAngle, snowman.userData.currentRotZ));
 }

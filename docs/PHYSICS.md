@@ -176,8 +176,12 @@ brake commitment (`wedge = 0.18 + 0.32 * plowCharge` rad — a light check that 
 into a deep "pizza") with the **tips converging and the tails splayed out**; a **carve**
 rolls the skis hard onto their edges, draws them together, and inclines the whole body
 into the turn (lean clamp raised to ~0.42 rad); a **skidded parallel** turn keeps the
-skis flatter and the body upright. The pose is purely cosmetic — it never touches the
-physics. The always-on turn tax (faded out by a carve) keeps turning from ever being
+skis flatter and the body upright; a **tuck** (Up, no steer) folds the body forward
+into the fall line and crouches low over skis drawn parallel and narrow — an
+aerodynamic egg, the visible "go fast" cue (pitch clamp raised to ~0.5 rad, `scale.y`
+compressed about the foot-level origin); and a hard snowplow adds a knees-bent squat
+that deepens with `plowCharge` (a dig-in, not a lean back). The pose is purely
+cosmetic — it never touches the physics. The always-on turn tax (faded out by a carve) keeps turning from ever being
 entirely free, so straight-lining stays the fastest line and a clean carve still
 finishes far faster than chatter-skidding (≈30%+ in the verification harness, §6).
 
