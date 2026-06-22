@@ -41,7 +41,10 @@ function makeSnowman() {
     head: makePart(0, 1.0, 0),       // head is inside headGroup (local y)
     headGroup: makePart(0, 6.0, 0),
     leftArmGroup: makePart(1.35, 4.9, 0),
-    rightArmGroup: makePart(-1.35, 4.9, 0)
+    rightArmGroup: makePart(-1.35, 4.9, 0),
+    // Ski flex arms (issue #189): pivot at the waist (root-local z = -0.1).
+    leftSkiTip: makePart(0, 0, -0.1), leftSkiTail: makePart(0, 0, -0.1),
+    rightSkiTip: makePart(0, 0, -0.1), rightSkiTail: makePart(0, 0, -0.1)
   };
   return { userData: { parts, partBaseTransforms: recordBase(parts) } };
 }
@@ -126,6 +129,40 @@ async function main() {
       p.scale.y === base[k].scale.y && p.rotation.z === base[k].rotation.z && p.position.y === base[k].position.y);
     check('prefers-reduced-motion keeps the snowman rigid (== base)', rigid);
     if (prevWindow === undefined) delete global.window; else global.window = prevWindow;
+  }
+
+  // 7) Ski flex (issue #189): the arms bend (rotation.x) but the flex layer writes ONLY
+  //    transforms — position/scale of the ski arms stay at their neutral base.
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    const skiKeys = ['leftSkiTip', 'leftSkiTail', 'rightSkiTip', 'rightSkiTail'];
+    // Glide for a bit: a gentle camber arch should appear (tip arm bends one way, tail the other).
+    for (let i = 0; i < 40; i++) Flex.update(sm, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, justLanded: false, landingForce: 0, isInAir: false });
+    const tip = sm.userData.parts.leftSkiTip, tail = sm.userData.parts.leftSkiTail;
+    check('ski arms bend into a camber arch on glide', Math.abs(tip.rotation.x) > 1e-3 && Math.abs(tail.rotation.x) > 1e-3 && Math.sign(tip.rotation.x) !== Math.sign(tail.rotation.x));
+
+    // Transform-only: ski-arm position + scale must equal their base (no vertex/scale hacks).
+    let transformOnly = true;
+    for (const k of skiKeys) {
+      const p = sm.userData.parts[k], b = base[k];
+      if (p.position.x !== b.position.x || p.position.y !== b.position.y || p.position.z !== b.position.z) transformOnly = false;
+      if (p.scale.x !== b.scale.x || p.scale.y !== b.scale.y || p.scale.z !== b.scale.z) transformOnly = false;
+      if (p.rotation.y !== b.rotation.y || p.rotation.z !== b.rotation.z) transformOnly = false; // only rotation.x is written
+    }
+    check('ski flex writes rotation.x only (position/scale/yaw/roll == base)', transformOnly);
+
+    // A carve drives extra tip-pressure: the shovel presses DOWN (rotation.x goes more
+    // positive) relative to the glide arch — this passes through flat, so it's the SIGNED
+    // shift, not the magnitude, that grows. The margin is >> the chatter swing (~0.012).
+    const glideTip = sm.userData.parts.rightSkiTip.rotation.x;
+    for (let i = 0; i < 40; i++) Flex.update(sm, 1 / 60, { speed: 20, technique: 'carve', turnRate: 1, justLanded: false, landingForce: 0, isInAir: false });
+    check('carve presses the shovel down (tip-pressure)', sm.userData.parts.rightSkiTip.rotation.x > glideTip + 0.05);
+
+    // reset() restores ski arms exactly.
+    Flex.reset(sm);
+    const restored = skiKeys.every((k) => sm.userData.parts[k].rotation.x === base[k].rotation.x);
+    check('reset() restores ski arms to neutral', restored);
   }
 
   console.log(`\nSNOWMAN-FLEX TOTAL: ${pass} passed, ${fail} failed`);

@@ -127,15 +127,36 @@ async function main() {
   check('save-image with no card -> unavailable', /unavailable/i.test(imageBtn3.textContent));
   window.HTMLCanvasElement.prototype.getContext = realGetContext;
 
-  // ---- Mobile primary: native share sheet. ----
-  console.log('\n--- mobile primary native share ---');
+  // ---- Mobile primary: file-shares the screenshot card to the native sheet. ----
+  console.log('\n--- mobile primary native share (image) ---');
   let nativeShared = null;
   setNavigator({ share: async (d) => { nativeShared = d; }, maxTouchPoints: 5, userAgent: 'iPhone' });
   root = mount({ time: 42.13, isBest: true });
   root.querySelector('#shareResultBtn').click();
   await tick();
-  check('mobile primary calls the native share sheet', !!nativeShared && /snowglider\.ai/.test(nativeShared.url));
+  check('mobile primary file-shares the screenshot card',
+    !!nativeShared && Array.isArray(nativeShared.files) && nativeShared.files.length === 1);
+  check('mobile primary share text carries the public url',
+    !!nativeShared && /snowglider\.ai/.test(nativeShared.text));
   check('mobile primary reflects the shared state', /shared/i.test(root.querySelector('#shareResultBtn').textContent));
+
+  // ---- Mobile primary fallback: no file-share support -> text+link share. ----
+  console.log('\n--- mobile primary fallback (no file share) ---');
+  let textShared = null;
+  setNavigator({
+    share: async (d) => {
+      if (d.files) throw Object.assign(new Error('files unsupported'), { name: 'NotAllowedError' });
+      textShared = d;
+    },
+    canShare: () => false, // gates files out -> shareImageFile() returns 'unavailable'
+    maxTouchPoints: 5,
+    userAgent: 'iPhone',
+  });
+  root = mount({ time: 12, isBest: false });
+  root.querySelector('#shareResultBtn').click();
+  await tick();
+  check('mobile primary falls back to a text+link share when files are unsupported',
+    !!textShared && /snowglider\.ai/.test(textShared.url));
 
   console.log(`\nSHARE-MENU TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

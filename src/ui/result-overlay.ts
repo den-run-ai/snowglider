@@ -5,8 +5,10 @@
 // element ownership (those nodes move to game/scene-setup.ts in a later step).
 
 import { AudioModule } from '../audio.js';
+import { Sfx } from '../sfx.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
+import { formatStatTime } from './hud.js';
 
 // Add timer and best time tracking (state.startTime / state.bestTime)
 const MIN_VALID_SCORE_TIME = 4;
@@ -104,6 +106,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       try { onCrash(reason); } catch (e) { console.warn("Crash effect failed:", (e as Error).message); }
     }
 
+    // Sound effects (#158): silence the continuous skiing/avalanche bed and play the
+    // outcome cue — a success chime on a finish, a wipeout whoomph on any crash
+    // (tree/rock/fall/avalanche burial). No-op until the SFX engine is unlocked.
+    try { Sfx.endRun(reason === FINISH_REASON ? 'finish' : 'crash'); } catch { /* never block the overlay */ }
+
     // Capture the best time BEFORE the finish branch updates it, so the result
     // screen can report the delta and whether this run set a new record.
     const previousBest = state.bestTime;
@@ -164,7 +171,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         // Update the best time in the game stats window too
         const bestTimeElement = document.getElementById('bestTimeValue');
         if (bestTimeElement) {
-          bestTimeElement.textContent = `${state.bestTime.toFixed(2)}s`;
+          bestTimeElement.textContent = formatStatTime(state.bestTime);
           bestTimeElement.style.color = '#ffff00'; // Highlight new record
         }
       } else {

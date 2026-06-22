@@ -40,6 +40,89 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 - Phases 2 (obstacle-clear scoring + avalanche-dodge window) and 3 (#32 tricks) remain
   proposed.
 
+### Fix: start-screen leaderboard rows clipped at full height
+- The **Global Top Times** preview (`#startLeaderboard`) on the start screen was
+  truncated — only the header and the first few of the top-5 rows showed, with the
+  rest cut off and no usable scrollbar. `#startGameContainer` is a column flexbox,
+  so the leaderboard (a flex item) was being shrunk *below its own `max-height`*
+  whenever the panel was taller than the viewport, clipping the bottom rows. Same
+  flex-overflow class of bug as the build badge (`#buildBadge`) fix.
+- Fix is CSS-only (`styles/main.css`): add `flex-shrink: 0` so the leaderboard
+  keeps its natural height and the container scrolls instead (`overflow-y: auto` +
+  `justify-content: safe center` already keep the top reachable), and bump
+  `max-height` 168px → 200px so the full top-5 (h3 + header + 5 rows) fits without
+  an internal scrollbar.
+
+### Shaped skis — sidecut / camber / shovel / tail + cosmetic flex (#189)
+- The snowman's skis were two flat red `BoxGeometry` slabs with an angled box glued
+  on the front. They are now real ski shapes built from a **custom lofted
+  `BufferGeometry`** (`src/snowman/model.ts`, `buildSkiArm`): a sidecut top view
+  (wide shovel → narrow waist → medium tail), a smooth shovel/tip rise, a small tail
+  kick, rounded end caps, and a visible binding (plate + boot). Three materials give
+  a red top-sheet, a dark sintered base, and a steel-edge line accent (geometry
+  material groups).
+- Each ski is a **pose-owned root group** holding two pivot arms (tip + tail) that
+  overlap at the waist and are hidden under the binding, so the surface reads as one
+  continuous ski with no visible seam. `pose.ts` still owns the root transform
+  (snowplow wedge / parallel edge + draw); the arms only bend.
+- The cosmetic flex layer (`src/snowman-flex.ts`) gains a **ski-flex pass** that writes
+  *only* the arms' `rotation.x`: a gentle camber arch while gliding (with speed-chatter),
+  a reverse-camber compression spring on landings, tip-pressure in carves (scaled by
+  turn rate), a flatter/planted snowplow, and a de-cambered airborne ski. It never
+  touches position/velocity, honors `prefers-reduced-motion`, and leaves the
+  physics-invariant harness byte-identical (no baseline regeneration).
+- Tests: `tests/snowman-flex-tests.js` adds ski arms to the stub and asserts the
+  flex writes rotation only (position/scale/yaw/roll stay at base), a glide arch
+  appears, a carve adds tip-pressure, and `reset()` restores the arms.
+
+### Aperiodic terrain ridge — kills the grey "corduroy" banding source (#188 step 3)
+- The terrain ridge in `mountains.ts` was the **periodic** `sin(x*0.2)*cos(z*0.3)`.
+  A low directional sun raked that regular plaid into repeated grey bands (the
+  `Grey corduroy` failure mode in [`SNOW_RENDERING.md`](SNOW_RENDERING.md)) and was the
+  reason the sun cycle's low-sun guard (`SUN_ELEV_MIN_DEG`, `src/sky.ts`) had to sit
+  at 14°.
+- Replaced it with a **deterministic, domain-warped fBm** (`terrainRidgeField`): the
+  ridges now meander instead of forming a lattice, so a raking light has no periodicity
+  left to band. The field uses a fixed-seed integer hash (not the `Math.random`-seeded
+  `SimplexNoise`), so the terrain is stable across page loads and the Node
+  terrain/regression tests pin its shape; it is damped toward the peak with the same
+  `(1 - exp(-distance/60))` falloff as the existing perlin layer, so the summit stays
+  smooth and relief grows down the slope.
+- Applied to **both** the physics sampler (`getTerrainHeight`, ×0.8) and the visual
+  mesh (`createTerrain`, ×1.5), keeping their existing amplitude relationship.
+- **Invariant preserved:** the no-input coasting kernel is untouched, so the physics
+  invariant harness stays byte-identical; full Node suite, production build, and the
+  browser suite (89/89) all pass. The companion change — dropping the low-sun guard
+  toward 8° and retuning golden hour — is the separate **NS2** follow-up.
+
+### Social sharing — link previews + screenshot in the mobile share
+- Follow-up to "desktop platform menu + screenshot card" below. Three gaps made
+  sharing feel broken: shared links had no preview at all, Facebook/LinkedIn
+  shared "just a link" with no text, and the screenshot only ever reached the
+  "Save image" button.
+- **Open Graph + Twitter Card meta tags** added to `index.html`. The web
+  share-intent URLs (and Facebook/LinkedIn especially, which ignore any prefilled
+  text by policy) render a shared link from these tags, not from the share dialog
+  — so without them every shared link unfurled bare. Now X/Facebook/LinkedIn/
+  WhatsApp/Telegram/Reddit show a real card (branded image + title + description).
+  The `og:image` is a 1200×630 promo card hosted off-tree on the long-lived
+  `assets/og-image` branch (keeps `main` binary-free; **do not delete that branch**).
+- **The mobile "Share Result" now carries the screenshot.** The primary share on
+  touch devices builds the run card and file-shares the PNG via the native sheet
+  (which lists Instagram / Stories), falling back to the text+link share when the
+  image can't be built or the browser can't file-share. Previously the screenshot
+  was only reachable through the separate "Save image" button.
+- **Instagram clarity.** Instagram has no web share-intent URL, so desktop can
+  only "Save image" + manual upload; the desktop menu now says so, and the
+  saved-image confirmation points the player at Instagram. (On mobile the file
+  share reaches the Instagram app directly.)
+- **Real brand icons.** The per-platform buttons now render the official brand
+  logos (Simple Icons, CC0) as inline SVG in each brand's color, replacing the
+  earlier synthetic text glyphs (𝕏 / f / in / ✆ / r/ / ✈).
+- Tests: `tests/share-menu-tests.js` updated — the mobile primary now asserts a
+  file (image) share plus a text+link fallback path; `share`/`share-card` suites
+  unchanged and green.
+
 ### Codex review follow-ups on the snow/light stack (#163, #181)
 - **Golden hour no longer renders muddy (sky.ts, #163).** The cycle's golden-hour
   `THREE.Color` endpoints were built at module load — *before* `scene-setup` opts out
@@ -474,10 +557,34 @@ power-ups, and the AI-coach / natural-language course ideas.
 
 ## Audio
 
-Background music has a long, troubled history across three implementations. Audio
-is currently the **simplified native HTML5** implementation; the `AUDIO_ENABLED`
-flag in [`src/audio.js`](src/audio.js) gates it, and `CLAUDE.md` documents the
-operational guidance for re-enabling/testing on mobile.
+SnowGlider now has two independent audio subsystems: **background music** (a
+single track on a native HTML5 `<audio>` element — see below) and, new in #158,
+**procedural sound effects** (`src/sfx.ts`). Music has a long, troubled history
+across three implementations and is currently the **simplified native HTML5**
+implementation; the `AUDIO_ENABLED` flag in [`src/audio.js`](src/audio.js) gates
+it, and `CLAUDE.md` documents the operational guidance for re-enabling/testing on
+mobile.
+
+### Procedural sound effects (#158, Jun 2026)
+A new `src/sfx.ts` engine adds the long-open "sound effects beyond music" item:
+wind/whoosh that scales with speed, a ski-edge swish keyed off the carving
+technique, an avalanche rumble that crescendos as the slide closes in, and
+jump/land/crash/finish one-shots. Every effect is **synthesised at runtime** from
+Web Audio oscillators + filtered noise, so it ships **zero binary assets**.
+
+Deliberately separate from the music and from the THREE.Audio/Howler approaches
+that caused the failures below: effects need low-latency, overlapping one-shots,
+which raw Web Audio handles well and HTML5 `<audio>` does badly. The
+`AudioContext` is created/resumed only inside the start/restart-button gesture
+(`Sfx.unlock()`) — the thing modern mobile actually requires — and the single
+mute button now governs both subsystems (shared `snowgliderMuted` key). It is
+inert without Web Audio (Node/jsdom) and gated off under automation unless a test
+opts in (`window.testHooks.sfxEnabled`), mirroring `debris`/`intro`, so the
+physics-invariant harness and every existing suite keep their byte-identical,
+music-only path. Tests: `npm run test:sfx` (27 headless unit assertions on the
+exported gain-mapping pure functions + the defensive no-op/mute behaviour) plus a
+live-`AudioContext` section in the browser audio suite. **iOS silent-switch and
+real-device mobile playback are not yet verified** — same caveat as the music.
 
 ### Simplified native HTML5 audio (Jan 2026)
 A deliberate rewrite to the simplest thing that works: native `<audio>`, no

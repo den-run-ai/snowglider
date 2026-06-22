@@ -39,6 +39,7 @@ These exist today and generally don't need re-inventing — the gaps below build
 - Snow particle effects responsive to speed/turning
 - Tracking camera with toggleable views
 - Background music (simplified native HTML5 audio, single track)
+- Procedural sound effects (`src/sfx.ts`: wind, carving swish, jump/land, avalanche rumble, crash/finish)
 - Timer with best-time tracking
 - Firebase auth + global leaderboard (finishes can record scores when logged in)
 - Mobile touch controls
@@ -82,8 +83,8 @@ The biggest design gap: the game *slid with steering* rather than feeling like s
 
 The avalanche existed but wasn't well communicated, especially when it came from behind.
 
-- **Shipped:** a warning banner ("⚠ AVALANCHE — GO!" escalating when close), a "distance behind you" danger meter, a red vignette, and proximity-scaled camera shake.
-- **Remaining (○):** audio rumble/cue, an approaching snow cloud/shadow rendered in the scene.
+- **Shipped:** a warning banner ("⚠ AVALANCHE — GO!" escalating when close), a "distance behind you" danger meter, a red vignette, proximity-scaled camera shake, and a proximity-scaled audio rumble (#158, `src/sfx.ts`).
+- **Remaining (○):** an approaching snow cloud/shadow rendered in the scene.
 - **Open issues:** avalanche trigger notification + visibility from behind (**#49**), avalanche effects and controls (**#44**).
 
 ### 4. Jump usefulness and trick/reward mechanics — ○ open
@@ -116,11 +117,12 @@ A skiing game lives on speed readability and mountain atmosphere.
 - **Remaining (○):** a real **snow-accumulation model** (persistent `SnowDepthField`: snowfall raises depth, skis compact tracks, tracks refill over time — visual-only first, fed into the terrain material; the current ski tracks are transient feedback, not accumulation); replacing the periodic `sin(x*0.2)*cos(z*0.3)` terrain ridge with layered fBm/domain-warp so the geometry itself stops banding (a separate terrain PR — touches the height contract + physics tests); weather variation and a day→sunset→night skybox; stronger slope contrast and obstacle silhouettes; and depth cues.
 - **Open issues:** lighting/shadows and snow/tree/rock/snowman textures (**#17** snow surface + dynamic trails now ◐ partial). Intro fly-over (**#51**) ✅ shipped (`src/intro.ts`). Visible sky (**#2**) is ◐ partial — static sky + a bounded golden-hour↔midday sun cycle (#163) shipped; clouds / full night path remain.
 
-### 8. Audio consistency and completion — ○ open
+### 8. Audio consistency and completion — ◐ partial
 
-Audio has since been rewritten to a simplified, dependency-free native HTML5 implementation (single background-music track) and re-enabled (`AUDIO_ENABLED = true`); the full history is in [`CHANGELOG.md`](CHANGELOG.md). It remains **partially integrated**: the in-page audio control button is still disabled in `index.html` and mobile playback (iOS Safari silent switch, Android Chrome) is not yet verified on real devices.
+Audio has since been rewritten to a simplified, dependency-free native HTML5 implementation (single background-music track) and re-enabled (`AUDIO_ENABLED = true`); the full history is in [`CHANGELOG.md`](CHANGELOG.md). **Sound effects beyond music shipped (#158):** `src/sfx.ts`, a procedural Web Audio engine (no binary assets) covering speed-scaled wind, a technique-keyed carving swish, an avalanche rumble, and jump/land/crash/finish one-shots. It remains **partially integrated**: the in-page audio control button is still disabled in `index.html`, and mobile playback for both music and effects (iOS Safari silent switch, Android Chrome) is not yet verified on real devices.
 
-- **Add / finish:** sound effects beyond music — wind that scales with speed, satisfying carving sounds on sharp turns, a crash/thud on wipeout — and complete the mobile integration.
+- **Done:** sound effects beyond music — wind that scales with speed, carving swish on turns, a crash/thud on wipeout, plus jump/land and an avalanche rumble (**#158**, `src/sfx.ts`).
+- **Add / finish:** complete the mobile integration (real-device verification of music + SFX) and the in-page audio control button.
 - **Open issue:** mobile music-disable button not working (**#50**).
 
 ### 9. Pause/save and quality-of-life controls — ○ open

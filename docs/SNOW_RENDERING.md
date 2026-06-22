@@ -30,15 +30,24 @@ snow form.](snow-lighting-model.svg)
 | Failure | Cause | Fix |
 |---|---|---|
 | **Whiteout** | Too much flat/soft light or ambient — terrain form disappears | Keep ambient low; let the hemisphere fill shade *by orientation*, not a uniform wash |
-| **Grey corduroy** | Hard low sun raking periodic terrain ridges into repeated grey bands | Soften the key light, smooth the *shading* normals, and remove the periodic ridge as a banding source |
+| **Grey corduroy** | Hard low sun raking periodic terrain ridges into repeated grey bands | Soften the key light, smooth the *shading* normals, and remove the periodic ridge as a banding source (the ridge is now aperiodic — see below) |
 | **Muddy snow** | Neutral grey shadows instead of cool blue ones | Shadows are filled by a cool-blue hemisphere sky color, never neutral grey |
 
 The "grey lines" that survived the snow *texture* fix (#17) were terrain **shadows**,
 not a texture: every mogul lit on one side and greyed on the other, made periodic by
-the regular `sin(x * 0.2) * cos(z * 0.3)` terrain ridge. They were addressed by
+the regular `sin(x * 0.2) * cos(z * 0.3)` terrain ridge. They were first addressed by
 (a) smoothing the *shading* normals while leaving the skiable height field untouched,
-and (b) the light rebalance below. Fully replacing that periodic ridge with
-fBm/domain-warp terrain remains a follow-up.
+and (b) the light rebalance below.
+
+The banding *source* itself — that periodic ridge — has now been removed (issue #188
+step 3): `mountains.ts` replaces `sin(x * 0.2) * cos(z * 0.3)` with a **deterministic
+domain-warped fBm** (`terrainRidgeField`), so the ridges meander instead of forming a
+regular lattice and a low sun has no periodicity left to rake into corduroy. The field
+is fixed-seed (an integer hash, not the `Math.random`-seeded SimplexNoise) so terrain
+is stable across loads and the Node terrain/regression tests pin its shape, and it is
+damped toward the peak like the existing perlin layer (smooth summit, relief growing
+down-slope). This is what lets the sun cycle's low-sun guard drop from 14° toward 8°
+(the guard change + golden-hour retune is the separate NS2 follow-up).
 
 ## The merged static lighting (source of truth: `scene-setup.ts`)
 

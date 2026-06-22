@@ -71,21 +71,42 @@ function openIntent(url: string, platform: SharePlatform): void {
   }
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Build a 16×16 inline SVG of a brand logo (a single 24×24-viewBox path),
+ *  tinted with the brand color. Used for the per-platform share buttons. */
+function brandIcon(pathData: string, color: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.style.flex = '0 0 auto';
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', pathData);
+  path.setAttribute('fill', color);
+  svg.appendChild(path);
+  return svg;
+}
+
 function makeSocialRow(data: ReturnType<typeof buildResultShareData>): HTMLDivElement {
   const links = buildShareLinks(data);
   const row = document.createElement('div');
   Object.assign(row.style, {
     display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '10px',
   });
-  for (const { key, label, icon } of SHARE_PLATFORMS) {
+  for (const { key, label, iconPath, color } of SHARE_PLATFORMS) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.id = `share-${key}-btn`;
     btn.setAttribute('data-platform', key);
     btn.title = `Share on ${label}`;
     btn.setAttribute('aria-label', `Share on ${label}`);
-    btn.textContent = `${icon} ${label}`;
+    btn.appendChild(brandIcon(iconPath, color));
+    btn.appendChild(document.createTextNode(label));
     Object.assign(btn.style, {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
       padding: '8px 6px', fontSize: '13px', fontWeight: '700', color: '#fff',
       cursor: 'pointer', border: 'none', borderRadius: '8px',
       background: 'rgba(255,255,255,0.14)', fontFamily: 'Arial, sans-serif',
@@ -142,22 +163,43 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   // Copy link lives in the (desktop) toggle menu next to the per-platform links.
   menu.appendChild(copyBtn);
 
+  // Desktop-only note: Instagram has no web share-intent URL, so on desktop the
+  // only path is "Save image" + a manual upload. (On mobile the primary share
+  // and "Save image" both file-share the PNG straight into the Instagram app, so
+  // this caveat lives inside the desktop-only menu.)
+  const igHint = document.createElement('p');
+  igHint.id = 'shareInstagramHint';
+  igHint.textContent = 'Instagram has no web sharing — use “Save image”, then upload the photo in the app.';
+  Object.assign(igHint.style, {
+    margin: '10px 2px 0', fontSize: '11px', lineHeight: '1.4', color: 'rgba(255,255,255,0.6)',
+    fontFamily: 'Arial, sans-serif',
+  });
+  menu.appendChild(igHint);
+
   // --- Behaviour ---
+  /** Capture the live frame (if a renderer is available) and compose the share
+   *  card. Shared by the explicit "Save image" button and the mobile primary
+   *  share so the screenshot rides along on both. */
+  function currentCardBlob(): Promise<Blob | null> {
+    const ctx = opts.getCapture ? opts.getCapture() : null;
+    return buildShareCardBlob(ctx, opts.time, opts.isBest, data.url);
+  }
+
   let imageBusy = false;
   async function handleImage(): Promise<void> {
     if (imageBusy) return;
     imageBusy = true;
     imageBtn.textContent = '⏳ Building image…';
     try {
-      const ctx = opts.getCapture ? opts.getCapture() : null;
-      const blob = await buildShareCardBlob(ctx, opts.time, opts.isBest, data.url);
+      const blob = await currentCardBlob();
       if (!blob) { flash(imageBtn, '⚠️ Image unavailable', imageLabel); return; }
       // Mobile: hand the PNG to the native sheet (reaches Instagram / Stories).
       const outcome = prefersNativeShare() ? await shareImageFile(blob, data) : 'unavailable';
       if (outcome === 'shared') { flash(imageBtn, '✅ Shared!', imageLabel); return; }
       if (outcome === 'cancelled') { imageBtn.textContent = imageLabel; return; }
-      // Desktop (or no file share): download it to post manually.
-      flash(imageBtn, downloadBlob(blob) ? '✅ Image saved' : '⚠️ Image unavailable', imageLabel);
+      // Desktop (or no file share): download it; Instagram has no web post API,
+      // so the player uploads the saved PNG in the app manually.
+      flash(imageBtn, downloadBlob(blob) ? '✅ Image saved — open Instagram' : '⚠️ Image unavailable', imageLabel);
     } finally {
       imageBusy = false;
     }
@@ -171,16 +213,35 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   });
 
   let nativeBusy = false;
+  async function handlePrimaryNative(): Promise<void> {
+    if (nativeBusy) return;
+    nativeBusy = true;
+    primary.textContent = '⏳ Preparing…';
+    try {
+      // Mobile/touch: share the screenshot card itself so the run image rides
+      // along into the OS sheet (which lists Instagram / Stories and every other
+      // installed social app). Fall back to a text+link share when the image
+      // can't be built or this browser can't file-share.
+      const blob = await currentCardBlob();
+      if (blob) {
+        const imgOutcome = await shareImageFile(blob, data);
+        if (imgOutcome === 'shared') { flash(primary, '✅ Shared!', PRIMARY_LABEL); return; }
+        if (imgOutcome === 'cancelled') { primary.textContent = PRIMARY_LABEL; return; }
+        // 'unavailable' (no file-share support) -> fall through to text+link.
+      }
+      const outcome = await shareResult(data);
+      if (outcome === 'shared') flash(primary, '✅ Shared!', PRIMARY_LABEL);
+      else if (outcome === 'copied') flash(primary, '✅ Link copied!', PRIMARY_LABEL);
+      else if (outcome === 'cancelled') primary.textContent = PRIMARY_LABEL;
+      else flash(primary, '⚠️ Sharing unavailable', PRIMARY_LABEL);
+    } finally {
+      nativeBusy = false;
+    }
+  }
+
   primary.addEventListener('click', () => {
     if (prefersNativeShare()) {
-      // Mobile/touch: the OS sheet already lists social apps.
-      if (nativeBusy) return;
-      nativeBusy = true;
-      void shareResult(data).then((outcome) => {
-        if (outcome === 'shared') flash(primary, '✅ Shared!', PRIMARY_LABEL);
-        else if (outcome === 'copied') flash(primary, '✅ Link copied!', PRIMARY_LABEL);
-        else if (outcome === 'unavailable') flash(primary, '⚠️ Sharing unavailable', PRIMARY_LABEL);
-      }).finally(() => { nativeBusy = false; });
+      void handlePrimaryNative();
       return;
     }
     // Desktop: reveal/hide the explicit per-platform menu.

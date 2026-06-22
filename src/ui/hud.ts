@@ -6,11 +6,31 @@
 import type { PlayerPos, UpdateResult } from '../snowman.js';
 import { setupCollapsiblePanel } from './collapsible-panel.js';
 
+// --- Real-world units for the Game Stats readout ---
+// The simulation runs in metric world units where 1 unit ≈ 1 metre (the same
+// scale the course HUD already uses for its "… m to finish" distance) and
+// velocities are in metres per second (gravity is modelled at 9.8 m/s²). We
+// surface both metric and imperial so the numbers read like real skiing stats.
+const MPS_TO_KMH = 3.6;          // metres/second → km/h
+const MPS_TO_MPH = 2.236936;     // metres/second → mph
+const M_TO_FT = 3.280839895;     // metres → feet
+// Display anchor so altitude reads like a real alpine elevation and never goes
+// negative on the lower half of the run (terrain drops below the y=0 plane far
+// downhill). Cosmetic only — it shifts the readout, not the physics.
+const BASE_ELEVATION_M = 1500;
+
+// Format a run time for the Game Stats panel. One decimal is plenty of
+// precision for the live readout, and keeps the values consistent wherever the
+// panel's time elements are written.
+export function formatStatTime(seconds: number): string {
+  return seconds !== Infinity ? `${seconds.toFixed(1)}s` : '--';
+}
+
 // Seed the best-time readout and wire up the Game Stats panel collapse/swipe.
 export function initializeGameStats(bestTime: number): void {
   const bestTimeElement = document.getElementById('bestTimeValue');
   if (bestTimeElement) {
-    bestTimeElement.textContent = bestTime !== Infinity ? `${bestTime.toFixed(2)}s` : '--';
+    bestTimeElement.textContent = formatStatTime(bestTime);
   }
 
   // Game stats panel collapse/swipe behavior (shared with the Controls panel).
@@ -36,11 +56,12 @@ export function initializeControlsToggle(): void {
   });
 }
 
-// Per-frame stats readout: color-coded speed, x/z position, and the ground /
+// Per-frame stats readout: color-coded speed, altitude, and the ground /
 // jump / ski-technique indicator.
 export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: boolean): void {
-  // Format speed with color based on value
-  const speed = result.currentSpeed.toFixed(1);
+  // Convert the metric world speed into real skiing units (km/h and mph).
+  const speedMps = result.currentSpeed;
+  const speedText = `${Math.round(speedMps * MPS_TO_KMH)} km/h (${Math.round(speedMps * MPS_TO_MPH)} mph)`;
   let speedColor = '#FFFFFF'; // Default white
 
   // Color code speed (green for slow, yellow for medium, red for fast)
@@ -55,13 +76,15 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
   // Update individual stat elements
   const speedElement = document.getElementById('speedValue');
   if (speedElement) {
-    speedElement.textContent = speed;
+    speedElement.textContent = speedText;
     speedElement.style.color = speedColor;
   }
 
-  const positionElement = document.getElementById('positionValue');
-  if (positionElement) {
-    positionElement.textContent = `${pos.x.toFixed(0)},${pos.z.toFixed(0)}`;
+  // Altitude (height above the run's base elevation) in metres and feet.
+  const altitudeElement = document.getElementById('altitudeValue');
+  if (altitudeElement) {
+    const altitudeM = BASE_ELEVATION_M + pos.y;
+    altitudeElement.textContent = `${Math.round(altitudeM)} m (${Math.round(altitudeM * M_TO_FT)} ft)`;
   }
 
   const groundElement = document.getElementById('groundStatus');
@@ -95,13 +118,13 @@ export function updateTimerDisplay(gameActive: boolean, startTime: number, bestT
     // Update the current time element in game stats
     const currentTimeElement = document.getElementById('currentTime');
     if (currentTimeElement) {
-      currentTimeElement.textContent = `${currentTime.toFixed(2)}s`;
+      currentTimeElement.textContent = formatStatTime(currentTime);
     }
 
     // Keep best time updated
     const bestTimeElement = document.getElementById('bestTimeValue');
     if (bestTimeElement) {
-      bestTimeElement.textContent = bestTime !== Infinity ? `${bestTime.toFixed(2)}s` : '--';
+      bestTimeElement.textContent = formatStatTime(bestTime);
     }
   }
 }

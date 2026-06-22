@@ -7,6 +7,30 @@
        (vite.config.js); the "dev" placeholder only shows if served without Vite. -->
   <meta name="build-id" content="dev">
   <title>Skiing Snowman</title>
+  <meta name="description" content="Race a snowman down a procedurally generated backcountry mountain — dodge trees, launch off jumps, and outrun the avalanche. Beat the clock and your own ghost. Free in your browser, no install.">
+  <link rel="canonical" href="https://snowglider.ai/">
+
+  <!-- Social link previews (Open Graph + Twitter Card). Facebook, LinkedIn, X,
+       WhatsApp, Telegram and Reddit all render a shared link from these tags
+       rather than from any text the share dialog tries to prefill (Facebook and
+       LinkedIn ignore prefilled text entirely), so without them a shared link
+       shows up bare. og:image must be an absolute URL; it is hosted off-tree on
+       the long-lived `assets/og-image` branch (do not delete that branch) so the
+       repo stays binary-free. See the "Social sharing" entry in docs/CHANGELOG.md. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SnowGlider">
+  <meta property="og:title" content="SnowGlider — ski a snowman down the mountain">
+  <meta property="og:description" content="Race a snowman down a procedurally generated backcountry mountain — dodge trees, launch off jumps, and outrun the avalanche. Beat the clock and your own ghost. Free in your browser, no install.">
+  <meta property="og:url" content="https://snowglider.ai/">
+  <meta property="og:image" content="https://raw.githubusercontent.com/den-run-ai/snowglider/assets/og-image/og-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="SnowGlider — a snowman skiing down a snowy backcountry mountain">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SnowGlider — ski a snowman down the mountain">
+  <meta name="twitter:description" content="Race a snowman down a procedurally generated backcountry mountain — dodge trees, launch off jumps, and outrun the avalanche. Free in your browser.">
+  <meta name="twitter:image" content="https://raw.githubusercontent.com/den-run-ai/snowglider/assets/og-image/og-card.png">
+
   <link rel="stylesheet" href="styles/main.css">
   <!--
     Import map for the ES-module bundle path (issue #84, Phase 2). It only takes
@@ -120,7 +144,7 @@
     <div id="gameStatsContent">
       <div class="stat-item">
         <span class="stat-label">Current Time</span>
-        <span id="currentTime" class="stat-value">0.00s</span>
+        <span id="currentTime" class="stat-value">0.0s</span>
       </div>
       <div class="stat-item">
         <span class="stat-label">Best Time</span>
@@ -128,11 +152,11 @@
       </div>
       <div class="stat-item">
         <span class="stat-label">Speed</span>
-        <span id="speedValue" class="stat-value">0.0</span>
+        <span id="speedValue" class="stat-value">0 km/h (0 mph)</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">Position</span>
-        <span id="positionValue" class="stat-value">0,0</span>
+        <span class="stat-label">Altitude</span>
+        <span id="altitudeValue" class="stat-value">0 m (0 ft)</span>
       </div>
       <div class="stat-item">
         <span class="stat-label">Status</span>
