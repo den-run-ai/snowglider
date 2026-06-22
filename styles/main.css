@@ -842,8 +842,15 @@ canvas { display: block; }
   margin-bottom: 12px;
   width: 100%;
   max-width: 360px;
-  max-height: 168px;
+  /* Tall enough to show the full top-5 (h3 + header + 5 rows) without an internal
+     scrollbar. */
+  max-height: 200px;
   overflow-y: auto;
+  /* #startGameContainer is a column flexbox; without this the leaderboard (a flex
+     item) is shrunk below its own max-height when the panel is taller than the
+     viewport, clipping the bottom rows with no usable scrollbar. Keep its natural
+     height and let the container scroll (justify-content: safe center) instead. */
+  flex-shrink: 0;
   text-align: center;
 }
 
