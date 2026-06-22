@@ -13,6 +13,19 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fix: start-screen leaderboard rows clipped at full height
+- The **Global Top Times** preview (`#startLeaderboard`) on the start screen was
+  truncated — only the header and the first few of the top-5 rows showed, with the
+  rest cut off and no usable scrollbar. `#startGameContainer` is a column flexbox,
+  so the leaderboard (a flex item) was being shrunk *below its own `max-height`*
+  whenever the panel was taller than the viewport, clipping the bottom rows. Same
+  flex-overflow class of bug as the build badge (`#buildBadge`) fix.
+- Fix is CSS-only (`styles/main.css`): add `flex-shrink: 0` so the leaderboard
+  keeps its natural height and the container scrolls instead (`overflow-y: auto` +
+  `justify-content: safe center` already keep the top reachable), and bump
+  `max-height` 168px → 200px so the full top-5 (h3 + header + 5 rows) fits without
+  an internal scrollbar.
+
 ### Shaped skis — sidecut / camber / shovel / tail + cosmetic flex (#189)
 - The snowman's skis were two flat red `BoxGeometry` slabs with an angled box glued
   on the front. They are now real ski shapes built from a **custom lofted
