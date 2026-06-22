@@ -85,11 +85,26 @@ try {
   }, { timeout: 10000 });
 
   if (CLEAN) {
+    // Keep the gameplay HUD (controls list, stats incl. the technique Status field,
+    // course progress + avalanche warning) so the clip actually shows the controls
+    // and technique; hide only account/dev chrome and end-of-run overlays. Pin the
+    // stats panel into a compact top-right box so it never covers the centred
+    // snowman, and keep the controls list tucked in the top-left corner.
     await page.addStyleTag({ content: `
-      #controlsInfo, #gameStatsContainer, #courseHud, #resetBtn, #cameraToggleBtn,
-      .touch-control, #authContainer, #introSkipBtn, #audioControlBtn,
-      #gameOverOverlay, #courseResult,
+      #resetBtn, #cameraToggleBtn, .touch-control, #authContainer, #introSkipBtn,
+      #audioControlBtn, #gameOverOverlay, #courseResult,
       div[style*="z-index: 3000"] { display: none !important; }
+      #gameStatsContainer {
+        top: 8px !important; right: 8px !important; left: auto !important;
+        max-width: 200px !important; font-size: 12px !important; padding: 6px 9px !important;
+        overflow: visible !important;
+      }
+      #gameStatsContent {
+        display: flex !important; flex-direction: column !important; gap: 4px !important;
+        max-height: none !important; overflow: visible !important;
+      }
+      .stat-item { display: flex !important; flex-direction: column !important; }
+      #controlsInfo { font-size: 12px !important; opacity: 0.92; }
     ` });
   }
 
@@ -111,35 +126,64 @@ try {
   await page.evaluate(() => { if (typeof window.restartGame === 'function') window.restartGame(); });
   await warmUntilAlive();
 
-  // Scripted gentle symmetric slalom on the virtual timeline (frame indices).
-  const held = new Set();
-  const setKey = async (key, down) => {
-    if (down && !held.has(key)) { held.add(key); await page.keyboard.down(key); }
-    if (!down && held.has(key)) { held.delete(key); await page.keyboard.up(key); }
-  };
-  // Per-frame steering plan: a short straight glide to build speed, then a gentle
-  // symmetric slalom that weaves around the fall line for skiing "life" without
-  // wandering into the side trees (a tuck bombs straight into them; this survives).
-  const plan = new Array(FRAMES).fill(null);
-  const glide = Math.round(FPS * 1.2);
-  const hold = Math.round(FPS * 0.7), gap = Math.round(FPS * 0.45);
-  let f = glide, dir = 'ArrowLeft';
-  while (f < FRAMES) {
-    for (let i = 0; i < hold && f < FRAMES; i++, f++) plan[f] = dir;
-    f += gap;
-    dir = dir === 'ArrowLeft' ? 'ArrowRight' : 'ArrowLeft';
+  // --- Choreography: a deliberate run that demonstrates each ski technique, a
+  // jump, then the avalanche giving chase — instead of an aimless slalom.
+  // Each segment is [technique, seconds]; 'parallel' alternates quick L/R turns,
+  // 'jump' pulses Space. Keys: ArrowUp=tuck, ArrowDown=snowplow, ArrowLeft/Right=
+  // carve/turn. A long closing tuck travels far enough to wake the avalanche.
+  const SEGMENTS = [
+    ['glide', 1.2],   // ease in, build speed
+    ['tuck', 2.3],    // ⬆ tuck — straight-line, aero crouch, top speed
+    ['right', 1.8],   // ➡ carve — hold a smooth wide arc
+    ['left', 1.8],    // ⬅ carve the other way
+    ['parallel', 1.6],// quick parallel turns (scrub speed)
+    ['tuck', 1.7],    // rebuild speed into the jump
+    ['jump', 1.5],    // ⎵ jump — launch at speed and get air
+    ['tuck', 1.8],    // land and bomb downhill (wakes the avalanche)
+    ['plow', 1.5],    // ⬇ snowplow / pizza — wedge and slow
+    ['tuck', 9.0],    // outrun, then get chased down by the avalanche
+  ];
+  const steer = new Array(FRAMES).fill(null); // per-frame turn/tuck/plow key or null
+  const jumpFrames = new Set();               // frames to hold Space (jump)
+  {
+    let f = 0;
+    for (const [tech, secs] of SEGMENTS) {
+      const len = Math.round(FPS * secs);
+      if (tech === 'parallel') {
+        let d = 'ArrowRight';
+        for (let i = 0; i < len; i++) {
+          if (i > 0 && i % Math.round(FPS * 0.55) === 0) d = d === 'ArrowRight' ? 'ArrowLeft' : 'ArrowRight';
+          if (f + i < FRAMES) steer[f + i] = d;
+        }
+      } else if (tech === 'jump') {
+        for (let i = 0; i < 3; i++) if (f + i < FRAMES) jumpFrames.add(f + i); // brief Space hold
+      } else {
+        const key = tech === 'tuck' ? 'ArrowUp' : tech === 'plow' ? 'ArrowDown'
+          : tech === 'left' ? 'ArrowLeft' : tech === 'right' ? 'ArrowRight' : null;
+        for (let i = 0; i < len && f + i < FRAMES; i++) steer[f + i] = key;
+      }
+      f += len;
+    }
   }
+  // Desired held keys for a given frame (steer key + Space during a jump).
+  const keysAt = (i) => {
+    const set = new Set();
+    if (steer[i]) set.add(steer[i]);
+    if (jumpFrames.has(i)) set.add('Space');
+    return set;
+  };
+  const held = new Set();
+  const applyKeys = async (target) => {
+    for (const k of [...held]) if (!target.has(k)) { held.delete(k); await page.keyboard.up(k); }
+    for (const k of target) if (!held.has(k)) { held.add(k); await page.keyboard.down(k); }
+  };
 
   // Fast survival probe: one pass, no screenshots, report how long the run lasts
-  // for this seed/plan. Used to pick a seed that survives well before the (slow)
-  // screenshot capture.
+  // for this seed/choreography. Used to pick a seed that survives the whole show.
   if (PROBE) {
     let dead = 0, survived = 0;
     for (let i = 0; i < FRAMES; i++) {
-      const want = plan[i];
-      await setKey('ArrowLeft', want === 'ArrowLeft');
-      await setKey('ArrowRight', want === 'ArrowRight');
-      await setKey('ArrowUp', want === 'ArrowUp');
+      await applyKeys(keysAt(i));
       const n = await pump(DT);
       if (n === 0) { if (++dead >= 2) { survived = i - 1; break; } } else { dead = 0; survived = i; }
     }
@@ -150,17 +194,12 @@ try {
 
   console.log(`Deterministic capture: ${FRAMES} frames @ ${FPS}fps (${SECONDS}s game-time)...`);
 
-  // The run can die unpredictably (a tree, or burial by the randomly-seeded
-  // avalanche), which freezes the loop. To reliably harvest a long clean clip we
-  // capture a long session and auto-restart whenever the loop goes idle; the build
-  // step then extracts the longest contiguous segment of distinct frames.
+  // The run can still die (a tree, or burial by the avalanche), freezing the loop.
+  // Auto-restart on death; the build step keeps the longest contiguous clean run.
   const ran = new Array(FRAMES).fill(0);
-  let deadStreak = 0, runStart = 0, planIdx = 0;
+  let deadStreak = 0, runStart = 0;
   for (let i = 0; i < FRAMES; i++) {
-    const want = plan[(planIdx++) % plan.length];
-    await setKey('ArrowLeft', want === 'ArrowLeft');
-    await setKey('ArrowRight', want === 'ArrowRight');
-    await setKey('ArrowUp', want === 'ArrowUp');
+    await applyKeys(keysAt(i));
     const n = await pump(DT);
     ran[i] = n;
     const buf = await page.screenshot({ type: 'jpeg', quality: 92 });
@@ -169,19 +208,18 @@ try {
     if (n === 0) {
       deadStreak++;
       if (deadStreak >= 2) {
-        // Loop is dead/frozen → restart for a fresh run and re-prime the loop.
-        await setKey('ArrowLeft', false); await setKey('ArrowRight', false); await setKey('ArrowUp', false);
+        await applyKeys(new Set());
         await page.evaluate(() => { if (typeof window.restartGame === 'function') window.restartGame(); });
         await warmUntilAlive();
         console.log(`  frame ${i}: run ended (lasted ~${((i - runStart) / FPS).toFixed(1)}s) — restarted`);
-        deadStreak = 0; runStart = i + 1; planIdx = 0;
+        deadStreak = 0; runStart = i + 1;
       }
     } else {
       deadStreak = 0;
     }
     if (i % 60 === 0) console.log(`  frame ${i}/${FRAMES}`);
   }
-  await setKey('ArrowLeft', false); await setKey('ArrowRight', false); await setKey('ArrowUp', false);
+  await applyKeys(new Set());
   fs.writeFileSync(path.join(OUT, 'ran.json'), JSON.stringify(ran));
   console.log(`Done -> ${OUT} (${FRAMES} frames)`);
 } finally {
