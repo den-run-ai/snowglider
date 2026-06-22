@@ -13,6 +13,34 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Social sharing — link previews + screenshot in the mobile share
+- Follow-up to "desktop platform menu + screenshot card" below. Three gaps made
+  sharing feel broken: shared links had no preview at all, Facebook/LinkedIn
+  shared "just a link" with no text, and the screenshot only ever reached the
+  "Save image" button.
+- **Open Graph + Twitter Card meta tags** added to `index.html`. The web
+  share-intent URLs (and Facebook/LinkedIn especially, which ignore any prefilled
+  text by policy) render a shared link from these tags, not from the share dialog
+  — so without them every shared link unfurled bare. Now X/Facebook/LinkedIn/
+  WhatsApp/Telegram/Reddit show a real card (branded image + title + description).
+  The `og:image` is a 1200×630 promo card hosted off-tree on the long-lived
+  `assets/og-image` branch (keeps `main` binary-free; **do not delete that branch**).
+- **The mobile "Share Result" now carries the screenshot.** The primary share on
+  touch devices builds the run card and file-shares the PNG via the native sheet
+  (which lists Instagram / Stories), falling back to the text+link share when the
+  image can't be built or the browser can't file-share. Previously the screenshot
+  was only reachable through the separate "Save image" button.
+- **Instagram clarity.** Instagram has no web share-intent URL, so desktop can
+  only "Save image" + manual upload; the desktop menu now says so, and the
+  saved-image confirmation points the player at Instagram. (On mobile the file
+  share reaches the Instagram app directly.)
+- **Real brand icons.** The per-platform buttons now render the official brand
+  logos (Simple Icons, CC0) as inline SVG in each brand's color, replacing the
+  earlier synthetic text glyphs (𝕏 / f / in / ✆ / r/ / ✈).
+- Tests: `tests/share-menu-tests.js` updated — the mobile primary now asserts a
+  file (image) share plus a text+link fallback path; `share`/`share-card` suites
+  unchanged and green.
+
 ### Codex review follow-ups on the snow/light stack (#163, #181)
 - **Golden hour no longer renders muddy (sky.ts, #163).** The cycle's golden-hour
   `THREE.Color` endpoints were built at module load — *before* `scene-setup` opts out
