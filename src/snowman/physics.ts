@@ -56,6 +56,8 @@ export function resetSnowman(
     // Clear edge-engagement state so a new run starts with no locked carve.
     snowman.userData.carveCharge = 0;
     snowman.userData.lastSteerDir = 0;
+    // Clear the snowplow wedge depth so a new run starts with no charged brake.
+    snowman.userData.plowCharge = 0;
     // Clear jump provenance so a new run never inherits a stale "this air phase was
     // a deliberate jump" flag from the previous run (meaningful jumps #47, §3.1).
     snowman.userData.playerJump = false;
@@ -242,7 +244,27 @@ export function stepSnowmanPhysics(
       if (snowman.userData) snowman.userData.playerJump = true;
     }
   }
-  
+
+  // --- Snowplow wedge depth: stop vs. slow-down, and steep-slope failure -----
+  // `plowCharge` (0..1) is a hold ramp (mirroring carveCharge): tapping Brake forms a
+  // shallow wedge that only trims speed, while holding it deepens into a full wedge
+  // that can stop you — on moderate terrain. It is driven by `controls.down` EVERY
+  // frame (incl. airborne) so the tap-vs-hold contract survives a jump: releasing Brake
+  // in the air relaxes the wedge for the landing, and holding it pre-builds the charge.
+  // The actual braking is still applied only while grounded (see the brake block
+  // below, gated on `snowplow = down && !isInAir`). It is read/written every frame but
+  // only ever alters velocity under a grounded Brake, so the no-input coasting path
+  // stays byte-identical to the frozen baseline; resetSnowman clears it between runs.
+  const PLOW_BUILD_RATE = 1.6;    // ~0.6s of holding Brake to reach a full wedge
+  const PLOW_RELEASE_RATE = 4.0;  // wedge relaxes quickly once you ease off Brake
+  {
+    const ud = snowman.userData || (snowman.userData = {});
+    const charge = ud.plowCharge || 0;
+    ud.plowCharge = controls.down
+      ? Math.min(1, charge + delta * PLOW_BUILD_RATE)
+      : Math.max(0, charge - delta * PLOW_RELEASE_RATE);
+  }
+
   // Update vertical position and velocity when in air
   if (isInAir) {
     // Track time in air
@@ -328,6 +350,9 @@ export function stepSnowmanPhysics(
     }
     ud.carveCharge = carveCharge;
     ud.lastSteerDir = lastSteerDir;
+    // Snowplow wedge depth was already advanced this frame (before the air/ground
+    // split, so it tracks Brake through a jump); read it back for the brake + pose.
+    const plowCharge = ud.plowCharge || 0;
 
     // Steering authority sets the turn RADIUS, and it is the inverse of commitment:
     //   - a skidded PARALLEL turn pivots tight (high authority) but scrubs speed;
@@ -348,28 +373,54 @@ export function stepSnowmanPhysics(
       velocity.x += turnForce * delta;
     }
 
-    // Forward input / straight-line tuck.
+    // Forward input / straight-line tuck. Brake overrides accelerate: Up and Down are
+    // independent key states, and the accelerate impulse (10) is stronger than even a
+    // full wedge's brake cap (5.68), so without this gate holding W+S would accelerate
+    // downhill instead of braking. A wedge and a forward push are mutually exclusive
+    // anyway, so the snowplow simply ignores Up.
     const accelerationForce = 10.0;
-    if (controls.up) {
+    if (controls.up && !snowplow) {
       velocity.z -= accelerationForce * delta;
     }
 
-    // Snowplow braking: decelerate along the actual direction of travel so it
-    // bleeds genuine speed (not just downhill velocity), with a little extra dig.
-    // Clamp the impulse to the current speed so braking can bring the snowman to a
-    // stop but never reverse the velocity vector - otherwise at low speed the
-    // subtraction overshoots zero and the control bias below drives it back uphill,
-    // letting players climb/stall the timed course by braking.
-    if (snowplow && currentSpeed > 0.001) {
-      const brakeDecel = 14.0;
-      const brakeImpulse = Math.min(brakeDecel * delta, currentSpeed);
-      velocity.x -= (velocity.x / currentSpeed) * brakeImpulse;
-      velocity.z -= (velocity.z / currentSpeed) * brakeImpulse;
-      // Only nudge the slight uphill control bias while still moving; never after the
-      // brake has stopped the snowman (that would push it uphill from a standstill).
-      if (brakeImpulse < currentSpeed) {
-        velocity.z += accelerationForce * delta * 0.3;
-      }
+    // Snowplow braking: decelerate along the actual direction of travel so it bleeds
+    // genuine speed (not just downhill velocity). The deceleration scales with wedge
+    // depth (plowCharge): a light wedge (PLOW_MIN_DECEL) only trims speed, a full
+    // wedge (PLOW_MAX_DECEL) can stop you. PLOW_MAX_DECEL is the strongest brake there
+    // is, so on steep pitches where gravity-along-slope exceeds it even a full wedge
+    // can only hold a slow terminal speed — steep-slope failure falls straight out of
+    // the force balance, no special-casing. (The old fixed +3 m/s² uphill nudge that
+    // used to ride alongside the brake is folded into PLOW_MAX_DECEL: as a constant it
+    // applied even to a feather-light wedge, which both stopped you on terrain too
+    // steep to wedge and pushed the stop threshold past anything the run actually
+    // skis, defeating the gradation and the steep-slope failure.) Clamp the impulse to
+    // the current speed so braking can bring the snowman to a stop but never reverse
+    // the velocity vector — at low speed an unclamped subtraction would overshoot zero
+    // and let players creep/stall the timed course uphill by braking.
+    //
+    // Thresholds are aligned to the ski-difficulty tiers the Slope HUD shows (PR #201,
+    // src/ui/hud.ts boundaries SLOPE_MODERATE 0.32 ≈ 18° and SLOPE_STEEP 0.58 ≈ 30°),
+    // so the readout doubles as a "can I stop here?" cue — and "you can't pizza a black
+    // diamond" holds literally: on a GREEN run (<18°) even a light wedge stops you; on a
+    // BLUE run (18–30°) you need a committed full wedge; on a BLACK-DIAMOND pitch (>30°)
+    // even a full wedge can only check your speed, not halt you. Each decel is the slope
+    // gravity at a tier edge (steepness × 9.8 m/s²: 0.32→3.14, 0.58→5.68). For the stop
+    // boundary to land *exactly* on the tier edge the brake must remove precisely
+    // `brakeDecel·delta` along travel, so it is computed from the speed AFTER this
+    // frame's gravity, not the stale start-of-frame `currentSpeed`. (Scaling by the
+    // stale, smaller pre-gravity speed over-removed velocity as speed dropped, pinning
+    // the snowman to a stop well past the cap — ~36° instead of 30° — so a pitch the HUD
+    // calls black could still be stopped. Recomputing here keeps the brake honest; the
+    // per-frame coast friction below then vanishes as v→0, so it does not shift the
+    // boundary.)
+    const PLOW_MIN_DECEL = 3.14;    // light wedge: stops on green (<18°), only slows above
+    const PLOW_MAX_DECEL = 5.68;    // full wedge: stops up to the black-diamond line (~30°), fails above
+    const brakeSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+    if (snowplow && brakeSpeed > 0.001) {
+      const brakeDecel = PLOW_MIN_DECEL + (PLOW_MAX_DECEL - PLOW_MIN_DECEL) * plowCharge;
+      const brakeImpulse = Math.min(brakeDecel * delta, brakeSpeed);
+      velocity.x -= (velocity.x / brakeSpeed) * brakeImpulse;
+      velocity.z -= (velocity.z / brakeSpeed) * brakeImpulse;
     }
 
     // Edge skid / carve drag: only meaningful while steering. A skidded parallel

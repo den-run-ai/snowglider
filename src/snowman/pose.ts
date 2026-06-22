@@ -36,7 +36,11 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   if (!isInAir && snowman.userData && snowman.userData.leftSki && snowman.userData.rightSki) {
     const ls = snowman.userData.leftSki, rs = snowman.userData.rightSki;
     const lerp = Math.min(1, delta * 10);
-    const wedge = technique === 'snowplow' ? 0.35 : 0.0; // radians; converge the tips ("pizza")
+    // Wedge depth tracks how hard the player is braking (plowCharge, set in physics):
+    // a light wedge for a quick speed check that opens into a deep "pizza" for a full
+    // stop, so the snowplow's stop-vs-slow-down intent reads on the skis (issue #54).
+    const plowCharge = (snowman.userData.plowCharge as number) || 0;
+    const wedge = technique === 'snowplow' ? 0.18 + 0.32 * plowCharge : 0.0; // radians; converge the tips ("pizza")
     // Each ski's tip is at local +z and the skis sit at x = ∓1, so a POSITIVE
     // rotation.y swings the left ski's tip toward center and a NEGATIVE one swings
     // the right ski's tip toward center — tips meet, tails splay out (a real
