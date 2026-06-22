@@ -173,7 +173,10 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
   // wedge / parallel edge + draw). Present-or-absent: no-ops on a snowman without arms.
   if (parts.leftSkiTip || parts.rightSkiTip) {
     const snowplow = !air && m.technique === 'snowplow';
-    const carving = !air && (m.technique === 'carve' || m.technique === 'parallel' || m.technique === 'skid');
+    // Only a committed CARVE digs the shovel in (tip-pressure). A skidded parallel
+    // turn keeps the skis flatter — it must NOT get carve tip-pressure (#191: the
+    // low-charge skidded turn now reports 'parallel', not the old locked-edge tier).
+    const carving = !air && m.technique === 'carve';
 
     // Smooth the resting camber between techniques so changes don't snap.
     const camberTarget = air ? SKI_CAMBER_AIR : (snowplow ? SKI_CAMBER_PLOW : SKI_CAMBER_GLIDE);
