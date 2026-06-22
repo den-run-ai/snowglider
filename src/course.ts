@@ -123,6 +123,7 @@ export const CourseModule = (function () {
   let recordSamples: GhostSample[] = []; // trajectory recorded this run
   let sampleAccum = 0;
   let runActive = false;
+  let airScore = 0;            // accumulated air-score for this run (meaningful jumps #47)
 
   // Combined list of split gates (checkpoints then finish)
   const splitPoints: SplitPoint[] = CHECKPOINT_Z.map((z, i) => ({ z, label: `CHECKPOINT ${i + 1}` }))
@@ -179,8 +180,10 @@ export const CourseModule = (function () {
     root.appendChild(row);
     document.body.appendChild(root);
 
-    // Split flash (briefly shows the time + delta when crossing a checkpoint)
+    // Split flash (briefly shows the time + delta when crossing a checkpoint; also
+    // reused for the meaningful-jumps air toast). Given an id so it is addressable.
     const flash = document.createElement('div');
+    flash.id = 'courseFlash';
     Object.assign(flash.style, {
       position: 'fixed', top: '64px', left: '50%', transform: 'translateX(-50%)',
       zIndex: '901', padding: '8px 18px', borderRadius: '10px',
@@ -203,6 +206,23 @@ export const CourseModule = (function () {
     flashEl.style.opacity = '1';
     if (flashTimer) clearTimeout(flashTimer);
     flashTimer = setTimeout(() => { flashEl.style.opacity = '0'; }, 1600);
+  }
+
+  // Public, purpose-built toast for a graded manual-jump landing (meaningful jumps
+  // #47 §3.6), surfaced from the main loop through the same HUD flash element +
+  // styling the split timing already uses. Keeping the label/colour mapping here
+  // (next to the flash element it drives) keeps the loop a thin dispatcher and makes
+  // the presentation unit-testable. showFlash itself stays private.
+  function flashAir(quality: 'clean' | 'ok' | 'sketchy', seconds: number) {
+    const label = quality === 'clean' ? 'CLEAN' : quality === 'ok' ? 'OK' : 'SKETCHY';
+    const color = quality === 'clean' ? '#55efc4' : quality === 'ok' ? '#74b9ff' : '#ff7675';
+    showFlash(`✈ AIR ${seconds.toFixed(1)}s &middot; ${label}`, color);
+  }
+
+  // Bank air-score points earned this run (from a graded manual-jump landing in the
+  // physics kernel). Reset to 0 each run in reset(); surfaced on the result screen.
+  function addAirScore(points: number) {
+    if (points > 0) airScore += points;
   }
 
   // ---------------------------------------------------------------------------
@@ -406,6 +426,7 @@ export const CourseModule = (function () {
     recordSamples = [];
     sampleAccum = 0;
     runActive = true;
+    airScore = 0;
 
     // Refresh ghost + best splits in case a previous run set a new best.
     loadBests();
@@ -604,6 +625,20 @@ export const CourseModule = (function () {
     }
     panel.appendChild(improve);
 
+    // Air score (meaningful jumps #47, §3.6): a per-run flourish, shown only when
+    // the run actually banked air from graded manual jumps, so a no-jump run's
+    // result screen is unchanged.
+    if (airScore > 0) {
+      const air = document.createElement('div');
+      air.id = 'resultAirScore';
+      Object.assign(air.style, {
+        display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px',
+        fontSize: '15px', fontWeight: '700', color: '#74b9ff'
+      });
+      air.innerHTML = `<span style="font-size:18px">✈</span> Air score <span style="color:#fff">${airScore}</span>`;
+      panel.appendChild(air);
+    }
+
     // Split table
     const table = document.createElement('div');
     table.id = 'resultSplitTable';
@@ -674,6 +709,8 @@ export const CourseModule = (function () {
     init,
     reset,
     update,
+    flashAir,
+    addAirScore,
     hideHud,
     onFinish,
     // exposed for potential tests

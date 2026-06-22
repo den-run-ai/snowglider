@@ -58,7 +58,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       treePositions,
       rockPositions,
       gameActive: state.gameActive,
-      showGameOver: activeShowGameOver
+      showGameOver: activeShowGameOver,
+      // Meaningful jumps (#47): bank a manual jump's air score from inside the step,
+      // before its synchronous finish check can build the result screen — so a jump
+      // landed on the finish frame still counts (see Snowman.updateSnowman).
+      bankAirScore: (points: number) => { if (CourseModule) CourseModule.addAirScore(points); }
     });
 
     // Update game stats display (speed/position/technique)
@@ -67,6 +71,14 @@ export function createMainLoop(deps: MainLoopDeps) {
     // Camera shake on a meaningful landing (scales with time spent aloft).
     if (result.justLanded && result.landingForce > 0.25 && EffectsModule) {
       EffectsModule.addShake(Math.min(1.2, result.landingForce * 0.6));
+    }
+
+    // Meaningful jumps (#47): on a graded *manual*-jump landing, toast the air time
+    // + grade. landingQuality is non-null only for a player-initiated jump, so
+    // auto-jumps / hop turns / coasting never toast. (The air score itself is banked
+    // inside the step via bankAirScore above, so a finish-frame jump still counts.)
+    if (result.justLanded && result.landingQuality && CourseModule) {
+      CourseModule.flashAir(result.landingQuality, result.landingForce);
     }
 
     // Cosmetic flexibility / jiggle (issue #53). Purely visual: runs AFTER the physics
