@@ -102,7 +102,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 
 | Export | File | Style | Responsibility |
 |--------|------|-------|----------------|
-| `Mountains` | `mountains.ts` | object + fns | Terrain height field, gradient, mesh, rocks / `rockPositions`, `SimplexNoise` |
+| `Mountains` | `mountains.ts` (facade → `src/mountains/*`) | object + fns | Terrain height field, gradient, mesh, rocks / `rockPositions`, `SimplexNoise` |
 | `Trees` | `trees.ts` | object + fns | Tree meshes + placement; returns `treePositions` |
 | `Snow` | `snow.ts` | object + fns | Snowflakes + ski snow-splash particles |
 | `Sky` | `sky.ts` | object + fns | Preetham atmospheric sky + sun & horizon distance fog (gradient-dome fallback), issue #2 |
@@ -266,6 +266,23 @@ camera.position -= shake                          // revert so smoothing stays c
 > the same `.js` -> `.ts` resolver as the Node suites before importing the facade,
 > so the public seam remains the thing under test while `index.ts` keeps the
 > exported snowman contract types and update orchestration.
+>
+> **`mountains.ts`** got the same treatment (issue #34): the 1000-line module is now
+> a thin **`src/mountains.ts`** facade (`export * from './mountains/index.js'`) over
+> **`src/mountains/*`**, so every `./mountains.js` importer keeps resolving a sibling
+> file. **`noise.ts`** holds `SimplexNoise` plus the deterministic fixed-seed fBm
+> (`terrainRidgeField` / `forestDensityField`); **`terrain.ts`** holds the analytic
+> height field (`getTerrainHeight` / `getTerrainGradient` / `getDownhillDirection`)
+> and the shared `heightMap` cache — the physics seam, kept byte-identical to the
+> mesh-vertex formula (the *two-formula terrain contract*); **`snow-surface.ts`**
+> holds the snow albedo/normal CanvasTextures and the vertex-colour / smoothed-normal
+> passes; **`terrain-mesh.ts`** holds `createTerrain` (which pre-populates `heightMap`
+> and scatters rocks + trees); and **`rocks.ts`** holds rock meshes/colours/placement
+> plus the collision-hazard subset. `src/mountains/index.ts` is the assembly hub that
+> builds the `Mountains` object and re-exports the named/type surface
+> (`terrainRidgeField`, `forestDensityField`, `TerrainVec2`, `RockPosition`). The
+> terrain/regression suites and the physics-invariant harness pin the math, so the
+> split is behaviour-preserving.
 
 ### What the type system won't catch
 
