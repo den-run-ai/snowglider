@@ -65,8 +65,12 @@ export function createMainLoop(deps: MainLoopDeps) {
       bankAirScore: (points: number) => { if (CourseModule) CourseModule.addAirScore(points); }
     });
 
-    // Update game stats display (speed/position/technique)
-    updateStatsHud(result, pos, player.isInAir);
+    // Update game stats display (speed/altitude/slope/technique). The slope
+    // readout is the terrain steepness under the player: gradient magnitude
+    // (rise/run = tan θ), the same measure the terrain code uses for placement.
+    const grad = Snow.getTerrainGradient(pos.x, pos.z);
+    const slopeRatio = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
+    updateStatsHud(result, pos, player.isInAir, slopeRatio);
 
     // Camera shake on a meaningful landing (scales with time spent aloft).
     if (result.justLanded && result.landingForce > 0.25 && EffectsModule) {
@@ -206,7 +210,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       snowman.position.set(playerPosBefore.x, playerPosBefore.y, playerPosBefore.z);
 
       updateCamera();
-      updateTimerDisplay(state.gameActive, state.startTime, state.bestTime); // Update the timer display
+      updateTimerDisplay(state.gameActive, state.startTime); // Update the timer display
 
       // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
       // the positional offset so the camera manager's own smoothing stays clean.

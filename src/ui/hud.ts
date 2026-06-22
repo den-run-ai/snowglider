@@ -1,5 +1,5 @@
-// In-game HUD: the Game Stats panel (best time + collapse/swipe), the live run
-// timer, and the per-frame speed / position / technique readouts. Extracted from
+// In-game HUD: the Game Stats panel (collapse/swipe), the live run timer, and
+// the per-frame speed / altitude / slope / technique readouts. Extracted from
 // snowglider.ts; the orchestrator passes the run state in as parameters so this
 // module stays decoupled from the coordinator's bindings.
 
@@ -18,6 +18,13 @@ const M_TO_FT = 3.280839895;     // metres → feet
 // negative on the lower half of the run (terrain drops below the y=0 plane far
 // downhill). Cosmetic only — it shifts the readout, not the physics.
 const BASE_ELEVATION_M = 1500;
+const RAD_TO_DEG = 180 / Math.PI;
+// Slope steepness colour tiers, in gradient magnitude (rise/run = tan θ).
+// Calibrated to the measured run: the skiable line sits around 15–40° (median
+// ~24°), so gentle flats read green, the typical pitch yellow, and only the
+// genuinely steep black-diamond sections (≈30°+) read red.
+const SLOPE_MODERATE = 0.32;     // ≈18° / 32% — green → yellow
+const SLOPE_STEEP = 0.58;        // ≈30° / 58% — yellow → red
 
 // Format a run time for the Game Stats panel. One decimal is plenty of
 // precision for the live readout, and keeps the values consistent wherever the
@@ -26,13 +33,8 @@ export function formatStatTime(seconds: number): string {
   return seconds !== Infinity ? `${seconds.toFixed(1)}s` : '--';
 }
 
-// Seed the best-time readout and wire up the Game Stats panel collapse/swipe.
-export function initializeGameStats(bestTime: number): void {
-  const bestTimeElement = document.getElementById('bestTimeValue');
-  if (bestTimeElement) {
-    bestTimeElement.textContent = formatStatTime(bestTime);
-  }
-
+// Wire up the Game Stats panel collapse/swipe behavior.
+export function initializeGameStats(): void {
   // Game stats panel collapse/swipe behavior (shared with the Controls panel).
   setupCollapsiblePanel({
     name: 'game stats',
@@ -56,9 +58,10 @@ export function initializeControlsToggle(): void {
   });
 }
 
-// Per-frame stats readout: color-coded speed, altitude, and the ground /
-// jump / ski-technique indicator.
-export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: boolean): void {
+// Per-frame stats readout: color-coded speed, altitude, terrain slope, and the
+// ground / jump / ski-technique indicator. `slopeRatio` is the terrain gradient
+// magnitude under the player (rise/run = tan θ), supplied by the run loop.
+export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: boolean, slopeRatio: number): void {
   // Convert the metric world speed into real skiing units (km/h and mph).
   const speedMps = result.currentSpeed;
   const speedText = `${Math.round(speedMps * MPS_TO_KMH)} km/h (${Math.round(speedMps * MPS_TO_MPH)} mph)`;
@@ -87,6 +90,19 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
     altitudeElement.textContent = `${Math.round(altitudeM)} m (${Math.round(altitudeM * M_TO_FT)} ft)`;
   }
 
+  // Slope / incline of the terrain under the player, in degrees and percent
+  // grade (rise/run × 100). Color-coded like speed: green = gentle, yellow =
+  // moderate, red = steep.
+  const slopeElement = document.getElementById('slopeValue');
+  if (slopeElement) {
+    const slopeDeg = Math.round(Math.atan(slopeRatio) * RAD_TO_DEG);
+    const slopePct = Math.round(slopeRatio * 100);
+    slopeElement.textContent = `${slopeDeg}° (${slopePct}%)`;
+    slopeElement.style.color = slopeRatio > SLOPE_STEEP ? '#FF5252'
+      : slopeRatio > SLOPE_MODERATE ? '#FFD700'
+      : '#4CAF50';
+  }
+
   const groundElement = document.getElementById('groundStatus');
   if (groundElement) {
     if (isInAir) {
@@ -110,8 +126,8 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
   }
 }
 
-// Update the live timer (and keep the best-time value fresh) during gameplay.
-export function updateTimerDisplay(gameActive: boolean, startTime: number, bestTime: number): void {
+// Update the live run timer during gameplay.
+export function updateTimerDisplay(gameActive: boolean, startTime: number): void {
   if (gameActive) {
     const currentTime = (performance.now() - startTime) / 1000;
 
@@ -119,12 +135,6 @@ export function updateTimerDisplay(gameActive: boolean, startTime: number, bestT
     const currentTimeElement = document.getElementById('currentTime');
     if (currentTimeElement) {
       currentTimeElement.textContent = formatStatTime(currentTime);
-    }
-
-    // Keep best time updated
-    const bestTimeElement = document.getElementById('bestTimeValue');
-    if (bestTimeElement) {
-      bestTimeElement.textContent = formatStatTime(bestTime);
     }
   }
 }

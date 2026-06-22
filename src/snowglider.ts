@@ -80,7 +80,7 @@ state.bestTime = readStoredBestTime();
 // Initialize the stats display when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing game stats");
-  initializeGameStats(state.bestTime);
+  initializeGameStats();
 });
 
 // Add best time to game over overlay
@@ -265,7 +265,7 @@ window.initializeGameWithAudio = function() {
   Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
   
   // Make sure game stats and controls are properly initialized and visible
-  initializeGameStats(state.bestTime);
+  initializeGameStats();
   initializeControlsToggle();
   
   // Initialize Game Stats
@@ -280,7 +280,7 @@ window.initializeGameWithAudio = function() {
     }
     
     // Update initial values
-    updateTimerDisplay(state.gameActive, state.startTime, state.bestTime);
+    updateTimerDisplay(state.gameActive, state.startTime);
   }
   
   // Initialize Controls

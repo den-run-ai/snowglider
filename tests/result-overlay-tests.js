@@ -37,7 +37,7 @@ const { document } = window;
 // Reset the overlay DOM for one showGameOver scenario; returns the injected deps.
 function makeDeps({ bestTime = Infinity, startTime, onCrash } = {}) {
   document.body.innerHTML = `
-    <div id="gameStatsContainer"><button id="toggleStats">▲</button><span id="bestTimeValue">--</span></div>
+    <div id="gameStatsContainer"><button id="toggleStats">▲</button></div>
     <div id="leaderboard" style="display:none"></div>
     <div id="gameOverOverlay" style="display:none">
       <p id="gameOverDetail"></p>
@@ -101,7 +101,6 @@ async function main() {
     createShowGameOver(deps)(FINISH);
     check('finish records the score via AuthModule', typeof recorded === 'number');
     check('finish sets a new best time readout', /New Best Time/.test(deps.bestTimeDisplay.textContent));
-    check('finish updates the stats best-time element', document.getElementById('bestTimeValue').textContent.endsWith('s'));
     check('finish (not signed in) inserts the login prompt', !!document.getElementById('loginPrompt'));
     check('finish logs a complete_game analytics event', analyticsEvents.some(e => e[0] === 'complete_game'));
     check('overlay is shown', deps.gameOverOverlay.style.display === 'flex');
