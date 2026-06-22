@@ -1,0 +1,86 @@
+# SnowGlider — Controls & Techniques
+
+*The single map of SnowGlider's control surface: every input, what it does, and
+where the authoritative detail lives.*
+
+This page is an **index, not a re-statement** of the physics. The number behind
+each behavior is governed by [`PHYSICS.md`](PHYSICS.md); the input plumbing is in
+[`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input); and the player-facing copy is the
+in-game guide (`#controlsGuide` on the start screen and the Game Controls widget in
+[`index.html`](../index.html)). When a behavior changes, change it there and update
+this table's pointer — don't duplicate the math here.
+
+Three sources, three audiences:
+
+| Source | Audience | What it owns |
+|--------|----------|--------------|
+| In-game guide (`index.html`) | Players | Short "what the button does" copy, shown on the start screen + in-game |
+| [`PHYSICS.md`](PHYSICS.md) §3–§4 | Developers | The technique model: forces, `carveCharge`, scrub, jump/landing math |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) §6 | Developers | How keyboard/touch write the shared `controls` state object |
+
+---
+
+## 1. Inputs
+
+All inputs write a single shared `controls` state (`left/right/up/down/jump`) in
+[`controls.ts`](../src/controls.ts); the physics reads only that state, so keyboard
+and touch are fully interchangeable ([`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input)).
+
+| Input (keyboard) | Touch | Effect | Authoritative detail |
+|---|---|---|---|
+| **← / →** or **A / D** | Tap left / right of screen | **Steer.** Default is a *parallel (skidded)* turn; holding a smooth line locks it into a *carve* — see Techniques below | [`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer), §3.6 |
+| **↑ / W** | Tap top of screen | **Speed up.** With no steering this is the *tuck* (least friction, most speed, least control) | [`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer) |
+| **↓ / S** | Tap bottom of screen | **Brake — snowplow / "pizza".** Sheds real speed along the travel direction; clamped so it never reverses uphill from a standstill | [`PHYSICS.md` §3.4](PHYSICS.md#34-snowplow-brake-and-why-it-is-clamped) |
+| **Space** | Tap center of screen | **Jump.** A straight pop when not steering; a *player-initiated* jump is graded on landing and can earn a capped speed boost | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air), [`MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md) |
+| **Space + ← / →** | (center + side) | **Hop turn.** A quick grounded edge-set pivot for tight, steep terrain: snaps the heading and scrubs speed with a small pop | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air) (hop turn) |
+| **V** | — | **Toggle camera view** (follow ↔ alternate) | [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input) |
+| *(no input)* | — | **Idle wander** — a gentle auto-turn biased back toward center keeps an unattended snowman alive. No-input coasting is the **deterministic baseline** and must stay byte-identical | [`PHYSICS.md` §3.5](PHYSICS.md#35-automatic-turning-idle-wander), §6 |
+
+> The on-screen Reset and Restart buttons (and their touch handlers) call the
+> `window.resetSnowman` / `window.restartGame` seams — see
+> [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input) and §3.
+
+---
+
+## 2. Ski techniques
+
+The techniques are **not separate keys** — they emerge from how you use Steer /
+Brake / Speed / Jump. The two steered turns are the ends of one `carveCharge`
+edge-engagement axis: how committed the edge is sets the turn's radius, its speed
+scrub, *and* its pose. Full model and constants in
+[`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer).
+
+| Technique | How to do it | Feel / trade-off |
+|---|---|---|
+| **Parallel turn** (skidded) | Steer ← / → uncommitted (fresh, reversed, or abrupt) | Skis brush sideways and **scrub speed**; **tighter** arc, body upright. The entry turn |
+| **Carve** | Steer ← / → and *hold a smooth line* until the edge locks (`carveCharge > 0.6`) | The locked edge **holds speed**; **wider** arc with a deep body lean. The mastery turn above a parallel |
+| **Snowplow / pizza** | Hold Brake (↓ / S) | Wedge the ski tips together to scrub speed and **stop**; sharp, planted turns |
+| **Tuck** | Speed up (↑ / W) with **no steering** | Straight-line for **maximum speed** — least friction, least control |
+| **Hop turn** | **Jump + Steer** (Space + ← / →, grounded) | A quick pivot that snaps the heading and scrubs ~18% speed; for tight, steep terrain |
+
+**Why it's a skill:** an always-on turn tax (faded out by a committed carve) keeps
+straight-lining the fastest line, so anticipating and holding a clean carve beats
+chatter-skidding. The classification (`parallel` → `carve`) is what the HUD shows
+and what drives the ski/body pose — purely cosmetic, it never feeds back into the
+physics. Details and the edge-engagement equations:
+[`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer).
+
+---
+
+## 3. Notes for contributors
+
+- **The no-input path is load-bearing.** Coasting (no steer, no brake, no jump)
+  must stay byte-identical to the pre-technique physics — every technique above is
+  gated behind an explicit input. Any change to that path is deliberate and must be
+  reflected in [`PHYSICS.md`](PHYSICS.md) *and* the
+  `tests/verification/snowman_baseline.js` snapshot, or the physics-invariant
+  harness fails. See [`PHYSICS.md` §6](PHYSICS.md#6-determinism--the-test-safe-seam).
+- **Keyboard and touch are one contract.** Both only write the shared `controls`
+  state; never branch physics on input source. Add a binding in
+  [`controls.ts`](../src/controls.ts), not in the game loop.
+- **Touch buttons need their own `touchstart` handler.** The document-level
+  `touchstart` `preventDefault()` swallows synthesized clicks, so every on-screen
+  button wires its own handler (see the mute-button fix, #173).
+- **Reduced motion / automation.** Cosmetic layers (intro fly-over, snowman flex)
+  are disabled under `reduced-motion` / test / automation so the deterministic path
+  is unchanged — see [`ARCHITECTURE.md` §8](ARCHITECTURE.md#8-testing--deployment-seams).

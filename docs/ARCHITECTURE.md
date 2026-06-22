@@ -291,6 +291,8 @@ and the `PHYSICS.md` discipline, not the compiler:
 (screen quadrants), using `{ passive: false }` handlers. Physics reads only that
 state, so keyboard and touch are interchangeable. Button touch handlers wire
 `resetSnowman`, `toggleCameraView`, and `restartGame` via the `window.*` exports.
+The full input → effect → technique map (keyboard + touch) is consolidated in
+[`CONTROLS.md`](CONTROLS.md).
 
 ---
 

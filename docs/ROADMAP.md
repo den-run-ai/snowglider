@@ -10,6 +10,8 @@ This roadmap began as a feature-gap analysis. Its **top recommendation — the "
 
 **Since this roadmap was written (snapshot 2026-06-18):** a large *infrastructure* wave landed — the TypeScript/ES-module migration completed (issues [#35](https://github.com/den-run-ai/snowglider/issues/35), [#84](https://github.com/den-run-ai/snowglider/issues/84), [#98](https://github.com/den-run-ai/snowglider/issues/98), now closed; all of `src/` is `.ts` under `strict: true`, bundled by Vite), plus CI hardening (production-build validation, raw-TS Pages guard, honest merged Node+browser coverage) and new test layers (Playwright cross-browser/mobile E2E, Firestore-rules harness, c8 coverage harnesses). **None of this changed gameplay**, so the Priority Findings below are unchanged — but it did invalidate the premises of the [Refactoring Roadmap](#refactoring-roadmap), which has been updated accordingly. *(Update: post-snapshot gameplay PRs have since deepened Finding 2 / P1 — [#136](https://github.com/den-run-ai/snowglider/pull/136) landed the carve-vs-skid speed-management trade-off, and #146 added parallel turns and hop turns, substantially completing the ski-techniques issue #48.)*
 
+**Update (2026-06-21) — a gameplay & visual-polish wave then landed**, closing or advancing several Priority Findings (details in each finding and the appendix). Highlights: an **expressive snowman** for **#53** — a flexible squash-and-settle body ([#170](https://github.com/den-run-ai/snowglider/pull/170)/[#182](https://github.com/den-run-ai/snowglider/pull/182)), crash-shatter debris ([#171](https://github.com/den-run-ai/snowglider/pull/171)), and a wind-trailing scarf ([#172](https://github.com/den-run-ai/snowglider/pull/172)); a first **meaningful-jumps** pass for **#47** — player jumps are graded on landing (CLEAN/OK/SKETCHY) with a capped speed boost and an air-score readout ([#186](https://github.com/den-run-ai/snowglider/pull/186)); an in-scene **avalanche powder cloud** for **#49** ([#187](https://github.com/den-run-ai/snowglider/pull/187)); a domain-warped **fBm terrain ridge** that removes the last geometric banding for **#17** ([#197](https://github.com/den-run-ai/snowglider/pull/197)); **carve vs. parallel** turns made visibly distinct ([#191](https://github.com/den-run-ai/snowglider/pull/191)); a **shaped-ski redesign** ([#198](https://github.com/den-run-ai/snowglider/pull/198)); a bounded golden-hour↔midday **sun cycle** ([#163](https://github.com/den-run-ai/snowglider/pull/163)); the first **dynamic ski trails** + de-striped snow surface ([#181](https://github.com/den-run-ai/snowglider/pull/181)); and a **procedural sound-effects** engine (#158). The **mobile mute-button bug #50** was fixed ([#173](https://github.com/den-run-ai/snowglider/pull/173)) and **desktop social sharing** shipped for **#31** ([#177](https://github.com/den-run-ai/snowglider/pull/177)). **Issues #31, #50, and #53 are now candidates to close; #17 / #47 / #49 advanced.** The new [`CONTROLS.md`](CONTROLS.md) consolidates the full control/technique surface in one place.
+
 Status legend used below: **✅ shipped** · **◐ partial** (started, more to do) · **○ open**.
 
 > The [**GitHub issue tracker**](https://github.com/den-run-ai/snowglider/issues) is the living source of truth for the backlog. This document is a higher-level synthesis and will drift as issues open and close — treat the issue references here as pointers, not a status board.
@@ -69,30 +71,32 @@ The objective is "reach the bottom fast," but the player got little guidance, so
 - **Shipped:** finish-line arch, checkpoint gates, distance-to-finish + progress bar, a result screen with split times and an "improved by ±X seconds" payoff.
 - **Remaining (○):** mini-map, on-slope route hints/arrows.
 
-### 2. Skiing skill, not just steering — ◐ partial (#56, #136, #146)
+### 2. Skiing skill, not just steering — ◐ partial (#56, #136, #146, #191)
 
 The biggest design gap: the game *slid with steering* rather than feeling like skiing.
 
 - **Shipped (#56):** snowplow/"pizza" braking (clamped so it stops rather than reversing uphill), carve vs. skid, straight-line tuck, and terrain-dependent grip — layered on a test-safe seam so no-input physics is unchanged.
 - **Shipped (#136):** the carve-vs-skid **speed-management trade-off** that #56 was thin on — a `carveCharge` edge-engagement model where a committed carve holds speed and panic-steering (reversing the edge / yanking a fresh one) scrubs it, plus an always-on turn tax so straight-lining stays the fastest line. A gating carve-vs-skid check (carve ≈40% faster than chatter-skidding) protects it; no-input coasting stays byte-identical.
-- **Shipped (#146):** the two remaining ski techniques from #48 — **parallel turns** (the mastery tier above a carve: a fully-locked edge, `carveCharge > 0.85`, relieves the turn tax so a perfect turn is nearly free, with a distinct skis-together/angulation pose) and **hop turns** (Jump+steer = a quick edge-set pivot that snaps the heading and scrubs speed for tight, steep terrain). Both are input-gated, so the no-input invariant holds; two new gating harness checks protect them. **This substantially completes #48.**
+- **Shipped (#146, #191):** the two remaining ski techniques from #48 — a **parallel turn** and a **hop turn** — and then ([#191](https://github.com/den-run-ai/snowglider/pull/191)) the parallel/carve pair was made *visibly distinct* (the two had been near-identical). The two steered turns are now the ends of one `carveCharge` edge-engagement axis: a **parallel (skidded)** turn — uncommitted steering — brushes the skis sideways to **scrub speed** for a tighter arc, while a **carve** — steering held smoothly past the lock (`carveCharge > 0.6`) — rolls onto the edge to **hold speed** through a wider arc with a deep body lean (the mastery turn above a parallel). **Hop turns** (Jump+steer) add a quick grounded edge-set pivot that snaps the heading and scrubs speed for tight, steep terrain. All are input-gated, so the no-input invariant holds; gating harness checks protect them. **This substantially completes #48** (see [`PHYSICS.md`](PHYSICS.md) §3.3 and the new [`CONTROLS.md`](CONTROLS.md)).
 - **Remaining (○):** ski poles/planting (#52); meaningful jumps (#47).
 - **Open issues:** ski poles and planting (**#52**); freestyle/jump mechanics (**#47**/**#32**). Speed control (**#54**) and core ski techniques (**#48**) are now addressed end-to-end (straight-line/tuck, snowplow/pizza, carve/skid + the speed trade-off, **parallel and hop turns**); the named techniques in #48 are all in — only poles (#52) and meaningful jumps (#47) remain of the broader skill layer.
 
-### 3. Telegraphing and drama around the avalanche — ✅ shipped (#56)
+### 3. Telegraphing and drama around the avalanche — ✅ shipped (#56, #187)
 
 The avalanche existed but wasn't well communicated, especially when it came from behind.
 
 - **Shipped:** a warning banner ("⚠ AVALANCHE — GO!" escalating when close), a "distance behind you" danger meter, a red vignette, proximity-scaled camera shake, and a proximity-scaled audio rumble (#158, `src/sfx.ts`).
-- **Remaining (○):** an approaching snow cloud/shadow rendered in the scene.
-- **Open issues:** avalanche trigger notification + visibility from behind (**#49**), avalanche effects and controls (**#44**).
+- **Shipped (#187):** an in-scene **powder cloud** — a billowing plume of snow sprites kicked up by the tumbling boulders, so an approaching slide reads as a rolling wall of powder rather than a cluster of spheres (`src/avalanche.ts`).
+- **Remaining (○):** a cast shadow / darkening ahead of the slide; in-scene avalanche *controls* (#44).
+- **Open issues:** avalanche trigger notification + visibility from behind (**#49** — warning UI + powder cloud now shipped), avalanche effects and controls (**#44**).
 
-### 4. Jump usefulness and trick/reward mechanics — ○ open
+### 4. Jump usefulness and trick/reward mechanics — ◐ partial (#186)
 
-Jump is a listed control but currently does little for the player.
+Jump was a listed control that did little for the player; a first reward pass has landed.
 
-- **Add:** airtime scoring, landing-quality grading, obstacle clears, shortcuts, avalanche-dodge windows, speed boost on clean landings, and style/combo bonuses.
-- **Open issues:** jumping should help avoid obstacles and maybe avalanches (**#47**), freestyle ski tricks (**#32**).
+- **Shipped (#186):** a first **meaningful-jumps** pass — a *player-initiated* jump (Space, no steer) is now graded on landing as **CLEAN / OK / SKETCHY** from air time and landing alignment, awards a **capped speed boost** on a clean landing, and flashes an **air-score** readout via `CourseModule` (`src/snowman/physics.ts`, `src/course.ts`). Terrain auto-jumps and hop turns are excluded so no-input coasting stays byte-identical; see [`MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md).
+- **Remaining (○):** obstacle/tree clears and avalanche-dodge windows, shortcuts, and style/combo/trick bonuses (freestyle).
+- **Open issues:** jumping should help avoid obstacles and maybe avalanches (**#47** — first pass shipped in #186), freestyle ski tricks (**#32**).
 
 ### 5. Dynamic hazards and a living world — ○ open
 
@@ -114,8 +118,9 @@ Timer/best-time and leaderboard existed, but there was no reason to play 20 runs
 A skiing game lives on speed readability and mountain atmosphere.
 
 - **Shipped:** speed-based FOV (widens at speed), camera shake on hard landings / avalanche proximity, a **visible sky** — a Preetham atmospheric sky with a sun aligned to the directional light, plus horizon distance fog so terrain reads with depth instead of hard-cutting at the far plane (**#2**, `src/sky.ts`) — a **cinematic intro fly-over** of the mountain at game start (**#51**, `src/intro.ts`): a wide establishing shot that sweeps down the course and settles into the gameplay pose, skippable and disabled under test/automation/reduced-motion — a **de-striped, smooth-shaded snow surface** (diagonal texture stripes removed + render-only *smoothed shading normals* so the bumpy terrain stops reading as grey bands + softer light + snow-capped rocks; physics height field untouched; **#17**, `src/mountains.ts`), and **temporary ski tracks** that fade behind the skis (**#17**, `src/snowtracks.ts`).
-- **Remaining (○):** a real **snow-accumulation model** (persistent `SnowDepthField`: snowfall raises depth, skis compact tracks, tracks refill over time — visual-only first, fed into the terrain material; the current ski tracks are transient feedback, not accumulation); replacing the periodic `sin(x*0.2)*cos(z*0.3)` terrain ridge with layered fBm/domain-warp so the geometry itself stops banding (a separate terrain PR — touches the height contract + physics tests); weather variation and a day→sunset→night skybox; stronger slope contrast and obstacle silhouettes; and depth cues.
-- **Open issues:** lighting/shadows and snow/tree/rock/snowman textures (**#17** snow surface + dynamic trails now ◐ partial). Intro fly-over (**#51**) ✅ shipped (`src/intro.ts`). Visible sky (**#2**) is ◐ partial — static sky + a bounded golden-hour↔midday sun cycle (#163) shipped; clouds / full night path remain.
+- **Shipped (#197):** the periodic `sin(x*0.2)*cos(z*0.3)` terrain ridge was replaced with a **deterministic domain-warped fBm** ridge field (`terrainRidgeField`, `src/mountains.ts`) so the geometry itself stops banding — the last source of the grey "corduroy" striping. *(The physics height contract is preserved; the invariant harness uses its own noise-free terrain, so no baseline regen.)*
+- **Remaining (○):** a real **snow-accumulation model** (persistent `SnowDepthField`: snowfall raises depth, skis compact tracks, tracks refill over time — visual-only first, fed into the terrain material; the current ski tracks are transient feedback, not accumulation); weather variation and a day→sunset→night skybox; stronger slope contrast and obstacle silhouettes; and depth cues.
+- **Open issues:** lighting/shadows and snow/tree/rock/snowman textures (**#17** snow surface + de-banded fBm terrain (#197) + dynamic trails now ◐ partial; only the snowman material is left). Intro fly-over (**#51**) ✅ shipped (`src/intro.ts`). Visible sky (**#2**) is ◐ partial — static sky + a bounded golden-hour↔midday sun cycle (#163) shipped; clouds / full night path remain.
 
 ### 8. Audio consistency and completion — ◐ partial
 
@@ -123,7 +128,7 @@ Audio has since been rewritten to a simplified, dependency-free native HTML5 imp
 
 - **Done:** sound effects beyond music — wind that scales with speed, carving swish on turns, a crash/thud on wipeout, plus jump/land and an avalanche rumble (**#158**, `src/sfx.ts`).
 - **Add / finish:** complete the mobile integration (real-device verification of music + SFX) and the in-page audio control button.
-- **Open issue:** mobile music-disable button not working (**#50**).
+- **Open issue:** mobile music-disable button (**#50**) ✅ **fixed in [#173](https://github.com/den-run-ai/snowglider/pull/173)** — the mute toggle now fires on `touchstart`, isolated from the global touch handler that was swallowing the tap (candidate to close). Remaining audio gaps are the in-page control button and real-device mobile verification.
 
 ### 9. Pause/save and quality-of-life controls — ○ open
 
@@ -140,12 +145,13 @@ Touch controls exist, but this game is a natural fit for richer mobile input.
 - **UI:** keep the game-over screen, score counter, and menus as responsive HTML/CSS overlaying the `<canvas>` for crisp mobile readability, rather than baked into the 3D scene.
 - **Open issues:** gyro/tilt controls (**#24**), more visible touchscreen controls (**#25**), make all buttons (about-game, music selection) mobile-friendly (**#37**).
 
-### 11. Personality and fail-state fun — ○ open
+### 11. Personality and fail-state fun — ✅ shipped (#53)
 
 Crashes and finishes are where a casual game becomes memorable and shareable.
 
-- **Add:** snowman parts flying off on impact, scarf physics, funny crash animations, snowballing after a wipeout, and celebratory finish animations.
-- **Open issue:** a more realistic snowman with scarf/flexibility that breaks down on impact (**#53**).
+- **Shipped (#53):** an **expressive snowman** — a flexible "wiggly" body that squashes on landing and settles ([#170](https://github.com/den-run-ai/snowglider/pull/170)/[#182](https://github.com/den-run-ai/snowglider/pull/182), `src/snowman-flex.ts`), a **crash-shatter** wipeout where the snowballs break into snow chunks with a puff on any crash ([#171](https://github.com/den-run-ai/snowglider/pull/171), `src/debris.ts`), and a wind-trailing **red scarf** ([#172](https://github.com/den-run-ai/snowglider/pull/172), `src/snowman/model.ts`) — all layered without touching the deterministic `updateSnowman` kernel.
+- **Remaining (○):** snowballing after a wipeout and a dedicated celebratory finish animation (the result screen carries the finish payoff for now).
+- **Open issue:** expressive snowman with scarf/flexibility that breaks on impact (**#53**) ✅ shipped — candidate to close.
 
 ---
 
@@ -168,8 +174,8 @@ A phased plan that several of the review passes converge on:
 | Phase | Goal | Ship | Status |
 |-------|------|------|--------|
 | **P0 — Make it feel like a game** | Give runs a shape | Finish line, checkpoints, split times, result screen, medals, restart/replay flow | ✅ shipped (#56) |
-| **P1 — Make skiing skillful** | Reward technique | Carving / snowplow / straight-line modes, speed loss on turns, terrain-dependent friction, meaningful jumps | ◐ mostly shipped (#56, #136, #146) — carve/snowplow/tuck + the carve-vs-skid speed trade-off + parallel/hop turns (#48) all land; meaningful jumps (#47) and ski poles (#52) still open |
-| **P2 — Make it memorable** | Atmosphere & drama | Better mountain visuals, avalanche warning, expressive snowman, scarf/poles, intro fly-over, ghost racer | ◐ avalanche warning + ghost racer (#56), visible sky (#2), and the intro fly-over (#51) shipped; expressive snowman/scarf/poles open |
+| **P1 — Make skiing skillful** | Reward technique | Carving / snowplow / straight-line modes, speed loss on turns, terrain-dependent friction, meaningful jumps | ◐ mostly shipped (#56, #136, #146, #191) — carve/snowplow/tuck + the carve-vs-skid speed trade-off + parallel/hop turns + distinct carve-vs-parallel (#48) all land; **meaningful jumps (#47) first pass shipped in #186**; ski poles (#52) still open |
+| **P2 — Make it memorable** | Atmosphere & drama | Better mountain visuals, avalanche warning, expressive snowman, scarf/poles, intro fly-over, ghost racer | ◐ avalanche warning + ghost racer (#56), visible sky (#2), intro fly-over (#51), mountain visuals/textures (#17), the avalanche powder cloud (#187), and the **expressive snowman + scarf (#53)** shipped; ski poles (#52) still open |
 | **P3 — Make it social / AI** | Retention | Daily challenge, ghost leaderboard, AI coach, shareable replay | ○ open |
 
 ---
@@ -308,7 +314,7 @@ snapshot), and re-adding one would violate the no-per-module-`window`-bridge rul
 
 The first thing to ship was **gates/checkpoints + carving/snowplow mechanics + avalanche warning UI**, plus **split-time ghost racing** — building the *skill and structure* layer before adding more content, because that converts a cute Three.js skiing demo into a game with skill, tension, and replayability. This shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56).
 
-**Next strongest move:** ~~deepen the ski-technique model into a real speed-management trade-off (carving holds speed; panic-steering scrubs it) — issues **#48** / **#54**~~ — **shipped in [#136](https://github.com/den-run-ai/snowglider/pull/136)**; ~~the remaining P1 thread is parallel/hop turns (#48)~~ — **parallel and hop turns shipped in #146, substantially completing #48**. The remaining P1 thread is now **meaningful jumps (#47)** (airtime scoring, obstacle/avalanche clears); after that, layer P2 atmosphere on top.
+**Next strongest move:** ~~deepen the ski-technique model into a real speed-management trade-off (carving holds speed; panic-steering scrubs it) — issues **#48** / **#54**~~ — **shipped in [#136](https://github.com/den-run-ai/snowglider/pull/136)**; ~~the remaining P1 thread is parallel/hop turns (#48)~~ — **parallel and hop turns shipped in #146** (made visibly distinct in #191), substantially completing #48. ~~The remaining P1 thread is now **meaningful jumps (#47)**~~ — a **first meaningful-jumps pass shipped in [#186](https://github.com/den-run-ai/snowglider/pull/186)** (landing grade + capped boost + air score); the remaining jump work is obstacle/avalanche clears and trick/combo scoring. After that, the only untouched P1 thread is ski poles (#52), then layer P2 atmosphere on top.
 
 ---
 
@@ -319,22 +325,23 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Theme | Issue(s) | Status |
 |-------|----------|--------|
 | Realistic speed control (turns, terrain, avalanche escape) | #54 | ◐ first pass in #56; carve-vs-skid speed trade-off shipped in #136 (turns now cost speed; clean carves hold it) |
-| Ski techniques (snowplow/pizza, parallel, carving, hop, straight-line) | #48 | ✅ all named techniques in: snowplow/carve/tuck (#56), carve-vs-skid trade-off (#136), parallel + hop turns (#146) — candidate to close |
-| Avalanche trigger notification + visibility from behind | #49 | ◐ warning UI + danger meter in #56; in-scene cloud/shadow open |
+| Ski techniques (snowplow/pizza, parallel, carving, hop, straight-line) | #48 | ✅ all named techniques in: snowplow/carve/tuck (#56), carve-vs-skid trade-off (#136), parallel + hop turns (#146), distinct carve-vs-parallel (#191) — candidate to close. See [`CONTROLS.md`](CONTROLS.md) |
+| Avalanche trigger notification + visibility from behind | #49 | ◐ warning UI + danger meter (#56) + in-scene powder cloud (#187); a cast shadow ahead of the slide still open |
 | Avalanche effects and controls | #44 | ◐ effects in #56; controls open |
 | Expressive snowman (scarf, flexible, breaks on impact) | #53 | ✅ all three shipped — flexible/"wiggly" snowman (`src/snowman-flex.ts`), crash-shatter wipeout (`src/debris.ts`: balls break into snow chunks + puff on any crash), and a red scarf (wrap + wind-trailing tail). Candidate to close |
 | Ski poles and planting | #52 | ○ open |
 | Intro fly-over of the mountain | #51 | ✅ shipped — cinematic camera fly-over at game start (`src/intro.ts`) |
-| Mobile music-disable button broken *(bug)* | #50 | ○ open |
-| Jumping should help avoid obstacles/avalanches | #47 | ○ open |
+| Mobile music-disable button broken *(bug)* | #50 | ✅ fixed in #173 (mute toggle now fires on `touchstart`, isolated from the global touch handler) — candidate to close |
+| Jumping should help avoid obstacles/avalanches | #47 | ◐ first pass in #186 (player-jump landing grade + capped boost + air score); obstacle/avalanche clears open |
 | Freestyle ski tricks | #32 | ○ open |
 | Pause/save game state | #39 | ○ open |
-| Social media sharing | #31 | ○ open |
+| Social media sharing | #31 | ✅ shipped — desktop platform menu + Instagram screenshot card (#177), OG-image fix (#193); native share on mobile — candidate to close |
 | Gameplay tuning (steeper slope, fewer bumps, drop the "forward" button) | #27 | ○ open |
 | More visible touchscreen controls; mobile-friendly buttons | #25, #37 | ○ open |
 | Gyro/tilt controls | #24 | ○ open |
-| Lighting and shadows | #18 | ○ open |
-| Textures (snow, trees, rocks, snowman) | #17 | ◐ partial — snow-surface texture (grid-line fix → isotropic powder), snow-capped rocks, tree bark/foliage, and dynamic ski trails shipped (`src/mountains.ts`, `src/trees.ts`, `src/snowtracks.ts`); snowman texture open |
+| Lighting and shadows | #18 | ◐ partial — hemisphere fill light shipped (#168); further shadow tuning open |
+| Textures (snow, trees, rocks, snowman) | #17 | ◐ partial — snow-surface texture (grid-line fix → isotropic powder), de-banded domain-warped **fBm terrain** (#197), snow-capped rocks, tree bark/foliage, and dynamic ski trails shipped (`src/mountains.ts`, `src/trees.ts`, `src/snowtracks.ts`); snowman texture open |
+| Ski shape redesign (sidecut / camber / shovel) | #189 | ✅ shipped — shaped lofted-geometry skis with sidecut/camber/shovel/tail/binding/steel edge + cosmetic flex (#198) |
 | Visible sky | #2 | ◐ partial — atmospheric sky + sun + horizon fog + a bounded golden-hour↔midday **sun cycle** shipped (`src/sky.ts`, #163); clouds / full night path open |
 
 ### Infrastructure, tooling & exploratory
