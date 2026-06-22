@@ -5,6 +5,7 @@
 // element ownership (those nodes move to game/scene-setup.ts in a later step).
 
 import { AudioModule } from '../audio.js';
+import { Sfx } from '../sfx.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { formatStatTime } from './hud.js';
@@ -104,6 +105,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     if (onCrash && reason !== FINISH_REASON) {
       try { onCrash(reason); } catch (e) { console.warn("Crash effect failed:", (e as Error).message); }
     }
+
+    // Sound effects (#158): silence the continuous skiing/avalanche bed and play the
+    // outcome cue — a success chime on a finish, a wipeout whoomph on any crash
+    // (tree/rock/fall/avalanche burial). No-op until the SFX engine is unlocked.
+    try { Sfx.endRun(reason === FINISH_REASON ? 'finish' : 'crash'); } catch { /* never block the overlay */ }
 
     // Capture the best time BEFORE the finish branch updates it, so the result
     // screen can report the delta and whether this run set a new record.

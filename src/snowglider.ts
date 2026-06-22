@@ -31,6 +31,7 @@ import { Controls } from './controls.js';
 import { Snow } from './snow.js';
 import { Snowman } from './snowman.js';
 import { AudioModule } from './audio.js';
+import { Sfx } from './sfx.js';
 import { Physics } from './player-state.js';
 import { IntroModule, prefersReducedMotion } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
@@ -251,7 +252,12 @@ window.initializeGameWithAudio = function() {
   
   // TODO: AUDIO DISABLED - Start audio (will show welcome message but skip music)
   AudioModule.startAudio();
-  
+
+  // Unlock the procedural sound-effects engine (#158). This runs in the start
+  // button's user-gesture context, which is what mobile autoplay policy requires to
+  // create/resume the Web Audio context. No-op under automation / without Web Audio.
+  Sfx.unlock();
+
   // Reset the snowman to starting position
   resetSnowman();
   

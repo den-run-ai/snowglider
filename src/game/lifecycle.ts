@@ -8,6 +8,7 @@ import { Controls } from '../controls.js';
 import { Snow } from '../snow.js';
 import { Flex } from '../snowman-flex.js';
 import { AudioModule } from '../audio.js';
+import { Sfx } from '../sfx.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
@@ -106,6 +107,10 @@ export function createLifecycle(deps: LifecycleDeps) {
     if (AudioModule) {
       AudioModule.enableSound(true);
     }
+
+    // Restart the SFX ambient bed (idempotent). The restart button is a user gesture,
+    // so resuming the Web Audio context here is allowed on mobile (#158).
+    Sfx.unlock();
 
     // Reset animation if it was stopped
     if (!state.animationRunning) {
