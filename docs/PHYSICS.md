@@ -88,6 +88,9 @@ Implemented in [`src/snowman.ts`](src/snowman.ts) `updateSnowman()`. Each frame,
 grounded, the order is: detect landing → compute slope forces → apply ski
 technique → friction → integrate → orient/tilt → collision & bounds.
 
+> For the player-facing input → technique map (which keys/touches trigger each
+> technique below), see [`CONTROLS.md`](CONTROLS.md).
+
 ### 3.1 Gravity along the slope
 
 ```
