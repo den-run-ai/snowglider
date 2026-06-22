@@ -43,7 +43,9 @@ import {
 // Re-export the named samplers/helpers and the contract types so the public
 // `./mountains.js` surface is unchanged: terrain-tests.js imports terrainRidgeField
 // directly, and scene-setup.ts imports the RockPosition type from '../mountains.js'.
-export { terrainRidgeField, forestDensityField };
+// rockCollisionRadius was a named export of the pre-split mountains.ts too — keep it
+// on the facade so `import { rockCollisionRadius } from './mountains.js'` still works.
+export { terrainRidgeField, forestDensityField, rockCollisionRadius };
 export type { TerrainVec2, RockPosition };
 
 // Export all mountain-related functions and classes
