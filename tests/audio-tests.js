@@ -7,6 +7,7 @@
 // loaded via `<script type="module">` by the boot script-loader. It still
 // publishes window.runAudioTests so the unified runner can invoke it.
 import { AudioModule } from '../src/audio.js';
+import { Sfx } from '../src/sfx.js';
 
 (function() {
   if (window.location.search.includes('test=') && !window._unifiedTestRunnerActive) {
@@ -277,6 +278,67 @@ import { AudioModule } from '../src/audio.js';
       }
     }
     
+    // TEST 7: Procedural sound-effects engine (Sfx) — issue #158.
+    // This drives a REAL AudioContext (browser only), covering the graph build +
+    // one-shot synthesis paths the Node unit test (tests/sfx-tests.js) cannot reach.
+    function testSfxEngine() {
+      console.warn('TEST 7: SFX Engine');
+
+      assert(
+        typeof Sfx.unlock === 'function' && typeof Sfx.isEnabled === 'function',
+        'SFX API',
+        'Sfx module exposes unlock()/isEnabled()'
+      );
+
+      if (!Sfx.isEnabled || !Sfx.isEnabled()) {
+        assert(true, 'SFX Disabled', 'Skipped - SFX disabled');
+        return;
+      }
+
+      // Opt in so unlock() is allowed under the automated harness (it is gated off by
+      // default like debris/intro), then create a live AudioContext.
+      window.testHooks = window.testHooks || {};
+      window.testHooks.sfxEnabled = true;
+
+      try {
+        Sfx.unlock();
+        const status = Sfx.getStatus();
+        assert(status.active === true, 'SFX Unlock', `AudioContext created (state: ${status.contextState})`);
+        assert(status.running === true, 'SFX Running', 'continuous bed marked running after unlock');
+      } catch (e) {
+        assert(false, 'SFX Unlock', `Error: ${e.message}`);
+      }
+
+      // Exercise the event + continuous surface against the live context.
+      try {
+        Sfx.updateSkiing(18, 'carve', false);
+        Sfx.updateSkiing(0, 'glide', false);
+        Sfx.setAvalanche(true, 12);
+        Sfx.setAvalanche(false, Infinity);
+        Sfx.jump();
+        Sfx.land(0.8);
+        Sfx.endRun('crash');
+        Sfx.endRun('finish');
+        assert(true, 'SFX Playback', 'jump/land/updateSkiing/setAvalanche/endRun run without error');
+      } catch (e) {
+        assert(false, 'SFX Playback', `Error: ${e.message}`);
+      }
+
+      // Mute round-trip on the live bus.
+      try {
+        Sfx.setMuted(true);
+        const m1 = Sfx.isMuted();
+        Sfx.setMuted(false);
+        const m2 = Sfx.isMuted();
+        assert(m1 === true && m2 === false, 'SFX Mute', 'setMuted()/isMuted() round-trip');
+      } catch (e) {
+        assert(false, 'SFX Mute', `Error: ${e.message}`);
+      }
+
+      // Don't leak the opt-in into the other suites in the unified runner.
+      delete window.testHooks.sfxEnabled;
+    }
+
     // Run all tests
     try {
       testBasicModule();
@@ -285,6 +347,7 @@ import { AudioModule } from '../src/audio.js';
       testCompatibilityStubs();
       testUICreation();
       testMessageDisplay();
+      testSfxEngine();
       
       // Summary
       setTimeout(() => {
