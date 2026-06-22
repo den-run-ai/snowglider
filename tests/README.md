@@ -239,10 +239,20 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
   mocked THREE: both modules build their DOM/gates, the per-frame loop runs, every
   checkpoint and the finish are reached, the ghost trajectory and best splits
   persist, and a faster second run is reported as a new record.
+- **`turn_styles_compare.js`** — drives the real `Snowman.updateSnowman` (physics
+  **and** `applySnowmanPose`) to compare the two steered turns — a committed
+  **carve** vs. a skidded **parallel** turn — side by side. It animates both as a
+  top-down ASCII map for human review and gates the distinctions the carve-vs-parallel
+  rework promises: the carve locks in (the parallel never does), the parallel pivots
+  harder (tighter) while the carve draws a wider arc, the carve leans the body deeper
+  and rolls/draws the skis together, and — via linked turns around the fall line —
+  the carve holds clearly more speed. Run via `npm run test:turn-styles` (also
+  included in `npm test`).
 - **`results.txt`** — the recorded output from the last full verification run.
 
 ```bash
-npm run test:verify   # physics_invariant_harness.js + dom_smoke_test.js
+npm run test:verify        # physics_invariant_harness.js + dom_smoke_test.js
+npm run test:turn-styles   # carve vs. parallel turn side-by-side comparison
 ```
 
 ## Playwright E2E (cross-browser + mobile)
