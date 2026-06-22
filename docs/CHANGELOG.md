@@ -516,10 +516,34 @@ power-ups, and the AI-coach / natural-language course ideas.
 
 ## Audio
 
-Background music has a long, troubled history across three implementations. Audio
-is currently the **simplified native HTML5** implementation; the `AUDIO_ENABLED`
-flag in [`src/audio.js`](src/audio.js) gates it, and `CLAUDE.md` documents the
-operational guidance for re-enabling/testing on mobile.
+SnowGlider now has two independent audio subsystems: **background music** (a
+single track on a native HTML5 `<audio>` element — see below) and, new in #158,
+**procedural sound effects** (`src/sfx.ts`). Music has a long, troubled history
+across three implementations and is currently the **simplified native HTML5**
+implementation; the `AUDIO_ENABLED` flag in [`src/audio.js`](src/audio.js) gates
+it, and `CLAUDE.md` documents the operational guidance for re-enabling/testing on
+mobile.
+
+### Procedural sound effects (#158, Jun 2026)
+A new `src/sfx.ts` engine adds the long-open "sound effects beyond music" item:
+wind/whoosh that scales with speed, a ski-edge swish keyed off the carving
+technique, an avalanche rumble that crescendos as the slide closes in, and
+jump/land/crash/finish one-shots. Every effect is **synthesised at runtime** from
+Web Audio oscillators + filtered noise, so it ships **zero binary assets**.
+
+Deliberately separate from the music and from the THREE.Audio/Howler approaches
+that caused the failures below: effects need low-latency, overlapping one-shots,
+which raw Web Audio handles well and HTML5 `<audio>` does badly. The
+`AudioContext` is created/resumed only inside the start/restart-button gesture
+(`Sfx.unlock()`) — the thing modern mobile actually requires — and the single
+mute button now governs both subsystems (shared `snowgliderMuted` key). It is
+inert without Web Audio (Node/jsdom) and gated off under automation unless a test
+opts in (`window.testHooks.sfxEnabled`), mirroring `debris`/`intro`, so the
+physics-invariant harness and every existing suite keep their byte-identical,
+music-only path. Tests: `npm run test:sfx` (27 headless unit assertions on the
+exported gain-mapping pure functions + the defensive no-op/mute behaviour) plus a
+live-`AudioContext` section in the browser audio suite. **iOS silent-switch and
+real-device mobile playback are not yet verified** — same caveat as the music.
 
 ### Simplified native HTML5 audio (Jan 2026)
 A deliberate rewrite to the simplest thing that works: native `<audio>`, no

@@ -23,6 +23,8 @@
 //
 // To disable: Set AUDIO_ENABLED = false
 
+import { Sfx } from './sfx.js';
+
 const AUDIO_ENABLED = true;
 
 /**
@@ -161,6 +163,11 @@ export const AudioModule = (function() {
 
       muted = !muted;
       savePreferences();
+
+      // The single mute button governs both subsystems: the background music here
+      // and the procedural sound effects (#158), which share the 'snowgliderMuted'
+      // preference key.
+      Sfx.setMuted(muted);
 
       if (audio) {
         if (muted) {

@@ -22,6 +22,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/snowman.ts` - Snowman model and physics
 - `src/controls.ts` - Keyboard and touch controls implementation
 - `src/audio.ts` - Background music and audio controls
+- `src/sfx.ts` - Procedural Web Audio sound effects (wind/carve/jump/land/avalanche/crash/finish)
 - `src/auth.ts` - Firebase authentication implementation
 - `src/scores.ts` - User scoring and leaderboard functionality
 - `src/boot/` - Classic-script local-auth fallback + Firebase bootstrap (the only remaining `.js`), and `script-loader.ts` (startup driver)
@@ -120,6 +121,10 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - The previous Howler.js API surface is kept as no-op/Promise stubs for backward compatibility (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …), so the existing callers in `index.html` keep working without change.
 - **Caveats:** the in-page audio control button CSS is still commented out in `index.html`, and while desktop and the automated suite pass, mobile playback (iOS Safari silent switch, Android Chrome) is **not yet verified on real devices** — test thoroughly there before relying on it.
 - Treat audio changes as high risk: mobile browsers require a user gesture to start audio and can suspend the context.
+- **Sound effects (`src/sfx.ts`, issue #158)** are a SEPARATE subsystem from the music: a procedural Web Audio engine that synthesises every effect at runtime (oscillators + filtered noise), so it ships **no binary assets**. Coverage: a speed-scaled wind/ambient bed, a ski-edge swish keyed off technique, an avalanche rumble that crescendos with proximity, and jump/land/crash/finish one-shots. Disable with `SFX_ENABLED = false` in `src/sfx.ts`.
+  - The Web Audio **context is created/resumed only inside the start/restart-button gesture** (`Sfx.unlock()`), which is what mobile autoplay policy requires. iOS still routes Web Audio through the hardware silent switch — same caveat as the music; **mobile not yet verified on real devices.**
+  - It is **inert without Web Audio** (Node/jsdom no-op) and **gated off under automation** (`window.isTestMode`/`navigator.webdriver`) unless a test opts in via `window.testHooks.sfxEnabled`, mirroring `debris`/`intro`, so existing tests keep their music-only, byte-identical path. Every hook reads the per-frame physics result only — never `pos`/`velocity` — so the physics-invariant harness is unaffected.
+  - The single mute button (`audio.ts`) mutes BOTH subsystems via the shared `snowgliderMuted` key. Gain-mapping math lives in exported pure functions (`windGainForSpeed`, `carveGainForTechnique`, `avalancheGainForDistance`, `landGainForForce`) so it unit-tests headlessly (`npm run test:sfx`); the live-context paths are covered by the browser audio suite.
 - The full audio history (Three.js → Howler.js → disabled → native) and the root-cause analysis live in [`CHANGELOG.md`](docs/CHANGELOG.md).
 - Use consistent UI patterns for collapsible panels (Game Controls and Game Stats)
 - Implement horizontal swipe gestures for mobile panel interaction

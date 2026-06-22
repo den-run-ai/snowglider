@@ -11,6 +11,7 @@ import { Sky } from '../sky.js';
 import { Snowman } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
+import { Sfx } from '../sfx.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { updateStatsHud, updateTimerDisplay } from '../ui/hud.js';
@@ -31,6 +32,10 @@ export function createMainLoop(deps: MainLoopDeps) {
   } = deps;
   const pos = player.pos;
   const velocity = player.velocity;
+
+  // Previous-frame air state, so we can fire a takeoff whoosh on the ground→air
+  // transition (the kernel's UpdateResult exposes justLanded but no justJumped).
+  let prevInAir = false;
 
   // --- Update Snowman: Physics-based Movement ---
   function updateSnowman(delta: number) {
@@ -76,6 +81,16 @@ export function createMainLoop(deps: MainLoopDeps) {
       landingForce: result.landingForce,
       isInAir: player.isInAir
     });
+
+    // Sound effects (issue #158): a takeoff whoosh on the ground→air transition, a
+    // touchdown thump scaled by air time, and the continuous wind + ski-edge bed.
+    // Reads the per-frame result only — never pos/velocity — so the physics-invariant
+    // harness is unaffected, and every call is a no-op until the SFX context is
+    // unlocked by the start gesture.
+    if (result.isInAir && !prevInAir) Sfx.jump();
+    if (result.justLanded) Sfx.land(result.landingForce);
+    prevInAir = result.isInAir;
+    Sfx.updateSkiing(result.currentSpeed, result.technique, result.isInAir);
 
     // Update timer in the updateTimerDisplay function which is called separately
   }
@@ -160,6 +175,8 @@ export function createMainLoop(deps: MainLoopDeps) {
           const avActive = state.avalancheTriggered && avalanche.active;
           const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
           EffectsModule.updateAvalanche(avActive, avDist);
+          // Avalanche rumble crescendos with the same proximity the banner uses (#158).
+          Sfx.setAvalanche(avActive, avDist);
         }
       }
 
