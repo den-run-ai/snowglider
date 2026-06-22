@@ -8,7 +8,6 @@ import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
-import { formatStatTime } from './hud.js';
 
 // Add timer and best time tracking (state.startTime / state.bestTime)
 const MIN_VALID_SCORE_TIME = 4;
@@ -167,13 +166,6 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         state.bestTime = currentTime;
         bestTimeDisplay.textContent = `New Best Time: ${state.bestTime.toFixed(2)}s`;
         bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
-
-        // Update the best time in the game stats window too
-        const bestTimeElement = document.getElementById('bestTimeValue');
-        if (bestTimeElement) {
-          bestTimeElement.textContent = formatStatTime(state.bestTime);
-          bestTimeElement.style.color = '#ffff00'; // Highlight new record
-        }
       } else {
         bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${state.bestTime.toFixed(2)}s)`;
         bestTimeDisplay.style.color = 'white';

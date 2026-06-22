@@ -53,7 +53,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     Controls.resetControls();
 
     state.startTime = performance.now(); // Reset the timer when starting a new run
-    updateTimerDisplay(state.gameActive, state.startTime, state.bestTime);
+    updateTimerDisplay(state.gameActive, state.startTime);
 
     // Reset course (gates/splits/ghost) and effects (avalanche UI, FOV, shake) for the new run
     if (CourseModule) CourseModule.reset();
@@ -89,12 +89,6 @@ export function createLifecycle(deps: LifecycleDeps) {
       const toggleBtn = document.getElementById('toggleStats');
       if (toggleBtn) {
         toggleBtn.textContent = '▲';
-      }
-
-      // Reset colors for best time display
-      const bestTimeElement = document.getElementById('bestTimeValue');
-      if (bestTimeElement) {
-        bestTimeElement.style.color = ''; // Reset to default color
       }
     }
 
