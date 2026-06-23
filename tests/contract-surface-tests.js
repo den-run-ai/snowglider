@@ -165,6 +165,59 @@ async function main() {
     }
   }
 
+  // === Section F — Mountains runtime import seam (the mountains/ facade split) ===
+  // Like snowman, mountains.ts became a thin facade (export * from './mountains/index.js')
+  // over src/mountains/*. The pre-split module exposed the `Mountains` object PLUS the
+  // named exports terrainRidgeField / forestDensityField / rockCollisionRadius and the
+  // TerrainVec2 / RockPosition types; camera/snow/trees/scene-setup and the terrain tests
+  // import the `./mountains.js` specifier. mountains.ts touches no WebGL at import time
+  // (terrain math + DOM-guarded canvas helpers), so it is boot-safe to load here. This
+  // would have caught a dropped named re-export (e.g. rockCollisionRadius).
+  console.log('--- F. ./mountains.js runtime import seam ---');
+  let mountainsMod;
+  try {
+    mountainsMod = await import('../src/mountains.js');
+    check('`./mountains.js` specifier resolves to a Mountains export', !!mountainsMod.Mountains);
+  } catch (e) {
+    check(`\`./mountains.js\` specifier resolves (import threw: ${e.message})`, false);
+  }
+  if (mountainsMod) {
+    // The named exports the pre-split mountains.ts published (the facade must keep them).
+    for (const n of ['terrainRidgeField', 'forestDensityField', 'rockCollisionRadius']) {
+      check(`./mountains.js named export ${n} is a function`, typeof mountainsMod[n] === 'function');
+    }
+    // The Mountains object surface other modules read by member access.
+    const M = mountainsMod.Mountains || {};
+    for (const m of ['getTerrainHeight', 'getTerrainGradient', 'getDownhillDirection',
+      'terrainRidgeField', 'forestDensityField', 'createTerrain', 'createRock', 'addRocks',
+      'rockCollisionRadius', 'rockIsCollisionHazard', 'debugHeightMap']) {
+      check(`Mountains.${m} is a function`, typeof M[m] === 'function');
+    }
+    check('Mountains.SimplexNoise is a constructor', typeof M.SimplexNoise === 'function');
+    check('Mountains.heightMap is the shared cache object', M.heightMap && typeof M.heightMap === 'object');
+  }
+
+  // === Section G — Trees runtime import seam (the trees/ facade split) ===
+  // trees.ts became a thin facade (export * from './mountains/trees.js') over the
+  // moved src/mountains/trees.ts (a peer of rocks.ts). snow.ts / scene-setup.ts and
+  // the bundle import the `./trees.js` specifier, so the facade must keep resolving
+  // the `Trees` object with its full method surface. trees touches no WebGL at import
+  // time (DOM-guarded canvas helpers), so it is boot-safe to load here.
+  console.log('--- G. ./trees.js runtime import seam ---');
+  let treesMod;
+  try {
+    treesMod = await import('../src/trees.js');
+    check('`./trees.js` specifier resolves to a Trees export', !!treesMod.Trees);
+  } catch (e) {
+    check(`\`./trees.js\` specifier resolves (import threw: ${e.message})`, false);
+  }
+  if (treesMod && treesMod.Trees) {
+    for (const m of ['createTree', 'addBranchesAtLayer', 'addSnowCaps', 'addTrees',
+      'getTerrainHeight', 'getTerrainGradient']) {
+      check(`Trees.${m} is a function`, typeof treesMod.Trees[m] === 'function');
+    }
+  }
+
   console.log(`\nCONTRACT SURFACE TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }
