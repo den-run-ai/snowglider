@@ -55,6 +55,30 @@ from the `og:image` / `twitter:image` meta tags. When the card changes, re-uploa
 `og-card.png` (same name) and re-run the Facebook / LinkedIn / X card debuggers so
 the scrapers re-cache.
 
+## Screen recordings & demo videos
+
+Motion features (carve/parallel, avalanche, the README demo) are captured with a
+**deterministic headless recorder** — it drives the game behind a virtual clock
+(overriding `requestAnimationFrame`/`performance.now`) so frames are exactly one
+fixed timestep apart, yielding a smooth 30&nbsp;fps independent of the slow headless
+software-GL render rate, then stitches the frames with ffmpeg. See the demo-video
+tooling under `tools/` (`record-deterministic.mjs` + `build-demo-video.mjs`).
+
+Recordings host the **same way** as screenshots — on the `assets` Release, **not**
+an `assets/*` branch. `upload-release-asset.mjs` already accepts `.gif` and `.mp4`:
+
+```bash
+node scripts/upload-release-asset.mjs /tmp/snowglider_demo.mp4 --name demo-v1.mp4
+node scripts/upload-release-asset.mjs /tmp/snowglider_demo.gif --name demo-v1.gif
+```
+
+One honest caveat about video: a release-download `.mp4` URL embeds as a *link*,
+not an inline `<video>` player (only GitHub's drag-and-drop `user-attachments`
+render a player, and that path isn't scriptable). So for an inline-playing preview
+use a **`.gif`** (renders inline as an image) or a poster `.jpg`, and keep the
+`.mp4` as the full-quality download. That matches the demo PR's existing layout
+(gif preview + still jpgs), just pointed at the Release instead of a branch.
+
 ## One-time migration (operational runbook)
 
 These scripts moved the existing branch contents onto the release. They are kept
@@ -71,8 +95,10 @@ run them deliberately.
    ```bash
    node scripts/migrate-asset-branches.mjs
    ```
-   Only media (`png/jpg/gif/webp/svg/mp4/…`) is moved — 49 images across the 16
-   branches. Two branches (`ski-design-proposal`, `snowman-flex-shots`) were
+   Only media (`png/jpg/gif/webp/svg/mp4/…`) is moved — all images/gifs/clips
+   across the `assets/*` branches (run `--dry-run` for the current count; new
+   `*-shots` branches keep appearing). Two branches (`ski-design-proposal`,
+   `snowman-flex-shots`) were
    created as full repo mirrors, so they also carry source, CI workflows and the
    game audio; those are intentionally **not** migrated. If a non-media artifact
    on one of those branches is still wanted (e.g. the `ski_design_3d.py` mockup
