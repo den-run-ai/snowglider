@@ -103,7 +103,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | Export | File | Style | Responsibility |
 |--------|------|-------|----------------|
 | `Mountains` | `mountains.ts` (facade → `src/mountains/*`) | object + fns | Terrain height field, gradient, mesh, rocks / `rockPositions`, `SimplexNoise` |
-| `Trees` | `trees.ts` | object + fns | Tree meshes + placement; returns `treePositions` |
+| `Trees` | `trees.ts` (facade → `src/mountains/trees.ts`) | object + fns | Tree meshes + placement; returns `treePositions` |
 | `Snow` | `snow.ts` | object + fns | Snowflakes + ski snow-splash particles |
 | `Sky` | `sky.ts` | object + fns | Preetham atmospheric sky + sun & horizon distance fog (gradient-dome fallback), issue #2 |
 | `Camera` | `camera.ts` | `class Camera` | Chase/orbit camera positioning & look-ahead |
@@ -280,9 +280,20 @@ camera.position -= shake                          // revert so smoothing stays c
 > and scatters rocks + trees); and **`rocks.ts`** holds rock meshes/colours/placement
 > plus the collision-hazard subset. `src/mountains/index.ts` is the assembly hub that
 > builds the `Mountains` object and re-exports the named/type surface
-> (`terrainRidgeField`, `forestDensityField`, `TerrainVec2`, `RockPosition`). The
-> terrain/regression suites and the physics-invariant harness pin the math, so the
-> split is behaviour-preserving.
+> (`terrainRidgeField`, `forestDensityField`, `rockCollisionRadius`, `TerrainVec2`,
+> `RockPosition`). The terrain/regression suites and the physics-invariant harness pin
+> the math, so the split is behaviour-preserving.
+>
+> **Trees** were folded into the same feature folder as a peer of `rocks.ts`: the
+> implementation moved to **`src/mountains/trees.ts`** behind a thin **`src/trees.ts`**
+> facade (`export * from './mountains/trees.js'`) so every `./trees.js` importer
+> (`snow.ts`, `scene-setup.ts`, the bundle) keeps resolving a sibling file. Because the
+> moved module reads the terrain samplers from the leaf modules directly
+> (`./terrain.js` height/gradient, `./noise.js` forest-density) instead of the
+> `Mountains` facade object, the old **`mountains` ↔ `trees` circular import is gone** —
+> it is now a one-way `terrain-mesh → trees → terrain/noise` dependency. The
+> contract-surface guard pins both the `./mountains.js` and `./trees.js` facade
+> surfaces (Sections F/G) so a dropped re-export fails fast.
 
 ### What the type system won't catch
 

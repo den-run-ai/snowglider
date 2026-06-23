@@ -7,11 +7,11 @@
 // formula here MUST stay byte-identical to getTerrainHeight in terrain.ts; the
 // terrain/regression suites and the physics-invariant harness pin it.
 //
-// trees.ts imports Mountains from the facade, so the ../trees.js import here is part
-// of the mountains<->trees cycle; it resolves cleanly because the cross-calls
-// (Trees.addTrees here, Mountains.* in trees) only run at call time.
+// trees.ts is now a sibling submodule (./trees.js) that reads the terrain samplers
+// from the leaf modules directly, so there is no longer a mountains<->trees circular
+// import — this is a plain one-way dependency (terrain-mesh -> trees -> terrain/noise).
 import * as THREE from 'three';
-import { Trees, type TreePosition } from '../trees.js';
+import { Trees, type TreePosition } from './trees.js';
 import { SimplexNoise, terrainRidgeField } from './noise.js';
 import { heightMap } from './terrain.js';
 import {

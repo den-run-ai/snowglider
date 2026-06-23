@@ -197,6 +197,27 @@ async function main() {
     check('Mountains.heightMap is the shared cache object', M.heightMap && typeof M.heightMap === 'object');
   }
 
+  // === Section G — Trees runtime import seam (the trees/ facade split) ===
+  // trees.ts became a thin facade (export * from './mountains/trees.js') over the
+  // moved src/mountains/trees.ts (a peer of rocks.ts). snow.ts / scene-setup.ts and
+  // the bundle import the `./trees.js` specifier, so the facade must keep resolving
+  // the `Trees` object with its full method surface. trees touches no WebGL at import
+  // time (DOM-guarded canvas helpers), so it is boot-safe to load here.
+  console.log('--- G. ./trees.js runtime import seam ---');
+  let treesMod;
+  try {
+    treesMod = await import('../src/trees.js');
+    check('`./trees.js` specifier resolves to a Trees export', !!treesMod.Trees);
+  } catch (e) {
+    check(`\`./trees.js\` specifier resolves (import threw: ${e.message})`, false);
+  }
+  if (treesMod && treesMod.Trees) {
+    for (const m of ['createTree', 'addBranchesAtLayer', 'addSnowCaps', 'addTrees',
+      'getTerrainHeight', 'getTerrainGradient']) {
+      check(`Trees.${m} is a function`, typeof treesMod.Trees[m] === 'function');
+    }
+  }
+
   console.log(`\nCONTRACT SURFACE TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }
