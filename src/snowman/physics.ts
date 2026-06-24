@@ -96,11 +96,32 @@ export function stepSnowmanPhysics(
   getTerrainGradient: TerrainVecFn,
   getDownhillDirection: TerrainVecFn
 ): SnowmanPhysicsStepOutput {
+  // --- Frame-rate-independent drag (issue: "floor it forward and blow past the
+  // obstacles") ----------------------------------------------------------------
+  // The coasting/cruising drag below is a *per-frame* multiplier (velocity *= 1-k).
+  // The driving forces (gravity, accelerate, turn) are all scaled by `delta`, so as
+  // the frame time grows the forces keep up but a fixed per-frame drag does NOT —
+  // it is applied fewer times per second. That made terminal speed scale inversely
+  // with frame rate: ~8 m/s at 60 FPS but ~32 m/s at 10 FPS (the capped 0.1 s delta),
+  // which on a slow/mobile device lets a player just hold Up and rocket straight
+  // down the fall line, fast enough to slip between (and at the worst frame times
+  // tunnel through) the trees without ever steering.
+  //
+  // Fix: treat each `1-k` as a 60 Hz per-frame factor and raise it to the number of
+  // 60 Hz frames this delta represents, so the drag integrates to the same amount of
+  // speed lost per *second* at any frame rate. `dragFactor(k)` is byte-identical at
+  // the 60 Hz baseline — delta*60 == 1 exactly when delta === 1/60, and
+  // Math.pow(x, 1) === x — so the physics-invariant harness (which steps at 1/60)
+  // stays bit-for-bit unchanged; only off-60 Hz frames are corrected.
+  const FRICTION_REF_HZ = 60;
+  const dragFrames = delta * FRICTION_REF_HZ;
+  const dragFactor = (k: number): number => Math.pow(1 - k, dragFrames);
+
   // Update jump cooldown
   if (jumpCooldown > 0) {
     jumpCooldown -= delta;
   }
-  
+
   // Outer-scope outputs surfaced in the return value (HUD + camera juice).
   let technique: SkiTechnique = isInAir ? 'air' : 'glide';
   let justLanded = false;
@@ -284,9 +305,9 @@ export function stepSnowmanPhysics(
       velocity.x += 5.0 * delta;
     }
     
-    // Less friction in air
-    velocity.x *= (1 - 0.01);
-    velocity.z *= (1 - 0.01);
+    // Less friction in air (frame-rate-independent; see dragFactor above)
+    velocity.x *= dragFactor(0.01);
+    velocity.z *= dragFactor(0.01);
   } else {
     // Update velocity based on gravity, gradient, and an improved friction model
     const gravity = 9.8;
@@ -491,8 +512,9 @@ export function stepSnowmanPhysics(
     // (skidScrub == 0), so straight-line/coasting behaviour is identical to before;
     // hard turns at speed add edge-skid drag on top.
     const totalFriction = friction + skidScrub;
-    velocity.x *= (1 - totalFriction);
-    velocity.z *= (1 - totalFriction);
+    const totalDrag = dragFactor(totalFriction);
+    velocity.x *= totalDrag;
+    velocity.z *= totalDrag;
     
     // Update y position to terrain height when not in air
     pos.y = terrainHeightAtPosition;
