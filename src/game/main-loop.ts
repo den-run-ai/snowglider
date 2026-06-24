@@ -12,6 +12,7 @@ import { Snowman } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
 import { Sfx } from '../sfx.js';
+import { Diag } from '../diagnostics.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { updateStatsHud, updateTimerDisplay } from '../ui/hud.js';
@@ -107,6 +108,20 @@ export function createMainLoop(deps: MainLoopDeps) {
     if (result.justLanded) Sfx.land(result.landingForce);
     prevInAir = result.isInAir;
     Sfx.updateSkiing(result.currentSpeed, result.technique, result.isInAir);
+
+    // Frame-rate / physics telemetry (diagnostics.ts). READ-ONLY observer, wired in
+    // beside Sfx/Flex: it reads the per-frame result + pos only and never touches
+    // pos/velocity, so the physics-invariant harness is unaffected and it is a no-op
+    // under automation. It watches the dt the real device produces and the speed/step
+    // that ride on it, surfacing the frame-rate-dependence bug class (#209) live.
+    Diag.record({
+      dt: delta,
+      speed: result.currentSpeed,
+      x: pos.x,
+      z: pos.z,
+      technique: result.technique,
+      isInAir: player.isInAir,
+    });
 
     // Update timer in the updateTimerDisplay function which is called separately
   }

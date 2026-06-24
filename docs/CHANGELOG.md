@@ -13,6 +13,86 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Runtime physics / frame-rate diagnostics (`src/diagnostics.ts`)
+- PR #209 and its avalanche follow-up fixed two instances of the **same bug class** — a
+  per-frame multiplier (`v *= 1 − k`) mixed in with dt-scaled forces, so a steady state
+  scaled with frame rate. Both were invisible to every existing test (none *varied the
+  frame time*) and invisible in play (they only bite on a slow/mobile device the
+  developer never runs on). The offline stress harnesses now sweep dt in CI; this adds
+  the **runtime counterpart** so the *next* bug in this class is diagnosed, not guessed.
+- **`Diag`** is a read-only telemetry observer wired into the main loop beside
+  `Sfx`/`Flex` (`Diag.record(...)` in `game/main-loop.ts`). It reads the per-frame
+  physics result + position **only** — never `pos`/`velocity` — so the physics-invariant
+  harness is byte-identical and it is a no-op under automation (off unless
+  `window.testHooks.diagnosticsEnabled`, mirroring `debris`/`sfx`). It watches the dt the
+  real device produces and the speed/step that ride on it, and surfaces the three
+  frame-rate smells **live**: (1) a per-frame **step ≥ an obstacle's collision radius**
+  (the discrete point-vs-disk check could miss it → tunnel risk — the runtime analog of
+  the harness's offline tunneling probe); (2) terminal **speed that climbs as FPS
+  drops**, computed as the max-speed ratio between low- and high-FPS frame bands (the
+  #209 signature); (3) **NaN/Infinity** in the state.
+- **How you use it.** Throttled `console.warn` breadcrumbs fire on any anomaly during
+  normal play. Add `?debug` (or press `` ` ``) for a live HUD overlay — fps, dt cap hits,
+  max step vs radius, and the speed-by-FPS-band table. `window.__snowgliderDiag.dump()`
+  downloads a JSON trace (config, summary, health verdict, recent frames) to attach to a
+  bug report — turning "the game froze / I drove through a tree" into hard numbers.
+- **Broadened beyond the one bug + aggregated off-device** (review follow-up). The
+  detector gained an **absolute speed-ceiling** invariant (a runaway is caught even at a
+  steady frame rate, where the fps-band ratio sees nothing) and a generic
+  `Diag.note(category, detail)` seam so **other subsystems** (asset loaders, avalanche,
+  camera) can report into the same pipeline. Crucially, findings now leave the device: a
+  `report` sink routes a **once-per-run `physics_anomaly`** verdict — plus **`client_error`
+  / `unhandled_rejection`** from newly-added global handlers (the app had none, so an
+  uncaught throw in the rAF loop previously vanished) — into the **existing Firebase
+  Analytics** pipeline (`window.firebaseModules.logEvent`). Aggregated across real devices,
+  that is how the #209 class would have surfaced in the wild rather than via a stress
+  harness. The sink is wrapped so telemetry can never throw into the game loop, gated like
+  the other `logEvent` call sites (modular SDK present, not `file://`), and swappable for a
+  dedicated error monitor (Sentry / GlitchTip) with a one-line change at the `init()` site.
+- **Healthy runs are sampled too** (`session_health`). Reporting only anomalies leaves
+  nothing to compare a BAD verdict against, so a sampled baseline now fires on a periodic
+  heartbeat through a long run (`healthSampleSec`, default 30s) and once at run-end — same
+  shape as `physics_anomaly`, flattening the **FPS-band distribution**
+  (`fps_ge50_frames`/`fps_30_50_frames`/`fps_15_30_frames`/`fps_lt15_frames`) so the
+  real-world frame-rate spread is chartable and anomalies can be sliced against it. A short
+  healthy run is sampled exactly once; an empty reset emits nothing.
+- **Review hardening (codex P2s).** (a) The analytics sink targeted
+  `window.firebaseModules.logEvent`, which **only `auth.html` ever populated** — so on the
+  main game page the sink (and the pre-existing `game_start`/`game_over`/`game_reset`
+  calls) silently no-oped. `auth.ts` now publishes a `logEvent` wrapper bound to the real
+  Analytics instance on the main page, so all of them actually deliver. (b) The fps→speed
+  ratio compared max speed across *any* populated bands, so a device fast at startup (slow
+  snowman) that settled below 30 FPS at cruising speed could read as frame-rate-dependent
+  from acceleration alone; the ratio now counts only **settled** (cruising-speed) frames
+  and requires a minimum per band, with a regression test for the accel artifact.
+  A follow-up tightened this further: the cruising floor is now near the expected terminal
+  speed (so a mid-acceleration ~5 m/s frame is not "cruising"), and a BAD `physics_anomaly`
+  requires an egregious, #209-scale gap (≥2×, the bug was ~4×) — a milder gap (≥1.5×) is
+  WARN-only, since it can come from normal run progression / technique. Regression tests
+  cover a 5→8 m/s progression (not flagged) and a modest gap (WARN, not BAD).
+- **The first codex P2 was fixed:** `resetSnowman()` teleports the player to spawn, so
+  `Diag.reset()` is now called in the lifecycle reset path — otherwise the first frame of a
+  restarted run read as a ~135u step (old finish → spawn) and was falsely flagged a tunnel
+  risk, permanently marking the run BAD. Regression-tested both ways.
+- **Two more codex P2s fixed.** (c) `session_health` was only flushed on `reset()`, so a
+  one-and-done run that ended via game-over/finish and was then abandoned (player never
+  presses Reset) contributed no baseline. `Diag.endRun()` now flushes at run-end (called
+  from `showGameOver`) and a `pagehide` listener flushes if the player just navigates away;
+  all three paths share one de-duped flush so a run is never double-counted. (d) The tunnel
+  check used the tree radius (2.5u) alone, but collidable rocks can be as small as
+  ≈1.69u (`rockCollisionRadius(ROCK_COLLISION_MIN_SIZE)`), so a ~2u step could skip a small
+  rock while diagnostics reported no tunnel risk. `Diag` is now initialised with the
+  **smallest** collidable obstacle radius (`min(treeRadius, smallest-rock-radius)`).
+  Both are regression-tested in `tests/diagnostics-tests.js`.
+- **Analytics are pure + headlessly tested.** `percentile`, `classifyFrame`, `foldFrame`,
+  `fpsSpeedRatio`, and `frameRateHealth` are exported pure functions (no DOM), unit-tested
+  in `tests/diagnostics-tests.js` (`npm run test:diagnostics`, also in `npm test`). The
+  tests prove the detector **fires on the real #209 numbers** (8 → 32 m/s across a 60→10
+  FPS drop grades BAD; a 3.2 u step past the 2.5 u tree radius flags a tunnel risk) and
+  stays **quiet on a healthy steady-60-FPS run** and on a merely-slow-but-bounded device
+  (no fast band to compare against → no false "frame-rate-dependent" accusation). See
+  [`DIAGNOSTICS.md`](DIAGNOSTICS.md).
+
 ### Avalanche friction made frame-rate independent (follow-up to PR #209)
 - The snowman drag fix in PR #209 corrected a per-frame multiplier mixed in with
   dt-scaled forces. Stress-testing turned up the **same bug class still live in the

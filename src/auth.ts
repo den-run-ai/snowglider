@@ -128,6 +128,24 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
         analytics = null;
     }
 
+    // Publish a minimal analytics seam on window so the game page (index.html) can log
+    // events without importing Firebase. The game's existing callers
+    // (game_start / game_over / game_reset in snowglider/result-overlay/lifecycle) and the
+    // diagnostics telemetry sink all read `window.firebaseModules.logEvent` — but only
+    // auth.html populated it, so on the main page those calls silently no-oped. Bind a
+    // thin wrapper to the real Analytics instance here so they actually deliver. The
+    // wrapper reads the module-scoped `analytics` at call time, so it self-disables if
+    // Analytics is later cleared, and is guarded so a logging failure never throws into a
+    // caller.
+    if (typeof window !== 'undefined' && analytics) {
+      window.firebaseModules = Object.assign(window.firebaseModules || {}, {
+        logEvent: (name: string, params?: Record<string, unknown>) => {
+          try { if (analytics) logEvent(analytics, name, params); }
+          catch (e) { console.log('logEvent skipped:', (e as Error).message); }
+        }
+      });
+    }
+
     // Initialize ScoresModule with Firestore and Analytics instances
     ScoresModule.initializeScores(firestore, analytics);
 

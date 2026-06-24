@@ -95,6 +95,18 @@ async function main() {
   check('storageBucket is left untouched (dead rewrite removed)',
     config.storageBucket === 'sn0wglider.firebasestorage.app');
 
+  // PR #211: with Analytics up, initializeAuth publishes window.firebaseModules.logEvent on
+  // the main page (previously only auth.html did), so the game's logEvent callers AND the
+  // diagnostics telemetry sink actually deliver instead of silently no-oping. Verify the
+  // seam exists and routes to the real Analytics logEvent.
+  check('window.firebaseModules.logEvent is published once Analytics is up',
+    !!global.window.firebaseModules && typeof global.window.firebaseModules.logEvent === 'function');
+  const logsBefore = calls.logEvent.length;
+  global.window.firebaseModules.logEvent('physics_anomaly', { runawayFrames: 1 });
+  check('window.firebaseModules.logEvent routes to the real Analytics instance',
+    calls.logEvent.length === logsBefore + 1 &&
+    calls.logEvent[calls.logEvent.length - 1].name === 'physics_anomaly');
+
   // PR #111: auth.ts broadcasts snowglider:auth-changed on login/logout so the
   // start-screen onboarding UI can refresh without hooking the internal listener.
   let authChangedEvents = 0;
