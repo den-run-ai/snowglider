@@ -69,10 +69,17 @@ export function setupScene() {
   // Sky background + distance fog are applied after the lights are set up
   // (see Sky.applyGradientSky below) so the gradient sky / horizon fog replace the
   // old flat `scene.background = Color(0x87CEEB)` (issue #2).
-  // preserveDrawingBuffer keeps the back buffer readable after a frame so the
-  // result screen's "Save image" share can capture it (src/share-card.ts).
-  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  // The result screen's "Save image" share reads the canvas back to a PNG
+  // (src/share-card.ts). It re-renders one fresh frame immediately before the
+  // read (same tick, no yield), so the back buffer is still valid then — we do
+  // NOT need `preserveDrawingBuffer: true`, which would tax every frame by
+  // blocking present-path optimizations just for that occasional capture.
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
   (renderer as any).outputColorSpace = THREECompat.LinearSRGBColorSpace;
+  // Render at the device pixel ratio (capped at 2) so the scene is crisp on
+  // HiDPI/Retina displays instead of soft; the cap keeps the framebuffer — and
+  // GPU cost — bounded on 3x phone screens.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   // Update to assign renderer to a specific div with an ID
