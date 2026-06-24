@@ -121,6 +121,26 @@ async function main() {
   D.Diag.reset();
   check('recorder: reset clears the trace', D.Diag.snapshot().summary.frames === 0);
 
+  // --- regression (codex #211): reset() suppresses the teleport-to-spawn false flag ---
+  // resetSnowman() teleports the player from wherever the last run ended back to spawn
+  // (z=-15). Without a Diag.reset() in that lifecycle path, the first frame of the new run
+  // reads as a giant prev->cur step (old finish -> spawn) and is falsely flagged a tunnel
+  // risk, permanently marking the fresh run BAD. Prove reset() clears `prev` so the first
+  // post-reset frame steps 0, and that WITHOUT it the teleport WOULD be flagged.
+  D.Diag.reset();
+  D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -150, technique: 'tuck', isInAir: false }); // deep in a run
+  D.Diag.reset();                                                                              // lifecycle restart
+  D.Diag.record({ dt: 1 / 60, speed: 3, x: 0, z: -15, technique: 'glide', isInAir: false });   // first frame of new run @ spawn
+  check('reset: first frame after a restart is not a false tunnel risk',
+    D.Diag.snapshot().summary.tunnelRiskFrames === 0);
+  // Control: the SAME teleport without a reset in between IS caught (so the guard matters).
+  D.Diag.reset();
+  D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -150, technique: 'tuck', isInAir: false });
+  D.Diag.record({ dt: 1 / 60, speed: 3, x: 0, z: -15, technique: 'glide', isInAir: false });   // no reset: 135u jump
+  check('reset: control — the teleport without reset is flagged (guard is load-bearing)',
+    D.Diag.snapshot().summary.tunnelRiskFrames === 1);
+  D.Diag.reset();
+
   console.log(`\nDIAGNOSTICS TESTS: ${fail === 0 ? 'OK ✅' : 'FAIL ❌'} (${pass} passed, ${fail} failed)`);
   process.exit(fail === 0 ? 0 : 1);
 }

@@ -9,6 +9,7 @@ import { Snow } from '../snow.js';
 import { Flex } from '../snowman-flex.js';
 import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
+import { Diag } from '../diagnostics.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
@@ -51,6 +52,12 @@ export function createLifecycle(deps: LifecycleDeps) {
 
     // Reset keyboard controls
     Controls.resetControls();
+
+    // Reset the physics/frame-rate telemetry: resetPlayer() above teleported the player
+    // back to spawn (z=-15), so without this the first frame of the new run would read as
+    // a huge prev->cur step (old finish position -> spawn) and be falsely flagged as a
+    // collision tunnel-through, permanently marking the run BAD. A no-op under automation.
+    Diag.reset();
 
     state.startTime = performance.now(); // Reset the timer when starting a new run
     updateTimerDisplay(state.gameActive, state.startTime);
