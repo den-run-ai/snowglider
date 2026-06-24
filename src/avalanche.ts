@@ -208,6 +208,17 @@ export class AvalancheSystem {
     const friction = 0.98;
     const bounce = 0.25;
 
+    // Ground friction is a continuous per-second decay, so it must scale with the
+    // frame time the same way the snowman drag does (see snowman/physics.ts
+    // `dragFactor`). Applying the raw 0.98 once per frame made boulders decay ~4x
+    // less at the capped 10 FPS delta than at 60 FPS — the same frame-rate-dependent
+    // bug class as PR #209, here inflating avalanche reach/speed (and thus burial
+    // fairness) on slow devices. `frictionFactor` is byte-identical at the 60 Hz
+    // baseline (dt*60 === 1 when dt === 1/60, and Math.pow(x, 1) === x). The debris
+    // loop in _updatePowder already drag-scales correctly; this brings the boulders
+    // in line. (bounce stays a per-contact impulse, not a continuous decay.)
+    const frictionFactor = Math.pow(friction, dt * 60);
+
     for (let i = 0; i < this.count; i++) {
       const idx = i * 3;
 
@@ -232,9 +243,9 @@ export class AvalancheSystem {
         this.positions[idx + 1] = floorY + radius;
         this.velocities[idx + 1] *= -bounce;
 
-        // Apply friction on ground
-        this.velocities[idx] *= friction;
-        this.velocities[idx + 2] *= friction;
+        // Apply friction on ground (frame-rate-independent; see frictionFactor above)
+        this.velocities[idx] *= frictionFactor;
+        this.velocities[idx + 2] *= frictionFactor;
 
         // Slide acceleration (downhill push in -Z direction)
         this.velocities[idx + 2] -= 2 * dt;

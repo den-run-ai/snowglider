@@ -13,6 +13,41 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Avalanche friction made frame-rate independent (follow-up to PR #209)
+- The snowman drag fix in PR #209 corrected a per-frame multiplier mixed in with
+  dt-scaled forces. Stress-testing turned up the **same bug class still live in the
+  avalanche kernel**: `src/avalanche.ts` applied the ground `friction = 0.98` once per
+  frame instead of integrating it per second. So boulders decayed ~4× less at the
+  capped 10 FPS delta than at 60 FPS, and the grounded-slide terminal speed
+  `2·dt / (1 − friction)` scaled ~6× with frame time — the avalanche reached farther
+  and faster on slow devices, **skewing burial (game-over) fairness by frame rate**.
+- **Fix:** `friction → frictionFactor = Math.pow(0.98, dt * 60)`, mirroring the
+  snowman's `dragFactor`. Byte-identical at the 60 Hz baseline (`dt·60 == 1` when
+  `dt == 1/60`, `x ** 1 === x`), so the existing avalanche tests are unchanged; only
+  off-60 Hz frames are corrected. The debris/powder loop (`_updatePowder`) already
+  drag-scaled correctly — this brings the boulders in line.
+- **New gate:** `tests/verification/avalanche_framerate_harness.js` (`npm run
+  test:stress`, also in `npm test`) triggers one deterministic, seeded avalanche on flat
+  terrain (so the grounded-slide regime dominates cleanly) and asserts the 10-FPS/60-FPS
+  front-travel ratio stays near 1 and all boulder state stays finite. Verified to **fail
+  on the pre-fix kernel (ratio ≈ 2.9) and pass on the fix (≈ 0.95)** — a passing test on
+  the old code would have proven nothing.
+- **Forward stress harness broadened to an input × frame-rate matrix.**
+  `tests/verification/forward_stress_harness.js` (also `npm run test:stress`) — which PR
+  #209 added as a hold-Up-only probe — now sweeps five input policies (hold-Up,
+  deterministic slalom, time-keyed wander, an adversarial steer-into-the-nearest-tree,
+  and jump-spam) across 60/30/10 FPS **plus a bursty frame-hitching run** (60 FPS with
+  occasional 0.1 s GC-pause spikes). New gating checks beyond the original
+  tree-tunneling + speed-ratio: **rock tunneling** (the segment probe now replays every
+  rock disk at its `rockCollisionRadius`, not just trees), **speed-bounded under every
+  policy** (not just hold-Up), **no NaN/Infinity** in any run, and **every descent
+  terminates** (finish/crash/off-side, never spins — the closest reproducible proxy for
+  the "freezes at the end" report). The broadened matrix found **no new defects** (the
+  steered slalom path is frame-rate-sensitive by coarse-dt Euler integration, not a bug —
+  the steer force is delta-scaled — so it is reported as a diagnostic, not gated).
+  Verified to still fail hard on a reverted drag fix (3.16 m step → tunneling; speed
+  ratio 3.83).
+
 ### Snowplow: stop vs. slow-down + steep-slope failure, aligned to the Slope HUD (#54)
 - The snowplow was a single on/off "pizza" brake that stopped you on **any** skiable
   pitch. It is now a **graded wedge** with two real behaviors, tied to the terrain.
