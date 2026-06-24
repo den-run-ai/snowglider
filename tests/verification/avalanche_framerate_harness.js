@@ -117,7 +117,7 @@ function makeRng(seed) {
     if (ratio > worstReachRatio) { worstReachRatio = ratio; worstReachSeed = seed; }
   }
 
-  console.log('=== Avalanche frame-rate independence: real terrain, one triggered slide ===');
+  console.log('=== Avalanche frame-rate independence: flat terrain, one triggered slide ===');
   console.log('  seed     FPS  frontTravel   leadZ    meanZ   finite');
   for (const r of rows) {
     console.log('  %s  %s   %s   %s  %s    %s',

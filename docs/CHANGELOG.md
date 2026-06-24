@@ -32,6 +32,21 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   front-travel ratio stays near 1 and all boulder state stays finite. Verified to **fail
   on the pre-fix kernel (ratio ≈ 2.9) and pass on the fix (≈ 0.95)** — a passing test on
   the old code would have proven nothing.
+- **Forward stress harness broadened to an input × frame-rate matrix.**
+  `tests/verification/forward_stress_harness.js` (also `npm run test:stress`) — which PR
+  #209 added as a hold-Up-only probe — now sweeps five input policies (hold-Up,
+  deterministic slalom, time-keyed wander, an adversarial steer-into-the-nearest-tree,
+  and jump-spam) across 60/30/10 FPS **plus a bursty frame-hitching run** (60 FPS with
+  occasional 0.1 s GC-pause spikes). New gating checks beyond the original
+  tree-tunneling + speed-ratio: **rock tunneling** (the segment probe now replays every
+  rock disk at its `rockCollisionRadius`, not just trees), **speed-bounded under every
+  policy** (not just hold-Up), **no NaN/Infinity** in any run, and **every descent
+  terminates** (finish/crash/off-side, never spins — the closest reproducible proxy for
+  the "freezes at the end" report). The broadened matrix found **no new defects** (the
+  steered slalom path is frame-rate-sensitive by coarse-dt Euler integration, not a bug —
+  the steer force is delta-scaled — so it is reported as a diagnostic, not gated).
+  Verified to still fail hard on a reverted drag fix (3.16 m step → tunneling; speed
+  ratio 3.83).
 
 ### Snowplow: stop vs. slow-down + steep-slope failure, aligned to the Slope HUD (#54)
 - The snowplow was a single on/off "pizza" brake that stopped you on **any** skiable

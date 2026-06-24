@@ -248,11 +248,32 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
   and rolls/draws the skis together, and — via linked turns around the fall line —
   the carve holds clearly more speed. Run via `npm run test:turn-styles` (also
   included in `npm test`).
+- **`forward_stress_harness.js`** — frame-rate robustness gate for the "floor it
+  forward and blow past the obstacles" bug class (PR #209), broadened in the #209
+  follow-up to a full **input × frame-rate matrix**: it drives the real kernel over the
+  real terrain + procedurally placed trees **and** rocks under five input policies
+  (hold-Up, deterministic slalom, time-keyed wander, an adversarial steer-into-the-
+  nearest-tree, and jump-spam) at 60/30/10 FPS plus a bursty frame-hitching run (60 FPS
+  with occasional 0.1 s GC-pause spikes). Gates: **no collision tunneling** (trees and
+  rocks; replays each prev→cur segment against every obstacle disk), **speed does not
+  balloon at low FPS under any policy** (the #209 drag bug), **no NaN/Infinity**, and
+  **every descent terminates** (finish/crash/off-side, never spins — the closest proxy
+  for the "freezes at the end" report). Steered-path convergence is reported as a
+  diagnostic, not gated (coarse-dt Euler on the radial fall line drifts the slalom path
+  by design). Run via `npm run test:stress` (also in `npm test`).
+- **`avalanche_framerate_harness.js`** — frame-rate-independence gate for the avalanche
+  boulder kernel (`AvalancheSystem.update`). Triggers one deterministic, seeded
+  avalanche on **flat** terrain (so the grounded-slide regime — where the friction term
+  dominates — shows cleanly, mirroring how the invariant harness pins the snowman on a
+  synthetic slope) and asserts the 10-FPS/60-FPS front-travel ratio stays near 1 and all
+  boulder state stays finite. Guards the per-frame-friction regression fixed alongside
+  this harness (the same bug class as PR #209). Also run via `npm run test:stress`.
 - **`results.txt`** — the recorded output from the last full verification run.
 
 ```bash
 npm run test:verify        # physics_invariant_harness.js + dom_smoke_test.js
 npm run test:turn-styles   # carve vs. parallel turn side-by-side comparison
+npm run test:stress        # forward_stress_harness.js + avalanche_framerate_harness.js
 ```
 
 ## Playwright E2E (cross-browser + mobile)
