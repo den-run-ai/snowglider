@@ -31,7 +31,7 @@ For every frame the main loop feeds it (`Diag.record(...)`), it classifies:
 
 | Signal | Meaning | Verdict |
 | --- | --- | --- |
-| **step ≥ collision radius** | The per-frame move jumped farther than an obstacle's radius, so the discrete point-vs-disk collision check could skip the disk entirely. Runtime analog of the harness's offline tunneling probe. | **BAD** |
+| **step ≥ collision radius** | The per-frame move jumped farther than an obstacle's radius, so the discrete point-vs-disk collision check could skip the disk entirely. The radius is the **smallest** collidable obstacle — `min(tree 2.5u, smallest collidable rock ≈1.69u)` — so a step that would tunnel a small rock isn't masked by the larger tree radius. Runtime analog of the harness's offline tunneling probe. | **BAD** |
 | **fps→speed ratio ≥ 2.0** | Max **cruise-speed** speed in low-FPS frames is ≥2× the max in high-FPS frames → a force path scales with frame time (the #209 signature, which was ~4×). Only *genuine cruising* frames (≥85% of the expected terminal speed) count, and each band needs a minimum of them — so a steady frame rate, an accelerating start, or a normal mid-run speed rise (e.g. 5→8 m/s) never reaches BAD. A milder gap (≥1.5×) is **WARN-only**, since it can come from run progression / technique rather than a frame-rate-dependent force. | **BAD** (≥1.5 → WARN) |
 | **speed past the absolute ceiling** | A frame above `speedCeiling` (50 m/s) — impossible for legit play even buggy. Caught independent of frame rate, so a runaway with *no* FPS tell still fires. | **BAD** |
 | **NaN / Infinity** | Non-finite physics state. | **BAD** |
@@ -67,8 +67,11 @@ pipeline** (`window.firebaseModules.logEvent`, the same seam `game_start`/`game_
   (`fps_ge50_frames`, `fps_30_50_frames`, `fps_15_30_frames`, `fps_lt15_frames`) so you can
   chart the real-world frame-rate spread and slice anomalies against it. Emitted on a
   periodic heartbeat through a long run (`healthSampleSec`, default 30s) **and once at
-  run-end** (on reset), so even a short healthy run is sampled exactly once; a trivial/empty
-  reset emits nothing.
+  run-end** — at the game-over/finish (`Diag.endRun()` from `showGameOver`), on the next
+  `reset()`, or on `pagehide` if the player just navigates away — so even a short
+  one-and-done run (finish/crash, then leave without pressing Reset) is sampled exactly once.
+  All three paths share one de-duped flush, so a run is never double-counted; a
+  trivial/empty run emits nothing.
 - **`client_error` / `unhandled_rejection`** — the app had **no** `window.onerror` /
   `unhandledrejection` handler, so an uncaught throw in the rAF loop (a real "freezes"
   candidate) vanished silently. `Diag` installs both, attaching the message/stack plus the

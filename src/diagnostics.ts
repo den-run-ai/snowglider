@@ -348,6 +348,11 @@ class Diagnostics {
       window.addEventListener('keydown', (e: KeyboardEvent) => {
         if (e.key === '`') this.toggleOverlay();
       });
+      // Last-chance baseline flush: if the player navigates away mid-run or after a
+      // game-over without pressing Reset, reset() never runs — so emit the owed
+      // session_health here. pagehide is the reliable teardown hook on mobile (Safari
+      // fires it where unload/beforeunload are unreliable); de-duped via flushHealthBaseline.
+      window.addEventListener('pagehide', () => this.flushHealthBaseline());
       // Bug-report API: __snowgliderDiag.dump() returns the trace + verdict and, in a
       // browser, also downloads it as JSON so a tester can attach it to an issue.
       (window as unknown as { __snowgliderDiag?: unknown }).__snowgliderDiag = {
@@ -563,15 +568,33 @@ class Diagnostics {
     return snap;
   }
 
-  reset(): void {
-    // Run-end baseline sample: capture the just-completed run before clearing, so even a
-    // short healthy run (too brief for a heartbeat) contributes one session_health. Skipped
-    // for a trivial/empty reset (e.g. the reset at init) and de-duped against a heartbeat
-    // that just fired this run.
+  /** Flush the just-completed run's `session_health` baseline if one is still owed —
+   *  the run reached MIN_SAMPLE_FRAMES and no heartbeat/run-end sample already fired for
+   *  it (de-duped on the clock, which doesn't advance after the run stops). Idempotent, so
+   *  the run-end (showGameOver), pagehide, and reset paths can all call it without
+   *  double-emitting. A no-op for a trivial/empty run (e.g. the reset at init). */
+  private flushHealthBaseline(): void {
     if (this.active && this.summary.frames >= MIN_SAMPLE_FRAMES &&
         this.clockSec - this.lastHealthEmitSec >= 1) {
       this.emitHealthSample();
     }
+  }
+
+  /** Mark the end of a run (finish / crash / avalanche burial) without clearing state, so a
+   *  one-and-done session that ends and is then abandoned — the player never presses
+   *  Reset/Restart, so reset() never runs — still contributes its `session_health` baseline.
+   *  Called from showGameOver; de-duped against the eventual reset() emit. */
+  endRun(): void {
+    if (!DIAG_ENABLED || !this.active) return;
+    this.flushHealthBaseline();
+  }
+
+  reset(): void {
+    // Run-end baseline sample: capture the just-completed run before clearing, so even a
+    // short healthy run (too brief for a heartbeat) contributes one session_health. Skipped
+    // for a trivial/empty reset (e.g. the reset at init) and de-duped against a heartbeat or
+    // an endRun()/pagehide flush that already fired for this run.
+    this.flushHealthBaseline();
     this.ring = [];
     this.head = 0;
     this.summary = emptySummary();

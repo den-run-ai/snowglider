@@ -45,7 +45,7 @@ import {
 // directly, and scene-setup.ts imports the RockPosition type from '../mountains.js'.
 // rockCollisionRadius was a named export of the pre-split mountains.ts too — keep it
 // on the facade so `import { rockCollisionRadius } from './mountains.js'` still works.
-export { terrainRidgeField, forestDensityField, rockCollisionRadius };
+export { terrainRidgeField, forestDensityField, rockCollisionRadius, ROCK_COLLISION_MIN_SIZE };
 export type { TerrainVec2, RockPosition };
 
 // Export all mountain-related functions and classes

@@ -74,6 +74,16 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   `Diag.reset()` is now called in the lifecycle reset path — otherwise the first frame of a
   restarted run read as a ~135u step (old finish → spawn) and was falsely flagged a tunnel
   risk, permanently marking the run BAD. Regression-tested both ways.
+- **Two more codex P2s fixed.** (c) `session_health` was only flushed on `reset()`, so a
+  one-and-done run that ended via game-over/finish and was then abandoned (player never
+  presses Reset) contributed no baseline. `Diag.endRun()` now flushes at run-end (called
+  from `showGameOver`) and a `pagehide` listener flushes if the player just navigates away;
+  all three paths share one de-duped flush so a run is never double-counted. (d) The tunnel
+  check used the tree radius (2.5u) alone, but collidable rocks can be as small as
+  ≈1.69u (`rockCollisionRadius(ROCK_COLLISION_MIN_SIZE)`), so a ~2u step could skip a small
+  rock while diagnostics reported no tunnel risk. `Diag` is now initialised with the
+  **smallest** collidable obstacle radius (`min(treeRadius, smallest-rock-radius)`).
+  Both are regression-tested in `tests/diagnostics-tests.js`.
 - **Analytics are pure + headlessly tested.** `percentile`, `classifyFrame`, `foldFrame`,
   `fpsSpeedRatio`, and `frameRateHealth` are exported pure functions (no DOM), unit-tested
   in `tests/diagnostics-tests.js` (`npm run test:diagnostics`, also in `npm test`). The

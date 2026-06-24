@@ -6,6 +6,7 @@
 
 import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
+import { Diag } from '../diagnostics.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 
@@ -96,6 +97,13 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       return;
     }
     state.gameActive = false;
+
+    // Flush the run's diagnostics baseline now that the run has ended. The main loop stops
+    // recording once gameActive is false, and a player who finishes/crashes and then leaves
+    // never presses Reset/Restart (which is the other path that flushes), so without this a
+    // one-and-done session would contribute no session_health sample. De-duped against the
+    // eventual reset()/pagehide flush; a no-op under automation.
+    try { Diag.endRun(); } catch { /* telemetry must never block the overlay */ }
 
     // Fire the crash-shatter wipeout on a crash (any non-finish reason): tree/rock
     // hit, off-mountain, fell-off, or avalanche burial. The finish is never a crash.

@@ -60,6 +60,23 @@ async function main() {
   const bad = D.classifyFrame({ x: 0, z: 0 }, { dt: 1 / 60, speed: NaN, x: 0, z: 0, technique: 'tuck', isInAir: false }, cfg);
   check('classify: non-finite speed flagged', bad.nonFinite === true);
 
+  // regression (codex #211): the tunnel check must honor the SMALLEST collidable obstacle
+  // radius. collision.ts guards trees (2.5u) AND rocks (rockCollisionRadius(size)); the
+  // smallest collidable rock is ~1.69u (rockCollisionRadius(ROCK_COLLISION_MIN_SIZE)), so the
+  // orchestrator wires Diag with min(treeRadius, smallest-rock-radius). A ~2u per-frame step
+  // sits between those: it can skip a small rock's disk yet reads as "no tunnel risk" against
+  // the tree-only 2.5u radius. Prove classifyFrame uses the configured radius so the smaller
+  // one catches it. (rockCollisionRadius's value is unit-tested in terrain-tests.js.)
+  const { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } = await import('../src/mountains.js');
+  const minObstacleRadius = Math.min(2.5, rockCollisionRadius(ROCK_COLLISION_MIN_SIZE));
+  check('tunnel radius: the smallest collidable rock radius is below the 2.5u tree radius',
+    minObstacleRadius < 2.5 && approx(minObstacleRadius, 1.6875));
+  const midStep = { dt: 0.1, speed: 20, x: 0, z: -2.0, technique: 'tuck', isInAir: false }; // 2.0u step
+  check('tunnel radius: a 2.0u step is NOT a tunnel risk at the 2.5u tree radius',
+    D.classifyFrame({ x: 0, z: 0 }, midStep, cfg).tunnelRisk === false);
+  check('tunnel radius: the same 2.0u step IS a tunnel risk at the ~1.69u smallest-rock radius',
+    D.classifyFrame({ x: 0, z: 0 }, midStep, { ...cfg, collisionRadius: minObstacleRadius }).tunnelRisk === true);
+
   // --- fpsSpeedRatio: the core frame-rate-dependence detector ------------------
   // No signal without both a fast and a slow band populated (a steady-FPS run).
   const steady60 = summarize(D, descent({ dt: 1 / 60, speed: 8, frames: 200 }), cfg);
@@ -221,6 +238,29 @@ async function main() {
   events.length = 0;
   D.Diag.reset();
   check('session_health: an empty reset emits nothing', events.length === 0);
+
+  // (d) regression (codex #211): a run that ENDS via game-over/finish (showGameOver) but is
+  // then abandoned — the player never presses Reset/Restart, so reset() never runs — still
+  // contributes its baseline via endRun(), and a later reset()/pagehide must NOT double-emit
+  // (de-duped on the clock, which doesn't advance after the run stops).
+  events.length = 0;
+  D.Diag.reset();
+  D.Diag.init({ ...cfg, healthSampleSec: 1000 }, { report: (event, data) => events.push({ event, data }) });
+  for (let i = 0; i < 90; i++) D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -15 - i, technique: 'tuck', isInAir: false }); // ~1.5s
+  D.Diag.endRun(); // run ended (showGameOver) before any heartbeat — flush the owed baseline now
+  check('session_health: endRun() flushes a baseline for an ended-then-abandoned run',
+    events.filter((e) => e.event === 'session_health').length === 1);
+  D.Diag.reset(); // a later restart/abandon must not re-emit the same run's baseline
+  check('session_health: a reset after endRun() does not double-emit',
+    events.filter((e) => e.event === 'session_health').length === 1);
+
+  // (e) endRun() on a too-short run (below MIN_SAMPLE_FRAMES) emits nothing.
+  events.length = 0;
+  D.Diag.reset();
+  D.Diag.init({ ...cfg, healthSampleSec: 1000 }, { report: (event, data) => events.push({ event, data }) });
+  for (let i = 0; i < 5; i++) D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -15 - i, technique: 'tuck', isInAir: false });
+  D.Diag.endRun();
+  check('session_health: endRun() on a too-short run emits nothing', events.length === 0);
 
   // --- generic note() seam: other subsystems report into the same pipeline ----
   events.length = 0;

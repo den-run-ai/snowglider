@@ -30,6 +30,7 @@ import * as THREE from 'three';
 import { Controls } from './controls.js';
 import { Snow } from './snow.js';
 import { Snowman } from './snowman.js';
+import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
@@ -164,7 +165,11 @@ window.addEventListener('resize', handleResize);
 // of only in the offline stress harnesses. Off under automation by default (so the test
 // suites stay byte-identical); add ?debug to play with the live overlay, or call
 // window.__snowgliderDiag.dump() to export a JSON trace for a bug report. The collision
-// radius mirrors collision.ts's tree default and the cap mirrors the loop's delta clamp.
+// radius is the SMALLEST collidable obstacle radius the discrete point-vs-disk check
+// guards — the min of the tree radius (collision.ts default 2.5u) and the smallest
+// collidable rock radius (rockCollisionRadius(ROCK_COLLISION_MIN_SIZE) ≈ 1.69u). Using the
+// tree radius alone would under-detect: a ~2u per-frame step can skip a small rock's disk
+// while still reading as "no tunnel risk". The cap mirrors the loop's delta clamp.
 //
 // The `report` sink routes Diag's once-per-run BAD verdict + any uncaught error/rejection
 // into the EXISTING Firebase Analytics pipeline (window.firebaseModules.logEvent, the same
@@ -174,7 +179,13 @@ window.addEventListener('resize', handleResize);
 // like the other logEvent call sites (modular SDK present, not file://) and wrapped so a
 // telemetry failure can never throw into the game loop.
 Diag.init(
-  { frameCapSec: 0.1, collisionRadius: window.treeCollisionRadius || 2.5 },
+  {
+    frameCapSec: 0.1,
+    collisionRadius: Math.min(
+      window.treeCollisionRadius || 2.5,
+      rockCollisionRadius(ROCK_COLLISION_MIN_SIZE),
+    ),
+  },
   {
     report: (event, data) => {
       try {
