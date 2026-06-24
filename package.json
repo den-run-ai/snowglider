@@ -56,7 +56,6 @@
   },
   "dependencies": {
     "firebase": "^11.5.0",
-    "howler": "^2.2.4",
     "three": "0.184.0"
   },
   "devDependencies": {

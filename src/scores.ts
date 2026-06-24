@@ -26,7 +26,6 @@
  */
 
 import {
-  getFirestore,
   doc,
   setDoc,
   getDoc,
@@ -39,7 +38,7 @@ import {
   serverTimestamp,
   type Firestore
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
-import { getAnalytics, logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
+import { logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
 
 // Module state
@@ -397,9 +396,6 @@ function displayLeaderboard() {
           leaderboardElement.innerHTML = '<h3>No scores recorded yet!</h3>';
           return;
         }
-
-        let html = '<h3>Top 10 Times</h3><table>';
-        html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
 
         // Fetch user data only if firestore is still available
         const userPromises = scores.map(score => {

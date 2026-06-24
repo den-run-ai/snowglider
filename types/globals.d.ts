@@ -4,6 +4,9 @@
 //
 // Phase 1 strategy: start loose (`any` for not-yet-typed module namespaces),
 // give the well-understood primitives real three.js types, and tighten per module.
+import type * as THREE from 'three';
+import type { TreePosition } from '../src/trees.js';
+
 declare global {
   // three.js r160 is single-sourced from npm. Every src module and every browser
   // test now `import * as THREE from 'three'`, so the ambient `THREE` global and
@@ -37,10 +40,6 @@ declare global {
   const isInAir: boolean;
   const verticalVelocity: number;
 
-  // Howler.js globals (still listed in package.json / eslint; audio is native HTML5 now).
-  const Howl: any;
-  const Howler: any;
-
   // NOTE: as of PR 2.9 snowglider.js is an ES module, so its shared helpers
   // (`showGameOver`, `updateCamera`, `updateSnowman`, …) and ALL the shared mutable
   // game state (`scene`, `snowman`, `velocity`, `pos`, `camera`, `cameraManager`,
@@ -73,8 +72,8 @@ declare global {
     FIREBASE_MANUAL_INIT?: boolean;
     __FIREBASE_DEFAULTS__?: any; // set by auth.js to stop Firebase auto-init 404s
     // Cross-module/test handles published by snowglider.js (docs/ARCHITECTURE.md §3).
-    terrainMesh?: any;
-    treePositions?: any;
+    terrainMesh?: THREE.Mesh;
+    treePositions?: TreePosition[];
     rockPositions?: Array<{ x: number; y: number; z: number; size: number }>;
     isTestMode?: boolean;
     // Lifecycle/input callbacks snowglider.js publishes for controls.js + buttons.

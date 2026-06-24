@@ -447,10 +447,6 @@ export const Controls = {
       // Refresh controls
       const existingControls = document.querySelectorAll('.touch-control');
       if (show && existingControls.length === 0) {
-        // Recalculate regions and create controls
-        const width = window.innerWidth;
-        const height = window.innerHeight;
-        
         if (Object.keys(touchState.controlRegions).length === 0) {
           // Initialize control regions if they don't exist
           setupControls();
