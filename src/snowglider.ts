@@ -165,7 +165,29 @@ window.addEventListener('resize', handleResize);
 // suites stay byte-identical); add ?debug to play with the live overlay, or call
 // window.__snowgliderDiag.dump() to export a JSON trace for a bug report. The collision
 // radius mirrors collision.ts's tree default and the cap mirrors the loop's delta clamp.
-Diag.init({ frameCapSec: 0.1, collisionRadius: window.treeCollisionRadius || 2.5 });
+//
+// The `report` sink routes Diag's once-per-run BAD verdict + any uncaught error/rejection
+// into the EXISTING Firebase Analytics pipeline (window.firebaseModules.logEvent, the same
+// seam game_start/game_over/game_reset already use). Aggregated across real devices this is
+// how the #209 class would surface in the wild — low-FPS sessions correlating with runaway
+// speed / tunnel events — rather than as an unreproducible field report. Guarded exactly
+// like the other logEvent call sites (modular SDK present, not file://) and wrapped so a
+// telemetry failure can never throw into the game loop.
+Diag.init(
+  { frameCapSec: 0.1, collisionRadius: window.treeCollisionRadius || 2.5 },
+  {
+    report: (event, data) => {
+      try {
+        if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function' &&
+            window.location.protocol !== 'file:') {
+          window.firebaseModules.logEvent(event, data);
+        }
+      } catch (e) {
+        console.log('Diag analytics skipped:', (e as Error).message);
+      }
+    },
+  }
+);
 
 // --- Run lifecycle (see game/lifecycle.ts): reset / restart / camera toggle ---
 // Built after the loop (restartGame uses startLoop). Re-publish the three hooks the

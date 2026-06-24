@@ -69,13 +69,23 @@ export interface DiagConfig {
   /** Rough expected 60 Hz cruising/terminal speed (~8 m/s). Only used to flag a frame
    *  as "fast" for the overlay; the fps-band correlation is what actually detects the bug. */
   speedExpected: number;
+  /** Absolute speed ceiling (m/s) no legitimate descent should ever exceed, even buggy
+   *  (#209 topped out ~32 at 10 FPS). A frame above this is a runaway regardless of frame
+   *  rate, so it is caught even at a steady FPS where the fps-band ratio sees nothing. */
+  speedCeiling: number;
 }
 
 export const DEFAULT_CONFIG: DiagConfig = {
   frameCapSec: 0.1,
   collisionRadius: 2.5,
   speedExpected: 8,
+  speedCeiling: 50,
 };
+
+/** A structured event sink (e.g. Firebase Analytics logEvent). Injected via init() so
+ *  diagnostics.ts stays decoupled from Firebase and unit-tests with a stub. Called at
+ *  most once per run for a physics anomaly, and per uncaught error/rejection. */
+export type DiagSink = (event: string, data: Record<string, unknown>) => void;
 
 /** One frame's physics observables, as read from the kernel result + position. */
 export interface FrameSample {
@@ -94,6 +104,7 @@ export interface FrameFlags {
   clamped: boolean;    // dt pinned at the loop cap → device below 1/cap FPS
   tunnelRisk: boolean; // step >= collisionRadius → discrete check could miss a disk
   nonFinite: boolean;  // any of dt/speed/x/z not finite
+  runaway: boolean;    // speed past the absolute ceiling — impossible-for-legit-play fast
   fast: boolean;       // speed well above the expected 60 Hz terminal speed
 }
 
@@ -115,6 +126,7 @@ export interface DiagSummary {
   speedMax: number;
   tunnelRiskFrames: number;
   nonFiniteFrames: number;
+  runawayFrames: number;
   bands: BandStat[];
 }
 
@@ -148,6 +160,7 @@ export function classifyFrame(prev: { x: number; z: number } | null, s: FrameSam
     clamped: finite && s.dt >= cfg.frameCapSec - 1e-9,
     tunnelRisk: step >= cfg.collisionRadius,
     nonFinite: !finite,
+    runaway: finite && s.speed > cfg.speedCeiling,
     fast: finite && s.speed > cfg.speedExpected * 1.5,
   };
 }
@@ -156,7 +169,7 @@ export function classifyFrame(prev: { x: number; z: number } | null, s: FrameSam
 export function emptySummary(): DiagSummary {
   return {
     frames: 0, durationSec: 0, dtMaxSec: 0, clampedFrames: 0,
-    stepMax: 0, speedMax: 0, tunnelRiskFrames: 0, nonFiniteFrames: 0,
+    stepMax: 0, speedMax: 0, tunnelRiskFrames: 0, nonFiniteFrames: 0, runawayFrames: 0,
     bands: FPS_BANDS.map((b) => ({ label: b.label, frames: 0, speedMax: 0, speedSum: 0 })),
   };
 }
@@ -172,6 +185,7 @@ export function foldFrame(agg: DiagSummary, s: FrameSample, flags: FrameFlags): 
   }
   if (flags.clamped) agg.clampedFrames += 1;
   if (flags.tunnelRisk) agg.tunnelRiskFrames += 1;
+  if (flags.runaway) agg.runawayFrames += 1;
   if (flags.nonFinite) { agg.nonFiniteFrames += 1; return agg; } // don't pollute speed stats
   if (flags.step > agg.stepMax) agg.stepMax = flags.step;
   if (s.speed > agg.speedMax) agg.speedMax = s.speed;
@@ -227,6 +241,10 @@ export function frameRateHealth(summary: DiagSummary, cfg: DiagConfig): HealthVe
     reasons.push(`${summary.tunnelRiskFrames} frame(s) stepped >= ${cfg.collisionRadius}u (an obstacle radius) — collision tunnel risk`);
     bump('bad');
   }
+  if (summary.runawayFrames > 0) {
+    reasons.push(`${summary.runawayFrames} frame(s) above the ${cfg.speedCeiling} m/s speed ceiling — runaway speed (frame-rate independent)`);
+    bump('bad');
+  }
   const ratio = fpsSpeedRatio(summary);
   if (ratio >= 1.6) {
     reasons.push(`speed ${ratio.toFixed(1)}x higher in low-FPS frames than high-FPS — frame-rate-dependent force (the #209 class)`);
@@ -257,12 +275,18 @@ class Diagnostics {
   private overlay: HTMLElement | null = null;
   private lastOverlayPaint = 0;
   private clockSec = 0; // accumulated in-game seconds (dt sum); avoids Date.now in tests
+  private sink: DiagSink = () => {}; // structured-event transport (Firebase Analytics)
+  private reportedAnomaly = false;   // physics anomaly reported once per run (debounce)
+  private errorHandlersInstalled = false;
+  private notes: Array<{ atSec: number; category: string; detail: Record<string, unknown> }> = [];
 
   /** Wire up the recorder. Safe to call once at startup. Honors the automation gate and
-   *  the ?debug overlay flag; without a DOM it just enables the headless recorder. */
-  init(cfg?: Partial<DiagConfig>): void {
+   *  the ?debug overlay flag; without a DOM it just enables the headless recorder.
+   *  `opts.report` injects the structured-event transport (e.g. Firebase Analytics). */
+  init(cfg?: Partial<DiagConfig>, opts?: { report?: DiagSink }): void {
     if (!DIAG_ENABLED) return;
     this.cfg = { ...DEFAULT_CONFIG, ...(cfg || {}) };
+    if (opts && opts.report) this.sink = opts.report;
     if (typeof window === 'undefined') { this.active = true; return; }
 
     const automated = !!window.isTestMode ||
@@ -272,6 +296,11 @@ class Diagnostics {
     // automated suites stay byte-identical unless a test opts in (matches debris/sfx).
     this.active = !automated || optedIn;
     if (!this.active) return;
+
+    // Global error capture: there is no other window.onerror / unhandledrejection in the
+    // app, so an uncaught throw in the rAF loop (a real "freezes" candidate) otherwise
+    // vanishes. Route it through the same sink with the recent physics trace as context.
+    this.installErrorHandlers();
 
     const search = (window.location && window.location.search) || '';
     const wantOverlay = /[?&]debug(=|&|$)/.test(search) || /[?&]debug=(physics|all)/.test(search);
@@ -308,13 +337,94 @@ class Diagnostics {
 
     if (!flags.nonFinite) this.prev = { x: s.x, z: s.z };
     this.maybeWarn(flags);
+    this.maybeReport();
     this.maybePaint();
+  }
+
+  /** Report a physics anomaly to the sink at most ONCE per run (debounced) — the moment
+   *  the run's health verdict first reaches BAD. Aggregated across real devices this is
+   *  how the #209 class would surface in the wild: low-FPS sessions correlating with
+   *  runaway speed / tunnel events, instead of an unreproducible "I drove through a tree". */
+  private maybeReport(): void {
+    if (this.reportedAnomaly) return;
+    const health = frameRateHealth(this.summary, this.cfg);
+    if (health.level !== 'bad') return;
+    this.reportedAnomaly = true;
+    const sm = this.summary;
+    this.emit('physics_anomaly', {
+      reasons: health.reasons.join(' | '),
+      frames: sm.frames,
+      fps: sm.durationSec > 0 ? Math.round(sm.frames / sm.durationSec) : 0,
+      dtMaxMs: Math.round(sm.dtMaxSec * 1000),
+      speedMax: +sm.speedMax.toFixed(1),
+      stepMax: +sm.stepMax.toFixed(2),
+      tunnelFrames: sm.tunnelRiskFrames,
+      runawayFrames: sm.runawayFrames,
+      nonFiniteFrames: sm.nonFiniteFrames,
+      fpsSpeedRatio: +fpsSpeedRatio(sm).toFixed(2),
+    });
+  }
+
+  /** Generic anomaly seam for OTHER subsystems (asset loaders, avalanche, camera, …) to
+   *  report into the same pipeline — so diagnostics is not limited to the physics kernel.
+   *  e.g. Diag.note('asset_load_failed', { url }). Routed to the sink + console + the dump,
+   *  and a no-op when the recorder is inactive (automation). */
+  note(category: string, detail: Record<string, unknown> = {}): void {
+    if (!DIAG_ENABLED || !this.active) return;
+    this.notes.push({ atSec: +this.clockSec.toFixed(2), category, detail });
+    if (this.notes.length > 50) this.notes.shift();
+    this.warn(`note:${category}`, `[diag] ${category} ${JSON.stringify(detail)}`);
+    this.emit('diag_note', { category, ...detail });
+  }
+
+  /** Forward to the injected sink, swallowing any sink error (telemetry must never throw
+   *  into the game loop). */
+  private emit(event: string, data: Record<string, unknown>): void {
+    try { this.sink(event, data); } catch { /* a broken sink must not break the game */ }
+  }
+
+  /** Install window.onerror + unhandledrejection once. Captures the message/stack plus the
+   *  current physics snapshot summary as context, routes it to the sink + console.error.
+   *  Re-throws nothing; never swallows the browser's own default logging. */
+  private installErrorHandlers(): void {
+    if (this.errorHandlersInstalled || typeof window === 'undefined') return;
+    this.errorHandlersInstalled = true;
+    const context = () => {
+      const sm = this.summary;
+      return {
+        frames: sm.frames,
+        fps: sm.durationSec > 0 ? Math.round(sm.frames / sm.durationSec) : 0,
+        speedMax: +sm.speedMax.toFixed(1),
+        health: frameRateHealth(sm, this.cfg).level,
+      };
+    };
+    window.addEventListener('error', (e: ErrorEvent) => {
+      this.emit('client_error', {
+        message: String(e.message || 'error'),
+        source: e.filename || '',
+        line: e.lineno || 0,
+        stack: (e.error && e.error.stack ? String(e.error.stack) : '').slice(0, 600),
+        ...context(),
+      });
+    });
+    window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      const msg = reason && reason.message ? reason.message : String(reason);
+      this.emit('unhandled_rejection', {
+        message: String(msg).slice(0, 300),
+        stack: (reason && reason.stack ? String(reason.stack) : '').slice(0, 600),
+        ...context(),
+      });
+    });
   }
 
   /** Throttled console warnings on the anomaly categories, so a live slow-device run
    *  leaves a breadcrumb in the console even if nobody opened the overlay. */
   private maybeWarn(flags: FrameFlags): void {
     if (flags.nonFinite) this.warn('nonFinite', '[diag] non-finite physics state (NaN/Infinity) this frame');
+    if (flags.runaway) {
+      this.warn('runaway', `[diag] speed ${this.summary.speedMax.toFixed(1)} m/s past the ${this.cfg.speedCeiling} m/s ceiling — runaway`);
+    }
     if (flags.tunnelRisk) {
       this.warn('tunnel', `[diag] per-frame step ${flags.step.toFixed(2)}u >= collision radius ${this.cfg.collisionRadius}u at ${flags.fps.toFixed(0)} FPS — possible tunnel-through`);
     }
@@ -356,10 +466,12 @@ class Diagnostics {
         speedMax: +this.summary.speedMax.toFixed(2),
         tunnelRiskFrames: this.summary.tunnelRiskFrames,
         nonFiniteFrames: this.summary.nonFiniteFrames,
+        runawayFrames: this.summary.runawayFrames,
         fpsSpeedRatio: +fpsSpeedRatio(this.summary).toFixed(2),
         bands,
       },
       health,
+      notes: this.notes.slice(),
       recent: this.orderedRing().slice(-120).map((e) => ({
         dt: +e.dt.toFixed(4), fps: +e.fps.toFixed(0), speed: +e.speed.toFixed(2),
         step: +e.step.toFixed(2), x: +e.x.toFixed(1), z: +e.z.toFixed(1),
@@ -393,6 +505,8 @@ class Diagnostics {
     this.prev = null;
     this.lastWarn = {};
     this.clockSec = 0;
+    this.reportedAnomaly = false; // a fresh run can report its own anomaly
+    this.notes = [];
   }
 
   // --- DOM overlay (live HUD) ---
@@ -443,7 +557,7 @@ class Diagnostics {
       `${icon} SnowGlider physics diag  (\` toggles)`,
       `fps  now=${last ? last.fps.toFixed(0) : '–'}  avg=${fpsAvg.toFixed(0)}  dtMax=${(sm.dtMaxSec * 1000).toFixed(0)}ms  clamp=${sm.clampedFrames}`,
       `spd  now=${last ? last.speed.toFixed(1) : '–'}  max=${sm.speedMax.toFixed(1)}  stepMax=${sm.stepMax.toFixed(2)}/${this.cfg.collisionRadius}`,
-      `risk tunnel=${sm.tunnelRiskFrames}  NaN=${sm.nonFiniteFrames}  fps→spd=${fpsSpeedRatio(sm).toFixed(2)}x`,
+      `risk tunnel=${sm.tunnelRiskFrames}  runaway=${sm.runawayFrames}  NaN=${sm.nonFiniteFrames}  fps→spd=${fpsSpeedRatio(sm).toFixed(2)}x`,
       `speed by fps band:`,
       bandLines || '   (single band)',
       health.level === 'ok' ? '' : health.reasons.map((r) => ` ! ${r}`).join('\n'),

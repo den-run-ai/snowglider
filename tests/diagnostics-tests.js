@@ -112,6 +112,63 @@ async function main() {
   check('fold: incremental == batch (frames + speedMax)',
     once.frames === split.frames && approx(once.speedMax, split.speedMax));
 
+  // --- broadened invariant: absolute speed-ceiling runaway --------------------
+  // Independent of the fps-band ratio: a frame past the ceiling is a runaway even at a
+  // STEADY frame rate (where the band comparison sees nothing). Guards bugs that inflate
+  // speed without a frame-rate tell.
+  const runaway = summarize(D, descent({ dt: 1 / 60, speed: cfg.speedCeiling + 20, frames: 30 }), cfg);
+  check('runaway: frames past the speed ceiling are counted', runaway.runawayFrames === 30);
+  const runawayHealth = D.frameRateHealth(runaway, cfg);
+  check('runaway: graded BAD even at steady FPS', runawayHealth.level === 'bad' &&
+    runawayHealth.reasons.some((r) => /runaway/i.test(r)));
+  check('runaway: a normal-speed steady run has zero runaway frames',
+    summarize(D, descent({ dt: 1 / 60, speed: 8, frames: 60 }), cfg).runawayFrames === 0);
+
+  // --- analytics sink: reports a physics anomaly ONCE per run -----------------
+  // The injected sink (Firebase Analytics in the app) must fire exactly once when a run's
+  // health first reaches BAD — not every frame (that would flood analytics) and not on a
+  // healthy run.
+  const events = [];
+  D.Diag.reset();
+  D.Diag.init(cfg, { report: (event, data) => events.push({ event, data }) });
+  // Healthy frames first: no report.
+  for (let i = 0; i < 20; i++) D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -15 - i, technique: 'tuck', isInAir: false });
+  check('sink: silent while a run stays healthy', events.filter((e) => e.event === 'physics_anomaly').length === 0);
+  // Now drive a runaway → exactly one physics_anomaly, with structured fields.
+  for (let i = 0; i < 30; i++) D.Diag.record({ dt: 1 / 60, speed: 80, x: 0, z: -40 - i, technique: 'tuck', isInAir: false });
+  const anomalies = events.filter((e) => e.event === 'physics_anomaly');
+  check('sink: fires exactly once when health flips BAD', anomalies.length === 1);
+  check('sink: anomaly payload carries structured fields', anomalies.length === 1 &&
+    anomalies[0].data.runawayFrames > 0 && typeof anomalies[0].data.reasons === 'string');
+  // After a reset (new run) the sink can report again.
+  D.Diag.reset();
+  for (let i = 0; i < 30; i++) D.Diag.record({ dt: 1 / 60, speed: 80, x: 0, z: -15 - i, technique: 'tuck', isInAir: false });
+  check('sink: a fresh run can report its own anomaly after reset',
+    events.filter((e) => e.event === 'physics_anomaly').length === 2);
+
+  // --- generic note() seam: other subsystems report into the same pipeline ----
+  events.length = 0;
+  D.Diag.reset();
+  D.Diag.note('asset_load_failed', { url: 'music.mp3' });
+  const noteEvents = events.filter((e) => e.event === 'diag_note');
+  check('note: routes a generic anomaly to the sink', noteEvents.length === 1 &&
+    noteEvents[0].data.category === 'asset_load_failed' && noteEvents[0].data.url === 'music.mp3');
+  check('note: appears in the snapshot for the dump',
+    D.Diag.snapshot().notes.some((n) => n.category === 'asset_load_failed'));
+
+  // --- sink failures must never throw into the game loop ----------------------
+  D.Diag.reset();
+  D.Diag.init(cfg, { report: () => { throw new Error('analytics is down'); } });
+  let threw = false;
+  try {
+    for (let i = 0; i < 30; i++) D.Diag.record({ dt: 1 / 60, speed: 80, x: 0, z: -15 - i, technique: 'tuck', isInAir: false });
+    D.Diag.note('x', {});
+  } catch { threw = true; }
+  check('sink: a throwing sink is swallowed (telemetry never breaks the game)', threw === false);
+
+  // restore a quiet sink for the remaining recorder checks
+  D.Diag.init(cfg, { report: () => {} });
+
   // --- the live recorder is inert + safe in Node (no DOM) ---------------------
   D.Diag.init(cfg);            // no window/document in Node → headless recorder path
   D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -1, technique: 'tuck', isInAir: false });

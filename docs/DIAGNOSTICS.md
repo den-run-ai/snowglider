@@ -33,6 +33,7 @@ For every frame the main loop feeds it (`Diag.record(...)`), it classifies:
 | --- | --- | --- |
 | **step ≥ collision radius** | The per-frame move jumped farther than an obstacle's radius, so the discrete point-vs-disk collision check could skip the disk entirely. Runtime analog of the harness's offline tunneling probe. | **BAD** |
 | **fps→speed ratio ≥ 1.6** | Max speed in low-FPS frames is ≥1.6× the max in high-FPS frames → a force path scales with frame time (the #209 signature). Needs both a fast (≥30 FPS) and slow (<30 FPS) band populated, so a *steady* frame rate never false-alarms. | **BAD** (≥1.25 → WARN) |
+| **speed past the absolute ceiling** | A frame above `speedCeiling` (50 m/s) — impossible for legit play even buggy. Caught independent of frame rate, so a runaway with *no* FPS tell still fires. | **BAD** |
 | **NaN / Infinity** | Non-finite physics state. | **BAD** |
 | **≥10% of frames at the delta cap** | The device is below 1/cap FPS (the regime the bug bites). Informational, not an accusation. | **WARN** |
 
@@ -44,9 +45,36 @@ For every frame the main loop feeds it (`Diag.record(...)`), it classifies:
   current/avg FPS, dt-cap hits, max step vs radius, the **speed-by-FPS-band** table, and
   the health verdict with reasons.
 - **Bug-report export.** `window.__snowgliderDiag.dump()` returns *and downloads* a JSON
-  trace — config, running summary, health verdict, and the most recent ~120 frames —
+  trace — config, running summary, health verdict, recent frames, and any `note()`s —
   ready to attach to a GitHub issue. `snapshot()` returns it without downloading;
   `reset()` clears the trace; `overlay(true|false)` toggles the HUD.
+
+## Aggregation: Firebase Analytics + global error capture
+
+A detector whose output dies in the device console can't catch the *next* bug in the
+wild. `Diag` therefore routes its findings into the **existing Firebase Analytics
+pipeline** (`window.firebaseModules.logEvent`, the same seam `game_start`/`game_over`/
+`game_reset` already use) via a `report` sink injected at `init()`:
+
+- **`physics_anomaly`** — emitted **once per run** the moment a run's health first reaches
+  BAD, with the structured summary (fps, dtMax, speedMax, tunnel/runaway/non-finite frame
+  counts, fps→speed ratio). Aggregated across real devices, this is exactly how the #209
+  class would have surfaced — low-FPS sessions correlating with runaway speed / tunnel
+  events — instead of as an unreproducible "I drove through a tree".
+- **`client_error` / `unhandled_rejection`** — the app had **no** `window.onerror` /
+  `unhandledrejection` handler, so an uncaught throw in the rAF loop (a real "freezes"
+  candidate) vanished silently. `Diag` installs both, attaching the message/stack plus the
+  current physics snapshot as context.
+- **`diag_note`** — the generic `Diag.note(category, detail)` seam lets **other
+  subsystems** (asset loaders, avalanche, camera) report anomalies into the same pipeline,
+  so diagnostics is not limited to the physics kernel. e.g.
+  `Diag.note('asset_load_failed', { url })`.
+
+The sink is wrapped so a telemetry failure can never throw into the game loop, is gated
+exactly like the other `logEvent` call sites (modular SDK present, not `file://`), and is
+inert under automation (the recorder is off there). Swapping the sink for a dedicated
+error monitor (Sentry / self-hosted GlitchTip) later is a one-line change at the `init()`
+call site — `Diag` itself stays decoupled from the transport.
 
 ## Design constraints (shared with `sfx`/`intro`/`debris`)
 

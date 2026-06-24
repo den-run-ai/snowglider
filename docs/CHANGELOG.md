@@ -36,6 +36,23 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   max step vs radius, and the speed-by-FPS-band table. `window.__snowgliderDiag.dump()`
   downloads a JSON trace (config, summary, health verdict, recent frames) to attach to a
   bug report — turning "the game froze / I drove through a tree" into hard numbers.
+- **Broadened beyond the one bug + aggregated off-device** (review follow-up). The
+  detector gained an **absolute speed-ceiling** invariant (a runaway is caught even at a
+  steady frame rate, where the fps-band ratio sees nothing) and a generic
+  `Diag.note(category, detail)` seam so **other subsystems** (asset loaders, avalanche,
+  camera) can report into the same pipeline. Crucially, findings now leave the device: a
+  `report` sink routes a **once-per-run `physics_anomaly`** verdict — plus **`client_error`
+  / `unhandled_rejection`** from newly-added global handlers (the app had none, so an
+  uncaught throw in the rAF loop previously vanished) — into the **existing Firebase
+  Analytics** pipeline (`window.firebaseModules.logEvent`). Aggregated across real devices,
+  that is how the #209 class would have surfaced in the wild rather than via a stress
+  harness. The sink is wrapped so telemetry can never throw into the game loop, gated like
+  the other `logEvent` call sites (modular SDK present, not `file://`), and swappable for a
+  dedicated error monitor (Sentry / GlitchTip) with a one-line change at the `init()` site.
+- **The codex P2 was fixed:** `resetSnowman()` teleports the player to spawn, so
+  `Diag.reset()` is now called in the lifecycle reset path — otherwise the first frame of a
+  restarted run read as a ~135u step (old finish → spawn) and was falsely flagged a tunnel
+  risk, permanently marking the run BAD. Regression-tested both ways.
 - **Analytics are pure + headlessly tested.** `percentile`, `classifyFrame`, `foldFrame`,
   `fpsSpeedRatio`, and `frameRateHealth` are exported pure functions (no DOM), unit-tested
   in `tests/diagnostics-tests.js` (`npm run test:diagnostics`, also in `npm test`). The
