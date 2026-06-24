@@ -47,16 +47,19 @@ const DIAG_ENABLED = true;
 const RING_CAPACITY = 1200;     // ~20 s of 60 FPS trace kept for the overlay + dump
 const OVERLAY_HZ = 6;           // overlay repaint rate (throttled; cheap)
 const WARN_THROTTLE_SEC = 4;    // min seconds between repeats of the same warning
+const MIN_SAMPLE_FRAMES = 30;   // a run must reach this many frames (~0.5s) to be sampled
 
 // FPS bands the summary buckets frames into. The whole point of the module: if the
 // max speed in a SLOWER band is materially higher than in a FAST band, a force path is
 // frame-rate dependent (the #209 smell). Ordered fast → slow.
-export interface FpsBand { label: string; minFps: number; maxFps: number; }
+// `key` is the analytics-safe form of `label` (Firebase event-param names must be
+// alphanumeric + underscore), used to flatten the FPS distribution into session_health.
+export interface FpsBand { label: string; key: string; minFps: number; maxFps: number; }
 export const FPS_BANDS: FpsBand[] = [
-  { label: '>=50',  minFps: 50, maxFps: Infinity },
-  { label: '30-50', minFps: 30, maxFps: 50 },
-  { label: '15-30', minFps: 15, maxFps: 30 },
-  { label: '<15',   minFps: 0,  maxFps: 15 },
+  { label: '>=50',  key: 'fps_ge50',  minFps: 50, maxFps: Infinity },
+  { label: '30-50', key: 'fps_30_50', minFps: 30, maxFps: 50 },
+  { label: '15-30', key: 'fps_15_30', minFps: 15, maxFps: 30 },
+  { label: '<15',   key: 'fps_lt15',  minFps: 0,  maxFps: 15 },
 ];
 
 export interface DiagConfig {
@@ -73,6 +76,10 @@ export interface DiagConfig {
    *  (#209 topped out ~32 at 10 FPS). A frame above this is a runaway regardless of frame
    *  rate, so it is caught even at a steady FPS where the fps-band ratio sees nothing. */
   speedCeiling: number;
+  /** Interval (in-game seconds) between `session_health` baseline heartbeats during a long
+   *  run. A run shorter than this still gets exactly one sample at run-end (reset), so even
+   *  short healthy runs contribute a baseline — the comparison set for `physics_anomaly`. */
+  healthSampleSec: number;
 }
 
 export const DEFAULT_CONFIG: DiagConfig = {
@@ -80,6 +87,7 @@ export const DEFAULT_CONFIG: DiagConfig = {
   collisionRadius: 2.5,
   speedExpected: 8,
   speedCeiling: 50,
+  healthSampleSec: 30,
 };
 
 /** A structured event sink (e.g. Firebase Analytics logEvent). Injected via init() so
@@ -277,6 +285,7 @@ class Diagnostics {
   private clockSec = 0; // accumulated in-game seconds (dt sum); avoids Date.now in tests
   private sink: DiagSink = () => {}; // structured-event transport (Firebase Analytics)
   private reportedAnomaly = false;   // physics anomaly reported once per run (debounce)
+  private lastHealthEmitSec = 0;     // clock of the last session_health emit (heartbeat dedup)
   private errorHandlersInstalled = false;
   private notes: Array<{ atSec: number; category: string; detail: Record<string, unknown> }> = [];
 
@@ -338,7 +347,31 @@ class Diagnostics {
     if (!flags.nonFinite) this.prev = { x: s.x, z: s.z };
     this.maybeWarn(flags);
     this.maybeReport();
+    this.maybeHeartbeat();
     this.maybePaint();
+  }
+
+  /** Structured run summary shared by `physics_anomaly` and `session_health`. Flattens the
+   *  FPS-band distribution (frames per band) so a healthy baseline and an anomaly are the
+   *  SAME shape and directly comparable in analytics. */
+  private healthPayload(): Record<string, unknown> {
+    const sm = this.summary;
+    const payload: Record<string, unknown> = {
+      level: frameRateHealth(sm, this.cfg).level,
+      frames: sm.frames,
+      durationSec: +sm.durationSec.toFixed(1),
+      fps: sm.durationSec > 0 ? Math.round(sm.frames / sm.durationSec) : 0,
+      dtMaxMs: Math.round(sm.dtMaxSec * 1000),
+      clampedFrames: sm.clampedFrames,
+      speedMax: +sm.speedMax.toFixed(1),
+      stepMax: +sm.stepMax.toFixed(2),
+      tunnelFrames: sm.tunnelRiskFrames,
+      runawayFrames: sm.runawayFrames,
+      nonFiniteFrames: sm.nonFiniteFrames,
+      fpsSpeedRatio: +fpsSpeedRatio(sm).toFixed(2),
+    };
+    sm.bands.forEach((b, i) => { payload[`${FPS_BANDS[i].key}_frames`] = b.frames; });
+    return payload;
   }
 
   /** Report a physics anomaly to the sink at most ONCE per run (debounced) — the moment
@@ -350,19 +383,23 @@ class Diagnostics {
     const health = frameRateHealth(this.summary, this.cfg);
     if (health.level !== 'bad') return;
     this.reportedAnomaly = true;
-    const sm = this.summary;
-    this.emit('physics_anomaly', {
-      reasons: health.reasons.join(' | '),
-      frames: sm.frames,
-      fps: sm.durationSec > 0 ? Math.round(sm.frames / sm.durationSec) : 0,
-      dtMaxMs: Math.round(sm.dtMaxSec * 1000),
-      speedMax: +sm.speedMax.toFixed(1),
-      stepMax: +sm.stepMax.toFixed(2),
-      tunnelFrames: sm.tunnelRiskFrames,
-      runawayFrames: sm.runawayFrames,
-      nonFiniteFrames: sm.nonFiniteFrames,
-      fpsSpeedRatio: +fpsSpeedRatio(sm).toFixed(2),
-    });
+    this.emit('physics_anomaly', { reasons: health.reasons.join(' | '), ...this.healthPayload() });
+  }
+
+  /** Emit a `session_health` baseline sample and stamp the heartbeat clock. Fired
+   *  periodically through a long run and once at run-end (reset), so HEALTHY runs — not
+   *  just anomalies — contribute the FPS-distribution baseline that gives a BAD verdict
+   *  context. Carries the same shape as `physics_anomaly` (minus `reasons`). */
+  private emitHealthSample(): void {
+    this.lastHealthEmitSec = this.clockSec;
+    this.emit('session_health', this.healthPayload());
+  }
+
+  /** Periodic heartbeat during a long run (run-end sampling is handled in reset()). */
+  private maybeHeartbeat(): void {
+    if (this.summary.frames < MIN_SAMPLE_FRAMES) return;
+    if (this.clockSec - this.lastHealthEmitSec < this.cfg.healthSampleSec) return;
+    this.emitHealthSample();
   }
 
   /** Generic anomaly seam for OTHER subsystems (asset loaders, avalanche, camera, …) to
@@ -499,6 +536,14 @@ class Diagnostics {
   }
 
   reset(): void {
+    // Run-end baseline sample: capture the just-completed run before clearing, so even a
+    // short healthy run (too brief for a heartbeat) contributes one session_health. Skipped
+    // for a trivial/empty reset (e.g. the reset at init) and de-duped against a heartbeat
+    // that just fired this run.
+    if (this.active && this.summary.frames >= MIN_SAMPLE_FRAMES &&
+        this.clockSec - this.lastHealthEmitSec >= 1) {
+      this.emitHealthSample();
+    }
     this.ring = [];
     this.head = 0;
     this.summary = emptySummary();
@@ -506,6 +551,7 @@ class Diagnostics {
     this.lastWarn = {};
     this.clockSec = 0;
     this.reportedAnomaly = false; // a fresh run can report its own anomaly
+    this.lastHealthEmitSec = 0;
     this.notes = [];
   }
 

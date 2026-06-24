@@ -146,6 +146,40 @@ async function main() {
   check('sink: a fresh run can report its own anomaly after reset',
     events.filter((e) => e.event === 'physics_anomaly').length === 2);
 
+  // --- session_health: HEALTHY runs contribute a baseline too -----------------
+  // The anomaly report only fires on BAD runs; without a healthy baseline there is
+  // nothing to compare a BAD verdict against. A periodic heartbeat (long runs) plus a
+  // run-end sample (short runs) gives every run an FPS-distribution sample.
+  // (a) periodic heartbeat on a long, healthy run — small interval to keep the test fast.
+  events.length = 0;
+  D.Diag.reset();
+  D.Diag.init({ ...cfg, healthSampleSec: 1 }, { report: (event, data) => events.push({ event, data }) });
+  for (let i = 0; i < 200; i++) D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -15 - i, technique: 'tuck', isInAir: false }); // ~3.3s
+  const beats = events.filter((e) => e.event === 'session_health');
+  check('session_health: a long healthy run emits baseline heartbeats', beats.length >= 1);
+  check('session_health: healthy heartbeat is graded ok (the comparison baseline)', beats[0].data.level === 'ok');
+  check('session_health: heartbeat carries the FPS-band distribution', 'fps_ge50_frames' in beats[0].data &&
+    typeof beats[0].data.fps === 'number');
+  check('session_health: never fires on the very first frame (needs >= MIN_SAMPLE_FRAMES)',
+    beats.length < 200);
+
+  // (b) a SHORT healthy run (no heartbeat) is still sampled once at run-end (reset).
+  events.length = 0;
+  D.Diag.reset(); // this reset may itself emit for the long run above; clear after
+  events.length = 0;
+  D.Diag.init({ ...cfg, healthSampleSec: 1000 }, { report: (event, data) => events.push({ event, data }) });
+  for (let i = 0; i < 90; i++) D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -15 - i, technique: 'tuck', isInAir: false }); // ~1.5s
+  check('session_health: no heartbeat for a run shorter than the interval',
+    events.filter((e) => e.event === 'session_health').length === 0);
+  D.Diag.reset();
+  check('session_health: a completed short run is sampled once at run-end',
+    events.filter((e) => e.event === 'session_health').length === 1);
+
+  // (c) a trivial/empty reset (e.g. the reset at init) does NOT emit a sample.
+  events.length = 0;
+  D.Diag.reset();
+  check('session_health: an empty reset emits nothing', events.length === 0);
+
   // --- generic note() seam: other subsystems report into the same pipeline ----
   events.length = 0;
   D.Diag.reset();

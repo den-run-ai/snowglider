@@ -49,6 +49,13 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   harness. The sink is wrapped so telemetry can never throw into the game loop, gated like
   the other `logEvent` call sites (modular SDK present, not `file://`), and swappable for a
   dedicated error monitor (Sentry / GlitchTip) with a one-line change at the `init()` site.
+- **Healthy runs are sampled too** (`session_health`). Reporting only anomalies leaves
+  nothing to compare a BAD verdict against, so a sampled baseline now fires on a periodic
+  heartbeat through a long run (`healthSampleSec`, default 30s) and once at run-end — same
+  shape as `physics_anomaly`, flattening the **FPS-band distribution**
+  (`fps_ge50_frames`/`fps_30_50_frames`/`fps_15_30_frames`/`fps_lt15_frames`) so the
+  real-world frame-rate spread is chartable and anomalies can be sliced against it. A short
+  healthy run is sampled exactly once; an empty reset emits nothing.
 - **The codex P2 was fixed:** `resetSnowman()` teleports the player to spawn, so
   `Diag.reset()` is now called in the lifecycle reset path — otherwise the first frame of a
   restarted run read as a ~135u step (old finish → spawn) and was falsely flagged a tunnel

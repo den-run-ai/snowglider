@@ -61,6 +61,14 @@ pipeline** (`window.firebaseModules.logEvent`, the same seam `game_start`/`game_
   counts, fps→speed ratio). Aggregated across real devices, this is exactly how the #209
   class would have surfaced — low-FPS sessions correlating with runaway speed / tunnel
   events — instead of as an unreproducible "I drove through a tree".
+- **`session_health`** — a **sampled baseline** so HEALTHY runs contribute data too, not
+  just anomalies (an anomaly is only meaningful against a baseline). Same shape as
+  `physics_anomaly` minus `reasons`, and it flattens the **FPS-band distribution**
+  (`fps_ge50_frames`, `fps_30_50_frames`, `fps_15_30_frames`, `fps_lt15_frames`) so you can
+  chart the real-world frame-rate spread and slice anomalies against it. Emitted on a
+  periodic heartbeat through a long run (`healthSampleSec`, default 30s) **and once at
+  run-end** (on reset), so even a short healthy run is sampled exactly once; a trivial/empty
+  reset emits nothing.
 - **`client_error` / `unhandled_rejection`** — the app had **no** `window.onerror` /
   `unhandledrejection` handler, so an uncaught throw in the rAF loop (a real "freezes"
   candidate) vanished silently. `Diag` installs both, attaching the message/stack plus the
