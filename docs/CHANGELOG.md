@@ -13,6 +13,31 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Three.js rendering perf: shared tree geometry/material pools + renderer tuning
+- **Trees (`src/mountains/trees.ts`) were the forest's odd one out.** The avalanche
+  boulders and ski tracks already share a single geometry/material, but each of the
+  ~230 trees is a `Group` of ~24 meshes and `createTree()` minted a *fresh*
+  `CylinderGeometry`/`ConeGeometry`/`SphereGeometry` **and** a fresh
+  `MeshStandardMaterial` for almost every one — thousands of unique GPU geometries and
+  materials, all re-bound every frame (shadow pass included). They now draw from tiny
+  shared pools: canonical base geometries resized per mesh via `mesh.scale`, and a small
+  quantised colour palette (6 bark / 12 foliage shades + one snow material) picked at
+  random. GPU resource count collapses from thousands to ~20. The scene graph is
+  unchanged — each tree is still a `Group` of individual meshes — so tree collision and
+  the visual-tree count are byte-identical; only the colour granularity changes (palette
+  vs. fully-continuous random), which is imperceptible across hundreds of small trees.
+  Branches now hang off the tree group instead of the cone (so the shared unit branch
+  geometry can be sized in world units); the only thing they no longer inherit is the
+  cone's ±0.05 rad tilt. Also removed dead code in `addTrees` (an unused `Raycaster` /
+  `downDirection` / terrain-mesh lookup).
+- **Renderer (`src/game/scene-setup.ts`).** Added `setPixelRatio(min(dpr, 2))` so the
+  scene is crisp on HiDPI/Retina displays instead of rendering at 1 device-pixel-per-CSS-
+  pixel and looking soft (capped at 2 to bound GPU cost on 3× phone screens). Dropped the
+  permanent `preserveDrawingBuffer: true`, which taxed *every* frame purely so the result
+  screen's "Save image" could read the back buffer — the share path (`src/share-card.ts`)
+  already re-renders one fresh frame immediately before the read (same tick, no yield), so
+  the buffer is valid then without the flag.
+
 ### Runtime physics / frame-rate diagnostics (`src/diagnostics.ts`)
 - PR #209 and its avalanche follow-up fixed two instances of the **same bug class** — a
   per-frame multiplier (`v *= 1 − k`) mixed in with dt-scaled forces, so a steady state

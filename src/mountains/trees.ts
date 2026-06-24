@@ -106,158 +106,244 @@ function getFoliageNormal(): THREE.CanvasTexture | null {
   return foliageNormalTexture;
 }
 
-// Create a more realistic tree with visible branches and variability
+// --- Shared tree geometry & material pools (Three.js perf, issue: GPU waste) ---
+// The forest is a few hundred trees, each a Group of ~20-40 meshes. The original
+// code minted a fresh CylinderGeometry/ConeGeometry/SphereGeometry AND a fresh
+// MeshStandardMaterial for almost every one — thousands of unique GPU geometries
+// and materials that all have to be uploaded once and re-bound every frame
+// (including the shadow pass). The avalanche boulders and ski tracks already use
+// the right pattern (one shared geometry/material), so the trees were the odd one
+// out. Here every mesh draws from a tiny pool instead:
+//   - base geometries are authored at a canonical size and resized per mesh via
+//     `mesh.scale`, so all trunks/cones/branches/snow share one buffer each;
+//   - colour variety comes from a small quantised material palette (a handful of
+//     bark/foliage shades) picked at random, instead of one material per mesh.
+// The scene graph is unchanged (each tree stays a Group of individual meshes, so
+// collision and the visual-tree count are untouched); only the GPU resource count
+// collapses from thousands to ~20. Pools are built lazily and live for the app
+// lifetime (like the normal maps) — nothing to dispose.
+let trunkGeometry: THREE.CylinderGeometry | null = null;
+let coneGeometry: THREE.ConeGeometry | null = null;
+let branchGeometry: THREE.CylinderGeometry | null = null;
+let snowCapGeometry: THREE.SphereGeometry | null = null;
+let snowPatchGeometry: THREE.SphereGeometry | null = null;
+let trunkMaterials: THREE.MeshStandardMaterial[] | null = null;
+let foliageMaterials: THREE.MeshStandardMaterial[] | null = null;
+let snowMaterial: THREE.MeshStandardMaterial | null = null;
+
+/** Canonical trunk: top/bottom radius + height match the old defaults at scale 1. */
+function getTrunkGeometry(): THREE.CylinderGeometry {
+  if (!trunkGeometry) trunkGeometry = new THREE.CylinderGeometry(0.4, 0.6, 4, 8);
+  return trunkGeometry;
+}
+
+/** Canonical foliage cone (radius 2.2, height 2.5); resized per layer via scale. */
+function getConeGeometry(): THREE.ConeGeometry {
+  if (!coneGeometry) coneGeometry = new THREE.ConeGeometry(2.2, 2.5, 8);
+  return coneGeometry;
+}
+
+/** Unit branch laid along +X (pre-rotated), so scale = (length, thickness, thickness). */
+function getBranchGeometry(): THREE.CylinderGeometry {
+  if (!branchGeometry) {
+    const geo = new THREE.CylinderGeometry(1, 1, 1, 4);
+    geo.rotateZ(Math.PI / 2); // bake the horizontal orientation into the shared buffer
+    branchGeometry = geo;
+  }
+  return branchGeometry;
+}
+
+/** Unit half-dome snow cap; matches the old top-cap sphere wedge at radius 1. */
+function getSnowCapGeometry(): THREE.SphereGeometry {
+  if (!snowCapGeometry) snowCapGeometry = new THREE.SphereGeometry(1, 8, 4, 0, Math.PI * 2, 0, Math.PI / 3);
+  return snowCapGeometry;
+}
+
+/** Unit snow patch (hemisphere wedge at radius 1); scaled down per placement. */
+function getSnowPatchGeometry(): THREE.SphereGeometry {
+  if (!snowPatchGeometry) snowPatchGeometry = new THREE.SphereGeometry(1, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2);
+  return snowPatchGeometry;
+}
+
+/** Small palette of brown bark shades (the old per-trunk HSL range, quantised). */
+function getTrunkMaterials(): THREE.MeshStandardMaterial[] {
+  if (!trunkMaterials) {
+    const normalMap = getBarkNormal();
+    const count = 6;
+    trunkMaterials = [];
+    for (let i = 0; i < count; i++) {
+      const hue = 0.08 + (i / (count - 1)) * 0.04; // 0.08-0.12, as before
+      trunkMaterials.push(new THREE.MeshStandardMaterial({
+        color: new THREE.Color().setHSL(hue, 0.5, 0.3),
+        roughness: 0.9,
+        normalMap,
+        normalScale: new THREE.Vector2(0.7, 0.7)
+      }));
+    }
+  }
+  return trunkMaterials;
+}
+
+/** Small palette of green foliage shades spanning the old per-cone HSL ranges. */
+function getFoliageMaterials(): THREE.MeshStandardMaterial[] {
+  if (!foliageMaterials) {
+    const normalMap = getFoliageNormal();
+    const count = 12;
+    foliageMaterials = [];
+    for (let i = 0; i < count; i++) {
+      const t = i / (count - 1);
+      const hue = 0.35 + t * 0.07;                 // 0.35-0.42, as before
+      const saturation = 0.6 + ((i * 7) % count) / count * 0.3; // spread across 0.6-0.9
+      const lightness = 0.2 + ((i * 5) % count) / count * 0.1;  // spread across 0.2-0.3
+      foliageMaterials.push(new THREE.MeshStandardMaterial({
+        color: new THREE.Color().setHSL(hue, saturation, lightness),
+        roughness: 0.8,
+        normalMap,
+        normalScale: new THREE.Vector2(0.5, 0.5)
+      }));
+    }
+  }
+  return foliageMaterials;
+}
+
+/** The single shared white snow material (every cap/patch was identical anyway). */
+function getSnowMaterial(): THREE.MeshStandardMaterial {
+  if (!snowMaterial) {
+    snowMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
+  }
+  return snowMaterial;
+}
+
+/** Pick a random material from a palette (forest colour variety, shared GPU state). */
+function pickMaterial(pool: THREE.MeshStandardMaterial[]): THREE.MeshStandardMaterial {
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// Create a more realistic tree with visible branches and variability.
+// Each part draws from the shared geometry/material pools above and is sized via
+// `mesh.scale`, so the forest reuses a handful of GPU buffers/materials instead of
+// minting thousands. The mesh layout (one Group of individual meshes) is unchanged.
 function createTree(scale = 1.0): THREE.Group {
   const group = new THREE.Group();
-  
+
   // Add randomization factors for variety
   const heightScale = (0.8 + Math.random() * 0.4) * scale; // 0.8-1.2 height variation with scaling
   const widthScale = (0.85 + Math.random() * 0.3) * scale; // 0.85-1.15 width variation with scaling
   const branchDensity = 3 + Math.floor(Math.random() * 3); // 3-5 branch layers
-  
-  // Tree trunk with some natural variation
+
+  // Tree trunk — shared canonical cylinder, sized via scale, palette material.
   const trunkHeight = 4 * heightScale;
-  const trunkTopRadius = 0.4 * widthScale;
-  const trunkBottomRadius = 0.6 * widthScale;
-  const trunkGeometry = new THREE.CylinderGeometry(
-    trunkTopRadius, trunkBottomRadius, trunkHeight, 8
-  );
-  
-  // Trunk color variation
-  const trunkHue = 0.08 + Math.random() * 0.04; // Brown hue variations
-  const trunkMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color().setHSL(trunkHue, 0.5, 0.3),
-    roughness: 0.9,
-    normalMap: getBarkNormal(),
-    normalScale: new THREE.Vector2(0.7, 0.7)
-  });
-  
-  const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+  const trunk = new THREE.Mesh(getTrunkGeometry(), pickMaterial(getTrunkMaterials()));
+  trunk.scale.set(widthScale, heightScale, widthScale);
   // Position the trunk so its base is at y=0 instead of its center
   trunk.position.y = trunkHeight / 2;
   trunk.castShadow = true;
   group.add(trunk);
-  
+
   // Create multiple branch layers
   const baseHeight = trunkHeight;
   let layerHeight = baseHeight;
-  
+
   for (let i = 0; i < branchDensity; i++) {
     // Larger at bottom, smaller at top
     const layerScale = 1 - (i / branchDensity) * 0.7;
     const coneHeight = 2.5 * heightScale * layerScale;
     const coneRadius = 2.2 * widthScale * layerScale;
-    
-    const coneGeometry = new THREE.ConeGeometry(coneRadius, coneHeight, 8);
-    
-    // Green color variations for branches
-    const greenHue = 0.35 + Math.random() * 0.07; // Green hue variations
-    const greenSaturation = 0.6 + Math.random() * 0.3;
-    const greenLightness = 0.2 + Math.random() * 0.1;
-    
-    const coneMaterial = new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(greenHue, greenSaturation, greenLightness),
-      roughness: 0.8,
-      normalMap: getFoliageNormal(),
-      normalScale: new THREE.Vector2(0.5, 0.5)
-    });
-    
-    const cone = new THREE.Mesh(coneGeometry, coneMaterial);
-    
+
+    // Shared cone geometry resized to this layer; one foliage shade from the palette.
+    const coneMaterial = pickMaterial(getFoliageMaterials());
+    const cone = new THREE.Mesh(getConeGeometry(), coneMaterial);
+    cone.scale.set(widthScale * layerScale, heightScale * layerScale, widthScale * layerScale);
+
     // Position with slight random offset for natural look
     const xTilt = (Math.random() - 0.5) * 0.1; // Slight random tilt
     const zTilt = (Math.random() - 0.5) * 0.1;
     cone.rotation.x = xTilt;
     cone.rotation.z = zTilt;
-    
+
     // Position branches with overlap
     layerHeight += coneHeight * 0.6;
     cone.position.y = layerHeight;
     cone.castShadow = true;
     group.add(cone);
-    
+
     // Add visible branches coming out of each cone layer
-    addBranchesAtLayer(cone, coneRadius, coneMaterial);
+    addBranchesAtLayer(group, cone.position, coneRadius, coneMaterial);
   }
-  
+
   // Add some snow on the branches for winter effect
   addSnowCaps(group, layerHeight, widthScale);
-  
+
   return group;
 }
 
-// Add visible branches sticking out of the main cone shape
-function addBranchesAtLayer(cone: THREE.Mesh, radius: number, material: THREE.Material) {
+// Add visible branches sticking out of the main cone shape. They are added to the
+// tree group (not the cone) so the shared unit branch geometry can be sized in
+// world units via scale without inheriting the cone's own size — the cone's tiny
+// tilt is the only thing the branches no longer inherit (visually imperceptible).
+function addBranchesAtLayer(parent: THREE.Object3D, conePosition: THREE.Vector3, radius: number, material: THREE.Material) {
   // Number of branches depends on radius
   const branchCount = Math.floor(3 + Math.random() * 3); // 3-5 visible branches
-  
+
   for (let i = 0; i < branchCount; i++) {
-    // Create branch
+    // Create branch — shared unit cylinder (pre-rotated along +X) sized via scale.
     const branchLength = radius * (0.7 + Math.random() * 0.5);
     const branchThickness = 0.1 + Math.random() * 0.1;
-    
-    const branchGeometry = new THREE.CylinderGeometry(
-      branchThickness, branchThickness, branchLength, 4
-    );
-    branchGeometry.rotateZ(Math.PI / 2); // Rotate to stick out horizontally
-    
-    const branch = new THREE.Mesh(branchGeometry, material);
-    
+
+    const branch = new THREE.Mesh(getBranchGeometry(), material);
+    branch.scale.set(branchLength, branchThickness, branchThickness);
+
     // Position branch at random angle around cone
     const angle = (i / branchCount) * Math.PI * 2 + Math.random() * 0.5;
     const height = Math.random() * 0.5; // Vertical position variation
-    
+
     branch.position.set(
-      Math.cos(angle) * (radius * 0.5),
-      height,
-      Math.sin(angle) * (radius * 0.5)
+      conePosition.x + Math.cos(angle) * (radius * 0.5),
+      conePosition.y + height,
+      conePosition.z + Math.sin(angle) * (radius * 0.5)
     );
-    
+
     // Random rotation for natural variation
     branch.rotation.y = angle;
     branch.rotation.x = (Math.random() - 0.5) * 0.3;
-    branch.rotation.z += (Math.random() - 0.5) * 0.1;
-    
+    branch.rotation.z = (Math.random() - 0.5) * 0.1;
+
     branch.castShadow = true;
-    cone.add(branch);
+    parent.add(branch);
   }
 }
 
-// Add snow caps on top of tree
+// Add snow caps on top of tree (shared snow geometry/material, sized via scale).
 function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: number) {
+  const snowMat = getSnowMaterial();
+
   // Add some snow on top
-  const snowCapGeometry = new THREE.SphereGeometry(widthScale * 0.8, 8, 4, 0, Math.PI * 2, 0, Math.PI / 3);
-  const snowMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.8
-  });
-  
-  const snowCap = new THREE.Mesh(snowCapGeometry, snowMaterial);
+  const capRadius = widthScale * 0.8;
+  const snowCap = new THREE.Mesh(getSnowCapGeometry(), snowMat);
+  snowCap.scale.set(capRadius, capRadius * 0.5, capRadius); // flattened dome, as before
   snowCap.position.y = treeHeight + 0.2;
-  snowCap.scale.y = 0.5;
   tree.add(snowCap);
-  
+
   // Maybe add snow on some branches
   if (Math.random() > 0.4) {
-    const smallSnowGeometry = new THREE.SphereGeometry(widthScale * 0.4, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2);
-    
+    const patchRadius = widthScale * 0.4;
     for (let i = 0; i < 2 + Math.random() * 3; i++) {
-      const snowPatch = new THREE.Mesh(smallSnowGeometry, snowMaterial);
+      const snowPatch = new THREE.Mesh(getSnowPatchGeometry(), snowMat);
       // Random position on the tree
       const angle = Math.random() * Math.PI * 2;
       const radius = widthScale * (0.8 + Math.random() * 0.8);
       const height = 2 + Math.random() * (treeHeight - 3);
-      
+
       snowPatch.position.set(
         Math.cos(angle) * radius,
         height,
         Math.sin(angle) * radius
       );
-      
-      snowPatch.scale.y = 0.3;
+
+      snowPatch.scale.set(patchRadius, patchRadius * 0.3, patchRadius);
       snowPatch.rotation.x = Math.random() * Math.PI / 4;
       snowPatch.rotation.z = Math.random() * Math.PI / 4;
-      
+
       tree.add(snowPatch);
     }
   }
@@ -420,33 +506,9 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   const extendedTrees = treePositions.filter(tree => tree.z < -80).length;
   console.log(`Trees.addTrees: ${extendedTrees} trees in extended terrain area (z < -80)`);
   
-  // Create a raycaster to ensure precise placement
-  const raycaster = new THREE.Raycaster();
-  const downDirection = new THREE.Vector3(0, -1, 0);
-  
-  // Get terrain mesh for raycasting - try multiple ways to find it
-  let terrainMesh: THREE.Object3D | null = null;
-  
-  // Check global reference first (set in snowglider.js)
-  if (window && window.terrainMesh) {
-    terrainMesh = window.terrainMesh;
-  } 
-  // Then check userData
-  else if (scene.userData && scene.userData.terrainMesh) {
-    terrainMesh = scene.userData.terrainMesh;
-  } 
-  // Last resort - find by name or type
-  else {
-    terrainMesh = scene.children.find(child => {
-      const mesh = child as THREE.Mesh;
-      return child.name === 'terrain' ||
-        (child.type === 'Mesh' &&
-         !!mesh.geometry &&
-         mesh.geometry.type === 'PlaneGeometry');
-    }) ?? null;
-  }
-  
-  // Create tree instances - ensure trees are properly anchored to terrain
+  // Create tree instances - ensure trees are properly anchored to terrain.
+  // (Tree height comes from the analytic terrain sampler below; the old
+  // Raycaster/terrain-mesh lookup here was dead code and has been removed.)
   treePositions.forEach(pos => {
     // Get the exact terrain height from our height map or via calculation
     const terrainHeight = getTerrainHeight(pos.x, pos.z);
