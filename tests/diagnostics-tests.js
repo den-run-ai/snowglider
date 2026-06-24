@@ -73,6 +73,25 @@ async function main() {
   const ratio = D.fpsSpeedRatio(buggy);
   check('fps→speed: 8→32 m/s across the FPS drop flags ~4x dependence', ratio >= 3.5 && ratio <= 4.5);
 
+  // regression (codex #211): a device fast at STARTUP (snowman still accelerating, ~3 m/s)
+  // that then settles below 30 FPS at normal cruising speed (~8 m/s) must NOT be flagged
+  // frame-rate-dependent — the speed rose from run progress, not frame rate. The fast band
+  // here holds only pre-cruise (unsettled) frames, so it is ineligible and the ratio is no
+  // signal.
+  const accelArtifact = summarize(D, [
+    ...descent({ dt: 1 / 60, speed: 3, frames: 60 }),  // >=50 FPS but below the cruising floor
+    ...descent({ dt: 0.1, speed: 8, frames: 60 }),     // <15 FPS at settled cruising speed
+  ], cfg);
+  check('fps→speed: an accelerating high-FPS start is not a false dependence', D.fpsSpeedRatio(accelArtifact) === 1);
+  check('health: the accel-artifact run is not graded BAD for fps-dependence',
+    !D.frameRateHealth(accelArtifact, cfg).reasons.some((r) => /frame-rate-dependent/i.test(r)));
+  // ...but a genuine bug where the SLOW frames are faster AT CRUISING SPEED still fires.
+  const realBug = summarize(D, [
+    ...descent({ dt: 1 / 60, speed: 8, frames: 60 }),   // >=50 FPS, cruising (settled)
+    ...descent({ dt: 0.1, speed: 26, frames: 60 }),     // <15 FPS, faster at cruising (the bug)
+  ], cfg);
+  check('fps→speed: a real low-FPS speed inflation at cruising still flags', D.fpsSpeedRatio(realBug) >= 3);
+
   // --- frameRateHealth verdicts ----------------------------------------------
   const healthySummary = summarize(D, descent({ dt: 1 / 60, speed: 8, frames: 300 }), cfg);
   const healthy = D.frameRateHealth(healthySummary, cfg);

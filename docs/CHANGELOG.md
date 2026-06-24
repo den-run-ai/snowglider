@@ -56,7 +56,16 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   (`fps_ge50_frames`/`fps_30_50_frames`/`fps_15_30_frames`/`fps_lt15_frames`) so the
   real-world frame-rate spread is chartable and anomalies can be sliced against it. A short
   healthy run is sampled exactly once; an empty reset emits nothing.
-- **The codex P2 was fixed:** `resetSnowman()` teleports the player to spawn, so
+- **Review hardening (codex P2s).** (a) The analytics sink targeted
+  `window.firebaseModules.logEvent`, which **only `auth.html` ever populated** — so on the
+  main game page the sink (and the pre-existing `game_start`/`game_over`/`game_reset`
+  calls) silently no-oped. `auth.ts` now publishes a `logEvent` wrapper bound to the real
+  Analytics instance on the main page, so all of them actually deliver. (b) The fps→speed
+  ratio compared max speed across *any* populated bands, so a device fast at startup (slow
+  snowman) that settled below 30 FPS at cruising speed could read as frame-rate-dependent
+  from acceleration alone; the ratio now counts only **settled** (cruising-speed) frames
+  and requires a minimum per band, with a regression test for the accel artifact.
+- **The first codex P2 was fixed:** `resetSnowman()` teleports the player to spawn, so
   `Diag.reset()` is now called in the lifecycle reset path — otherwise the first frame of a
   restarted run read as a ~135u step (old finish → spawn) and was falsely flagged a tunnel
   risk, permanently marking the run BAD. Regression-tested both ways.

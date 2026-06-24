@@ -48,6 +48,12 @@ const RING_CAPACITY = 1200;     // ~20 s of 60 FPS trace kept for the overlay + 
 const OVERLAY_HZ = 6;           // overlay repaint rate (throttled; cheap)
 const WARN_THROTTLE_SEC = 4;    // min seconds between repeats of the same warning
 const MIN_SAMPLE_FRAMES = 30;   // a run must reach this many frames (~0.5s) to be sampled
+// The fps→speed comparison only counts "settled" frames — at or above cruising speed — so a
+// snowman still accelerating from the spawn (vz0 = -3 m/s) doesn't pollute the band maxima.
+// Without this, a device fast at startup (slow snowman) then slow at cruise reads as
+// frame-rate-dependent purely because speed rose with run progress (codex #211).
+const SETTLE_FRACTION = 0.6;        // settled := speed >= speedExpected * this (~4.8 m/s)
+const MIN_BAND_FRAMES_FOR_RATIO = 10; // a band needs this many settled frames to be comparable
 
 // FPS bands the summary buckets frames into. The whole point of the module: if the
 // max speed in a SLOWER band is materially higher than in a FAST band, a force path is
@@ -113,6 +119,7 @@ export interface FrameFlags {
   tunnelRisk: boolean; // step >= collisionRadius → discrete check could miss a disk
   nonFinite: boolean;  // any of dt/speed/x/z not finite
   runaway: boolean;    // speed past the absolute ceiling — impossible-for-legit-play fast
+  settled: boolean;    // speed >= cruising floor — eligible for the fps-band speed compare
   fast: boolean;       // speed well above the expected 60 Hz terminal speed
 }
 
@@ -120,7 +127,9 @@ export interface BandStat {
   label: string;
   frames: number;
   speedMax: number;
-  speedSum: number; // for the mean; kept raw so the fold stays additive
+  speedSum: number;        // for the mean; kept raw so the fold stays additive
+  settledFrames: number;   // frames at/above the cruising floor (used by the ratio)
+  settledSpeedMax: number; // max speed among settled frames only
 }
 
 /** The incremental running summary. Folded one frame at a time so the recorder never
@@ -169,6 +178,7 @@ export function classifyFrame(prev: { x: number; z: number } | null, s: FrameSam
     tunnelRisk: step >= cfg.collisionRadius,
     nonFinite: !finite,
     runaway: finite && s.speed > cfg.speedCeiling,
+    settled: finite && s.speed >= cfg.speedExpected * SETTLE_FRACTION,
     fast: finite && s.speed > cfg.speedExpected * 1.5,
   };
 }
@@ -178,7 +188,7 @@ export function emptySummary(): DiagSummary {
   return {
     frames: 0, durationSec: 0, dtMaxSec: 0, clampedFrames: 0,
     stepMax: 0, speedMax: 0, tunnelRiskFrames: 0, nonFiniteFrames: 0, runawayFrames: 0,
-    bands: FPS_BANDS.map((b) => ({ label: b.label, frames: 0, speedMax: 0, speedSum: 0 })),
+    bands: FPS_BANDS.map((b) => ({ label: b.label, frames: 0, speedMax: 0, speedSum: 0, settledFrames: 0, settledSpeedMax: 0 })),
   };
 }
 
@@ -205,6 +215,12 @@ export function foldFrame(agg: DiagSummary, s: FrameSample, flags: FrameFlags): 
       bs.frames += 1;
       bs.speedSum += s.speed;
       if (s.speed > bs.speedMax) bs.speedMax = s.speed;
+      // Only settled (cruising-speed) frames feed the fps→speed ratio, so an accelerating
+      // snowman at the start of a run can't masquerade as frame-rate dependence.
+      if (flags.settled) {
+        bs.settledFrames += 1;
+        if (s.speed > bs.settledSpeedMax) bs.settledSpeedMax = s.speed;
+      }
       break;
     }
   }
@@ -216,17 +232,21 @@ export function bandMeanSpeed(b: BandStat): number {
   return b.frames > 0 ? b.speedSum / b.frames : 0;
 }
 
-/** The fps-dependence signal at the heart of this module: the ratio of the max speed
- *  seen in the SLOWEST populated band to the FASTEST populated band. ~1 means speed is
+/** The fps-dependence signal at the heart of this module: the ratio of the max SETTLED
+ *  speed seen in the SLOWEST eligible band to the FASTEST eligible band. ~1 means speed is
  *  frame-rate independent (good); >> 1 means a force path scales with frame time (the
- *  #209 bug). Needs both a fast (>=30 FPS) and a slow (<30 FPS) band populated to mean
- *  anything; returns 1 (no signal) otherwise so it never false-alarms on a steady FPS. */
+ *  #209 bug). Only "settled" (cruising-speed) frames count, and each band needs
+ *  MIN_BAND_FRAMES_FOR_RATIO of them to be eligible, so neither an accelerating start nor a
+ *  handful of fluke frames forms the ratio. Needs both a fast (>=30 FPS) and a slow
+ *  (<30 FPS) band eligible to mean anything; returns 1 (no signal) otherwise so it never
+ *  false-alarms on a steady FPS or an unsettled run. */
 export function fpsSpeedRatio(summary: DiagSummary): number {
-  const fast = summary.bands.filter((b, i) => FPS_BANDS[i].minFps >= 30 && b.frames > 0);
-  const slow = summary.bands.filter((b, i) => FPS_BANDS[i].maxFps <= 30 && b.frames > 0);
+  const eligible = (b: BandStat) => b.settledFrames >= MIN_BAND_FRAMES_FOR_RATIO;
+  const fast = summary.bands.filter((b, i) => FPS_BANDS[i].minFps >= 30 && eligible(b));
+  const slow = summary.bands.filter((b, i) => FPS_BANDS[i].maxFps <= 30 && eligible(b));
   if (fast.length === 0 || slow.length === 0) return 1;
-  const fastMax = Math.max(...fast.map((b) => b.speedMax));
-  const slowMax = Math.max(...slow.map((b) => b.speedMax));
+  const fastMax = Math.max(...fast.map((b) => b.settledSpeedMax));
+  const slowMax = Math.max(...slow.map((b) => b.settledSpeedMax));
   if (fastMax <= 1e-6) return 1;
   return slowMax / fastMax;
 }
