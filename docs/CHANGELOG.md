@@ -65,6 +65,11 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   snowman) that settled below 30 FPS at cruising speed could read as frame-rate-dependent
   from acceleration alone; the ratio now counts only **settled** (cruising-speed) frames
   and requires a minimum per band, with a regression test for the accel artifact.
+  A follow-up tightened this further: the cruising floor is now near the expected terminal
+  speed (so a mid-acceleration ~5 m/s frame is not "cruising"), and a BAD `physics_anomaly`
+  requires an egregious, #209-scale gap (≥2×, the bug was ~4×) — a milder gap (≥1.5×) is
+  WARN-only, since it can come from normal run progression / technique. Regression tests
+  cover a 5→8 m/s progression (not flagged) and a modest gap (WARN, not BAD).
 - **The first codex P2 was fixed:** `resetSnowman()` teleports the player to spawn, so
   `Diag.reset()` is now called in the lifecycle reset path — otherwise the first frame of a
   restarted run read as a ~135u step (old finish → spawn) and was falsely flagged a tunnel

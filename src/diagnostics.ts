@@ -48,12 +48,18 @@ const RING_CAPACITY = 1200;     // ~20 s of 60 FPS trace kept for the overlay + 
 const OVERLAY_HZ = 6;           // overlay repaint rate (throttled; cheap)
 const WARN_THROTTLE_SEC = 4;    // min seconds between repeats of the same warning
 const MIN_SAMPLE_FRAMES = 30;   // a run must reach this many frames (~0.5s) to be sampled
-// The fps→speed comparison only counts "settled" frames — at or above cruising speed — so a
+// The fps→speed comparison only counts "settled" frames — at genuine cruising speed — so a
 // snowman still accelerating from the spawn (vz0 = -3 m/s) doesn't pollute the band maxima.
-// Without this, a device fast at startup (slow snowman) then slow at cruise reads as
-// frame-rate-dependent purely because speed rose with run progress (codex #211).
-const SETTLE_FRACTION = 0.6;        // settled := speed >= speedExpected * this (~4.8 m/s)
-const MIN_BAND_FRAMES_FOR_RATIO = 10; // a band needs this many settled frames to be comparable
+// The floor is set near the expected terminal speed (not just above the spawn speed): a
+// mid-acceleration ~5 m/s frame is NOT cruising, and comparing its band max against true
+// 8 m/s cruising in another band would read normal run progression as frame-rate
+// dependence (codex). Pair that with a strong BAD threshold so only an egregious,
+// #209-scale low-vs-high-FPS gap emits an anomaly; a modest gap is WARN-only, since it can
+// come from progression/technique rather than a frame-rate-dependent force.
+const SETTLE_FRACTION = 0.85;          // settled := speed >= speedExpected * this (~6.8 m/s)
+const MIN_BAND_FRAMES_FOR_RATIO = 10;  // a band needs this many settled frames to be comparable
+const FPS_RATIO_BAD = 2.0;             // low/high-FPS cruise-speed gap this large => BAD (#209 was ~4x)
+const FPS_RATIO_WARN = 1.5;            // a milder gap => WARN (may be progression/technique, not a bug)
 
 // FPS bands the summary buckets frames into. The whole point of the module: if the
 // max speed in a SLOWER band is materially higher than in a FAST band, a force path is
@@ -235,11 +241,13 @@ export function bandMeanSpeed(b: BandStat): number {
 /** The fps-dependence signal at the heart of this module: the ratio of the max SETTLED
  *  speed seen in the SLOWEST eligible band to the FASTEST eligible band. ~1 means speed is
  *  frame-rate independent (good); >> 1 means a force path scales with frame time (the
- *  #209 bug). Only "settled" (cruising-speed) frames count, and each band needs
- *  MIN_BAND_FRAMES_FOR_RATIO of them to be eligible, so neither an accelerating start nor a
- *  handful of fluke frames forms the ratio. Needs both a fast (>=30 FPS) and a slow
+ *  #209 bug). Only "settled" frames at genuine cruising speed (>= SETTLE_FRACTION of the
+ *  expected terminal speed) count, and each band needs MIN_BAND_FRAMES_FOR_RATIO of them to
+ *  be eligible — so neither an accelerating start, a mid-acceleration sub-cruise frame, nor
+ *  a handful of fluke frames forms the ratio. Needs both a fast (>=30 FPS) and a slow
  *  (<30 FPS) band eligible to mean anything; returns 1 (no signal) otherwise so it never
- *  false-alarms on a steady FPS or an unsettled run. */
+ *  false-alarms on a steady FPS or an unsettled run. A modest ratio is only WARN; BAD
+ *  requires the egregious, #209-scale gap (see FPS_RATIO_BAD in frameRateHealth). */
 export function fpsSpeedRatio(summary: DiagSummary): number {
   const eligible = (b: BandStat) => b.settledFrames >= MIN_BAND_FRAMES_FOR_RATIO;
   const fast = summary.bands.filter((b, i) => FPS_BANDS[i].minFps >= 30 && eligible(b));
@@ -274,11 +282,11 @@ export function frameRateHealth(summary: DiagSummary, cfg: DiagConfig): HealthVe
     bump('bad');
   }
   const ratio = fpsSpeedRatio(summary);
-  if (ratio >= 1.6) {
-    reasons.push(`speed ${ratio.toFixed(1)}x higher in low-FPS frames than high-FPS — frame-rate-dependent force (the #209 class)`);
+  if (ratio >= FPS_RATIO_BAD) {
+    reasons.push(`cruise speed ${ratio.toFixed(1)}x higher in low-FPS frames than high-FPS — frame-rate-dependent force (the #209 class)`);
     bump('bad');
-  } else if (ratio >= 1.25) {
-    reasons.push(`speed ${ratio.toFixed(1)}x higher at low FPS — possible frame-rate dependence`);
+  } else if (ratio >= FPS_RATIO_WARN) {
+    reasons.push(`cruise speed ${ratio.toFixed(1)}x higher at low FPS — possible frame-rate dependence (or normal run progression)`);
     bump('warn');
   }
   const clampedPct = summary.frames > 0 ? summary.clampedFrames / summary.frames : 0;
@@ -486,8 +494,8 @@ class Diagnostics {
       this.warn('tunnel', `[diag] per-frame step ${flags.step.toFixed(2)}u >= collision radius ${this.cfg.collisionRadius}u at ${flags.fps.toFixed(0)} FPS — possible tunnel-through`);
     }
     const ratio = fpsSpeedRatio(this.summary);
-    if (ratio >= 1.6) {
-      this.warn('fpsSpeed', `[diag] terminal speed ${ratio.toFixed(1)}x higher at low FPS than high FPS — frame-rate-dependent force (see __snowgliderDiag.dump())`);
+    if (ratio >= FPS_RATIO_BAD) {
+      this.warn('fpsSpeed', `[diag] cruise speed ${ratio.toFixed(1)}x higher at low FPS than high FPS — frame-rate-dependent force (see __snowgliderDiag.dump())`);
     }
   }
 

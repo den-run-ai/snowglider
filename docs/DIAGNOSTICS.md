@@ -32,7 +32,7 @@ For every frame the main loop feeds it (`Diag.record(...)`), it classifies:
 | Signal | Meaning | Verdict |
 | --- | --- | --- |
 | **step ≥ collision radius** | The per-frame move jumped farther than an obstacle's radius, so the discrete point-vs-disk collision check could skip the disk entirely. Runtime analog of the harness's offline tunneling probe. | **BAD** |
-| **fps→speed ratio ≥ 1.6** | Max **settled** (cruising-speed) speed in low-FPS frames is ≥1.6× the max in high-FPS frames → a force path scales with frame time (the #209 signature). Only settled frames count and each band needs a minimum of them, so a *steady* frame rate and an *accelerating start* (fast frames while the snowman is still slow) never false-alarm. | **BAD** (≥1.25 → WARN) |
+| **fps→speed ratio ≥ 2.0** | Max **cruise-speed** speed in low-FPS frames is ≥2× the max in high-FPS frames → a force path scales with frame time (the #209 signature, which was ~4×). Only *genuine cruising* frames (≥85% of the expected terminal speed) count, and each band needs a minimum of them — so a steady frame rate, an accelerating start, or a normal mid-run speed rise (e.g. 5→8 m/s) never reaches BAD. A milder gap (≥1.5×) is **WARN-only**, since it can come from run progression / technique rather than a frame-rate-dependent force. | **BAD** (≥1.5 → WARN) |
 | **speed past the absolute ceiling** | A frame above `speedCeiling` (50 m/s) — impossible for legit play even buggy. Caught independent of frame rate, so a runaway with *no* FPS tell still fires. | **BAD** |
 | **NaN / Infinity** | Non-finite physics state. | **BAD** |
 | **≥10% of frames at the delta cap** | The device is below 1/cap FPS (the regime the bug bites). Informational, not an accusation. | **WARN** |

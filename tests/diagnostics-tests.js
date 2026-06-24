@@ -92,6 +92,29 @@ async function main() {
   ], cfg);
   check('fps→speed: a real low-FPS speed inflation at cruising still flags', D.fpsSpeedRatio(realBug) >= 3);
 
+  // regression (codex follow-up): a healthy 5 -> 8 m/s rise (high-FPS frames at a
+  // mid-acceleration ~5 m/s, then low-FPS frames at normal 8 m/s cruising) must NOT emit a
+  // BAD anomaly — the speed rose from run progression, not frame rate. 5 m/s is below the
+  // cruising floor, so the fast band is ineligible and there is no signal. (Before the
+  // tightened floor this gave ratio 1.6 -> BAD.)
+  const progression = summarize(D, [
+    ...descent({ dt: 1 / 60, speed: 5, frames: 30 }), // high FPS, sub-cruise (mid-acceleration)
+    ...descent({ dt: 0.1, speed: 8, frames: 30 }),    // low FPS at normal cruising speed
+  ], cfg);
+  check('fps→speed: a 5->8 m/s progression across an FPS drop is not flagged', D.fpsSpeedRatio(progression) === 1);
+  check('health: the 5->8 progression run is not graded BAD for fps-dependence',
+    !D.frameRateHealth(progression, cfg).reasons.some((r) => /frame-rate-dependent/i.test(r)));
+
+  // a MODEST cruise-speed gap (both bands at genuine cruising, ~8 vs ~13) is WARN-only, not
+  // a BAD anomaly — only the egregious #209-scale gap (>= 2x) emits physics_anomaly.
+  const modestGap = summarize(D, [
+    ...descent({ dt: 1 / 60, speed: 8, frames: 30 }),
+    ...descent({ dt: 0.1, speed: 13, frames: 30 }),   // ratio ~1.6: above WARN, below BAD
+  ], cfg);
+  check('fps→speed: a modest cruise gap is WARN, not a BAD anomaly',
+    D.fpsSpeedRatio(modestGap) >= 1.5 && D.fpsSpeedRatio(modestGap) < 2.0 &&
+    !D.frameRateHealth(modestGap, cfg).reasons.some((r) => /frame-rate-dependent/i.test(r)));
+
   // --- frameRateHealth verdicts ----------------------------------------------
   const healthySummary = summarize(D, descent({ dt: 1 / 60, speed: 8, frames: 300 }), cfg);
   const healthy = D.frameRateHealth(healthySummary, cfg);
