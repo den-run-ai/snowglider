@@ -96,6 +96,18 @@ async function main() {
   check('error: unhandledrejection is captured and reported',
     events.some((e) => e.event === 'unhandled_rejection' && /promise blew up/.test(String(e.data.message))));
 
+  // a rejection whose reason is a bare string (no .message / .stack) is still captured.
+  events.length = 0;
+  window.dispatchEvent(Object.assign(new window.Event('unhandledrejection'), { reason: 'plain string reason' }));
+  check('error: a non-Error rejection reason is still captured',
+    events.some((e) => e.event === 'unhandled_rejection' && /plain string reason/.test(String(e.data.message))));
+
+  // a bare error event (no message / filename / lineno / error) still reports via fallbacks.
+  events.length = 0;
+  window.dispatchEvent(new window.Event('error'));
+  check('error: a bare error event reports with fallbacks (message "error", empty stack)',
+    events.some((e) => e.event === 'client_error' && e.data.message === 'error' && e.data.stack === ''));
+
   // --- init() is idempotent: a second call must not double-install handlers ----
   D.Diag.init({ ...D.DEFAULT_CONFIG }, { report: (event, data) => events.push({ event, data }) });
   events.length = 0;

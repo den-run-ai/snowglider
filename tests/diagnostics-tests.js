@@ -231,6 +231,10 @@ async function main() {
     noteEvents[0].data.category === 'asset_load_failed' && noteEvents[0].data.url === 'music.mp3');
   check('note: appears in the snapshot for the dump',
     D.Diag.snapshot().notes.some((n) => n.category === 'asset_load_failed'));
+  // the note ring is capped (oldest evicted past 50) so a noisy subsystem can't grow it.
+  D.Diag.reset();
+  for (let i = 0; i < 60; i++) D.Diag.note('spam', { i });
+  check('note: ring caps at 50 entries (oldest evicted)', D.Diag.snapshot().notes.length === 50);
 
   // --- sink failures must never throw into the game loop ----------------------
   D.Diag.reset();
@@ -243,6 +247,41 @@ async function main() {
   check('sink: a throwing sink is swallowed (telemetry never breaks the game)', threw === false);
 
   // restore a quiet sink for the remaining recorder checks
+  D.Diag.init(cfg, { report: () => {} });
+
+  // --- live recorder: ring-buffer wraparound (trace longer than the ring) ------
+  // RING_CAPACITY is 1200; record past it so the wraparound WRITE and the ordered-read
+  // (newest-last) both run, and the recent trace stays bounded without losing the summary.
+  D.Diag.reset();
+  for (let i = 0; i < 1300; i++) D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -15 - i * 0.1, technique: 'tuck', isInAir: false });
+  const bigSnap = D.Diag.snapshot();
+  check('ring buffer wraps: full session counted, recent trace bounded',
+    bigSnap.summary.frames === 1300 && bigSnap.recent.length === 120 &&
+    bigSnap.recent[bigSnap.recent.length - 1].z < bigSnap.recent[0].z); // newest is further downhill
+
+  // --- live recorder: the fps-dependence console breadcrumb fires --------------
+  // A mixed fast/slow run at genuine cruising speed (8 vs 24, both above the floor; 24*0.1 =
+  // 2.4u step stays under the 2.5u radius so this isolates the fps signal from tunneling)
+  // drives fpsSpeedRatio past the BAD threshold during live record().
+  D.Diag.reset();
+  for (let i = 0; i < 30; i++) D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -15 - i, technique: 'tuck', isInAir: false });
+  for (let i = 0; i < 30; i++) D.Diag.record({ dt: 0.1, speed: 24, x: 0, z: -50 - i, technique: 'tuck', isInAir: false });
+  check('live recorder reports fps-dependence (ratio past the BAD threshold)',
+    D.Diag.snapshot().summary.fpsSpeedRatio >= 2 && D.frameRateHealth(
+      // rebuild the summary shape frameRateHealth expects via a fresh fold for the assertion
+      summarize(D, [...descent({ dt: 1 / 60, speed: 8, frames: 30 }), ...descent({ dt: 0.1, speed: 24, frames: 30 })], cfg), cfg
+    ).level === 'bad');
+
+  // --- live recorder: a non-finite frame trips the NaN breadcrumb + trace flag ----
+  D.Diag.reset();
+  for (let i = 0; i < 5; i++) D.Diag.record({ dt: 1 / 60, speed: 8, x: 0, z: -15 - i, technique: 'tuck', isInAir: false });
+  D.Diag.record({ dt: 1 / 60, speed: NaN, x: NaN, z: NaN, technique: 'tuck', isInAir: false });
+  const nanSnap = D.Diag.snapshot();
+  check('live recorder records a non-finite frame and flags it in the trace',
+    nanSnap.summary.nonFiniteFrames === 1 && nanSnap.recent.some((e) => e.flags.includes('NaN')));
+
+  // restore a quiet, freshly-reset recorder for the remaining checks
+  D.Diag.reset();
   D.Diag.init(cfg, { report: () => {} });
 
   // --- the live recorder is inert + safe in Node (no DOM) ---------------------
