@@ -483,6 +483,39 @@ console.log('  auto landing:', 'quality', autoLand.quality, '| airScore', autoLa
 console.log('  PASS:', provenanceGated ? 'non-player landing not rewarded ✅' : 'reward leaked to a non-player landing ❌');
 if (!provenanceGated) hardFail = true;
 
+// 11) Frame-rate independence of cruising speed [GATING]. The coast/cruise drag is a
+// per-frame multiplier (velocity *= 1-k) while the forces are delta-scaled, so before
+// the dragFactor() fix the terminal speed scaled with frame rate: ~8 m/s at 60 FPS but
+// ~32 m/s at the capped 0.1 s delta (~10 FPS). On a slow / mobile device that let a
+// player just hold Up and rocket straight down the fall line — fast enough to slip
+// between (and at the worst frame times tunnel through) the trees without ever
+// steering (the "floor it forward, pass the obstacles without dodging" report). The
+// fix raises each `1-k` to delta*60 so the drag integrates to the same speed lost per
+// SECOND at any frame rate; the 60 Hz path is byte-identical (delta*60 == 1 exactly
+// when delta === 1/60, and Math.pow(x,1) === x), guarded by check 1 above. Hold Up on
+// a constant slope for a fixed ~6 s of wall-clock at three frame rates; the terminal
+// speeds must now agree closely instead of diverging with the frame time.
+const UP_CRUISE = { left: false, right: false, up: true, down: false, jump: false };
+const cruiseSeconds = 6;
+const cruiseSpeedAt = (dt) => simulateSlope(mod, () => UP_CRUISE,
+  { slope: 0.3, vz0: -7, steps: Math.round(cruiseSeconds / dt), dt, seed: 7 }).finalSpeed;
+const cruise60 = cruiseSpeedAt(1 / 60);
+const cruise30 = cruiseSpeedAt(1 / 30);
+const cruise10 = cruiseSpeedAt(1 / 10);
+const cruiseMax = Math.max(cruise60, cruise30, cruise10);
+const cruiseMin = Math.min(cruise60, cruise30, cruise10);
+const cruiseSpread = (cruiseMax - cruiseMin) / cruise60;
+// Within 10% across a 6x frame-rate range (measured ~4-5%); the un-fixed per-frame
+// drag diverged ~300% (8 -> 32 m/s), so this gate is robust, not flaky.
+const frameRateIndependent = cruiseSpread < 0.10;
+console.log('\n--- Frame-rate independence: holding Up cruises at the same speed at any FPS [GATING] ---');
+console.log('  60 FPS:', cruise60.toFixed(2), '| 30 FPS:', cruise30.toFixed(2), '| 10 FPS:', cruise10.toFixed(2),
+  '| spread:', (cruiseSpread * 100).toFixed(1) + '%');
+console.log('  PASS:', frameRateIndependent
+  ? 'cruise speed is frame-rate independent ✅'
+  : `cruise speed scales with frame rate (spread ${(cruiseSpread * 100).toFixed(0)}%) ❌`);
+if (!frameRateIndependent) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();
