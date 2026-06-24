@@ -13,6 +13,38 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Runtime physics / frame-rate diagnostics (`src/diagnostics.ts`)
+- PR #209 and its avalanche follow-up fixed two instances of the **same bug class** — a
+  per-frame multiplier (`v *= 1 − k`) mixed in with dt-scaled forces, so a steady state
+  scaled with frame rate. Both were invisible to every existing test (none *varied the
+  frame time*) and invisible in play (they only bite on a slow/mobile device the
+  developer never runs on). The offline stress harnesses now sweep dt in CI; this adds
+  the **runtime counterpart** so the *next* bug in this class is diagnosed, not guessed.
+- **`Diag`** is a read-only telemetry observer wired into the main loop beside
+  `Sfx`/`Flex` (`Diag.record(...)` in `game/main-loop.ts`). It reads the per-frame
+  physics result + position **only** — never `pos`/`velocity` — so the physics-invariant
+  harness is byte-identical and it is a no-op under automation (off unless
+  `window.testHooks.diagnosticsEnabled`, mirroring `debris`/`sfx`). It watches the dt the
+  real device produces and the speed/step that ride on it, and surfaces the three
+  frame-rate smells **live**: (1) a per-frame **step ≥ an obstacle's collision radius**
+  (the discrete point-vs-disk check could miss it → tunnel risk — the runtime analog of
+  the harness's offline tunneling probe); (2) terminal **speed that climbs as FPS
+  drops**, computed as the max-speed ratio between low- and high-FPS frame bands (the
+  #209 signature); (3) **NaN/Infinity** in the state.
+- **How you use it.** Throttled `console.warn` breadcrumbs fire on any anomaly during
+  normal play. Add `?debug` (or press `` ` ``) for a live HUD overlay — fps, dt cap hits,
+  max step vs radius, and the speed-by-FPS-band table. `window.__snowgliderDiag.dump()`
+  downloads a JSON trace (config, summary, health verdict, recent frames) to attach to a
+  bug report — turning "the game froze / I drove through a tree" into hard numbers.
+- **Analytics are pure + headlessly tested.** `percentile`, `classifyFrame`, `foldFrame`,
+  `fpsSpeedRatio`, and `frameRateHealth` are exported pure functions (no DOM), unit-tested
+  in `tests/diagnostics-tests.js` (`npm run test:diagnostics`, also in `npm test`). The
+  tests prove the detector **fires on the real #209 numbers** (8 → 32 m/s across a 60→10
+  FPS drop grades BAD; a 3.2 u step past the 2.5 u tree radius flags a tunnel risk) and
+  stays **quiet on a healthy steady-60-FPS run** and on a merely-slow-but-bounded device
+  (no fast band to compare against → no false "frame-rate-dependent" accusation). See
+  [`DIAGNOSTICS.md`](DIAGNOSTICS.md).
+
 ### Avalanche friction made frame-rate independent (follow-up to PR #209)
 - The snowman drag fix in PR #209 corrected a per-frame multiplier mixed in with
   dt-scaled forces. Stress-testing turned up the **same bug class still live in the

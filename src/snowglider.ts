@@ -32,6 +32,7 @@ import { Snow } from './snow.js';
 import { Snowman } from './snowman.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
+import { Diag } from './diagnostics.js';
 import { Physics } from './player-state.js';
 import { IntroModule, prefersReducedMotion } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
@@ -154,6 +155,17 @@ const { updateSnowman, updateCamera, startLoop, handleResize } = createMainLoop(
   showGameOver,
 });
 window.addEventListener('resize', handleResize);
+
+// --- Physics / frame-rate diagnostics (see src/diagnostics.ts) ---
+// A read-only telemetry observer the main loop feeds each frame (beside Sfx/Flex). It
+// watches the dt the real device produces and the speed/step that ride on it, surfacing
+// the frame-rate-dependence bug class fixed in PR #209 — runaway low-FPS speed, per-frame
+// steps that exceed an obstacle's collision radius (tunnel risk), and NaN — live instead
+// of only in the offline stress harnesses. Off under automation by default (so the test
+// suites stay byte-identical); add ?debug to play with the live overlay, or call
+// window.__snowgliderDiag.dump() to export a JSON trace for a bug report. The collision
+// radius mirrors collision.ts's tree default and the cap mirrors the loop's delta clamp.
+Diag.init({ frameCapSec: 0.1, collisionRadius: window.treeCollisionRadius || 2.5 });
 
 // --- Run lifecycle (see game/lifecycle.ts): reset / restart / camera toggle ---
 // Built after the loop (restartGame uses startLoop). Re-publish the three hooks the

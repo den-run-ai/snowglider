@@ -23,6 +23,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/controls.ts` - Keyboard and touch controls implementation
 - `src/audio.ts` - Background music and audio controls
 - `src/sfx.ts` - Procedural Web Audio sound effects (wind/carve/jump/land/avalanche/crash/finish)
+- `src/diagnostics.ts` - Read-only runtime physics/frame-rate telemetry (`Diag`): catches the frame-rate-dependence bug class (#209) live — runaway low-FPS speed, per-frame steps past a collision radius (tunnel risk), NaN. Dev overlay (`?debug`), `window.__snowgliderDiag.dump()` JSON export; off under automation. See `docs/DIAGNOSTICS.md`.
 - `src/auth.ts` - Firebase authentication implementation
 - `src/scores.ts` - User scoring and leaderboard functionality
 - `src/boot/` - Classic-script local-auth fallback + Firebase bootstrap (the only remaining `.js`), and `script-loader.ts` (startup driver)

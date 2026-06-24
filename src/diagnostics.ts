@@ -1,0 +1,456 @@
+// diagnostics.ts — runtime physics / frame-rate telemetry for SnowGlider.
+//
+// WHY THIS EXISTS (the bug class it targets)
+// ------------------------------------------
+// PR #209 and its avalanche follow-up both fixed the *same* shape of bug: a quantity
+// integrated as a **per-frame** multiplier (`v *= 1 - k`) while every neighbouring
+// force is **delta-scaled** (`v += a * dt`). Mixing the two makes the steady state
+// scale with frame rate — the snowman's terminal speed ballooned ~8 → ~32 m/s from 60
+// to 10 FPS, fast enough to slip between (and, when a per-frame step exceeded an
+// obstacle's collision radius, tunnel straight through) the trees. It was invisible to
+// every existing test because none of them *varied the frame time*, and invisible in
+// play because it only bites on a slow/mobile device that the developer never runs on.
+//
+// This module is the **runtime** counterpart to the offline stress harnesses
+// (tests/verification/forward_stress_harness.js, physics_invariant_harness.js): instead
+// of sweeping dt in CI, it watches the dt the *real device* actually produces and the
+// physics observables that ride on it, and surfaces the same three smells live —
+//   1. low-FPS frames whose per-frame STEP exceeds an obstacle radius  → tunnel risk;
+//   2. terminal SPEED that climbs as FPS drops                          → fps-dependent force;
+//   3. NaN/Infinity in the state.
+// It turns "the game freezes / I drove through a tree" — an unreproducible field report
+// — into a downloadable JSON trace (`__snowgliderDiag.dump()`) with the exact dt, speed,
+// step, and fps-band breakdown, so the next bug in this class is diagnosed, not guessed.
+//
+// DESIGN CONSTRAINTS (mirroring sfx.ts / intro.ts / debris)
+//   - **Read-only observer.** record() takes the per-frame physics RESULT plus pos —
+//     it never writes pos/velocity or any kernel state, so the physics-invariant
+//     harness stays byte-identical. It is wired in alongside Sfx/Flex, after the step.
+//   - **Automation-safe.** Off by default under ?test= suites (window.isTestMode) and
+//     webdriver runs (Playwright/Puppeteer), unless a test opts in via
+//     window.testHooks.diagnosticsEnabled — so existing tests keep their exact paths.
+//   - **Headless-testable.** All the analytics (percentiles, per-frame classification,
+//     the running summary fold, the health verdict) are exported PURE functions that
+//     need no DOM/AudioContext, so they unit-test in Node (npm run test:diagnostics).
+//   - **Cheap.** O(1) per frame: a fixed ring buffer for the recent trace plus an
+//     incremental summary fold (no full-history scan). The DOM overlay repaints at a
+//     throttled ~6 Hz, and console warnings are rate-limited per category.
+//   - **Inert without a DOM** (jsdom/Node): the overlay/keybind/window-API setup is
+//     skipped, but the pure analytics still run, so the recorder is safe to construct
+//     anywhere.
+//
+// To disable entirely: set DIAG_ENABLED = false (all methods early-exit).
+
+const DIAG_ENABLED = true;
+
+// --- Tunables ------------------------------------------------------------------
+const RING_CAPACITY = 1200;     // ~20 s of 60 FPS trace kept for the overlay + dump
+const OVERLAY_HZ = 6;           // overlay repaint rate (throttled; cheap)
+const WARN_THROTTLE_SEC = 4;    // min seconds between repeats of the same warning
+
+// FPS bands the summary buckets frames into. The whole point of the module: if the
+// max speed in a SLOWER band is materially higher than in a FAST band, a force path is
+// frame-rate dependent (the #209 smell). Ordered fast → slow.
+export interface FpsBand { label: string; minFps: number; maxFps: number; }
+export const FPS_BANDS: FpsBand[] = [
+  { label: '>=50',  minFps: 50, maxFps: Infinity },
+  { label: '30-50', minFps: 30, maxFps: 50 },
+  { label: '15-30', minFps: 15, maxFps: 30 },
+  { label: '<15',   minFps: 0,  maxFps: 15 },
+];
+
+export interface DiagConfig {
+  /** The run-loop's delta clamp (main-loop caps delta at 0.1 s). A frame whose dt sits
+   *  at the cap means the device dropped to/below 1/cap FPS — the regime the bug bit. */
+  frameCapSec: number;
+  /** Smallest obstacle collision radius the discrete point-vs-disk check guards (trees
+   *  use 2.5). A per-frame step >= this could skip the disk entirely → tunnel risk. */
+  collisionRadius: number;
+  /** Rough expected 60 Hz cruising/terminal speed (~8 m/s). Only used to flag a frame
+   *  as "fast" for the overlay; the fps-band correlation is what actually detects the bug. */
+  speedExpected: number;
+}
+
+export const DEFAULT_CONFIG: DiagConfig = {
+  frameCapSec: 0.1,
+  collisionRadius: 2.5,
+  speedExpected: 8,
+};
+
+/** One frame's physics observables, as read from the kernel result + position. */
+export interface FrameSample {
+  dt: number;
+  speed: number;
+  x: number;
+  z: number;
+  technique: string;
+  isInAir: boolean;
+}
+
+/** Per-frame anomaly flags derived from a sample and the previous position. */
+export interface FrameFlags {
+  step: number;        // planar distance moved this frame (world units)
+  fps: number;         // 1/dt
+  clamped: boolean;    // dt pinned at the loop cap → device below 1/cap FPS
+  tunnelRisk: boolean; // step >= collisionRadius → discrete check could miss a disk
+  nonFinite: boolean;  // any of dt/speed/x/z not finite
+  fast: boolean;       // speed well above the expected 60 Hz terminal speed
+}
+
+export interface BandStat {
+  label: string;
+  frames: number;
+  speedMax: number;
+  speedSum: number; // for the mean; kept raw so the fold stays additive
+}
+
+/** The incremental running summary. Folded one frame at a time so the recorder never
+ *  rescans history; also the exact object frameRateHealth() + dump() consume. */
+export interface DiagSummary {
+  frames: number;
+  durationSec: number;
+  dtMaxSec: number;
+  clampedFrames: number;
+  stepMax: number;
+  speedMax: number;
+  tunnelRiskFrames: number;
+  nonFiniteFrames: number;
+  bands: BandStat[];
+}
+
+export interface HealthVerdict {
+  level: 'ok' | 'warn' | 'bad';
+  reasons: string[];
+}
+
+// --- Pure analytics (no DOM; unit-tested headlessly) ---------------------------
+
+/** Linear-interpolated percentile of an ascending-sorted array. p in [0,1]. */
+export function percentile(sortedAsc: number[], p: number): number {
+  const n = sortedAsc.length;
+  if (n === 0) return NaN;
+  if (n === 1) return sortedAsc[0];
+  const idx = Math.min(n - 1, Math.max(0, p * (n - 1)));
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  if (lo === hi) return sortedAsc[lo];
+  return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (idx - lo);
+}
+
+/** Classify one frame relative to the previous position + the config thresholds. */
+export function classifyFrame(prev: { x: number; z: number } | null, s: FrameSample, cfg: DiagConfig): FrameFlags {
+  const finite = Number.isFinite(s.dt) && Number.isFinite(s.speed) &&
+    Number.isFinite(s.x) && Number.isFinite(s.z);
+  const step = prev && finite ? Math.hypot(s.x - prev.x, s.z - prev.z) : 0;
+  const fps = s.dt > 0 ? 1 / s.dt : Infinity;
+  return {
+    step,
+    fps,
+    clamped: finite && s.dt >= cfg.frameCapSec - 1e-9,
+    tunnelRisk: step >= cfg.collisionRadius,
+    nonFinite: !finite,
+    fast: finite && s.speed > cfg.speedExpected * 1.5,
+  };
+}
+
+/** Empty summary seed for the fold. */
+export function emptySummary(): DiagSummary {
+  return {
+    frames: 0, durationSec: 0, dtMaxSec: 0, clampedFrames: 0,
+    stepMax: 0, speedMax: 0, tunnelRiskFrames: 0, nonFiniteFrames: 0,
+    bands: FPS_BANDS.map((b) => ({ label: b.label, frames: 0, speedMax: 0, speedSum: 0 })),
+  };
+}
+
+/** Fold one frame into the running summary (mutates + returns `agg` for chaining).
+ *  Additive/idempotent per frame, so the recorder calls it once per frame and the
+ *  tests can fold an array to get the same result. */
+export function foldFrame(agg: DiagSummary, s: FrameSample, flags: FrameFlags): DiagSummary {
+  agg.frames += 1;
+  if (Number.isFinite(s.dt)) {
+    agg.durationSec += s.dt;
+    if (s.dt > agg.dtMaxSec) agg.dtMaxSec = s.dt;
+  }
+  if (flags.clamped) agg.clampedFrames += 1;
+  if (flags.tunnelRisk) agg.tunnelRiskFrames += 1;
+  if (flags.nonFinite) { agg.nonFiniteFrames += 1; return agg; } // don't pollute speed stats
+  if (flags.step > agg.stepMax) agg.stepMax = flags.step;
+  if (s.speed > agg.speedMax) agg.speedMax = s.speed;
+  // Bucket by fps so we can correlate speed against frame rate.
+  for (let i = 0; i < FPS_BANDS.length; i++) {
+    const b = FPS_BANDS[i];
+    if (flags.fps >= b.minFps && flags.fps < b.maxFps) {
+      const bs = agg.bands[i];
+      bs.frames += 1;
+      bs.speedSum += s.speed;
+      if (s.speed > bs.speedMax) bs.speedMax = s.speed;
+      break;
+    }
+  }
+  return agg;
+}
+
+/** Mean speed in a band (0 if the band saw no frames). */
+export function bandMeanSpeed(b: BandStat): number {
+  return b.frames > 0 ? b.speedSum / b.frames : 0;
+}
+
+/** The fps-dependence signal at the heart of this module: the ratio of the max speed
+ *  seen in the SLOWEST populated band to the FASTEST populated band. ~1 means speed is
+ *  frame-rate independent (good); >> 1 means a force path scales with frame time (the
+ *  #209 bug). Needs both a fast (>=30 FPS) and a slow (<30 FPS) band populated to mean
+ *  anything; returns 1 (no signal) otherwise so it never false-alarms on a steady FPS. */
+export function fpsSpeedRatio(summary: DiagSummary): number {
+  const fast = summary.bands.filter((b, i) => FPS_BANDS[i].minFps >= 30 && b.frames > 0);
+  const slow = summary.bands.filter((b, i) => FPS_BANDS[i].maxFps <= 30 && b.frames > 0);
+  if (fast.length === 0 || slow.length === 0) return 1;
+  const fastMax = Math.max(...fast.map((b) => b.speedMax));
+  const slowMax = Math.max(...slow.map((b) => b.speedMax));
+  if (fastMax <= 1e-6) return 1;
+  return slowMax / fastMax;
+}
+
+/** Turn a summary into an actionable verdict. Thresholds chosen to be quiet on a
+ *  healthy run and loud on the #209 signature. */
+export function frameRateHealth(summary: DiagSummary, cfg: DiagConfig): HealthVerdict {
+  const reasons: string[] = [];
+  let level: HealthVerdict['level'] = 'ok';
+  const bump = (l: HealthVerdict['level']) => {
+    if (l === 'bad') level = 'bad';
+    else if (l === 'warn' && level === 'ok') level = 'warn';
+  };
+
+  if (summary.nonFiniteFrames > 0) {
+    reasons.push(`${summary.nonFiniteFrames} non-finite frame(s) — NaN/Infinity in physics state`);
+    bump('bad');
+  }
+  if (summary.tunnelRiskFrames > 0) {
+    reasons.push(`${summary.tunnelRiskFrames} frame(s) stepped >= ${cfg.collisionRadius}u (an obstacle radius) — collision tunnel risk`);
+    bump('bad');
+  }
+  const ratio = fpsSpeedRatio(summary);
+  if (ratio >= 1.6) {
+    reasons.push(`speed ${ratio.toFixed(1)}x higher in low-FPS frames than high-FPS — frame-rate-dependent force (the #209 class)`);
+    bump('bad');
+  } else if (ratio >= 1.25) {
+    reasons.push(`speed ${ratio.toFixed(1)}x higher at low FPS — possible frame-rate dependence`);
+    bump('warn');
+  }
+  const clampedPct = summary.frames > 0 ? summary.clampedFrames / summary.frames : 0;
+  if (clampedPct >= 0.1) {
+    reasons.push(`${(clampedPct * 100).toFixed(0)}% of frames hit the ${cfg.frameCapSec * 1000}ms delta cap — device below ${Math.round(1 / cfg.frameCapSec)} FPS`);
+    bump('warn');
+  }
+  if (reasons.length === 0) reasons.push('no frame-rate anomalies detected');
+  return { level, reasons };
+}
+
+// --- Stateful recorder + DOM overlay (the live device side) --------------------
+
+class Diagnostics {
+  private cfg: DiagConfig = DEFAULT_CONFIG;
+  private active = false;
+  private ring: Array<FrameSample & FrameFlags> = [];
+  private head = 0;
+  private summary: DiagSummary = emptySummary();
+  private prev: { x: number; z: number } | null = null;
+  private lastWarn: Record<string, number> = {};
+  private overlay: HTMLElement | null = null;
+  private lastOverlayPaint = 0;
+  private clockSec = 0; // accumulated in-game seconds (dt sum); avoids Date.now in tests
+
+  /** Wire up the recorder. Safe to call once at startup. Honors the automation gate and
+   *  the ?debug overlay flag; without a DOM it just enables the headless recorder. */
+  init(cfg?: Partial<DiagConfig>): void {
+    if (!DIAG_ENABLED) return;
+    this.cfg = { ...DEFAULT_CONFIG, ...(cfg || {}) };
+    if (typeof window === 'undefined') { this.active = true; return; }
+
+    const automated = !!window.isTestMode ||
+      (typeof navigator !== 'undefined' && !!navigator.webdriver);
+    const optedIn = !!(window.testHooks && window.testHooks.diagnosticsEnabled);
+    // The recorder is cheap and read-only, so leave it on in normal play; only the
+    // automated suites stay byte-identical unless a test opts in (matches debris/sfx).
+    this.active = !automated || optedIn;
+    if (!this.active) return;
+
+    const search = (window.location && window.location.search) || '';
+    const wantOverlay = /[?&]debug(=|&|$)/.test(search) || /[?&]debug=(physics|all)/.test(search);
+
+    if (typeof document !== 'undefined') {
+      if (wantOverlay) this.ensureOverlay();
+      // Hotkey: backtick toggles the overlay during normal play (off under automation).
+      window.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === '`') this.toggleOverlay();
+      });
+      // Bug-report API: __snowgliderDiag.dump() returns the trace + verdict and, in a
+      // browser, also downloads it as JSON so a tester can attach it to an issue.
+      (window as unknown as { __snowgliderDiag?: unknown }).__snowgliderDiag = {
+        snapshot: () => this.snapshot(),
+        dump: () => this.dump(),
+        reset: () => this.reset(),
+        overlay: (on?: boolean) => (on === undefined ? this.toggleOverlay() : on ? this.ensureOverlay() : this.hideOverlay()),
+      };
+    }
+  }
+
+  /** Record one frame. READ-ONLY: never mutates pos/velocity/kernel state. Called from
+   *  the main loop right after the physics step, beside Sfx/Flex. */
+  record(s: FrameSample): void {
+    if (!DIAG_ENABLED || !this.active) return;
+    const flags = classifyFrame(this.prev, s, this.cfg);
+    foldFrame(this.summary, s, flags);
+    this.clockSec += Number.isFinite(s.dt) ? s.dt : 0;
+
+    // Ring buffer of the recent trace (for the overlay + dump).
+    const entry = { ...s, ...flags };
+    if (this.ring.length < RING_CAPACITY) this.ring.push(entry);
+    else { this.ring[this.head] = entry; this.head = (this.head + 1) % RING_CAPACITY; }
+
+    if (!flags.nonFinite) this.prev = { x: s.x, z: s.z };
+    this.maybeWarn(flags);
+    this.maybePaint();
+  }
+
+  /** Throttled console warnings on the anomaly categories, so a live slow-device run
+   *  leaves a breadcrumb in the console even if nobody opened the overlay. */
+  private maybeWarn(flags: FrameFlags): void {
+    if (flags.nonFinite) this.warn('nonFinite', '[diag] non-finite physics state (NaN/Infinity) this frame');
+    if (flags.tunnelRisk) {
+      this.warn('tunnel', `[diag] per-frame step ${flags.step.toFixed(2)}u >= collision radius ${this.cfg.collisionRadius}u at ${flags.fps.toFixed(0)} FPS — possible tunnel-through`);
+    }
+    const ratio = fpsSpeedRatio(this.summary);
+    if (ratio >= 1.6) {
+      this.warn('fpsSpeed', `[diag] terminal speed ${ratio.toFixed(1)}x higher at low FPS than high FPS — frame-rate-dependent force (see __snowgliderDiag.dump())`);
+    }
+  }
+
+  private warn(key: string, msg: string): void {
+    const now = this.clockSec;
+    if (this.lastWarn[key] !== undefined && now - this.lastWarn[key] < WARN_THROTTLE_SEC) return;
+    this.lastWarn[key] = now;
+    if (typeof console !== 'undefined' && console.warn) console.warn(msg);
+  }
+
+  /** The trace in chronological order (oldest first). */
+  private orderedRing(): Array<FrameSample & FrameFlags> {
+    if (this.ring.length < RING_CAPACITY) return this.ring.slice();
+    return this.ring.slice(this.head).concat(this.ring.slice(0, this.head));
+  }
+
+  /** A structured, JSON-serialisable snapshot: config, summary, verdict, recent trace. */
+  snapshot() {
+    const health = frameRateHealth(this.summary, this.cfg);
+    const bands = this.summary.bands.map((b) => ({
+      label: b.label, frames: b.frames,
+      speedMax: +b.speedMax.toFixed(2), speedMean: +bandMeanSpeed(b).toFixed(2),
+    }));
+    return {
+      config: this.cfg,
+      summary: {
+        frames: this.summary.frames,
+        durationSec: +this.summary.durationSec.toFixed(2),
+        fps: this.summary.durationSec > 0 ? +(this.summary.frames / this.summary.durationSec).toFixed(1) : 0,
+        dtMaxMs: +(this.summary.dtMaxSec * 1000).toFixed(1),
+        clampedFrames: this.summary.clampedFrames,
+        stepMax: +this.summary.stepMax.toFixed(2),
+        speedMax: +this.summary.speedMax.toFixed(2),
+        tunnelRiskFrames: this.summary.tunnelRiskFrames,
+        nonFiniteFrames: this.summary.nonFiniteFrames,
+        fpsSpeedRatio: +fpsSpeedRatio(this.summary).toFixed(2),
+        bands,
+      },
+      health,
+      recent: this.orderedRing().slice(-120).map((e) => ({
+        dt: +e.dt.toFixed(4), fps: +e.fps.toFixed(0), speed: +e.speed.toFixed(2),
+        step: +e.step.toFixed(2), x: +e.x.toFixed(1), z: +e.z.toFixed(1),
+        technique: e.technique, air: e.isInAir,
+        flags: [e.clamped && 'clamped', e.tunnelRisk && 'tunnel', e.nonFinite && 'NaN'].filter(Boolean),
+      })),
+    };
+  }
+
+  /** Return the snapshot and, in a browser, download it as JSON for a bug report. */
+  dump() {
+    const snap = this.snapshot();
+    try {
+      if (typeof document !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
+        const blob = new Blob([JSON.stringify(snap, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `snowglider-diag-${Math.round(this.clockSec)}s.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch { /* download is best-effort; the returned object is the source of truth */ }
+    return snap;
+  }
+
+  reset(): void {
+    this.ring = [];
+    this.head = 0;
+    this.summary = emptySummary();
+    this.prev = null;
+    this.lastWarn = {};
+    this.clockSec = 0;
+  }
+
+  // --- DOM overlay (live HUD) ---
+  private ensureOverlay(): void {
+    if (typeof document === 'undefined' || this.overlay) return;
+    const el = document.createElement('div');
+    el.id = 'diagOverlay';
+    el.style.cssText = [
+      'position:fixed', 'top:8px', 'left:8px', 'z-index:9999',
+      'font:11px/1.4 monospace', 'color:#cfe', 'background:rgba(0,0,0,0.62)',
+      'padding:7px 9px', 'border-radius:6px', 'white-space:pre', 'pointer-events:none',
+      'max-width:46ch',
+    ].join(';');
+    (document.body || document.documentElement).appendChild(el);
+    this.overlay = el;
+    this.paint(true);
+  }
+
+  private hideOverlay(): void {
+    if (this.overlay && this.overlay.parentNode) this.overlay.parentNode.removeChild(this.overlay);
+    this.overlay = null;
+  }
+
+  private toggleOverlay(): void {
+    if (this.overlay) this.hideOverlay(); else this.ensureOverlay();
+  }
+
+  private maybePaint(): void {
+    if (!this.overlay) return;
+    if (this.clockSec - this.lastOverlayPaint < 1 / OVERLAY_HZ) return;
+    this.paint(false);
+  }
+
+  private paint(force: boolean): void {
+    if (!this.overlay) return;
+    this.lastOverlayPaint = this.clockSec;
+    const sm = this.summary;
+    const health = frameRateHealth(sm, this.cfg);
+    const fpsAvg = sm.durationSec > 0 ? sm.frames / sm.durationSec : 0;
+    const recent = this.orderedRing();
+    const last = recent[recent.length - 1];
+    const icon = health.level === 'bad' ? '🔴' : health.level === 'warn' ? '🟡' : '🟢';
+    const bandLines = sm.bands
+      .filter((b) => b.frames > 0)
+      .map((b) => `   ${b.label.padEnd(6)} f=${String(b.frames).padStart(5)} vmax=${b.speedMax.toFixed(1).padStart(5)} vavg=${bandMeanSpeed(b).toFixed(1).padStart(5)}`)
+      .join('\n');
+    const lines = [
+      `${icon} SnowGlider physics diag  (\` toggles)`,
+      `fps  now=${last ? last.fps.toFixed(0) : '–'}  avg=${fpsAvg.toFixed(0)}  dtMax=${(sm.dtMaxSec * 1000).toFixed(0)}ms  clamp=${sm.clampedFrames}`,
+      `spd  now=${last ? last.speed.toFixed(1) : '–'}  max=${sm.speedMax.toFixed(1)}  stepMax=${sm.stepMax.toFixed(2)}/${this.cfg.collisionRadius}`,
+      `risk tunnel=${sm.tunnelRiskFrames}  NaN=${sm.nonFiniteFrames}  fps→spd=${fpsSpeedRatio(sm).toFixed(2)}x`,
+      `speed by fps band:`,
+      bandLines || '   (single band)',
+      health.level === 'ok' ? '' : health.reasons.map((r) => ` ! ${r}`).join('\n'),
+    ];
+    this.overlay.textContent = lines.filter((l) => l !== '').join('\n');
+    void force;
+  }
+}
+
+export const Diag = new Diagnostics();

@@ -92,6 +92,14 @@ declare global {
     _testShowGameOverOverride?: (...args: any[]) => unknown;
     // Firebase modular SDK handle wired up in index.html (analytics, etc.).
     firebaseModules?: any;
+    // Physics/frame-rate diagnostics bug-report API (src/diagnostics.ts): snapshot /
+    // dump (downloads a JSON trace) / reset / overlay toggle. Present only in live play.
+    __snowgliderDiag?: {
+      snapshot: () => unknown;
+      dump: () => unknown;
+      reset: () => void;
+      overlay: (on?: boolean) => void;
+    };
   }
 }
 
