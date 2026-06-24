@@ -13,6 +13,26 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Avalanche friction made frame-rate independent (follow-up to PR #209)
+- The snowman drag fix in PR #209 corrected a per-frame multiplier mixed in with
+  dt-scaled forces. Stress-testing turned up the **same bug class still live in the
+  avalanche kernel**: `src/avalanche.ts` applied the ground `friction = 0.98` once per
+  frame instead of integrating it per second. So boulders decayed ~4× less at the
+  capped 10 FPS delta than at 60 FPS, and the grounded-slide terminal speed
+  `2·dt / (1 − friction)` scaled ~6× with frame time — the avalanche reached farther
+  and faster on slow devices, **skewing burial (game-over) fairness by frame rate**.
+- **Fix:** `friction → frictionFactor = Math.pow(0.98, dt * 60)`, mirroring the
+  snowman's `dragFactor`. Byte-identical at the 60 Hz baseline (`dt·60 == 1` when
+  `dt == 1/60`, `x ** 1 === x`), so the existing avalanche tests are unchanged; only
+  off-60 Hz frames are corrected. The debris/powder loop (`_updatePowder`) already
+  drag-scaled correctly — this brings the boulders in line.
+- **New gate:** `tests/verification/avalanche_framerate_harness.js` (`npm run
+  test:stress`, also in `npm test`) triggers one deterministic, seeded avalanche on flat
+  terrain (so the grounded-slide regime dominates cleanly) and asserts the 10-FPS/60-FPS
+  front-travel ratio stays near 1 and all boulder state stays finite. Verified to **fail
+  on the pre-fix kernel (ratio ≈ 2.9) and pass on the fix (≈ 0.95)** — a passing test on
+  the old code would have proven nothing.
+
 ### Snowplow: stop vs. slow-down + steep-slope failure, aligned to the Slope HUD (#54)
 - The snowplow was a single on/off "pizza" brake that stopped you on **any** skiable
   pitch. It is now a **graded wedge** with two real behaviors, tied to the terrain.

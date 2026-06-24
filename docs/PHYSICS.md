@@ -451,17 +451,31 @@ size  = 0.4 + rand*1.2
 
 ```
 gravity = 18 ; friction = 0.98 ; bounce = 0.25
+frictionFactor = friction ** (dt * 60)         // per-second decay (see note below)
 vel.y -= gravity * dt ; pos += vel * dt
 floorY = getTerrainHeight(pos.x, pos.z)        // requires setTerrainFunction()
 if (pos.y < floorY + radius):                  // ground contact
     pos.y = floorY + radius
     vel.y *= -bounce
-    vel.x *= friction ; vel.z *= friction
+    vel.x *= frictionFactor ; vel.z *= frictionFactor
     vel.z -= 2 * dt                            // downhill slide acceleration
 ```
 
 `setTerrainFunction(fn)` must be called before `update()` or boulders fall to
 `y = 0` instead of following the slope.
+
+**Frame-rate-independent friction.** Ground friction is a continuous per-second
+decay, so — like the snowman's coast drag (§3.4, `dragFactor`) — it is raised to
+`dt * 60` rather than applied once per frame. Applying the raw `0.98` each frame
+made boulders decay ~4× less at the capped 10 FPS delta than at 60 FPS, so the
+grounded-slide terminal speed `2·dt / (1 − friction)` scaled ~6× with frame time —
+the avalanche reached farther and faster on slow devices, skewing burial (game-over)
+fairness by frame rate. This is the same bug class as the snowman drag fix (PR #209).
+`frictionFactor` is byte-identical at the 60 Hz baseline (`dt·60 == 1` exactly when
+`dt == 1/60`, and `x ** 1 === x`), so existing avalanche tests are unchanged; only
+off-60 Hz frames are corrected. Gated by
+[`tests/verification/avalanche_framerate_harness.js`](tests/verification/avalanche_framerate_harness.js)
+(`npm run test:stress`), which fails hard on the per-frame-friction regression.
 
 ### 7.4 Queries (used by gameplay & UI)
 
