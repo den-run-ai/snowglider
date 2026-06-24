@@ -34,8 +34,8 @@ module.exports = [
         // only for snowglider.js's old bare reads. As of PR 2.9 snowglider.js is
         // an ES module that imports them, and the later Phase 2 cleanup removed
         // their window namespace bridges too.
-        Howl: "readonly",
-        Howler: "readonly",
+        // (Howl/Howler were removed alongside the `howler` dependency — audio is
+        // native HTML5 now and nothing references those globals.)
         ScoresModule: "readonly",
         // three.js + Mountains + Trees + the terrain samplers (getTerrainHeight/
         // getTerrainGradient/getDownhillDirection) are single-sourced from npm and
@@ -88,9 +88,16 @@ module.exports = [
       }
     },
     rules: {
-      // Mirror the JS block: surface issues as warnings, don't fail the build,
-      // and don't fight unused vars during the migration.
-      "@typescript-eslint/no-unused-vars": "off",
+      // The TypeScript migration is complete and `tsc --noEmit` now enforces
+      // noUnusedLocals/noUnusedParameters (it FAILS on unused code), so re-enable
+      // the eslint twin as a warning for consistency. The leading-underscore
+      // ignore patterns mirror tsc's default so deliberately-unused
+      // call-site-parity params (e.g. `_scene`) don't warn in either tool.
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_"
+      }],
       // Deliberate `any` lives only in boot/test seams + untyped Firestore
       // DocumentData.
       "@typescript-eslint/no-explicit-any": "warn"

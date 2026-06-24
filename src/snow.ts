@@ -108,7 +108,7 @@ function resetSnowflakePosition(snowflake: THREE.Sprite, playerPos: Vec3Like) {
   snowflake.position.y = playerPos.y + Math.random() * snowflakeHeight;
 }
 
-function updateSnowflakes(delta: number, playerPos: Vec3Like, scene: THREE.Scene) {
+function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scene) {
   snowflakes.forEach(snowflake => {
     // Apply falling movement
     snowflake.position.y -= snowflake.userData.speed * delta;
@@ -187,8 +187,7 @@ function createSnowSplash(): SnowSplash {
   
   const texture = new THREE.CanvasTexture(canvas);
   const texture2 = new THREE.CanvasTexture(canvas2);
-  const textures = [texture, texture2];
-  
+
   // Follow the same approach as snowflakes - use individual sprites
   const splashParticles: THREE.Sprite[] = [];
   const particleCount = 250; // Increased for more dramatic effect
@@ -431,9 +430,6 @@ export const Snow = {
   createSnowSplash,
   updateSnowSplash
 };
-
-// For backward compatibility, alias Utils to Snow
-const Utils = Snow;
 
 // Snow is imported directly by snowglider.js, and the browser tests import it as
 // `Snow as Utils` (issue #84). Mountains/Trees are read via the ES-module imports

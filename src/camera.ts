@@ -47,10 +47,11 @@ export class Camera {
   isFirstFrame: boolean;
   mode: CameraMode;
 
-  // `scene` is accepted to match the call site (`new Camera(scene)`) and kept for
+  // `_scene` is accepted to match the call site (`new Camera(scene)`) and kept for
   // parity with the other managers, though the camera reads terrain via the
-  // imported `Mountains` sampler rather than the scene graph.
-  constructor(scene: THREE.Scene) {
+  // imported `Mountains` sampler rather than the scene graph (hence the
+  // underscore: deliberately unused).
+  constructor(_scene: THREE.Scene) {
     // Create the camera
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     
@@ -138,8 +139,10 @@ export class Camera {
     return this.mode;
   }
   
-  // Update camera position based on player position, rotation, and velocity
-  update(playerPosition: THREE.Vector3, playerRotation: THREE.Euler, velocity: PlanarVelocity, getTerrainHeight: TerrainHeightFn) {
+  // Update camera position based on player position, rotation, and velocity.
+  // `_getTerrainHeight` is accepted for call-site parity but unused: the camera
+  // samples terrain via the imported `Mountains.getTerrainHeight` directly.
+  update(playerPosition: THREE.Vector3, playerRotation: THREE.Euler, velocity: PlanarVelocity, _getTerrainHeight: TerrainHeightFn) {
     // Track frames for smoothing transitions
     this.frameCount++;
     

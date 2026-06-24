@@ -63,8 +63,7 @@ export function setupScene() {
   //    by Math.PI at their definitions below to reproduce the legacy brightness.
   // Adopting modern color/lighting is a deliberate later change.
   // (Adopted alongside the three.js r134 -> r160 -> 0.184 upgrade.)
-  const THREECompat = THREE as any;
-  THREECompat.ColorManagement.enabled = false;
+  THREE.ColorManagement.enabled = false;
   const scene = new THREE.Scene();
   // Sky background + distance fog are applied after the lights are set up
   // (see Sky.applyGradientSky below) so the gradient sky / horizon fog replace the
@@ -75,7 +74,7 @@ export function setupScene() {
   // NOT need `preserveDrawingBuffer: true`, which would tax every frame by
   // blocking present-path optimizations just for that occasional capture.
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  (renderer as any).outputColorSpace = THREECompat.LinearSRGBColorSpace;
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   // Render at the device pixel ratio (capped at 2) so the scene is crisp on
   // HiDPI/Retina displays instead of soft; the cap keeps the framebuffer — and
   // GPU cost — bounded on 3x phone screens.

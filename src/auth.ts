@@ -277,7 +277,7 @@ function avatarInitials(name: string): string {
 // Paint #profileAvatar: the real photo if present, otherwise a generated avatar
 // with a random color plus either the user's initials or a random snow glyph.
 function renderAvatar(el: HTMLElement, user: {
-  isAnonymous?: boolean; uid?: string;
+  isAnonymous?: boolean; uid?: string | undefined;
   displayName?: string | null; email?: string | null; photoURL?: string | null;
 }) {
   const seed = user.uid || user.displayName || user.email || 'guest';

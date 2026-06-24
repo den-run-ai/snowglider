@@ -121,7 +121,6 @@ export const CourseModule = (function () {
   let nextIndex = 0;           // index into the combined checkpoint+finish list
   let runSplits: number[] = [];          // split times recorded this run
   let recordSamples: GhostSample[] = []; // trajectory recorded this run
-  let sampleAccum = 0;
   let runActive = false;
   let airScore = 0;            // accumulated air-score for this run (meaningful jumps #47)
 
@@ -324,7 +323,7 @@ export const CourseModule = (function () {
           ghostTotalTime = data[data.length - 1].t;
         }
       }
-    } catch (e) {
+    } catch {
       ghostSamples = null;
     }
   }
@@ -336,7 +335,7 @@ export const CourseModule = (function () {
     try {
       const raw = localStorage.getItem(LS_SPLITS);
       bestSplits = raw ? JSON.parse(raw) : null;
-    } catch (e) {
+    } catch {
       bestSplits = null;
     }
   }
@@ -424,7 +423,6 @@ export const CourseModule = (function () {
     nextIndex = 0;
     runSplits = [];
     recordSamples = [];
-    sampleAccum = 0;
     runActive = true;
     airScore = 0;
 
@@ -512,7 +510,7 @@ export const CourseModule = (function () {
     }
 
     // --- Record this run's trajectory for a future ghost ---
-    sampleAccum += 1; // accumulate frames; we throttle by wall-clock via elapsed below
+    // Throttled by wall-clock (elapsed - lastSample >= SAMPLE_INTERVAL) below.
     if (recordSamples.length === 0 ||
         elapsed - recordSamples[recordSamples.length - 1].t >= SAMPLE_INTERVAL) {
       recordSamples.push({
@@ -568,7 +566,7 @@ export const CourseModule = (function () {
           rot: lastReal ? lastReal.rot : Math.PI
         });
         localStorage.setItem(LS_GHOST, JSON.stringify(recordSamples));
-      } catch (e) { /* storage may be unavailable; ignore */ }
+      } catch { /* storage may be unavailable; ignore */ }
     }
 
     const medal = medalFor(totalTime, previousBest, isFirst);

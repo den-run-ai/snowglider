@@ -266,32 +266,6 @@ export function addRocks(scene: THREE.Scene): RockPosition[] {
     }
   }
 
-  // Create a raycaster to ensure precise placement
-  const raycaster = new THREE.Raycaster();
-  const downDirection = new THREE.Vector3(0, -1, 0);
-
-  // Get terrain mesh for raycasting - try multiple ways to find it
-  let terrainMesh: THREE.Object3D | null = null;
-
-  // Check global reference first (set in snowglider.js)
-  if (window && window.terrainMesh) {
-    terrainMesh = window.terrainMesh;
-  }
-  // Then check userData
-  else if (scene.userData && scene.userData.terrainMesh) {
-    terrainMesh = scene.userData.terrainMesh;
-  }
-  // Last resort - find by name or type
-  else {
-    terrainMesh = scene.children.find(child => {
-      const mesh = child as THREE.Mesh;
-      return child.name === 'terrain' ||
-        (child.type === 'Mesh' &&
-         !!mesh.geometry &&
-         mesh.geometry.type === 'PlaneGeometry');
-    }) ?? null;
-  }
-
   const collisionRockPositions: RockPosition[] = [];
 
   // Create rock instances

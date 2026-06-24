@@ -457,12 +457,10 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
     // Position trees in the former ski path area with random placement
     // Each tree has a random position within the ski path width
     const zoneChoice = Math.random();
-    let xRange;
     let sizeVar;
-    
+
     if (zoneChoice < 0.2) {
       // 20% in inner zone (3-8 units from center) - smallest trees
-      xRange = 5;
       const side = Math.random() < 0.5 ? 1 : -1; // Randomly choose side
       const x = (3 + Math.random() * 5) * side; // 3-8 units from center
       sizeVar = 0.6 + Math.random() * 0.2; // 0.6-0.8 scale (very small)
