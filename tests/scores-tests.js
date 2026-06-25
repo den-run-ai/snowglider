@@ -7,29 +7,10 @@
 // the in-memory mock in tests/mocks/firebase.mjs, so we `import` the real `.ts`
 // under jsdom and c8 instruments it with correct source-mapped lines. Run via the
 // `test:scores` npm script, which wires in that loader.
-const { JSDOM } = require('jsdom');
-
-const dom = new JSDOM(`<!doctype html><html><body>
-  <div id="leaderboard"></div>
-</body></html>`, { url: 'https://snowglider.ai/' });
-const { window } = dom;
-global.window = window;
-global.document = window.document;
-
-let localStore = {};
-global.localStorage = {
-  getItem: key => (Object.prototype.hasOwnProperty.call(localStore, key) ? localStore[key] : null),
-  setItem: (key, value) => { localStore[key] = String(value); },
-  removeItem: key => { delete localStore[key]; },
-  clear: () => { localStore = {}; }
-};
-window.localStorage = global.localStorage;
-
-let online = true;
-Object.defineProperty(window.navigator, 'onLine', {
-  configurable: true,
-  get: () => online
-});
+// DOM + localStorage + navigator.onLine come from the shared mocks (tests/mocks/).
+// setupDom is async-imported in main() so the globals are wired before src/scores.ts
+// loads; `env` holds the live handles (document, localStorage, setOnline).
+let env;
 
 // AuthModule-driven flags. The Firestore/Analytics mock state lives in
 // tests/mocks/firebase.mjs and is bound below once the mock is imported.
@@ -50,6 +31,25 @@ let read;
 let setPendingWrite;
 
 async function loadScoresModule() {
+  // Wire window/document/localStorage/navigator.onLine before src/scores.ts loads.
+  const { setupDom } = await import('./mocks/dom.mjs');
+  env = setupDom({ html: '<!doctype html><html><body><div id="leaderboard"></div></body></html>' });
+
+  // AuthModule is read by src/scores.ts off window; install it now that window exists.
+  env.window.AuthModule = {
+    isFirebaseAvailable: () => ({ firestore: firestoreAvailable }),
+    getAuthState: () => ({ user: currentAuthUser }),
+    getCurrentUser: () => currentAuthUser,
+    reinitializeFirestore: () => {
+      calls.reinitializeFirestore++;
+      if (reinitializeSucceeds && window.ScoresModule) {
+        window.ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+        return true;
+      }
+      return false;
+    }
+  };
+
   fb = await import('./mocks/firebase.mjs');
   ({ firestoreInstance, analyticsInstance, calls, doc, seed, read, setPendingWrite } = fb);
   // AuthModule.reinitializeFirestore is mocked in this harness (not in the Firebase
@@ -62,31 +62,17 @@ async function loadScoresModule() {
 }
 
 function resetState(ScoresModule) {
-  localStore = {};
+  env.localStorage.reset();
   fb.reset();
   calls.reinitializeFirestore = 0;
   firestoreAvailable = true;
   currentAuthUser = null;
   reinitializeSucceeds = false;
-  online = true;
+  env.setOnline(true);
   document.getElementById('leaderboard').innerHTML = '';
   ScoresModule.setCurrentUser(null);
   ScoresModule.initializeScores(null, null);
 }
-
-window.AuthModule = {
-  isFirebaseAvailable: () => ({ firestore: firestoreAvailable }),
-  getAuthState: () => ({ user: currentAuthUser }),
-  getCurrentUser: () => currentAuthUser,
-  reinitializeFirestore: () => {
-    calls.reinitializeFirestore++;
-    if (reinitializeSucceeds && window.ScoresModule) {
-      window.ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
-      return true;
-    }
-    return false;
-  }
-};
 
 let pass = 0;
 let fail = 0;
@@ -269,12 +255,12 @@ async function main() {
   console.log('\n--- displayLeaderboard: offline ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
-  online = false;
+  env.setOnline(false);
   ScoresModule.displayLeaderboard();
   await flushAll();
   check('offline displayLeaderboard renders the offline message',
     document.getElementById('leaderboard').innerHTML.includes('offline'));
-  online = true;
+  env.setOnline(true);
 
   console.log('\n--- displayLeaderboard: renders ranked table and highlights current user ---');
   resetState(ScoresModule);
