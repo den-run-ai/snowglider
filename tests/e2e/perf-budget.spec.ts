@@ -62,6 +62,23 @@ test.describe('rendering perf / draw-call budget @chromium', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'perf numbers are Chromium-only');
 
   test('renderer.info stays within the draw-call / geometry budget', async ({ page }) => {
+    // Seed Math.random BEFORE any game script runs so the forest produced by
+    // Trees.addTrees/createTree (tree count, branch count, placement, snow patches)
+    // is identical on every CI run. Without this the production random layout varies
+    // the mesh/triangle count run to run, so the calls/triangles ceilings — calibrated
+    // from one measured scene — could red-bar an unrelated PR on a denser draw. A
+    // deterministic layout makes the budget a real regression guard. addInitScript runs
+    // in the page realm before the bundle's first Math.random call.
+    await page.addInitScript(() => {
+      // mulberry32 — small, fast, well-distributed seeded PRNG.
+      let s = 0x9e3779b9 >>> 0;
+      Math.random = () => {
+        s = (s + 0x6d2b79f5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    });
     await page.setViewportSize({ width: 1280, height: 720 });
     await gotoGame(page);
     await startGame(page);
