@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Unit tests for the typed player-physics state layer (src/player-state.ts, PR 3.21).
  *
@@ -33,7 +34,8 @@ function getDownhillDirection(x, z) {
 
 // snowman.ts reads window.location.search / window.treeCollisionRadius for its
 // debug-logging + test-hook paths; provide the same minimal stub the harness uses.
-global.window = global.window || { location: { search: '' } };
+const g = /** @type {any} */ (globalThis);
+g.window = g.window || { location: { search: '' } };
 
 // Minimal THREE-free stand-ins for the Object3D the kernel mutates.
 function fakeVec() {
@@ -42,14 +44,14 @@ function fakeVec() {
 function fakeSnowman() {
   const ski = () => ({ position: fakeVec(), rotation: fakeVec() });
   const rotation = fakeVec(); rotation.y = Math.PI;
-  return {
+  return /** @type {any} */ ({
     position: fakeVec(),
     rotation,
     userData: {
       targetRotationY: Math.PI, currentRotX: 0, currentRotZ: 0,
       leftSki: ski(), rightSki: ski(), leftSkiBaseX: -1, rightSkiBaseX: 1
     }
-  };
+  });
 }
 const cameraManager = { initialize() {} };
 const NONE = { left: false, right: false, up: false, down: false, jump: false };
@@ -65,7 +67,7 @@ function stepDeps(snowman) {
 let pass = 0, fail = 0;
 function runTest(name, fn) {
   try { fn(); console.log(`✅ PASS: ${name}`); pass++; }
-  catch (e) { console.log(`❌ FAIL: ${name}\n   ${e.message}`); fail++; }
+  catch (e) { console.log(`❌ FAIL: ${name}\n   ${e instanceof Error ? e.message : String(e)}`); fail++; }
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
 
@@ -99,7 +101,7 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     assert(p.pos.x === 0 && p.pos.z === -15, 'reset to start (0,-15)');
     assert(p.velocity.x === 0 && p.velocity.z === -3, 'reset to initial gentle downhill velocity');
     assert(p.lastTerrainHeight === getTerrainHeight(0, -15), 'lastTerrainHeight seeded from start terrain');
-    assert(p.isInAir === false && p.verticalVelocity === 0 && p.jumpCooldown === 0 && p.airTime === 0, 'air state cleared');
+    assert(/** @type {boolean} */ (p.isInAir) === false && p.verticalVelocity === 0 && p.jumpCooldown === 0 && p.airTime === 0, 'air state cleared');
     assert(p.turnPhase === 0 && p.currentTurnDirection === 0 && p.turnChangeCooldown === 3.0, 'auto-turn reset (3s cooldown)');
   });
 

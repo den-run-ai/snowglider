@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Unit tests for the cinematic intro fly-over (src/intro.ts, issue #51).
  *
@@ -21,7 +22,7 @@
 let pass = 0, fail = 0;
 function runTest(name, fn) {
   try { fn(); console.log(`✅ PASS: ${name}`); pass++; }
-  catch (e) { console.log(`❌ FAIL: ${name}\n   ${e.message}`); fail++; }
+  catch (e) { console.log(`❌ FAIL: ${name}\n   ${e instanceof Error ? e.message : String(e)}`); fail++; }
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
 function near(a, b, eps, msg) {
@@ -39,7 +40,7 @@ function makeCamera() {
   };
   cam.position = { set(x, y, z) { cam.pos = { x, y, z }; } };
   cam.lookAt = (x, y, z) => { cam.look = { x, y, z }; };
-  return cam;
+  return /** @type {any} */ (cam);
 }
 
 (async () => {
@@ -113,6 +114,7 @@ function makeCamera() {
     const cam = makeCamera();
     let completed = 0;
     let renders = 0;
+    /** @type {any} */
     let queued = null;
     let clock = 0;
     const duration = INTRO_DURATION;
@@ -162,6 +164,7 @@ function makeCamera() {
   runTest('mid-flight skip() jumps to the gameplay pose and completes once', () => {
     const cam = makeCamera();
     let completed = 0;
+    /** @type {any} */
     let queued = null;
     let clock = 0;
     const endPosition = { x: 0, y: 36, z: -30 };
@@ -196,6 +199,7 @@ function makeCamera() {
 
   runTest('terrain clearance lifts the camera above a tall slope', () => {
     const cam = makeCamera();
+    /** @type {any} */
     let queued = null;
     let clock = 0;
     const clearance = 6;

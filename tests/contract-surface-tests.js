@@ -1,3 +1,4 @@
+// @ts-check
 // contract-surface-tests.js
 // Refactor-invariant guard for the public/test contract surface that the R2/R3
 // split (issue #34; see the Refactoring Roadmap in docs/ROADMAP.md) must keep
@@ -157,7 +158,7 @@ async function main() {
     ({ Snowman } = await import('../src/snowman.js'));
     check('`./snowman.js` specifier resolves to a Snowman export', !!Snowman);
   } catch (e) {
-    check(`\`./snowman.js\` specifier resolves (import threw: ${e.message})`, false);
+    check(`\`./snowman.js\` specifier resolves (import threw: ${e instanceof Error ? e.message : String(e)})`, false);
   }
   if (Snowman) {
     for (const m of ['createSnowman', 'resetSnowman', 'updateSnowman', 'addTestHooks']) {
@@ -179,7 +180,7 @@ async function main() {
     mountainsMod = await import('../src/mountains.js');
     check('`./mountains.js` specifier resolves to a Mountains export', !!mountainsMod.Mountains);
   } catch (e) {
-    check(`\`./mountains.js\` specifier resolves (import threw: ${e.message})`, false);
+    check(`\`./mountains.js\` specifier resolves (import threw: ${e instanceof Error ? e.message : String(e)})`, false);
   }
   if (mountainsMod) {
     // The named exports the pre-split mountains.ts published (the facade must keep them).
@@ -187,7 +188,7 @@ async function main() {
       check(`./mountains.js named export ${n} is a function`, typeof mountainsMod[n] === 'function');
     }
     // The Mountains object surface other modules read by member access.
-    const M = mountainsMod.Mountains || {};
+    const M = /** @type {any} */ (mountainsMod.Mountains || {});
     for (const m of ['getTerrainHeight', 'getTerrainGradient', 'getDownhillDirection',
       'terrainRidgeField', 'forestDensityField', 'createTerrain', 'createRock', 'addRocks',
       'rockCollisionRadius', 'rockIsCollisionHazard', 'debugHeightMap']) {
@@ -209,7 +210,7 @@ async function main() {
     treesMod = await import('../src/trees.js');
     check('`./trees.js` specifier resolves to a Trees export', !!treesMod.Trees);
   } catch (e) {
-    check(`\`./trees.js\` specifier resolves (import threw: ${e.message})`, false);
+    check(`\`./trees.js\` specifier resolves (import threw: ${e instanceof Error ? e.message : String(e)})`, false);
   }
   if (treesMod && treesMod.Trees) {
     for (const m of ['createTree', 'addBranchesAtLayer', 'addSnowCaps', 'addTrees',

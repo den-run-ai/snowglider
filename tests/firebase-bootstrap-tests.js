@@ -1,3 +1,4 @@
+// @ts-check
 // firebase-bootstrap-tests.js
 // Headless, c8-instrumented coverage for src/boot/firebase-bootstrap.js — the
 // classic-script Firebase bootstrap that wires the real auth module, the local-mode
@@ -24,6 +25,8 @@ const LOCAL_AUTH_PATH = path.join(REPO, 'src/boot/local-auth.js');
 const BOOTSTRAP_PATH = path.join(REPO, 'src/boot/firebase-bootstrap.js');
 const LOCAL_AUTH_SRC = fs.readFileSync(LOCAL_AUTH_PATH, 'utf8');
 const BOOTSTRAP_SRC = fs.readFileSync(BOOTSTRAP_PATH, 'utf8');
+
+const g = /** @type {any} */ (globalThis);
 
 let pass = 0;
 let fail = 0;
@@ -56,11 +59,11 @@ function installFakeInterval() {
   const realClear = global.clearInterval;
   let cb = null;
   let cleared = false;
-  global.setInterval = (fn) => { cb = fn; cleared = false; return 1; };
-  global.clearInterval = () => { cleared = true; };
+  g.setInterval = (fn) => { cb = fn; cleared = false; return 1; };
+  g.clearInterval = () => { cleared = true; };
   return {
     tick(n) { for (let i = 0; i < n; i++) { if (cb && !cleared) cb(); } },
-    restore() { global.setInterval = realSet; global.clearInterval = realClear; }
+    restore() { g.setInterval = realSet; g.clearInterval = realClear; }
   };
 }
 
@@ -69,15 +72,15 @@ function installFakeInterval() {
 function bootEnv(url) {
   const dom = new JSDOM(AUTH_HTML, { url, runScripts: 'outside-only' });
   const { window } = dom;
-  global.window = window;
-  global.document = window.document;
-  global.localStorage = makeLocalStorage();
-  global.console = console;
+  g.window = window;
+  g.document = window.document;
+  g.localStorage = makeLocalStorage();
+  g.console = console;
   // Pre-seed window.fetch so the bootstrap's wrapper has an originalFetch to delegate
   // to on the passthrough branch.
   const passthrough = [];
-  window.fetch = (u) => { passthrough.push(u); return Promise.resolve({ ok: true, _passthrough: true }); };
-  global.fetch = window.fetch;
+  window.fetch = /** @type {any} */ ((u) => { passthrough.push(u); return Promise.resolve({ ok: true, _passthrough: true }); });
+  g.fetch = window.fetch;
   vm.runInThisContext(LOCAL_AUTH_SRC, { filename: LOCAL_AUTH_PATH });
   vm.runInThisContext(BOOTSTRAP_SRC, { filename: BOOTSTRAP_PATH });
   return { dom, window, document: window.document, passthrough };
@@ -217,10 +220,10 @@ async function main() {
   // ===========================================================================
   {
     const dom = new JSDOM(AUTH_HTML, { url: 'https://snowglider.ai/', runScripts: 'outside-only' });
-    global.window = dom.window;
-    global.document = dom.window.document;
-    global.localStorage = makeLocalStorage();
-    dom.window.fetch = () => Promise.resolve({ ok: true });
+    g.window = dom.window;
+    g.document = dom.window.document;
+    g.localStorage = makeLocalStorage();
+    dom.window.fetch = /** @type {any} */ (() => Promise.resolve({ ok: true }));
     // Run ONLY the bootstrap (local-auth.js intentionally absent).
     vm.runInThisContext(BOOTSTRAP_SRC, { filename: BOOTSTRAP_PATH });
     const SF = dom.window.SnowGliderFirebase;

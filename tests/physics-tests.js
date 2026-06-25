@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Physics and game mechanics tests for SnowGlider
  */
@@ -144,7 +145,7 @@ function runTest(name, testFn) {
     passCount++;
   } catch (error) {
     console.log(`❌ FAIL: ${name}`);
-    console.log(`   Error: ${error.message}`);
+    console.log(`   Error: ${error instanceof Error ? error.message : String(error)}`);
     failCount++;
   }
 }

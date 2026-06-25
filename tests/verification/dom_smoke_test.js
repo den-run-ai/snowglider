@@ -1,3 +1,4 @@
+// @ts-check
 // dom_smoke_test.js
 // Headless coverage for course.ts + effects.ts under jsdom, without a browser.
 // Requires jsdom (devDependency).
@@ -17,9 +18,10 @@ const { JSDOM } = require('jsdom');
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
 const { window } = dom;
-global.window = window;
-global.document = window.document;
-global.localStorage = (function () {
+const g = /** @type {any} */ (globalThis);
+g.window = window;
+g.document = window.document;
+g.localStorage = (function () {
   let store = {};
   return {
     getItem: k => (k in store ? store[k] : null),
@@ -28,8 +30,8 @@ global.localStorage = (function () {
     clear: () => { store = {}; }
   };
 })();
-window.localStorage = global.localStorage;
-window.matchMedia = window.matchMedia || (() => ({ matches: false }));
+g.window.localStorage = g.localStorage;
+window.matchMedia = window.matchMedia || (() => /** @type {any} */ ({ matches: false }));
 
 // Stub <canvas> 2d context (jsdom has none without the native canvas pkg).
 const origCreate = window.document.createElement.bind(window.document);
@@ -97,7 +99,7 @@ async function main() {
   const cfg = Course._config;
   const splitZ = cfg.splitPoints.map(s => s.z);
   let crossed = 0;
-  const snowmanMock = { rotation: { y: Math.PI } };
+  const snowmanMock = /** @type {any} */ ({ rotation: { y: Math.PI } });
   let t = 0;
   for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
     t += 0.12; // ~ seconds; arbitrary monotonic clock
@@ -125,11 +127,11 @@ async function main() {
   // control built only inside the finish result panel, so it appears solely on a
   // valid finish. On desktop (no navigator.share under jsdom) the primary button
   // toggles a menu of per-platform links + "Save image" + "Copy link".
-  const shareBtn1 = panel1.querySelector('#shareResultBtn');
+  const shareBtn1 = /** @type {HTMLButtonElement} */ (panel1.querySelector('#shareResultBtn'));
   check('finish result panel includes a Share button', !!shareBtn1);
   check('Share button is labelled "Share Result"', /Share Result/.test(shareBtn1 ? shareBtn1.textContent : ''));
 
-  const shareMenu1 = panel1.querySelector('#shareMenu');
+  const shareMenu1 = /** @type {HTMLDivElement} */ (panel1.querySelector('#shareMenu'));
   check('share menu is present but hidden until toggled', !!shareMenu1 && shareMenu1.style.display === 'none');
   check('share menu lists all six social platforms',
     shareMenu1 ? shareMenu1.querySelectorAll('[data-platform]').length === 6 : false);
@@ -145,12 +147,13 @@ async function main() {
 
   // "Copy link" uses the clipboard fallback. Install a clipboard spy via
   // defineProperty because Node exposes a getter-only `navigator` global.
+  /** @type {string | null} */
   let clipboardText = null;
   Object.defineProperty(global, 'navigator', {
     value: { clipboard: { writeText: async (txt) => { clipboardText = txt; } } },
     configurable: true, writable: true
   });
-  const copyBtn1 = shareMenu1.querySelector('#shareCopyBtn');
+  const copyBtn1 = /** @type {HTMLButtonElement} */ (shareMenu1.querySelector('#shareCopyBtn'));
   copyBtn1.click();
   await new Promise((r) => setTimeout(r, 0));
   // The clipboard fallback writes "<message>\n<url>"; validate the URL line by

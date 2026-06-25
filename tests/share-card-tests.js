@@ -1,3 +1,4 @@
+// @ts-check
 // share-card-tests.js
 // Headless, c8-instrumented coverage for src/share-card.ts — frame capture +
 // Instagram share-card compositing + download.
@@ -51,6 +52,10 @@ function installDom(opts = {}) {
   });
   // Image: onload fires asynchronously with a non-zero size (or onerror).
   setGlobal('Image', class {
+    /** @type {(() => void) | null} */ onload = null;
+    /** @type {(() => void) | null} */ onerror = null;
+    /** @type {number} */ width = 0;
+    /** @type {number} */ height = 0;
     set src(_v) {
       setTimeout(() => {
         if (opts.imgError) { if (this.onerror) this.onerror(); }
@@ -72,18 +77,18 @@ async function main() {
   // ---- captureGameFrame ----
   console.log('--- captureGameFrame ---');
   check('null ctx -> null', captureGameFrame(null) === null);
-  check('missing renderer fields -> null', captureGameFrame({ renderer: {}, scene: {}, camera: {} }) === null);
+  check('missing renderer fields -> null', captureGameFrame(/** @type {any} */ ({ renderer: {}, scene: {}, camera: {} })) === null);
   let rendered = 0;
-  const okCtx = {
+  const okCtx = /** @type {any} */ ({
     renderer: { render() { rendered++; }, domElement: { toDataURL: () => 'data:image/png;base64,AAAA' } },
     scene: {}, camera: {},
-  };
+  });
   check('happy path renders a fresh frame + returns the PNG data URL',
     captureGameFrame(okCtx) === 'data:image/png;base64,AAAA' && rendered === 1);
-  const throwCtx = {
+  const throwCtx = /** @type {any} */ ({
     renderer: { render() {}, domElement: { toDataURL: () => { throw new Error('context lost'); } } },
     scene: {}, camera: {},
-  };
+  });
   check('toDataURL throwing -> null (never throws)', captureGameFrame(throwCtx) === null);
 
   // ---- composeShareCard ----
@@ -131,12 +136,12 @@ async function main() {
   // ---- downloadBlob ----
   console.log('\n--- downloadBlob ---');
   dom = installDom();
-  check('downloadBlob -> true and clicks an anchor', downloadBlob({ type: 'image/png' }, 'run.png') === true && dom.calls.clicked === 1);
+  check('downloadBlob -> true and clicks an anchor', downloadBlob(/** @type {any} */ ({ type: 'image/png' }), 'run.png') === true && dom.calls.clicked === 1);
   check('downloadBlob removes the temp anchor', dom.calls.removed === 1);
   installDom({ noObjectUrl: true });
-  check('no URL.createObjectURL -> false', downloadBlob({ type: 'image/png' }) === false);
+  check('no URL.createObjectURL -> false', downloadBlob(/** @type {any} */ ({ type: 'image/png' })) === false);
   clearGlobal('document');
-  check('no document -> false', downloadBlob({ type: 'image/png' }) === false);
+  check('no document -> false', downloadBlob(/** @type {any} */ ({ type: 'image/png' })) === false);
 
   clearGlobal('document'); clearGlobal('Image'); clearGlobal('URL');
   console.log(`\nSHARE-CARD TOTAL: ${pass} passed, ${fail} failed`);

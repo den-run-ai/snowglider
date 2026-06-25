@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Unit tests for the LCOV line-level merger (tests/coverage/merge-lcov.js).
  *

@@ -1,3 +1,4 @@
+// @ts-check
 // start-menu-tests.js
 // Headless, c8-instrumented coverage for src/ui/start-menu.ts (the start screen).
 //
@@ -37,12 +38,13 @@ const dom = new JSDOM(`<!doctype html><html><head>
 </body></html>`, { url: 'https://snowglider.ai/' });
 
 const { window } = dom;
-global.window = window;
-global.document = window.document;
+const g = /** @type {any} */ (globalThis);
+g.window = window;
+g.document = window.document;
 // start-menu.ts uses bare `instanceof HTMLMetaElement` / `HTMLButtonElement`, which
 // resolve to globalThis; expose jsdom's DOM constructors there.
-global.HTMLMetaElement = window.HTMLMetaElement;
-global.HTMLButtonElement = window.HTMLButtonElement;
+g.HTMLMetaElement = window.HTMLMetaElement;
+g.HTMLButtonElement = window.HTMLButtonElement;
 
 let pass = 0;
 let fail = 0;
@@ -73,7 +75,7 @@ async function main() {
   // Wire up the handlers + build badge (DOMContentLoaded would do this in the browser).
   SM.initializeStartMenu();
 
-  const btn = document.getElementById('startGameButton');
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('startGameButton'));
   const startContainer = document.getElementById('startGameContainer');
   const gameCanvas = document.getElementById('gameCanvas');
   const aboutPanel = document.getElementById('aboutGamePanel');
@@ -284,7 +286,7 @@ async function main() {
   // Stale-read guard: a signed-in getLeaderboard() still in flight when the player
   // logs out must NOT re-show the board after the logout refresh has hidden it.
   resetAccountDom();
-  let resolveSlow;
+  /** @type {any} */ let resolveSlow;
   const slow = new Promise((res) => { resolveSlow = res; });
   setAccount({
     firebase: { auth: true, firestore: true },

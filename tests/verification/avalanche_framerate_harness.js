@@ -1,3 +1,4 @@
+// @ts-check
 // avalanche_framerate_harness.js
 // Frame-rate-independence gate for the avalanche boulder kernel (AvalancheSystem.update).
 //
@@ -25,7 +26,7 @@ const { pathToFileURL } = require('url');
 const path = require('path');
 
 // Minimal browser globals the kernel + terrain touch (no DOM/WebGL).
-global.window = { location: { search: '' }, matchMedia: () => ({ matches: false }), terrainMesh: null };
+global.window = /** @type {any} */ ({ location: { search: '' }, matchMedia: () => ({ matches: false }), terrainMesh: null });
 global.document = undefined;
 try { Object.defineProperty(global, 'navigator', { value: { webdriver: false }, configurable: true }); } catch { /* keep existing */ }
 

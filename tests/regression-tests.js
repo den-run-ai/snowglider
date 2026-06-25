@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Regression Tests for SnowGlider
  * 
@@ -66,7 +67,7 @@ function runTest(name, testFn) {
     passCount++;
   } catch (error) {
     console.log(`❌ FAIL: ${name}`);
-    console.log(`   Error: ${error.message}`);
+    console.log(`   Error: ${error instanceof Error ? error.message : String(error)}`);
     failCount++;
   }
 }
@@ -195,9 +196,9 @@ runTest('Best Time Recording Logic', () => {
   startTime = Date.now() - 30000; // 30 seconds ago
   
   // Setup performance.now() mock for this test
-  global.performance = {
+  global.performance = /** @type {any} */ ({
     now: () => Date.now()
-  };
+  });
   
   // Simulate reaching the end
   showGameOver("You reached the end of the slope!");
@@ -470,11 +471,11 @@ runTest('Offline Finish Defers The Leaderboard Write Until The User Write Settle
   // settle() is called (i.e. until the SDK flushes the queued write on reconnect).
   function deferredWrite() {
     let cb = null;
-    const p = {
+    const p = /** @type {any} */ ({
       catch: () => p,                       // no rejection in the offline-resolve path
       then: (fn) => { cb = fn; return p; },
       settle: () => { if (cb) cb(); }
-    };
+    });
     return p;
   }
   function updateLeaderboard() { order.push('leaderboard'); }
@@ -525,21 +526,21 @@ runTest('Snow Splash Effect Interference', () => {
   }
   
   // Mock variables needed for the function
-  const mockSnowman = {
+  const mockSnowman = /** @type {any} */ ({
     position: { x: 10, y: 5, z: -40 },
     rotation: { y: 0 }
-  };
+  });
   
   const mockVelocity = { x: 5, z: -10 };
   const mockIsInAir = false;
   
   // Mock scene that tracks added elements
-  const mockScene = {
+  const mockScene = /** @type {any} */ ({
     children: [],
     add: function(obj) {
       this.children.push(obj);
     }
-  };
+  });
   
   // Save original position
   const originalPos = {

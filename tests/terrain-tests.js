@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Basic tests for terrain functionality in SnowGlider
  */
@@ -78,7 +79,7 @@ function runTest(name, testFn) {
     passCount++;
   } catch (error) {
     console.log(`❌ FAIL: ${name}`);
-    console.log(`   Error: ${error.message}`);
+    console.log(`   Error: ${error instanceof Error ? error.message : String(error)}`);
     failCount++;
   }
 }
@@ -250,15 +251,15 @@ runTest('Tree and Rock Positioning', () => {
   
   // Mock the createTree method temporarily
   const originalCreateTree = Utils.createTree;
-  Utils.createTree = function() {
-    return { 
-      position: { 
-        set: (x, y, z) => {
+  Utils.createTree = /** @type {any} */ (function() {
+    return {
+      position: {
+        set: (/** @type {number} */ x, /** @type {number} */ y, /** @type {number} */ z) => {
           treeYPosition = y;
         }
       }
     };
-  };
+  });
   
   // Test adding a tree at a specific position
   const mockTreePositions = [

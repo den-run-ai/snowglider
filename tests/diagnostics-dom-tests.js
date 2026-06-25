@@ -1,3 +1,4 @@
+// @ts-check
 // diagnostics-dom-tests.js — jsdom coverage for the BROWSER-only paths of diagnostics.ts
 // that the headless diagnostics-tests.js cannot reach: the init() browser branch, the dev
 // overlay (create / paint / toggle / hide), the window.__snowgliderDiag bug-report API,
@@ -15,9 +16,10 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/?debug', pretendToBeVisual: true,
 });
 const { window } = dom;
-global.window = window;
-global.document = window.document;
-global.navigator = window.navigator;
+const g = /** @type {any} */ (globalThis);
+g.window = window;
+g.document = window.document;
+g.navigator = window.navigator;
 // Blob download seam: jsdom has no URL.createObjectURL; stub it so dump()'s browser branch
 // executes end-to-end, and silence the anchor's real navigation on click().
 global.Blob = global.Blob || window.Blob;
@@ -65,9 +67,9 @@ async function main() {
   check('report: a runaway run emitted physics_anomaly', events.some((e) => e.event === 'physics_anomaly'));
 
   // --- window API: snapshot / dump (Blob branch) / overlay toggle / reset -----
-  const snap = window.__snowgliderDiag.snapshot();
+  const snap = /** @type {any} */ (window.__snowgliderDiag.snapshot());
   check('api: snapshot() returns a health verdict', !!snap && !!snap.health);
-  const dumped = window.__snowgliderDiag.dump(); // exercises the Blob/createObjectURL/anchor path
+  const dumped = /** @type {any} */ (window.__snowgliderDiag.dump()); // exercises the Blob/createObjectURL/anchor path
   check('api: dump() returns the same structured snapshot', !!dumped && !!dumped.summary);
 
   window.__snowgliderDiag.overlay(false);

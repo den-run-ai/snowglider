@@ -1,3 +1,4 @@
+// @ts-check
 // local-auth-tests.js
 // Headless, c8-instrumented coverage for src/boot/local-auth.js — the classic-script
 // local-mode fallback that stubs window.ScoresModule / window.AuthModule when the
@@ -52,10 +53,11 @@ function makeLocalStorage() {
 function loadLocalAuth({ html, url }) {
   const dom = new JSDOM(html || '<!doctype html><body></body>', { url: url || 'https://snowglider.ai/' });
   const localStorage = makeLocalStorage();
-  global.window = dom.window;
-  global.document = dom.window.document;
-  global.localStorage = localStorage;
-  global.console = console;
+  const g = /** @type {any} */ (globalThis);
+  g.window = dom.window;
+  g.document = dom.window.document;
+  g.localStorage = localStorage;
+  g.console = console;
   vm.runInThisContext(LOCAL_AUTH_SRC, { filename: LOCAL_AUTH_PATH });
   return { window: dom.window, document: dom.window.document, localStorage };
 }
@@ -153,7 +155,7 @@ function main() {
     /unavailable/i.test(a.document.getElementById('leaderboard').innerHTML));
 
   // --- AuthModule.displayLeaderboard: delegates when ScoresModule is present ---
-  let delegated = false;
+  let delegated = /** @type {boolean} */ (false);
   a.window.ScoresModule = { displayLeaderboard: () => { delegated = true; } };
   Auth.displayLeaderboard();
   check('AuthModule.displayLeaderboard delegates to ScoresModule', delegated === true);

@@ -1,3 +1,4 @@
+// @ts-check
 // collapsible-panel-tests.js
 // Headless, c8-instrumented coverage for src/ui/collapsible-panel.ts — the shared
 // collapse / auto-collapse / horizontal-swipe behavior for the HUD panels.
@@ -43,8 +44,9 @@ async function main() {
     ${panelHtml('fb')}
   </body>`, { url: 'https://snowglider.ai/', pretendToBeVisual: true });
   const { window } = dom;
-  global.window = window;
-  global.document = window.document;
+  const g = /** @type {any} */ (globalThis);
+  g.window = window;
+  g.document = window.document;
 
   const { setupCollapsiblePanel } = await import('../src/ui/collapsible-panel.ts');
 

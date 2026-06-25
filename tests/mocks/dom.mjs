@@ -1,3 +1,4 @@
+// @ts-check
 // dom.mjs — shared jsdom environment setup/teardown for headless Node tests.
 //
 // 13 test files each `new JSDOM(...)` and then wire window/document (and usually a

@@ -1,3 +1,4 @@
+// @ts-check
 // turn_styles_compare.js
 // Side-by-side comparison of the two steered ski turns introduced by the
 // carve-vs-parallel rework (follow-up to #185 / issues #48/#54): a committed
@@ -187,7 +188,8 @@ function renderMaps(carve, parallel) {
   const update = Snowman.updateSnowman;
   // updateSnowman reads window.location.search / window.treeCollisionRadius on its
   // debug + test-hook paths; provide the same minimal stub the harness expects.
-  global.window = global.window || { location: { search: '' } };
+  const g = /** @type {any} */ (globalThis);
+  g.window = g.window || { location: { search: '' } };
 
   let hardFail = false;
   const gate = (name, cond, detail) => {

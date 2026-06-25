@@ -1,3 +1,4 @@
+// @ts-check
 // result-overlay-tests.js
 // Headless, c8-instrumented coverage for src/ui/result-overlay.ts — the game-over /
 // finish overlay: score-time validation, the best-time readout, the leaderboard
@@ -26,7 +27,7 @@ function check(name, condition) {
 let local;
 
 // Reset the overlay DOM for one showGameOver scenario; returns the injected deps.
-function makeDeps({ bestTime = Infinity, startTime, onCrash } = {}) {
+function makeDeps(/** @type {{ bestTime?: number, startTime?: number, onCrash?: (r: string) => void }} */ { bestTime = Infinity, startTime, onCrash } = {}) {
   document.body.innerHTML = `
     <div id="gameStatsContainer"><button id="toggleStats">▲</button></div>
     <div id="leaderboard" style="display:none"></div>

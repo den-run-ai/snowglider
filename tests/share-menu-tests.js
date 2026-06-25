@@ -1,3 +1,4 @@
+// @ts-check
 // share-menu-tests.js
 // Headless, c8-instrumented coverage for src/ui/share-menu.ts — the finish-screen
 // share control. dom_smoke builds the menu and clicks the desktop primary + copy, but
@@ -20,20 +21,21 @@ const tick = () => new Promise((r) => setTimeout(r, 10));
 
 const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
 const { window } = dom;
-global.window = window;
-global.document = window.document;
-global.File = window.File || global.File;
+const g = /** @type {any} */ (globalThis);
+g.window = window;
+g.document = window.document;
+g.File = window.File || g.File;
 
 // Give jsdom canvases a working (fake) 2D context + toBlob so composeShareCard
 // returns a blob (jsdom has no real canvas backend).
-window.HTMLCanvasElement.prototype.getContext = function () {
+window.HTMLCanvasElement.prototype.getContext = /** @type {any} */ (function () {
   return {
     set fillStyle(_) {}, set font(_) {}, set textAlign(_) {}, set textBaseline(_) {},
     createLinearGradient() { return { addColorStop() {} }; },
     fillRect() {}, fillText() {}, drawImage() {},
   };
-};
-window.HTMLCanvasElement.prototype.toBlob = function (cb) { cb({ type: 'image/png', size: 1 }); };
+});
+window.HTMLCanvasElement.prototype.toBlob = function (cb) { cb(/** @type {any} */ ({ type: 'image/png', size: 1 })); };
 
 // Replace navigator for a scenario. prefersNativeShare()/shareResult()/shareImageFile()
 // read the global navigator; jsdom's is read-only, so swap the whole global.
@@ -60,8 +62,8 @@ async function main() {
   console.log('--- desktop menu toggle ---');
   setNavigator({});
   let root = mount({ time: 42.13, isBest: true });
-  const primary = root.querySelector('#shareResultBtn');
-  const menu = root.querySelector('#shareMenu');
+  const primary = /** @type {HTMLButtonElement} */ (root.querySelector('#shareResultBtn'));
+  const menu = /** @type {HTMLDivElement} */ (root.querySelector('#shareMenu'));
   check('menu starts hidden', menu.style.display === 'none');
   primary.click();
   check('primary opens the menu on desktop', menu.style.display === 'block');
@@ -72,9 +74,9 @@ async function main() {
   // ---- Per-platform links open the right share-intent URL. ----
   console.log('\n--- per-platform links ---');
   opened.length = 0;
-  root.querySelector('#share-x-btn').click();
-  root.querySelector('#share-facebook-btn').click();
-  root.querySelector('#share-telegram-btn').click();
+  /** @type {HTMLElement} */ (root.querySelector('#share-x-btn')).click();
+  /** @type {HTMLElement} */ (root.querySelector('#share-facebook-btn')).click();
+  /** @type {HTMLElement} */ (root.querySelector('#share-telegram-btn')).click();
   check('X link opens a twitter intent', opened.some((u) => /twitter\.com\/intent\/tweet/.test(u)));
   check('Facebook link opens the sharer', opened.some((u) => /facebook\.com\/sharer/.test(u)));
   check('Telegram link opens t.me/share', opened.some((u) => /t\.me\/share\/url/.test(u)));
@@ -84,7 +86,7 @@ async function main() {
   console.log('\n--- copy link ---');
   let copied = null;
   setNavigator({ clipboard: { writeText: async (t) => { copied = t; } } });
-  const copyBtn = root.querySelector('#shareCopyBtn');
+  const copyBtn = /** @type {HTMLButtonElement} */ (root.querySelector('#shareCopyBtn'));
   copyBtn.click();
   await tick();
   check('copy writes the message to the clipboard', typeof copied === 'string' && /snowglider\.ai/.test(copied));
@@ -94,13 +96,14 @@ async function main() {
   console.log('\n--- save image (desktop download) ---');
   setNavigator({}); // no navigator.share -> prefersNativeShare() false -> download
   root = mount({ time: 30, isBest: false, getCapture: () => null });
-  const imageBtn = root.querySelector('#shareImageBtn');
+  const imageBtn = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
   imageBtn.click();
   await tick();
   check('desktop save-image downloads the card', /image saved/i.test(imageBtn.textContent));
 
   // ---- Save image, mobile: file-shares the card to the native sheet. ----
   console.log('\n--- save image (mobile file share) ---');
+  /** @type {any} */
   let sharedFiles = null;
   setNavigator({
     share: async (d) => { sharedFiles = d.files; },
@@ -109,7 +112,7 @@ async function main() {
     userAgent: 'iPhone',
   });
   root = mount({ time: 30, isBest: false, getCapture: () => null });
-  const imageBtn2 = root.querySelector('#shareImageBtn');
+  const imageBtn2 = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
   imageBtn2.click();
   await tick();
   check('mobile save-image file-shares the PNG', Array.isArray(sharedFiles) && sharedFiles.length === 1);
@@ -121,7 +124,7 @@ async function main() {
   window.HTMLCanvasElement.prototype.getContext = function () { return null; };
   setNavigator({});
   root = mount({ time: 30, isBest: false, getCapture: () => null });
-  const imageBtn3 = root.querySelector('#shareImageBtn');
+  const imageBtn3 = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
   imageBtn3.click();
   await tick();
   check('save-image with no card -> unavailable', /unavailable/i.test(imageBtn3.textContent));
@@ -129,10 +132,11 @@ async function main() {
 
   // ---- Mobile primary: file-shares the screenshot card to the native sheet. ----
   console.log('\n--- mobile primary native share (image) ---');
+  /** @type {any} */
   let nativeShared = null;
   setNavigator({ share: async (d) => { nativeShared = d; }, maxTouchPoints: 5, userAgent: 'iPhone' });
   root = mount({ time: 42.13, isBest: true });
-  root.querySelector('#shareResultBtn').click();
+  /** @type {HTMLElement} */ (root.querySelector('#shareResultBtn')).click();
   await tick();
   check('mobile primary file-shares the screenshot card',
     !!nativeShared && Array.isArray(nativeShared.files) && nativeShared.files.length === 1);
@@ -142,6 +146,7 @@ async function main() {
 
   // ---- Mobile primary fallback: no file-share support -> text+link share. ----
   console.log('\n--- mobile primary fallback (no file share) ---');
+  /** @type {any} */
   let textShared = null;
   setNavigator({
     share: async (d) => {
@@ -153,7 +158,7 @@ async function main() {
     userAgent: 'iPhone',
   });
   root = mount({ time: 12, isBest: false });
-  root.querySelector('#shareResultBtn').click();
+  /** @type {HTMLElement} */ (root.querySelector('#shareResultBtn')).click();
   await tick();
   check('mobile primary falls back to a text+link share when files are unsupported',
     !!textShared && /snowglider\.ai/.test(textShared.url));
