@@ -276,7 +276,7 @@ function createAtmosphericSky(sunDirection: THREE.Vector3): THREE.Mesh {
     depthWrite: false
   });
   // Direction only — the shader normalises it; magnitude does not matter.
-  material.uniforms.sunPosition!.value.copy(sunDirection).normalize();
+  skyUniforms(material).sunPosition.value.copy(sunDirection).normalize();
 
   const sky = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
   sky.scale.setScalar(DOME_SCALE);
@@ -359,6 +359,20 @@ interface SunCycle {
   };
 }
 
+// THREE types `ShaderMaterial.uniforms` as a loose `{ [name: string]: IUniform }`
+// bag whose `.value` is `any` — which both forces a non-null assertion on every
+// lookup (noUncheckedIndexedAccess) and trips the type-aware `no-unsafe-*` lint
+// rules on the `.value` calls below. Our sky material only ever carries these two
+// uniforms, so view the bag through a concrete shape: one documented cast here,
+// and every call site stays fully typed (no `!`, no `any`).
+interface SkyUniforms {
+  sunPosition: THREE.IUniform<THREE.Vector3>;
+  exposure: THREE.IUniform<number>;
+}
+function skyUniforms(material: THREE.ShaderMaterial): SkyUniforms {
+  return material.uniforms as unknown as SkyUniforms;
+}
+
 let cycle: SunCycle | null = null;
 
 /**
@@ -387,8 +401,9 @@ function sunDirAt(c: SunCycle, p: number): THREE.Vector3 {
 /** Drive the live scene objects to the captured static-midday endpoint exactly. */
 function applyMidday(c: SunCycle): void {
   const m = c.midday;
-  c.material.uniforms.sunPosition!.value.copy(m.sunDir);
-  c.material.uniforms.exposure!.value = m.exposure;
+  const u = skyUniforms(c.material);
+  u.sunPosition.value.copy(m.sunDir);
+  u.exposure.value = m.exposure;
   c.directionalLight.position.copy(m.sunDir).multiplyScalar(m.distance);
   c.directionalLight.intensity = m.dirIntensity;
   c.directionalLight.color.copy(m.dirColor);
@@ -404,8 +419,9 @@ function applyProgress(c: SunCycle, p: number): void {
 
   const m = c.midday;
   const sunDir = sunDirAt(c, p);
-  c.material.uniforms.sunPosition!.value.copy(sunDir);
-  c.material.uniforms.exposure!.value = THREE.MathUtils.lerp(GOLDEN_EXPOSURE, m.exposure, p);
+  const u = skyUniforms(c.material);
+  u.sunPosition.value.copy(sunDir);
+  u.exposure.value = THREE.MathUtils.lerp(GOLDEN_EXPOSURE, m.exposure, p);
   c.directionalLight.position.copy(sunDir).multiplyScalar(m.distance);
   c.directionalLight.intensity = THREE.MathUtils.lerp(
     m.dirIntensity * GOLDEN_DIR_INTENSITY_FACTOR,
@@ -476,7 +492,7 @@ function applyAtmosphericSky(
       elevation: Math.atan2(pos.y, horiz),
       dirColor: directionalLight.color.clone(),
       dirIntensity: directionalLight.intensity,
-      exposure: material.uniforms.exposure!.value as number,
+      exposure: skyUniforms(material).exposure.value,
       fogColor: fog.color.clone(),
       bgColor: scene.background.clone()
     }
