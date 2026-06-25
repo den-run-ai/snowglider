@@ -24,9 +24,14 @@
  * }}
  */
 export function createLocalStorageMock() {
+  /** @type {Record<string, string>} */
   let store = {};
   return {
-    getItem: key => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),
+    // hasOwnProperty guards inherited props (e.g. 'toString'); an own-key value is
+    // always a string (setItem String()s it), so the JSDoc cast keeps the
+    // `string | null` contract under noUncheckedIndexedAccess (which widens the
+    // indexed access to `string | undefined`).
+    getItem: key => (Object.prototype.hasOwnProperty.call(store, key) ? /** @type {string} */ (store[key]) : null),
     setItem: (key, value) => { store[key] = String(value); },
     removeItem: key => { delete store[key]; },
     clear: () => { store = {}; },

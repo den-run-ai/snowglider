@@ -21,12 +21,50 @@
 // where('>=')/orderBy/limit query support, and the deferred-write hook used to
 // model an offline setDoc that flushes on reconnect).
 
+// ---- local type contracts ----
+// The real firebase SDK functions this mock stands in for are heavily generic
+// (DocumentReference<T>, Query<T>, DocumentSnapshot<T>, UserCredential, …) and the
+// mock returns deliberately simplified shapes — so asserting against
+// `typeof import('firebase/firestore').getDoc` would fight the mock rather than guard
+// it. Instead we pin explicit LOCAL contracts for the in-memory surface: they document
+// what scores.ts / auth.ts actually depend on, and a drift in those recorded shapes
+// (e.g. a changed `calls.setDoc` entry) now surfaces as a type error here.
+
+/** @typedef {Record<string, any>} DocData */
+/** @typedef {{ firestore: unknown, collectionName: string, id: string, path: string }} DocRef */
+/** @typedef {{ firestore: unknown, collectionName: string, path: string }} CollectionRef */
+/** @typedef {{ kind: 'where', field: string, op: string, value: any }} WhereConstraint */
+/** @typedef {{ kind: 'orderBy', field: string, direction?: string }} OrderByConstraint */
+/** @typedef {{ kind: 'limit', count: number }} LimitConstraint */
+/** @typedef {WhereConstraint | OrderByConstraint | LimitConstraint} QueryConstraint */
+/** @typedef {{ collectionRef: CollectionRef, constraints: QueryConstraint[] }} Query */
+/** A loose stand-in for the firebase Auth `User` — the mock only sets the few fields auth.ts reads. */
+/** @typedef {{ uid?: string, email?: string | null, displayName?: string | null, isAnonymous?: boolean, [k: string]: any }} AuthUser */
+/** @typedef {{ resolve?: any, reject?: any } | null} PopupResult */
+
 // ---- shared, test-controllable state ----
+/** @type {{ users: Map<string, DocData>, leaderboard: Map<string, DocData> }} */
 export const db = {
   users: new Map(),
   leaderboard: new Map()
 };
 
+/**
+ * Recorded SDK calls. `reinitializeFirestore` is appended by the scores harness (which
+ * mocks AuthModule, not the SDK), so it is optional here.
+ * @type {{
+ *   getDoc: string[],
+ *   setDoc: Array<{ path: string, data: DocData, options: any }>,
+ *   getDocs: Query[],
+ *   logEvent: Array<{ name: string, params: any }>,
+ *   signInWithPopup: number,
+ *   signInAnonymously: number,
+ *   linkWithPopup: number,
+ *   signOut: number,
+ *   setPersistence: number,
+ *   reinitializeFirestore?: number
+ * }}
+ */
 export const calls = {
   getDoc: [],
   setDoc: [],
@@ -41,29 +79,45 @@ export const calls = {
 };
 
 // firebase-auth.js control surface, driven by the auth harness.
+/** @type {((user: AuthUser | null) => void) | null} */
 let authStateCallback = null; // the onAuthStateChanged listener auth.ts registers
+/** @type {PopupResult} */
 let nextPopupResult = null;   // controls how the next signInWithPopup/signInAnonymously resolves/rejects
+/** @type {PopupResult} */
 let nextLinkResult = null;    // controls how the next linkWithPopup resolves/rejects (guest upgrade)
 
 // Sentinels handed back to callers that ask the SDK for the service instances.
 export const firestoreInstance = { __firestore: true };
 export const analyticsInstance = { __analytics: true };
 
+/** @type {string | null} */
 let pendingWritePath = null;
+/** @type {{ promise: Promise<unknown>, resolve: (value?: unknown) => void, reject: (reason?: unknown) => void } | null} */
 let pendingWrite = null;
 let timestampCounter = 0;
 
+/**
+ * @template T
+ * @param {T} value
+ * @returns {T}
+ */
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+/**
+ * @param {string} name
+ * @returns {Map<string, DocData>}
+ */
 function getCollectionStore(name) {
-  if (!db[name]) {
+  const store = /** @type {Record<string, Map<string, DocData>>} */ (db)[name];
+  if (!store) {
     throw new Error(`Unknown collection: ${name}`);
   }
-  return db[name];
+  return store;
 }
 
+/** @param {DocRef} ref */
 function makeDocSnap(ref) {
   const store = getCollectionStore(ref.collectionName);
   const value = store.get(ref.id);
@@ -74,6 +128,11 @@ function makeDocSnap(ref) {
   };
 }
 
+/**
+ * @param {DocRef} ref
+ * @param {DocData} data
+ * @param {{ merge?: boolean } | undefined} [options]
+ */
 function writeDoc(ref, data, options) {
   const store = getCollectionStore(ref.collectionName);
   const existing = store.get(ref.id) || {};
@@ -105,10 +164,19 @@ export function reset() {
   authInstance.currentUser = null;
 }
 
+/**
+ * @param {string} collectionName
+ * @param {string} id
+ * @param {DocData} value
+ */
 export function seed(collectionName, id, value) {
   getCollectionStore(collectionName).set(id, clone(value));
 }
 
+/**
+ * @param {string} collectionName
+ * @param {string} id
+ */
 export function read(collectionName, id) {
   return getCollectionStore(collectionName).get(id);
 }
@@ -120,8 +188,10 @@ export function read(collectionName, id) {
  * @param {string} path - e.g. 'users/u4'
  */
 export function setPendingWrite(path) {
-  let resolve;
-  let reject;
+  /** @type {(value?: unknown) => void} */
+  let resolve = () => {};
+  /** @type {(reason?: unknown) => void} */
+  let reject = () => {};
   const promise = new Promise((res, rej) => {
     resolve = res;
     reject = rej;
@@ -136,6 +206,12 @@ export function getFirestore() {
   return firestoreInstance;
 }
 
+/**
+ * @param {unknown} firestore
+ * @param {string} collectionName
+ * @param {string} id
+ * @returns {DocRef}
+ */
 export function doc(firestore, collectionName, id) {
   return {
     firestore,
@@ -145,6 +221,11 @@ export function doc(firestore, collectionName, id) {
   };
 }
 
+/**
+ * @param {unknown} firestore
+ * @param {string} collectionName
+ * @returns {CollectionRef}
+ */
 export function collection(firestore, collectionName) {
   return {
     firestore,
@@ -153,18 +234,38 @@ export function collection(firestore, collectionName) {
   };
 }
 
+/**
+ * @param {string} field
+ * @param {string} op
+ * @param {any} value
+ * @returns {WhereConstraint}
+ */
 export function where(field, op, value) {
   return { kind: 'where', field, op, value };
 }
 
-export function orderBy(field, direction) {
+/**
+ * @param {string} field
+ * @param {string} [direction] - defaults to 'asc', matching the real firestore orderBy.
+ * @returns {OrderByConstraint}
+ */
+export function orderBy(field, direction = 'asc') {
   return { kind: 'orderBy', field, direction };
 }
 
+/**
+ * @param {CollectionRef} collectionRef
+ * @param {QueryConstraint[]} constraints
+ * @returns {Query}
+ */
 export function query(collectionRef, ...constraints) {
   return { collectionRef, constraints };
 }
 
+/**
+ * @param {number} count
+ * @returns {LimitConstraint}
+ */
 export function limit(count) {
   return { kind: 'limit', count };
 }
@@ -174,11 +275,17 @@ export function serverTimestamp() {
   return { __serverTimestamp: timestampCounter };
 }
 
+/** @param {DocRef} ref */
 export function getDoc(ref) {
   calls.getDoc.push(ref.path);
   return Promise.resolve(makeDocSnap(ref));
 }
 
+/**
+ * @param {DocRef} ref
+ * @param {DocData} data
+ * @param {{ merge?: boolean }} [options]
+ */
 export function setDoc(ref, data, options) {
   calls.setDoc.push({ path: ref.path, data: clone(data), options: clone(options) });
   const commit = () => writeDoc(ref, data, options);
@@ -194,6 +301,7 @@ export function setDoc(ref, data, options) {
   return Promise.resolve();
 }
 
+/** @param {Query} q */
 export function getDocs(q) {
   calls.getDocs.push(q);
   let rows = Array.from(getCollectionStore(q.collectionRef.collectionName).entries())
@@ -225,6 +333,7 @@ export function getDocs(q) {
   });
 
   return Promise.resolve({
+    /** @param {(snap: { id: string, data: () => DocData }) => void} callback */
     forEach: callback => {
       rows.forEach(row => {
         callback({
@@ -241,6 +350,11 @@ export function getAnalytics() {
   return analyticsInstance;
 }
 
+/**
+ * @param {unknown} _analytics
+ * @param {string} name
+ * @param {any} [params]
+ */
 export function logEvent(_analytics, name, params) {
   calls.logEvent.push({ name, params });
 }
@@ -253,7 +367,8 @@ export function initializeApp() {
 }
 
 // ---- firebase-auth.js surface ----
-const authInstance = { __isAuth: true };
+/** @type {{ __isAuth: boolean, currentUser: AuthUser | null }} */
+const authInstance = { __isAuth: true, currentUser: null };
 
 export function getAuth() {
   return authInstance;
@@ -261,12 +376,16 @@ export function getAuth() {
 
 export class GoogleAuthProvider {
   constructor() {
+    /** @type {string[]} */
     this.scopes = [];
+    /** @type {Record<string, string>} */
     this.params = {};
   }
+  /** @param {string} scope */
   addScope(scope) {
     this.scopes.push(scope);
   }
+  /** @param {Record<string, string>} params */
   setCustomParameters(params) {
     this.params = params;
   }
@@ -276,12 +395,16 @@ export class GoogleAuthProvider {
 export class GithubAuthProvider {
   constructor() {
     this.providerId = 'github.com';
+    /** @type {string[]} */
     this.scopes = [];
+    /** @type {Record<string, string>} */
     this.params = {};
   }
+  /** @param {string} scope */
   addScope(scope) {
     this.scopes.push(scope);
   }
+  /** @param {Record<string, string>} params */
   setCustomParameters(params) {
     this.params = params;
   }
@@ -289,14 +412,19 @@ export class GithubAuthProvider {
 
 // Generic OAuth provider — Apple uses new OAuthProvider('apple.com').
 export class OAuthProvider {
+  /** @param {string} providerId */
   constructor(providerId) {
     this.providerId = providerId;
+    /** @type {string[]} */
     this.scopes = [];
+    /** @type {Record<string, string>} */
     this.params = {};
   }
+  /** @param {string} scope */
   addScope(scope) {
     this.scopes.push(scope);
   }
+  /** @param {Record<string, string>} params */
   setCustomParameters(params) {
     this.params = params;
   }
@@ -326,6 +454,10 @@ export function signInAnonymously() {
 
 // Upgrade a guest in place. Driven by setNextLinkResult so the harness can model
 // both a clean link and the credential-already-in-use fallback to signInWithPopup.
+/**
+ * @param {AuthUser} user
+ * @param {unknown} _provider
+ */
 export function linkWithPopup(user, _provider) {
   calls.linkWithPopup++;
   if (nextLinkResult && nextLinkResult.reject) {
@@ -344,6 +476,10 @@ export function signOut() {
   return Promise.resolve();
 }
 
+/**
+ * @param {unknown} _auth
+ * @param {(user: AuthUser | null) => void} callback
+ */
 export function onAuthStateChanged(_auth, callback) {
   authStateCallback = callback;
 }
@@ -357,17 +493,26 @@ export const browserLocalPersistence = { __persistence: 'local' };
 
 // ---- auth test control surface ----
 
-/** Set how the next signInWithPopup()/signInAnonymously() resolves: { resolve } or { reject }. */
+/**
+ * Set how the next signInWithPopup()/signInAnonymously() resolves: { resolve } or { reject }.
+ * @param {PopupResult} result
+ */
 export function setNextPopupResult(result) {
   nextPopupResult = result;
 }
 
-/** Set how the next linkWithPopup() (guest upgrade) resolves: { resolve } or { reject }. */
+/**
+ * Set how the next linkWithPopup() (guest upgrade) resolves: { resolve } or { reject }.
+ * @param {PopupResult} result
+ */
 export function setNextLinkResult(result) {
   nextLinkResult = result;
 }
 
-/** Seed auth.currentUser so the guest-upgrade branch (isAnonymous) can be driven. */
+/**
+ * Seed auth.currentUser so the guest-upgrade branch (isAnonymous) can be driven.
+ * @param {AuthUser | null} user
+ */
 export function setAuthCurrentUser(user) {
   authInstance.currentUser = user;
 }
@@ -377,7 +522,10 @@ export function getAuthStateCallback() {
   return authStateCallback;
 }
 
-/** Drive an auth state transition through the captured listener. */
+/**
+ * Drive an auth state transition through the captured listener.
+ * @param {AuthUser | null} user
+ */
 export function emitAuthState(user) {
   if (authStateCallback) {
     authStateCallback(user);
