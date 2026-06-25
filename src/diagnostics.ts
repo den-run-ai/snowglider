@@ -164,11 +164,11 @@ export interface HealthVerdict {
 export function percentile(sortedAsc: number[], p: number): number {
   const n = sortedAsc.length;
   if (n === 0) return NaN;
-  if (n === 1) return sortedAsc[0];
+  if (n === 1) return sortedAsc[0]!;
   const idx = Math.min(n - 1, Math.max(0, p * (n - 1)));
   const lo = Math.floor(idx), hi = Math.ceil(idx);
-  if (lo === hi) return sortedAsc[lo];
-  return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (idx - lo);
+  if (lo === hi) return sortedAsc[lo]!;
+  return sortedAsc[lo]! + (sortedAsc[hi]! - sortedAsc[lo]!) * (idx - lo);
 }
 
 /** Classify one frame relative to the previous position + the config thresholds. */
@@ -215,9 +215,9 @@ export function foldFrame(agg: DiagSummary, s: FrameSample, flags: FrameFlags): 
   if (s.speed > agg.speedMax) agg.speedMax = s.speed;
   // Bucket by fps so we can correlate speed against frame rate.
   for (let i = 0; i < FPS_BANDS.length; i++) {
-    const b = FPS_BANDS[i];
+    const b = FPS_BANDS[i]!;
     if (flags.fps >= b.minFps && flags.fps < b.maxFps) {
-      const bs = agg.bands[i];
+      const bs = agg.bands[i]!;
       bs.frames += 1;
       bs.speedSum += s.speed;
       if (s.speed > bs.speedMax) bs.speedMax = s.speed;
@@ -250,8 +250,8 @@ export function bandMeanSpeed(b: BandStat): number {
  *  requires the egregious, #209-scale gap (see FPS_RATIO_BAD in frameRateHealth). */
 export function fpsSpeedRatio(summary: DiagSummary): number {
   const eligible = (b: BandStat) => b.settledFrames >= MIN_BAND_FRAMES_FOR_RATIO;
-  const fast = summary.bands.filter((b, i) => FPS_BANDS[i].minFps >= 30 && eligible(b));
-  const slow = summary.bands.filter((b, i) => FPS_BANDS[i].maxFps <= 30 && eligible(b));
+  const fast = summary.bands.filter((b, i) => FPS_BANDS[i]!.minFps >= 30 && eligible(b));
+  const slow = summary.bands.filter((b, i) => FPS_BANDS[i]!.maxFps <= 30 && eligible(b));
   if (fast.length === 0 || slow.length === 0) return 1;
   const fastMax = Math.max(...fast.map((b) => b.settledSpeedMax));
   const slowMax = Math.max(...slow.map((b) => b.settledSpeedMax));
@@ -403,7 +403,7 @@ class Diagnostics {
       nonFiniteFrames: sm.nonFiniteFrames,
       fpsSpeedRatio: +fpsSpeedRatio(sm).toFixed(2),
     };
-    sm.bands.forEach((b, i) => { payload[`${FPS_BANDS[i].key}_frames`] = b.frames; });
+    sm.bands.forEach((b, i) => { payload[`${FPS_BANDS[i]!.key}_frames`] = b.frames; });
     return payload;
   }
 

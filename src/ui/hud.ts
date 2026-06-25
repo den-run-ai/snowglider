@@ -125,12 +125,12 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
     // Hysteresis: step up only when clearly above the current band's top edge, and
     // down only when clearly below its bottom edge (one step per frame; the EMA
     // never jumps a whole band in a frame).
-    if (slopeTierIdx < SLOPE_EDGES.length && slope > SLOPE_EDGES[slopeTierIdx] + SLOPE_TIER_HYST) {
+    if (slopeTierIdx < SLOPE_EDGES.length && slope > SLOPE_EDGES[slopeTierIdx]! + SLOPE_TIER_HYST) {
       slopeTierIdx++;
-    } else if (slopeTierIdx > 0 && slope < SLOPE_EDGES[slopeTierIdx - 1] - SLOPE_TIER_HYST) {
+    } else if (slopeTierIdx > 0 && slope < SLOPE_EDGES[slopeTierIdx - 1]! - SLOPE_TIER_HYST) {
       slopeTierIdx--;
     }
-    const tier = SLOPE_TIERS[slopeTierIdx];
+    const tier = SLOPE_TIERS[slopeTierIdx]!;
     const slopeDeg = Math.round(Math.atan(slope) * RAD_TO_DEG);
     const slopePct = Math.round(slope * 100);
     slopeElement.textContent = `${slopeDeg}° (${slopePct}%) ${tier.mark} ${tier.name}`;
@@ -153,7 +153,7 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
         tuck:     { txt: '🏎️ Tuck',     color: '#ff7675' },
         glide:    { txt: '⛷️ Ground',   color: '#AAFFAA' }
       };
-      const t = techMap[result.technique] || techMap.glide;
+      const t = techMap[result.technique] || techMap.glide!;
       groundElement.innerHTML = t.txt;
       groundElement.style.color = t.color;
     }

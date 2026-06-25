@@ -347,14 +347,14 @@ const smoothstep = (t: number): number => { const c = Math.max(0, Math.min(1, t)
 
 /** Smoothly interpolate a control-point curve at ski-z (clamped, smoothstep between pts). */
 function sampleProfile(z: number, pts: ReadonlyArray<ProfilePt>): number {
-  if (z <= pts[0][0]) return pts[0][1];
+  if (z <= pts[0]![0]) return pts[0]![1];
   const n = pts.length;
-  if (z >= pts[n - 1][0]) return pts[n - 1][1];
+  if (z >= pts[n - 1]![0]) return pts[n - 1]![1];
   for (let i = 0; i < n - 1; i++) {
-    const [z0, v0] = pts[i], [z1, v1] = pts[i + 1];
+    const [z0, v0] = pts[i]!, [z1, v1] = pts[i + 1]!;
     if (z >= z0 && z <= z1) return v0 + (v1 - v0) * smoothstep((z - z0) / (z1 - z0));
   }
-  return pts[n - 1][1];
+  return pts[n - 1]![1];
 }
 
 /** Thickness taper -> 0 toward both ends so the caps round off instead of ending blunt. */
@@ -403,7 +403,7 @@ function buildSkiArm(z0: number, z1: number): THREE.BufferGeometry {
     for (let e = 0; e < 6; e++) {
       const r0 = e, r1 = (e + 1) % 6;
       const v00 = a + r0, v01 = a + r1, v10 = b + r0, v11 = b + r1;
-      buckets[RING_MAT[e]].push(v00, v10, v11, v00, v11, v01);
+      buckets[RING_MAT[e]!]!.push(v00, v10, v11, v00, v11, v01);
     }
   }
 
@@ -413,23 +413,23 @@ function buildSkiArm(z0: number, z1: number): THREE.BufferGeometry {
     const base = s * 6, idx = positions.length / 3;
     // average the ring's 6 verts for a centroid cap vertex
     let x = 0, y = 0, zz = 0;
-    for (let r = 0; r < 6; r++) { x += positions[(base + r) * 3]; y += positions[(base + r) * 3 + 1]; zz += positions[(base + r) * 3 + 2]; }
+    for (let r = 0; r < 6; r++) { x += positions[(base + r) * 3]!; y += positions[(base + r) * 3 + 1]!; zz += positions[(base + r) * 3 + 2]!; }
     positions.push(x / 6, y / 6, zz / 6);
     return idx;
   };
   const c0 = ringCenter(0);
-  for (let e = 0; e < 6; e++) buckets[0].push(c0, (e + 1) % 6, e);
+  for (let e = 0; e < 6; e++) buckets[0]!.push(c0, (e + 1) % 6, e);
   const last = (STATIONS - 1) * 6;
   const cN = ringCenter(STATIONS - 1);
-  for (let e = 0; e < 6; e++) buckets[0].push(cN, last + e, last + (e + 1) % 6);
+  for (let e = 0; e < 6; e++) buckets[0]!.push(cN, last + e, last + (e + 1) % 6);
 
-  const indices = [...buckets[0], ...buckets[1], ...buckets[2]];
+  const indices = [...buckets[0]!, ...buckets[1]!, ...buckets[2]!];
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geom.setIndex(indices);
-  geom.addGroup(0, buckets[0].length, 0);
-  geom.addGroup(buckets[0].length, buckets[1].length, 1);
-  geom.addGroup(buckets[0].length + buckets[1].length, buckets[2].length, 2);
+  geom.addGroup(0, buckets[0]!.length, 0);
+  geom.addGroup(buckets[0]!.length, buckets[1]!.length, 1);
+  geom.addGroup(buckets[0]!.length + buckets[1]!.length, buckets[2]!.length, 2);
   geom.computeVertexNormals();
   return geom;
 }

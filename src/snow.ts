@@ -210,7 +210,7 @@ function createSnowSplash(): SnowSplash {
   for (let i = 0; i < particleCount; i++) {
     // Randomly choose between the two texture types
     const materialIndex = Math.random() > 0.3 ? 0 : 1;
-    const particle = new THREE.Sprite(materials[materialIndex].clone());
+    const particle = new THREE.Sprite(materials[materialIndex]!.clone());
     
     // Start with zero size (invisible)
     particle.scale.set(0, 0, 0);
@@ -323,7 +323,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         let tries = 0;
         
         // Find an inactive particle
-        while (splash.particles[nextIdx].userData.active && tries < maxTries) {
+        while (splash.particles[nextIdx]!.userData.active && tries < maxTries) {
           nextIdx = (nextIdx + 1) % splash.particleCount;
           tries++;
         }
@@ -335,7 +335,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         if (tries >= maxTries) continue;
         
         // Get the particle
-        const particle = splash.particles[nextIdx];
+        const particle = splash.particles[nextIdx]!;
         
         // Choose which ski to emit from
         const skiOffset = (emitLeft && emitRight) 

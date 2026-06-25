@@ -49,6 +49,9 @@
     console.log("Firebase initialization will be handled by auth.js");
 
     const head = document.getElementsByTagName('head')[0];
+    if (!head) {
+      return;
+    }
     const scoresScript = document.createElement('script');
     scoresScript.type = 'module';
     scoresScript.id = 'scoresScript';

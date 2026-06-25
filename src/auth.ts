@@ -269,8 +269,8 @@ function avatarColor(seed: string): string {
 function avatarInitials(name: string): string {
   const base = name.replace(/@.*/, '').replace(/[^A-Za-z0-9]+/g, ' ').trim();
   const parts = base.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return '';
 }
 
@@ -296,7 +296,7 @@ function renderAvatar(el: HTMLElement, user: {
 
   el.style.backgroundColor = avatarColor(seed);
   const name = user.isAnonymous ? '' : (user.displayName || user.email || '');
-  el.textContent = avatarInitials(name) || AVATAR_GLYPHS[hashString(seed) % AVATAR_GLYPHS.length];
+  el.textContent = avatarInitials(name) || AVATAR_GLYPHS[hashString(seed) % AVATAR_GLYPHS.length]!;
 }
 
 // Update UI when a real (non-anonymous) user is logged in: show the compact avatar
@@ -509,7 +509,7 @@ function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
   let linkedInPlace = false;
 
   const flow: Promise<UserCredential> = upgrading
-    ? linkWithPopup(guest!, provider)
+    ? linkWithPopup(guest, provider)
         .then(result => { linkedInPlace = true; return result; })
         .catch(error => {
           if (error.code === 'auth/credential-already-in-use' ||
