@@ -509,7 +509,7 @@ function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
   let linkedInPlace = false;
 
   const flow: Promise<UserCredential> = upgrading
-    ? linkWithPopup(guest!, provider)
+    ? linkWithPopup(guest, provider)
         .then(result => { linkedInPlace = true; return result; })
         .catch(error => {
           if (error.code === 'auth/credential-already-in-use' ||

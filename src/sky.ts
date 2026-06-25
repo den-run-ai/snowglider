@@ -478,7 +478,7 @@ function applyAtmosphericSky(
       dirIntensity: directionalLight.intensity,
       exposure: material.uniforms.exposure!.value as number,
       fogColor: fog.color.clone(),
-      bgColor: (scene.background as THREE.Color).clone()
+      bgColor: scene.background.clone()
     }
   };
 

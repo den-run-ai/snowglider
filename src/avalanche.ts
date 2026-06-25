@@ -233,7 +233,7 @@ export class AvalancheSystem {
       // Get terrain height at current position
       let floorY = 0;
       if (this.getTerrainHeight) {
-        floorY = this.getTerrainHeight(this.positions[idx]!, this.positions[idx + 2]!);
+        floorY = this.getTerrainHeight(this.positions[idx], this.positions[idx + 2]!);
       }
 
       const radius = this.sizes[i]!;
@@ -258,12 +258,12 @@ export class AvalancheSystem {
 
       // Update instance matrix
       this.dummy.position.set(
-        this.positions[idx]!,
+        this.positions[idx],
         this.positions[idx + 1]!,
         this.positions[idx + 2]!
       );
       this.dummy.rotation.set(
-        this.rotations[idx]!,
+        this.rotations[idx],
         this.rotations[idx + 1]!,
         this.rotations[idx + 2]!
       );

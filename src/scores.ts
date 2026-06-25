@@ -193,7 +193,9 @@ function updateUserBestTime(userId: string, time: number) {
         // still reconcile when the user write failed or was skipped, so a missing entry —
         // the original bug — is backfilled, and passing authoritativeBest (not the raw
         // run time) means a slower local run never downgrades the board.
-        userWrite
+        // Fire-and-forget: this backfill intentionally rides the SDK's offline
+        // queue and is not awaited by the surrounding chain (see comment above).
+        void userWrite
           .catch(error => console.warn("Best time write did not complete:", error))
           .then(() => updateLeaderboard(userId, authoritativeBest));
       })
