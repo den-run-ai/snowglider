@@ -24,6 +24,7 @@
  * }}
  */
 export function createLocalStorageMock() {
+  /** @type {Record<string, string>} */
   let store = {};
   return {
     getItem: key => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),

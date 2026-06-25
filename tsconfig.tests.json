@@ -32,6 +32,7 @@
   },
   "include": [
     "types/**/*.d.ts",
+    "tests/mocks/**/*.mjs",
     "tests/test-hooks-tests.js"
   ],
   "exclude": ["node_modules", "dist", "coverage"]

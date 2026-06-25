@@ -25,7 +25,7 @@ const DEFAULT_URL = 'https://snowglider.ai/';
  * @param {{ html?: string, url?: string, online?: boolean }} [options]
  * @returns {{
  *   dom: import('jsdom').JSDOM,
- *   window: Window,
+ *   window: import('jsdom').DOMWindow,
  *   document: Document,
  *   localStorage: ReturnType<typeof createLocalStorageMock>,
  *   setOnline: (value: boolean) => void,
@@ -37,14 +37,21 @@ export function setupDom({ html = DEFAULT_HTML, url = DEFAULT_URL, online = true
   const { window } = dom;
   const localStorage = createLocalStorageMock();
 
-  global.window = window;
-  global.document = window.document;
-  global.localStorage = localStorage;
+  // jsdom's DOMWindow and our localStorage shim don't satisfy the strict ambient
+  // `Window`/`Storage` global types under exactOptionalPropertyTypes; assign them
+  // through an `any` view of the global object. This is the deliberate test seam —
+  // the modules under test read these bare globals at runtime regardless of the
+  // compile-time global shape.
+  /** @type {any} */
+  const g = globalThis;
+  g.window = window;
+  g.document = window.document;
+  g.localStorage = localStorage;
   // Some src modules construct a bare `new CustomEvent(...)` (e.g. auth's
   // 'snowglider:auth-changed') and dispatch it on window. Bind jsdom's CustomEvent so
   // the event comes from the SAME realm as window — Node's built-in CustomEvent is
   // rejected by jsdom's dispatchEvent.
-  global.CustomEvent = window.CustomEvent;
+  g.CustomEvent = window.CustomEvent;
 
   // jsdom exposes a read-only window.localStorage on most origins, so redefine it to
   // point at our shim; the bare `localStorage` global (what src actually closes over)
