@@ -241,6 +241,7 @@ function setupTouchControls() {
     // Process each touch point
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
+      if (!touch) continue;
       processTouchInput(touch, true);
       touchState.touches[touch.identifier] = {
         x: touch.clientX,
@@ -260,6 +261,7 @@ function setupTouchControls() {
     // Process each touch point
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
+      if (!touch) continue;
       processTouchInput(touch, true);
       touchState.touches[touch.identifier] = {
         x: touch.clientX,
@@ -279,6 +281,7 @@ function setupTouchControls() {
     // Process each touch point being removed
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
+      if (!touch) continue;
       processTouchInput(touch, false);
       delete touchState.touches[touch.identifier];
     }

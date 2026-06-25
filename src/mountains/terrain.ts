@@ -83,5 +83,5 @@ export function debugHeightMap(x: number, z: number): number {
   console.log(`Height Map Debug at (${x}, ${z}):`);
   console.log(`- Height Map Entry: ${heightMap[key]}`);
   console.log(`- Calculated Height: ${getTerrainHeight(x, z)}`);
-  return heightMap[key];
+  return heightMap[key]!;
 }

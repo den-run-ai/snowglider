@@ -301,7 +301,7 @@ export const CourseModule = (function () {
     CHECKPOINT_Z.forEach((z, i) => {
       // Single source of truth for the label so the 3D banner and the HUD/result
       // table never drift apart (was "CHECKPOINT n" here vs "CP n" in the HUD).
-      group.add(makeGate(z, palette[i % palette.length], splitPoints[i].label, false));
+      group.add(makeGate(z, palette[i % palette.length]!, splitPoints[i]!.label, false));
     });
     group.add(makeGate(FINISH_Z, 0xffd700, 'FINISH', true));
 
@@ -365,12 +365,12 @@ export const CourseModule = (function () {
   function ghostPositionAt(t: number) {
     if (!ghostSamples) return null;
     const s = ghostSamples;
-    if (t <= s[0].t) return s[0];
-    if (t >= s[s.length - 1].t) return s[s.length - 1];
+    if (t <= s[0]!.t) return s[0]!;
+    if (t >= s[s.length - 1]!.t) return s[s.length - 1]!;
     // Linear scan is fine for a few hundred samples.
     for (let i = 1; i < s.length; i++) {
-      if (s[i].t >= t) {
-        const a = s[i - 1], b = s[i];
+      if (s[i]!.t >= t) {
+        const a = s[i - 1]!, b = s[i]!;
         const f = (t - a.t) / Math.max(1e-4, b.t - a.t);
         return {
           x: a.x + (b.x - a.x) * f,
@@ -380,17 +380,17 @@ export const CourseModule = (function () {
         };
       }
     }
-    return s[s.length - 1];
+    return s[s.length - 1]!;
   }
 
   // The time at which the ghost reached a given downhill depth (z).
   function ghostTimeAtZ(z: number) {
     if (!ghostSamples) return null;
     const s = ghostSamples;
-    if (z >= s[0].z) return 0;
+    if (z >= s[0]!.z) return 0;
     for (let i = 1; i < s.length; i++) {
-      if (s[i].z <= z) {
-        const a = s[i - 1], b = s[i];
+      if (s[i]!.z <= z) {
+        const a = s[i - 1]!, b = s[i]!;
         const f = (a.z - z) / Math.max(1e-4, a.z - b.z);
         return a.t + (b.t - a.t) * f;
       }
@@ -466,9 +466,9 @@ export const CourseModule = (function () {
     }
 
     // --- Split detection ---
-    if (nextIndex < splitPoints.length && pos.z <= splitPoints[nextIndex].z) {
+    if (nextIndex < splitPoints.length && pos.z <= splitPoints[nextIndex]!.z) {
       const idx = nextIndex;
-      const sp = splitPoints[idx];
+      const sp = splitPoints[idx]!;
       runSplits[idx] = elapsed;
       nextIndex++;
 
@@ -512,7 +512,7 @@ export const CourseModule = (function () {
     // --- Record this run's trajectory for a future ghost ---
     // Throttled by wall-clock (elapsed - lastSample >= SAMPLE_INTERVAL) below.
     if (recordSamples.length === 0 ||
-        elapsed - recordSamples[recordSamples.length - 1].t >= SAMPLE_INTERVAL) {
+        elapsed - recordSamples[recordSamples.length - 1]!.t >= SAMPLE_INTERVAL) {
       recordSamples.push({
         t: elapsed,
         x: +pos.x.toFixed(2),

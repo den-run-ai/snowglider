@@ -133,7 +133,7 @@ export function addTestHooks(pos: PlayerPos, showGameOver: ShowGameOverFn, getTe
     }
 
     // Use the first tree in extended terrain for testing
-    const testTree = extendedTrees[0];
+    const testTree = extendedTrees[0]!;
     console.log(`TEST: Using tree at (${testTree.x.toFixed(1)}, ${testTree.z.toFixed(1)}) in extended terrain`);
 
     // Position snowman at the tree for collision

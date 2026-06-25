@@ -92,10 +92,10 @@ function getRockNormalTexture(): THREE.CanvasTexture | null {
   const wrap = (i: number) => (i + SIZE) % SIZE;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      const hl = height[y * SIZE + wrap(x - 1)];
-      const hr = height[y * SIZE + wrap(x + 1)];
-      const hd = height[wrap(y - 1) * SIZE + x];
-      const hu = height[wrap(y + 1) * SIZE + x];
+      const hl = height[y * SIZE + wrap(x - 1)]!;
+      const hr = height[y * SIZE + wrap(x + 1)]!;
+      const hd = height[wrap(y - 1) * SIZE + x]!;
+      const hu = height[wrap(y + 1) * SIZE + x]!;
       let nx = -(hr - hl) * STRENGTH;
       let ny = -(hu - hd) * STRENGTH;
       const nz = 1.0;
@@ -125,8 +125,8 @@ function getRockNormalTexture(): THREE.CanvasTexture | null {
  * contract. Mutates `geometry` in place; call after `computeVertexNormals()`.
  */
 function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Color): void {
-  const normals = geometry.attributes.normal.array as Float32Array;
-  const count = geometry.attributes.position.count;
+  const normals = geometry.attributes.normal!.array as Float32Array;
+  const count = geometry.attributes.position!.count;
   const colors = new Float32Array(count * 3);
   // Snow blanket toward a faintly cool white so the cap reads as snow, not blown
   // highlight. The band starts lower and saturates sooner than before so up-facing
@@ -134,7 +134,7 @@ function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Co
   // reading as bare grey crystals with only a faint dusting).
   const snowCol = { r: 0.97, g: 0.98, b: 1.0 };
   for (let i = 0; i < count; i++) {
-    const ny = normals[i * 3 + 1];
+    const ny = normals[i * 3 + 1]!;
     const t = Math.min(1, Math.max(0, (ny - 0.05) / (0.55 - 0.05)));
     const snow = t * t * (3 - 2 * t); // smoothstep up-facing band -> snow amount
     colors[i * 3] = rockColor.r + (snowCol.r - rockColor.r) * snow;
@@ -169,7 +169,7 @@ const ROCK_STONE_WEIGHT = ROCK_STONES.reduce((s, e) => s + e.weight, 0);
  */
 function makeRockColor(darken = 0): THREE.Color {
   let r = Math.random() * ROCK_STONE_WEIGHT;
-  let stone = ROCK_STONES[0];
+  let stone = ROCK_STONES[0]!;
   for (const e of ROCK_STONES) { stone = e; r -= e.weight; if (r <= 0) break; }
   const h = stone.h + (Math.random() - 0.5) * 0.03;
   const s = Math.min(0.45, Math.max(0, stone.s + (Math.random() - 0.5) * 0.06));
@@ -189,17 +189,17 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
 
   // Deform vertices for a more natural shape
   // (writable Float32Array under the read-only ArrayLike<number> type)
-  const positions = geometry.attributes.position.array as Float32Array;
+  const positions = geometry.attributes.position!.array as Float32Array;
   for (let i = 0; i < positions.length; i += 3) {
     if (cliff) {
-      positions[i]     *= 1 + (Math.random() - 0.25) * 0.5;
-      positions[i + 1] *= 1 + Math.random() * 0.7;        // stretch upward -> taller crag
-      positions[i + 2] *= 1 + (Math.random() - 0.25) * 0.5;
+      positions[i]!     *= 1 + (Math.random() - 0.25) * 0.5;
+      positions[i + 1]! *= 1 + Math.random() * 0.7;        // stretch upward -> taller crag
+      positions[i + 2]! *= 1 + (Math.random() - 0.25) * 0.5;
     } else {
       const noise = Math.random() * 0.2;
-      positions[i]     *= (1 + noise);
-      positions[i + 1] *= (1 + noise);
-      positions[i + 2] *= (1 + noise);
+      positions[i]!     *= (1 + noise);
+      positions[i + 1]! *= (1 + noise);
+      positions[i + 2]! *= (1 + noise);
     }
   }
   geometry.computeVertexNormals();
@@ -232,7 +232,7 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
 export function addRocks(scene: THREE.Scene): RockPosition[] {
   // Remove any existing rocks from the scene to prevent duplicates
   for (let i = scene.children.length - 1; i >= 0; i--) {
-    const child = scene.children[i];
+    const child = scene.children[i]!;
     // Rocks are typically meshes with dodecahedron geometry
     const mesh = child as THREE.Mesh;
     if (child.type === 'Mesh' && mesh.geometry &&
