@@ -95,7 +95,7 @@ export function createSnowNormalTexture(): THREE.CanvasTexture {
       const u = x / SIZE, v = y / SIZE;
       let h = 0;
       for (let k = 0; k < waves.length; k++) {
-        const [fx, fz, a, p] = waves[k];
+        const [fx, fz, a, p] = waves[k]!;
         h += a * Math.sin(2 * Math.PI * (fx * u + fz * v) + p);
       }
       height[y * SIZE + x] = h;
@@ -110,10 +110,10 @@ export function createSnowNormalTexture(): THREE.CanvasTexture {
   const wrap = (i: number) => (i + SIZE) % SIZE;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      const hl = height[y * SIZE + wrap(x - 1)];
-      const hr = height[y * SIZE + wrap(x + 1)];
-      const hd = height[wrap(y - 1) * SIZE + x];
-      const hu = height[wrap(y + 1) * SIZE + x];
+      const hl = height[y * SIZE + wrap(x - 1)]!;
+      const hr = height[y * SIZE + wrap(x + 1)]!;
+      const hd = height[wrap(y - 1) * SIZE + x]!;
+      const hu = height[wrap(y + 1) * SIZE + x]!;
       let nx = -(hr - hl) * STRENGTH;
       let ny = -(hu - hd) * STRENGTH;
       let nz = 1.0;
@@ -147,9 +147,9 @@ export function createSnowNormalTexture(): THREE.CanvasTexture {
  * unaffected. Mutates `geometry` in place; call after `computeVertexNormals()`.
  */
 export function applySnowVertexColors(geometry: THREE.BufferGeometry): void {
-  const normals = geometry.attributes.normal.array as Float32Array;
-  const positions = geometry.attributes.position.array as Float32Array;
-  const count = geometry.attributes.position.count;
+  const normals = geometry.attributes.normal!.array as Float32Array;
+  const positions = geometry.attributes.position!.array as Float32Array;
+  const count = geometry.attributes.position!.count;
   const colors = new Float32Array(count * 3);
   const snow = { r: 1.0, g: 1.0, b: 1.0 };
   const shade = { r: 0.93, g: 0.95, b: 0.99 }; // barely-cool powder shadow (almost white)
@@ -161,7 +161,7 @@ export function applySnowVertexColors(geometry: THREE.BufferGeometry): void {
   // trees that Trees.addTrees clusters into the very same stands.
   const forestTint = { r: 0.83, g: 0.87, b: 0.75 };
   for (let i = 0; i < count; i++) {
-    const ny = normals[i * 3 + 1];
+    const ny = normals[i * 3 + 1]!;
     // normal.y ~1 on flats, lower on pitches; remap the useful band to 0..1.
     const tilt = Math.min(1, Math.max(0, (1 - ny) / 0.4));
     const t = tilt * 0.5; // gentle, near-white slope shading (lighting does the rest)
@@ -171,7 +171,7 @@ export function applySnowVertexColors(geometry: THREE.BufferGeometry): void {
     // Forest treeline tint: strongest on gentle, densely-forested ground; fades out
     // on steep pitches and in the open clearings.
     const gentle = Math.max(0, 1 - tilt * 1.4);
-    const stand = Math.max(0, (forestDensityField(positions[i * 3], positions[i * 3 + 2]) - 0.45) / 0.55);
+    const stand = Math.max(0, (forestDensityField(positions[i * 3]!, positions[i * 3 + 2]!) - 0.45) / 0.55);
     const amt = gentle * stand * 0.26;
     r += (forestTint.r - r) * amt;
     g += (forestTint.g - g) * amt;
@@ -202,10 +202,10 @@ export function applySmoothShadingNormals(
   geometry: THREE.BufferGeometry, cols: number, rows: number, passes: number
 ): void {
   const clone = geometry.clone();
-  const pos = clone.attributes.position.array as Float32Array;
+  const pos = clone.attributes.position!.array as Float32Array;
   // Pull the height (world y) of each grid vertex into a 2D buffer.
   const h = new Float32Array(cols * rows);
-  for (let k = 0; k < cols * rows; k++) h[k] = pos[k * 3 + 1];
+  for (let k = 0; k < cols * rows; k++) h[k] = pos[k * 3 + 1]!;
   // Separable 3-tap box blur, edge-clamped, repeated for a gentle low-pass.
   const tmp = new Float32Array(cols * rows);
   for (let p = 0; p < passes; p++) {
@@ -213,27 +213,27 @@ export function applySmoothShadingNormals(
     for (let r = 0; r < rows; r++) {
       const base = r * cols;
       for (let c = 0; c < cols; c++) {
-        const l = h[base + Math.max(0, c - 1)];
-        const m = h[base + c];
-        const rr = h[base + Math.min(cols - 1, c + 1)];
+        const l = h[base + Math.max(0, c - 1)]!;
+        const m = h[base + c]!;
+        const rr = h[base + Math.min(cols - 1, c + 1)]!;
         tmp[base + c] = (l + m + rr) / 3;
       }
     }
     // vertical
     for (let c = 0; c < cols; c++) {
       for (let r = 0; r < rows; r++) {
-        const u = tmp[Math.max(0, r - 1) * cols + c];
-        const m = tmp[r * cols + c];
-        const d = tmp[Math.min(rows - 1, r + 1) * cols + c];
+        const u = tmp[Math.max(0, r - 1) * cols + c]!;
+        const m = tmp[r * cols + c]!;
+        const d = tmp[Math.min(rows - 1, r + 1) * cols + c]!;
         h[r * cols + c] = (u + m + d) / 3;
       }
     }
   }
   // Write the smoothed heights back into the clone and let three compute robust,
   // correctly-oriented normals from it; copy those onto the real geometry.
-  for (let k = 0; k < cols * rows; k++) pos[k * 3 + 1] = h[k];
+  for (let k = 0; k < cols * rows; k++) pos[k * 3 + 1] = h[k]!;
   clone.computeVertexNormals();
-  const smooth = clone.attributes.normal.array as Float32Array;
+  const smooth = clone.attributes.normal!.array as Float32Array;
   geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(smooth), 3));
   clone.dispose();
 }

@@ -83,11 +83,11 @@ function wirePanel(
   let touchStartX = 0;
 
   header.addEventListener('touchstart', function(e) {
-    touchStartX = e.touches[0].clientX;
+    touchStartX = e.touches[0]!.clientX;
   }, { passive: true });
 
   header.addEventListener('touchmove', function(e) {
-    const touchX = e.touches[0].clientX;
+    const touchX = e.touches[0]!.clientX;
     const diff = touchX - touchStartX;
 
     // If swiping left and panel expanded, collapse it

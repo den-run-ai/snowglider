@@ -58,8 +58,8 @@ function buildNormalTexture(size: number, strength: number, heightAt: (u: number
   const wrap = (i: number) => (i + size) % size;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const hl = h[y * size + wrap(x - 1)], hr = h[y * size + wrap(x + 1)];
-      const hd = h[wrap(y - 1) * size + x], hu = h[wrap(y + 1) * size + x];
+      const hl = h[y * size + wrap(x - 1)]!, hr = h[y * size + wrap(x + 1)]!;
+      const hd = h[wrap(y - 1) * size + x]!, hu = h[wrap(y + 1) * size + x]!;
       const nx = -(hr - hl) * strength, ny = -(hu - hd) * strength;
       const len = Math.hypot(nx, ny, 1);
       const idx = (y * size + x) * 4;
@@ -216,7 +216,7 @@ function getSnowMaterial(): THREE.MeshStandardMaterial {
 
 /** Pick a random material from a palette (forest colour variety, shared GPU state). */
 function pickMaterial(pool: THREE.MeshStandardMaterial[]): THREE.MeshStandardMaterial {
-  return pool[Math.floor(Math.random() * pool.length)];
+  return pool[Math.floor(Math.random() * pool.length)]!;
 }
 
 // Create a more realistic tree with visible branches and variability.
@@ -353,7 +353,7 @@ function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: numbe
 function addTrees(scene: THREE.Scene): TreePosition[] {
   // Remove any existing trees from the scene to prevent duplicates
   for (let i = scene.children.length - 1; i >= 0; i--) {
-    const child = scene.children[i];
+    const child = scene.children[i]!;
     // Trees are typically groups with many child elements
     if (child.type === 'Group' && child.children.length > 3) {
       scene.remove(child);

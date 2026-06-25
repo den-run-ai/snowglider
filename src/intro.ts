@@ -120,7 +120,7 @@ function catmullRom1d(p0: number, p1: number, p2: number, p3: number, t: number)
 export function sampleSpline(points: Vec3Like[], u: number): Vec3Like {
   const n = points.length;
   if (n === 0) return { x: 0, y: 0, z: 0 };
-  if (n === 1) return { x: points[0].x, y: points[0].y, z: points[0].z };
+  if (n === 1) return { x: points[0]!.x, y: points[0]!.y, z: points[0]!.z };
 
   const segs = n - 1;
   const scaled = clamp01(u) * segs;
@@ -128,10 +128,10 @@ export function sampleSpline(points: Vec3Like[], u: number): Vec3Like {
   if (i >= segs) i = segs - 1; // keep the last segment for u === 1
   const localT = scaled - i;
 
-  const p0 = points[Math.max(i - 1, 0)];
-  const p1 = points[i];
-  const p2 = points[i + 1];
-  const p3 = points[Math.min(i + 2, n - 1)];
+  const p0 = points[Math.max(i - 1, 0)]!;
+  const p1 = points[i]!;
+  const p2 = points[i + 1]!;
+  const p3 = points[Math.min(i + 2, n - 1)]!;
 
   return {
     x: catmullRom1d(p0.x, p1.x, p2.x, p3.x, localT),

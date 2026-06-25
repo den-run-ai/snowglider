@@ -22,9 +22,8 @@ function check(name, condition) {
 
 // DOM + localStorage come from the shared mocks (tests/mocks/). setupDom must be
 // async-imported, so it and the module under test are both loaded inside main();
-// `window`/`document`/`local` are bound there before the first scenario runs.
-let window;
-let document;
+// setupDom wires global.window/document/localStorage; `local` aliases localStorage
+// for the readStoredBestTime scenarios. It is bound in main() before the first run.
 let local;
 
 // Reset the overlay DOM for one showGameOver scenario; returns the injected deps.
@@ -54,7 +53,7 @@ async function main() {
   console.log('--- result-overlay.ts ---');
   const { setupDom } = await import('./mocks/dom.mjs');
   const env = setupDom();
-  ({ window, document, localStorage: local } = env);
+  local = env.localStorage;
 
   const mod = await import('../src/ui/result-overlay.ts');
   const { createShowGameOver, isValidScoreTime, readStoredBestTime } = mod;

@@ -230,10 +230,11 @@ import { AudioModule } from '../audio.js';
 
     const startGameButton = document.getElementById('startGameButton');
     if (startGameButton) {
-      startGameButton.addEventListener('click', async function () {
+      startGameButton.addEventListener('click', function () {
         console.log("Start button clicked");
-        await unlockAudioForStart('click');
-        startGame();
+        // unlock the audio context first, then start; void marks the promise as
+        // intentionally fire-and-forget so the handler stays void-returning.
+        void unlockAudioForStart('click').then(() => startGame());
       });
 
       startGameButton.addEventListener('touchstart', function (e) {
@@ -241,12 +242,11 @@ import { AudioModule } from '../audio.js';
         this.classList.add('touch-active');
       }, { passive: false });
 
-      startGameButton.addEventListener('touchend', async function (e) {
+      startGameButton.addEventListener('touchend', function (e) {
         e.preventDefault();
         this.classList.remove('touch-active');
         console.log("Touch end - starting game");
-        await unlockAudioForStart('touch');
-        startGame();
+        void unlockAudioForStart('touch').then(() => startGame());
       }, { passive: false });
 
       startGameButton.addEventListener('touchcancel', function () {
