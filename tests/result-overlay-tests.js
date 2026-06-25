@@ -12,8 +12,6 @@
 
 'use strict';
 
-const { JSDOM } = require('jsdom');
-
 let pass = 0;
 let fail = 0;
 function check(name, condition) {
@@ -21,18 +19,11 @@ function check(name, condition) {
   condition ? pass++ : fail++;
 }
 
-const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
-global.window = dom.window;
-global.document = dom.window.document;
-let store = {};
-global.localStorage = {
-  getItem: k => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
-  setItem: (k, v) => { store[k] = String(v); },
-  removeItem: k => { delete store[k]; },
-  clear: () => { store = {}; }
-};
-const { window } = dom;
-const { document } = window;
+// DOM + localStorage come from the shared mocks (tests/mocks/). setupDom must be
+// async-imported, so it and the module under test are both loaded inside main();
+// setupDom wires global.window/document/localStorage; `local` aliases localStorage
+// for the readStoredBestTime scenarios. It is bound in main() before the first run.
+let local;
 
 // Reset the overlay DOM for one showGameOver scenario; returns the injected deps.
 function makeDeps({ bestTime = Infinity, startTime, onCrash } = {}) {
@@ -59,6 +50,10 @@ const FINISH = 'You reached the end of the slope!';
 
 async function main() {
   console.log('--- result-overlay.ts ---');
+  const { setupDom } = await import('./mocks/dom.mjs');
+  const env = setupDom();
+  local = env.localStorage;
+
   const mod = await import('../src/ui/result-overlay.ts');
   const { createShowGameOver, isValidScoreTime, readStoredBestTime } = mod;
 
@@ -71,12 +66,12 @@ async function main() {
   delete window.ScoresModule;
 
   // --- readStoredBestTime: empty / valid / invalid stored values ---
-  store = {};
+  local.clear();
   check('readStoredBestTime returns Infinity with no stored time', readStoredBestTime() === Infinity);
-  store = { snowgliderBestTime: '12.5' };
+  local.clear(); local.setItem('snowgliderBestTime', '12.5');
   check('readStoredBestTime parses a valid stored time', readStoredBestTime() === 12.5);
-  store = { snowgliderBestTime: '0.1' };
-  check('readStoredBestTime drops an invalid stored time', readStoredBestTime() === Infinity && store.snowgliderBestTime === undefined);
+  local.clear(); local.setItem('snowgliderBestTime', '0.1');
+  check('readStoredBestTime drops an invalid stored time', readStoredBestTime() === Infinity && local.getItem('snowgliderBestTime') === null);
 
   // --- showGameOver: test override short-circuit ---
   let overrode = null;
@@ -86,7 +81,7 @@ async function main() {
   delete window._testShowGameOverOverride;
 
   // --- Finish + valid time + new best, AuthModule.recordScore present, not signed in ---
-  store = {};
+  local.clear();
   let recorded = null;
   let leaderboardShown = 0;
   window.AuthModule = {
@@ -120,10 +115,10 @@ async function main() {
   // --- Finish + valid time, no AuthModule.recordScore -> localStorage fallback best ---
   {
     delete window.AuthModule;
-    store = {};
+    local.clear();
     const deps = makeDeps({ bestTime: Infinity });
     createShowGameOver(deps)(FINISH);
-    check('finish without recordScore persists a local best', typeof store.snowgliderBestTime === 'string');
+    check('finish without recordScore persists a local best', typeof local.getItem('snowgliderBestTime') === 'string');
   }
 
   // --- Finish with an INVALID elapsed time -> warn branch, no score ---
@@ -169,7 +164,7 @@ async function main() {
     CourseModule.onFinish = () => { throw new Error('result panel boom'); };
     window.AuthModule = { recordScore: () => {}, getCurrentUser: () => null, displayLeaderboard: () => {} };
     window.firebaseModules = { logEvent: () => { throw new Error('analytics boom'); } };
-    store = {};
+    local.clear();
     const deps = makeDeps({ bestTime: Infinity });
     const stale = document.createElement('p');
     stale.id = 'loginPrompt';
