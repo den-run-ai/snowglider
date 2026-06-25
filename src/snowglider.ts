@@ -459,6 +459,13 @@ window.initializeGameWithAudio = function() {
     lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v) => { state.lastAvalancheZ = v; } },
     // Object/function refs the tests read or mutate (never reassign) — get-only.
     scene:              { get: () => scene },
+    // Test-only read seam for the perf/draw-call budget spec (tests/e2e/perf-budget.spec.ts).
+    // setupScene() builds a real WebGLRenderer, so renderer.info (render.calls,
+    // memory.geometries/textures, programs.length) is only populated after a live
+    // frame renders — unreachable from Node/jsdom. The Playwright spec reads it after
+    // the loop is warm to guard draw-call/triangle/geometry budgets (no production
+    // behavior change; consistent with the other live get-only handles here).
+    renderer:           { get: () => renderer },
     camera:             { get: () => camera },
     cameraManager:      { get: () => cameraManager },
     snowman:            { get: () => snowman },
