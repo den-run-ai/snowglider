@@ -29,8 +29,8 @@ export class SimplexNoise {
 
     // Populate permutation table
     for(let i = 0; i < 512; i++) {
-      this.perm[i] = this.p[i & 255];
-      this.gradP[i] = this.grad3[this.perm[i] % 12];
+      this.perm[i] = this.p[i & 255]!;
+      this.gradP[i] = this.grad3[this.perm[i]! % 12]!;
     }
   }
 
@@ -78,8 +78,8 @@ export class SimplexNoise {
       n0 = 0;
     } else {
       t0 *= t0;
-      const gi0 = this.perm[ii+this.perm[jj]] % 12;
-      n0 = t0 * t0 * this.dot(this.gradP[gi0], x0, y0);
+      const gi0 = this.perm[ii+this.perm[jj]!]! % 12;
+      n0 = t0 * t0 * this.dot(this.gradP[gi0]!, x0, y0);
     }
 
     let t1 = 0.5 - x1*x1-y1*y1;
@@ -87,8 +87,8 @@ export class SimplexNoise {
       n1 = 0;
     } else {
       t1 *= t1;
-      const gi1 = this.perm[ii+i1+this.perm[jj+j1]] % 12;
-      n1 = t1 * t1 * this.dot(this.gradP[gi1], x1, y1);
+      const gi1 = this.perm[ii+i1+this.perm[jj+j1]!]! % 12;
+      n1 = t1 * t1 * this.dot(this.gradP[gi1]!, x1, y1);
     }
 
     let t2 = 0.5 - x2*x2-y2*y2;
@@ -96,8 +96,8 @@ export class SimplexNoise {
       n2 = 0;
     } else {
       t2 *= t2;
-      const gi2 = this.perm[ii+1+this.perm[jj+1]] % 12;
-      n2 = t2 * t2 * this.dot(this.gradP[gi2], x2, y2);
+      const gi2 = this.perm[ii+1+this.perm[jj+1]!]! % 12;
+      n2 = t2 * t2 * this.dot(this.gradP[gi2]!, x2, y2);
     }
 
     // Add contributions from each corner to get the final noise value.
@@ -106,7 +106,7 @@ export class SimplexNoise {
   }
 
   dot(g: number[], x: number, y: number): number {
-    return g[0]*x + g[1]*y;
+    return g[0]!*x + g[1]!*y;
   }
 }
 

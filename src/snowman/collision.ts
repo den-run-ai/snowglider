@@ -35,7 +35,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   if (window.location.search.includes('test=true') && treePositions.length > 0) {
     console.log(`TREES LOADED: ${treePositions.length} trees found`);
     console.log(`SNOWMAN POS: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`);
-    console.log(`FIRST TREE: x=${treePositions[0].x.toFixed(2)}, y=${treePositions[0].y.toFixed(2)}, z=${treePositions[0].z.toFixed(2)}`);
+    console.log(`FIRST TREE: x=${treePositions[0]!.x.toFixed(2)}, y=${treePositions[0]!.y.toFixed(2)}, z=${treePositions[0]!.z.toFixed(2)}`);
   }
 
   // Count trees in extended terrain area for logging

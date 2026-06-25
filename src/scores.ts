@@ -456,7 +456,7 @@ function displayLeaderboard() {
         html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
 
         scores.forEach((score, index) => {
-          const user = users[index];
+          const user = users[index]!;
           // Show current user differently (match by userId)
           const isCurrentUser = activeUser && score.userId === activeUser.uid;
           const displayName = isCurrentUser ? 

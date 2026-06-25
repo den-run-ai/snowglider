@@ -263,11 +263,11 @@ export class SnowTrails {
     // Age + re-stamp the instance matrices (fade by shrinking the groove).
     let anyActive = false;
     for (let i = 0; i < this.count; i++) {
-      const age = this.ages[i];
-      if (!isFinite(age) || age >= this.lives[i]) continue;
+      const age = this.ages[i]!;
+      if (!isFinite(age) || age >= this.lives[i]!) continue;
       const next = age + delta;
       this.ages[i] = next;
-      if (next >= this.lives[i]) {
+      if (next >= this.lives[i]!) {
         // Expired: hide it.
         this.dummy.position.set(0, -10000, 0);
         this.dummy.scale.set(0, 0, 0);
@@ -277,10 +277,10 @@ export class SnowTrails {
         continue;
       }
       anyActive = true;
-      const fade = 1 - next / this.lives[i]; // 1 fresh -> 0 covered
-      this.dummy.position.set(this.px[i], this.py[i], this.pz[i]);
+      const fade = 1 - next / this.lives[i]!; // 1 fresh -> 0 covered
+      this.dummy.position.set(this.px[i]!, this.py[i]!, this.pz[i]!);
       this.dummy.quaternion.set(
-        this.quats[i * 4], this.quats[i * 4 + 1], this.quats[i * 4 + 2], this.quats[i * 4 + 3]
+        this.quats[i * 4]!, this.quats[i * 4 + 1]!, this.quats[i * 4 + 2]!, this.quats[i * 4 + 3]!
       );
       // Groove narrows as it fills in; length holds so it reads as a track, not a dot.
       this.dummy.scale.set(DAB_WIDTH * (0.35 + 0.65 * fade), 1, DAB_LENGTH);
@@ -312,7 +312,7 @@ export class SnowTrails {
   activeCount(): number {
     let n = 0;
     for (let i = 0; i < this.count; i++) {
-      if (isFinite(this.ages[i]) && this.ages[i] < this.lives[i]) n++;
+      if (isFinite(this.ages[i]!) && this.ages[i]! < this.lives[i]!) n++;
     }
     return n;
   }

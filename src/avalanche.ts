@@ -223,49 +223,49 @@ export class AvalancheSystem {
       const idx = i * 3;
 
       // Apply gravity
-      this.velocities[idx + 1] -= gravity * dt;
+      this.velocities[idx + 1]! -= gravity * dt;
 
       // Update positions
-      this.positions[idx]     += this.velocities[idx] * dt;
-      this.positions[idx + 1] += this.velocities[idx + 1] * dt;
-      this.positions[idx + 2] += this.velocities[idx + 2] * dt;
+      this.positions[idx]     = this.positions[idx]!     + this.velocities[idx]! * dt;
+      this.positions[idx + 1] = this.positions[idx + 1]! + this.velocities[idx + 1]! * dt;
+      this.positions[idx + 2] = this.positions[idx + 2]! + this.velocities[idx + 2]! * dt;
 
       // Get terrain height at current position
       let floorY = 0;
       if (this.getTerrainHeight) {
-        floorY = this.getTerrainHeight(this.positions[idx], this.positions[idx + 2]);
+        floorY = this.getTerrainHeight(this.positions[idx]!, this.positions[idx + 2]!);
       }
 
-      const radius = this.sizes[i];
+      const radius = this.sizes[i]!;
 
       // Ground collision
-      if (this.positions[idx + 1] < floorY + radius) {
+      if (this.positions[idx + 1]! < floorY + radius) {
         this.positions[idx + 1] = floorY + radius;
-        this.velocities[idx + 1] *= -bounce;
+        this.velocities[idx + 1]! *= -bounce;
 
         // Apply friction on ground (frame-rate-independent; see frictionFactor above)
-        this.velocities[idx] *= frictionFactor;
-        this.velocities[idx + 2] *= frictionFactor;
+        this.velocities[idx]! *= frictionFactor;
+        this.velocities[idx + 2]! *= frictionFactor;
 
         // Slide acceleration (downhill push in -Z direction)
-        this.velocities[idx + 2] -= 2 * dt;
+        this.velocities[idx + 2]! -= 2 * dt;
       }
 
       // Update rotation (tumbling effect)
-      const speed = Math.abs(this.velocities[idx + 2]);
-      this.rotations[idx]     += speed * dt * 2;
-      this.rotations[idx + 1] += this.velocities[idx] * dt;
+      const speed = Math.abs(this.velocities[idx + 2]!);
+      this.rotations[idx]     = this.rotations[idx]!     + speed * dt * 2;
+      this.rotations[idx + 1] = this.rotations[idx + 1]! + this.velocities[idx]! * dt;
 
       // Update instance matrix
       this.dummy.position.set(
-        this.positions[idx],
-        this.positions[idx + 1],
-        this.positions[idx + 2]
+        this.positions[idx]!,
+        this.positions[idx + 1]!,
+        this.positions[idx + 2]!
       );
       this.dummy.rotation.set(
-        this.rotations[idx],
-        this.rotations[idx + 1],
-        this.rotations[idx + 2]
+        this.rotations[idx]!,
+        this.rotations[idx + 1]!,
+        this.rotations[idx + 2]!
       );
       this.dummy.scale.setScalar(radius);
       this.dummy.updateMatrix();
@@ -325,7 +325,7 @@ export class AvalancheSystem {
       // Find the next inactive puff (round-robin); bail this frame if all in use.
       let n = this.powderNext;
       let tries = 0;
-      while (this.powder[n].userData.active && tries < this.powder.length) {
+      while (this.powder[n]!.userData.active && tries < this.powder.length) {
         n = (n + 1) % this.powder.length;
         tries++;
       }
@@ -334,19 +334,19 @@ export class AvalancheSystem {
 
       const bi = Math.floor(Math.random() * this.count);
       const bidx = bi * 3;
-      const r = this.sizes[bi];
+      const r = this.sizes[bi]!;
 
-      const sprite = this.powder[n];
+      const sprite = this.powder[n]!;
       sprite.position.set(
-        this.positions[bidx]     + (Math.random() - 0.5) * (1.5 + r),
-        this.positions[bidx + 1] + 0.3 + Math.random() * r,
-        this.positions[bidx + 2] + (Math.random() - 0.5) * (1.5 + r)
+        this.positions[bidx]!     + (Math.random() - 0.5) * (1.5 + r),
+        this.positions[bidx + 1]! + 0.3 + Math.random() * r,
+        this.positions[bidx + 2]! + (Math.random() - 0.5) * (1.5 + r)
       );
 
       const ud = sprite.userData;
-      ud.vx = this.velocities[bidx] * 0.25 + (Math.random() - 0.5) * 4;
+      ud.vx = this.velocities[bidx]! * 0.25 + (Math.random() - 0.5) * 4;
       ud.vy = 2 + Math.random() * 4;                           // loft upward
-      ud.vz = this.velocities[bidx + 2] * 0.35 - Math.random() * 1.5; // carried downhill
+      ud.vz = this.velocities[bidx + 2]! * 0.35 - Math.random() * 1.5; // carried downhill
       ud.size = 3 + Math.random() * 3.5 + r;
       ud.opacity0 = 0.4 + Math.random() * 0.35;
       ud.maxLife = 1.1 + Math.random() * 1.4;
@@ -364,11 +364,11 @@ export class AvalancheSystem {
 
     for (let i = 0; i < this.count; i++) {
       const idx = i * 3;
-      const dx = this.positions[idx] - playerPos.x;
-      const dy = this.positions[idx + 1] - playerPos.y;
-      const dz = this.positions[idx + 2] - playerPos.z;
+      const dx = this.positions[idx]! - playerPos.x;
+      const dy = this.positions[idx + 1]! - playerPos.y;
+      const dz = this.positions[idx + 2]! - playerPos.z;
       const distSq = dx * dx + dy * dy + dz * dz;
-      const threshold = hitRadius + this.sizes[i];
+      const threshold = hitRadius + this.sizes[i]!;
 
       if (distSq < threshold * threshold) {
         return true;
@@ -384,8 +384,8 @@ export class AvalancheSystem {
     let minDist = Infinity;
     for (let i = 0; i < this.count; i++) {
       const idx = i * 3;
-      const dx = this.positions[idx] - playerPos.x;
-      const dz = this.positions[idx + 2] - playerPos.z;
+      const dx = this.positions[idx]! - playerPos.x;
+      const dz = this.positions[idx + 2]! - playerPos.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       if (dist < minDist) minDist = dist;
     }
@@ -400,7 +400,7 @@ export class AvalancheSystem {
     for (let i = 0; i < this.count; i++) {
       const idx = i * 3;
       // Boulder is ahead if its Z is less than player Z (further downhill)
-      if (this.positions[idx + 2] < playerPos.z - 10) {
+      if (this.positions[idx + 2]! < playerPos.z - 10) {
         passedCount++;
       }
     }
