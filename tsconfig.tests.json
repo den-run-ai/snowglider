@@ -1,0 +1,38 @@
+{
+  // Type-checking config for the test tree (Category 3 of the test-suite upgrade).
+  //
+  // The root tsconfig.json deliberately EXCLUDES `tests` and is tuned for the strict,
+  // browser-facing `src` bundle (verbatimModuleSyntax, exactOptionalPropertyTypes,
+  // noUnusedLocals/Parameters). Test files are Node/Playwright code with different
+  // ergonomics — they use Node builtins, leave intentionally-unused scaffolding, and
+  // mix CommonJS `require` with dynamic `import()` of `.ts` src by explicit extension.
+  // This config checks them against the typed `src` without letting those test-only
+  // relaxations bleed back into the strict `src` config.
+  //
+  // Run with: `npm run typecheck:tests`. Files opt in with `// @ts-check`. This starts
+  // with one Node suite typed end-to-end as the replicable template (plan §3.0); the
+  // `include` list grows as more suites get `// @ts-check`'d in follow-up PRs, and the
+  // shared mocks (tests/mocks/*) are typed in their own PR (plan §3 / PR-3).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // Node test harnesses keep scaffolding (captured handles, unused params in
+    // callback shapes) that the strict src config would reject — relax here only.
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    // Tests `require()` CommonJS deps (jsdom) and dynamically `import()` `.ts` src;
+    // they are not the strict-ESM bundle, so drop verbatimModuleSyntax for them.
+    "verbatimModuleSyntax": false,
+    // The harnesses import the module under test by its real `.ts` path (the loader
+    // hooks resolve `.js`->`.ts` at runtime, but the static specifier is `.ts`).
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true
+  },
+  "include": [
+    "types/**/*.d.ts",
+    "tests/test-hooks-tests.js"
+  ],
+  "exclude": ["node_modules", "dist", "coverage"]
+}

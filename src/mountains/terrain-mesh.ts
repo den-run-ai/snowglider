@@ -34,13 +34,13 @@ export function createTerrain(scene: THREE.Scene) {
 
   // BufferAttribute.array is typed ArrayLike<number> (read-only); the concrete
   // buffer is a writable Float32Array, which we mutate in place below.
-  const vertices = geometry.attributes.position.array as Float32Array;
+  const vertices = geometry.attributes.position!.array as Float32Array;
 
   // Create Perlin noise for natural terrain variation
   const perlin = new SimplexNoise();
 
   for (let i = 0; i < vertices.length; i += 3) {
-    const x = vertices[i], z = vertices[i + 2];
+    const x = vertices[i]!, z = vertices[i + 2]!;
     const distance = Math.sqrt(x * x + z * z);
 
     // Base mountain shape - MUST MATCH getTerrainHeight function exactly!

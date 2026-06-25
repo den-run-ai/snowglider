@@ -127,9 +127,9 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
   // Breathing / jiggle on the three balls (volume-conserving squash<->stretch).
   const amp = air ? BREATHE_AIR : BREATHE_BASE + BREATHE_SPEED * speedN;
   for (let i = 0; i < BALLS.length; i++) {
-    const p = parts[BALLS[i]]; const b = base[BALLS[i]];
+    const p = parts[BALLS[i]!]; const b = base[BALLS[i]!];
     if (!p || !b) continue;
-    const sq = Math.sin(fs.t * BREATHE_FREQ + BALL_PHASE[i]) * amp + fs.settle;
+    const sq = Math.sin(fs.t * BREATHE_FREQ + BALL_PHASE[i]!) * amp + fs.settle;
     const sy = clamp(1 + sq, 0.7, 1.3);
     const sxz = clamp(1 - 0.5 * sq, 0.7, 1.3);
     p.scale.set(b.scale.x * sxz, b.scale.y * sy, b.scale.z * sxz);

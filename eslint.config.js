@@ -72,17 +72,24 @@ module.exports = [
   // modules, so the default `**/*.js` block (sourceType:"script") above is
   // correct for them.
   //
-  // Phase 3 (typescript-eslint): `.ts` sources are now linted with the
-  // typescript-eslint parser + recommended rules (non-type-checked — `tsc
-  // --noEmit` remains the type gate). Severities are downgraded to "warn" to
-  // mirror the JS block (warnings don't fail `eslint .`), and a few rules are
-  // relaxed for deliberate migration patterns (intentional `any` boot/test
-  // seams, the `window.*` handle casts).
+  // Phase 3 (typescript-eslint): the `src/` + `types/` `.ts` sources are linted
+  // with the typescript-eslint parser + the TYPE-CHECKED recommended rules
+  // (`recommendedTypeChecked`, backed by the project's tsconfig via
+  // `projectService`). `tsc --noEmit` remains the authoritative type gate; the
+  // type-aware lint rules add behavioural checks tsc doesn't (floating/misused
+  // promises, redundant assertions). The scope is `src/`+`types/` because those
+  // are exactly what tsconfig includes — the Playwright e2e specs and *.config.ts
+  // are excluded from tsconfig, so type-aware linting can't build a program for
+  // them (they are linted non-type-checked in the block below).
   ...tseslint.config({
-    files: ["**/*.ts"],
-    extends: [tseslint.configs.recommended],
+    files: ["src/**/*.ts", "types/**/*.ts"],
+    extends: [tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       sourceType: "module",
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: __dirname
+      },
       globals: {
         ...globals.browser
       }
@@ -100,7 +107,40 @@ module.exports = [
       }],
       // Deliberate `any` lives only in boot/test seams + untyped Firestore
       // DocumentData.
-      "@typescript-eslint/no-explicit-any": "warn"
+      "@typescript-eslint/no-explicit-any": "warn",
+      // recommendedTypeChecked's `no-unsafe-*` family fires pervasively wherever
+      // a deliberate `any` flows — untyped Firestore DocumentData, the window.*
+      // game/test handle casts, and untyped THREE.js internals. Mirror
+      // no-explicit-any and keep them as WARNINGS (surfaced as debt to pay down
+      // incrementally, but non-blocking) rather than dropping the whole
+      // type-checked tier. `restrict-template-expressions` is downgraded for the
+      // same reason (it trips on those `any`/`never`-typed Firestore fields).
+      // The high-value behavioural rules below stay at their default `error`.
+      "@typescript-eslint/no-unsafe-member-access": "warn",
+      "@typescript-eslint/no-unsafe-assignment": "warn",
+      "@typescript-eslint/no-unsafe-call": "warn",
+      "@typescript-eslint/no-unsafe-argument": "warn",
+      "@typescript-eslint/no-unsafe-return": "warn",
+      "@typescript-eslint/restrict-template-expressions": "warn"
+    }
+  }),
+  // The Playwright e2e specs and root *.config.ts files are excluded from
+  // tsconfig (the tsc gate covers src/ + types/ only), so the type-aware program
+  // above can't include them. Lint them with the non-type-checked recommended
+  // ruleset so they still get baseline coverage without a parser project error.
+  ...tseslint.config({
+    files: ["tests/**/*.ts", "*.config.ts"],
+    extends: [tseslint.configs.recommended],
+    languageOptions: {
+      sourceType: "module",
+      globals: {
+        ...globals.browser,
+        ...globals.node
+      }
+    },
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-vars": "off"
     }
   }),
   {
