@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Temporary ski-track overlay tests for SnowGlider (issue #17 follow-up).
  *
@@ -57,7 +58,7 @@ function runTest(name, testFn) {
     passCount++;
   } catch (error) {
     console.log(`❌ FAIL: ${name}`);
-    console.log(`   Error: ${error.message}`);
+    console.log(`   Error: ${error instanceof Error ? error.message : String(error)}`);
     failCount++;
   }
 }

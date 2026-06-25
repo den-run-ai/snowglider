@@ -1,3 +1,4 @@
+// @ts-check
 // debris-tests.js — headless unit tests for the crash-shatter wipeout (issue #53).
 //
 // SnowmanDebris (src/debris.ts) imports only three (bare) and self-guards on

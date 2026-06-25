@@ -9,31 +9,56 @@
   // This config checks them against the typed `src` without letting those test-only
   // relaxations bleed back into the strict `src` config.
   //
-  // Run with: `npm run typecheck:tests`. Files opt in with `// @ts-check`. This starts
-  // with one Node suite typed end-to-end as the replicable template (plan §3.0); the
-  // `include` list grows as more suites get `// @ts-check`'d in follow-up PRs, and the
-  // shared mocks (tests/mocks/*) are typed in their own PR (plan §3 / PR-3).
+  // Run with: `npm run typecheck:tests`. Files opt in with `// @ts-check`. The HIGH
+  // value here is checking each test's calls against the typed `src` — catching API/mock
+  // drift (e.g. the addTestHooks signature) — NOT annotating every test-internal helper
+  // or guarding jsdom `getElementById` null-unions. So the strict-src-only checks that
+  // would otherwise generate ~1000 lines of pure-ergonomics churn across these DOM/CJS
+  // harnesses are relaxed below; the cross-`src` checks that catch drift (property names,
+  // argument types/counts, object shapes) all remain in force. The shared mocks
+  // (tests/mocks/*) keep their explicit PR-3 types regardless.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "types": ["node"],
-    // Node test harnesses keep scaffolding (captured handles, unused params in
-    // callback shapes) that the strict src config would reject — relax here only.
+    // --- Test-tier strictness relaxations (do NOT bleed into the strict `src` config) ---
+    // Harnesses keep intentionally-unused scaffolding (captured handles, callback params).
     "noUnusedLocals": false,
     "noUnusedParameters": false,
+    // Untyped local helpers (check(), ad-hoc deps factories) are everywhere; annotating
+    // them all is churn that catches no drift.
+    "noImplicitAny": false,
+    // The dominant noise is `document.getElementById(id)` typed `Element | null` (the test
+    // built that element in innerHTML lines earlier) — guarding it is pure churn. Relaxing
+    // strict null-safety drops ~190 cascading errors; exactOptionalPropertyTypes and
+    // noImplicitReturns are strict-null refinements, so they go too (the latter also keeps
+    // tsc from re-reporting transitively-imported `src` under different semantics).
+    "strictNullChecks": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitReturns": false,
     // Tests `require()` CommonJS deps (jsdom) and dynamically `import()` `.ts` src;
     // they are not the strict-ESM bundle, so drop verbatimModuleSyntax for them.
     "verbatimModuleSyntax": false,
     // The harnesses import the module under test by its real `.ts` path (the loader
     // hooks resolve `.js`->`.ts` at runtime, but the static specifier is `.ts`).
     "allowImportingTsExtensions": true,
+    // The CJS harnesses are script-scoped (require()/dynamic import(), no top-level
+    // ESM import/export), so tsc would merge their top-level `pass`/`fail`/`check`
+    // declarations into one global scope and report spurious redeclare collisions.
+    // Force every file to its own module scope for checking — runtime is untouched
+    // (noEmit), Node still loads them as CommonJS.
+    "moduleDetection": "force",
     "allowJs": true,
-    "checkJs": true,
+    // Per-file opt-in: only files with a `// @ts-check` pragma are checked. The browser
+    // `?test=` suites and the puppeteer driver are included by the glob below but stay
+    // unchecked until they opt in (plan §3.3 leaves them for last); the Node-tier suites
+    // and the shared mocks all carry the pragma.
+    "checkJs": false,
     "noEmit": true
   },
   "include": [
     "types/**/*.d.ts",
-    "tests/mocks/**/*.mjs",
-    "tests/test-hooks-tests.js"
+    "tests/**/*.mjs",
+    "tests/**/*.js"
   ],
   "exclude": ["node_modules", "dist", "coverage"]
 }

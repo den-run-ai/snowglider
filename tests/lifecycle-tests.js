@@ -1,3 +1,4 @@
+// @ts-check
 // Headless, c8-instrumented coverage for src/game/lifecycle.ts `toggleCameraView`.
 //
 // Regression guard for the camera-row update bug: the in-game camera label used to
@@ -19,8 +20,9 @@ function check(name, condition) {
 }
 
 const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
-global.window = dom.window;
-global.document = dom.window.document;
+const g = /** @type {any} */ (globalThis);
+g.window = dom.window;
+g.document = dom.window.document;
 const { document } = dom.window;
 
 // Mirror the in-game Game Controls widget: the camera (V) row is NOT the last child —
@@ -46,7 +48,7 @@ function buildControlsDom() {
 
 function makeDeps(toggleModes) {
   let i = 0;
-  return {
+  return /** @type {any} */ ({
     state: {},
     cameraManager: {
       toggleCameraMode: () => toggleModes[i++ % toggleModes.length],
@@ -57,7 +59,7 @@ function makeDeps(toggleModes) {
     restartButton: document.createElement('button'),
     player: { pos: { x: 0, y: 0, z: 0 } },
     startLoop: () => {}
-  };
+  });
 }
 
 function rowText(id) {

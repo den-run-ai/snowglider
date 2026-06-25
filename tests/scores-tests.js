@@ -1,3 +1,4 @@
+// @ts-check
 // scores-tests.js
 // Headless, c8-instrumented coverage for src/scores.ts against the real module.
 //
@@ -10,25 +11,25 @@
 // DOM + localStorage + navigator.onLine come from the shared mocks (tests/mocks/).
 // setupDom is async-imported in main() so the globals are wired before src/scores.ts
 // loads; `env` holds the live handles (document, localStorage, setOnline).
-let env;
+/** @type {any} */ let env;
 
 // AuthModule-driven flags. The Firestore/Analytics mock state lives in
 // tests/mocks/firebase.mjs and is bound below once the mock is imported.
 let firestoreAvailable = true;
-let currentAuthUser = null;
+/** @type {any} */ let currentAuthUser = null;
 let reinitializeSucceeds = false;
 
 // Bound from the shared Firebase mock in loadScoresModule(). The resolve hook hands
 // src/scores.ts the SAME module instance, so seeding/reading here mutates exactly
 // the store the module under test reads and writes.
-let fb;
-let firestoreInstance;
-let analyticsInstance;
-let calls;
-let doc;
-let seed;
-let read;
-let setPendingWrite;
+/** @type {any} */ let fb;
+/** @type {any} */ let firestoreInstance;
+/** @type {any} */ let analyticsInstance;
+/** @type {any} */ let calls;
+/** @type {any} */ let doc;
+/** @type {any} */ let seed;
+/** @type {any} */ let read;
+/** @type {any} */ let setPendingWrite;
 
 async function loadScoresModule() {
   // Wire window/document/localStorage/navigator.onLine before src/scores.ts loads.
@@ -108,7 +109,7 @@ async function main() {
     ScoresModule.isValidScoreTime(0.01) === false &&
     ScoresModule.isValidScoreTime(600.01) === false &&
     ScoresModule.isValidScoreTime(Infinity) === false &&
-    ScoresModule.isValidScoreTime('14') === false);
+    ScoresModule.isValidScoreTime(/** @type {any} */ ('14')) === false);
   check('score validation accepts plausible numeric times',
     ScoresModule.isValidScoreTime(4) === true &&
     ScoresModule.isValidScoreTime(600) === true &&

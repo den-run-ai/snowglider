@@ -1,3 +1,4 @@
+// @ts-check
 // forward_stress_harness.js
 // Robustness stress test for the "floor it forward and blow past the obstacles"
 // class of bug (PR #209) — broadened in the #209 follow-up to a full INPUT x
@@ -35,8 +36,9 @@ const { pathToFileURL } = require('url');
 const path = require('path');
 
 // Minimal browser globals the kernel + tree/rock placement touch (no DOM/WebGL).
-global.window = { location: { search: '' }, matchMedia: () => ({ matches: false }), terrainMesh: null };
-global.document = undefined; // trees/rocks skip canvas textures when document is absent
+const g = /** @type {any} */ (globalThis);
+g.window = { location: { search: '' }, matchMedia: () => ({ matches: false }), terrainMesh: null };
+g.document = undefined; // trees/rocks skip canvas textures when document is absent
 try { Object.defineProperty(global, 'navigator', { value: { webdriver: false }, configurable: true }); } catch { /* keep existing */ }
 
 // Seeded PRNG so tree/rock placement, the auto-turn, and the wander schedule are
@@ -58,17 +60,17 @@ function pointSegmentDistance(px, pz, ax, az, bx, bz) {
 
 function makeScene() {
   const children = [];
-  return { children, add(o) { children.push(o); }, remove(o) { const i = children.indexOf(o); if (i >= 0) children.splice(i, 1); }, userData: {} };
+  return /** @type {any} */ ({ children, add(o) { children.push(o); }, remove(o) { const i = children.indexOf(o); if (i >= 0) children.splice(i, 1); }, userData: {} });
 }
 
 function fakeSnowman() {
   const ski = () => ({ position: { x: 0 }, rotation: { x: 0, y: 0, z: 0 } });
-  return {
+  return /** @type {any} */ ({
     position: { x: 0, y: 0, z: 0, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
     rotation: { x: 0, y: Math.PI, z: 0 },
     userData: { targetRotationY: Math.PI, currentRotX: 0, currentRotZ: 0,
                 leftSki: ski(), rightSki: ski(), leftSkiBaseX: -1, rightSkiBaseX: 1 },
-  };
+  });
 }
 
 (async () => {

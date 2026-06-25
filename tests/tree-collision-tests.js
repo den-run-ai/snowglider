@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Tree Collision Regression Tests for SnowGlider
  * 

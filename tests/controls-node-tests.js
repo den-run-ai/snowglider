@@ -1,3 +1,4 @@
+// @ts-check
 // controls-node-tests.js
 // Headless, c8-instrumented coverage for src/controls.ts (keyboard + touch input).
 //
@@ -22,17 +23,18 @@ const dom = new JSDOM(`<!doctype html><html><body>
 </body></html>`, { url: 'https://snowglider.ai/' });
 
 const { window } = dom;
-global.window = window;
-global.document = window.document;
+const g = /** @type {any} */ (globalThis);
+g.window = window;
+g.document = window.document;
 // controls.ts references these bare (globalThis): the game-over observer and the
 // `new Event('resize')` that toggleTouchControls dispatches. (Node 22+ already
 // provides a built-in global `navigator`, which isMobileDevice never reaches because
 // window.orientation short-circuits it.)
-global.MutationObserver = window.MutationObserver;
-global.Event = window.Event;
+g.MutationObserver = window.MutationObserver;
+g.Event = window.Event;
 // Mark the environment "mobile" so setupTouchControls enables the visual controls and
 // the reset/camera/restart button touch handlers.
-window.orientation = 0;
+/** @type {any} */ (window).orientation = 0;
 
 let pass = 0;
 let fail = 0;
@@ -55,7 +57,7 @@ function keyup(key) {
 // jsdom lacks TouchEvent; the handlers only read event.changedTouches, so a plain
 // Event carrying a changedTouches array exercises them exactly.
 function dispatchTouch(type, target, points) {
-  const event = new window.Event(type, { bubbles: true, cancelable: true });
+  const event = /** @type {any} */ (new window.Event(type, { bubbles: true, cancelable: true }));
   event.changedTouches = points;
   target.dispatchEvent(event);
 }
@@ -125,7 +127,7 @@ async function main() {
   document.body.appendChild(guide);
   controls.left = false;
   // Sanity: a normal document touch in the left region IS preventDefaulted.
-  const gameEvt = new window.Event('touchstart', { bubbles: true, cancelable: true });
+  const gameEvt = /** @type {any} */ (new window.Event('touchstart', { bubbles: true, cancelable: true }));
   gameEvt.changedTouches = [{ identifier: 7, clientX: W / 6, clientY: H / 2 }];
   document.dispatchEvent(gameEvt);
   check('a normal game touch is preventDefaulted', gameEvt.defaultPrevented === true);
@@ -135,7 +137,7 @@ async function main() {
   // Same left-region coordinates, but the gesture starts on the scroller row.
   const point = [{ identifier: 8, clientX: W / 6, clientY: H / 2 }];
   for (const type of ['touchstart', 'touchmove', 'touchend']) {
-    const evt = new window.Event(type, { bubbles: true, cancelable: true });
+    const evt = /** @type {any} */ (new window.Event(type, { bubbles: true, cancelable: true }));
     evt.changedTouches = point;
     guideRow.dispatchEvent(evt);
     check(`${type} inside #controlsContent is NOT preventDefaulted (native scroll)`,

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Headless tests for the Tier 3 sun cycle in src/sky.ts (issue #163, contract in
  * issue #188). The cycle is a *bounded atmospheric layer*: it captures the merged
@@ -148,7 +149,7 @@ function test(name, fn) {
     for (let e = 0; e <= Sky.CYCLE_DURATION_S * 2; e += 0.5) {
       Sky.update(0.5);
       assert.ok(directional.position.y > 0, `sun above horizon at e=${e}`);
-      const dir = scene.children.find((c) => c.name === 'AtmosphericSky').material.uniforms.sunPosition.value;
+      const dir = /** @type {any} */ (scene.children.find((c) => c.name === 'AtmosphericSky')).material.uniforms.sunPosition.value;
       assert.ok(dir.y >= minElevSin - 1e-9, `sun elevation >= guard at e=${e}: ${dir.y}`);
     }
   });

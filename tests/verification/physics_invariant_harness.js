@@ -1,3 +1,4 @@
+// @ts-check
 // physics_invariant_harness.js
 // Headless comparison of the pre-feature ("baseline") updateSnowman against the
 // current snowman.js, to guard the load-bearing safety property of the ski-technique
@@ -155,7 +156,8 @@ const mod = (await import('../../src/snowman.ts')).Snowman.updateSnowman;
 // updateSnowman reads window.treeCollisionRadius / window.location.search for its
 // test-hook + debug-logging paths; the frozen baseline gets these from its vm
 // sandbox, so provide the same minimal stub on the global for the imported module.
-global.window = global.window || { location: { search: '' } };
+const g = /** @type {any} */ (globalThis);
+g.window = g.window || { location: { search: '' } };
 
 const NONE = { left: false, right: false, up: false, down: false, jump: false };
 const DOWN = { left: false, right: false, up: false, down: true, jump: false };
@@ -245,7 +247,7 @@ function airCharge(startCharge, ctrl, frames = 12) {
   let st = { isInAir: true, verticalVelocity: 5, lastTerrainHeight: getTerrainHeight(0, -15),
              airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
   for (let i = 0; i < frames; i++) {
-    st = mod(sn, 1 / 60, pos, vel, st.isInAir, st.verticalVelocity, st.lastTerrainHeight, st.airTime,
+    st = mod(/** @type {any} */ (sn), 1 / 60, pos, vel, st.isInAir, st.verticalVelocity, st.lastTerrainHeight, st.airTime,
       st.jumpCooldown, ctrl, st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
       getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {});
   }

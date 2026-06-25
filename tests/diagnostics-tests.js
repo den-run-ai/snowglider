@@ -1,3 +1,4 @@
+// @ts-check
 // diagnostics-tests.js — headless unit tests for the physics/frame-rate telemetry
 // (src/diagnostics.ts, the runtime counterpart to the offline stress harnesses).
 //

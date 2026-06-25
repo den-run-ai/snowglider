@@ -1,3 +1,4 @@
+// @ts-check
 // firebase.mjs — in-memory Firebase (Firestore + Analytics) mock for Node coverage.
 //
 // The headless score/auth harnesses used to load the module-under-test through a

@@ -1,3 +1,4 @@
+// @ts-check
 // local-storage.mjs — in-memory localStorage shim for headless Node tests.
 //
 // jsdom either refuses localStorage on opaque origins or exposes a read-only one, so

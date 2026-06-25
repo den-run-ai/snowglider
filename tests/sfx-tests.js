@@ -1,3 +1,4 @@
+// @ts-check
 // sfx-tests.js — headless unit tests for the procedural sound-effects engine (#158).
 //
 // Sfx (src/sfx.ts) synthesises everything from Web Audio at runtime, so it has no

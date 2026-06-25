@@ -1,3 +1,4 @@
+// @ts-check
 // audio-asset-tests.js
 // Deterministic, dependency-free guard that the background-music asset wired into
 // src/audio.ts actually ships and is a decodable audio file. This is the headless

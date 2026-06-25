@@ -1,3 +1,4 @@
+// @ts-check
 // snowman-flex-tests.js — headless unit tests for the cosmetic flex layer (issue #53).
 //
 // Flex (src/snowman-flex.ts) imports THREE type-only, so it has no runtime three
@@ -34,6 +35,7 @@ function recordBase(parts) {
   }
   return out;
 }
+/** @returns {any} */
 function makeSnowman() {
   const parts = {
     bottom: makePart(0, 2, 0),
@@ -110,7 +112,7 @@ async function main() {
 
   // 5) No registry => safe no-op (e.g. the physics-harness stub snowman).
   {
-    const bare = { userData: {} };
+    const bare = /** @type {any} */ ({ userData: {} });
     let threw = false;
     try { Flex.update(bare, 1 / 60, { speed: 10, technique: 'glide', turnRate: 0, justLanded: false, landingForce: 0, isInAir: false }); Flex.reset(bare); }
     catch (e) { threw = true; }
@@ -119,8 +121,9 @@ async function main() {
 
   // 6) prefers-reduced-motion snaps the snowman rigid (== base).
   {
-    const prevWindow = global.window;
-    global.window = { matchMedia: () => ({ matches: true }) };
+    const g = /** @type {any} */ (globalThis);
+    const prevWindow = g.window;
+    g.window = { matchMedia: () => ({ matches: true }) };
     const sm = makeSnowman();
     // run a frame that WOULD jiggle, but reduced-motion should keep it at base
     Flex.update(sm, 1 / 60, { speed: 25, technique: 'carve', turnRate: 1, justLanded: true, landingForce: 1, isInAir: false });
@@ -128,7 +131,7 @@ async function main() {
     const rigid = Object.entries(sm.userData.parts).every(([k, p]) =>
       p.scale.y === base[k].scale.y && p.rotation.z === base[k].rotation.z && p.position.y === base[k].position.y);
     check('prefers-reduced-motion keeps the snowman rigid (== base)', rigid);
-    if (prevWindow === undefined) delete global.window; else global.window = prevWindow;
+    if (prevWindow === undefined) delete g.window; else g.window = prevWindow;
   }
 
   // 7) Ski flex (issue #189): the arms bend (rotation.x) but the flex layer writes ONLY

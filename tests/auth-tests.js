@@ -1,3 +1,4 @@
+// @ts-check
 // auth-tests.js
 // Headless, c8-instrumented coverage for src/auth.ts (popup-only Google sign-in).
 //
@@ -28,14 +29,15 @@ const dom = new JSDOM(`<!doctype html><html><body>
   </div>
 </body></html>`, { url: 'https://snowglider.ai/' });
 const { window } = dom;
-global.window = window;
-global.document = window.document;
+const g = /** @type {any} */ (globalThis);
+g.window = window;
+g.document = window.document;
 // auth.ts dispatches `new CustomEvent('snowglider:auth-changed')` on window. Bind
 // jsdom's CustomEvent on globalThis so the bare constructor builds an event from the
 // SAME realm as window — otherwise Node's built-in CustomEvent is rejected by
 // jsdom's window.dispatchEvent ("parameter 1 is not of type 'Event'").
-global.CustomEvent = window.CustomEvent;
-global.localStorage = (function () {
+g.CustomEvent = window.CustomEvent;
+g.localStorage = (function () {
   let store = {};
   return {
     getItem: k => (k in store ? store[k] : null),
@@ -44,12 +46,12 @@ global.localStorage = (function () {
     clear: () => { store = {}; }
   };
 })();
-window.localStorage = global.localStorage;
+g.window.localStorage = g.localStorage;
 
 // Capture alert() calls instead of popping a dialog.
 const alerts = [];
 window.alert = (msg) => { alerts.push(String(msg)); };
-global.alert = window.alert;
+g.alert = window.alert;
 
 // ---- Load the REAL src/auth.ts with the Firebase SDK mocked via the resolve hook ----
 // Bound from the shared Firebase mock once imported. The auth control surface (the
@@ -113,9 +115,9 @@ async function main() {
   window.addEventListener('snowglider:auth-changed', () => { authChangedEvents++; });
 
   console.log('\n--- Sign-in (popup success) ---');
-  const loginBtn = window.document.getElementById('loginBtn');
-  const authUI = window.document.getElementById('authUI');
-  const profileUI = window.document.getElementById('profileUI');
+  const loginBtn = /** @type {HTMLButtonElement} */ (window.document.getElementById('loginBtn'));
+  const authUI = /** @type {HTMLDivElement} */ (window.document.getElementById('authUI'));
+  const profileUI = /** @type {HTMLDivElement} */ (window.document.getElementById('profileUI'));
 
   fb.setNextPopupResult({ resolve: { user: { email: 'snow@glider.ai' } } });
   loginBtn.dispatchEvent(new window.Event('click'));
@@ -219,8 +221,8 @@ async function main() {
   check('unknown error: shows a generic alert', alerts.length === 1 && /boom/.test(alerts[0]));
 
   console.log('\n--- GitHub & Apple provider sign-in ---');
-  const githubBtn = window.document.getElementById('githubLoginBtn');
-  const appleBtn = window.document.getElementById('appleLoginBtn');
+  const githubBtn = /** @type {HTMLButtonElement} */ (window.document.getElementById('githubLoginBtn'));
+  const appleBtn = /** @type {HTMLButtonElement} */ (window.document.getElementById('appleLoginBtn'));
 
   // GitHub: a federated popup logged with method 'GitHubPopup'.
   fb.setNextPopupResult({ resolve: { user: { email: 'gh@glider.ai' } } });

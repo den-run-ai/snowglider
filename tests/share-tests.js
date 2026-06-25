@@ -1,3 +1,4 @@
+// @ts-check
 // share-tests.js
 // Focused, headless coverage for src/share.ts — the social-sharing helper behind
 // the finish result screen's "Share Result" button (see CHANGELOG #157).
@@ -72,7 +73,7 @@ async function main() {
   const data = buildResultShareData(42.13, false, 'https://snowglider.ai/');
 
   // (a) Native Web Share API present and succeeds.
-  let shared = null;
+  /** @type {any} */ let shared = null;
   setGlobal('navigator', { share: async (d) => { shared = d; } });
   check('uses navigator.share when available -> "shared"', (await shareResult(data)) === 'shared');
   check('native share receives title/text/url', !!shared && shared.text === data.text && shared.url === data.url);
@@ -182,7 +183,7 @@ async function main() {
   check('no navigator.share -> image share unavailable', (await shareImageFile(blob, data)) === 'unavailable');
   setGlobal('navigator', { share: async () => {}, canShare: () => false });
   check('canShare rejects files -> unavailable', (await shareImageFile(blob, data)) === 'unavailable');
-  let sharedFiles = null;
+  /** @type {any} */ let sharedFiles = null;
   setGlobal('navigator', { share: async (d) => { sharedFiles = d.files; }, canShare: () => true });
   check('native file share succeeds -> shared', (await shareImageFile(blob, data)) === 'shared');
   check('native file share receives a single File payload',
