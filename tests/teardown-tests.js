@@ -32,9 +32,41 @@ async function main() {
   await testDisposeGameIdempotent(THREE, disposeGame);
   await testOwnedDomNodeRemoval(THREE, disposeGame);
   await testSnowflakePoolTeardown(THREE);
+  await testAudioToastTeardown();
 
   console.log(`\nTEARDOWN TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
+}
+
+// ---- AudioModule.teardown(): clears on-screen showMessage() toasts + their timers so a
+// fixed z-index:3000 div doesn't linger over the host page after unmount (Codex review #226). ----
+async function testAudioToastTeardown() {
+  console.log('--- AudioModule.teardown: clears lingering showMessage toasts ---');
+  const { AudioModule } = await import('../src/audio.ts');
+
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
+  const g = globalThis;
+  const prevDoc = g.document, prevWin = g.window;
+  g.window = dom.window;
+  g.document = dom.window.document;
+  try {
+    AudioModule.showMessage('Loading game...', 100000); // long duration so it can't self-remove
+    AudioModule.showMessage('Get Ready!', 100000);
+    const toasts = () => [...dom.window.document.body.children].filter((el) => el.textContent === 'Loading game...' || el.textContent === 'Get Ready!');
+    check('showMessage appends the toast nodes to the body', toasts().length === 2);
+
+    AudioModule.teardown();
+    check('teardown removes every on-screen toast node', toasts().length === 0);
+
+    // Idempotent + a fresh toast after teardown is independent of the cleared ones.
+    let threw = false;
+    try { AudioModule.teardown(); } catch { threw = true; }
+    check('teardown is idempotent (no throw when no toasts remain)', !threw);
+  } finally {
+    AudioModule.teardown();
+    g.document = prevDoc;
+    g.window = prevWin;
+  }
 }
 
 // ---- Snow.teardownSnowflakes: detaches the sprites, frees their materials, and CLEARS
