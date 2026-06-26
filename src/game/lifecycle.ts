@@ -25,11 +25,19 @@ export interface LifecycleDeps extends
   // button (the loop keeps running), so it must reseed here or the stale pre-reset position
   // leaks into the render lerp and the first diagnostics step.
   resetLoopState: () => void;
+  // Optional AbortSignal tying the game-lifetime DOM listeners wired in initLifecycleUI
+  // (reset / camera-toggle / restart buttons) to disposeGame's teardown. Omitted by the
+  // lifecycle unit test, which never tears down.
+  signal?: AbortSignal;
 }
 
 export function createLifecycle(deps: LifecycleDeps) {
-  const { state, cameraManager, snowman, gameOverOverlay, restartButton, player, startLoop, resetLoopState } = deps;
+  const { state, cameraManager, snowman, gameOverOverlay, restartButton, player, startLoop, resetLoopState, signal } = deps;
   const pos = player.pos;
+  // Listener options for the game-lifetime button handlers below: thread the teardown
+  // signal when supplied so disposeGame can remove them, else live for the page.
+  const listenerOpts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
+  const touchOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
 
   function resetSnowman() {
     // Reset the snowman + player physics state (position, velocity, camera, and the
@@ -168,7 +176,7 @@ export function createLifecycle(deps: LifecycleDeps) {
   // camera-toggle button (created + appended here), and the restart button.
   function initLifecycleUI() {
     // Initialize controls but don't reset the snowman yet
-    document.getElementById('resetBtn')!.addEventListener('click', resetSnowman);
+    document.getElementById('resetBtn')!.addEventListener('click', resetSnowman, listenerOpts);
 
     // Add camera toggle button
     const cameraToggleBtn = document.createElement('button');
@@ -189,16 +197,16 @@ export function createLifecycle(deps: LifecycleDeps) {
     cameraToggleBtn.style.userSelect = 'none';
 
     // Add both click and touchend events to ensure cross-platform compatibility
-    cameraToggleBtn.addEventListener('click', toggleCameraView);
+    cameraToggleBtn.addEventListener('click', toggleCameraView, listenerOpts);
     cameraToggleBtn.addEventListener('touchend', function(event) {
       event.preventDefault();
       toggleCameraView();
-    }, { passive: false });
+    }, touchOpts);
 
     document.body.appendChild(cameraToggleBtn);
 
     // Add event listener to restart button
-    restartButton.addEventListener('click', restartGame);
+    restartButton.addEventListener('click', restartGame, listenerOpts);
   }
 
   return { resetSnowman, restartGame, toggleCameraView, initLifecycleUI };

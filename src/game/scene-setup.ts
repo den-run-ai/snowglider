@@ -51,7 +51,17 @@ export interface GameState {
   gameInitialized: boolean;          // true once the first run has been initialized
 }
 
-export function setupScene() {
+/**
+ * Build the scene, renderer, camera, DOM overlays, and every game subsystem once.
+ *
+ * @param signal optional AbortSignal that ties the game-lifetime DOM listeners
+ *   created here (the restart button's hover handlers) to `disposeGame`'s teardown —
+ *   aborting it removes them. Omitted by callers that never tear down (e.g. tests).
+ */
+export function setupScene(signal?: AbortSignal) {
+  // Listener options that wire game-lifetime handlers to the teardown AbortSignal
+  // when one is supplied (undefined => the listener simply lives for the page).
+  const listenerOpts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
   // --- Scene, Renderer and Camera ---
   // three.js enables color management (r152+) and physically-correct lights
   // (r155+ default) out of the box, both of which would shift SnowGlider's colors
@@ -144,10 +154,10 @@ export function setupScene() {
   restartButton.style.userSelect = 'none';
   restartButton.addEventListener('mouseenter', () => {
     restartButton.style.backgroundColor = '#ff725c';
-  });
+  }, listenerOpts);
   restartButton.addEventListener('mouseleave', () => {
     restartButton.style.backgroundColor = '#ff4136';
-  });
+  }, listenerOpts);
   gameOverOverlay.appendChild(restartButton);
 
   // Add to document

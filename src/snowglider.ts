@@ -41,13 +41,23 @@ import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { setupScene } from './game/scene-setup.js';
 import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createLifecycle } from './game/lifecycle.js';
+import { disposeGame } from './game/teardown.js';
 
 // Get keyboard controls from the Controls module
 Controls.setupControls();
 
+// One AbortController owns every game-lifetime DOM listener wired below and inside
+// scene-setup/lifecycle (the §4 listener-hygiene fix). Threading its `signal` into
+// each addEventListener collapses the old "62 adds vs 2 removes" asymmetry to a single
+// `abort()` in disposeGame — so unmount / dev-HMR doesn't leave duplicate handlers
+// firing on stale state.
+const listenerAbort = new AbortController();
+
 // --- Build the scene, objects, and subsystems (see game/scene-setup.ts) ---
 // The orchestrator owns the run loop + the window.* publish; scene-setup owns the
-// one-shot construction. Destructure the handles the loop/lifecycle/proxies use.
+// one-shot construction. Keep the whole context object (for disposeGame) and also
+// destructure the handles the loop/lifecycle/proxies use.
+const sceneContext = setupScene(listenerAbort.signal);
 const {
   scene,
   renderer,
@@ -62,7 +72,7 @@ const {
   snowman,
   snowSplash,
   state,
-} = setupScene();
+} = sceneContext;
 
 // --- Snowman Position & Reset ---
 // The per-frame player physics state lives in one typed PlayerState object
@@ -155,7 +165,7 @@ const { updateSnowman, updateCamera, startLoop, resetLoopState, handleResize } =
   rockPositions,
   showGameOver,
 });
-window.addEventListener('resize', handleResize);
+window.addEventListener('resize', handleResize, { signal: listenerAbort.signal });
 
 // --- Physics / frame-rate diagnostics (see src/diagnostics.ts) ---
 // A read-only telemetry observer the main loop feeds each frame (beside Sfx/Flex). It
@@ -215,6 +225,7 @@ const { resetSnowman, restartGame, toggleCameraView, initLifecycleUI } = createL
   player,
   startLoop,
   resetLoopState,
+  signal: listenerAbort.signal,
 });
 // Make reset/restart/toggle accessible globally for touch + keyboard handlers.
 window.resetSnowman = resetSnowman;
@@ -500,6 +511,25 @@ window.initializeGameWithAudio = function() {
     Object.defineProperty(window, name, { configurable: true, enumerable: false, ...live[name] });
   }
 })();
+
+// --- Teardown entry point (dispose-audit plan; see game/teardown.ts) ---
+// One idempotent disposeGame() that stops the loop, frees every GPU resource the
+// one-shot setupScene() allocated (scene sweep + subsystem disposes + tree pools),
+// drops the renderer/WebGL context + canvas, and aborts the listener controller above.
+// The run/restart flow is unchanged — this is a NEW path (unmount + dev-HMR), never
+// on the reuse path. Published beside the other coordinator handles.
+function disposeSnowGlider(): void {
+  disposeGame(sceneContext, () => listenerAbort.abort());
+}
+window.disposeGame = disposeSnowGlider;
+
+// Vite dev-HMR: release the previous instance before the module re-evaluates, so a
+// hot edit doesn't stack WebGL contexts ("too many active contexts") or duplicate
+// listeners. Stripped from production builds (Vite replaces import.meta.hot with
+// undefined), so this is a dev-only safety net.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => disposeSnowGlider());
+}
 
 // If this is a test environment, auto-start the game
 if (window.isTestMode) {

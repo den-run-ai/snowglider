@@ -80,6 +80,10 @@ declare global {
     toggleCameraView?: () => unknown;
     resetSnowman?: (...args: any[]) => unknown;
     restartGame?: () => unknown;
+    // Idempotent teardown for the whole game instance (dispose-audit plan): frees the
+    // WebGL context + GPU resources and removes game-lifetime listeners. Used by
+    // embedders/unmount and the dev-HMR hook; see src/game/teardown.ts.
+    disposeGame?: () => void;
     showGameOver?: (...args: any[]) => unknown;
     initializeGameWithAudio?: (...args: any[]) => unknown;
     // Test-only handles read/written by snowman.js test hooks + browser suites.
@@ -98,6 +102,17 @@ declare global {
       dump: () => unknown;
       reset: () => void;
       overlay: (on?: boolean) => void;
+    };
+  }
+
+  // Minimal Vite HMR typing for the coordinator's dev-only `import.meta.hot.dispose`
+  // teardown hook (src/snowglider.ts). The project doesn't pull in `vite/client`
+  // (its broad ambient module declarations would leak into every file), so declare
+  // just the slice we use. `hot` is undefined in production builds.
+  interface ImportMeta {
+    readonly hot?: {
+      dispose(cb: (data: unknown) => void): void;
+      accept(cb?: (mod: unknown) => void): void;
     };
   }
 }

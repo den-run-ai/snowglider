@@ -308,6 +308,23 @@ export class SnowTrails {
     this.next = 0;
   }
 
+  /**
+   * Free the GPU resources this system owns and detach it from the scene. The
+   * trail pool is an app-lifetime singleton during normal play (allocated once,
+   * reused for the page's life — `reset()` only zeroes the instance matrices), so
+   * this is called ONLY from the teardown path (`disposeGame`) / dev-HMR, never on
+   * a run reset. Mirrors {@link AvalancheSystem.dispose}: the InstancedMesh's
+   * geometry + material are the disposable GPU handles; the typed-array ring
+   * buffers are plain JS and are reclaimed with the instance. Idempotent — THREE's
+   * `dispose()` tolerates a second call, and `scene.remove` of an absent child is a
+   * no-op.
+   */
+  dispose(): void {
+    this.scene.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+  }
+
   /** Number of currently-live dabs (used by tests). */
   activeCount(): number {
     let n = 0;
