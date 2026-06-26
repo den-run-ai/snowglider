@@ -58,7 +58,8 @@ function makeDeps(toggleModes) {
     gameOverOverlay: document.createElement('div'),
     restartButton: document.createElement('button'),
     player: { pos: { x: 0, y: 0, z: 0 } },
-    startLoop: () => {}
+    startLoop: () => {},
+    resetLoopState: () => {}
   });
 }
 

@@ -414,21 +414,29 @@ export function createMainLoop(deps: MainLoopDeps) {
     }
   }
 
-  // Seed the frame clock and kick the loop. Replaces the lifecycle sites' previous
-  // `lastTime = performance.now(); animate(lastTime)` so the first delta stays ~0 while
-  // `lastTime`/`accumulator` remain private to the loop. Clears the per-run observer
-  // carry-over (last result + air edge) so a restart doesn't render one stale HUD/SFX
-  // frame from the previous run before its first physics step lands.
-  function startLoop() {
-    lastTime = performance.now();
+  // Reset the loop's per-run carry-over to the (already-reset) spawn state: drop the
+  // accumulator, clear the last result + air edge, and reseed the interpolation window to
+  // the current player position. MUST run after the player has been teleported to spawn.
+  // Called by startLoop AND by the lifecycle's resetSnowman — the in-game Reset button
+  // keeps the loop running (no startLoop), so without this the stale pre-reset position
+  // would leak into the render lerp (a visible camera/snowman jump) and into the first
+  // diagnostics step (a huge maxSubstepStep false tunnel-risk sample). Idempotent.
+  function resetLoopState() {
     accumulator = 0;
     lastResult = null;
     prevInAir = false;
-    // Seed the interpolation window to the (already-reset) spawn position so the first
-    // frames render at rest instead of lerping from a stale previous-run position.
     interpPrev.x = interpCur.x = pos.x;
     interpPrev.y = interpCur.y = pos.y;
     interpPrev.z = interpCur.z = pos.z;
+  }
+
+  // Seed the frame clock and kick the loop. Replaces the lifecycle sites' previous
+  // `lastTime = performance.now(); animate(lastTime)` so the first delta stays ~0 while
+  // `lastTime`/`accumulator` remain private to the loop. resetLoopState() clears the
+  // per-run carry-over so a restart doesn't render one stale frame from the previous run.
+  function startLoop() {
+    lastTime = performance.now();
+    resetLoopState();
     animate(lastTime);
   }
 
@@ -438,5 +446,5 @@ export function createMainLoop(deps: MainLoopDeps) {
     renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
-  return { updateSnowman, updateCamera, animate, startLoop, handleResize };
+  return { updateSnowman, updateCamera, animate, startLoop, resetLoopState, handleResize };
 }

@@ -142,7 +142,7 @@ const showGameOver = createShowGameOver({
 // Built after showGameOver (a loop dependency) exists. The loop owns `lastTime`;
 // lifecycle code calls startLoop() to seed it and kick requestAnimationFrame.
 // updateCamera/updateSnowman are re-published on window by publishGameGlobals below.
-const { updateSnowman, updateCamera, startLoop, handleResize } = createMainLoop({
+const { updateSnowman, updateCamera, startLoop, resetLoopState, handleResize } = createMainLoop({
   state,
   player,
   scene,
@@ -214,6 +214,7 @@ const { resetSnowman, restartGame, toggleCameraView, initLifecycleUI } = createL
   restartButton,
   player,
   startLoop,
+  resetLoopState,
 });
 // Make reset/restart/toggle accessible globally for touch + keyboard handlers.
 window.resetSnowman = resetSnowman;
