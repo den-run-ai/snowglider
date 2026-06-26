@@ -127,7 +127,15 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   const removeNode = (el: Node | null | undefined): void => { el?.parentNode?.removeChild(el); };
   removeNode(ctx.renderer.domElement.parentNode); // the #gameCanvas wrapper (+ its canvas)
   removeNode(ctx.gameOverOverlay);
-  removeNode(typeof document !== 'undefined' ? document.getElementById('cameraToggleBtn') : null);
+  if (typeof document !== 'undefined') {
+    removeNode(document.getElementById('cameraToggleBtn'));
+    // Mobile visual controls (controls.ts appends these lazily on touch devices); they
+    // have no module state to null, so remove them by class here.
+    document.querySelectorAll('.touch-control').forEach((el) => el.remove());
+  }
+  // Subsystem HUD owned by CourseModule/EffectsModule (#courseHud, #courseFlash, the
+  // avalanche banner/meter/vignette) is removed by their own teardown(), invoked from
+  // the coordinator's disposeSnowGlider — those modules hold the node + state handles.
 
   // 7. Game-lifetime DOM listeners (resize, keyboard/touch, buttons, …) — one abort
   //    removes them all (Controls + scene-setup + lifecycle + the coordinator's resize).

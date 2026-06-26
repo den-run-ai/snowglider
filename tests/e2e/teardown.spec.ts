@@ -46,6 +46,13 @@ test.describe('disposeGame teardown', () => {
     await expect(page.locator('#gameCanvas')).toHaveCount(0);
     await expect(page.locator('#gameOverOverlay')).toHaveCount(0);
     await expect(page.locator('#cameraToggleBtn')).toHaveCount(0);
+    // Subsystem HUD (CourseModule / EffectsModule) is gone too — a clean unmount leaves
+    // no fixed-position course/avalanche UI over the host page.
+    await expect(page.locator('#courseHud')).toHaveCount(0);
+    await expect(page.locator('#courseFlash')).toHaveCount(0);
+    await expect(page.locator('#avalancheBanner')).toHaveCount(0);
+    await expect(page.locator('#avalancheMeter')).toHaveCount(0);
+    await expect(page.locator('#avalancheVignette')).toHaveCount(0);
 
     // Idempotent: a second dispose must be a no-op, not a throw.
     await page.evaluate(() => (window as DisposeWindow).disposeGame!());

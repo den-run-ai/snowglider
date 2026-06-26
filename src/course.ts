@@ -703,6 +703,21 @@ export const CourseModule = (function () {
     return { renderer, scene, camera };
   }
 
+  // Remove the course HUD DOM and clear the pending flash timer (dispose-audit teardown
+  // / dev-HMR). buildHud appends #courseHud + #courseFlash to document.body, and a
+  // finished run may have left a #courseResult panel; without this they linger over the
+  // host page after disposeGame. The ghost snowman / sparkline GPU resources live in the
+  // scene and are freed by disposeGame's scene sweep. Idempotent; init() rebuilds the HUD.
+  function teardown() {
+    if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
+    hud.root?.remove();
+    hud.flash?.remove();
+    if (typeof document !== 'undefined') {
+      document.getElementById('courseResult')?.remove();
+    }
+    hud = {};
+  }
+
   return {
     init,
     reset,
@@ -711,6 +726,7 @@ export const CourseModule = (function () {
     addAirScore,
     hideHud,
     onFinish,
+    teardown,
     // exposed for potential tests
     _config: { START_Z, FINISH_Z, CHECKPOINT_Z, COURSE_LENGTH, splitPoints }
   };

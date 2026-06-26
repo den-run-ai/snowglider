@@ -34,6 +34,8 @@ import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
+import { CourseModule } from './course.js';
+import { EffectsModule } from './effects.js';
 import { Physics } from './player-state.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
@@ -551,6 +553,11 @@ function disposeSnowGlider(): void {
   // disposeGame's scene/renderer/listener teardown would otherwise leave running.
   AudioModule.teardown();
   Sfx.teardown();
+  // Remove the subsystem HUD these modules append to document.body (#courseHud /
+  // #courseFlash; the avalanche banner/meter/vignette) — they hold their own node +
+  // state handles, so they self-clean here rather than via the scene/DOM sweep.
+  CourseModule.teardown();
+  EffectsModule.teardown();
   disposeGame(sceneContext, () => listenerAbort.abort());
 }
 window.disposeGame = disposeSnowGlider;
