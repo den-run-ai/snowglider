@@ -193,24 +193,52 @@ is skipped (reproducing the original Loading/Get-Ready timing exactly) for the
 `?test=` suites (`window.isTestMode`), automated runs (`navigator.webdriver`), and
 `prefers-reduced-motion`; `?intro=force` / `?intro=off` override that for QA.
 
-Per-frame order in `animate(time)` (each step depends on the previous):
+**Fixed-timestep accumulator.** `animate(time)` does **not** step physics at the
+variable render delta. It folds the real frame delta into an accumulator
+(`src/game/fixed-timestep.ts`, `planSubsteps`) and advances physics only in whole
+**1/60 s** steps — the exact rate the physics-invariant harness pins — so the live
+trajectory is **render-rate-independent** and the per-step displacement is
+`velocity / 60` (well under any obstacle collision radius), which drives
+collision-tunnelling to **zero by construction** at any FPS. The variable render
+delta is still used for cosmetics/smoothing. A `MAX_SUBSTEPS = 8` cap is the
+spiral-of-death guard (at very low FPS the game slows rather than tunnels — the same
+~0.1 s ceiling the old `min(delta, 0.1)` clamp imposed, expressed as a step count).
+The split:
+
+- **`stepFixed(1/60)`** — runs once per substep: physics advance (`Physics.stepPlayer`,
+  the unchanged kernel), course progress (split/finish), and the avalanche **burial**
+  check — i.e. anything that mutates physics state or gates the run outcome and so must
+  not be skipped between frames. Per-substep `Diag.record` sees the true small step.
+- **`renderFrame(frameDelta, alpha)`** — runs once per render frame: HUD, cosmetic
+  flex, SFX, snow particles, sky, avalanche **advance + UI**, camera, render. Visual
+  only; never touches the physics-invariant harness. Events that can fire on any
+  substep (`justLanded` / takeoff / `landingQuality`) are **reduced across the frame's
+  substeps** so a jump/landing completing mid-frame is never dropped. `alpha` (the
+  leftover-step fraction) interpolates the rendered snowman position between the last
+  two physics states for smoothness on non-60 panels (144/50 Hz).
 
 ```
-delta = min((time - lastTime)/1000, 0.1)        // clamp
-updateSnowman(delta)                             // input + physics → pos/velocity
-  Flex.update(...)                               // cosmetic flex (reads result only)
-  Sfx.jump()/land(force)/updateSkiing(...)       // SFX: takeoff/touchdown + wind/edge bed (reads result only)
-Snow.updateSnowflakes(...)
-snowTrails.update(delta, snowman, isInAir)       // carve/fade ski grooves (cosmetic, reads pos only)
-CourseModule.update(pos, elapsed, snowman)       // splits, progress HUD, ghost
-avalanche.trigger/update/checkBurial/hasPassed   // + EffectsModule.updateAvalanche + Sfx.setAvalanche
-Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
-updateCamera()                                   // cameraManager follows snowman
-updateTimerDisplay()
-shake = EffectsModule.tickCamera(camera, delta, speed)   // FOV + shake offset
-renderer.render(scene, camera)
-camera.position -= shake                          // revert so smoothing stays clean
+plan = planSubsteps(accumulator, (time - lastTime)/1000)   // accumulator + spiral guard
+for i in 0..plan.steps:                                    // whole 1/60 s steps
+  stepFixed(1/60, events)                                  // physics → pos/velocity (kernel)
+    CourseModule.update(pos, elapsed, snowman)             // splits, progress HUD, ghost
+    avalanche.checkBurial(snowman.position)                // run-outcome gate
+    Diag.record({dt: 1/60, ...})                           // per-substep telemetry
+renderFrame(plan.frameDelta, plan.alpha, events, lastResult)
+  applyFrameObservers(...)  Flex.update / Sfx.* / updateStatsHud   // reads result + reduced events
+  Snow.updateSnowflakes / snowTrails.update / Sky.update
+  avalanche.trigger/update/hasPassed + EffectsModule.updateAvalanche + Sfx.setAvalanche
+  snowman.position = lerp(prevPhysicsPos, curPhysicsPos, alpha)    // render interpolation
+  Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
+  updateCamera() / updateTimerDisplay()
+  shake = EffectsModule.tickCamera(camera, frameDelta, speed)      // FOV + shake offset
+  renderer.render(scene, camera);  camera.position -= shake;       // revert (smoothing stays clean)
+  snowman.position = curPhysicsPos                                  // restore authoritative pos
 ```
+
+> `window.updateSnowman(delta)` is preserved as a compat seam (physics advance +
+> observer pass) for the browser test suites, which drive it directly to assert
+> collision/jump; the live loop uses `stepFixed` + `renderFrame` instead.
 
 ```
  input (Controls) ─┐

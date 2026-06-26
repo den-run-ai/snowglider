@@ -14,8 +14,15 @@ Companion docs: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how the modules fit togeth
 ## 1. Conventions
 
 - **Units.** 1 world unit = 1 metre for HUD purposes. Time is in seconds; `delta`
-  is the per-frame timestep, **capped at 0.1 s** in the animation loop so a stalled
-  tab cannot teleport the snowman.
+  is the physics timestep. The run loop steps physics on a **fixed 1/60 s grid**
+  (`src/game/fixed-timestep.ts`), accumulating the variable render delta and advancing
+  in whole 1/60 s substeps — so `delta` passed to the kernel is **always 1/60**,
+  regardless of render rate, and the trajectory is frame-rate-independent. A slow frame
+  is bounded to `MAX_SUBSTEPS = 8` steps (the old `min(delta, 0.1)` clamp expressed as a
+  step count): at very low FPS the game *slows* rather than teleporting the snowman.
+  Because the per-step displacement is `velocity / 60`, it can never exceed an obstacle's
+  collision radius, so the discrete collision check cannot be tunnelled through. See
+  [`ARCHITECTURE.md`](ARCHITECTURE.md) §5.
 - **Axes.** `+y` is up. The fall line runs along `-z`: the player starts near
   `z = -15` and skis toward `z = -195`. `x` is the cross-slope (left/right) axis.
 - **Downhill velocity is negative `z`.** Spawning, the avalanche, and the finish
