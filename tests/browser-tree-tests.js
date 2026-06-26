@@ -87,31 +87,40 @@ import { Snow as Utils } from '../src/snow.js';
     }
     
     // Test 1: Tree Position Array Verification
-    // This test verifies that treePositions array accurately represents all trees in the scene
+    // The forest is now rendered with InstancedMesh (one draw per geometry/material)
+    // instead of a Group-of-Meshes per tree, so there is no per-tree scene object to
+    // count. Each tree contributes EXACTLY one trunk instance, so the trunk
+    // InstancedMesh's `.count` must equal the collision array length — a stronger,
+    // exact check than the old ±10% Group tally.
     function testTreePositionArray() {
-      // Count visual trees in the scene
-      let visualTrees = 0;
+      // Find the instanced forest meshes; identify the trunk mesh by its userData tag.
+      let forestMeshCount = 0;
+      let trunkMesh = null;
       for (let i = 0; i < scene.children.length; i++) {
         const object = scene.children[i];
-        if (object.type === 'Group' && object.children.length > 3) {
-          visualTrees++;
+        if (object.name === 'forestInstanced' && object.isInstancedMesh) {
+          forestMeshCount++;
+          if (object.userData && object.userData.forestPart === 'trunk') trunkMesh = object;
         }
       }
-      
-      // Count trees in collision array
+
       const collisionTrees = treePositions.length;
-      
-      console.log(`Visual trees in scene: ${visualTrees}`);
+      const trunkInstances = trunkMesh ? trunkMesh.count : 0;
+
+      console.log(`Instanced forest meshes in scene: ${forestMeshCount}`);
+      console.log(`Trunk instances: ${trunkInstances}`);
       console.log(`Trees in collision array: ${collisionTrees}`);
-      
-      // Check if counts are reasonably close
-      const maxDifference = Math.max(visualTrees, collisionTrees) * 0.1; // Allow 10% difference
-      const difference = Math.abs(visualTrees - collisionTrees);
-      
-      assert(difference <= maxDifference, 'Tree Count Consistency', 
-        difference <= maxDifference ? 
-        `Tree counts match within tolerance: ${visualTrees} visual, ${collisionTrees} collision` : 
-        `Tree counts differ too much: ${visualTrees} visual, ${collisionTrees} collision`);
+
+      assert(forestMeshCount >= 1, 'Instanced Forest Present',
+        forestMeshCount >= 1 ?
+        `Forest rendered as ${forestMeshCount} InstancedMesh(es)` :
+        'No forestInstanced meshes found in the scene');
+
+      // One trunk instance per placed tree → exact match with the collision array.
+      assert(trunkInstances === collisionTrees, 'Tree Count Consistency',
+        trunkInstances === collisionTrees ?
+        `Trunk instances exactly match collision trees: ${trunkInstances}` :
+        `Trunk instances (${trunkInstances}) differ from collision trees (${collisionTrees})`);
     }
     
     // Test 2: Extended Terrain Tree Collision

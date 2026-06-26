@@ -127,9 +127,13 @@ let coneGeometry: THREE.ConeGeometry | null = null;
 let branchGeometry: THREE.CylinderGeometry | null = null;
 let snowCapGeometry: THREE.SphereGeometry | null = null;
 let snowPatchGeometry: THREE.SphereGeometry | null = null;
+let trunkColors: THREE.Color[] | null = null;
+let foliageColors: THREE.Color[] | null = null;
 let trunkMaterials: THREE.MeshStandardMaterial[] | null = null;
 let foliageMaterials: THREE.MeshStandardMaterial[] | null = null;
 let snowMaterial: THREE.MeshStandardMaterial | null = null;
+let barkInstancedMaterial: THREE.MeshStandardMaterial | null = null;
+let foliageInstancedMaterial: THREE.MeshStandardMaterial | null = null;
 
 /** Canonical trunk: top/bottom radius + height match the old defaults at scale 1. */
 function getTrunkGeometry(): THREE.CylinderGeometry {
@@ -165,48 +169,72 @@ function getSnowPatchGeometry(): THREE.SphereGeometry {
   return snowPatchGeometry;
 }
 
+// --- Colour palettes (the source of truth for both the Group shim and instances) ---
+// The forest is rendered with InstancedMesh (one draw per geometry/material), and
+// within a material family the *only* per-tree variation is the base colour. So the
+// palettes live here as bare `THREE.Color[]` and feed BOTH the legacy palette
+// materials (`getTrunkMaterials`/`getFoliageMaterials`, kept for the Group-returning
+// `createTree` shim + API compatibility) and the per-instance `setColorAt` calls in
+// `buildForest`. Same HSL values as before → identical look, now via `instanceColor`.
+
 /** Small palette of brown bark shades (the old per-trunk HSL range, quantised). */
-function getTrunkMaterials(): THREE.MeshStandardMaterial[] {
-  if (!trunkMaterials) {
-    const normalMap = getBarkNormal();
+function getTrunkColors(): THREE.Color[] {
+  if (!trunkColors) {
     const count = 6;
-    trunkMaterials = [];
+    trunkColors = [];
     for (let i = 0; i < count; i++) {
       const hue = 0.08 + (i / (count - 1)) * 0.04; // 0.08-0.12, as before
-      trunkMaterials.push(new THREE.MeshStandardMaterial({
-        color: new THREE.Color().setHSL(hue, 0.5, 0.3),
-        roughness: 0.9,
-        normalMap,
-        normalScale: new THREE.Vector2(0.7, 0.7)
-      }));
+      trunkColors.push(new THREE.Color().setHSL(hue, 0.5, 0.3));
     }
   }
-  return trunkMaterials;
+  return trunkColors;
 }
 
 /** Small palette of green foliage shades spanning the old per-cone HSL ranges. */
-function getFoliageMaterials(): THREE.MeshStandardMaterial[] {
-  if (!foliageMaterials) {
-    const normalMap = getFoliageNormal();
+function getFoliageColors(): THREE.Color[] {
+  if (!foliageColors) {
     const count = 12;
-    foliageMaterials = [];
+    foliageColors = [];
     for (let i = 0; i < count; i++) {
       const t = i / (count - 1);
       const hue = 0.35 + t * 0.07;                 // 0.35-0.42, as before
       const saturation = 0.6 + ((i * 7) % count) / count * 0.3; // spread across 0.6-0.9
       const lightness = 0.2 + ((i * 5) % count) / count * 0.1;  // spread across 0.2-0.3
-      foliageMaterials.push(new THREE.MeshStandardMaterial({
-        color: new THREE.Color().setHSL(hue, saturation, lightness),
-        roughness: 0.8,
-        normalMap,
-        normalScale: new THREE.Vector2(0.5, 0.5)
-      }));
+      foliageColors.push(new THREE.Color().setHSL(hue, saturation, lightness));
     }
+  }
+  return foliageColors;
+}
+
+/** Legacy per-shade bark materials (Group shim / API compat); built from the palette. */
+function getTrunkMaterials(): THREE.MeshStandardMaterial[] {
+  if (!trunkMaterials) {
+    const normalMap = getBarkNormal();
+    trunkMaterials = getTrunkColors().map(color => new THREE.MeshStandardMaterial({
+      color: color.clone(),
+      roughness: 0.9,
+      normalMap,
+      normalScale: new THREE.Vector2(0.7, 0.7)
+    }));
+  }
+  return trunkMaterials;
+}
+
+/** Legacy per-shade foliage materials (Group shim / API compat); built from the palette. */
+function getFoliageMaterials(): THREE.MeshStandardMaterial[] {
+  if (!foliageMaterials) {
+    const normalMap = getFoliageNormal();
+    foliageMaterials = getFoliageColors().map(color => new THREE.MeshStandardMaterial({
+      color: color.clone(),
+      roughness: 0.8,
+      normalMap,
+      normalScale: new THREE.Vector2(0.5, 0.5)
+    }));
   }
   return foliageMaterials;
 }
 
-/** The single shared white snow material (every cap/patch was identical anyway). */
+/** The single shared white snow material (every cap/patch is identical, no instanceColor). */
 function getSnowMaterial(): THREE.MeshStandardMaterial {
   if (!snowMaterial) {
     snowMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
@@ -214,31 +242,114 @@ function getSnowMaterial(): THREE.MeshStandardMaterial {
   return snowMaterial;
 }
 
-/** Pick a random material from a palette (forest colour variety, shared GPU state). */
-function pickMaterial(pool: THREE.MeshStandardMaterial[]): THREE.MeshStandardMaterial {
-  return pool[Math.floor(Math.random() * pool.length)]!;
+// --- Instanced materials (one per family; white base, tinted per-instance) ---
+// Collapsing the 6 bark + 12 foliage palette materials down to ONE material each:
+// the base colour is white and the chosen palette colour is supplied per instance via
+// `setColorAt` (`instanceColor` multiplies the white base, reproducing the palette
+// exactly — ColorManagement is off + output is LinearSRGB, so setHSL maps through
+// unchanged). Snow needs no tint, so the instanced snow caps/patches reuse the shared
+// white `getSnowMaterial()` directly. Headless-safe: the normal maps are null without
+// `document` and three treats a null `normalMap` as no map.
+
+/** White bark material for the instanced trunks (tinted per-instance). */
+function getBarkInstancedMaterial(): THREE.MeshStandardMaterial {
+  if (!barkInstancedMaterial) {
+    barkInstancedMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      normalMap: getBarkNormal(),
+      normalScale: new THREE.Vector2(0.7, 0.7)
+    });
+  }
+  return barkInstancedMaterial;
 }
 
-// Create a more realistic tree with visible branches and variability.
-// Each part draws from the shared geometry/material pools above and is sized via
-// `mesh.scale`, so the forest reuses a handful of GPU buffers/materials instead of
-// minting thousands. The mesh layout (one Group of individual meshes) is unchanged.
-function createTree(scale = 1.0): THREE.Group {
-  const group = new THREE.Group();
+/** White foliage material for the instanced cones + branches (tinted per-instance). */
+function getFoliageInstancedMaterial(): THREE.MeshStandardMaterial {
+  if (!foliageInstancedMaterial) {
+    foliageInstancedMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.8,
+      normalMap: getFoliageNormal(),
+      normalScale: new THREE.Vector2(0.5, 0.5)
+    });
+  }
+  return foliageInstancedMaterial;
+}
 
+/** Pick a random palette index (forest colour variety); one RNG draw, as before. */
+function pickColorIndex(paletteLength: number): number {
+  return Math.floor(Math.random() * paletteLength);
+}
+
+// --- Instanced forest: collectors + builder (the draw-call win, issue #...) ---
+// Sharing a geometry/material does NOT merge draws — the old code still assembled
+// every tree as a Group of ~14-35 individual Meshes, so a few-hundred-tree forest
+// issued thousands of draw calls per frame (doubled by the shadow pass). The parts
+// only span 5 geometries and 3 material families (bark/foliage/snow, varying just by
+// base colour), so the whole forest collapses to 5 InstancedMeshes — ~5 colour + ~5
+// shadow draws total — with per-instance colour reproducing the palette. The avalanche
+// boulders and ski tracks already use this pattern; the forest was the last holdout.
+//
+// `createTree` is now a *collector*: it runs the SAME randomisation in the SAME order
+// (byte-identical RNG draws) but records a transform (+ palette index) per part into
+// per-geometry buckets instead of minting a Mesh. `addTrees` collects every tree into
+// one shared set of buckets, then `buildForest` allocates the 5 InstancedMeshes. A thin
+// Group-returning `createTree` shim (below) feeds one tree through the collector and
+// rebuilds real Meshes from its bucket, preserving the public API for headless callers.
+
+type GeomKey = 'trunk' | 'cone' | 'branch' | 'snowCap' | 'snowPatch';
+const GEOM_KEYS: GeomKey[] = ['trunk', 'cone', 'branch', 'snowCap', 'snowPatch'];
+
+/** One placed part: its world matrix and (for tinted families) a palette colour index. */
+interface InstanceDesc {
+  matrix: THREE.Matrix4;
+  colorIndex?: number;
+}
+type Buckets = Record<GeomKey, InstanceDesc[]>;
+
+function createBuckets(): Buckets {
+  return { trunk: [], cone: [], branch: [], snowCap: [], snowPatch: [] };
+}
+
+// Scratch objects reused across pushPart calls (no per-part allocation churn).
+const _identity = new THREE.Matrix4();
+const _local = new THREE.Matrix4();
+const _world = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _e = new THREE.Euler();
+const _p = new THREE.Vector3();
+const _s = new THREE.Vector3();
+
+/** Compose a part's local TRS, premultiply by the tree's world matrix, record it. */
+function pushPart(
+  buckets: Buckets, key: GeomKey, treeMatrix: THREE.Matrix4,
+  pos: { x: number; y: number; z: number },
+  rot: { x: number; y: number; z: number },
+  scl: { x: number; y: number; z: number },
+  colorIndex?: number
+): void {
+  _q.setFromEuler(_e.set(rot.x, rot.y, rot.z));
+  _local.compose(_p.set(pos.x, pos.y, pos.z), _q, _s.set(scl.x, scl.y, scl.z));
+  _world.multiplyMatrices(treeMatrix, _local);
+  buckets[key].push(colorIndex === undefined ? { matrix: _world.clone() } : { matrix: _world.clone(), colorIndex });
+}
+
+// Collect one tree's parts into the buckets, translated by `treeMatrix`. This is the
+// original createTree body verbatim — same heightScale/widthScale/branchDensity draws,
+// same per-cone tilt — with each `new THREE.Mesh(...)` replaced by a pushPart(...).
+function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets): void {
   // Add randomization factors for variety
   const heightScale = (0.8 + Math.random() * 0.4) * scale; // 0.8-1.2 height variation with scaling
   const widthScale = (0.85 + Math.random() * 0.3) * scale; // 0.85-1.15 width variation with scaling
   const branchDensity = 3 + Math.floor(Math.random() * 3); // 3-5 branch layers
 
-  // Tree trunk — shared canonical cylinder, sized via scale, palette material.
+  // Tree trunk — base at y=0 (so its centre is at trunkHeight/2), sized via scale.
   const trunkHeight = 4 * heightScale;
-  const trunk = new THREE.Mesh(getTrunkGeometry(), pickMaterial(getTrunkMaterials()));
-  trunk.scale.set(widthScale, heightScale, widthScale);
-  // Position the trunk so its base is at y=0 instead of its center
-  trunk.position.y = trunkHeight / 2;
-  trunk.castShadow = true;
-  group.add(trunk);
+  const trunkColorIndex = pickColorIndex(getTrunkColors().length);
+  pushPart(buckets, 'trunk', treeMatrix,
+    { x: 0, y: trunkHeight / 2, z: 0 }, { x: 0, y: 0, z: 0 },
+    { x: widthScale, y: heightScale, z: widthScale }, trunkColorIndex);
 
   // Create multiple branch layers
   const baseHeight = trunkHeight;
@@ -250,115 +361,185 @@ function createTree(scale = 1.0): THREE.Group {
     const coneHeight = 2.5 * heightScale * layerScale;
     const coneRadius = 2.2 * widthScale * layerScale;
 
-    // Shared cone geometry resized to this layer; one foliage shade from the palette.
-    const coneMaterial = pickMaterial(getFoliageMaterials());
-    const cone = new THREE.Mesh(getConeGeometry(), coneMaterial);
-    cone.scale.set(widthScale * layerScale, heightScale * layerScale, widthScale * layerScale);
+    // One foliage shade from the palette (branches inherit the same index).
+    const coneColorIndex = pickColorIndex(getFoliageColors().length);
 
-    // Position with slight random offset for natural look
-    const xTilt = (Math.random() - 0.5) * 0.1; // Slight random tilt
+    // Slight random tilt for natural look
+    const xTilt = (Math.random() - 0.5) * 0.1;
     const zTilt = (Math.random() - 0.5) * 0.1;
-    cone.rotation.x = xTilt;
-    cone.rotation.z = zTilt;
 
     // Position branches with overlap
     layerHeight += coneHeight * 0.6;
-    cone.position.y = layerHeight;
-    cone.castShadow = true;
-    group.add(cone);
+    pushPart(buckets, 'cone', treeMatrix,
+      { x: 0, y: layerHeight, z: 0 }, { x: xTilt, y: 0, z: zTilt },
+      { x: widthScale * layerScale, y: heightScale * layerScale, z: widthScale * layerScale },
+      coneColorIndex);
 
     // Add visible branches coming out of each cone layer
-    addBranchesAtLayer(group, cone.position, coneRadius, coneMaterial);
+    collectBranchesAtLayer(buckets, treeMatrix, layerHeight, coneRadius, coneColorIndex);
   }
 
   // Add some snow on the branches for winter effect
-  addSnowCaps(group, layerHeight, widthScale);
-
-  return group;
+  collectSnowCaps(buckets, treeMatrix, layerHeight, widthScale);
 }
 
-// Add visible branches sticking out of the main cone shape. They are added to the
-// tree group (not the cone) so the shared unit branch geometry can be sized in
-// world units via scale without inheriting the cone's own size — the cone's tiny
-// tilt is the only thing the branches no longer inherit (visually imperceptible).
-function addBranchesAtLayer(parent: THREE.Object3D, conePosition: THREE.Vector3, radius: number, material: THREE.Material) {
+// Collect the branches sticking out of one cone layer. The cone sits at (0, coneY, 0)
+// in tree space, so this matches the old addBranchesAtLayer math with conePosition.x/z
+// fixed at 0 (the cone only ever had its y set).
+function collectBranchesAtLayer(
+  buckets: Buckets, treeMatrix: THREE.Matrix4, coneY: number, radius: number, colorIndex: number
+): void {
   // Number of branches depends on radius
   const branchCount = Math.floor(3 + Math.random() * 3); // 3-5 visible branches
 
   for (let i = 0; i < branchCount; i++) {
-    // Create branch — shared unit cylinder (pre-rotated along +X) sized via scale.
+    // Shared unit cylinder (pre-rotated along +X) sized via scale.
     const branchLength = radius * (0.7 + Math.random() * 0.5);
     const branchThickness = 0.1 + Math.random() * 0.1;
-
-    const branch = new THREE.Mesh(getBranchGeometry(), material);
-    branch.scale.set(branchLength, branchThickness, branchThickness);
 
     // Position branch at random angle around cone
     const angle = (i / branchCount) * Math.PI * 2 + Math.random() * 0.5;
     const height = Math.random() * 0.5; // Vertical position variation
 
-    branch.position.set(
-      conePosition.x + Math.cos(angle) * (radius * 0.5),
-      conePosition.y + height,
-      conePosition.z + Math.sin(angle) * (radius * 0.5)
-    );
+    const rotX = (Math.random() - 0.5) * 0.3;
+    const rotZ = (Math.random() - 0.5) * 0.1;
 
-    // Random rotation for natural variation
-    branch.rotation.y = angle;
-    branch.rotation.x = (Math.random() - 0.5) * 0.3;
-    branch.rotation.z = (Math.random() - 0.5) * 0.1;
-
-    branch.castShadow = true;
-    parent.add(branch);
+    pushPart(buckets, 'branch', treeMatrix, {
+      x: Math.cos(angle) * (radius * 0.5),
+      y: coneY + height,
+      z: Math.sin(angle) * (radius * 0.5)
+    }, { x: rotX, y: angle, z: rotZ },
+      { x: branchLength, y: branchThickness, z: branchThickness }, colorIndex);
   }
 }
 
-// Add snow caps on top of tree (shared snow geometry/material, sized via scale).
-function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: number) {
-  const snowMat = getSnowMaterial();
-
+// Collect snow caps on top of the tree (shared snow geometry, no tint).
+function collectSnowCaps(buckets: Buckets, treeMatrix: THREE.Matrix4, treeHeight: number, widthScale: number): void {
   // Add some snow on top
   const capRadius = widthScale * 0.8;
-  const snowCap = new THREE.Mesh(getSnowCapGeometry(), snowMat);
-  snowCap.scale.set(capRadius, capRadius * 0.5, capRadius); // flattened dome, as before
-  snowCap.position.y = treeHeight + 0.2;
-  tree.add(snowCap);
+  pushPart(buckets, 'snowCap', treeMatrix,
+    { x: 0, y: treeHeight + 0.2, z: 0 }, { x: 0, y: 0, z: 0 },
+    { x: capRadius, y: capRadius * 0.5, z: capRadius }); // flattened dome, as before
 
   // Maybe add snow on some branches
   if (Math.random() > 0.4) {
     const patchRadius = widthScale * 0.4;
     for (let i = 0; i < 2 + Math.random() * 3; i++) {
-      const snowPatch = new THREE.Mesh(getSnowPatchGeometry(), snowMat);
       // Random position on the tree
       const angle = Math.random() * Math.PI * 2;
       const radius = widthScale * (0.8 + Math.random() * 0.8);
       const height = 2 + Math.random() * (treeHeight - 3);
 
-      snowPatch.position.set(
-        Math.cos(angle) * radius,
-        height,
-        Math.sin(angle) * radius
-      );
-
-      snowPatch.scale.set(patchRadius, patchRadius * 0.3, patchRadius);
-      snowPatch.rotation.x = Math.random() * Math.PI / 4;
-      snowPatch.rotation.z = Math.random() * Math.PI / 4;
-
-      tree.add(snowPatch);
+      pushPart(buckets, 'snowPatch', treeMatrix, {
+        x: Math.cos(angle) * radius,
+        y: height,
+        z: Math.sin(angle) * radius
+      }, { x: Math.random() * Math.PI / 4, y: 0, z: Math.random() * Math.PI / 4 },
+        { x: patchRadius, y: patchRadius * 0.3, z: patchRadius });
     }
   }
 }
 
+/** The shared base geometry for a bucket key. */
+function geometryForKey(key: GeomKey): THREE.BufferGeometry {
+  switch (key) {
+    case 'trunk': return getTrunkGeometry();
+    case 'cone': return getConeGeometry();
+    case 'branch': return getBranchGeometry();
+    case 'snowCap': return getSnowCapGeometry();
+    case 'snowPatch': return getSnowPatchGeometry();
+  }
+}
+
+/** Rebuild a real Mesh from one collected part (for the Group-returning createTree shim). */
+function meshFromDesc(key: GeomKey, desc: InstanceDesc): THREE.Mesh {
+  let material: THREE.Material;
+  if (key === 'trunk') material = getTrunkMaterials()[desc.colorIndex!]!;
+  else if (key === 'cone' || key === 'branch') material = getFoliageMaterials()[desc.colorIndex!]!;
+  else material = getSnowMaterial();
+  const mesh = new THREE.Mesh(geometryForKey(key), material);
+  mesh.applyMatrix4(desc.matrix); // decomposes the world TRS into position/quaternion/scale
+  mesh.castShadow = true;
+  return mesh;
+}
+
+// Group-returning shim — kept for API compatibility (contract-surface tests, any
+// headless caller) and not used by the instanced `addTrees` path. Runs one tree
+// through the collector at identity and rebuilds individual Meshes from its bucket,
+// so the visible result matches the old per-mesh tree exactly.
+function createTree(scale = 1.0): THREE.Group {
+  const buckets = createBuckets();
+  collectTree(scale, _identity, buckets);
+  const group = new THREE.Group();
+  for (const key of GEOM_KEYS) {
+    for (const desc of buckets[key]) group.add(meshFromDesc(key, desc));
+  }
+  return group;
+}
+
+// Thin Object3D-emitting shims preserved on the Trees API (contract-surface tests).
+// They delegate to the collectors and append the rebuilt Meshes to `parent`, matching
+// the old addBranchesAtLayer/addSnowCaps signatures for any external caller.
+function addBranchesAtLayer(parent: THREE.Object3D, conePosition: THREE.Vector3, radius: number, _material?: THREE.Material): void {
+  const buckets = createBuckets();
+  // Reproduce the old world placement: branches sat at conePosition (x/z preserved).
+  collectBranchesAtLayer(buckets, new THREE.Matrix4().makeTranslation(conePosition.x, 0, conePosition.z), conePosition.y, radius, 0);
+  for (const desc of buckets.branch) parent.add(meshFromDesc('branch', desc));
+}
+
+function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: number): void {
+  const buckets = createBuckets();
+  collectSnowCaps(buckets, _identity, treeHeight, widthScale);
+  for (const desc of buckets.snowCap) tree.add(meshFromDesc('snowCap', desc));
+  for (const desc of buckets.snowPatch) tree.add(meshFromDesc('snowPatch', desc));
+}
+
+// Tracked so a re-init can dispose the previous forest's per-instance buffers before
+// rebuilding (the pooled geometries/materials are app-lifetime; only the InstancedMesh
+// instanceMatrix/instanceColor buffers are per-forest and must be freed on rebuild).
+let forestMeshes: THREE.InstancedMesh[] = [];
+
+// Allocate the 5 InstancedMeshes from the collected buckets and add them to the scene.
+function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[] {
+  const defs: Array<[GeomKey, THREE.Material, THREE.Color[] | null]> = [
+    ['trunk', getBarkInstancedMaterial(), getTrunkColors()],
+    ['cone', getFoliageInstancedMaterial(), getFoliageColors()],
+    ['branch', getFoliageInstancedMaterial(), getFoliageColors()],
+    ['snowCap', getSnowMaterial(), null],
+    ['snowPatch', getSnowMaterial(), null]
+  ];
+  const built: THREE.InstancedMesh[] = [];
+  for (const [key, material, palette] of defs) {
+    const list = buckets[key];
+    if (list.length === 0) continue; // skip empty families (no zero-count draw)
+    const im = new THREE.InstancedMesh(geometryForKey(key), material, list.length);
+    im.castShadow = true;
+    im.name = 'forestInstanced';        // scene-cleanup + test handle
+    im.userData.forestPart = key;       // lets tests identify the trunk mesh (1 per tree)
+    for (let i = 0; i < list.length; i++) {
+      im.setMatrixAt(i, list[i]!.matrix);
+      if (palette && list[i]!.colorIndex !== undefined) im.setColorAt(i, palette[list[i]!.colorIndex!]!);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    scene.add(im);
+    built.push(im);
+  }
+  return built;
+}
+
 // Add trees to make the scene more interesting
 function addTrees(scene: THREE.Scene): TreePosition[] {
-  // Remove any existing trees from the scene to prevent duplicates
-  for (let i = scene.children.length - 1; i >= 0; i--) {
-    const child = scene.children[i]!;
-    // Trees are typically groups with many child elements
-    if (child.type === 'Group' && child.children.length > 3) {
-      scene.remove(child);
-    }
+  // Remove + dispose any previously-built instanced forest to prevent duplicates on
+  // re-init (the trees are InstancedMeshes named 'forestInstanced' now, not Groups).
+  // The shared geometries/materials are pooled and app-lifetime, so InstancedMesh
+  // .dispose() — which frees only the per-forest instanceMatrix/instanceColor buffers —
+  // is the right teardown. forestMeshes holds the exact handles we added last time.
+  for (const mesh of forestMeshes) {
+    scene.remove(mesh);
+    mesh.dispose();
   }
+  forestMeshes = [];
   
   const treePositions: TreePosition[] = [];
 
@@ -504,23 +685,20 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   const extendedTrees = treePositions.filter(tree => tree.z < -80).length;
   console.log(`Trees.addTrees: ${extendedTrees} trees in extended terrain area (z < -80)`);
   
-  // Create tree instances - ensure trees are properly anchored to terrain.
+  // Collect every tree's parts into shared per-geometry buckets, then allocate the
+  // InstancedMeshes once — the whole forest becomes ~5 colour + ~5 shadow draws.
   // (Tree height comes from the analytic terrain sampler below; the old
-  // Raycaster/terrain-mesh lookup here was dead code and has been removed.)
+  // Raycaster/terrain-mesh lookup here was dead code and has been removed.) Each tree's
+  // world matrix is a pure translation: the group only ever got .position.set(...), and
+  // trees are sunk 0.5 units into the terrain to anchor them.
+  const buckets = createBuckets();
   treePositions.forEach(pos => {
-    // Get the exact terrain height from our height map or via calculation
     const terrainHeight = getTerrainHeight(pos.x, pos.z);
-    
-    // Create tree with optional scale and position it precisely on the terrain
-    // Use the scale from the position data or default to 1.0
     const treeScale = pos.scale || 1.0;
-    const tree = createTree(treeScale);
-    
-    // Make sure trees are properly anchored by sinking them 0.5 units into the terrain
-    tree.position.set(pos.x, terrainHeight - 0.5, pos.z);
-    scene.add(tree);
+    collectTree(treeScale, new THREE.Matrix4().makeTranslation(pos.x, terrainHeight - 0.5, pos.z), buckets);
   });
-  
+  forestMeshes = buildForest(scene, buckets);
+
   return treePositions;
 }
 
