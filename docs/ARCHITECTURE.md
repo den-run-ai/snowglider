@@ -193,24 +193,45 @@ is skipped (reproducing the original Loading/Get-Ready timing exactly) for the
 `?test=` suites (`window.isTestMode`), automated runs (`navigator.webdriver`), and
 `prefers-reduced-motion`; `?intro=force` / `?intro=off` override that for QA.
 
-Per-frame order in `animate(time)` (each step depends on the previous):
+**Fixed-timestep loop.** `animate(time)` advances physics with a **fixed-timestep
+accumulator** (`src/game/fixed-timestep.ts`), not the raw render delta. Physics only ever
+steps in `FIXED_DT = 1/60` s substeps — exactly the rate the invariant harness pins
+(`physics_invariant_harness.js` drives the kernel at `1/60`) — so the live build advances
+physics at the same rate the suite tests, the per-step displacement is `velocity / 60`
+(well under any collision radius → tunnel-risk frames are zero by construction), and the
+trajectory is **frame-rate independent** (identical at 30 / 50 / 144 FPS and under jitter;
+gated by `fixed_timestep_harness.js`). `MAX_SUBSTEPS = 8` is the spiral-of-death guard
+(~133 ms ceiling) — the same ceiling the old `min(delta, 0.1)` clamp imposed, expressed as
+a step count, so a slow frame *slows time* rather than tunnelling. The physics kernel
+(`snowman/physics.ts`) is **unchanged** — at `1/60`, `dragFactor` is an identity.
+
+Per-frame order in `animate(time)`:
 
 ```
-delta = min((time - lastTime)/1000, 0.1)        // clamp
-updateSnowman(delta)                             // input + physics → pos/velocity
-  Flex.update(...)                               // cosmetic flex (reads result only)
-  Sfx.jump()/land(force)/updateSkiing(...)       // SFX: takeoff/touchdown + wind/edge bed (reads result only)
-Snow.updateSnowflakes(...)
-snowTrails.update(delta, snowman, isInAir)       // carve/fade ski grooves (cosmetic, reads pos only)
-CourseModule.update(pos, elapsed, snowman)       // splits, progress HUD, ghost
-avalanche.trigger/update/checkBurial/hasPassed   // + EffectsModule.updateAvalanche + Sfx.setAvalanche
-Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
-updateCamera()                                   // cameraManager follows snowman
-updateTimerDisplay()
-shake = EffectsModule.tickCamera(camera, delta, speed)   // FOV + shake offset
-renderer.render(scene, camera)
-camera.position -= shake                          // revert so smoothing stays clean
+frameDelta = (time - lastTime)/1000
+plan = planSubsteps(frameDelta, accumulator)     // ceiling-cap @ MAX_SUBSTEPS·FIXED_DT, count substeps
+
+for each of plan.substeps:  stepFixed(FIXED_DT)   // the fixed grid (run-outcome-gating work):
+  Physics.stepPlayer(FIXED_DT)                    //   input + physics → pos/velocity
+  reduce frame events (takeoff/justLanded/grade)  //   so a mid-frame jump+land isn't dropped (§5)
+  CourseModule.update(pos, elapsed, snowman)      //   splits, progress HUD, ghost, FINISH check
+  avalanche.checkBurial(...)                      //   game-over check (boulder advance is per-frame)
+  Diag.record(FIXED_DT, ...)                      //   telemetry per substep → step = velocity/60
+
+renderFrame(frameDelta, alpha)                    // once per render frame (cosmetic / world / render):
+  applySnowmanObservers(...)                      //   HUD, landing shake/toast, Flex, Sfx (reads result only)
+  Snow.updateSnowflakes / snowTrails / Sky.update
+  avalanche.trigger/update/hasPassed + Effects.updateAvalanche + Sfx.setAvalanche
+  Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
+  updateCamera()  at lerp(prevPos, curPos, alpha) // interpolated to de-alias non-60 panels
+  updateTimerDisplay()
+  shake = EffectsModule.tickCamera(camera, frameDelta, speed); renderer.render(...); camera.position -= shake
 ```
+
+`updateSnowman(delta)` is retained as a **compat seam** (re-published on `window` for the
+browser suites): it runs one `stepFixed(delta)` + `applySnowmanObservers(delta)` — a single
+combined frame at an arbitrary delta — but never the world-advance / render. The live loop
+above never calls it.
 
 ```
  input (Controls) ─┐

@@ -268,6 +268,17 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
   synthetic slope) and asserts the 10-FPS/60-FPS front-travel ratio stays near 1 and all
   boulder state stays finite. Guards the per-frame-friction regression fixed alongside
   this harness (the same bug class as PR #209). Also run via `npm run test:stress`.
+- **`fixed_timestep_harness.js`** — frame-rate-EQUIVALENCE + no-tunnelling gate for the
+  fixed-timestep run loop. Drives the loop's **real** accumulator
+  (`src/game/fixed-timestep.ts` `planSubsteps`, the exact function `main-loop.ts` uses)
+  over the real kernel + terrain + trees/rocks and gates the two guarantees the fixed step
+  newly provides: **(1)** the same run produces a **byte-identical trajectory** at 30 / 50 /
+  144 FPS and under a jittery schedule vs the 60 FPS reference (the variable-dt loop diverges
+  — shown as a contrast); **(2)** replayed through the diagnostics classifier at `1/60`, every
+  physics substep's step is `velocity/60`, so **`tunnelRiskFrames == 0`** and the
+  collision-check granularity is frame-rate-independent (the old per-frame granularity grew
+  with frame time — the tunnelling precondition). The pure accumulator math is unit-covered in
+  `tests/fixed-timestep-tests.js`. Both run via `npm run test:fixed-timestep` (also in `npm test`).
 - **`results.txt`** — the recorded output from the last full verification run.
 
 ```bash

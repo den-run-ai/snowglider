@@ -13,6 +13,43 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fixed-timestep accumulator: frame-rate-independent physics
+- **The run loop now steps physics in fixed `1/60` s substeps**, not the raw render delta.
+  Previously `animate(time)` advanced the kernel with the variable `min(delta, 0.1)` frame
+  time, which makes the steady state frame-rate dependent (the #209 bug class — see
+  `diagnostics.ts`): at low FPS a single `pos += velocity·delta` step can exceed an
+  obstacle's collision radius (tunnelling through a tree) and a per-frame-vs-per-second
+  mismatch in any force balloons terminal speed. A fixed-timestep **accumulator**
+  (`src/game/fixed-timestep.ts`, `planSubsteps`) removes the cause: physics only ever
+  advances in `FIXED_DT = 1/60` steps — *exactly the rate the invariant harness pins* — so
+  the live build advances physics at the same rate the suite tests, the per-step
+  displacement is `velocity/60` (well under any collision radius → tunnel-risk frames are
+  zero by construction), and the **trajectory is frame-rate independent** (identical at
+  30 / 50 / 144 FPS and under jitter). `MAX_SUBSTEPS = 8` is the spiral-of-death guard: the
+  same ~133 ms ceiling the old `0.1` s clamp imposed, expressed as a step count, so a very
+  slow frame *slows time* rather than tunnelling — a strictly better failure mode.
+- **The physics kernel (`snowman/physics.ts`) is unchanged.** At `1/60`, `dragFactor` is an
+  identity, so the kernel is byte-identical to the harness's `1/60` world — the
+  physics-invariant harness (which drives the kernel directly) is unaffected, proving the
+  kernel didn't move. The accumulator lives entirely in `src/game/main-loop.ts`.
+- **Loop split (`main-loop.ts`).** `stepFixed(FIXED_DT)` runs anything that changes physics
+  state or could be *missed between frames* — the physics advance, course progress + finish,
+  avalanche burial, and the read-only `Diag.record` (per substep, so the step it sees is the
+  fixed-grid displacement → `tunnelRiskFrames == 0`). `renderFrame(frameDelta, alpha)` runs
+  everything purely visual once per render frame — HUD, Flex, SFX, particles, sky, ski
+  trails, the avalanche advance + UI, and the camera/snowman render **interpolated** at
+  `lerp(prevPos, curPos, alpha)` to de-alias non-60 panels. Landing/takeoff **events are
+  reduced across a frame's substeps** so a jump-and-land that completes mid-frame still fires
+  its whoosh/thump/toast (and the meaningful-jumps #47 finish-frame guarantee is preserved).
+  `updateSnowman(delta)` is kept as a compat seam (`stepFixed` + the snowman-observer layer,
+  no world-advance/render) so the browser suites can still drive one frame by bare name.
+- **Tests.** `tests/fixed-timestep-tests.js` unit-covers the pure accumulator
+  (`planSubsteps`/`lerp`: substep counting, the spiral guard, frame-rate-invariant totals);
+  `tests/verification/fixed_timestep_harness.js` drives the **real** accumulator over the
+  **real** kernel + terrain + obstacles and gates (1) byte-identical trajectories across
+  render rates and (2) `tunnelRiskFrames == 0`, with the old variable-dt loop as a contrast.
+  Both run under `npm run test:fixed-timestep` (added to the default `npm test` chain).
+
 ### Three.js rendering perf: shared tree geometry/material pools + renderer tuning
 - **Trees (`src/mountains/trees.ts`) were the forest's odd one out.** The avalanche
   boulders and ski tracks already share a single geometry/material, but each of the
