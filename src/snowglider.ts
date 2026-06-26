@@ -589,7 +589,8 @@ function disposeSnowGlider(): void {
     'initializeGameWithAudio', 'terrainMesh', 'treePositions', 'rockPositions', 'disposeGame']) {
     delete w[name];
   }
-  if (window.testHooks) delete window.testHooks.isDebrisActive;
+  const testHooks = window.testHooks as Record<string, unknown> | undefined;
+  if (testHooks) delete testHooks.isDebrisActive;
 }
 window.disposeGame = disposeSnowGlider;
 
