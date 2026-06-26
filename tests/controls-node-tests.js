@@ -239,6 +239,37 @@ async function main() {
       return firedWhileLive === 1 && hits === 1; // fired once live, not after abort
     })());
 
+  // --- delayed overlay-observer abort guard (Codex review #226) ---
+  // On mobile setupControls() runs before setupScene() creates #gameOverOverlay, so
+  // setupButtonTouchHandlers arms a 1s delayed observe(). Aborting the teardown signal
+  // during that window must cancel it — else a remounted overlay (HMR) gets the stale
+  // observer and the old restart touch handler.
+  console.log('\n--- delayed overlay observer abort guard ---');
+  {
+    const existing = document.getElementById('gameOverOverlay');
+    if (existing) existing.remove(); // force the no-overlay-yet (delayed observe) branch
+    let observeCalls = 0;
+    const realObserve = window.MutationObserver.prototype.observe;
+    window.MutationObserver.prototype.observe = function (...a) { observeCalls++; return realObserve.apply(this, /** @type {any} */ (a)); };
+    const ac2 = new window.AbortController();
+    try {
+      Controls.setupControls(ac2.signal); // arms the 1s delayed observe (overlay absent)
+      const observesBefore = observeCalls;
+      ac2.abort();                        // tear down DURING the 1s delay window
+      // A remount re-creates the overlay before the timeout would have fired.
+      const remounted = document.createElement('div');
+      remounted.id = 'gameOverOverlay';
+      remounted.style.display = 'none';
+      document.body.appendChild(remounted);
+      await new Promise(r => setTimeout(r, 1100)); // wait past the 1000ms delayed observe
+      check('aborting during the delay window cancels the pending overlay observe()',
+        observeCalls === observesBefore);
+    } finally {
+      window.MutationObserver.prototype.observe = realObserve;
+      ac2.abort();
+    }
+  }
+
   console.log(`\nCONTROLS TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

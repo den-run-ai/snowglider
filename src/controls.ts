@@ -544,6 +544,7 @@ function setupButtonTouchHandlers(signal?: AbortSignal) {
   });
   
   // Start observing the game over overlay
+  let delayedObserveTimer: ReturnType<typeof setTimeout> | null = null;
   const gameOverOverlay = document.getElementById('gameOverOverlay');
   if (gameOverOverlay) {
     gameOverObserver.observe(gameOverOverlay, {
@@ -551,8 +552,14 @@ function setupButtonTouchHandlers(signal?: AbortSignal) {
       attributeFilter: ['style']
     });
   } else {
-    // If game over overlay doesn't exist yet, wait a bit and try again
-    setTimeout(() => {
+    // If game over overlay doesn't exist yet, wait a bit and try again. On mobile this
+    // setup runs before setupScene() creates #gameOverOverlay, so this branch is armed.
+    delayedObserveTimer = setTimeout(() => {
+      delayedObserveTimer = null;
+      // Bail if teardown aborted during the 1s wait: without this the stale observer
+      // could re-attach to a freshly-remounted overlay (HMR) and bind the OLD restart
+      // touch handler to the new game.
+      if (signal && signal.aborted) return;
       const delayedOverlay = document.getElementById('gameOverOverlay');
       if (delayedOverlay) {
         gameOverObserver.observe(delayedOverlay, {
@@ -563,9 +570,13 @@ function setupButtonTouchHandlers(signal?: AbortSignal) {
     }, 1000);
   }
 
-  // MutationObserver has no AbortSignal option, so disconnect it explicitly on teardown
-  // (else a dev-HMR remount leaves a stale observer watching the old overlay).
-  if (signal) signal.addEventListener('abort', () => gameOverObserver.disconnect(), { once: true });
+  // MutationObserver has no AbortSignal option, so disconnect it explicitly on teardown —
+  // and cancel any pending delayed-observe so it can't re-arm a stale observer on a
+  // remounted overlay (else a dev-HMR remount leaks the old observer / restart handler).
+  if (signal) signal.addEventListener('abort', () => {
+    if (delayedObserveTimer !== null) { clearTimeout(delayedObserveTimer); delayedObserveTimer = null; }
+    gameOverObserver.disconnect();
+  }, { once: true });
 }
 
 // Controls is imported directly by snowglider.js and the controls browser test
