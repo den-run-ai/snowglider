@@ -558,6 +558,9 @@ function disposeSnowGlider(): void {
   // state handles, so they self-clean here rather than via the scene/DOM sweep.
   CourseModule.teardown();
   EffectsModule.teardown();
+  // Clear the module-level snowflake pool so a same-instance remount doesn't stack a
+  // second snowfall on the stale, detached sprites from the disposed scene.
+  Snow.teardownSnowflakes();
   disposeGame(sceneContext, () => listenerAbort.abort());
 }
 window.disposeGame = disposeSnowGlider;

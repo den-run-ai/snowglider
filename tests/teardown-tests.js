@@ -31,9 +31,70 @@ async function main() {
   await testDedupSweep(THREE, disposeSceneResources);
   await testDisposeGameIdempotent(THREE, disposeGame);
   await testOwnedDomNodeRemoval(THREE, disposeGame);
+  await testSnowflakePoolTeardown(THREE);
 
   console.log(`\nTEARDOWN TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
+}
+
+// ---- Snow.teardownSnowflakes: detaches the sprites, frees their materials, and CLEARS
+// the module-level pool so a same-instance remount doesn't stack a second snowfall on the
+// stale sprites (Codex review #226). ----
+async function testSnowflakePoolTeardown(THREE) {
+  console.log('--- Snow.teardownSnowflakes: clears the module snowflake pool ---');
+  const { Snow } = await import('../src/snow.ts');
+
+  // jsdom lacks a 2d canvas context; stub the few calls createSnowflakes makes.
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
+  const g = globalThis;
+  const prevDoc = g.document, prevWin = g.window;
+  g.window = dom.window;
+  g.document = dom.window.document;
+  const realCreate = dom.window.document.createElement.bind(dom.window.document);
+  dom.window.document.createElement = (tag) => {
+    const el = realCreate(tag);
+    if (tag === 'canvas') {
+      el.getContext = () => ({
+        createRadialGradient: () => ({ addColorStop() {} }),
+        fillRect() {}, fillStyle: '',
+      });
+    }
+    return el;
+  };
+
+  // Count SpriteMaterial disposals so we can prove the pool was emptied (a stale pool
+  // would re-dispose its old sprites on the next teardown -> double the count).
+  let matDisposed = 0;
+  const realMatDispose = THREE.SpriteMaterial.prototype.dispose;
+  THREE.SpriteMaterial.prototype.dispose = function (...a) { matDisposed++; return realMatDispose.apply(this, a); };
+
+  try {
+    const scene = new THREE.Scene();
+    const before = scene.children.length;
+
+    Snow.createSnowflakes(scene);
+    const added = scene.children.length - before;
+    check('createSnowflakes adds the snowflake sprites to the scene', added > 0);
+
+    matDisposed = 0;
+    Snow.teardownSnowflakes();
+    check('teardownSnowflakes detaches every snowflake from the scene', scene.children.length === before);
+    check('teardownSnowflakes disposes the snowflake sprite materials', matDisposed >= added);
+
+    // Second cycle: if teardown cleared the pool, this disposes the SAME count again; a
+    // stale pool would re-dispose the old sprites too (~2x).
+    Snow.createSnowflakes(scene);
+    check('a second createSnowflakes adds the same count (pool was cleared, not stacked)',
+      scene.children.length - before === added);
+    matDisposed = 0;
+    Snow.teardownSnowflakes();
+    check('the second teardown disposes only the fresh sprites (no stale-pool re-dispose)',
+      matDisposed >= added && matDisposed < added * 2);
+  } finally {
+    THREE.SpriteMaterial.prototype.dispose = realMatDispose;
+    g.document = prevDoc;
+    g.window = prevWin;
+  }
 }
 
 // ---- disposeSceneResources: each unique resource freed exactly once, even when shared. ----

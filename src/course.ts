@@ -716,6 +716,12 @@ export const CourseModule = (function () {
       document.getElementById('courseResult')?.remove();
     }
     hud = {};
+    // Null the scene-owned handles so a remount rebuilds them. buildGates()/buildGhost()
+    // early-return while these are truthy, so leaving them pointing at the disposed
+    // scene's objects would silently skip adding the gates/ghost to the new scene. Their
+    // GPU resources are freed by disposeGame's scene sweep; this only drops the handles.
+    gateGroup = null;
+    ghost = null;
   }
 
   return {
