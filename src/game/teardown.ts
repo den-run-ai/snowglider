@@ -63,7 +63,9 @@ export function disposeSceneResources(scene: THREE.Scene): void {
     const fields = mat as unknown as Record<string, unknown>;
     for (const k of Object.keys(fields)) {
       const v = fields[k];
-      if (v instanceof THREE.Texture) texes.add(v);
+      // `instanceof` narrows to Texture<any, any>; cast to the canonical Texture
+      // type so the Set.add argument is type-safe (no-unsafe-argument).
+      if (v instanceof THREE.Texture) texes.add(v as THREE.Texture);
     }
     mat.dispose();
   }
