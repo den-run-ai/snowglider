@@ -115,6 +115,13 @@ export interface FrameSample {
   z: number;
   technique: string;
   isInAir: boolean;
+  /** Optional explicit per-frame collision-time displacement (world units). When the
+   *  caller already knows the step at the physics granularity — e.g. the fixed-timestep
+   *  loop, where `dt` is the real render-frame duration but collision advances in 1/60 s
+   *  substeps — it passes the max SUBSTEP step here so `tunnelRisk` reflects the actual
+   *  collision check, not the whole-frame displacement. Omitted by single-step callers, in
+   *  which case the step is derived from the previous sample's position (the default). */
+  step?: number;
 }
 
 /** Per-frame anomaly flags derived from a sample and the previous position. */
@@ -175,7 +182,12 @@ export function percentile(sortedAsc: number[], p: number): number {
 export function classifyFrame(prev: { x: number; z: number } | null, s: FrameSample, cfg: DiagConfig): FrameFlags {
   const finite = Number.isFinite(s.dt) && Number.isFinite(s.speed) &&
     Number.isFinite(s.x) && Number.isFinite(s.z);
-  const step = prev && finite ? Math.hypot(s.x - prev.x, s.z - prev.z) : 0;
+  // Prefer the caller-supplied collision-time step (the fixed-timestep loop passes the max
+  // substep displacement, so a large render-frame delta doesn't read as a tunnel risk);
+  // otherwise derive it from the previous sample's position (single-step callers).
+  const step = (typeof s.step === 'number' && Number.isFinite(s.step))
+    ? s.step
+    : (prev && finite ? Math.hypot(s.x - prev.x, s.z - prev.z) : 0);
   const fps = s.dt > 0 ? 1 / s.dt : Infinity;
   return {
     step,

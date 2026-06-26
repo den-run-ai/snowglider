@@ -13,6 +13,53 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fixed-timestep accumulator: frame-rate-independent physics (no tunneling)
+- **The live run loop (`src/game/main-loop.ts`) now steps physics on a fixed grid.**
+  The old loop advanced the kernel once per render frame with a variable `delta`
+  (`Math.min((time-lastTime)/1000, 0.1)`), so the steady state was frame-rate dependent:
+  terminal speed ballooned at low FPS and a single large step (`pos += v*delta`) could
+  exceed the tree collision radius (2.5) and tunnel straight through the trees (the #209
+  bug class that `diagnostics.ts` watches live). `animate()` now runs a **fixed-timestep
+  accumulator**: physics advances only in `FIXED_DT = 1/60` s substeps (the exact rate
+  the invariant/stress harnesses pin), so the per-step displacement is `v/60` — far under
+  2.5 at any sane speed — and `tunnelRisk` frames go to **zero by construction**,
+  regardless of render rate. `MAX_SUBSTEPS = 8` is the spiral-of-death guard (~133 ms
+  ceiling): below ≈8 FPS the game *slows down* rather than tunnelling, the same ceiling
+  the old 0.1 s clamp imposed — a strictly better failure mode.
+- **Physics and cosmetics are split.** `stepFixed(1/60)` runs on the grid (physics +
+  in-kernel collision/finish, plus `CourseModule.update` so a fast frame can't skip a split
+  gate). The avalanche boulders are **advanced before the substeps**, and the avalanche
+  **burial check runs once per render frame** — after the player's substeps and the boulder
+  advance, before `hasPassed()`/reset — so a boulder overlapping the player is always tested
+  before the slide can deactivate, including on a no-step >60 Hz frame (per-frame is
+  sufficient: bounded speed × the broad 120-boulder slide means the player can't traverse a
+  boulder between frames). The cosmetic/observer layer (`renderObservers`: HUD, `Flex`,
+  `Sfx`, camera shake/toast), the avalanche survival/UI, snow particles, sky cycle, camera,
+  and render run **once per render frame** on the real frame delta. Jump/land events are
+  **reduced across the frame's substeps** so a landing that completes mid-frame still fires
+  its whoosh/thump/toast/shake (never dropped).
+- **Diagnostics record once per render frame** (`diagnostics.ts`) with the **real** frame
+  delta — so the FPS-band / clamped-frame / runaway detection still sees the true device
+  rate — while the tunnel-risk metric uses an explicit **max-substep** displacement
+  (`v/60`), so a slow render frame doesn't read as a collision tunnel risk (collision ran
+  on the 1/60 grid). `FrameSample` gained an optional `step` override for this; the
+  `frameCapSec` clamp now tracks the loop's `MAX_SUBSTEPS * FIXED_DT` ceiling.
+- **Render interpolation.** The snowman/camera render at `lerp(prevState, curState, alpha)`
+  (the leftover-accumulator fraction), removing temporal aliasing on render rates that
+  don't divide 60 (144 Hz, 50 Hz). Physics state stays authoritative on the grid; the
+  authoritative position is restored after the render.
+- **The kernel (`snowman/physics.ts`) is unchanged** — the accumulator lives entirely in
+  the loop. The invariant harness (which drives the kernel directly at 1/60) is therefore
+  unaffected, and the live build now advances physics at exactly the rate the tests pin:
+  the thing tested is the thing that runs. `window.updateSnowman(delta)` is retained as a
+  single-step test seam with the pre-accumulator single-call behavior (physics + telemetry
+  + cosmetics, no course/avalanche), so the browser suites that drive it are unchanged.
+- **New test:** `tests/verification/fixed_timestep_harness.js` (in `npm run test:stress`)
+  drives the real kernel through the accumulator at 30/50/144 FPS and a jittery rate and
+  asserts the trajectory is **byte-identical** to the 60 FPS run, that every fixed step
+  stays under the tree radius, and that all state stays finite. `npm run test:verify`,
+  `test:physics`, `test:regression`, and the rest stay green untouched.
+
 ### Three.js rendering perf: shared tree geometry/material pools + renderer tuning
 - **Trees (`src/mountains/trees.ts`) were the forest's odd one out.** The avalanche
   boulders and ski tracks already share a single geometry/material, but each of the

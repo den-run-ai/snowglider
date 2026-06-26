@@ -14,8 +14,14 @@ Companion docs: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how the modules fit togeth
 ## 1. Conventions
 
 - **Units.** 1 world unit = 1 metre for HUD purposes. Time is in seconds; `delta`
-  is the per-frame timestep, **capped at 0.1 s** in the animation loop so a stalled
-  tab cannot teleport the snowman.
+  is the physics timestep. The live loop runs a **fixed-timestep accumulator**
+  (`src/game/main-loop.ts`): physics advances only in `FIXED_DT = 1/60` s steps,
+  with `MAX_SUBSTEPS = 8` capping how many steps a single slow render frame may run
+  (~133 ms — the same ceiling the old `min(delta, 0.1)` clamp imposed) so a stalled
+  tab cannot teleport the snowman, and the game slows down rather than tunnelling
+  below ≈8 FPS. The fixed grid makes the live build frame-rate independent and is the
+  exact `dt` the invariant/stress harnesses drive the kernel at. The kernel itself
+  accepts any `delta` (the headless harnesses sweep it); only the live loop pins 1/60.
 - **Axes.** `+y` is up. The fall line runs along `-z`: the player starts near
   `z = -15` and skis toward `z = -195`. `x` is the cross-slope (left/right) axis.
 - **Downhill velocity is negative `z`.** Spawning, the avalanche, and the finish
@@ -409,6 +415,14 @@ compares trajectories against a frozen baseline. Two properties make this work:
    verification harness injects a seeded RNG and a deterministic terrain so runs
    are reproducible. If you add randomness to the grounded path, keep it behind an
    input gate or the invariant harness will (correctly) fail.
+
+The harnesses drive the kernel at a fixed `dt = 1/60`, and so does the **live loop**
+(the fixed-timestep accumulator, §1) — the thing that runs is the thing that's tested.
+`tests/verification/fixed_timestep_harness.js` proves it: stepping the kernel through
+the accumulator at 30/50/144 FPS and a jittery rate traces a **byte-identical** path to
+the 60 FPS run, and every fixed step stays under the tree collision radius (no tunneling
+by construction). The accumulator changes only *when* steps run, never their content, so
+the no-input identity above is untouched and the invariant harness is unaffected.
 
 Regenerate the baseline only on a **deliberate** physics change — and note it is
 **not** a verbatim copy of `src/snowman.ts`. The harness loads the baseline as a

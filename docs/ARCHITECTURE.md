@@ -193,31 +193,59 @@ is skipped (reproducing the original Loading/Get-Ready timing exactly) for the
 `?test=` suites (`window.isTestMode`), automated runs (`navigator.webdriver`), and
 `prefers-reduced-motion`; `?intro=force` / `?intro=off` override that for QA.
 
-Per-frame order in `animate(time)` (each step depends on the previous):
+**Fixed-timestep loop.** `animate(time)` runs a fixed-timestep accumulator: physics
+advances **only** in `FIXED_DT = 1/60` s steps (the rate `physics_invariant_harness.js`
+pins), while cosmetics run once per render frame. This makes the live game frame-rate
+independent — terminal speed and trajectory no longer scale with FPS, and the per-step
+displacement is `v/60`, so a single step can never exceed the tree collision radius
+(2.5) and tunnel through (the #209 bug class; see `diagnostics.ts`). `MAX_SUBSTEPS = 8`
+is the spiral-of-death guard (~133 ms ceiling): below ≈8 FPS the game slows down rather
+than tunnelling — the same ceiling the old `Math.min(delta, 0.1)` clamp imposed.
+
+Per-frame order in `animate(time)`:
 
 ```
-delta = min((time - lastTime)/1000, 0.1)        // clamp
-updateSnowman(delta)                             // input + physics → pos/velocity
-  Flex.update(...)                               // cosmetic flex (reads result only)
-  Sfx.jump()/land(force)/updateSkiing(...)       // SFX: takeoff/touchdown + wind/edge bed (reads result only)
+frameDelta = min((time - lastTime)/1000, MAX_SUBSTEPS*FIXED_DT)   // ceiling
+accumulator += frameDelta
+avalanche.trigger/update(frameDelta)             // advance boulders BEFORE the substeps so the
+                                                  //   per-frame burial check (below) sees this frame's positions
+while accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS && gameActive:   // FIXED SUBSTEPS
+    stepFixed(FIXED_DT):
+        Physics.stepPlayer(...)                  // input + physics → pos/velocity (+ in-kernel collision/finish)
+        CourseModule.update(pos, elapsed, ...)   // splits, progress HUD, ghost (outcome-gating)
+    aggregate frame events (justLanded / tookOff / landingQuality)   // §5: don't drop a mid-frame landing
+    track maxSubstepStep                         // the collision-time step (= v/60)
+    accumulator -= FIXED_DT
+alpha = accumulator / FIXED_DT                    // 0..1 leftover for render interpolation
+                                                  // --- once per RENDER frame (cosmetic) ---
+renderObservers(frameDelta, latestResult, events)   // HUD stats, Flex.update, Sfx jump/land/skiing
+Diag.record(frameDelta, …, step=maxSubstepStep)  // telemetry: REAL frame dt (FPS/clamped) + substep step (tunnelRisk)
 Snow.updateSnowflakes(...)
-snowTrails.update(delta, snowman, isInAir)       // carve/fade ski grooves (cosmetic, reads pos only)
-CourseModule.update(pos, elapsed, snowman)       // splits, progress HUD, ghost
-avalanche.trigger/update/checkBurial/hasPassed   // + EffectsModule.updateAvalanche + Sfx.setAvalanche
+snowTrails.update(frameDelta, snowman, isInAir)  // carve/fade ski grooves (cosmetic, reads pos only)
+Sky.update(frameDelta)                           // golden-hour↔midday sun cycle
+avalanche.checkBurial(...)                       // burial = game over — once per frame, BEFORE hasPassed (runs on no-step frames too)
+avalanche.hasPassed/reset                        // + EffectsModule.updateAvalanche + Sfx.setAvalanche
 Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
-updateCamera()                                   // cameraManager follows snowman
+snowman.position = lerp(prevState, curState, alpha)      // render at interpolated pos (anti-alias non-60 panels)
+updateCamera()                                   // cameraManager follows the interpolated snowman
 updateTimerDisplay()
-shake = EffectsModule.tickCamera(camera, delta, speed)   // FOV + shake offset
+shake = EffectsModule.tickCamera(camera, frameDelta, speed)   // FOV + shake offset
 renderer.render(scene, camera)
 camera.position -= shake                          // revert so smoothing stays clean
+snowman.position = curState                       // restore authoritative physics pos
 ```
+
+> `window.updateSnowman(delta)` is retained as a single-step test seam (physics +
+> telemetry + cosmetics, no course/avalanche — exactly the pre-accumulator single-call
+> behavior) that the browser suites drive directly; the live loop runs `stepFixed`
+> per substep instead.
 
 ```
  input (Controls) ─┐
- terrain fns ──────┤→ updateSnowman ─→ pos/velocity ─┬─→ Course (timing/ghost)
-                   │                                  ├─→ Avalanche (trigger/burial)
-                   │                                  ├─→ Effects (warning + shake)
-                   │                                  └─→ Camera ─→ render ─→ revert shake
+ terrain fns ──────┤→ stepFixed (×N @1/60) ─→ pos/velocity ─┬─→ Course (timing/ghost)
+                   │                                         ├─→ Avalanche burial (game over, per render frame)
+                   │  (per render frame, interpolated by α)  ├─→ Effects (warning + shake)
+                   │                                         └─→ Camera ─→ render ─→ revert shake
  showGameOver(reason) ─→ Course.onFinish ─→ Scores.recordScore ─→ (localStorage + Firestore)
 ```
 
@@ -238,9 +266,10 @@ camera.position -= shake                          // revert so smoothing stays c
 > lighting / terrain / avalanche / trees / snowman / snow / course+effects; it also
 > owns the `GameState` type and the eager `window.terrainMesh` / `treePositions` /
 > `rockPositions` / `isTestMode` data globals), and **`src/game/main-loop.ts`**
-> (the per-frame run loop: `createMainLoop(deps)` returns `updateSnowman` /
+> (the fixed-timestep run loop: `createMainLoop(deps)` returns `updateSnowman` /
 > `updateCamera` / `animate` / `startLoop` / `handleResize`; it owns the private
-> `lastTime`, and lifecycle code calls `startLoop()` to seed+kick the loop), and
+> `lastTime` / `accumulator` and steps physics at a fixed 1/60 grid, and lifecycle
+> code calls `startLoop()` to seed+kick the loop), and
 > **`src/game/lifecycle.ts`** (`createLifecycle(deps)` returns `resetSnowman` /
 > `restartGame` / `toggleCameraView` + `initLifecycleUI()`, which wires the reset /
 > camera-toggle / restart DOM controls). The coordinator calls `setupScene()` once,

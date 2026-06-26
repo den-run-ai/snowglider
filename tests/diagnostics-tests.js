@@ -61,6 +61,28 @@ async function main() {
   const bad = D.classifyFrame({ x: 0, z: 0 }, { dt: 1 / 60, speed: NaN, x: 0, z: 0, technique: 'tuck', isInAir: false }, cfg);
   check('classify: non-finite speed flagged', bad.nonFinite === true);
 
+  // Explicit step override (fixed-timestep loop): `dt` is the REAL render-frame duration
+  // but collision advances in 1/60 s substeps, so the loop passes the max SUBSTEP step.
+  // classifyFrame must then key tunnelRisk off that override, NOT the (large) whole-frame
+  // prev->cur displacement — otherwise a slow render frame would false-flag a tunnel that
+  // the substepping made impossible. prev is 3.2u away (would be a tunnel risk by position),
+  // but the override says the real collision step was only 0.13u.
+  const overrideSmall = D.classifyFrame({ x: 0, z: 0 },
+    { dt: 0.1, speed: 8, x: 0, z: -3.2, technique: 'tuck', isInAir: false, step: 8 / 60 }, cfg);
+  check('classify: explicit step override used for tunnelRisk (small substep, slow frame)',
+    approx(overrideSmall.step, 8 / 60, 1e-9) && overrideSmall.tunnelRisk === false &&
+    overrideSmall.clamped === true && approx(overrideSmall.fps, 10)); // dt still drives FPS/clamped
+  // And a genuinely large override step IS a tunnel risk even if prev is co-located.
+  const overrideLarge = D.classifyFrame({ x: 0, z: 0 },
+    { dt: 1 / 60, speed: 40, x: 0, z: 0, technique: 'tuck', isInAir: false, step: 3.0 }, cfg);
+  check('classify: large explicit step override flags tunnelRisk',
+    approx(overrideLarge.step, 3.0, 1e-9) && overrideLarge.tunnelRisk === true);
+  // A non-finite override falls back to the prev-position delta (defensive).
+  const overrideNaN = D.classifyFrame({ x: 0, z: 0 },
+    { dt: 1 / 60, speed: 8, x: 0, z: -0.5, technique: 'tuck', isInAir: false, step: NaN }, cfg);
+  check('classify: non-finite step override falls back to prev-position delta',
+    approx(overrideNaN.step, 0.5, 1e-9));
+
   // regression (codex #211): the tunnel check must honor the SMALLEST collidable obstacle
   // radius. collision.ts guards trees (2.5u) AND rocks (rockCollisionRadius(size)); the
   // smallest collidable rock is ~1.69u (rockCollisionRadius(ROCK_COLLISION_MIN_SIZE)), so the

@@ -20,10 +20,15 @@ export interface LifecycleDeps extends
   Pick<SceneContext, 'state' | 'cameraManager' | 'snowman' | 'gameOverOverlay' | 'restartButton'> {
   player: PlayerState;
   startLoop: () => void;
+  // Reseed the loop's per-run carry-over (accumulator, interpolation window, last result)
+  // to the freshly-reset spawn. resetSnowman runs WITHOUT startLoop on the in-game Reset
+  // button (the loop keeps running), so it must reseed here or the stale pre-reset position
+  // leaks into the render lerp and the first diagnostics step.
+  resetLoopState: () => void;
 }
 
 export function createLifecycle(deps: LifecycleDeps) {
-  const { state, cameraManager, snowman, gameOverOverlay, restartButton, player, startLoop } = deps;
+  const { state, cameraManager, snowman, gameOverOverlay, restartButton, player, startLoop, resetLoopState } = deps;
   const pos = player.pos;
 
   function resetSnowman() {
@@ -52,6 +57,13 @@ export function createLifecycle(deps: LifecycleDeps) {
 
     // Reset keyboard controls
     Controls.resetControls();
+
+    // Reseed the loop's per-run carry-over to the spawn position resetPlayer() just set.
+    // The in-game Reset button keeps the loop running (no startLoop), so without this the
+    // stale pre-reset downhill position would leak into the next frame's render lerp (a
+    // visible camera/snowman jump) and into its first diagnostics step (a huge
+    // maxSubstepStep false tunnel-risk sample). Must run after resetPlayer().
+    resetLoopState();
 
     // Reset the physics/frame-rate telemetry: resetPlayer() above teleported the player
     // back to spawn (z=-15), so without this the first frame of the new run would read as
