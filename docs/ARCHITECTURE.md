@@ -193,24 +193,45 @@ is skipped (reproducing the original Loading/Get-Ready timing exactly) for the
 `?test=` suites (`window.isTestMode`), automated runs (`navigator.webdriver`), and
 `prefers-reduced-motion`; `?intro=force` / `?intro=off` override that for QA.
 
-Per-frame order in `animate(time)` (each step depends on the previous):
+**Fixed-timestep accumulator (`src/game/fixed-step.ts`).** The loop advances physics
+ONLY in fixed `FIXED_DT = 1/60` s steps, accumulating real frame time and draining it
+one fixed step at a time (`planFrameSteps`, capped at `MAX_SUBSTEPS = 8` per frame —
+the spiral-of-death guard, ~133 ms, the same ceiling as the old `min(delta, 0.1)`
+clamp). This makes the live game advance physics at exactly the rate the
+physics-invariant harness pins (it drives the kernel at `1/60`), so `dragFactor(60Hz)`
+collapses to an identity and the per-substep position step is `velocity / 60` —
+well under the 2.5u collision radius at any sane speed, so the tree-tunnelling and
+frame-rate-dependent terminal-speed bug class (#209) is closed by construction. The
+kernel (`snowman/physics.ts`) is unchanged; the accumulator lives entirely in
+`main-loop.ts`. The trajectory is frame-rate independent (30 / 50 / 144 / jittery FPS
+all trace the same fixed grid — gated by `tests/verification/fixed_timestep_harness.js`).
+
+Per-frame order in `animate(time)`:
 
 ```
-delta = min((time - lastTime)/1000, 0.1)        // clamp
-updateSnowman(delta)                             // input + physics → pos/velocity
-  Flex.update(...)                               // cosmetic flex (reads result only)
-  Sfx.jump()/land(force)/updateSkiing(...)       // SFX: takeoff/touchdown + wind/edge bed (reads result only)
-Snow.updateSnowflakes(...)
-snowTrails.update(delta, snowman, isInAir)       // carve/fade ski grooves (cosmetic, reads pos only)
-CourseModule.update(pos, elapsed, snowman)       // splits, progress HUD, ghost
-avalanche.trigger/update/checkBurial/hasPassed   // + EffectsModule.updateAvalanche + Sfx.setAvalanche
-Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
-updateCamera()                                   // cameraManager follows snowman
-updateTimerDisplay()
-shake = EffectsModule.tickCamera(camera, delta, speed)   // FOV + shake offset
-renderer.render(scene, camera)
-camera.position -= shake                          // revert so smoothing stays clean
+frameDelta = (time - lastTime)/1000                 // real elapsed; planFrameSteps caps it
+plan = planFrameSteps(accumulator, frameDelta)      // → { substeps, accumulator, alpha }
+for each of plan.substeps:  stepFixed()             // FIXED-GRID work (gates run outcome):
+  physicsStep(1/60)                                 //   input + kernel → pos/velocity
+  CourseModule.update(pos, elapsed, snowman)        //   splits/progress/ghost + finish line
+  avalanche.checkBurial(snowman.position)           //   burial = game over
+  Diag.record({dt: 1/60, ...})                      //   per-substep telemetry (tunnelRisk → 0)
+  (events justLanded/tookOff/landingQuality reduced across substeps — never dropped)
+renderFrame(frameDelta, result, events, alpha)      // ONCE PER FRAME (cosmetics; never physics):
+  applyObservers(...)                               //   HUD + Flex + SFX one-shots/bed + shake/toast
+  Snow.updateSnowflakes / snowTrails / Sky.update
+  avalanche.trigger/update/hasPassed                //   boulder advance + UI + Sfx.setAvalanche
+  Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
+  snowman.position = lerp(prevPos, curPos, alpha)   //   render interpolation (INTERPOLATE_RENDER)
+  updateCamera() / updateTimerDisplay()
+  shake = EffectsModule.tickCamera(camera, frameDelta, speed)
+  renderer.render(scene, camera);  camera.position -= shake;  restore authoritative pos
 ```
+
+`updateSnowman(delta)` is preserved as a backward-compatible single-step entry
+(`physicsStep` + `applyObservers` at the given delta) for the gameplay browser tests
+and the `window.updateSnowman` seam, which call it directly and expect one physics
+advance; the live loop uses `stepFixed` + `renderFrame` instead.
 
 ```
  input (Controls) ─┐

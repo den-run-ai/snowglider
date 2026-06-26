@@ -75,8 +75,11 @@ export const FPS_BANDS: FpsBand[] = [
 ];
 
 export interface DiagConfig {
-  /** The run-loop's delta clamp (main-loop caps delta at 0.1 s). A frame whose dt sits
-   *  at the cap means the device dropped to/below 1/cap FPS — the regime the bug bit. */
+  /** Legacy per-frame delta clamp (the pre-accumulator loop used min(delta, 0.1)). Since
+   *  the fixed-timestep refactor the loop records one sample PER FIXED SUBSTEP at
+   *  FIXED_DT (1/60 s), so live samples never sit at this cap — tunnelRisk is now zero by
+   *  construction. Kept for the headless harnesses that still feed variable dt directly,
+   *  and as the "device below 1/cap FPS" threshold for those. */
   frameCapSec: number;
   /** Smallest obstacle collision radius the discrete point-vs-disk check guards (trees
    *  use 2.5). A per-frame step >= this could skip the disk entirely → tunnel risk. */

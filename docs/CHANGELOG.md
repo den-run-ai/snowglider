@@ -13,6 +13,43 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fixed-timestep accumulator in the run loop (determinism / frame-rate independence)
+- **The hot loop (`src/game/main-loop.ts`) now advances physics on a fixed `1/60` s
+  grid.** Previously `animate()` stepped the kernel once per render frame at a variable,
+  clamped `delta`. That re-exposed the #209 bug class on slow devices: a per-frame
+  position step `pos += velocity * delta` could exceed the 2.5u tree collision radius
+  (tunnelling straight through), and large-`dt` semi-implicit Euler diverged in
+  trajectory and landing timing. A new pure, DOM-free module **`src/game/fixed-step.ts`**
+  (`FIXED_DT = 1/60`, `MAX_SUBSTEPS = 8`, `planFrameSteps`) accumulates real frame time
+  and drains it one fixed step at a time; the loop runs `stepFixed()` 0..8 times per
+  frame and `renderFrame()` once.
+- **Why it's safe.** The physics kernel (`snowman/physics.ts`) is **unchanged** — the
+  accumulator lives entirely in the loop. The physics-invariant harness already drives
+  the kernel at `1/60`, so it stays byte-identical (it's the proof the kernel didn't
+  move); `dragFactor(60Hz)` collapses to an identity at the fixed step. The live game
+  now advances physics at exactly the rate the suite pins.
+- **Split physics from cosmetics.** `stepFixed()` runs only what gates run outcome (the
+  kernel step, course progress + finish, avalanche **burial**, per-substep diagnostics);
+  `renderFrame()` runs the per-frame observer/cosmetic layer (HUD, flex, SFX, snow, sky,
+  avalanche advance/UI, interpolated camera, render) on the real frame delta. Per-substep
+  **events** (`justLanded`, the ground→air takeoff edge, `landingQuality`) are reduced
+  across a frame's substeps so a jump/land completed mid-frame still fires its
+  whoosh/thump/toast/shake exactly once. Render interpolation (`alpha`) places the
+  snowman between the last two fixed states so motion stays smooth on panels whose
+  refresh doesn't divide 60 (144 Hz, 50 Hz); the physics state stays authoritative.
+- **`updateSnowman(delta)` preserved.** The gameplay browser tests and the
+  `window.updateSnowman` seam call it directly with an explicit delta and expect one
+  physics advance + the observer layer; it now composes the same shared `physicsStep` +
+  `applyObservers` helpers, so its behaviour is unchanged while the live loop uses the
+  accumulator.
+- **Tests.** New `tests/verification/fixed_timestep_harness.js` (wired into
+  `npm run test:stress`) drives the LOOP (not the kernel) at 30 / 50 / 144 / jittery FPS
+  and asserts the trajectory is byte-identical to the `1/60` reference (the variable-dt
+  loop drifts ~26u), that diagnostics reports **zero** `tunnelRisk` frames where a
+  high-speed variable-dt step reports many, and that one huge frame is capped at
+  `MAX_SUBSTEPS` with the accumulator left `< FIXED_DT`. The invariant/stress harnesses
+  and the 95-test browser suite stay green.
+
 ### Three.js rendering perf: shared tree geometry/material pools + renderer tuning
 - **Trees (`src/mountains/trees.ts`) were the forest's odd one out.** The avalanche
   boulders and ski tracks already share a single geometry/material, but each of the
