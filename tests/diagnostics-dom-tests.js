@@ -20,6 +20,10 @@ const g = /** @type {any} */ (globalThis);
 g.window = window;
 g.document = window.document;
 g.navigator = window.navigator;
+// diagnostics.ts creates `new AbortController()` for its listeners; jsdom validates the
+// resulting signal against ITS realm's AbortSignal, so alias the global to the window's
+// (in a real browser they are the same object).
+g.AbortController = window.AbortController;
 // Blob download seam: jsdom has no URL.createObjectURL; stub it so dump()'s browser branch
 // executes end-to-end, and silence the anchor's real navigation on click().
 global.Blob = global.Blob || window.Blob;
@@ -116,6 +120,20 @@ async function main() {
   window.dispatchEvent(Object.assign(new window.Event('error'), { message: 'once', error: new Error('once') }));
   check('init: error handlers are installed once (one report per error, not duplicated)',
     events.filter((e) => e.event === 'client_error').length === 1);
+
+  // --- teardown(): removes the window listeners + overlay + __snowgliderDiag ----
+  // (dispose-audit). After teardown the error capture is gone, the bug-report API is
+  // deleted, and the overlay node is removed; a second call is a no-op.
+  D.Diag.teardown();
+  check('teardown: deletes window.__snowgliderDiag', window.__snowgliderDiag === undefined);
+  check('teardown: removes the dev overlay node', !document.getElementById('diagOverlay'));
+  events.length = 0;
+  window.dispatchEvent(Object.assign(new window.Event('error'), { message: 'after', error: new Error('after') }));
+  check('teardown: the error/unhandledrejection capture is removed (no report after teardown)',
+    events.filter((e) => e.event === 'client_error').length === 0);
+  let threw = false;
+  try { D.Diag.teardown(); } catch { threw = true; }
+  check('teardown: idempotent (a second call does not throw)', !threw);
 
   console.log(`\nDIAGNOSTICS DOM TESTS: ${fail === 0 ? 'OK ✅' : 'FAIL ❌'} (${pass} passed, ${fail} failed)`);
   process.exit(fail === 0 ? 0 : 1);

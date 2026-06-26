@@ -34,6 +34,7 @@ import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
+import { noop } from './noop.js';
 import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
 import { Sky } from './sky.js';
@@ -265,10 +266,6 @@ let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
 let getReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let testAutoStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeIntro: IntroHandle | null = null;
-// A capture-free no-op that window.disposeGame is rebound to after teardown — so a second
-// external `window.disposeGame()` call stays a safe no-op (preserving the public
-// idempotence contract) WITHOUT the disposeSnowGlider closure keeping sceneContext alive.
-const noopDispose = (): void => {};
 // Names of the window.* handles this module installs (the publishGameGlobals
 // getters/setters; populated below). disposeSnowGlider deletes them so a clean unmount
 // doesn't leave the disposed scene reachable through their closures or stale APIs callable.
@@ -589,6 +586,9 @@ function disposeSnowGlider(): void {
   // Drop the Sky sun-cycle singleton — it captures the scene + directional light + sky
   // material/fog, which would otherwise keep the disposed graph reachable.
   Sky.teardown();
+  // Remove the diagnostics window listeners (keydown/pagehide/error/unhandledrejection)
+  // + __snowgliderDiag bug-report API, whose closures retain the injected report sink.
+  Diag.teardown();
   disposeGame(sceneContext, () => listenerAbort.abort());
 
   // Delete every window.* handle this module installed so the disposed graph is no longer
@@ -605,11 +605,12 @@ function disposeSnowGlider(): void {
     'initializeGameWithAudio', 'terrainMesh', 'treePositions', 'rockPositions', 'testHooks']) {
     delete w[name];
   }
-  // window.disposeGame is REBOUND (not deleted) to a capture-free no-op: external callers
-  // normally invoke it through `window`, so a second cleanup must stay a safe no-op rather
-  // than throwing on a missing property — while still releasing the disposeSnowGlider
-  // closure that captured sceneContext.
-  window.disposeGame = noopDispose;
+  // window.disposeGame is REBOUND (not deleted) to a no-op: external callers normally
+  // invoke it through `window`, so a second cleanup must stay a safe no-op rather than
+  // throwing on a missing property. The no-op comes from a SEPARATE module (./noop.js) on
+  // purpose — a coordinator-local function would, via its lexical environment, keep
+  // sceneContext/renderer/scene rooted, defeating the cleanup.
+  window.disposeGame = noop;
 }
 window.disposeGame = disposeSnowGlider;
 
