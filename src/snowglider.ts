@@ -546,6 +546,11 @@ function disposeSnowGlider(): void {
   // renderer.render on a dead context); its onComplete is now a no-op via the guard.
   if (activeIntro && !activeIntro.done) activeIntro.skip();
   activeIntro = null;
+  // Stop the audio + SFX started in initializeGameWithAudio. They are module-level
+  // resources (a looping <audio> + the Web Audio beds + the mute button) that
+  // disposeGame's scene/renderer/listener teardown would otherwise leave running.
+  AudioModule.teardown();
+  Sfx.teardown();
   disposeGame(sceneContext, () => listenerAbort.abort());
 }
 window.disposeGame = disposeSnowGlider;

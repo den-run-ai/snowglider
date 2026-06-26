@@ -235,7 +235,26 @@ export const AudioModule = (function() {
       document.body.appendChild(div);
       setTimeout(() => div.remove(), duration);
     },
-    showAudioRetryPrompt: function() {}
+    showAudioRetryPrompt: function() {},
+
+    // Stop the music and release the mute button (dispose-audit teardown / dev-HMR).
+    // The looping <audio> element and the `#audioControlBtn` are module-level, so without
+    // this they survive disposeGame — the track keeps playing and the button lingers over
+    // a remount. Idempotent and inert if nothing was ever started; `initialized` is reset
+    // so a later init()/setupUI() rebuilds cleanly.
+    teardown: function() {
+      if (!AUDIO_ENABLED) return;
+      if (audio) {
+        // pause() halts playback; dropping the reference makes the (detached, paused)
+        // element GC-eligible. We deliberately do NOT clear .src — assigning '' makes
+        // the media element fire a spurious "empty src" error event.
+        try { audio.pause(); } catch { /* detached element */ }
+        audio = null;
+      }
+      const btn = document.getElementById('audioControlBtn');
+      btn?.parentNode?.removeChild(btn);
+      initialized = false;
+    }
   };
 })();
 
