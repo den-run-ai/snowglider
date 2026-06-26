@@ -142,23 +142,16 @@ export function createMainLoop(deps: MainLoopDeps) {
     const result = stepPhysics(dt);
 
     // --- Course progress: split timing, progress HUD, ghost racing ---
-    // The split/ghost readouts still key off wall-clock elapsed.
+    // On the fixed grid so a fast render frame can't carry the player past a split gate
+    // between samples; the split/ghost readouts still key off wall-clock elapsed.
     if (CourseModule) {
       const elapsed = (performance.now() - state.startTime) / 1000;
       CourseModule.update(pos, elapsed, snowman);
     }
 
-    // --- Avalanche burial check (outcome gate) ---
-    // The only run-ending check that lives in the loop rather than the kernel.
-    // checkBurial() self-guards when inactive.
-    const avalanche = state.avalanche;
-    if (avalanche && avalanche.checkBurial(snowman.position)) {
-      const activeShowGameOver = typeof window.showGameOver === 'function'
-        ? window.showGameOver
-        : showGameOver;
-      activeShowGameOver("Buried by avalanche!");
-    }
-
+    // (Avalanche burial is checked once per RENDER frame — after the player's substeps and
+    // this frame's boulder advance, before hasPassed()/reset — so it still runs on a
+    // no-step >60 Hz frame. See the avalanche block in animate().)
     return result;
   }
 
@@ -277,11 +270,10 @@ export function createMainLoop(deps: MainLoopDeps) {
       }
 
       // --- Avalanche advance (boulder physics) — BEFORE the substeps ------------
-      // Advance the boulders FIRST so the per-substep burial check inside stepFixed()
-      // tests against THIS frame's boulder positions, and so hasPassed()/reset (run after
-      // the physics core, below) can't deactivate the slide before a reaching boulder is
-      // tested against the player. Trigger + update here; hasPassed/reset + the warning UI
-      // run after the substeps. Boulder physics stays on the render delta (its own
+      // Advance the boulders FIRST (trigger + update), then the player substeps, then the
+      // per-frame burial check + hasPassed()/reset + warning UI (after the physics core,
+      // below) — so burial always tests this frame's boulder AND player positions before
+      // the slide can deactivate. Boulder physics stays on the render delta (its own
       // frame-rate fix lives in avalanche.ts).
       const avalanche = state.avalanche;
       if (avalanche) {
@@ -344,10 +336,22 @@ export function createMainLoop(deps: MainLoopDeps) {
       // fog). Purely atmospheric; a no-op under reduced motion. (#163)
       Sky.update(frameDelta);
 
-      // --- Avalanche survival check + warning UI (advance/burial happened above) ---
-      // hasPassed()/reset runs AFTER the substeps' burial check, so a reaching boulder is
-      // always tested against the player before the slide can deactivate.
+      // --- Avalanche burial + survival check + warning UI -----------------------
+      // Burial is checked ONCE PER RENDER FRAME here — after the player's substeps and
+      // after this frame's avalanche.update (above) — and BEFORE hasPassed()/reset. So a
+      // boulder overlapping the player is always tested before the slide can deactivate,
+      // including on a no-step (>60 Hz) frame where the substep loop didn't run. Per-frame
+      // is sufficient: bounded speed × the broad 120-boulder slide means the player can't
+      // traverse a boulder between frames, so the final-position check can't miss one.
+      // checkBurial() self-guards when inactive.
       if (avalanche) {
+        if (avalanche.checkBurial(snowman.position)) {
+          const activeShowGameOver = typeof window.showGameOver === 'function'
+            ? window.showGameOver
+            : showGameOver;
+          activeShowGameOver("Buried by avalanche!");
+        }
+
         // Reset avalanche if it has passed the player (survived!)
         if (state.avalancheTriggered && avalanche.hasPassed(snowman.position)) {
           console.log("Avalanche passed - player survived!");

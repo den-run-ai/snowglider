@@ -208,12 +208,11 @@ Per-frame order in `animate(time)`:
 frameDelta = min((time - lastTime)/1000, MAX_SUBSTEPS*FIXED_DT)   // ceiling
 accumulator += frameDelta
 avalanche.trigger/update(frameDelta)             // advance boulders BEFORE the substeps so the
-                                                  //   per-substep burial check sees this frame's positions
+                                                  //   per-frame burial check (below) sees this frame's positions
 while accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS && gameActive:   // FIXED SUBSTEPS
     stepFixed(FIXED_DT):
         Physics.stepPlayer(...)                  // input + physics → pos/velocity (+ in-kernel collision/finish)
         CourseModule.update(pos, elapsed, ...)   // splits, progress HUD, ghost (outcome-gating)
-        avalanche.checkBurial(...)               // burial = game over (outcome-gating)
     aggregate frame events (justLanded / tookOff / landingQuality)   // §5: don't drop a mid-frame landing
     track maxSubstepStep                         // the collision-time step (= v/60)
     accumulator -= FIXED_DT
@@ -224,6 +223,7 @@ Diag.record(frameDelta, …, step=maxSubstepStep)  // telemetry: REAL frame dt (
 Snow.updateSnowflakes(...)
 snowTrails.update(frameDelta, snowman, isInAir)  // carve/fade ski grooves (cosmetic, reads pos only)
 Sky.update(frameDelta)                           // golden-hour↔midday sun cycle
+avalanche.checkBurial(...)                       // burial = game over — once per frame, BEFORE hasPassed (runs on no-step frames too)
 avalanche.hasPassed/reset                        // + EffectsModule.updateAvalanche + Sfx.setAvalanche
 Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
 snowman.position = lerp(prevState, curState, alpha)      // render at interpolated pos (anti-alias non-60 panels)
@@ -243,7 +243,7 @@ snowman.position = curState                       // restore authoritative physi
 ```
  input (Controls) ─┐
  terrain fns ──────┤→ stepFixed (×N @1/60) ─→ pos/velocity ─┬─→ Course (timing/ghost)
-                   │                                         ├─→ Avalanche burial (game over)
+                   │                                         ├─→ Avalanche burial (game over, per render frame)
                    │  (per render frame, interpolated by α)  ├─→ Effects (warning + shake)
                    │                                         └─→ Camera ─→ render ─→ revert shake
  showGameOver(reason) ─→ Course.onFinish ─→ Scores.recordScore ─→ (localStorage + Firestore)

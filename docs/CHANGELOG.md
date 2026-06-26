@@ -27,15 +27,17 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   ceiling): below ≈8 FPS the game *slows down* rather than tunnelling, the same ceiling
   the old 0.1 s clamp imposed — a strictly better failure mode.
 - **Physics and cosmetics are split.** `stepFixed(1/60)` runs on the grid (physics +
-  in-kernel collision/finish, `CourseModule.update`, and the avalanche burial check — the
-  two run-outcome gates that live in the loop rather than the kernel). The avalanche
-  boulders are **advanced before the substeps** so the per-substep burial check tests this
-  frame's positions and `hasPassed()`/reset (after the substeps) can't deactivate the slide
-  before a reaching boulder is checked. The cosmetic/observer layer (`renderObservers`:
-  HUD, `Flex`, `Sfx`, camera shake/toast), the avalanche survival/UI, snow particles, sky
-  cycle, camera, and render run **once per render frame** on the real frame delta. Jump/land
-  events are **reduced across the frame's substeps** so a landing that completes mid-frame
-  still fires its whoosh/thump/toast/shake (never dropped).
+  in-kernel collision/finish, plus `CourseModule.update` so a fast frame can't skip a split
+  gate). The avalanche boulders are **advanced before the substeps**, and the avalanche
+  **burial check runs once per render frame** — after the player's substeps and the boulder
+  advance, before `hasPassed()`/reset — so a boulder overlapping the player is always tested
+  before the slide can deactivate, including on a no-step >60 Hz frame (per-frame is
+  sufficient: bounded speed × the broad 120-boulder slide means the player can't traverse a
+  boulder between frames). The cosmetic/observer layer (`renderObservers`: HUD, `Flex`,
+  `Sfx`, camera shake/toast), the avalanche survival/UI, snow particles, sky cycle, camera,
+  and render run **once per render frame** on the real frame delta. Jump/land events are
+  **reduced across the frame's substeps** so a landing that completes mid-frame still fires
+  its whoosh/thump/toast/shake (never dropped).
 - **Diagnostics record once per render frame** (`diagnostics.ts`) with the **real** frame
   delta — so the FPS-band / clamped-frame / runaway detection still sees the true device
   rate — while the tunnel-risk metric uses an explicit **max-substep** displacement
