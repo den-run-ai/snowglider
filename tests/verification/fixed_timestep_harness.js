@@ -159,23 +159,35 @@ function fakeSnowman() {
 
   const SEEDS = [12345, 777, 42];
   const TOTAL_SECONDS = 6;
-  // Render-frame delta sequences, all summing to ~TOTAL_SECONDS, so each completes the
-  // same number of fixed 1/60 steps. The jittery profile mixes rates within the cap.
-  function constantProfile(fps) {
-    const dt = 1 / fps;
-    return Array.from({ length: Math.round(TOTAL_SECONDS / dt) }, () => dt);
-  }
-  function jitterProfile(seed) {
-    const rng = makeRng(seed);
+  const TARGET_STEPS = Math.round(TOTAL_SECONDS / FIXED_DT); // 360 fixed steps for 6 s
+  // Every render-frame sequence sums to EXACTLY this in-game time, chosen to land the
+  // accumulator at the MIDDLE of a fixed step ((N + 0.5)·FIXED_DT). The half-step margin
+  // means float error (~1e-10 over the summed deltas) can't tip any profile across a step
+  // boundary, so every profile — 60, 30, 50, 144 FPS, jitter — completes EXACTLY
+  // TARGET_STEPS steps. That lets the equivalence check assert equal step counts AND
+  // compare the full trajectory: a regression that drops/adds a tick at some render rate
+  // changes the count and can't hide in a truncated common prefix (codex review #224).
+  const TARGET_TIME = (TARGET_STEPS + 0.5) * FIXED_DT;
+  // Fill render frames from nextDt() until just under TARGET_TIME, then append the exact
+  // remainder so the sequence sums to TARGET_TIME precisely (a partial final frame, as a
+  // real loop sees). Every frame stays under MAX_SUBSTEPS·FIXED_DT so no time is dropped.
+  function profileTo(nextDt) {
     const out = [];
-    let total = 0;
-    // Mix 144..20 FPS frames (all under the MAX_SUBSTEPS ceiling) until ~TOTAL_SECONDS.
-    while (total < TOTAL_SECONDS) {
-      const dt = 1 / (20 + Math.floor(rng() * 124)); // 20..143 FPS
-      out.push(dt); total += dt;
+    let sum = 0;
+    for (;;) {
+      const dt = nextDt();
+      if (sum + dt >= TARGET_TIME) break;
+      out.push(dt); sum += dt;
     }
+    out.push(TARGET_TIME - sum); // exact remainder
     return out;
   }
+  const constantProfile = (fps) => profileTo(() => 1 / fps);
+  const jitterProfile = (seed) => {
+    const rng = makeRng(seed);
+    // Mix 20..143 FPS frames (all under the MAX_SUBSTEPS ceiling).
+    return profileTo(() => 1 / (20 + Math.floor(rng() * 124)));
+  };
 
   let hardFail = false;
   console.log('=== Fixed-timestep accumulator: frame-rate equivalence + no tunneling ===');
@@ -185,8 +197,11 @@ function fakeSnowman() {
   let worstEquivDiff = 0, worstEquivCtx = '';
   let worstFixedStep = 0, worstStepCtx = '';
   let anyNonFinite = false;
+  let stepCountMismatch = false, stepCountCtx = '';
+  let refSteps = 0;
   for (const seed of SEEDS) {
     const ref = runAccumulated(seed, constantProfile(60), slalom); // 60 FPS reference
+    refSteps = ref.steps;
     const PROFILES = [
       { name: '30 FPS', frames: constantProfile(30) },
       { name: '50 FPS', frames: constantProfile(50) },
@@ -194,13 +209,22 @@ function fakeSnowman() {
       { name: 'jitter', frames: jitterProfile(0x5EED ^ seed) },
     ];
     if (ref.nonFinite) anyNonFinite = true;
+    if (ref.steps !== TARGET_STEPS) { stepCountMismatch = true; stepCountCtx = `60 FPS seed ${seed}: ${ref.steps} != ${TARGET_STEPS}`; }
     if (ref.maxFixedStep > worstFixedStep) { worstFixedStep = ref.maxFixedStep; worstStepCtx = `60 FPS seed ${seed}`; }
     for (const p of PROFILES) {
       const run = runAccumulated(seed, p.frames, slalom);
       if (run.nonFinite) anyNonFinite = true;
       if (run.maxFixedStep > worstFixedStep) { worstFixedStep = run.maxFixedStep; worstStepCtx = `${p.name} seed ${seed}`; }
-      // Compare step-for-step up to the shorter trajectory: the accumulator makes step k
-      // identical regardless of render rate, so this diff must be ~0 (float noise only).
+      // Equal step count is the FIRST gate: all profiles sum to the same in-game time with
+      // a half-step margin, so a differing count means a render rate dropped or added a
+      // physics tick — exactly the regression a truncated common-prefix compare would hide.
+      if (run.steps !== ref.steps) {
+        stepCountMismatch = true;
+        stepCountCtx = `${p.name} vs 60 FPS, seed ${seed}: ${run.steps} != ${ref.steps}`;
+      }
+      // With equal counts, compare the FULL trajectory step-for-step: the accumulator makes
+      // step k identical regardless of render rate, so this diff must be ~0 (float noise
+      // only). (Math.min is a defensive guard; the lengths are equal by construction.)
       const n = Math.min(ref.traj.length, run.traj.length);
       let diff = 0;
       for (let i = 0; i < n; i++) {
@@ -214,10 +238,12 @@ function fakeSnowman() {
   // Stepping the kernel at exactly 1/60 every time means step k is deterministic, so the
   // only spread is IEEE-754 reassociation of the accumulator sum — far below 1e-9.
   const EQUIV_EPS = 1e-9;
-  const equivalent = worstEquivDiff < EQUIV_EPS && !anyNonFinite;
+  const equivalent = worstEquivDiff < EQUIV_EPS && !anyNonFinite && !stepCountMismatch;
   console.log('--- 1) Frame-rate equivalence: 30/50/144/jitter trace the 60 FPS path [GATING] ---');
-  console.log('  worst step-for-step trajectory diff:', worstEquivDiff.toExponential(3), `(${worstEquivCtx})`, '| eps:', EQUIV_EPS);
-  console.log('  PASS:', equivalent ? 'physics is frame-rate independent ✅' : 'render rate changed the trajectory ❌');
+  console.log('  fixed-step count per profile:', refSteps, '(target', TARGET_STEPS + ')',
+    stepCountMismatch ? `| MISMATCH: ${stepCountCtx}` : '| all profiles equal');
+  console.log('  worst FULL-trajectory diff:', worstEquivDiff.toExponential(3), `(${worstEquivCtx})`, '| eps:', EQUIV_EPS);
+  console.log('  PASS:', equivalent ? 'every render rate ran the same step count + path ✅' : 'render rate changed the step count / trajectory ❌');
   if (!equivalent) hardFail = true;
 
   // --- 2) No tunneling by construction: every fixed step < tree radius [GATING] ---

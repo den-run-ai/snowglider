@@ -73,6 +73,14 @@ export function createMainLoop(deps: MainLoopDeps) {
   // substeps (a >60 Hz panel) can still repaint the HUD / advance cosmetics from the
   // last known state instead of going blank.
   let lastResult: UpdateResult | null = null;
+  // Persistent render-interpolation window: the player position BEFORE (`interpPrev`)
+  // and AFTER (`interpCur`) the most recent fixed step. They update ONLY when a step
+  // runs, so on a no-step render frame (a >60 Hz panel) they hold their values while
+  // `alpha` grows with the accumulator — the render advances smoothly from interpPrev
+  // toward interpCur instead of freezing at the last step and jumping when the next
+  // lands. Seeded to the spawn position by startLoop().
+  const interpPrev = { x: 0, y: 0, z: 0 };
+  const interpCur = { x: 0, y: 0, z: 0 };
 
   function newFrameEvents(): FrameEvents {
     return { justLanded: false, tookOff: false, landingQuality: null, landingForce: 0 };
@@ -261,18 +269,21 @@ export function createMainLoop(deps: MainLoopDeps) {
       }
 
       // --- Fixed-step physics core ---------------------------------------------
-      // Drain the accumulator in fixed 1/60 s steps. `prevState` is the player position
-      // BEFORE the final substep and `pos` is the position AFTER it; we interpolate the
-      // render between them by `alpha` so a render rate that doesn't divide 60 evenly
-      // (144 Hz, 50 Hz) doesn't alias. Physics state stays authoritative on the grid.
+      // Drain the accumulator in fixed 1/60 s steps. The interpolation window
+      // (interpPrev -> interpCur) advances ONE step per substep and PERSISTS across
+      // frames, so the render lerps between the last two physics states by `alpha`. A
+      // render rate that doesn't divide 60 evenly (144 Hz, 50 Hz) or a no-step frame
+      // therefore reads a smoothly-advancing position, not an aliased/frozen one.
+      // Physics state stays authoritative on the grid.
       accumulator += frameDelta;
-      let prevX = pos.x, prevY = pos.y, prevZ = pos.z;
       const ev = newFrameEvents();
       let result = lastResult;
       let substeps = 0;
       while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS && state.gameActive) {
-        prevX = pos.x; prevY = pos.y; prevZ = pos.z; // state before this step
+        // Shift the window: the prior step's end (interpCur) becomes this step's start.
+        interpPrev.x = interpCur.x; interpPrev.y = interpCur.y; interpPrev.z = interpCur.z;
         result = stepFixed(FIXED_DT);
+        interpCur.x = pos.x; interpCur.y = pos.y; interpCur.z = pos.z; // this step's end
         aggregateEvents(ev, result);
         accumulator -= FIXED_DT;
         substeps++;
@@ -345,13 +356,14 @@ export function createMainLoop(deps: MainLoopDeps) {
       snowman.position.set(playerPosBefore.x, playerPosBefore.y, playerPosBefore.z);
 
       // --- Render at the interpolated position --------------------------------
-      // Render the snowman/camera at lerp(prevState, curState, alpha) to remove temporal
-      // aliasing on non-60 panels, then restore the authoritative physics position so the
-      // camera manager's own smoothing and the next frame stay clean. (Up to ~1 fixed
-      // step of visual latency; acceptable for this game — see §7 of the plan.)
-      const renderX = prevX + (pos.x - prevX) * alpha;
-      const renderY = prevY + (pos.y - prevY) * alpha;
-      const renderZ = prevZ + (pos.z - prevZ) * alpha;
+      // Render the snowman/camera at lerp(interpPrev, interpCur, alpha) — the persistent
+      // last-two-step window — to remove temporal aliasing on non-60 panels, then restore
+      // the authoritative physics position so the camera manager's own smoothing and the
+      // next frame stay clean. (Up to ~1 fixed step of visual latency; acceptable for this
+      // game — see §7 of the plan.)
+      const renderX = interpPrev.x + (interpCur.x - interpPrev.x) * alpha;
+      const renderY = interpPrev.y + (interpCur.y - interpPrev.y) * alpha;
+      const renderZ = interpPrev.z + (interpCur.z - interpPrev.z) * alpha;
       snowman.position.set(renderX, renderY, renderZ);
 
       updateCamera();
@@ -388,6 +400,11 @@ export function createMainLoop(deps: MainLoopDeps) {
     accumulator = 0;
     lastResult = null;
     prevInAir = false;
+    // Seed the interpolation window to the (already-reset) spawn position so the first
+    // frames render at rest instead of lerping from a stale previous-run position.
+    interpPrev.x = interpCur.x = pos.x;
+    interpPrev.y = interpCur.y = pos.y;
+    interpPrev.z = interpCur.z = pos.z;
     animate(lastTime);
   }
 
