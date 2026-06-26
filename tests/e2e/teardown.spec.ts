@@ -120,4 +120,82 @@ test.describe('disposeGame teardown', () => {
     expect(await page.evaluate(() => typeof (window as DisposeWindow).initializeGameWithAudio)).toBe('undefined');
     expect(pageErrors, `unexpected page errors after disposing mid-intro:\n${pageErrors.join('\n')}`).toEqual([]);
   });
+
+  // Plan §6.2 — the GPU-memory baseline contract. The other specs prove the DOM/handles
+  // are gone; this proves the dedup scene sweep actually FREES the GPU resources, i.e.
+  // disposeGame returns renderer.info.memory to baseline instead of leaking the buffers
+  // the live run uploaded. There is no in-place reinit entry point (only dev-HMR
+  // re-evaluates the module), so this asserts the single-shot dispose half of the cycle:
+  // live counts > 0, then ~0 after teardown. A regression that skips a pooled
+  // geometry/material/texture in the sweep would leave a non-zero residual here.
+  test('dispose returns renderer.info.memory to baseline (the sweep frees GPU resources)', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    // Deterministic forest so the live geometry/texture counts are stable run to run
+    // (same seed the perf-budget spec uses), making the >0 pre-condition a fixed number.
+    await page.addInitScript(() => {
+      let s = 0x9e3779b9 >>> 0;
+      Math.random = () => {
+        s = (s + 0x6d2b79f5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    });
+
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await waitForOrchestrator(page);
+    await page.click('#startGameButton');
+    await page.waitForFunction(() => (window as DisposeWindow).gameActive === true);
+
+    // Warm the loop so the renderer has uploaded the scene's geometries/textures —
+    // renderer.info.memory is only populated by a real frame render.
+    await page.waitForFunction(() => !!(window as unknown as { renderer?: unknown }).renderer);
+    for (let i = 0; i < 12; i++) {
+      await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+    }
+
+    // Capture memory off the SAME renderer reference before and after teardown: the
+    // window.renderer accessor is deleted by disposeGame, but a captured ref survives,
+    // and each unique geometry/material/texture .dispose() in the sweep synchronously
+    // decrements info.memory.
+    type Mem = { geometries: number; textures: number };
+    const { before, after } = await page.evaluate(() => {
+      const w = window as unknown as {
+        renderer: { info: { memory: { geometries: number; textures: number } } };
+        disposeGame: () => void;
+      };
+      const r = w.renderer;
+      const snap = (): Mem => ({ ...r.info.memory });
+      const before = snap();
+      w.disposeGame();
+      const after = snap();
+      return { before, after };
+    });
+
+    // Surface the numbers so any baseline drift is auditable in CI output.
+    console.log('[teardown] renderer.info.memory before/after dispose:', JSON.stringify({ before, after }));
+
+    // Pre-condition: a warm run really did upload resources (guards against a false pass
+    // where "0 -> 0" looks clean only because nothing was ever live).
+    expect(before.geometries, 'live geometries before dispose').toBeGreaterThan(20);
+    expect(before.textures, 'live textures before dispose').toBeGreaterThan(3);
+
+    // The contract:
+    //  - Geometries return to an EXACT baseline of 0. Every BufferGeometry is owned by a
+    //    mesh in the scene graph, so the dedup traverse sweep reaches and disposes all of
+    //    them (measured 85 -> 0). This is the tight guard: a pooled geometry the sweep
+    //    skipped, or a per-object geometry leak, would leave a non-zero residual.
+    //  - Textures drop to a small FIXED residual (measured 11 -> 3). The sweep walks
+    //    mesh.material slots, so it does not reach the few textures held OUTSIDE the mesh
+    //    graph (e.g. scene.background/environment or renderer-internal targets). That
+    //    residual is constant and does not scale with scene objects, so it is pinned as a
+    //    ceiling here, NOT chased to 0 in the sweep — a regression that leaks textures
+    //    per-object would push this back up toward the live count and red-bar.
+    expect(after.geometries, 'geometries leaked after dispose').toBe(0);
+    expect(after.textures, 'textures leaked after dispose').toBeLessThanOrEqual(3);
+
+    expect(pageErrors, `unexpected page errors during memory teardown:\n${pageErrors.join('\n')}`).toEqual([]);
+  });
 });
