@@ -261,7 +261,12 @@ document.addEventListener('DOMContentLoaded', function() {
 // disposed renderer + removed canvas.
 let disposed = false;
 let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
+let getReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let activeIntro: IntroHandle | null = null;
+// Names of the window.* handles this module installs (the publishGameGlobals
+// getters/setters; populated below). disposeSnowGlider deletes them so a clean unmount
+// doesn't leave the disposed scene reachable through their closures or stale APIs callable.
+let installedWindowKeys: string[] = [];
 
 // Activate the live run: flip the run-loop flags and kick off the animation loop.
 // Factored out so the start button, the cinematic intro's completion, and the
@@ -280,9 +285,12 @@ function startGameplayLoop(showGetReady: boolean) {
   // Start animation loop (the loop owns `lastTime`; startLoop seeds it — main-loop.ts)
   startLoop();
 
-  // Show a "Get Ready" message a beat after the run begins (first start only)
+  // Show a "Get Ready" message a beat after the run begins (first start only). Tracked +
+  // disposed-guarded so an unmount in the 1.5s window can't toast over the host page.
   if (showGetReady) {
-    setTimeout(() => {
+    getReadyTimer = setTimeout(() => {
+      getReadyTimer = null;
+      if (disposed) return;
       AudioModule.showMessage("Get Ready!", 1000);
     }, 1500);
   }
@@ -530,6 +538,9 @@ window.initializeGameWithAudio = function() {
   for (const name of Object.keys(live)) {
     Object.defineProperty(window, name, { configurable: true, enumerable: false, ...live[name] });
   }
+  // Remembered so disposeSnowGlider can delete them on unmount (the accessors close over
+  // sceneContext/renderer/scene/etc., which would otherwise keep the disposed graph alive).
+  installedWindowKeys = Object.keys(live);
 })();
 
 // --- Teardown entry point (dispose-audit plan; see game/teardown.ts) ---
@@ -539,11 +550,15 @@ window.initializeGameWithAudio = function() {
 // The run/restart flow is unchanged — this is a NEW path (unmount + dev-HMR), never
 // on the reuse path. Published beside the other coordinator handles.
 function disposeSnowGlider(): void {
-  // Flip the guard FIRST so any deferred first-start callback that fires during/after
-  // teardown (the intro's onComplete, the loading timer) short-circuits in
+  if (disposed) return; // idempotent: a second unmount/HMR dispose is a no-op
+  // Flip the guard so any deferred first-start callback that fires during/after teardown
+  // (the intro's onComplete, the loading/Get-Ready timers) short-circuits in
   // startGameplayLoop instead of starting a loop against a disposed renderer.
   disposed = true;
   if (pendingStartTimer !== null) { clearTimeout(pendingStartTimer); pendingStartTimer = null; }
+  // Cancel the deferred "Get Ready!" toast so it can't appear over the host page after a
+  // mid-startup unmount (the callback is also disposed-guarded).
+  if (getReadyTimer !== null) { clearTimeout(getReadyTimer); getReadyTimer = null; }
   // Cut a still-running fly-over short: skip() cancels its private rAF (so no further
   // renderer.render on a dead context); its onComplete is now a no-op via the guard.
   if (activeIntro && !activeIntro.done) activeIntro.skip();
@@ -562,6 +577,19 @@ function disposeSnowGlider(): void {
   // second snowfall on the stale, detached sprites from the disposed scene.
   Snow.teardownSnowflakes();
   disposeGame(sceneContext, () => listenerAbort.abort());
+
+  // Delete every window.* handle this module installed so the disposed graph is no longer
+  // reachable through their closures (the publishGameGlobals accessors capture
+  // sceneContext/renderer/scene/snowSplash/…) and the stale start/reset/showGameOver APIs
+  // aren't callable after the DOM + WebGL context are gone. window.disposeGame itself is
+  // removed last (idempotence is preserved by the `disposed` guard at the top).
+  const w = window as unknown as Record<string, unknown>;
+  for (const name of installedWindowKeys) delete w[name];
+  for (const name of ['resetSnowman', 'restartGame', 'toggleCameraView', 'showGameOver',
+    'initializeGameWithAudio', 'terrainMesh', 'treePositions', 'rockPositions', 'disposeGame']) {
+    delete w[name];
+  }
+  if (window.testHooks) delete window.testHooks.isDebrisActive;
 }
 window.disposeGame = disposeSnowGlider;
 
