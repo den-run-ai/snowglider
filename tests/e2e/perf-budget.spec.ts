@@ -14,30 +14,34 @@ import { gotoGame, startGame } from './helpers';
 // without value. WebKit/mobile keep owning the user-flow + touch specs.
 
 // --- Budget ceilings -------------------------------------------------------
-// Measured on Chromium (warm frame, 1280x720 viewport): calls 1783, triangles
-// ~105k, geometries 111, textures 11, programs 13. These are scene-dependent (the
-// same geometry the production bundle builds), not GPU/driver-dependent, so they
-// hold across Chromium builds. Ceilings are padded above those actuals as a
-// REGRESSION GUARD, not an aspirational target. Trees are still a Group-of-Mesh
-// per tree today (NOT InstancedMesh — src/mountains/trees.ts), so draw-call count
-// is inherently high; these pin "no worse than today" and tighten automatically
-// if instancing lands.
+// Measured on Chromium (warm frame, 1280x720 viewport, deterministic forest seed):
+// calls ~252, triangles ~176k, geometries 86, textures 11, programs 16. These are
+// scene-dependent (the same geometry the production bundle builds), not
+// GPU/driver-dependent, so they hold across Chromium builds. Ceilings are padded
+// above those actuals as a REGRESSION GUARD, not an aspirational target.
 //
-// calls/triangles are LOOSE catastrophe ceilings: frustum culling AND the
-// per-frame shadow-map pass make them swing frame-to-frame (measured peak ~2700
-// calls vs ~1800 steady), so a tight pin would flake. They still catch a
-// catastrophic blowup (losing geometry pooling / instancing would multiply trees
-// per-instance, easily 2x+). The TIGHT regression guards are
+// The forest is now InstancedMesh (src/mountains/trees.ts): the whole forest draws
+// as 5 InstancedMeshes (~5 colour + ~5 shadow draws) instead of a Group-of-~20-meshes
+// PER tree, which collapsed draw calls from ~2700 peak to ~252. So `calls` is now a
+// TIGHT regression guard: a revert to per-tree meshes would push it back into the
+// thousands, which the 800 ceiling flags immediately (was a loose 3500 when trees
+// were un-instanced).
+//
+// `triangles` stays a LOOSE ceiling: a forest-wide InstancedMesh has a huge bounding
+// sphere and effectively never frustum-culls, so every tree instance is always
+// rasterized (the documented instancing tradeoff — see trees.ts buildForest /
+// avalanche.ts:88). That raised triangles from ~125k (per-tree, culled) to ~176k,
+// still a small fraction of the rasterizer budget; the shadow pass also makes it
+// swing frame-to-frame, so a tight pin would flake. The other TIGHT guards are
 // geometries/textures/programs — trees.ts pools shared trunk/cone/branch
-// geometries+materials, so those live counts must NOT grow per object; a
-// regression back to per-tree geometry would push `geometries` from ~110 into the
-// hundreds, which the tight pin flags.
+// geometries+materials, so those live counts must NOT grow per object; a regression
+// back to per-tree geometry would push `geometries` from ~86 into the hundreds.
 const BUDGET = {
-  calls: 3500, // draw calls per frame (measured peak ~2700; loose catastrophe ceiling)
-  triangles: 350_000, // rasterized triangles per frame (measured peak ~125k; loose)
-  geometries: 130, // live BufferGeometry count (measured ~111; TIGHT — pooled, must stay bounded)
+  calls: 800, // draw calls per frame (measured peak ~252; TIGHT — instancing must hold)
+  triangles: 350_000, // rasterized triangles per frame (measured peak ~176k; loose — forest never culls)
+  geometries: 130, // live BufferGeometry count (measured ~86; TIGHT — pooled, must stay bounded)
   textures: 25, // live texture count (measured 11; TIGHT)
-  programs: 25, // compiled shader programs (measured 13; TIGHT — catches shader-compile blowups)
+  programs: 25, // compiled shader programs (measured 16; TIGHT — catches shader-compile blowups)
 };
 
 type PerfInfo = {
