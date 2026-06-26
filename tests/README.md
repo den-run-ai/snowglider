@@ -268,12 +268,22 @@ the two contracts that the browser/Node unit tests can't easily assert end-to-en
   synthetic slope) and asserts the 10-FPS/60-FPS front-travel ratio stays near 1 and all
   boulder state stays finite. Guards the per-frame-friction regression fixed alongside
   this harness (the same bug class as PR #209). Also run via `npm run test:stress`.
+- **`fixed_timestep_harness.js`** — frame-rate **equivalence** gate for the live loop's
+  fixed-timestep accumulator (`src/game/main-loop.ts`). Drives the real kernel through
+  the *same* accumulator the loop uses at 30/50/144 FPS and a jittery variable rate, and
+  asserts the per-fixed-step trajectory is **byte-identical** to the 60 FPS run (the
+  accumulator steps physics only at 1/60, so render rate can't move the path), that every
+  fixed step stays under the tree collision radius (**no tunneling by construction** —
+  the `tunnelRiskFrames == 0` guarantee), and that all state stays finite. A diagnostic
+  contrasts the pre-accumulator variable-`dt` loop (which drifts the path). Where
+  `forward_stress_harness.js` *bounds the damage* of a variable `dt`, this proves the
+  accumulator *removes the cause*. Also run via `npm run test:stress`.
 - **`results.txt`** — the recorded output from the last full verification run.
 
 ```bash
 npm run test:verify        # physics_invariant_harness.js + dom_smoke_test.js
 npm run test:turn-styles   # carve vs. parallel turn side-by-side comparison
-npm run test:stress        # forward_stress_harness.js + avalanche_framerate_harness.js
+npm run test:stress        # forward_stress + avalanche_framerate + fixed_timestep harnesses
 ```
 
 ## Playwright E2E (cross-browser + mobile)
