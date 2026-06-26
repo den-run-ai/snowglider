@@ -509,10 +509,19 @@ function update(dt: number): void {
   applyProgress(cycle, cycleProgress(cycle.elapsed));
 }
 
+/** Drop the sun-cycle singleton (dispose-audit teardown / dev-HMR). The `cycle` captures
+ *  the live scene + directionalLight + sky material/fog, so on an embed/HMR unmount it
+ *  would keep the disposed scene graph reachable. applyAtmosphericSky rebuilds it on the
+ *  next mount. Idempotent. */
+function teardown(): void {
+  cycle = null;
+}
+
 export const Sky = {
   applyGradientSky,
   applyAtmosphericSky,
   update,
+  teardown,
   cycleProgress,
   ZENITH_COLOR,
   HORIZON_COLOR,

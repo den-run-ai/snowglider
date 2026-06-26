@@ -37,13 +37,11 @@ test.describe('disposeGame teardown', () => {
     await page.click('#startGameButton');
     await page.waitForFunction(() => (window as DisposeWindow).gameActive === true);
 
-    // Tear it down. disposeGame deletes the window.* handles it installed, so capture the
-    // reference first and call it twice — the second call exercises idempotence (a guarded
-    // no-op, not a throw) without depending on the now-removed window.disposeGame.
+    // Tear it down. disposeGame rebinds window.disposeGame to a no-op (not delete), so the
+    // public idempotence contract holds: a second call THROUGH window stays a safe no-op.
     await page.evaluate(() => {
-      const d = (window as DisposeWindow).disposeGame!;
-      d();
-      d();
+      (window as DisposeWindow).disposeGame!(); // real teardown
+      (window as DisposeWindow).disposeGame!(); // second call via window — must not throw
     });
 
     // Every instance-owned DOM node is gone (so a remount can't hit a stale duplicate-ID
@@ -61,15 +59,18 @@ test.describe('disposeGame teardown', () => {
 
     // Every window.* handle this instance installed is deleted — no stale start/reset
     // APIs callable, and no accessor closure keeping the disposed scene/renderer reachable.
+    // (disposeGame is intentionally retained as a no-op for idempotence; checked below.)
     const handlesCleared = await page.evaluate(() => {
       const w = window as unknown as Record<string, unknown>;
-      const names = ['disposeGame', 'initializeGameWithAudio', 'resetSnowman', 'restartGame',
+      const names = ['initializeGameWithAudio', 'resetSnowman', 'restartGame',
         'toggleCameraView', 'showGameOver', 'scene', 'renderer', 'camera', 'snowman', 'pos',
         'velocity', 'snowSplash', 'terrain', 'gameActive', 'updateCamera', 'updateSnowman',
         'testHooks'];
       return names.filter((n) => w[n] !== undefined);
     });
     expect(handlesCleared, `window handles still present after dispose: ${handlesCleared.join(', ')}`).toEqual([]);
+    // disposeGame stays a callable no-op so a remount/double-cleanup through window is safe.
+    expect(await page.evaluate(() => typeof (window as DisposeWindow).disposeGame)).toBe('function');
 
     // Give any orphaned rAF a couple of frames to (not) fire against the dead context.
     await page.waitForTimeout(150);
@@ -89,11 +90,11 @@ test.describe('disposeGame teardown', () => {
     await page.click('#startGameButton');
     await page.evaluate(() => (window as DisposeWindow).disposeGame!());
 
-    // Wait past the 1800ms delayed start. The teardown ran (its window handle is gone) and
-    // the deferred loop never started — a loop against the torn-down renderer would throw
-    // on renderer.render after context loss, so zero page errors is the proof it was cancelled.
+    // Wait past the 1800ms delayed start. The teardown ran (initializeGameWithAudio is
+    // deleted) and the deferred loop never started — a loop against the torn-down renderer
+    // would throw on renderer.render after context loss, so zero page errors is the proof.
     await page.waitForTimeout(2200);
-    expect(await page.evaluate(() => typeof (window as DisposeWindow).disposeGame)).toBe('undefined');
+    expect(await page.evaluate(() => typeof (window as DisposeWindow).initializeGameWithAudio)).toBe('undefined');
     expect(pageErrors, `unexpected page errors after a mid-startup dispose:\n${pageErrors.join('\n')}`).toEqual([]);
   });
 
@@ -114,9 +115,9 @@ test.describe('disposeGame teardown', () => {
     await page.evaluate(() => (window as DisposeWindow).disposeGame!());
 
     await page.waitForTimeout(300);
-    // Teardown completed (handle gone) and the cancelled fly-over rendered nothing against
-    // the disposed context (zero page errors).
-    expect(await page.evaluate(() => typeof (window as DisposeWindow).disposeGame)).toBe('undefined');
+    // Teardown completed (initializeGameWithAudio deleted) and the cancelled fly-over
+    // rendered nothing against the disposed context (zero page errors).
+    expect(await page.evaluate(() => typeof (window as DisposeWindow).initializeGameWithAudio)).toBe('undefined');
     expect(pageErrors, `unexpected page errors after disposing mid-intro:\n${pageErrors.join('\n')}`).toEqual([]);
   });
 });

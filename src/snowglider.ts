@@ -36,6 +36,7 @@ import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
 import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
+import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
@@ -262,7 +263,12 @@ document.addEventListener('DOMContentLoaded', function() {
 let disposed = false;
 let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
 let getReadyTimer: ReturnType<typeof setTimeout> | null = null;
+let testAutoStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeIntro: IntroHandle | null = null;
+// A capture-free no-op that window.disposeGame is rebound to after teardown — so a second
+// external `window.disposeGame()` call stays a safe no-op (preserving the public
+// idempotence contract) WITHOUT the disposeSnowGlider closure keeping sceneContext alive.
+const noopDispose = (): void => {};
 // Names of the window.* handles this module installs (the publishGameGlobals
 // getters/setters; populated below). disposeSnowGlider deletes them so a clean unmount
 // doesn't leave the disposed scene reachable through their closures or stale APIs callable.
@@ -559,6 +565,10 @@ function disposeSnowGlider(): void {
   // Cancel the deferred "Get Ready!" toast so it can't appear over the host page after a
   // mid-startup unmount (the callback is also disposed-guarded).
   if (getReadyTimer !== null) { clearTimeout(getReadyTimer); getReadyTimer = null; }
+  // The ?test= auto-start timer (below) dereferences #gameCanvas and calls
+  // initializeGameWithAudio; cancel it so a dispose in its 100ms window can't run against
+  // the torn-down page (the callback is also disposed-guarded).
+  if (testAutoStartTimer !== null) { clearTimeout(testAutoStartTimer); testAutoStartTimer = null; }
   // Cut a still-running fly-over short: skip() cancels its private rAF (so no further
   // renderer.render on a dead context); its onComplete is now a no-op via the guard.
   if (activeIntro && !activeIntro.done) activeIntro.skip();
@@ -576,13 +586,15 @@ function disposeSnowGlider(): void {
   // Clear the module-level snowflake pool so a same-instance remount doesn't stack a
   // second snowfall on the stale, detached sprites from the disposed scene.
   Snow.teardownSnowflakes();
+  // Drop the Sky sun-cycle singleton — it captures the scene + directional light + sky
+  // material/fog, which would otherwise keep the disposed graph reachable.
+  Sky.teardown();
   disposeGame(sceneContext, () => listenerAbort.abort());
 
   // Delete every window.* handle this module installed so the disposed graph is no longer
   // reachable through their closures (the publishGameGlobals accessors capture
   // sceneContext/renderer/scene/snowSplash/…) and the stale start/reset/showGameOver APIs
-  // aren't callable after the DOM + WebGL context are gone. window.disposeGame itself is
-  // removed last (idempotence is preserved by the `disposed` guard at the top).
+  // aren't callable after the DOM + WebGL context are gone.
   const w = window as unknown as Record<string, unknown>;
   for (const name of installedWindowKeys) delete w[name];
   // testHooks is deleted wholesale (not just isDebrisActive): Snowman.addTestHooks installs
@@ -590,10 +602,14 @@ function disposeSnowGlider(): void {
   // capture pos + showGameOver (which retain the disposed scene/UI), so dropping the whole
   // object is what releases them. addTestHooks rebuilds it on the next mount.
   for (const name of ['resetSnowman', 'restartGame', 'toggleCameraView', 'showGameOver',
-    'initializeGameWithAudio', 'terrainMesh', 'treePositions', 'rockPositions', 'testHooks',
-    'disposeGame']) {
+    'initializeGameWithAudio', 'terrainMesh', 'treePositions', 'rockPositions', 'testHooks']) {
     delete w[name];
   }
+  // window.disposeGame is REBOUND (not deleted) to a capture-free no-op: external callers
+  // normally invoke it through `window`, so a second cleanup must stay a safe no-op rather
+  // than throwing on a missing property — while still releasing the disposeSnowGlider
+  // closure that captured sceneContext.
+  window.disposeGame = noopDispose;
 }
 window.disposeGame = disposeSnowGlider;
 
@@ -608,13 +624,19 @@ if (import.meta.hot) {
 // If this is a test environment, auto-start the game
 if (window.isTestMode) {
   console.log("Test mode detected, auto-starting game...");
-  setTimeout(() => {
+  testAutoStartTimer = setTimeout(() => {
+    testAutoStartTimer = null;
+    // Bail if torn down in this 100ms window: #gameCanvas is gone and
+    // initializeGameWithAudio has been removed, so dereferencing them would throw.
+    if (disposed) return;
+
     // Hide the start button container
     const startContainer = document.getElementById('startGameContainer');
     if (startContainer) startContainer.style.display = 'none';
-    
+
     // Show the game canvas
-    document.getElementById('gameCanvas')!.style.display = 'block';
+    const gameCanvas = document.getElementById('gameCanvas');
+    if (gameCanvas) gameCanvas.style.display = 'block';
 
     // Initialize the game
     window.initializeGameWithAudio?.();
