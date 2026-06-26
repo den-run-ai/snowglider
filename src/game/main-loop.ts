@@ -35,8 +35,8 @@ import { AVALANCHE_TRIGGER_DISTANCE, type SceneContext } from './scene-setup.js'
 // physics steps a single slow render frame may run (the spiral-of-death guard): at
 // ~<8 FPS the game *slows down* rather than tunnelling — the same ~133 ms ceiling the
 // old `Math.min(delta, 0.1)` clamp imposed, expressed as a step count instead.
-const FIXED_DT = 1 / 60;
-const MAX_SUBSTEPS = 8;
+export const FIXED_DT = 1 / 60;
+export const MAX_SUBSTEPS = 8;
 
 /** Events that can fire on ANY substep within a render frame, reduced across the
  *  frame so a jump/land that completes mid-frame still drives its one-shot cosmetics
@@ -100,10 +100,11 @@ export function createMainLoop(deps: MainLoopDeps) {
     prevInAir = result.isInAir;
   }
 
-  // --- Physics advance + telemetry (one step) -----------------------------------
-  // The kernel step: advances the player one step at `dt` and records read-only
-  // diagnostics. Shared by the live loop's fixed substep and the legacy
-  // `updateSnowman(delta)` test seam, so both record telemetry exactly as before.
+  // --- Physics advance (one step) -----------------------------------------------
+  // The kernel step: advances the player one step at `dt`. Shared by the live loop's
+  // fixed substep and the legacy `updateSnowman(delta)` test seam. Diagnostics are NOT
+  // recorded here — they are recorded once per RENDER frame (see recordDiag) so the FPS /
+  // clamped-frame signal reflects the real device frame time, not the fixed 1/60 substep.
   function stepPhysics(dt: number): UpdateResult {
     const activeShowGameOver = typeof window.showGameOver === 'function'
       ? window.showGameOver
@@ -128,21 +129,6 @@ export function createMainLoop(deps: MainLoopDeps) {
       // before its synchronous finish check can build the result screen — so a jump
       // landed on the finish frame still counts (see Snowman.updateSnowman).
       bankAirScore: (points: number) => { if (CourseModule) CourseModule.addAirScore(points); }
-    });
-
-    // Frame-rate / physics telemetry (diagnostics.ts). READ-ONLY observer: it reads the
-    // per-step result + pos only and never touches pos/velocity, so the physics-invariant
-    // harness is unaffected and it is a no-op under automation. Recorded PER STEP (and in
-    // the loop that means per FIXED 1/60 step, not per render frame) so `step` reflects
-    // the real collision-time displacement — `v/60` — and `tunnelRisk` frames go to zero
-    // by construction (#209).
-    Diag.record({
-      dt,
-      speed: result.currentSpeed,
-      x: pos.x,
-      z: pos.z,
-      technique: result.technique,
-      isInAir: player.isInAir,
     });
 
     return result;
@@ -234,7 +220,29 @@ export function createMainLoop(deps: MainLoopDeps) {
     const ev = newFrameEvents();
     aggregateEvents(ev, result);
     renderObservers(delta, result, ev);
+    // One step == one record here, at the caller's real delta; let diagnostics derive the
+    // step from the previous position (no fixed-substep split in this single-call path).
+    recordDiag(delta, result);
     lastResult = result;
+  }
+
+  // Frame-rate / physics telemetry (diagnostics.ts). READ-ONLY observer: reads the result
+  // + pos only and never touches pos/velocity, so the physics-invariant harness is
+  // unaffected and it is a no-op under automation. `dt` is the REAL render-frame duration
+  // (so the FPS-band / clamped-frame / runaway detection sees the true device rate), while
+  // `stepOverride` — when given — is the max SUBSTEP displacement, so `tunnelRisk` reflects
+  // the actual collision-time step (`v/60`) rather than the whole-frame displacement. The
+  // loop records once per render frame; the single-step path omits stepOverride.
+  function recordDiag(dt: number, result: UpdateResult, stepOverride?: number) {
+    Diag.record({
+      dt,
+      speed: result.currentSpeed,
+      x: pos.x,
+      z: pos.z,
+      technique: result.technique,
+      isInAir: player.isInAir,
+      ...(stepOverride !== undefined ? { step: stepOverride } : {}),
+    });
   }
 
   // --- Update Camera: Follow the Snowman ---
@@ -268,6 +276,26 @@ export function createMainLoop(deps: MainLoopDeps) {
         Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
       }
 
+      // --- Avalanche advance (boulder physics) — BEFORE the substeps ------------
+      // Advance the boulders FIRST so the per-substep burial check inside stepFixed()
+      // tests against THIS frame's boulder positions, and so hasPassed()/reset (run after
+      // the physics core, below) can't deactivate the slide before a reaching boulder is
+      // tested against the player. Trigger + update here; hasPassed/reset + the warning UI
+      // run after the substeps. Boulder physics stays on the render delta (its own
+      // frame-rate fix lives in avalanche.ts).
+      const avalanche = state.avalanche;
+      if (avalanche) {
+        // Trigger based on distance traveled (player starts at z=-15, skis toward -Z).
+        const distanceTraveled = state.lastAvalancheZ - pos.z;
+        if (!state.avalancheTriggered && distanceTraveled > AVALANCHE_TRIGGER_DISTANCE) {
+          avalanche.trigger(snowman.position);
+          state.avalancheTriggered = true;
+          console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
+        }
+        // Update avalanche physics (boulder tumble advances on the render delta).
+        avalanche.update(frameDelta);
+      }
+
       // --- Fixed-step physics core ---------------------------------------------
       // Drain the accumulator in fixed 1/60 s steps. The interpolation window
       // (interpPrev -> interpCur) advances ONE step per substep and PERSISTS across
@@ -279,11 +307,14 @@ export function createMainLoop(deps: MainLoopDeps) {
       const ev = newFrameEvents();
       let result = lastResult;
       let substeps = 0;
+      let maxSubstepStep = 0; // largest single-substep planar move = the collision-time step
       while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS && state.gameActive) {
         // Shift the window: the prior step's end (interpCur) becomes this step's start.
         interpPrev.x = interpCur.x; interpPrev.y = interpCur.y; interpPrev.z = interpCur.z;
         result = stepFixed(FIXED_DT);
         interpCur.x = pos.x; interpCur.y = pos.y; interpCur.z = pos.z; // this step's end
+        const substepStep = Math.hypot(interpCur.x - interpPrev.x, interpCur.z - interpPrev.z);
+        if (substepStep > maxSubstepStep) maxSubstepStep = substepStep;
         aggregateEvents(ev, result);
         accumulator -= FIXED_DT;
         substeps++;
@@ -294,9 +325,14 @@ export function createMainLoop(deps: MainLoopDeps) {
       const alpha = accumulator / FIXED_DT;
       if (result) lastResult = result;
 
-      // Per-render-frame observers (HUD/flex/sfx) — once per frame on the real delta.
-      // `result` is null only before the very first physics step has ever run.
-      if (result) renderObservers(frameDelta, result, ev);
+      // Per-render-frame observers + telemetry — once per frame on the REAL delta.
+      // `result` is null only before the very first physics step has ever run; on a
+      // no-step (>60 Hz) frame it is the retained last result, so the FPS/clamped signal
+      // is still recorded for that render frame (maxSubstepStep stays 0 → no tunnel flag).
+      if (result) {
+        renderObservers(frameDelta, result, ev);
+        recordDiag(frameDelta, result, maxSubstepStep);
+      }
 
       Snow.updateSnowflakes(frameDelta, pos, scene);
 
@@ -308,22 +344,10 @@ export function createMainLoop(deps: MainLoopDeps) {
       // fog). Purely atmospheric; a no-op under reduced motion. (#163)
       Sky.update(frameDelta);
 
-      // --- Avalanche advance / UI (cosmetic boulder physics; burial is gated above) ---
-      const avalanche = state.avalanche;
+      // --- Avalanche survival check + warning UI (advance/burial happened above) ---
+      // hasPassed()/reset runs AFTER the substeps' burial check, so a reaching boulder is
+      // always tested against the player before the slide can deactivate.
       if (avalanche) {
-        // Trigger avalanche based on distance traveled (simple geometric trigger).
-        // Player starts at z=-15 and moves in -Z direction (downhill).
-        const distanceTraveled = state.lastAvalancheZ - pos.z;
-
-        if (!state.avalancheTriggered && distanceTraveled > AVALANCHE_TRIGGER_DISTANCE) {
-          avalanche.trigger(snowman.position);
-          state.avalancheTriggered = true;
-          console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
-        }
-
-        // Update avalanche physics (boulder tumble advances on the render delta).
-        avalanche.update(frameDelta);
-
         // Reset avalanche if it has passed the player (survived!)
         if (state.avalancheTriggered && avalanche.hasPassed(snowman.position)) {
           console.log("Avalanche passed - player survived!");

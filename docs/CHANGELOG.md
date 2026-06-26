@@ -28,12 +28,20 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   the old 0.1 s clamp imposed — a strictly better failure mode.
 - **Physics and cosmetics are split.** `stepFixed(1/60)` runs on the grid (physics +
   in-kernel collision/finish, `CourseModule.update`, and the avalanche burial check — the
-  two run-outcome gates that live in the loop rather than the kernel — plus per-step
-  `Diag.record`). The cosmetic/observer layer (`renderObservers`: HUD, `Flex`, `Sfx`,
-  camera shake/toast) and the avalanche advance/UI, snow particles, sky cycle, camera, and
-  render run **once per render frame** on the real frame delta. Jump/land events are
-  **reduced across the frame's substeps** so a landing that completes mid-frame still
-  fires its whoosh/thump/toast/shake (never dropped).
+  two run-outcome gates that live in the loop rather than the kernel). The avalanche
+  boulders are **advanced before the substeps** so the per-substep burial check tests this
+  frame's positions and `hasPassed()`/reset (after the substeps) can't deactivate the slide
+  before a reaching boulder is checked. The cosmetic/observer layer (`renderObservers`:
+  HUD, `Flex`, `Sfx`, camera shake/toast), the avalanche survival/UI, snow particles, sky
+  cycle, camera, and render run **once per render frame** on the real frame delta. Jump/land
+  events are **reduced across the frame's substeps** so a landing that completes mid-frame
+  still fires its whoosh/thump/toast/shake (never dropped).
+- **Diagnostics record once per render frame** (`diagnostics.ts`) with the **real** frame
+  delta — so the FPS-band / clamped-frame / runaway detection still sees the true device
+  rate — while the tunnel-risk metric uses an explicit **max-substep** displacement
+  (`v/60`), so a slow render frame doesn't read as a collision tunnel risk (collision ran
+  on the 1/60 grid). `FrameSample` gained an optional `step` override for this; the
+  `frameCapSec` clamp now tracks the loop's `MAX_SUBSTEPS * FIXED_DT` ceiling.
 - **Render interpolation.** The snowman/camera render at `lerp(prevState, curState, alpha)`
   (the leftover-accumulator fraction), removing temporal aliasing on render rates that
   don't divide 60 (144 Hz, 50 Hz). Physics state stays authoritative on the grid; the

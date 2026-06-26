@@ -39,7 +39,7 @@ import { IntroModule, prefersReducedMotion } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { setupScene } from './game/scene-setup.js';
-import { createMainLoop } from './game/main-loop.js';
+import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createLifecycle } from './game/lifecycle.js';
 
 // Get keyboard controls from the Controls module
@@ -180,7 +180,10 @@ window.addEventListener('resize', handleResize);
 // telemetry failure can never throw into the game loop.
 Diag.init(
   {
-    frameCapSec: 0.1,
+    // The loop ceilings a render frame at MAX_SUBSTEPS * FIXED_DT (the spiral-of-death
+    // cap); a frame at that ceiling means the device dropped to/below 1/cap FPS — the
+    // regime the #209 bug bit — so the clamped-frame detector keys off the same value.
+    frameCapSec: MAX_SUBSTEPS * FIXED_DT,
     collisionRadius: Math.min(
       window.treeCollisionRadius || 2.5,
       rockCollisionRadius(ROCK_COLLISION_MIN_SIZE),

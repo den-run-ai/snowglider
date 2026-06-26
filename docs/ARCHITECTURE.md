@@ -207,21 +207,24 @@ Per-frame order in `animate(time)`:
 ```
 frameDelta = min((time - lastTime)/1000, MAX_SUBSTEPS*FIXED_DT)   // ceiling
 accumulator += frameDelta
+avalanche.trigger/update(frameDelta)             // advance boulders BEFORE the substeps so the
+                                                  //   per-substep burial check sees this frame's positions
 while accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS && gameActive:   // FIXED SUBSTEPS
     stepFixed(FIXED_DT):
         Physics.stepPlayer(...)                  // input + physics → pos/velocity (+ in-kernel collision/finish)
         CourseModule.update(pos, elapsed, ...)   // splits, progress HUD, ghost (outcome-gating)
         avalanche.checkBurial(...)               // burial = game over (outcome-gating)
-        Diag.record(...)                         // telemetry per fixed step (step = v/60 → tunnelRisk 0)
     aggregate frame events (justLanded / tookOff / landingQuality)   // §5: don't drop a mid-frame landing
+    track maxSubstepStep                         // the collision-time step (= v/60)
     accumulator -= FIXED_DT
 alpha = accumulator / FIXED_DT                    // 0..1 leftover for render interpolation
                                                   // --- once per RENDER frame (cosmetic) ---
 renderObservers(frameDelta, latestResult, events)   // HUD stats, Flex.update, Sfx jump/land/skiing
+Diag.record(frameDelta, …, step=maxSubstepStep)  // telemetry: REAL frame dt (FPS/clamped) + substep step (tunnelRisk)
 Snow.updateSnowflakes(...)
 snowTrails.update(frameDelta, snowman, isInAir)  // carve/fade ski grooves (cosmetic, reads pos only)
 Sky.update(frameDelta)                           // golden-hour↔midday sun cycle
-avalanche.trigger/update/hasPassed               // + EffectsModule.updateAvalanche + Sfx.setAvalanche
+avalanche.hasPassed/reset                        // + EffectsModule.updateAvalanche + Sfx.setAvalanche
 Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
 snowman.position = lerp(prevState, curState, alpha)      // render at interpolated pos (anti-alias non-60 panels)
 updateCamera()                                   // cameraManager follows the interpolated snowman
