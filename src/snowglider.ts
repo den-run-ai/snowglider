@@ -585,12 +585,15 @@ function disposeSnowGlider(): void {
   // removed last (idempotence is preserved by the `disposed` guard at the top).
   const w = window as unknown as Record<string, unknown>;
   for (const name of installedWindowKeys) delete w[name];
+  // testHooks is deleted wholesale (not just isDebrisActive): Snowman.addTestHooks installs
+  // forceTreeCollision/checkTreeCollision/checkExtendedTerrainCollision closures that
+  // capture pos + showGameOver (which retain the disposed scene/UI), so dropping the whole
+  // object is what releases them. addTestHooks rebuilds it on the next mount.
   for (const name of ['resetSnowman', 'restartGame', 'toggleCameraView', 'showGameOver',
-    'initializeGameWithAudio', 'terrainMesh', 'treePositions', 'rockPositions', 'disposeGame']) {
+    'initializeGameWithAudio', 'terrainMesh', 'treePositions', 'rockPositions', 'testHooks',
+    'disposeGame']) {
     delete w[name];
   }
-  const testHooks = window.testHooks as Record<string, unknown> | undefined;
-  if (testHooks) delete testHooks.isDebrisActive;
 }
 window.disposeGame = disposeSnowGlider;
 

@@ -65,7 +65,8 @@ test.describe('disposeGame teardown', () => {
       const w = window as unknown as Record<string, unknown>;
       const names = ['disposeGame', 'initializeGameWithAudio', 'resetSnowman', 'restartGame',
         'toggleCameraView', 'showGameOver', 'scene', 'renderer', 'camera', 'snowman', 'pos',
-        'velocity', 'snowSplash', 'terrain', 'gameActive', 'updateCamera', 'updateSnowman'];
+        'velocity', 'snowSplash', 'terrain', 'gameActive', 'updateCamera', 'updateSnowman',
+        'testHooks'];
       return names.filter((n) => w[n] !== undefined);
     });
     expect(handlesCleared, `window handles still present after dispose: ${handlesCleared.join(', ')}`).toEqual([]);

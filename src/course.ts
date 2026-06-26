@@ -722,6 +722,14 @@ export const CourseModule = (function () {
     // GPU resources are freed by disposeGame's scene sweep; this only drops the handles.
     gateGroup = null;
     ghost = null;
+    // Drop the init() handles too, so this singleton doesn't retain the disposed
+    // renderer/camera/scene (and their object graph) after an embed/HMR unmount. init()
+    // re-sets all of them on the next mount.
+    scene = null;
+    getTerrainHeight = null;
+    createSnowman = null;
+    renderer = null;
+    camera = null;
   }
 
   return {
