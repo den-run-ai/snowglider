@@ -19,6 +19,8 @@
 //   node --import ./tests/loaders/register-ts-resolve.mjs tests/teardown-tests.js
 'use strict';
 
+const { JSDOM } = require('jsdom');
+
 let pass = 0, fail = 0;
 function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: ${name}`); cond ? pass++ : fail++; }
 
@@ -28,6 +30,7 @@ async function main() {
 
   await testDedupSweep(THREE, disposeSceneResources);
   await testDisposeGameIdempotent(THREE, disposeGame);
+  await testOwnedDomNodeRemoval(THREE, disposeGame);
 
   console.log(`\nTEARDOWN TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
@@ -81,7 +84,13 @@ function makeFakeContext(THREE) {
 
   const calls = { debrisReset: 0, trailsDispose: 0, avalancheDispose: 0, rendererDispose: 0, forceContextLoss: 0, canvasRemoved: 0, listenersTorndown: 0 };
 
-  const canvas = { parentNode: { removeChild: (c) => { if (c === canvas) calls.canvasRemoved++; } } };
+  // Model the real ownership: the canvas sits inside a #gameCanvas wrapper, which sits in
+  // the body. disposeGame removes the WRAPPER (canvas.parentNode), taking the canvas with
+  // it — so the spy lives on the wrapper's parent. (No global `document` here, so the
+  // getElementById('cameraToggleBtn') branch is correctly skipped.)
+  const body = { removeChild: (c) => { if (c === wrapper) calls.canvasRemoved++; } };
+  const wrapper = { parentNode: body };
+  const canvas = { parentNode: wrapper };
   const renderer = {
     domElement: canvas,
     dispose: () => { calls.rendererDispose++; },
@@ -119,7 +128,7 @@ async function testDisposeGameIdempotent(THREE, disposeGame) {
   check('avalanche dispose() called once', calls.avalancheDispose === 1);
   check('renderer dispose() called once', calls.rendererDispose === 1);
   check('renderer forceContextLoss() called once', calls.forceContextLoss === 1);
-  check('canvas detached from its parent once', calls.canvasRemoved === 1);
+  check('owned #gameCanvas wrapper detached from the body once', calls.canvasRemoved === 1);
   check('listeners torn down once', calls.listenersTorndown === 1);
 
   // Second call: every side effect must stay at its first-call count (no-op).
@@ -144,6 +153,67 @@ async function testDisposeGameIdempotent(THREE, disposeGame) {
   let threw2 = false;
   try { disposeGame(ctx3); } catch { threw2 = true; }
   check('disposeGame works without a teardownListeners callback', !threw2);
+}
+
+// ---- disposeGame removes the instance-owned DOM nodes, not just the canvas (Codex
+// review #226). setupScene() appends the #gameCanvas wrapper + #gameOverOverlay, and
+// initLifecycleUI() appends #cameraToggleBtn; leaving them in the document on teardown
+// would create duplicate IDs / stale UI on a remount. ----
+async function testOwnedDomNodeRemoval(THREE, disposeGame) {
+  console.log('--- disposeGame: removes #gameCanvas wrapper, #gameOverOverlay, #cameraToggleBtn ---');
+
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
+  const { document } = dom.window;
+  const g = globalThis;
+  const prevDoc = g.document;
+  g.document = document; // teardown.ts reads the global `document` for getElementById
+
+  try {
+    // Mirror setupScene()/initLifecycleUI() DOM ownership: the canvas lives inside the
+    // #gameCanvas wrapper, the overlay + toggle button are appended to the body.
+    const wrapper = document.createElement('div');
+    wrapper.id = 'gameCanvas';
+    const canvas = document.createElement('canvas');
+    wrapper.appendChild(canvas);
+    document.body.appendChild(wrapper);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'gameOverOverlay';
+    document.body.appendChild(overlay);
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.id = 'cameraToggleBtn';
+    document.body.appendChild(toggleBtn);
+
+    // A reset button authored in index.html (NOT instance-owned) must survive teardown.
+    const resetBtn = document.createElement('button');
+    resetBtn.id = 'resetBtn';
+    document.body.appendChild(resetBtn);
+
+    let rendererDisposed = 0;
+    const ctx = {
+      scene: new THREE.Scene(),
+      renderer: {
+        domElement: canvas,
+        dispose: () => { rendererDisposed++; },
+        forceContextLoss: () => {},
+      },
+      gameOverOverlay: overlay,
+      state: { gameActive: true, animationRunning: true, debris: null, snowTrails: null, avalanche: null },
+    };
+
+    disposeGame(ctx);
+
+    check('renderer disposed', rendererDisposed === 1);
+    check('#gameCanvas wrapper (and its canvas) removed from the document',
+      document.getElementById('gameCanvas') === null && !document.body.contains(canvas));
+    check('#gameOverOverlay removed from the document', document.getElementById('gameOverOverlay') === null);
+    check('#cameraToggleBtn removed from the document', document.getElementById('cameraToggleBtn') === null);
+    check('index.html-authored #resetBtn is NOT removed (not instance-owned)',
+      document.getElementById('resetBtn') !== null);
+  } finally {
+    g.document = prevDoc;
+  }
 }
 
 main().catch((err) => { console.error('teardown test harness crashed:', err); process.exit(1); });

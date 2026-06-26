@@ -116,9 +116,20 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   } catch (e) {
     console.log('disposeGame: renderer teardown skipped:', (e as Error).message);
   }
-  const canvas = ctx.renderer.domElement;
-  canvas.parentNode?.removeChild(canvas);
 
-  // 6. Game-lifetime DOM listeners (resize, buttons, …) — one abort removes them all.
+  // 6. Instance-owned DOM nodes. setupScene() appends the `#gameCanvas` wrapper (which
+  //    holds renderer.domElement) and `#gameOverOverlay`; initLifecycleUI() appends
+  //    `#cameraToggleBtn`. Removing only the canvas would leave the wrapper + overlay +
+  //    toggle button in the document, so a remount creates duplicate IDs and stale UI,
+  //    and getElementById('gameCanvas') / overlay queries hit the old empty node. Remove
+  //    every owner node. (The wrapper is the canvas's parent, so detaching it takes the
+  //    canvas with it.) Reset/start buttons authored in index.html are NOT ours to remove.
+  const removeNode = (el: Node | null | undefined): void => { el?.parentNode?.removeChild(el); };
+  removeNode(ctx.renderer.domElement.parentNode); // the #gameCanvas wrapper (+ its canvas)
+  removeNode(ctx.gameOverOverlay);
+  removeNode(typeof document !== 'undefined' ? document.getElementById('cameraToggleBtn') : null);
+
+  // 7. Game-lifetime DOM listeners (resize, keyboard/touch, buttons, …) — one abort
+  //    removes them all (Controls + scene-setup + lifecycle + the coordinator's resize).
   if (teardownListeners) teardownListeners();
 }

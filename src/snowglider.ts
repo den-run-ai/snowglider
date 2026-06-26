@@ -35,7 +35,7 @@ import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
 import { Physics } from './player-state.js';
-import { IntroModule, prefersReducedMotion } from './intro.js';
+import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { setupScene } from './game/scene-setup.js';
@@ -43,15 +43,16 @@ import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createLifecycle } from './game/lifecycle.js';
 import { disposeGame } from './game/teardown.js';
 
-// Get keyboard controls from the Controls module
-Controls.setupControls();
-
-// One AbortController owns every game-lifetime DOM listener wired below and inside
-// scene-setup/lifecycle (the §4 listener-hygiene fix). Threading its `signal` into
-// each addEventListener collapses the old "62 adds vs 2 removes" asymmetry to a single
-// `abort()` in disposeGame — so unmount / dev-HMR doesn't leave duplicate handlers
-// firing on stale state.
+// One AbortController owns every game-lifetime DOM listener — the keyboard/touch/resize
+// handlers in Controls, plus those wired below and inside scene-setup/lifecycle (the §4
+// listener-hygiene fix). Threading its `signal` into each addEventListener collapses the
+// old "62 adds vs 2 removes" asymmetry to a single `abort()` in disposeGame — so unmount /
+// dev-HMR doesn't leave duplicate handlers firing on stale state. Created before
+// Controls.setupControls so its listeners join the same teardown.
 const listenerAbort = new AbortController();
+
+// Get keyboard controls from the Controls module (listeners tied to the teardown signal).
+Controls.setupControls(listenerAbort.signal);
 
 // --- Build the scene, objects, and subsystems (see game/scene-setup.ts) ---
 // The orchestrator owns the run loop + the window.* publish; scene-setup owns the
@@ -252,10 +253,22 @@ document.addEventListener('DOMContentLoaded', function() {
   initializeControlsToggle();
 });
 
+// Teardown bookkeeping (dispose-audit plan §3 / Codex review): a guard flag plus the
+// handles for the deferred first-start work, so disposeGame can cancel a pending intro /
+// loading timer instead of letting its closure later start the loop and render against a
+// disposed renderer + removed canvas.
+let disposed = false;
+let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
+let activeIntro: IntroHandle | null = null;
+
 // Activate the live run: flip the run-loop flags and kick off the animation loop.
 // Factored out so the start button, the cinematic intro's completion, and the
 // reduced-motion/automation fallback all hand off to the game loop identically.
 function startGameplayLoop(showGetReady: boolean) {
+  // After teardown, every deferred path (the intro's onComplete, the loading setTimeout)
+  // that lands here must be inert — the renderer/canvas are gone. This is the single
+  // choke point all loop-start paths funnel through, so one guard covers them all.
+  if (disposed) return;
   state.gameActive = true;
   state.animationRunning = true;
 
@@ -392,7 +405,10 @@ window.initializeGameWithAudio = function() {
     // Hide the in-game HUD/buttons so the establishing shot reads cleanly (CSS
     // keys off `intro-active`); removed on completion/skip below.
     document.body.classList.add('intro-active');
-    IntroModule.play({
+    // Keep the handle so disposeGame can cut the fly-over short (cancelling its private
+    // rAF) if an HMR reload / unmount happens mid-intro — otherwise its next frame would
+    // call renderer.render on a disposed context. Its onComplete is guarded by `disposed`.
+    activeIntro = IntroModule.play({
       camera,
       endPosition,
       endTarget,
@@ -417,7 +433,9 @@ window.initializeGameWithAudio = function() {
     // reproduce the original short loading message + delayed activation exactly.
     AudioModule.showMessage("Loading game...", 1500);
     state.gameInitialized = true;
-    setTimeout(() => { startGameplayLoop(true); }, 1800);
+    // Track the timer so disposeGame can cancel it; startGameplayLoop is also
+    // `disposed`-guarded, so this is belt-and-suspenders against a mid-delay teardown.
+    pendingStartTimer = setTimeout(() => { pendingStartTimer = null; startGameplayLoop(true); }, 1800);
   } else {
     // Already initialized once: restart immediately.
     startGameplayLoop(false);
@@ -519,6 +537,15 @@ window.initializeGameWithAudio = function() {
 // The run/restart flow is unchanged — this is a NEW path (unmount + dev-HMR), never
 // on the reuse path. Published beside the other coordinator handles.
 function disposeSnowGlider(): void {
+  // Flip the guard FIRST so any deferred first-start callback that fires during/after
+  // teardown (the intro's onComplete, the loading timer) short-circuits in
+  // startGameplayLoop instead of starting a loop against a disposed renderer.
+  disposed = true;
+  if (pendingStartTimer !== null) { clearTimeout(pendingStartTimer); pendingStartTimer = null; }
+  // Cut a still-running fly-over short: skip() cancels its private rAF (so no further
+  // renderer.render on a dead context); its onComplete is now a no-op via the guard.
+  if (activeIntro && !activeIntro.done) activeIntro.skip();
+  activeIntro = null;
   disposeGame(sceneContext, () => listenerAbort.abort());
 }
 window.disposeGame = disposeSnowGlider;

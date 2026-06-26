@@ -152,6 +152,46 @@ async function main() {
       `${forestB.length} meshes`);
   }
 
+  // --- resetTreePools: dispose + null the shared geometry/material/texture pools -----
+  // Added for the dispose-audit teardown (disposeGame): the pools are app-lifetime
+  // singletons, so resetTreePools must free them AND null the caches so a later rebuild
+  // re-creates fresh handles instead of dangling on freed ones.
+  {
+    const disposedGeo = new Set();
+    const geoProto = THREE.BufferGeometry.prototype;
+    const realDispose = geoProto.dispose;
+    geoProto.dispose = function (...a) { disposedGeo.add(this.uuid); return realDispose.apply(this, a); };
+    try {
+      // Build a tree so the lazy geometry pools are populated, and capture the exact
+      // pooled geometries it drew from.
+      const treeA = Trees.createTree(1.0);
+      const geomsA = new Set();
+      treeA.traverse((o) => { const m = /** @type {any} */ (o); if (m.geometry) geomsA.add(m.geometry); });
+
+      Trees.resetTreePools();
+
+      const allDisposed = [...geomsA].every(g => disposedGeo.has(/** @type {any} */ (g).uuid));
+      assert(geomsA.size > 0 && allDisposed,
+        'resetTreePools disposes every pooled geometry the forest used');
+
+      // A rebuild after the reset must allocate fresh geometries — none shared with the
+      // pre-reset (now-disposed) pool — proving the singleton caches were nulled.
+      const treeB = Trees.createTree(1.0);
+      const geomsB = new Set();
+      treeB.traverse((o) => { const m = /** @type {any} */ (o); if (m.geometry) geomsB.add(m.geometry); });
+      const shared = [...geomsB].filter(g => geomsA.has(g));
+      assert(geomsB.size > 0 && shared.length === 0,
+        'a rebuild after resetTreePools allocates fresh geometries (no freed pool handles reused)');
+
+      // Idempotent: a second reset with the caches already null must not throw.
+      let threw = false;
+      try { Trees.resetTreePools(); } catch { threw = true; }
+      assert(!threw, 'resetTreePools is idempotent (safe when the pools are already null)');
+    } finally {
+      geoProto.dispose = realDispose;
+    }
+  }
+
   console.log(`\n=================================`);
   console.log(`Trees tests completed: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

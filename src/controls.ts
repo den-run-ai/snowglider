@@ -56,20 +56,27 @@ const touchState: TouchState = {
   showVisualControls: false // Flag to enable visual touch controls (optional)
 };
 
-// Setup controls (keyboard + touch)
-function setupControls(): ControlState {
+// Setup controls (keyboard + touch).
+//
+// `signal` (optional): an AbortSignal tying EVERY listener registered here — keyboard,
+// touch, the resize handler, the button touch handlers, and the game-over MutationObserver
+// — to the game's teardown (disposeGame). Aborting it removes them all, so a dev-HMR
+// reload or an unmount/remount doesn't stack duplicate input handlers (e.g. `V` toggling
+// the camera once per stale keydown listener). Omitted by the internal re-init call in
+// toggleTouchControls and any caller that never tears down.
+function setupControls(signal?: AbortSignal): ControlState {
   // Set up keyboard controls
-  setupKeyboardControls();
-  
+  setupKeyboardControls(signal);
+
   // Set up touch controls
-  setupTouchControls();
+  setupTouchControls(signal);
 
   // Return the shared controls object
   return gameControls;
 }
 
 // Setup keyboard control handlers
-function setupKeyboardControls() {
+function setupKeyboardControls(signal?: AbortSignal) {
   // Handle keyboard down events
   const handleKeyDown = (event: KeyboardEvent) => {
     switch(event.key) {
@@ -135,16 +142,22 @@ function setupKeyboardControls() {
     }
   };
   
-  // Add keyboard listeners to both window and document for better coverage
-  window.addEventListener('keydown', handleKeyDown);
-  document.addEventListener('keydown', handleKeyDown);
-  
-  window.addEventListener('keyup', handleKeyUp);
-  document.addEventListener('keyup', handleKeyUp);
+  // Add keyboard listeners to both window and document for better coverage. The
+  // teardown signal (when supplied) lets disposeGame remove them on HMR/unmount.
+  const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
+  window.addEventListener('keydown', handleKeyDown, opts);
+  document.addEventListener('keydown', handleKeyDown, opts);
+
+  window.addEventListener('keyup', handleKeyUp, opts);
+  document.addEventListener('keyup', handleKeyUp, opts);
 }
 
 // Setup touch control handlers
-function setupTouchControls() {
+function setupTouchControls(signal?: AbortSignal) {
+  // Listener options: thread the teardown signal when present (passive:false is required
+  // for the touch handlers that preventDefault); else live for the page.
+  const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
+  const touchOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
   // Detect if we're on a mobile device
   const isMobileDevice = (): boolean => {
     return (
@@ -159,7 +172,7 @@ function setupTouchControls() {
     touchState.showVisualControls = true;
     
     // Add touch event handlers for reset and restart buttons
-    setupButtonTouchHandlers();
+    setupButtonTouchHandlers(signal);
   }
   
   // Calculate and update touch regions based on screen dimensions
@@ -216,7 +229,7 @@ function setupTouchControls() {
   updateTouchRegions();
   
   // Update regions when window is resized
-  window.addEventListener('resize', updateTouchRegions);
+  window.addEventListener('resize', updateTouchRegions, opts);
   
   // Touches that begin inside a scrollable UI panel (the Controls / Ski Techniques
   // guides) must be handed to the browser so the panel can scroll natively. The
@@ -349,10 +362,10 @@ function setupTouchControls() {
   };
   
   // Add touch event listeners
-  document.addEventListener('touchstart', handleTouchStart, { passive: false });
-  document.addEventListener('touchmove', handleTouchMove, { passive: false });
-  document.addEventListener('touchend', handleTouchEnd, { passive: false });
-  document.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+  document.addEventListener('touchstart', handleTouchStart, touchOpts);
+  document.addEventListener('touchmove', handleTouchMove, touchOpts);
+  document.addEventListener('touchend', handleTouchEnd, touchOpts);
+  document.addEventListener('touchcancel', handleTouchEnd, touchOpts);
   
   // Create visual indicators for touch controls
   function createOrUpdateVisualControls() {
@@ -472,7 +485,8 @@ export const Controls = {
 };
 
 // Function to add explicit touch handlers for game buttons
-function setupButtonTouchHandlers() {
+function setupButtonTouchHandlers(signal?: AbortSignal) {
+  const touchOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
   // Add touch handlers to the reset button
   const resetBtn = document.getElementById('resetBtn');
   if (resetBtn) {
@@ -482,9 +496,9 @@ function setupButtonTouchHandlers() {
       if (typeof window.resetSnowman === 'function') {
         window.resetSnowman();
       }
-    }, { passive: false });
+    }, touchOpts);
   }
-  
+
   // Add touch handler to camera toggle button
   const cameraToggleBtn = document.getElementById('cameraToggleBtn');
   if (cameraToggleBtn) {
@@ -520,7 +534,7 @@ function setupButtonTouchHandlers() {
             if (typeof window.restartGame === 'function') {
               window.restartGame();
             }
-          }, { passive: false });
+          }, touchOpts);
           
           // Mark button as having touch handler to avoid duplicates
           restartButton.setAttribute('touch-handler-added', 'true');
@@ -548,6 +562,10 @@ function setupButtonTouchHandlers() {
       }
     }, 1000);
   }
+
+  // MutationObserver has no AbortSignal option, so disconnect it explicitly on teardown
+  // (else a dev-HMR remount leaves a stale observer watching the old overlay).
+  if (signal) signal.addEventListener('abort', () => gameOverObserver.disconnect(), { once: true });
 }
 
 // Controls is imported directly by snowglider.js and the controls browser test
