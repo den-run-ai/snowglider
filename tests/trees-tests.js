@@ -123,6 +123,35 @@ async function main() {
     assert(positions2.length > 0, 're-init still returns tree positions');
   }
 
+  // --- Multi-scene teardown is scene-local (Codex review #221) -----------------
+  // addTrees must clear/dispose only the forest in the scene it is given. A second
+  // scene's addTrees must NOT remove or dispose the forest still live in the first
+  // scene. Listen for the InstancedMesh 'dispose' event on scene A's forest, then
+  // populate scene B and assert A was left untouched (the regression would no-op the
+  // remove against B but still dispose A's meshes, leaving disposed forest in A).
+  {
+    const sceneA = new THREE.Scene();
+    Trees.addTrees(sceneA);
+    const forestA = /** @type {any[]} */ (sceneA.children.filter(c => c.name === 'forestInstanced'));
+    assert(forestA.length >= 1, 'scene A gets its own forest', `${forestA.length} meshes`);
+
+    let sceneADisposed = false;
+    forestA.forEach(m => m.addEventListener('dispose', () => { sceneADisposed = true; }));
+
+    const sceneB = new THREE.Scene();
+    Trees.addTrees(sceneB);
+
+    assert(!sceneADisposed,
+      "addTrees on a second scene does not dispose the first scene's forest");
+    const forestAAfter = /** @type {any[]} */ (sceneA.children.filter(c => c.name === 'forestInstanced'));
+    assert(forestAAfter.length === forestA.length,
+      'first scene keeps its forest when a second scene is populated',
+      `${forestAAfter.length} meshes still in scene A`);
+    const forestB = /** @type {any[]} */ (sceneB.children.filter(c => c.name === 'forestInstanced'));
+    assert(forestB.length >= 1, 'second scene gets its own independent forest',
+      `${forestB.length} meshes`);
+  }
+
   console.log(`\n=================================`);
   console.log(`Trees tests completed: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

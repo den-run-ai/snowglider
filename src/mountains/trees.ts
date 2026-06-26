@@ -494,11 +494,6 @@ function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: numbe
   for (const desc of buckets.snowPatch) tree.add(meshFromDesc('snowPatch', desc));
 }
 
-// Tracked so a re-init can dispose the previous forest's per-instance buffers before
-// rebuilding (the pooled geometries/materials are app-lifetime; only the InstancedMesh
-// instanceMatrix/instanceColor buffers are per-forest and must be freed on rebuild).
-let forestMeshes: THREE.InstancedMesh[] = [];
-
 // Allocate the 5 InstancedMeshes from the collected buckets and add them to the scene.
 function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[] {
   const defs: Array<[GeomKey, THREE.Material, THREE.Color[] | null]> = [
@@ -530,17 +525,23 @@ function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[
 
 // Add trees to make the scene more interesting
 function addTrees(scene: THREE.Scene): TreePosition[] {
-  // Remove + dispose any previously-built instanced forest to prevent duplicates on
-  // re-init (the trees are InstancedMeshes named 'forestInstanced' now, not Groups).
-  // The shared geometries/materials are pooled and app-lifetime, so InstancedMesh
-  // .dispose() — which frees only the per-forest instanceMatrix/instanceColor buffers —
-  // is the right teardown. forestMeshes holds the exact handles we added last time.
-  for (const mesh of forestMeshes) {
-    scene.remove(mesh);
-    mesh.dispose();
+  // Remove + dispose any previously-built instanced forest in THIS scene, to prevent
+  // duplicates on re-init (the trees are InstancedMeshes named 'forestInstanced' now,
+  // not Groups). The teardown is deliberately scene-LOCAL — scanning the passed scene's
+  // own children rather than a module-global handle list — so that calling addTrees on
+  // a second THREE.Scene never removes or disposes the forest still live in another
+  // scene (each scene owns and clears its own forest, matching the old behaviour). The
+  // shared geometries/materials are pooled and app-lifetime, so InstancedMesh.dispose()
+  // — which frees only the per-forest instanceMatrix/instanceColor buffers — is the
+  // right teardown.
+  for (let i = scene.children.length - 1; i >= 0; i--) {
+    const child = scene.children[i]!;
+    if (child.name === 'forestInstanced') {
+      scene.remove(child);
+      (child as THREE.InstancedMesh).dispose();
+    }
   }
-  forestMeshes = [];
-  
+
   const treePositions: TreePosition[] = [];
 
   // IMPORTANT: Log the ranges we're using to create trees for debugging
@@ -697,7 +698,7 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
     const treeScale = pos.scale || 1.0;
     collectTree(treeScale, new THREE.Matrix4().makeTranslation(pos.x, terrainHeight - 0.5, pos.z), buckets);
   });
-  forestMeshes = buildForest(scene, buckets);
+  buildForest(scene, buckets);
 
   return treePositions;
 }
