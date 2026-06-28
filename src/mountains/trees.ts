@@ -713,6 +713,45 @@ function getTerrainGradient(x: number, z: number): TerrainGradient {
   return sampleTerrainGradient(x, z);
 }
 
+// --- Pool teardown (dispose / dev-HMR; see src/game/teardown.ts) ---
+// The shared geometry/material/normal-map singletons above are built lazily and
+// reused for the page's life — fine while the page IS the game. The teardown path
+// (`disposeGame`) and Vite dev-HMR need to release them so a later rebuild (a fresh
+// `setupScene`, an unmount/remount, the forest re-init) re-creates them cleanly
+// instead of dangling as freed-but-still-referenced handles. This disposes every
+// pooled GPU resource this module owns and nulls the caches so the `get*()` lazy
+// builders re-allocate on the next `addTrees`.
+//
+// Most of these are ALSO reachable from the scene graph (the instanced geometries +
+// instanced bark/foliage materials are attached to the 'forestInstanced' meshes, so
+// the scene sweep in teardown.ts disposes them too); THREE's `dispose()` is
+// safe to call twice. The legacy per-shade palette materials (`trunkMaterials` /
+// `foliageMaterials`, kept only for the Group-returning `createTree` shim) are NOT
+// attached to the scene, so disposing them here is the only place they're freed.
+export function resetTreePools(): void {
+  const free = (r: { dispose?: () => void } | null | undefined): void => {
+    if (r && typeof r.dispose === 'function') r.dispose();
+  };
+  free(trunkGeometry);
+  free(coneGeometry);
+  free(branchGeometry);
+  free(snowCapGeometry);
+  free(snowPatchGeometry);
+  free(snowMaterial);
+  free(barkInstancedMaterial);
+  free(foliageInstancedMaterial);
+  (trunkMaterials || []).forEach(free);
+  (foliageMaterials || []).forEach(free);
+  free(barkNormalTexture);
+  free(foliageNormalTexture);
+
+  trunkGeometry = coneGeometry = branchGeometry = snowCapGeometry = snowPatchGeometry = null;
+  trunkColors = foliageColors = null;
+  trunkMaterials = foliageMaterials = null;
+  snowMaterial = barkInstancedMaterial = foliageInstancedMaterial = null;
+  barkNormalTexture = foliageNormalTexture = null;
+}
+
 // Export all tree-related functions
 export const Trees = {
   createTree,
@@ -720,7 +759,8 @@ export const Trees = {
   addSnowCaps,
   addTrees,
   getTerrainHeight,
-  getTerrainGradient
+  getTerrainGradient,
+  resetTreePools
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).

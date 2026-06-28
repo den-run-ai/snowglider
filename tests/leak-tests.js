@@ -11,10 +11,12 @@
 //
 // Scope note: the plan listed "debris -> avalanche -> snow-surface", but src/mountains/
 // snow-surface.ts is render-only (one-shot vertex-colour / normal baking, no reset/cover
-// cycle) and src/snowtracks.ts (the grooves system) exposes only reset() (zeroes instance
-// matrices) with no dispose() — neither owns a disposable per-cycle lifecycle to guard.
-// The two systems that genuinely allocate-and-dispose are SnowmanDebris and
-// AvalancheSystem, so the leak assertions live here for those two.
+// cycle) so it owns no disposable per-cycle lifecycle to guard. The systems that
+// genuinely allocate GPU resources are SnowmanDebris, AvalancheSystem, and SnowTrails,
+// so the leak/dispose assertions live here for those three. SnowTrails has no per-cycle
+// churn (its InstancedMesh pool is an app-lifetime singleton; reset() only zeroes the
+// instance matrices), so for it we guard the teardown contract: dispose() detaches the
+// mesh and frees its geometry/material (the dispose-audit plan added it for disposeGame).
 //
 // Headless: both systems import only `three` (bare) and self-guard on
 // requestAnimationFrame, so they run under Node like debris-tests.js. Drive update(dt)
@@ -50,6 +52,7 @@ async function main() {
   try {
     await testDebrisCycles(THREE, disposedGeo, disposedMat);
     await testAvalancheCycles(THREE, disposedGeo, disposedMat);
+    await testSnowTrailsDispose(THREE, disposedGeo, disposedMat);
   } finally {
     geoProto.dispose = realGeoDispose;
     matProto.dispose = realMatDispose;
@@ -157,6 +160,40 @@ async function testAvalancheCycles(THREE, disposedGeo, disposedMat) {
     scene.children.length < childrenBeforeDispose);
   check('dispose() disposes the InstancedMesh geometry', disposedGeo.has(meshGeoUuid));
   check('dispose() disposes the InstancedMesh material', disposedMat.has(meshMatUuid));
+}
+
+// ---- SnowTrails: the InstancedMesh + geometry + material are one-time assets built in
+// the constructor and reused for the page's life (reset() only zeroes matrices). The
+// dispose-audit plan added dispose() for the teardown path (disposeGame). Assert it
+// detaches the mesh from the scene and frees its geometry/material, and is idempotent. ----
+async function testSnowTrailsDispose(THREE, disposedGeo, disposedMat) {
+  console.log('--- snowtrails: dispose() detaches the InstancedMesh and frees its assets ---');
+  const { SnowTrails } = await import('../src/snowtracks.ts');
+
+  const scene = new THREE.Scene();
+  const trails = new SnowTrails(scene, 16);
+  trails.setTerrainFunction(() => 0);
+
+  // The mesh is attached at construction.
+  check('SnowTrails attaches its InstancedMesh to the scene on construction',
+    scene.children.includes(trails.mesh));
+
+  const meshGeoUuid = trails.mesh.geometry.uuid;
+  const meshMatUuid = trails.mesh.material.uuid;
+  const childrenBeforeDispose = scene.children.length;
+
+  trails.dispose();
+  check('dispose() detaches the SnowTrails InstancedMesh from the scene',
+    scene.children.length < childrenBeforeDispose && !scene.children.includes(trails.mesh));
+  check('dispose() disposes the SnowTrails InstancedMesh geometry', disposedGeo.has(meshGeoUuid));
+  check('dispose() disposes the SnowTrails InstancedMesh material', disposedMat.has(meshMatUuid));
+
+  // Idempotent: a second dispose() must not throw (scene.remove of an absent child and
+  // a repeat THREE dispose() are both no-ops) — disposeGame can run it after the scene
+  // sweep already touched the same mesh.
+  let threw = false;
+  try { trails.dispose(); } catch { threw = true; }
+  check('dispose() is idempotent (a second call does not throw)', !threw);
 }
 
 main().catch((err) => { console.error('leak test harness crashed:', err); process.exit(1); });

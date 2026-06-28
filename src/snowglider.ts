@@ -34,20 +34,35 @@ import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
+import { noop } from './noop.js';
+import { CourseModule } from './course.js';
+import { EffectsModule } from './effects.js';
+import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
-import { IntroModule, prefersReducedMotion } from './intro.js';
+import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { setupScene } from './game/scene-setup.js';
 import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createLifecycle } from './game/lifecycle.js';
+import { disposeGame } from './game/teardown.js';
 
-// Get keyboard controls from the Controls module
-Controls.setupControls();
+// One AbortController owns every game-lifetime DOM listener — the keyboard/touch/resize
+// handlers in Controls, plus those wired below and inside scene-setup/lifecycle (the §4
+// listener-hygiene fix). Threading its `signal` into each addEventListener collapses the
+// old "62 adds vs 2 removes" asymmetry to a single `abort()` in disposeGame — so unmount /
+// dev-HMR doesn't leave duplicate handlers firing on stale state. Created before
+// Controls.setupControls so its listeners join the same teardown.
+const listenerAbort = new AbortController();
+
+// Get keyboard controls from the Controls module (listeners tied to the teardown signal).
+Controls.setupControls(listenerAbort.signal);
 
 // --- Build the scene, objects, and subsystems (see game/scene-setup.ts) ---
 // The orchestrator owns the run loop + the window.* publish; scene-setup owns the
-// one-shot construction. Destructure the handles the loop/lifecycle/proxies use.
+// one-shot construction. Keep the whole context object (for disposeGame) and also
+// destructure the handles the loop/lifecycle/proxies use.
+const sceneContext = setupScene(listenerAbort.signal);
 const {
   scene,
   renderer,
@@ -62,7 +77,7 @@ const {
   snowman,
   snowSplash,
   state,
-} = setupScene();
+} = sceneContext;
 
 // --- Snowman Position & Reset ---
 // The per-frame player physics state lives in one typed PlayerState object
@@ -155,7 +170,7 @@ const { updateSnowman, updateCamera, startLoop, resetLoopState, handleResize } =
   rockPositions,
   showGameOver,
 });
-window.addEventListener('resize', handleResize);
+window.addEventListener('resize', handleResize, { signal: listenerAbort.signal });
 
 // --- Physics / frame-rate diagnostics (see src/diagnostics.ts) ---
 // A read-only telemetry observer the main loop feeds each frame (beside Sfx/Flex). It
@@ -215,6 +230,7 @@ const { resetSnowman, restartGame, toggleCameraView, initLifecycleUI } = createL
   player,
   startLoop,
   resetLoopState,
+  signal: listenerAbort.signal,
 });
 // Make reset/restart/toggle accessible globally for touch + keyboard handlers.
 window.resetSnowman = resetSnowman;
@@ -241,10 +257,28 @@ document.addEventListener('DOMContentLoaded', function() {
   initializeControlsToggle();
 });
 
+// Teardown bookkeeping (dispose-audit plan §3 / Codex review): a guard flag plus the
+// handles for the deferred first-start work, so disposeGame can cancel a pending intro /
+// loading timer instead of letting its closure later start the loop and render against a
+// disposed renderer + removed canvas.
+let disposed = false;
+let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
+let getReadyTimer: ReturnType<typeof setTimeout> | null = null;
+let testAutoStartTimer: ReturnType<typeof setTimeout> | null = null;
+let activeIntro: IntroHandle | null = null;
+// Names of the window.* handles this module installs (the publishGameGlobals
+// getters/setters; populated below). disposeSnowGlider deletes them so a clean unmount
+// doesn't leave the disposed scene reachable through their closures or stale APIs callable.
+let installedWindowKeys: string[] = [];
+
 // Activate the live run: flip the run-loop flags and kick off the animation loop.
 // Factored out so the start button, the cinematic intro's completion, and the
 // reduced-motion/automation fallback all hand off to the game loop identically.
 function startGameplayLoop(showGetReady: boolean) {
+  // After teardown, every deferred path (the intro's onComplete, the loading setTimeout)
+  // that lands here must be inert — the renderer/canvas are gone. This is the single
+  // choke point all loop-start paths funnel through, so one guard covers them all.
+  if (disposed) return;
   state.gameActive = true;
   state.animationRunning = true;
 
@@ -254,9 +288,12 @@ function startGameplayLoop(showGetReady: boolean) {
   // Start animation loop (the loop owns `lastTime`; startLoop seeds it — main-loop.ts)
   startLoop();
 
-  // Show a "Get Ready" message a beat after the run begins (first start only)
+  // Show a "Get Ready" message a beat after the run begins (first start only). Tracked +
+  // disposed-guarded so an unmount in the 1.5s window can't toast over the host page.
   if (showGetReady) {
-    setTimeout(() => {
+    getReadyTimer = setTimeout(() => {
+      getReadyTimer = null;
+      if (disposed) return;
       AudioModule.showMessage("Get Ready!", 1000);
     }, 1500);
   }
@@ -381,7 +418,10 @@ window.initializeGameWithAudio = function() {
     // Hide the in-game HUD/buttons so the establishing shot reads cleanly (CSS
     // keys off `intro-active`); removed on completion/skip below.
     document.body.classList.add('intro-active');
-    IntroModule.play({
+    // Keep the handle so disposeGame can cut the fly-over short (cancelling its private
+    // rAF) if an HMR reload / unmount happens mid-intro — otherwise its next frame would
+    // call renderer.render on a disposed context. Its onComplete is guarded by `disposed`.
+    activeIntro = IntroModule.play({
       camera,
       endPosition,
       endTarget,
@@ -406,7 +446,9 @@ window.initializeGameWithAudio = function() {
     // reproduce the original short loading message + delayed activation exactly.
     AudioModule.showMessage("Loading game...", 1500);
     state.gameInitialized = true;
-    setTimeout(() => { startGameplayLoop(true); }, 1800);
+    // Track the timer so disposeGame can cancel it; startGameplayLoop is also
+    // `disposed`-guarded, so this is belt-and-suspenders against a mid-delay teardown.
+    pendingStartTimer = setTimeout(() => { pendingStartTimer = null; startGameplayLoop(true); }, 1800);
   } else {
     // Already initialized once: restart immediately.
     startGameplayLoop(false);
@@ -499,18 +541,109 @@ window.initializeGameWithAudio = function() {
   for (const name of Object.keys(live)) {
     Object.defineProperty(window, name, { configurable: true, enumerable: false, ...live[name] });
   }
+  // Remembered so disposeSnowGlider can delete them on unmount (the accessors close over
+  // sceneContext/renderer/scene/etc., which would otherwise keep the disposed graph alive).
+  installedWindowKeys = Object.keys(live);
 })();
+
+// --- Teardown entry point (dispose-audit plan; see game/teardown.ts) ---
+// One idempotent disposeGame() that stops the loop, frees every GPU resource the
+// one-shot setupScene() allocated (scene sweep + subsystem disposes + tree pools),
+// drops the renderer/WebGL context + canvas, and aborts the listener controller above.
+// The run/restart flow is unchanged — this is a NEW path (unmount + dev-HMR), never
+// on the reuse path. Published beside the other coordinator handles.
+function disposeSnowGlider(): void {
+  if (disposed) return; // idempotent: a second unmount/HMR dispose is a no-op
+  // Flip the guard so any deferred first-start callback that fires during/after teardown
+  // (the intro's onComplete, the loading/Get-Ready timers) short-circuits in
+  // startGameplayLoop instead of starting a loop against a disposed renderer.
+  disposed = true;
+  if (pendingStartTimer !== null) { clearTimeout(pendingStartTimer); pendingStartTimer = null; }
+  // Cancel the deferred "Get Ready!" toast so it can't appear over the host page after a
+  // mid-startup unmount (the callback is also disposed-guarded).
+  if (getReadyTimer !== null) { clearTimeout(getReadyTimer); getReadyTimer = null; }
+  // The ?test= auto-start timer (below) dereferences #gameCanvas and calls
+  // initializeGameWithAudio; cancel it so a dispose in its 100ms window can't run against
+  // the torn-down page (the callback is also disposed-guarded).
+  if (testAutoStartTimer !== null) { clearTimeout(testAutoStartTimer); testAutoStartTimer = null; }
+  // Cut a still-running fly-over short: skip() cancels its private rAF (so no further
+  // renderer.render on a dead context); its onComplete is now a no-op via the guard.
+  if (activeIntro && !activeIntro.done) activeIntro.skip();
+  activeIntro = null;
+  // Stop the audio + SFX started in initializeGameWithAudio. They are module-level
+  // resources (a looping <audio> + the Web Audio beds + the mute button) that
+  // disposeGame's scene/renderer/listener teardown would otherwise leave running.
+  AudioModule.teardown();
+  Sfx.teardown();
+  // Remove the subsystem HUD these modules append to document.body (#courseHud /
+  // #courseFlash; the avalanche banner/meter/vignette) — they hold their own node +
+  // state handles, so they self-clean here rather than via the scene/DOM sweep.
+  CourseModule.teardown();
+  EffectsModule.teardown();
+  // Clear the module-level snowflake pool so a same-instance remount doesn't stack a
+  // second snowfall on the stale, detached sprites from the disposed scene.
+  Snow.teardownSnowflakes();
+  // Drop the Sky sun-cycle singleton — it captures the scene + directional light + sky
+  // material/fog, which would otherwise keep the disposed graph reachable.
+  Sky.teardown();
+  // Remove the diagnostics window listeners (keydown/pagehide/error/unhandledrejection)
+  // + __snowgliderDiag bug-report API, whose closures retain the injected report sink.
+  Diag.teardown();
+  // Clear Controls' module-level gameControls/touchState BEFORE aborting the input
+  // listeners below: if a key/touch is down at teardown, aborting removes the handler so
+  // the matching keyup/touchend never fires, and a same-instance remount (HMR/embed) that
+  // reuses the surviving Controls singleton would start with a stuck input (e.g. left=true).
+  // The live game already resets this on every resetSnowman; this covers the remount path.
+  Controls.resetControls();
+  disposeGame(sceneContext, () => listenerAbort.abort());
+
+  // Delete every window.* handle this module installed so the disposed graph is no longer
+  // reachable through their closures (the publishGameGlobals accessors capture
+  // sceneContext/renderer/scene/snowSplash/…) and the stale start/reset/showGameOver APIs
+  // aren't callable after the DOM + WebGL context are gone.
+  const w = window as unknown as Record<string, unknown>;
+  for (const name of installedWindowKeys) delete w[name];
+  // testHooks is deleted wholesale (not just isDebrisActive): Snowman.addTestHooks installs
+  // forceTreeCollision/checkTreeCollision/checkExtendedTerrainCollision closures that
+  // capture pos + showGameOver (which retain the disposed scene/UI), so dropping the whole
+  // object is what releases them. addTestHooks rebuilds it on the next mount.
+  for (const name of ['resetSnowman', 'restartGame', 'toggleCameraView', 'showGameOver',
+    'initializeGameWithAudio', 'terrainMesh', 'treePositions', 'rockPositions', 'testHooks']) {
+    delete w[name];
+  }
+  // window.disposeGame is REBOUND (not deleted) to a no-op: external callers normally
+  // invoke it through `window`, so a second cleanup must stay a safe no-op rather than
+  // throwing on a missing property. The no-op comes from a SEPARATE module (./noop.js) on
+  // purpose — a coordinator-local function would, via its lexical environment, keep
+  // sceneContext/renderer/scene rooted, defeating the cleanup.
+  window.disposeGame = noop;
+}
+window.disposeGame = disposeSnowGlider;
+
+// Vite dev-HMR: release the previous instance before the module re-evaluates, so a
+// hot edit doesn't stack WebGL contexts ("too many active contexts") or duplicate
+// listeners. Stripped from production builds (Vite replaces import.meta.hot with
+// undefined), so this is a dev-only safety net.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => disposeSnowGlider());
+}
 
 // If this is a test environment, auto-start the game
 if (window.isTestMode) {
   console.log("Test mode detected, auto-starting game...");
-  setTimeout(() => {
+  testAutoStartTimer = setTimeout(() => {
+    testAutoStartTimer = null;
+    // Bail if torn down in this 100ms window: #gameCanvas is gone and
+    // initializeGameWithAudio has been removed, so dereferencing them would throw.
+    if (disposed) return;
+
     // Hide the start button container
     const startContainer = document.getElementById('startGameContainer');
     if (startContainer) startContainer.style.display = 'none';
-    
+
     // Show the game canvas
-    document.getElementById('gameCanvas')!.style.display = 'block';
+    const gameCanvas = document.getElementById('gameCanvas');
+    if (gameCanvas) gameCanvas.style.display = 'block';
 
     // Initialize the game
     window.initializeGameWithAudio?.();

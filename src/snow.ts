@@ -101,6 +101,23 @@ function createSnowflakes(scene: THREE.Scene) {
   }
 }
 
+// Clear the module-level snowflake pool (dispose-audit teardown / dev-HMR). The pool is
+// a module-level array, so on an embed/remount path that reuses this module instance,
+// createSnowflakes() would append another snowfall on top of the previous (detached)
+// sprites while updateSnowflakes() kept iterating the stale ones. Detach + dispose each
+// sprite's (cloned) material and its shared texture here — self-contained so it does not
+// depend on disposeGame's scene sweep order — then empty the array so a later
+// createSnowflakes() starts clean. Idempotent.
+function teardownSnowflakes(): void {
+  for (const flake of snowflakes) {
+    flake.parent?.remove(flake);
+    const mat = flake.material;
+    mat.map?.dispose();   // shared across clones — dispose is idempotent
+    mat.dispose();
+  }
+  snowflakes.length = 0;
+}
+
 function resetSnowflakePosition(snowflake: THREE.Sprite, playerPos: Vec3Like) {
   // Position snowflakes randomly in a box above the player
   snowflake.position.x = playerPos.x + (Math.random() * snowflakeSpread - snowflakeSpread/2);
@@ -427,6 +444,7 @@ export const Snow = {
   // Snow effects (snowman code moved to snowman.js)
   createSnowflakes,
   updateSnowflakes,
+  teardownSnowflakes,
   createSnowSplash,
   updateSnowSplash
 };

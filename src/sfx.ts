@@ -332,6 +332,22 @@ export const Sfx = (function() {
 
     isMuted: () => muted,
 
+    // Stop every bed and CLOSE the AudioContext (dispose-audit teardown / dev-HMR). The
+    // context + node graph are module-level and the wind/edge beds loop forever, so
+    // without this they keep playing after disposeGame. close() releases the hardware
+    // context; dropping the node handles lets a later unlock() rebuild the graph on a
+    // fresh context. Idempotent and inert if never unlocked.
+    teardown: function() {
+      running = false;
+      if (ctx) {
+        // close() returns a Promise; swallow async rejection and any sync throw.
+        try { ctx.close().catch(() => {}); } catch { /* already closed / unsupported */ }
+        ctx = null;
+      }
+      master = null;
+      wind = carve = avalanche = null;
+    },
+
     // For tests / diagnostics. `active` reflects whether the context is live.
     getStatus: function() {
       return {

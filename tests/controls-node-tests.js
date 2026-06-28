@@ -199,6 +199,77 @@ async function main() {
     ['left', 'right', 'up', 'down', 'jump'].every(k => afterReset[k] === false));
   check('getControls returns the same shared object', Controls.getControls() === controls);
 
+  // --- teardown signal threading (disposeGame listener hygiene; Codex review #226) ---
+  // setupControls(signal) must thread the AbortSignal into EVERY listener it registers
+  // (keyboard, resize, touch) so disposeGame's single abort() removes them on HMR/unmount
+  // — otherwise a remount stacks duplicate handlers (e.g. `V` toggling once per stale
+  // keydown). Spy on addEventListener to confirm the signal reaches each listener class,
+  // then abort to drop the duplicates this extra setup added (keeps the process clean).
+  console.log('\n--- teardown signal threading ---');
+  // jsdom validates that an addEventListener signal is its OWN realm's AbortSignal, so
+  // use window.AbortController (in a real browser the global IS the window's — no mismatch).
+  const ac = new window.AbortController();
+  const seen = [];
+  const realDocAdd = document.addEventListener;
+  const realWinAdd = window.addEventListener;
+  document.addEventListener = function (type, fn, opts) { seen.push({ type, opts }); return realDocAdd.call(this, type, fn, opts); };
+  window.addEventListener = function (type, fn, opts) { seen.push({ type, opts }); return realWinAdd.call(this, type, fn, opts); };
+  try {
+    Controls.setupControls(ac.signal);
+  } finally {
+    document.addEventListener = realDocAdd;
+    window.addEventListener = realWinAdd;
+  }
+  const withSignal = seen.filter(s => s.opts && s.opts.signal === ac.signal).map(s => s.type);
+  check('setupControls(signal) threads the teardown signal into the keyboard listeners',
+    withSignal.includes('keydown') && withSignal.includes('keyup'));
+  check('setupControls(signal) threads the signal into the resize + touch listeners',
+    withSignal.includes('resize') && withSignal.includes('touchstart'));
+  check('an aborted signal removes the keyboard handler (no state mutation after abort)',
+    (() => {
+      // Verify removal end-to-end on an ISOLATED handler set: a fresh keydown handler
+      // registered with this signal stops firing once aborted (the singleton's earlier
+      // no-signal listeners are a separate set and intentionally untouched here).
+      let hits = 0;
+      window.addEventListener('keydown', () => { hits++; }, { signal: ac.signal });
+      keydown('ArrowLeft');
+      const firedWhileLive = hits;
+      ac.abort();
+      keydown('ArrowLeft');
+      return firedWhileLive === 1 && hits === 1; // fired once live, not after abort
+    })());
+
+  // --- delayed overlay-observer abort guard (Codex review #226) ---
+  // On mobile setupControls() runs before setupScene() creates #gameOverOverlay, so
+  // setupButtonTouchHandlers arms a 1s delayed observe(). Aborting the teardown signal
+  // during that window must cancel it — else a remounted overlay (HMR) gets the stale
+  // observer and the old restart touch handler.
+  console.log('\n--- delayed overlay observer abort guard ---');
+  {
+    const existing = document.getElementById('gameOverOverlay');
+    if (existing) existing.remove(); // force the no-overlay-yet (delayed observe) branch
+    let observeCalls = 0;
+    const realObserve = window.MutationObserver.prototype.observe;
+    window.MutationObserver.prototype.observe = function (...a) { observeCalls++; return realObserve.apply(this, /** @type {any} */ (a)); };
+    const ac2 = new window.AbortController();
+    try {
+      Controls.setupControls(ac2.signal); // arms the 1s delayed observe (overlay absent)
+      const observesBefore = observeCalls;
+      ac2.abort();                        // tear down DURING the 1s delay window
+      // A remount re-creates the overlay before the timeout would have fired.
+      const remounted = document.createElement('div');
+      remounted.id = 'gameOverOverlay';
+      remounted.style.display = 'none';
+      document.body.appendChild(remounted);
+      await new Promise(r => setTimeout(r, 1100)); // wait past the 1000ms delayed observe
+      check('aborting during the delay window cancels the pending overlay observe()',
+        observeCalls === observesBefore);
+    } finally {
+      window.MutationObserver.prototype.observe = realObserve;
+      ac2.abort();
+    }
+  }
+
   console.log(`\nCONTROLS TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

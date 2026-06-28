@@ -73,6 +73,7 @@ export const EffectsModule = (function () {
 
     // Red vignette (full-screen radial gradient overlay)
     const vignette = document.createElement('div');
+    vignette.id = 'avalancheVignette';
     Object.assign(vignette.style, {
       position: 'fixed', inset: '0', zIndex: '850', pointerEvents: 'none',
       opacity: '0', transition: reduceMotion ? 'none' : 'opacity 0.15s linear',
@@ -82,6 +83,7 @@ export const EffectsModule = (function () {
 
     // Warning banner
     const banner = document.createElement('div');
+    banner.id = 'avalancheBanner';
     Object.assign(banner.style, {
       position: 'fixed', top: '110px', left: '50%', transform: 'translateX(-50%)',
       zIndex: '902', padding: '10px 22px', borderRadius: '10px',
@@ -95,6 +97,7 @@ export const EffectsModule = (function () {
 
     // Danger meter (label + bar) showing how close the slide is behind you
     const meterWrap = document.createElement('div');
+    meterWrap.id = 'avalancheMeter';
     Object.assign(meterWrap.style, {
       position: 'fixed', top: '152px', left: '50%', transform: 'translateX(-50%)',
       zIndex: '902', width: 'min(300px, 80vw)', display: 'none',
@@ -221,7 +224,22 @@ export const EffectsModule = (function () {
     }
   }
 
-  return { init, updateAvalanche, addShake, tickCamera, reset };
+  // Remove the avalanche-warning DOM and reset transient state (dispose-audit teardown
+  // / dev-HMR). buildUI appends three fixed-position overlays to document.body; without
+  // this they linger over the host page after disposeGame. Idempotent; init() rebuilds.
+  function teardown() {
+    if (ui) {
+      ui.vignette.remove();
+      ui.banner.remove();
+      ui.meterWrap.remove();
+      ui = null;
+    }
+    shake = 0;
+    proximityShake = 0;
+    currentFov = BASE_FOV;
+  }
+
+  return { init, updateAvalanche, addShake, tickCamera, reset, teardown };
 })();
 
 // EffectsModule is imported directly by snowglider.js (issue #84).

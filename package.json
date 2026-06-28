@@ -5,7 +5,7 @@
   "main": "src/snowglider.js",
   "license": "MIT",
   "scripts": {
-    "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:trees && npm run test:avalanche && npm run test:snowtrails && npm run test:auth && npm run test:local-auth && npm run test:scores && npm run test:start-menu && npm run test:collapsible && npm run test:result-overlay && npm run test:lifecycle && npm run test:test-hooks && npm run test:controls && npm run test:flex && npm run test:debris && npm run test:leak && npm run test:intro && npm run test:sfx && npm run test:diagnostics && npm run test:contract && npm run test:share && npm run test:share-card && npm run test:share-menu && npm run test:audio-asset && npm run test:sky && npm run test:coverage-merge && npm run test:verify && npm run test:turn-styles && npm run test:stress",
+    "test": "npm run test:terrain && npm run test:physics && npm run test:regression && npm run test:tree-collision && npm run test:trees && npm run test:avalanche && npm run test:snowtrails && npm run test:auth && npm run test:local-auth && npm run test:scores && npm run test:start-menu && npm run test:collapsible && npm run test:result-overlay && npm run test:lifecycle && npm run test:test-hooks && npm run test:controls && npm run test:flex && npm run test:debris && npm run test:leak && npm run test:teardown && npm run test:intro && npm run test:sfx && npm run test:diagnostics && npm run test:contract && npm run test:share && npm run test:share-card && npm run test:share-menu && npm run test:audio-asset && npm run test:sky && npm run test:coverage-merge && npm run test:verify && npm run test:turn-styles && npm run test:stress",
     "test:terrain": "node --import ./tests/loaders/register-ts-resolve.mjs tests/terrain-tests.js",
     "test:physics": "node tests/physics-tests.js && node --import ./tests/loaders/register-ts-resolve.mjs tests/player-state-tests.js",
     "test:regression": "node --import ./tests/loaders/register-ts-resolve.mjs tests/regression-tests.js",
@@ -26,6 +26,7 @@
     "test:flex": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snowman-flex-tests.js",
     "test:debris": "node tests/debris-tests.js",
     "test:leak": "node tests/leak-tests.js",
+    "test:teardown": "node --import ./tests/loaders/register-ts-resolve.mjs tests/teardown-tests.js",
     "test:intro": "node --import ./tests/loaders/register-ts-resolve.mjs tests/intro-tests.js",
     "test:sfx": "node --import ./tests/loaders/register-ts-resolve.mjs tests/sfx-tests.js",
     "test:diagnostics": "node --import ./tests/loaders/register-ts-resolve.mjs tests/diagnostics-tests.js && node --import ./tests/loaders/register-ts-resolve.mjs tests/diagnostics-dom-tests.js",

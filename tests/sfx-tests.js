@@ -63,8 +63,12 @@ async function main() {
     engine.land(0.8);
     engine.endRun('finish');
     engine.endRun('crash');
+    engine.teardown();                       // dispose-audit teardown — inert without a context
+    engine.teardown();                       // idempotent
   } catch { threw = true; }
   check('engine: every method is a safe no-op without Web Audio', !threw);
+  check('engine: teardown() leaves the engine inert (no context, not running)',
+    engine.getStatus().active === false && engine.getStatus().running === false);
 
   const status = engine.getStatus();
   check('engine: reports inert (no context active) in Node', status.active === false && status.running === false);

@@ -326,8 +326,10 @@ class Diagnostics {
   private sink: DiagSink = () => {}; // structured-event transport (Firebase Analytics)
   private reportedAnomaly = false;   // physics anomaly reported once per run (debounce)
   private lastHealthEmitSec = 0;     // clock of the last session_health emit (heartbeat dedup)
-  private errorHandlersInstalled = false;
   private notes: Array<{ atSec: number; category: string; detail: Record<string, unknown> }> = [];
+  // Owns every window listener init() installs (keydown/pagehide/error/unhandledrejection)
+  // so teardown() can remove them all with one abort (dispose-audit / dev-HMR).
+  private ac: AbortController | null = null;
 
   /** Wire up the recorder. Safe to call once at startup. Honors the automation gate and
    *  the ?debug overlay flag; without a DOM it just enables the headless recorder.
@@ -346,6 +348,11 @@ class Diagnostics {
     this.active = !automated || optedIn;
     if (!this.active) return;
 
+    // Fresh controller for this run's window listeners (teardown() aborts it). Abort any
+    // previous one first so a re-init (remount) doesn't stack duplicate listeners.
+    if (this.ac) this.ac.abort();
+    this.ac = new AbortController();
+
     // Global error capture: there is no other window.onerror / unhandledrejection in the
     // app, so an uncaught throw in the rAF loop (a real "freezes" candidate) otherwise
     // vanishes. Route it through the same sink with the recent physics trace as context.
@@ -356,15 +363,16 @@ class Diagnostics {
 
     if (typeof document !== 'undefined') {
       if (wantOverlay) this.ensureOverlay();
+      const signal = this.ac.signal;
       // Hotkey: backtick toggles the overlay during normal play (off under automation).
       window.addEventListener('keydown', (e: KeyboardEvent) => {
         if (e.key === '`') this.toggleOverlay();
-      });
+      }, { signal });
       // Last-chance baseline flush: if the player navigates away mid-run or after a
       // game-over without pressing Reset, reset() never runs — so emit the owed
       // session_health here. pagehide is the reliable teardown hook on mobile (Safari
       // fires it where unload/beforeunload are unreliable); de-duped via flushHealthBaseline.
-      window.addEventListener('pagehide', () => this.flushHealthBaseline());
+      window.addEventListener('pagehide', () => this.flushHealthBaseline(), { signal });
       // Bug-report API: __snowgliderDiag.dump() returns the trace + verdict and, in a
       // browser, also downloads it as JSON so a tester can attach it to an issue.
       (window as unknown as { __snowgliderDiag?: unknown }).__snowgliderDiag = {
@@ -373,6 +381,20 @@ class Diagnostics {
         reset: () => this.reset(),
         overlay: (on?: boolean) => (on === undefined ? this.toggleOverlay() : on ? this.ensureOverlay() : this.hideOverlay()),
       };
+    }
+  }
+
+  /** Remove every window listener + global this singleton installed (dispose-audit
+   *  teardown / dev-HMR): the keydown/pagehide hotkey + the error/unhandledrejection
+   *  capture (one abort), the overlay DOM, and the `__snowgliderDiag` bug-report API —
+   *  whose closures retain `this` (and the injected report sink). init() re-installs them
+   *  on the next mount. Idempotent. */
+  teardown(): void {
+    if (this.ac) { this.ac.abort(); this.ac = null; }
+    this.hideOverlay();
+    this.active = false;
+    if (typeof window !== 'undefined') {
+      delete (window as unknown as { __snowgliderDiag?: unknown }).__snowgliderDiag;
     }
   }
 
@@ -469,8 +491,9 @@ class Diagnostics {
    *  current physics snapshot summary as context, routes it to the sink + console.error.
    *  Re-throws nothing; never swallows the browser's own default logging. */
   private installErrorHandlers(): void {
-    if (this.errorHandlersInstalled || typeof window === 'undefined') return;
-    this.errorHandlersInstalled = true;
+    // No re-install guard needed: init() aborts the previous controller before calling
+    // this, so the prior handlers are already gone (one live pair at a time).
+    if (typeof window === 'undefined') return;
     const context = () => {
       const sm = this.summary;
       return {
@@ -480,6 +503,8 @@ class Diagnostics {
         health: frameRateHealth(sm, this.cfg).level,
       };
     };
+    const signal = this.ac?.signal;
+    const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
     window.addEventListener('error', (e: ErrorEvent) => {
       this.emit('client_error', {
         message: String(e.message || 'error'),
@@ -488,7 +513,7 @@ class Diagnostics {
         stack: (e.error && e.error.stack ? String(e.error.stack) : '').slice(0, 600),
         ...context(),
       });
-    });
+    }, opts);
     window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
       const reason = e.reason;
       const msg = reason && reason.message ? reason.message : String(reason);
@@ -497,7 +522,7 @@ class Diagnostics {
         stack: (reason && reason.stack ? String(reason.stack) : '').slice(0, 600),
         ...context(),
       });
-    });
+    }, opts);
   }
 
   /** Throttled console warnings on the anomaly categories, so a live slow-device run

@@ -49,6 +49,10 @@ export const AudioModule = (function() {
   let audio: HTMLAudioElement | null = null;
   let muted = false;
   let initialized = false;
+  // Live showMessage() toasts (node + auto-remove timer) so teardown() can clear any that
+  // are still on screen — they're fixed-position z-index:3000 divs that would otherwise
+  // linger over the host page after an unmount until their timeout fires.
+  const activeMessages = new Set<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> }>();
 
   const AUDIO_PATH = 'assets/skullbeatz_bad_cat.mp3';
 
@@ -233,9 +237,34 @@ export const AudioModule = (function() {
         border-radius: 10px; font-size: 24px; z-index: 3000;
       `;
       document.body.appendChild(div);
-      setTimeout(() => div.remove(), duration);
+      // Track the node + timer so teardown() can clear a toast still on screen.
+      const entry = { el: div, timer: setTimeout(() => { div.remove(); activeMessages.delete(entry); }, duration) };
+      activeMessages.add(entry);
     },
-    showAudioRetryPrompt: function() {}
+    showAudioRetryPrompt: function() {},
+
+    // Stop the music and release the mute button (dispose-audit teardown / dev-HMR).
+    // The looping <audio> element and the `#audioControlBtn` are module-level, so without
+    // this they survive disposeGame — the track keeps playing and the button lingers over
+    // a remount. Idempotent and inert if nothing was ever started; `initialized` is reset
+    // so a later init()/setupUI() rebuilds cleanly.
+    teardown: function() {
+      // Clear any on-screen toasts (and their pending auto-remove timers) FIRST — showMessage
+      // isn't gated on AUDIO_ENABLED, so a toast can exist even when audio is disabled.
+      for (const { el, timer } of activeMessages) { clearTimeout(timer); el.remove(); }
+      activeMessages.clear();
+      if (!AUDIO_ENABLED) return;
+      if (audio) {
+        // pause() halts playback; dropping the reference makes the (detached, paused)
+        // element GC-eligible. We deliberately do NOT clear .src — assigning '' makes
+        // the media element fire a spurious "empty src" error event.
+        try { audio.pause(); } catch { /* detached element */ }
+        audio = null;
+      }
+      const btn = document.getElementById('audioControlBtn');
+      btn?.parentNode?.removeChild(btn);
+      initialized = false;
+    }
   };
 })();
 
