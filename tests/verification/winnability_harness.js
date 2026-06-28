@@ -43,9 +43,10 @@ g.document = undefined;
 try { Object.defineProperty(global, 'navigator', { value: { webdriver: false }, configurable: true }); } catch { /* keep existing */ }
 
 const FIXED_DT = 1 / 60;     // fine step: conservative burial sampling, no tunneling
-const COUNT = 120;           // in-game boulder count (scene-setup.ts)
-const HIT_RADIUS = 2;        // checkBurial default (matches the main-loop call)
 const MAX_TIME = 90;         // s of in-game time per descent (cap; a clean run finishes ~26 s)
+// Boulder count + burial radius are NOT copied here — COUNT comes from the shipped
+// AVALANCHE_BOULDER_COUNT, and burial is checked via the same arg-less checkBurial(pos)
+// the live loop calls, so it inherits whatever default the game uses (Codex review).
 
 // A heavily-braking / snowplowing player's speed, for the G2 threat check. Constant point
 // (a real snowplow on this slope stalls before the slide ever triggers, so a fixed slow
@@ -82,7 +83,8 @@ function fakeSnowman() {
   // Course bounds + trigger distance from the SHIPPED source, so a balance change to the
   // course length or trigger re-points this gate automatically (Codex review).
   const { CourseModule } = await import('../../src/course.ts');
-  const { AVALANCHE_TRIGGER_DISTANCE } = await import('../../src/game/scene-setup.ts');
+  const { AVALANCHE_TRIGGER_DISTANCE, AVALANCHE_BOULDER_COUNT } = await import('../../src/game/scene-setup.ts');
+  const COUNT = AVALANCHE_BOULDER_COUNT;                 // shipped boulder count (single source of truth)
   const { START_Z, FINISH_Z, COURSE_LENGTH } = CourseModule._config;
   const TRIGGER_Z = START_Z - AVALANCHE_TRIGGER_DISTANCE; // where distanceTraveled crosses the threshold
 
@@ -130,7 +132,7 @@ function fakeSnowman() {
 
       const sp = Math.hypot(velocity.x, velocity.z); if (sp > maxSpeed) maxSpeed = sp;
       if (triggered) {
-        if (av.checkBurial(snowman.position, HIT_RADIUS)) { buried = true; break; }
+        if (av.checkBurial(snowman.position)) { buried = true; break; }   // arg-less = live default radius
         minDist = Math.min(minDist, av.getClosestDistance(snowman.position));
         // Surviving the slide does NOT end the run: the live loop only resets + re-arms
         // (a fresh slide can fire after another AVALANCHE_TRIGGER_DISTANCE), so keep going
@@ -162,7 +164,7 @@ function fakeSnowman() {
       player.z -= speed * FIXED_DT;
       player.y = getTerrainHeight(player.x, player.z);
       if (triggered) {
-        if (av.checkBurial(player, HIT_RADIUS)) { buried = true; break; }
+        if (av.checkBurial(player)) { buried = true; break; }            // arg-less = live default radius
         // Mirror the live loop: surviving a slide only resets + re-arms; keep going until
         // an actual finish so a re-triggered slide still gets its chance.
         if (av.hasPassed(player)) { av.reset(); triggered = false; lastAvZ = player.z; }
