@@ -44,11 +44,17 @@ const disposedContexts = new WeakSet<object>();
  * same buffer repeatedly (and could free a resource still referenced elsewhere). The
  * caller is responsible for nulling any module-level caches that point at these
  * now-freed handles (see `resetTreePools`).
+ *
+ * InstancedMesh nodes (the forest, avalanche boulders, snow-trail grooves) own
+ * per-instance GPU buffers (`instanceMatrix`/`instanceColor`) that `geometry.dispose()`
+ * does NOT free — only `InstancedMesh.dispose()` does. They are disposed here too so the
+ * sweep actually releases every GPU buffer, not just the shared geometry/material.
  */
 export function disposeSceneResources(scene: THREE.Scene): void {
   const geoms = new Set<THREE.BufferGeometry>();
   const mats = new Set<THREE.Material>();
   const texes = new Set<THREE.Texture>();
+  const instanced = new Set<THREE.InstancedMesh>();
 
   scene.traverse((obj) => {
     const m = obj as THREE.Mesh;
@@ -56,6 +62,10 @@ export function disposeSceneResources(scene: THREE.Scene): void {
     const mat = m.material;
     if (Array.isArray(mat)) mat.forEach((x) => { if (x) mats.add(x); });
     else if (mat) mats.add(mat);
+    // InstancedMesh owns instanceMatrix/instanceColor buffers freed only by its own
+    // dispose() (geometry/material handled above). Each is a distinct scene node, so no
+    // dedup is needed — but a Set keeps the disposal uniform and double-call-safe.
+    if ((obj as THREE.InstancedMesh).isInstancedMesh) instanced.add(obj as THREE.InstancedMesh);
   });
 
   // Collect textures off each material before disposing it (map/normalMap/etc.).
@@ -71,6 +81,9 @@ export function disposeSceneResources(scene: THREE.Scene): void {
   }
   for (const g of geoms) g.dispose();
   for (const t of texes) t.dispose();
+  // Free the per-instance buffers last (geometry/material already gone above; THREE's
+  // InstancedMesh.dispose only releases instanceMatrix/instanceColor, so order is moot).
+  for (const im of instanced) im.dispose();
 }
 
 /**

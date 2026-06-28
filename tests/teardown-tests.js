@@ -160,6 +160,16 @@ async function testDedupSweep(THREE, disposeSceneResources) {
   matB.addEventListener('dispose', () => matBDisposed++);
   scene.add(new THREE.Mesh(geo2, [matA, matB]));
 
+  // An InstancedMesh (forest/avalanche/snow-trail case): its per-instance
+  // instanceMatrix/instanceColor buffers are freed only by InstancedMesh.dispose(), NOT
+  // geometry.dispose(), so the sweep must call it. dispose() dispatches a 'dispose' event.
+  const instGeo = new THREE.BoxGeometry(1, 1, 1);
+  const instMat = new THREE.MeshStandardMaterial();
+  const inst = new THREE.InstancedMesh(instGeo, instMat, 4);
+  let instDisposed = 0;
+  inst.addEventListener('dispose', () => instDisposed++);
+  scene.add(inst);
+
   disposeSceneResources(scene);
 
   check('shared geometry disposed exactly once across 3 meshes', geoDisposed.length === 1);
@@ -167,6 +177,7 @@ async function testDedupSweep(THREE, disposeSceneResources) {
   check('texture hung off the shared material disposed exactly once', texDisposed.length === 1);
   check('the unique second geometry disposed once', geo2Disposed === 1);
   check('both materials in an array material disposed once each', matADisposed === 1 && matBDisposed === 1);
+  check('InstancedMesh per-instance buffers disposed (InstancedMesh.dispose called)', instDisposed === 1);
 }
 
 // Build a fake SceneContext: a real THREE.Scene (so the sweep runs), spy subsystems,
