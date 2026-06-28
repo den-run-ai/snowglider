@@ -188,7 +188,15 @@ export class AvalancheSystem {
       // Initial velocity - moving toward player (downhill = -Z)
       this.velocities[idx]     = (Math.random() - 0.5) * 2;
       this.velocities[idx + 1] = 0;
-      this.velocities[idx + 2] = -(8 + Math.random() * 4); // Negative Z = downhill
+      // Initial downhill speed of the slide. Softened from -(8 + rand*4) so a skilled,
+      // full-speed line can actually outrun it: after the frame-rate physics fixes
+      // (#209 drag + the avalanche friction fix) removed the low-FPS speed bonus mobile
+      // players were unknowingly riding, the real top skiing speed (~8.2 m/s, only ~6.5
+      // where the slide fires) sat below the old slide's reach, so even a clean centered
+      // line was buried on most seeds. -(7 + rand*3) keeps the slide a real threat to a
+      // genuinely slow line (<~5.5 m/s) while making it escapable at speed. Gated by the
+      // winnability harness (G2/G3); balance rationale in the winnability follow-up issue.
+      this.velocities[idx + 2] = -(7 + Math.random() * 3); // Negative Z = downhill
 
       // Random sizes
       this.sizes[i] = 0.4 + Math.random() * 1.2;
