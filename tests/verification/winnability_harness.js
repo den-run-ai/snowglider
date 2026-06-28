@@ -85,6 +85,9 @@ function fakeSnowman() {
   const { CourseModule } = await import('../../src/course.ts');
   const { AVALANCHE_TRIGGER_DISTANCE, AVALANCHE_BOULDER_COUNT } = await import('../../src/game/scene-setup.ts');
   const COUNT = AVALANCHE_BOULDER_COUNT;                 // shipped boulder count (single source of truth)
+  // FINISH_Z here traces to the real finish trigger: course.ts derives it from
+  // collision.ts FINISH_Z (the same constant the live run ends on), so moving the finish
+  // re-points this gate at where players actually finish, not a stale copy.
   const { START_Z, FINISH_Z, COURSE_LENGTH } = CourseModule._config;
   const TRIGGER_Z = START_Z - AVALANCHE_TRIGGER_DISTANCE; // where distanceTraveled crosses the threshold
 

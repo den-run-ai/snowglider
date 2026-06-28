@@ -26,6 +26,7 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
+import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
 
@@ -89,8 +90,9 @@ export const CourseModule = (function () {
   'use strict';
 
   // --- Course geometry (world units; 1 unit == 1 metre for the HUD) ---
+  // FINISH_Z is imported from the collision kernel (the real finish trigger) so the HUD,
+  // gates, ghost, and splits can't drift from where the run actually ends.
   const START_Z = -15;
-  const FINISH_Z = -195;
   const CHECKPOINT_Z = [-60, -105, -150]; // intermediate gates; finish handled separately
   const GATE_HALF_WIDTH = 9;              // poles sit at x = +/- this, framing the lane
   const FINISH_HALF_WIDTH = 14;

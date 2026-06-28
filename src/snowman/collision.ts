@@ -1,6 +1,12 @@
 // Snowman collision and finish-state checks.
 import type { PlayerPos, RockPos, ShowGameOverFn, TreePos } from './index.js';
 
+// Finish line: the run ends when the player crosses this z (skiing in -Z). This is the
+// SINGLE SOURCE OF TRUTH for the finish trigger — the live run ends here, and course.ts
+// derives its FINISH_Z (HUD / gates / ghost) from it so the displayed finish and the
+// enforced finish can't drift. The winnability/forward-stress gates read it via course.ts.
+export const FINISH_Z = -195;
+
 interface SnowmanCollisionState {
   pos: PlayerPos;
   isInAir: boolean;
@@ -145,7 +151,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   // Only skip boundary check during regression/tree tests, but NOT during browser tests or unified tests
   const inExtendedMountainTest = window.location.search.includes('test=regression') ||
                                 window.location.search.includes('test=tree'); // Only skip for specific tests
-  if (pos.z < -195 || // Extended from -95 to -195 for longer run
+  if (pos.z < FINISH_Z || // finish line (single source of truth; course.ts derives from this)
       (!inExtendedMountainTest && Math.abs(pos.x) > 120) || // Keep boundary check during browser/unified tests
       (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||
       treeCollision ||
@@ -159,7 +165,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
         reason = "BANG!!! You hit a tree!";
       } else if (rockCollision) {
         reason = "BANG!!! You hit a rock!";
-      } else if (pos.z < -195) {
+      } else if (pos.z < FINISH_Z) {
         reason = "You reached the end of the slope!";
       } else if (Math.abs(pos.x) > 120) {
         reason = "You went off the mountain!";
