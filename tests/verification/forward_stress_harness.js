@@ -80,6 +80,10 @@ function fakeSnowman() {
   const { Trees } = await import('../../src/mountains/trees.ts');
   const { addRocks, rockCollisionRadius } = await import('../../src/mountains/rocks.ts');
   const { getTerrainHeight, getTerrainGradient, getDownhillDirection } = terrain;
+  // Finish line from the SHIPPED course constant, not a literal, so moving the finish
+  // re-points the termination/finishability checks at the real course (Codex review).
+  const { CourseModule } = await import('../../src/course.ts');
+  const FINISH_Z = CourseModule._config.FINISH_Z;
 
   const TREE_RADIUS = 2.5;            // mirrors collision.ts default treeCollisionRadius
   const SEEDS = [12345, 777, 42, 9001];
@@ -203,9 +207,9 @@ function fakeSnowman() {
         }
       }
 
-      if (reason || pos.z < -195 || t >= maxTime) break;
+      if (reason || pos.z < FINISH_Z || t >= maxTime) break;
     }
-    const finished = pos.z < -195;                  // strictly: reached the finish line
+    const finished = pos.z < FINISH_Z;              // strictly: reached the shipped finish line
     const terminated = reason !== null || finished; // ended (finish / crash / off-side)
     return { maxSpeed, maxStep, treeTunnel, rockTunnel, nonFinite, terminated, finished, reason,
              finalX: pos.x, finalZ: pos.z, framesUsed: f + 1, maxFrames: MAX_FRAMES,
@@ -303,7 +307,7 @@ function fakeSnowman() {
   console.log('  PASS:', allTerminate ? 'every descent reached a definite outcome ✅' : 'a descent never ended (possible freeze) ❌');
   if (!allTerminate) hardFail = true;
 
-  // --- 6) Finish is reachable: a clean full-speed line reaches z < -195 [GATING] ---
+  // --- 6) Finish is reachable: a clean full-speed line reaches the shipped finish [GATING] ---
   // Pairs with the avalanche-side winnability_harness (G2/G3) to protect the
   // "winnable but not guaranteed" invariant: G1 asserts a winning path EXISTS for the
   // real physics descent, G3 asserts that path also outruns the slide. We assert only
@@ -312,7 +316,7 @@ function fakeSnowman() {
   // course-length regression that drops a no-input coast short of the finish fails here.
   const finishRuns = SEEDS.map(seed => runDescent(seed, 1 / 60, 'holdUp', { clearHazards: true }));
   const allFinish = finishRuns.every(r => r.finished);
-  console.log('\n--- Finish is reachable: clean full-speed line reaches z < -195 [GATING] ---');
+  console.log(`\n--- Finish is reachable: clean full-speed line reaches z < ${FINISH_Z} [GATING] ---`);
   console.log('  finished:', finishRuns.filter(r => r.finished).length, '/', SEEDS.length,
     '| worst final z:', Math.max(...finishRuns.map(r => r.finalZ)).toFixed(1));
   console.log('  PASS:', allFinish
