@@ -589,6 +589,12 @@ function disposeSnowGlider(): void {
   // Remove the diagnostics window listeners (keydown/pagehide/error/unhandledrejection)
   // + __snowgliderDiag bug-report API, whose closures retain the injected report sink.
   Diag.teardown();
+  // Clear Controls' module-level gameControls/touchState BEFORE aborting the input
+  // listeners below: if a key/touch is down at teardown, aborting removes the handler so
+  // the matching keyup/touchend never fires, and a same-instance remount (HMR/embed) that
+  // reuses the surviving Controls singleton would start with a stuck input (e.g. left=true).
+  // The live game already resets this on every resetSnowman; this covers the remount path.
+  Controls.resetControls();
   disposeGame(sceneContext, () => listenerAbort.abort());
 
   // Delete every window.* handle this module installed so the disposed graph is no longer
