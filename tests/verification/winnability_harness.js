@@ -110,12 +110,13 @@ function fakeSnowman() {
     let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, START_Z),
                airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
 
-    let triggered = false, buried = false, finished = false, t = 0, maxSpeed = 0, minDist = Infinity;
+    let triggered = false, lastAvZ = START_Z, buried = false, finished = false, t = 0, maxSpeed = 0, minDist = Infinity;
     const noop = () => {};
     while (t < MAX_TIME) {
       t += FIXED_DT;
-      // Avalanche FIRST (trigger + advance), exactly as the live loop orders it.
-      if (!triggered && (START_Z - pos.z) > AVALANCHE_TRIGGER_DISTANCE) { av.trigger(snowman.position); triggered = true; }
+      // Avalanche FIRST (trigger + advance), exactly as the live loop orders it: a slide
+      // arms every AVALANCHE_TRIGGER_DISTANCE travelled from the last (re)arm point.
+      if (!triggered && (lastAvZ - pos.z) > AVALANCHE_TRIGGER_DISTANCE) { av.trigger(snowman.position); triggered = true; }
       if (triggered) av.update(FIXED_DT);
 
       const controls = policy === 'center'
@@ -131,7 +132,11 @@ function fakeSnowman() {
       if (triggered) {
         if (av.checkBurial(snowman.position, HIT_RADIUS)) { buried = true; break; }
         minDist = Math.min(minDist, av.getClosestDistance(snowman.position));
-        if (av.hasPassed(snowman.position)) { finished = true; break; } // slide fell behind = survived
+        // Surviving the slide does NOT end the run: the live loop only resets + re-arms
+        // (a fresh slide can fire after another AVALANCHE_TRIGGER_DISTANCE), so keep going
+        // and require an actual finish. This refuses a balance where the first slide merely
+        // slips past without the skier proving they reach FINISH_Z under the repeated loop.
+        if (av.hasPassed(snowman.position)) { av.reset(); triggered = false; lastAvZ = pos.z; }
       }
       if (pos.z <= FINISH_Z) { finished = true; break; }
     }
@@ -147,17 +152,22 @@ function fakeSnowman() {
     const scene = /** @type {any} */ ({ children: [], add() {}, remove() {}, userData: {} });
     const av = makeAvalanche(scene);
     const player = { x: 0, y: getTerrainHeight(0, TRIGGER_Z), z: TRIGGER_Z };
-    av.trigger(player);                                   // slide fires at the trigger line
+    av.trigger(player);                                   // first slide fires at the trigger line
     console.log = _log;
 
-    let buried = false, finished = false, t = 0;
+    let triggered = true, lastAvZ = TRIGGER_Z, buried = false, finished = false, t = 0;
     while (t < MAX_TIME) {
-      av.update(FIXED_DT);
+      if (!triggered && (lastAvZ - player.z) > AVALANCHE_TRIGGER_DISTANCE) { av.trigger(player); triggered = true; }
+      if (triggered) av.update(FIXED_DT);
       player.z -= speed * FIXED_DT;
       player.y = getTerrainHeight(player.x, player.z);
-      if (av.checkBurial(player, HIT_RADIUS)) { buried = true; break; }
+      if (triggered) {
+        if (av.checkBurial(player, HIT_RADIUS)) { buried = true; break; }
+        // Mirror the live loop: surviving a slide only resets + re-arms; keep going until
+        // an actual finish so a re-triggered slide still gets its chance.
+        if (av.hasPassed(player)) { av.reset(); triggered = false; lastAvZ = player.z; }
+      }
       if (player.z <= FINISH_Z) { finished = true; break; }
-      if (av.hasPassed(player)) { finished = true; break; }
       t += FIXED_DT;
     }
     av.dispose();
