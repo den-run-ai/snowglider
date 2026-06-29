@@ -13,6 +13,22 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Difficulty tiers (stage 3 / D1): per-tier local ghost + splits keys
+- **`course.ts` now keys the best splits and best-run ghost per difficulty tier**
+  (`snowgliderBestSplits_<tier>`, `snowgliderGhost_<tier>`), read/written through the
+  injected `getDifficulty` getter so each run loads and saves the right tier's data.
+  A one-time migration moves the pre-tier un-suffixed keys onto the **Blue** tier, so a
+  returning player keeps their existing best splits + ghost on the default tier.
+- No leaderboard/Firebase change (that is a later stacked PR); this is local state only.
+  Covered by the headless smoke test (migration + per-tier persistence).
+
+### Difficulty tiers (stage 2): start-screen tier picker + result label
+- A `#difficultyPicker` radiogroup on the start screen (built from the difficulty
+  config), remembered across sessions in `snowgliderDifficulty`, with full keyboard
+  support and hidden/restored with the About panel. `GameState.difficulty` is locked in
+  at run start (live pick preferred over storage), and the result screen stamps the tier.
+  Still no felt gameplay change — every tier plays the frozen Blue physics for now.
+
 ### Difficulty tiers (stage 1): config spine + kernel tuning API
 - **New `src/difficulty.ts`** — the single source of truth for the planned ●Bunny /
   ■Blue / ◆Black tiers, mirroring the `score-limits.ts` pattern. Carries each tier's
