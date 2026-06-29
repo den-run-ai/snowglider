@@ -18,10 +18,13 @@ import type {
 // `alignment`, the cosine between the horizontal heading and the fall line at
 // touchdown (1 = skis pointing straight down the line). Everything here is gated
 // behind playerJump provenance, so auto-jump / hop / coasting paths never see it.
-const LANDING_CLEAN_ALIGN = 0.85;   // alignment above this = CLEAN (boost)
+// Exported so the plausibility-floor harness (tests/verification/plausibility_floor_harness.js)
+// derives the jump-boost bounds it measures against from this single source instead of
+// copying the literals — exporting is otherwise inert (no behaviour change).
+export const LANDING_CLEAN_ALIGN = 0.85;   // alignment above this = CLEAN (boost)
 const LANDING_OK_ALIGN = 0.55;      // CLEAN..this = OK (neutral); below = SKETCHY (scrub)
-const JUMP_BOOST_PER_SEC = 0.04;    // CLEAN forward impulse fraction per second aloft...
-const JUMP_BOOST_CAP = 0.06;        // ...hard-capped so jump-spam can't trivialise the course
+export const JUMP_BOOST_PER_SEC = 0.04;    // CLEAN forward impulse fraction per second aloft...
+export const JUMP_BOOST_CAP = 0.06;        // ...hard-capped so jump-spam can't trivialise the course
 const AIR_SCORE_PER_SEC = 100;      // air-score points per second aloft
 const AIR_SCORE_CLEAN_BONUS = 50;   // extra points for sticking a CLEAN landing
 
