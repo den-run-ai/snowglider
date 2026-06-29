@@ -277,6 +277,62 @@ async function main() {
     ));
   });
 
+  console.log('\n--- Firestore rules: per-tier best times + sibling leaderboards (D2) ---');
+  await runTest('per-tier user best fields validate like bestTime (plausible + no downgrade)', async () => {
+    const alice = dbFor('alice');
+    // sub-floor rejected
+    await assertFails(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeBunny: 17.99, updatedAt: serverTimestamp() }, { merge: true }));
+    // plausible per-tier fields accepted (fresh create)
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeBunny: 20, bestTimeBlack: 18, updatedAt: serverTimestamp() }, { merge: true }));
+    // downgrade rejected, improvement accepted (bunny)
+    await assertFails(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeBunny: 25, updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeBunny: 19, updatedAt: serverTimestamp() }, { merge: true }));
+  });
+
+  await runTest('an unknown best-time-like field is still rejected', async () => {
+    const alice = dbFor('alice');
+    await assertFails(setDoc(doc(alice, 'users', 'alice'),
+      { ...profile(), bestTimeExpert: 20 }, { merge: true }));
+  });
+
+  for (const coll of ['leaderboard_bunny', 'leaderboard_black']) {
+    await runTest(`${coll}: owner writes a valid entry; sub-floor + downgrade rejected`, async () => {
+      const alice = dbFor('alice');
+      await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
+      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 17.99)));
+      await assertSucceeds(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 20)));
+      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 25)));
+    });
+
+    await runTest(`${coll}: signed-in can query, anonymous cannot read/write`, async () => {
+      const alice = dbFor('alice');
+      await seed(async admin => {
+        await setDoc(doc(admin, 'users', 'alice'), profile());
+        await setDoc(doc(admin, coll, 'alice'), leaderboardEntry(admin, 'alice', 20));
+      });
+      await assertSucceeds(getDocs(query(
+        collection(alice, coll), where('time', '>=', 18), orderBy('time', 'asc'), limit(10))));
+      const anon = anonDb();
+      await assertFails(getDocs(query(
+        collection(anon, coll), where('time', '>=', 18), orderBy('time', 'asc'), limit(10))));
+      await assertFails(setDoc(doc(anon, coll, 'alice'), leaderboardEntry(anon, 'alice', 20)));
+    });
+
+    await runTest(`${coll}: write requires the matching user doc + reference`, async () => {
+      const alice = dbFor('alice');
+      await seed(async admin => {
+        await setDoc(doc(admin, 'users', 'alice'), profile());
+        await setDoc(doc(admin, 'users', 'bob'), profile('Bob'));
+      });
+      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'bob', 20)));
+      await assertFails(setDoc(doc(alice, coll, 'bob'), leaderboardEntry(alice, 'bob', 20)));
+    });
+  }
+
   console.log(`\nFIRESTORE RULES TEST TOTAL: ${pass} passed, ${fail} failed`);
   await testEnv.cleanup();
   process.exit(fail ? 1 : 0);

@@ -152,6 +152,41 @@ async function main() {
   check('slower finish does not log a new-high-score event',
     !calls.logEvent.some(event => event.name === 'new_high_score'));
 
+  console.log('\n--- Per-tier score sync (D2): Blue == original names, siblings for others ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'pt', displayName: 'Tier' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+
+  ScoresModule.recordScore(22, 'bunny');
+  await flushAll();
+  check('bunny finish stores the local best under the per-tier key only',
+    localStorage.getItem('snowgliderBestTime_bunny') === '22' &&
+    localStorage.getItem('snowgliderBestTime') === null);
+  check('bunny finish writes users.bestTimeBunny, not bestTime',
+    read('users', 'pt')?.bestTimeBunny === 22 && read('users', 'pt')?.bestTime === undefined);
+  check('bunny finish writes the leaderboard_bunny collection, not leaderboard',
+    read('leaderboard_bunny', 'pt')?.time === 22 && read('leaderboard', 'pt') == null);
+
+  ScoresModule.recordScore(30, 'black');
+  await flushAll();
+  check('black finish is independent (leaderboard_black + bestTimeBlack; bunny untouched)',
+    read('leaderboard_black', 'pt')?.time === 30 &&
+    read('users', 'pt')?.bestTimeBlack === 30 &&
+    read('leaderboard_bunny', 'pt')?.time === 22);
+
+  const bunnyLb = await ScoresModule.getLeaderboard('bunny');
+  check('getLeaderboard("bunny") reads the bunny board',
+    bunnyLb.length === 1 && bunnyLb[0].userId === 'pt' && bunnyLb[0].time === 22);
+  const blueLbEmpty = await ScoresModule.getLeaderboard('blue');
+  check('getLeaderboard("blue") does not see bunny/black entries', blueLbEmpty.length === 0);
+
+  ScoresModule.recordScore(25); // no tier => Blue, the original names (back-compat)
+  await flushAll();
+  check('default (Blue) finish still uses the original key/collection/field',
+    localStorage.getItem('snowgliderBestTime') === '25' &&
+    read('leaderboard', 'pt')?.time === 25 && read('users', 'pt')?.bestTime === 25);
+
   console.log('\n--- Authoritative best reconciliation ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);

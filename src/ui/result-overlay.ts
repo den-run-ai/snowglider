@@ -13,6 +13,8 @@ import { EffectsModule } from '../effects.js';
 // local fallback when ScoresModule isn't present, so the client finish gate matches the
 // scores module and the Firestore rules (issue #229, PR C).
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
+// Per-tier best-time key + the active tier (Blue == the original key, unchanged).
+import { DEFAULT_DIFFICULTY, localBestTimeKey, readStoredDifficulty, type Difficulty } from '../difficulty.js';
 
 export function isValidScoreTime(time: number): boolean {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
@@ -24,8 +26,9 @@ export function isValidScoreTime(time: number): boolean {
     time <= MAX_VALID_SCORE_TIME;
 }
 
-export function readStoredBestTime(): number {
-  const storedBestTime = localStorage.getItem('snowgliderBestTime');
+export function readStoredBestTime(tier: Difficulty = DEFAULT_DIFFICULTY): number {
+  const key = localBestTimeKey(tier);
+  const storedBestTime = localStorage.getItem(key);
   if (!storedBestTime) {
     return Infinity;
   }
@@ -36,7 +39,7 @@ export function readStoredBestTime(): number {
   }
 
   console.warn("Ignoring invalid stored best time:", storedBestTime);
-  localStorage.removeItem('snowgliderBestTime');
+  localStorage.removeItem(key);
   return Infinity;
 }
 
@@ -81,16 +84,21 @@ export interface ResultOverlayDeps {
   // renderer are in scope. Kept as an injected hook so this UI module stays free of
   // three.js. The overlay itself is unchanged (shown immediately, as before).
   onCrash?: (reason: string) => void;
+  // The run's difficulty tier, so the score/best-time/leaderboard go to that tier.
+  // Omitted => falls back to the persisted pick (readStoredDifficulty).
+  getDifficulty?: () => Difficulty;
 }
 
 // Build the showGameOver(reason) handler bound to the injected overlay/state. The
 // body is the original snowglider.ts implementation verbatim (deps are destructured
 // under the same names it used as module-locals).
 export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) => void {
-  const { state, gameOverOverlay, gameOverDetail, restartButton, bestTimeDisplay, onCrash } = deps;
+  const { state, gameOverOverlay, gameOverDetail, restartButton, bestTimeDisplay, onCrash, getDifficulty } = deps;
   const FINISH_REASON = "You reached the end of the slope!";
 
   return function showGameOver(reason: string) {
+    // The tier this run was played on; routes the score/best/leaderboard per tier.
+    const tier: Difficulty = getDifficulty ? getDifficulty() : readStoredDifficulty();
     // Allow tests to intercept showGameOver calls
     if (window._testShowGameOverOverride) {
       window._testShowGameOverOverride(reason);
@@ -164,9 +172,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // Record the score whenever the leaderboard API is available (it handles its own
       // auth + persistence); otherwise fall back to persisting a new local best.
       if (canRecordScore) {
-        window.AuthModule.recordScore(currentTime);
+        window.AuthModule.recordScore(currentTime, tier);
       } else if (isNewBestTime) {
-        localStorage.setItem('snowgliderBestTime', String(currentTime));
+        localStorage.setItem(localBestTimeKey(tier), String(currentTime));
       }
 
       // Show appropriate message based on time
@@ -242,8 +250,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         leaderboardElement.style.display = 'block';
       }
 
-      // Display leaderboard
-      window.AuthModule.displayLeaderboard();
+      // Display leaderboard for the run's tier
+      window.AuthModule.displayLeaderboard(tier);
     }
 
     // Build the result screen (splits + medal) on a finish; otherwise just clear

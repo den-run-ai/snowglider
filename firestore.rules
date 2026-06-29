@@ -24,6 +24,9 @@ service cloud.firestore {
       return /databases/$(database)/documents/users/$(userId);
     }
 
+    // Per-difficulty best-time fields. `bestTime` is the Blue tier (unchanged);
+    // bestTimeBunny / bestTimeBlack are the other tiers. All validate against the same
+    // plausibility floor for now (every tier currently plays the same physics).
     function validUserKeys(data) {
       return data.keys().hasOnly([
         'displayName',
@@ -31,6 +34,8 @@ service cloud.firestore {
         'photoURL',
         'lastLogin',
         'bestTime',
+        'bestTimeBunny',
+        'bestTimeBlack',
         'updatedAt'
       ]);
     }
@@ -42,6 +47,8 @@ service cloud.firestore {
         && (!('photoURL' in data) || data.photoURL == null || data.photoURL is string)
         && (!('lastLogin' in data) || data.lastLogin is timestamp)
         && (!('bestTime' in data) || isValidScoreTime(data.bestTime))
+        && (!('bestTimeBunny' in data) || isValidScoreTime(data.bestTimeBunny))
+        && (!('bestTimeBlack' in data) || isValidScoreTime(data.bestTimeBlack))
         && (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
@@ -57,6 +64,8 @@ service cloud.firestore {
           'photoURL',
           'lastLogin',
           'bestTime',
+          'bestTimeBunny',
+          'bestTimeBlack',
           'updatedAt'
         ])
         && (!changedUserKeys().hasAny(['displayName']) ||
@@ -74,14 +83,36 @@ service cloud.firestore {
           request.resource.data.updatedAt is timestamp);
     }
 
+    // Each per-tier best-time field, if changed, must be plausible and may not be
+    // downgraded to a slower time (mirrors the original Blue-only check per field).
+    // Each clause's `||` short-circuits so a field's value is only read when it changed
+    // (and is therefore present), matching the original safe-access pattern.
     function validBestTimeUpdate() {
-      return !changedUserKeys().hasAny(['bestTime'])
+      return (
+        !changedUserKeys().hasAny(['bestTime'])
         || (
           isValidScoreTime(request.resource.data.bestTime)
           && (!('bestTime' in resource.data) ||
             !isValidScoreTime(resource.data.bestTime) ||
             request.resource.data.bestTime <= resource.data.bestTime)
-        );
+        )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeBunny'])
+        || (
+          isValidScoreTime(request.resource.data.bestTimeBunny)
+          && (!('bestTimeBunny' in resource.data) ||
+            !isValidScoreTime(resource.data.bestTimeBunny) ||
+            request.resource.data.bestTimeBunny <= resource.data.bestTimeBunny)
+        )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeBlack'])
+        || (
+          isValidScoreTime(request.resource.data.bestTimeBlack)
+          && (!('bestTimeBlack' in resource.data) ||
+            !isValidScoreTime(resource.data.bestTimeBlack) ||
+            request.resource.data.bestTimeBlack <= resource.data.bestTimeBlack)
+        )
+      );
     }
 
     function validLeaderboardKeys(data) {
@@ -111,6 +142,31 @@ service cloud.firestore {
     }
 
     match /leaderboard/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardDoc(userId, request.resource.data);
+      allow update: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardUpdate(userId);
+      allow delete: if false;
+    }
+
+    // Per-tier sibling boards (Bunny / Black). Same shape and validation as the Blue
+    // board above — the leaderboard doc still references users/{uid} as its foreign key,
+    // which is tier-independent, so validLeaderboardDoc/Update are reused unchanged.
+    match /leaderboard_bunny/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardDoc(userId, request.resource.data);
+      allow update: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardUpdate(userId);
+      allow delete: if false;
+    }
+
+    match /leaderboard_black/{userId} {
       allow get, list: if isSignedIn();
       allow create: if isOwner(userId)
         && exists(userDocPath(userId))

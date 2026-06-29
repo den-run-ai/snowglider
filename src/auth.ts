@@ -71,6 +71,7 @@ import {
 import { getAnalytics, logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import { initializeApp, type FirebaseApp, type FirebaseOptions } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import ScoresModule from "./scores.js";
+import { DIFFICULTIES, localBestTimeKey, type Difficulty } from "./difficulty.js";
 
 // Initialize Firebase Auth
 function initializeAuth(firebaseConfig: FirebaseOptions) {
@@ -669,18 +670,21 @@ function syncUserData(user: User) {
     }, { merge: true })
     .then(() => {
       console.log("User data synced/updated in Firestore for:", user.uid);
-      // Sync best time from localStorage after user data is confirmed/created
-      const localBestTime = localStorage.getItem('snowgliderBestTime');
-      if (localBestTime) {
-        const bestTime = parseFloat(localBestTime);
+      // Backfill EACH difficulty tier's local best time to its per-tier user-doc field
+      // after the user doc is confirmed/created (Blue == the original snowgliderBestTime
+      // key / bestTime field, unchanged).
+      for (const cfg of DIFFICULTIES) {
+        const key = localBestTimeKey(cfg.id);
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const bestTime = parseFloat(raw);
         if (!ScoresModule.isValidScoreTime(bestTime)) {
-          console.warn("Ignoring invalid local best time during sign-in sync:", localBestTime);
-          localStorage.removeItem('snowgliderBestTime');
-          return;
+          console.warn(`Ignoring invalid local best time (${cfg.id}) during sign-in sync:`, raw);
+          localStorage.removeItem(key);
+          continue;
         }
-        console.log("Found local best time, attempting to sync:", bestTime);
-        // Use ScoresModule to update best time
-        ScoresModule.updateUserBestTime(user.uid, bestTime);
+        console.log(`Found local best time (${cfg.id}), attempting to sync:`, bestTime);
+        ScoresModule.updateUserBestTime(user.uid, bestTime, cfg.id);
       }
     })
     .catch(error => {
@@ -801,9 +805,9 @@ const AuthModule = {
   getUserIdToken,
   reinitializeFirestore, // Add the new function
 
-  // Delegated methods to ScoresModule 
-  recordScore: (time: number) => ScoresModule.recordScore(time),
-  displayLeaderboard: () => ScoresModule.displayLeaderboard(),
+  // Delegated methods to ScoresModule (tier optional; omitted => default Blue)
+  recordScore: (time: number, tier?: Difficulty) => ScoresModule.recordScore(time, tier),
+  displayLeaderboard: (tier?: Difficulty) => ScoresModule.displayLeaderboard(tier),
   
   // Export utilities for debugging or potential external use
   signOut: () => { // Provide a direct way to sign out if needed
