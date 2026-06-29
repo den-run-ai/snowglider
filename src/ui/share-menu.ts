@@ -35,11 +35,21 @@ export interface ShareControlsOptions {
 
 const PRIMARY_LABEL = '🔗 Share Result';
 
-/** Stop in-overlay button taps from reaching controls.ts's document-level
- *  touchstart handler, which preventDefaults and would kill the synthesized
- *  click on mobile (see fix #173). */
+/** Stop in-overlay button taps from reaching controls.ts's document-level touch
+ *  handlers. Those listen on `document` for touchstart/touchmove/touchend and
+ *  preventDefault() every touch outside the scrollable guides — and on mobile a
+ *  preventDefault() on EITHER the first touchmove OR touchend suppresses the
+ *  synthesized click, killing a button that's bound to 'click'. Fix #173 defused
+ *  only touchstart, which left the buttons dead on real devices (a clean tap still
+ *  bubbles a touchend, and a slightly-moving finger a touchmove). So we stop the
+ *  whole touch sequence from reaching those document handlers; the button's own
+ *  click fires normally. passive:true is fine — we only need stopPropagation, not
+ *  preventDefault. */
 function defuseTouch(el: HTMLElement): void {
-  el.addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: true });
+  const swallow = (e: Event): void => { e.stopPropagation(); };
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    el.addEventListener(type, swallow, { passive: true });
+  }
 }
 
 function styleButton(btn: HTMLElement, primary: boolean): void {

@@ -13,6 +13,21 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fix: finish-screen share buttons dead on mobile
+- **Every "Share Result" / per-platform / "Save image" / "Copy link" button on the
+  finish result panel did nothing when tapped on a phone.** The buttons are bound to
+  `click`, and `controls.ts` attaches document-level `touchstart`/`touchmove`/`touchend`
+  handlers that `preventDefault()` every touch outside the scrollable guides. On mobile,
+  a `preventDefault()` on the first `touchmove` **or** on `touchend` suppresses the
+  synthesized `click` — so the tap never reached the handler. The earlier fix (#173)
+  defused only `touchstart`, which left the other half live: a clean tap still bubbles a
+  `touchend`, and a slightly-moving finger a `touchmove`.
+- **Fix:** `defuseTouch` in `src/ui/share-menu.ts` now `stopPropagation()`s the whole
+  touch sequence (`touchstart`/`touchmove`/`touchend`/`touchcancel`) so none of it reaches
+  the document handlers; the button's own `click` fires normally. Added a regression guard
+  in `tests/share-menu-tests.js` that dispatches a tap sequence on each share button and
+  asserts no touch event reaches `document`.
+
 ### Fixed-timestep accumulator: frame-rate-independent physics (no tunneling)
 - **The live run loop (`src/game/main-loop.ts`) now steps physics on a fixed grid.**
   The old loop advanced the kernel once per render frame with a variable `delta`

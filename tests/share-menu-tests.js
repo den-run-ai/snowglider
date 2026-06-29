@@ -163,6 +163,33 @@ async function main() {
   check('mobile primary falls back to a text+link share when files are unsupported',
     !!textShared && /snowglider\.ai/.test(textShared.url));
 
+  // ---- Touch defusing: button taps must NOT reach controls.ts's document-level
+  // touch handlers. Those preventDefault() every touch, and on mobile a
+  // preventDefault() on the first touchmove OR touchend suppresses the synthesized
+  // click — so a share button bound to 'click' is dead unless its whole touch
+  // sequence is kept off `document`. Regression guard for the mobile-dead-button bug. ----
+  console.log('\n--- touch events are kept off document (mobile click survival) ---');
+  setNavigator({});
+  root = mount({ time: 42.13, isBest: true });
+  const seenAtDocument = [];
+  const docListener = (e) => { seenAtDocument.push(e.type); };
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    document.addEventListener(type, docListener);
+  }
+  // Dispatch a realistic tap sequence (bubbling, cancelable) on each share button.
+  const touchTargets = ['#shareResultBtn', '#shareImageBtn', '#share-x-btn', '#shareCopyBtn'];
+  for (const sel of touchTargets) {
+    const btn = root.querySelector(sel);
+    for (const type of ['touchstart', 'touchmove', 'touchend']) {
+      btn.dispatchEvent(new window.Event(type, { bubbles: true, cancelable: true }));
+    }
+  }
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    document.removeEventListener(type, docListener);
+  }
+  check('no share-button touch event reaches the document (would kill the click on mobile)',
+    seenAtDocument.length === 0);
+
   console.log(`\nSHARE-MENU TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }
