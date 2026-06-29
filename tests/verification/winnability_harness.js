@@ -150,6 +150,72 @@ function fakeSnowman() {
     return { buried, finished, maxSpeed, minDist, z: pos.z };
   }
 
+  // --- Casual / mobile line vs. the real avalanche (G4) ---------------------------
+  // The original complaint came from MOBILE (iPhone) players, whose input is neither
+  // the skilled centered hold (G3) nor a bare hold-forward coast. This drives the REAL
+  // Snowman physics with an IMPERFECT, mobile-like line: a slow lateral drift the player
+  // loosely chases (off-center wandering), intermittent tap-steering (a duty cycle with
+  // gaps), a ~5 Hz reaction lag on the steering error, and intermittent acceleration (the
+  // player doesn't hold forward every frame). The input pattern is a deterministic
+  // function of time with a per-seed phase, so it never consumes the avalanche RNG stream
+  // (boulder spawns stay seed-deterministic). G4 then asserts this casual line still
+  // ESCAPES on the majority of seeds — "winnable but not guaranteed" for imperfect play,
+  // a weaker bar than G3's every-seed skilled escape, locking in the casual margin #228
+  // restored so a future tune can't silently re-bury mobile players.
+  function runCasualLine(seed) {
+    Math.random = makeRng(seed);                 // avalanche boulder spawn stream
+    const _log = console.log; console.log = () => {};
+    const scene = /** @type {any} */ ({ children: [], add() {}, remove() {}, userData: {} });
+    const av = makeAvalanche(scene);
+    const snowman = fakeSnowman();
+    const pos = { x: 0, z: START_Z, y: getTerrainHeight(0, START_Z) };
+    const velocity = { x: 0, z: -3 };
+    snowman.position.set(pos.x, pos.y, pos.z);
+    let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, START_Z),
+               airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+    // Per-seed phase offsets (NOT from Math.random, so the boulder stream is untouched).
+    const phaseS = ((seed % 997) / 997) * Math.PI * 2;
+    const phaseU = ((seed % 691) / 691) * Math.PI * 2;
+    const noop = () => {};
+
+    let triggered = false, lastAvZ = START_Z, buried = false, finished = false, t = 0, laggedX = 0;
+    while (t < MAX_TIME) {
+      const prevT = t;
+      t += FIXED_DT;
+      if (!triggered && (lastAvZ - pos.z) > AVALANCHE_TRIGGER_DISTANCE) { av.trigger(snowman.position); triggered = true; }
+      if (triggered) av.update(FIXED_DT);
+
+      // Mobile-like input: chase a slow off-center drift, with tap-steering gaps, a ~5 Hz
+      // reaction lag, a loose centering deadband, and intermittent acceleration.
+      const targetX = 3.0 * Math.sin(t * 0.45 + phaseS);     // wandering line, not the fall line
+      if (Math.floor(t / 0.2) !== Math.floor(prevT / 0.2)) laggedX = pos.x; // stale sample (~5 Hz)
+      const err = laggedX - targetX;
+      const steerActive = Math.sin(t * 1.7 + phaseS) > -0.2; // ~57% steering duty (tap gaps)
+      let left = false, right = false;
+      if (steerActive && Math.abs(err) > 1.5) { if (err > 0) left = true; else right = true; }
+      // Accelerate is held nearly always (mobile players keep the tuck/forward down; the
+      // imperfection is in steering, not in forgetting to accelerate), with only brief
+      // lapses (~95% duty) — enough to cost a little speed without making the line unwinnable.
+      const up = Math.sin(t * 0.9 + phaseU) > -0.95;         // ~95% accel duty
+      const controls = { left, right, up, down: false, jump: false };
+
+      st = Snowman.updateSnowman(snowman, FIXED_DT, pos, velocity, st.isInAir, st.verticalVelocity,
+        st.lastTerrainHeight, st.airTime, st.jumpCooldown, controls, st.turnPhase, st.currentTurnDirection,
+        st.turnChangeCooldown, 3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection,
+        [], true, noop, []);
+      snowman.position.set(pos.x, pos.y, pos.z);
+
+      if (triggered) {
+        if (av.checkBurial(snowman.position)) { buried = true; break; }
+        if (av.hasPassed(snowman.position)) { av.reset(); triggered = false; lastAvZ = pos.z; }
+      }
+      if (pos.z <= FINISH_Z) { finished = true; break; }
+    }
+    av.dispose();
+    console.log = _log;
+    return { buried, finished, z: pos.z };
+  }
+
   // --- Constant-speed point vs. the real avalanche (G2 threat + boundary scan) ----
   function runConstantDescent(seed, speed) {
     Math.random = makeRng(seed);
@@ -205,6 +271,18 @@ function fakeSnowman() {
   gate(`a ${SLOW_SPEED} m/s descent is buried before finishing, every seed`,
     slow.every(r => r.buried && !r.finished),
     `buried ${slow.filter(r => r.buried).length}/${SEEDS.length}`);
+
+  // G4: a casual / mobile-like line still escapes on the MAJORITY of seeds. Weaker than
+  // G3's every-seed skilled escape ("winnable but not guaranteed" for imperfect play), but
+  // it locks in the casual margin #228 restored so a future tune can't silently re-bury the
+  // mobile players who reported the regression.
+  const CASUAL_ESCAPE_MIN = 0.8; // >= 80% of seeds
+  const casual = SEEDS.map(s => runCasualLine(s));
+  const casualEscapes = casual.filter(r => r.finished && !r.buried).length;
+  console.log('\n--- G4: a casual / mobile-like line usually escapes [GATING] ---');
+  gate(`an imperfect mobile-like line (drift + tap-steering gaps + reaction lag + intermittent accel) escapes on >= ${Math.round(CASUAL_ESCAPE_MIN * 100)}% of seeds`,
+    casualEscapes / SEEDS.length >= CASUAL_ESCAPE_MIN,
+    `escaped ${casualEscapes}/${SEEDS.length} seeds (${Math.round(casualEscapes / SEEDS.length * 100)}%)`);
 
   // Diagnostic: the constant-speed escape boundary, for context on the margin.
   let boundary = null;
