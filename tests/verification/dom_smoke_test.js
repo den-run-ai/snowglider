@@ -219,6 +219,23 @@ async function main() {
   check('best-split deltas not stale after PB (Gap 2)',
     !!deltaTable && deltaTable.textContent.indexOf(EM_DASH) === -1);
 
+  // Codex fix (D1): the per-tier ghost/splits save is gated on the TIER's own stored
+  // best, not the global best time — so a first run on a tier still saves its baseline
+  // even when it is slower than an existing (global) best.
+  global.localStorage.removeItem('snowgliderGhost_black');
+  global.localStorage.removeItem('snowgliderBestSplits_black');
+  Course.reset(); // no stored ghost for this tier now
+  let t3 = 0;
+  for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
+    t3 += 0.2; // slow pace
+    Course.update({ x: 1.5, y: terrain(1.5, z), z }, t3, snowmanMock);
+  }
+  // previousBest tiny so totalTime > previousBest → NOT a global best.
+  Course.onFinish(t3, 0.001);
+  check('first run on a tier saves its ghost/splits even when slower than the global best',
+    !!global.localStorage.getItem('snowgliderGhost_black')
+    && !!global.localStorage.getItem('snowgliderBestSplits_black'));
+
   // flashAir (meaningful jumps #47): the on-slope air toast routes through the shared
   // #courseFlash element with the air time + grade label.
   Course.flashAir('clean', 1.234);

@@ -585,8 +585,17 @@ export const CourseModule = (function () {
     // Record the finish split.
     runSplits[splitPoints.length - 1] = totalTime;
 
-    // Commit best splits + ghost if this is the best run so far.
-    if (isBest) {
+    // Local per-tier save decision: persist this tier's splits + ghost when it's the
+    // first run on the tier (no stored ghost) OR it beats the tier's OWN stored ghost
+    // time. This is independent of the GLOBAL best-time `isBest` (which still drives the
+    // result panel/medal), so a first Bunny/Black run is saved even when a faster Blue
+    // best already exists. `ghostTotalTime` is the tier's stored ghost finish time
+    // (loaded in reset(); 0 when none, hence the ghostSamples guard).
+    const tierBestTime = ghostSamples ? ghostTotalTime : Infinity;
+    const isTierBest = totalTime < tierBestTime;
+
+    // Commit best splits + ghost if this run is the tier's best so far.
+    if (isTierBest) {
       try {
         localStorage.setItem(splitsKey(), JSON.stringify(runSplits));
         // Ensure the final sample lands exactly on the finish time, but keep the
