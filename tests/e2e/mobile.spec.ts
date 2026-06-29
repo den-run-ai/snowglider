@@ -101,12 +101,13 @@ test.describe('mobile share buttons', () => {
     await startGame(page);
 
     // Surface the finish result panel (which owns the share controls) without
-    // skiing the whole course: backdate the run clock past the 4s minimum-valid-
-    // time guard, then drive the real game-over finish path. This builds
-    // #courseResult inside the (z-index 1000, full-screen) game-over overlay.
+    // skiing the whole course: backdate the run clock past the 18s minimum-valid-
+    // time plausibility floor (src/score-limits.ts), then drive the real game-over
+    // finish path. This builds #courseResult inside the (z-index 1000, full-screen)
+    // game-over overlay.
     await page.evaluate(() => {
       const w = window as unknown as { startTime: number; showGameOver: (r: string) => void };
-      w.startTime = performance.now() - 5000;
+      w.startTime = performance.now() - 20000;
       w.showGameOver('You reached the end of the slope!');
     });
 
