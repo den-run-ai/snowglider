@@ -157,7 +157,7 @@ async function main() {
   fb.emitAuthState({ uid: 'u1', email: 'snow@glider.ai', displayName: 'Snow', photoURL: 'http://p/x.png' });
 
   console.log('\n--- Sign-out ---');
-  const logoutBtn = window.document.getElementById('logoutBtn');
+  const logoutBtn = /** @type {HTMLButtonElement} */ (window.document.getElementById('logoutBtn'));
   logoutBtn.dispatchEvent(new window.Event('click'));
   check('firebaseSignOut was invoked', calls.signOut === 1);
   await flush();
