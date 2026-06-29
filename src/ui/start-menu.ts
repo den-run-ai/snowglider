@@ -63,13 +63,17 @@ import { DIFFICULTIES, getDifficultyConfig, readStoredDifficulty, storeDifficult
       ? auth.getAuthState()
       : { user: null, isSignedIn: false };
 
+    // Unranked tiers (Bunny/Black) have no global board: don't advertise the
+    // sign-in benefit or fetch/render their (empty, write-denied) leaderboard.
+    const ranked = getDifficultyConfig(selectedDifficulty).ranked;
+
     const hint = document.getElementById('startSignInHint');
     if (hint) {
       // Only show when signing in can actually deliver the advertised benefit:
-      // real auth AND Firestore are up (the localhost/127.0.0.1 + file:// fallbacks
-      // skip Firestore, so leaderboard writes are no-ops there) and the player is
-      // signed out. Otherwise we'd advertise a global leaderboard that can't save.
-      hint.style.display = (firebase.auth && firebase.firestore && !authState.isSignedIn) ? 'block' : 'none';
+      // a RANKED tier is selected, real auth AND Firestore are up (the
+      // localhost/127.0.0.1 + file:// fallbacks skip Firestore, so leaderboard writes
+      // are no-ops there) and the player is signed out.
+      hint.style.display = (ranked && firebase.auth && firebase.firestore && !authState.isSignedIn) ? 'block' : 'none';
     }
 
     const lb = document.getElementById('startLeaderboard');
@@ -83,7 +87,7 @@ import { DIFFICULTIES, getDifficultyConfig, readStoredDifficulty, storeDifficult
     // misleading "No times yet" preview and log a permission error on every
     // signed-out start screen. So only read once signed in; signed-out players get
     // the sign-in hint instead.
-    if (!authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function') {
+    if (!ranked || !authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function') {
       lb.style.display = 'none';
       return;
     }
