@@ -90,7 +90,9 @@ async function main() {
   check('module exports init/update/onFinish', !!Course && typeof Course.update === 'function' && typeof Course.onFinish === 'function');
 
   const terrain = (x, z) => 40 * Math.exp(-Math.sqrt(x * x + z * z) / 40) + (z < -30 ? (z + 30) * 0.12 : 0);
-  Course.init({ scene: new RealTHREE.Scene(), getTerrainHeight: terrain, createSnowman: fakeCreateSnowman });
+  // Inject a difficulty getter so the result screen stamps the run's tier (PR: tiers stage 2).
+  Course.init({ scene: new RealTHREE.Scene(), getTerrainHeight: terrain, createSnowman: fakeCreateSnowman,
+    getDifficulty: () => 'black' });
   check('init builds gates + HUD', true);
 
   // Simulate a clean run reaching every split.
@@ -112,6 +114,9 @@ async function main() {
   // First finish: should be a "first descent" (no previous best) and persist a ghost.
   const panel1 = Course.onFinish(t, Infinity);
   check('onFinish returns a result panel node', !!panel1 && panel1.id === 'courseResult');
+  const tierStamp = panel1.querySelector('#resultDifficulty');
+  check('result panel stamps the run difficulty tier (◆ Black)',
+    !!tierStamp && /◆ Black/.test(tierStamp.textContent || ''));
   check('ghost trajectory persisted to localStorage', !!global.localStorage.getItem('snowgliderGhost'));
   check('best splits persisted to localStorage', !!global.localStorage.getItem('snowgliderBestSplits'));
   const panelText1 = panel1.textContent || '';

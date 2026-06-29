@@ -171,3 +171,33 @@ export function isDifficulty(value: unknown): value is Difficulty {
 export function getDifficultyConfig(id: unknown): DifficultyConfig {
   return isDifficulty(id) ? BY_ID[id] : BY_ID[DEFAULT_DIFFICULTY];
 }
+
+/** Resolve the Storage to read/write the tier from: the passed one, else the
+ *  ambient localStorage when present (browser), else null (Node / no DOM). */
+function resolveStorage(storage?: Storage | null): Storage | null {
+  if (storage !== undefined) return storage;
+  return typeof localStorage !== 'undefined' ? localStorage : null;
+}
+
+/** Read the player's last-chosen tier from storage, validated. Falls back to the
+ *  default tier on junk, an absent key, or unavailable storage — never throws. */
+export function readStoredDifficulty(storage?: Storage | null): Difficulty {
+  try {
+    const s = resolveStorage(storage);
+    const raw = s ? s.getItem(DIFFICULTY_STORAGE_KEY) : null;
+    return isDifficulty(raw) ? raw : DEFAULT_DIFFICULTY;
+  } catch {
+    return DEFAULT_DIFFICULTY;
+  }
+}
+
+/** Persist the player's chosen tier. No-op (never throws) when storage is
+ *  unavailable (private mode / Node). */
+export function storeDifficulty(id: Difficulty, storage?: Storage | null): void {
+  try {
+    const s = resolveStorage(storage);
+    if (s) s.setItem(DIFFICULTY_STORAGE_KEY, id);
+  } catch {
+    /* storage unavailable; the choice simply won't persist */
+  }
+}

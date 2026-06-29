@@ -105,6 +105,28 @@ function maxTrajDiff(a, b) {
   check('getDifficultyConfig falls back to the default tier on junk',
     D.getDifficultyConfig('nope').id === 'blue' && D.getDifficultyConfig(undefined).id === 'blue');
 
+  // Persistence helpers operate on an injected Storage (so they're testable headlessly).
+  const fakeStorage = () => {
+    const m = new Map();
+    return {
+      getItem: (k) => (m.has(k) ? m.get(k) : null),
+      setItem: (k, v) => { m.set(k, String(v)); },
+      removeItem: (k) => { m.delete(k); },
+    };
+  };
+  const store = fakeStorage();
+  check('readStoredDifficulty defaults to blue on an empty store',
+    D.readStoredDifficulty(store) === 'blue');
+  D.storeDifficulty('black', store);
+  check('storeDifficulty round-trips through readStoredDifficulty',
+    D.readStoredDifficulty(store) === 'black'
+    && store.getItem(D.DIFFICULTY_STORAGE_KEY) === 'black');
+  store.setItem(D.DIFFICULTY_STORAGE_KEY, 'expert');
+  check('readStoredDifficulty falls back to blue on a junk stored value',
+    D.readStoredDifficulty(store) === 'blue');
+  check('read/store are no-throw when storage is null (Node / private mode)',
+    D.readStoredDifficulty(null) === 'blue' && (D.storeDifficulty('black', null), true));
+
   const blue = D.getDifficultyConfig('blue');
   check('Blue is authoritative-current: blue.ski === BLUE_PHYSICS_TUNING',
     blue.ski === D.BLUE_PHYSICS_TUNING);

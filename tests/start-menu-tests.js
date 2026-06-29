@@ -21,6 +21,7 @@ const dom = new JSDOM(`<!doctype html><html><head>
   <meta name="build-id" content="2026-06-18 12:00">
 </head><body>
   <div id="startGameContainer">
+    <div id="difficultyPicker" role="radiogroup" aria-label="Difficulty tier"></div>
     <div id="startMenu">
       <button id="startGameButton">Start Game</button>
       <button id="aboutGameButton">About</button>
@@ -45,6 +46,9 @@ g.document = window.document;
 // resolve to globalThis; expose jsdom's DOM constructors there.
 g.HTMLMetaElement = window.HTMLMetaElement;
 g.HTMLButtonElement = window.HTMLButtonElement;
+// The difficulty picker reads/writes the remembered tier via the bare `localStorage`
+// global; expose jsdom's so persistence works under the test.
+g.localStorage = window.localStorage;
 
 let pass = 0;
 let fail = 0;
@@ -88,6 +92,36 @@ async function main() {
     document.getElementById('buildBadge').textContent === 'build 2026-06-18 12:00');
   check('addBuildBadge no longer injects a pill into the start button',
     !/build-badge/.test(btn.innerHTML));
+
+  console.log('\n--- difficulty picker (●Bunny / ■Blue / ◆Black) ---');
+  const picker = document.getElementById('difficultyPicker');
+  const options = picker.querySelectorAll('.difficulty-option');
+  check('picker builds one option per tier (3)', options.length === 3);
+  check('exposes getSelectedDifficulty', typeof SM.getSelectedDifficulty === 'function');
+  check('default selection is blue (the classic game)',
+    SM.getSelectedDifficulty() === 'blue');
+  const blueOpt = picker.querySelector('[data-difficulty="blue"]');
+  check('default blue option is marked selected + aria-checked',
+    blueOpt.classList.contains('selected') && blueOpt.getAttribute('aria-checked') === 'true');
+  check('options render the config labels (◆ Black present)',
+    /◆ Black/.test(picker.textContent));
+
+  const blackOpt = picker.querySelector('[data-difficulty="black"]');
+  blackOpt.dispatchEvent(new window.Event('click'));
+  check('clicking Black updates the live selection', SM.getSelectedDifficulty() === 'black');
+  check('clicking Black persists to localStorage',
+    window.localStorage.getItem('snowgliderDifficulty') === 'black');
+  check('clicking Black moves the selected highlight (blue deselected)',
+    blackOpt.classList.contains('selected') && !blueOpt.classList.contains('selected'));
+
+  // Rebuilding the picker pre-selects the remembered tier.
+  SM.buildDifficultyPicker();
+  check('rebuilt picker pre-selects the remembered tier (black)',
+    SM.getSelectedDifficulty() === 'black'
+    && document.querySelector('[data-difficulty="black"]').classList.contains('selected'));
+  // Reset to blue so the rest of the suite runs from the default.
+  window.localStorage.setItem('snowgliderDifficulty', 'blue');
+  SM.buildDifficultyPicker();
 
   console.log('\n--- deferred start before game scripts load (080bb29) ---');
   delete window.initializeGameWithAudio; // game scripts not ready yet

@@ -8,9 +8,14 @@
 // under the current non-strict config. The `../audio.js` import specifier is
 // unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
+import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } from '../difficulty.js';
 
 (function () {
   let startGamePending = false;
+  // The player's chosen difficulty tier, remembered across sessions in
+  // localStorage. The picker writes it; the game reads the persisted value at run
+  // start (src/snowglider.ts) so changing the pick then starting takes effect.
+  let selectedDifficulty: Difficulty = readStoredDifficulty();
   // Monotonic token for refreshStartAccountUI: bumped on every call so a slow
   // in-flight leaderboard read can detect that a newer refresh superseded it
   // (e.g. the player logged out mid-read) and discard its now-stale result.
@@ -195,6 +200,63 @@ import { AudioModule } from '../audio.js';
     }
   }
 
+  // Reflect `selectedDifficulty` onto the picker buttons (highlight + ARIA state).
+  function applyDifficultySelection() {
+    const picker = document.getElementById('difficultyPicker');
+    if (!picker) return;
+    picker.querySelectorAll('.difficulty-option').forEach((el) => {
+      const isSel = el.getAttribute('data-difficulty') === selectedDifficulty;
+      el.classList.toggle('selected', isSel);
+      el.setAttribute('aria-checked', isSel ? 'true' : 'false');
+      el.setAttribute('tabindex', isSel ? '0' : '-1');
+    });
+  }
+
+  // Build the difficulty picker from the difficulty config (single source of truth
+  // for the labels/blurbs), pre-selecting the remembered tier. Idempotent so a
+  // re-init (or the test harness) can rebuild cleanly.
+  function buildDifficultyPicker() {
+    const picker = document.getElementById('difficultyPicker');
+    if (!picker) return;
+    picker.innerHTML = '';
+    selectedDifficulty = readStoredDifficulty();
+
+    const heading = document.createElement('div');
+    heading.className = 'difficulty-heading';
+    heading.textContent = 'Difficulty';
+    picker.appendChild(heading);
+
+    DIFFICULTIES.forEach((cfg) => {
+      const opt = document.createElement('button');
+      opt.type = 'button';
+      opt.className = 'difficulty-option';
+      opt.setAttribute('role', 'radio');
+      opt.setAttribute('data-difficulty', cfg.id);
+
+      const name = document.createElement('span');
+      name.className = 'difficulty-name';
+      name.textContent = cfg.label;
+      const blurb = document.createElement('span');
+      blurb.className = 'difficulty-blurb';
+      blurb.textContent = cfg.blurb;
+      opt.appendChild(name);
+      opt.appendChild(blurb);
+
+      opt.addEventListener('click', function () {
+        selectedDifficulty = cfg.id;
+        storeDifficulty(cfg.id);
+        applyDifficultySelection();
+      });
+      picker.appendChild(opt);
+    });
+
+    applyDifficultySelection();
+  }
+
+  function getSelectedDifficulty(): Difficulty {
+    return selectedDifficulty;
+  }
+
   function showAbout() {
     const aboutPanel = document.getElementById('aboutGamePanel');
     const controlsGuide = document.getElementById('controlsGuide');
@@ -221,6 +283,7 @@ import { AudioModule } from '../audio.js';
 
   function initializeStartMenu() {
     addBuildBadge();
+    buildDifficultyPicker();
     // Surface the account/sign-in control above the start overlay while it's up.
     document.body.classList.add('start-screen-active');
     if ((window as any).SnowGliderGameScriptsReady) {
@@ -303,6 +366,8 @@ import { AudioModule } from '../audio.js';
     hideAbout,
     initializeStartMenu,
     startPendingGameIfReady,
-    refreshStartAccountUI
+    refreshStartAccountUI,
+    buildDifficultyPicker,
+    getSelectedDifficulty
   };
 })();

@@ -39,6 +39,7 @@ import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
 import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
+import { readStoredDifficulty } from './difficulty.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
@@ -343,6 +344,11 @@ window.initializeGameWithAudio = function() {
   // button's user-gesture context, which is what mobile autoplay policy requires to
   // create/resume the Web Audio context. No-op under automation / without Web Audio.
   Sfx.unlock();
+
+  // Lock in the tier chosen on the start screen for this run (the picker persists it
+  // to localStorage; re-read here so the latest pick applies). Cosmetic for now — it
+  // stamps the result screen — until later PRs wire per-tier tuning + leaderboards.
+  state.difficulty = readStoredDifficulty();
 
   // Reset the snowman to starting position
   resetSnowman();
