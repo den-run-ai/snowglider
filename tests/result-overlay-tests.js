@@ -27,7 +27,7 @@ function check(name, condition) {
 let local;
 
 // Reset the overlay DOM for one showGameOver scenario; returns the injected deps.
-function makeDeps(/** @type {{ bestTime?: number, startTime?: number, onCrash?: (r: string) => void, getDifficulty?: () => string }} */ { bestTime = Infinity, startTime, onCrash, getDifficulty } = {}) {
+function makeDeps(/** @type {{ bestTime?: number, startTime?: number, onCrash?: (r: string) => void, getDifficulty?: () => ('bunny'|'blue'|'black') }} */ { bestTime = Infinity, startTime, onCrash, getDifficulty } = {}) {
   document.body.innerHTML = `
     <div id="gameStatsContainer"><button id="toggleStats">▲</button></div>
     <div id="leaderboard" style="display:none"></div>
