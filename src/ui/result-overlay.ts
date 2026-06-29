@@ -26,6 +26,16 @@ export function isValidScoreTime(time: number): boolean {
     time <= MAX_VALID_SCORE_TIME;
 }
 
+// Tier-aware plausibility: a finish/best is valid for a tier if it clears that tier's
+// own floor (Blue == 18 s == the global floor, so Blue is unchanged). This matters now
+// that Black plays faster and can legitimately finish below Blue's 18 s floor — using
+// the global floor there would drop a valid fast Black run's local best/ghost/panel.
+export function isPlausibleForTier(time: number, tier: Difficulty = DEFAULT_DIFFICULTY): boolean {
+  return typeof time === 'number' && Number.isFinite(time)
+    && time >= getDifficultyConfig(tier).minScoreTime
+    && time <= MAX_VALID_SCORE_TIME;
+}
+
 export function readStoredBestTime(tier: Difficulty = DEFAULT_DIFFICULTY): number {
   const key = localBestTimeKey(tier);
   const storedBestTime = localStorage.getItem(key);
@@ -34,7 +44,7 @@ export function readStoredBestTime(tier: Difficulty = DEFAULT_DIFFICULTY): numbe
   }
 
   const parsedBestTime = parseFloat(storedBestTime);
-  if (isValidScoreTime(parsedBestTime)) {
+  if (isPlausibleForTier(parsedBestTime, tier)) {
     return parsedBestTime;
   }
 
@@ -139,7 +149,10 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // would be saved as a new record while the course screen sees elapsed >= previousBest,
     // skips persisting the new ghost/splits, and shows a time that disagrees with the score.
     const finishTime = (performance.now() - state.startTime) / 1000;
-    const hasValidFinishTime = isValidScoreTime(finishTime);
+    // Validate against the RUN's tier floor, not the global Blue floor — otherwise a
+    // legitimately fast Black finish (below Blue's 18 s) would be treated as invalid and
+    // lose its local best/ghost/result panel. Blue's floor == the global floor, unchanged.
+    const hasValidFinishTime = isPlausibleForTier(finishTime, tier);
 
     // Remove game-active class from body for styling
     document.body.classList.remove('game-active');

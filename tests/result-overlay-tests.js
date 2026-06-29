@@ -108,7 +108,8 @@ async function main() {
     local.clear();
     recorded = null;
     window.AuthModule.getCurrentUser = () => null;
-    const deps = makeDeps({ bestTime: Infinity, getDifficulty: () => 'bunny' });
+    // ~30s finish — a realistic, plausible Bunny time (Bunny plays slower; its floor is 28s).
+    const deps = makeDeps({ bestTime: Infinity, startTime: performance.now() - 30000, getDifficulty: () => 'bunny' });
     createShowGameOver(deps)(FINISH);
     check('unranked tier does NOT submit a score via AuthModule', recorded === null);
     check('unranked tier still saves the per-tier local best',
@@ -116,6 +117,19 @@ async function main() {
       && local.getItem('snowgliderBestTime') === null);
     check('unranked tier omits the sign-in-to-save login prompt',
       !document.getElementById('loginPrompt'));
+  }
+
+  // --- Fast Black finish below Blue's 18s floor is valid for its own (13s) tier floor ---
+  {
+    local.clear();
+    recorded = null;
+    window.AuthModule.getCurrentUser = () => null;
+    // ~15s finish: under Blue's 18s floor, but above Black's 13s floor.
+    const deps = makeDeps({ bestTime: Infinity, startTime: performance.now() - 15000, getDifficulty: () => 'black' });
+    createShowGameOver(deps)(FINISH);
+    check('fast Black finish (15s < Blue floor) is treated as a valid finish, saves its local best',
+      typeof local.getItem('snowgliderBestTime_black') === 'string'
+      && /New Best Time/.test(deps.bestTimeDisplay.textContent));
   }
 
   // --- Finish + valid time, NOT a new best, signed in -> leaderboard insertion ---

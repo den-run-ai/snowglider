@@ -299,16 +299,17 @@ async function main() {
       { ...profile(), bestTimeExpert: 20 }, { merge: true }));
   });
 
+  // Bunny/Black are UNRANKED for now: reads allowed, but ALL client writes denied
+  // (the unranked guarantee is enforced server-side, not just in the finish overlay).
   for (const coll of ['leaderboard_bunny', 'leaderboard_black']) {
-    await runTest(`${coll}: owner writes a valid entry; sub-floor + downgrade rejected`, async () => {
+    await runTest(`${coll} (unranked): every client write is denied, even a valid owner entry`, async () => {
       const alice = dbFor('alice');
       await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
-      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 17.99)));
-      await assertSucceeds(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 20)));
-      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 25)));
+      // A write that WOULD be valid on the ranked Blue board is still denied here.
+      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 20)));
     });
 
-    await runTest(`${coll}: signed-in can query, anonymous cannot read/write`, async () => {
+    await runTest(`${coll} (unranked): signed-in can read, anonymous cannot`, async () => {
       const alice = dbFor('alice');
       await seed(async admin => {
         await setDoc(doc(admin, 'users', 'alice'), profile());
@@ -319,17 +320,6 @@ async function main() {
       const anon = anonDb();
       await assertFails(getDocs(query(
         collection(anon, coll), where('time', '>=', 18), orderBy('time', 'asc'), limit(10))));
-      await assertFails(setDoc(doc(anon, coll, 'alice'), leaderboardEntry(anon, 'alice', 20)));
-    });
-
-    await runTest(`${coll}: write requires the matching user doc + reference`, async () => {
-      const alice = dbFor('alice');
-      await seed(async admin => {
-        await setDoc(doc(admin, 'users', 'alice'), profile());
-        await setDoc(doc(admin, 'users', 'bob'), profile('Bob'));
-      });
-      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'bob', 20)));
-      await assertFails(setDoc(doc(alice, coll, 'bob'), leaderboardEntry(alice, 'bob', 20)));
     });
   }
 

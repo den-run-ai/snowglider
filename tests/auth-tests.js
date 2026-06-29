@@ -374,6 +374,8 @@ async function main() {
   // Write through the injected global store auth.ts reads (jsdom's window.localStorage
   // is read-only, so the harness's window.localStorage = global alias did not take).
   localStorage.setItem('snowgliderBestTime', '19.5');
+  // An unranked tier's local best must NOT be published to the global board on sign-in.
+  localStorage.setItem('snowgliderBestTime_bunny', '40');
   fb.setNextPopupResult(null);
   fb.emitAuthState({ uid: 'sync1', email: 's@g.ai', displayName: 'Sync', photoURL: null });
   // syncUserData is scheduled 100ms after sign-in; wait past it with margin, then let
@@ -386,6 +388,8 @@ async function main() {
     !!fb.read('users', 'sync1') && fb.read('users', 'sync1').displayName === 'Sync');
   check('syncUserData backfills a valid local best to the leaderboard',
     !!fb.read('leaderboard', 'sync1') && fb.read('leaderboard', 'sync1').time === 19.5);
+  check('syncUserData does NOT backfill an unranked tier best to the global board',
+    !fb.read('leaderboard_bunny', 'sync1') && !fb.read('users', 'sync1').bestTimeBunny);
 
   // getUserIdToken delegates to the signed-in user's getIdToken (with forceRefresh).
   fb.emitAuthState({ uid: 'tok1', email: 't@g.ai', displayName: 'Tok', photoURL: null,

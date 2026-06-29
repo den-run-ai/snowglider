@@ -152,29 +152,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Per-tier sibling boards (Bunny / Black). Same shape and validation as the Blue
-    // board above — the leaderboard doc still references users/{uid} as its foreign key,
-    // which is tier-independent, so validLeaderboardDoc/Update are reused unchanged.
+    // Per-tier sibling boards (Bunny / Black). These tiers are currently UNRANKED
+    // (difficulty.ts `ranked: false`): reads are allowed (the boards are simply empty),
+    // but NO client may write — the unranked guarantee must hold server-side, not just in
+    // the finish overlay. The D3 flip-to-ranked PR (after each floor is measured + a
+    // winnability gate passes) restores the validated create/update rules the Blue board
+    // uses (validLeaderboardDoc / validLeaderboardUpdate, kept above for reuse then).
     match /leaderboard_bunny/{userId} {
       allow get, list: if isSignedIn();
-      allow create: if isOwner(userId)
-        && exists(userDocPath(userId))
-        && validLeaderboardDoc(userId, request.resource.data);
-      allow update: if isOwner(userId)
-        && exists(userDocPath(userId))
-        && validLeaderboardUpdate(userId);
-      allow delete: if false;
+      allow write: if false;
     }
 
     match /leaderboard_black/{userId} {
       allow get, list: if isSignedIn();
-      allow create: if isOwner(userId)
-        && exists(userDocPath(userId))
-        && validLeaderboardDoc(userId, request.resource.data);
-      allow update: if isOwner(userId)
-        && exists(userDocPath(userId))
-        && validLeaderboardUpdate(userId);
-      allow delete: if false;
+      allow write: if false;
     }
 
     match /{document=**} {
