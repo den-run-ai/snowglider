@@ -605,23 +605,24 @@ function setupAuthButtons() {
     profileChip.addEventListener('touchend', toggleGuestUpgrade, { passive: false });
   }
 
-  // Logout button
+  // Logout button. Bind click + touchend, mirroring bindAuthButton. The OLD code
+  // bound a touchstart handler that ONLY called preventDefault() (no logout) plus a
+  // click handler — so on mobile the tap's touchstart preventDefault suppressed the
+  // synthesized click and logout never ran (the button was dead on touch). touchend
+  // is the tap-complete gesture; its preventDefault() stops the duplicate click, and
+  // the `disabled` guard means the click/touchend pair can't sign out twice.
   const logoutBtn = document.getElementById('logoutBtn') as HTMLButtonElement;
   if (logoutBtn) {
-    // Prevent default touch behavior if needed
-    logoutBtn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-    }, { passive: false });
-
-    logoutBtn.addEventListener('click', (e) => {
-      e.preventDefault();
+    const onLogout = (e: Event) => {
+      if (e) e.preventDefault();
 
       // Check if auth is available before attempting logout
       if (!auth) {
-          console.error("Auth service not available. Cannot sign out.");
-          // UI should already reflect signed-out state if auth failed init
-          return;
+        console.error("Auth service not available. Cannot sign out.");
+        // UI should already reflect signed-out state if auth failed init
+        return;
       }
+      if (logoutBtn.disabled) return; // a sign-out is already in flight
 
       // Update button state during sign-out
       logoutBtn.textContent = 'Signing Out...';
@@ -631,7 +632,7 @@ function setupAuthButtons() {
       firebaseSignOut(auth)
         .then(() => {
             // Success is primarily handled by onAuthStateChanged listener
-            console.log("Successfully signed out via button click.");
+            console.log("Successfully signed out via button.");
         })
         .catch(error => {
             console.error("Logout error:", error);
@@ -643,7 +644,10 @@ function setupAuthButtons() {
           logoutBtn.disabled = false;
           logoutBtn.textContent = 'Logout';
         });
-    });
+    };
+
+    logoutBtn.addEventListener('click', onLogout);
+    logoutBtn.addEventListener('touchend', onLogout, { passive: false });
   }
 }
 

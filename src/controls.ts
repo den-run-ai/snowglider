@@ -243,9 +243,35 @@ function setupTouchControls(signal?: AbortSignal) {
       target.closest('#controlsGuide, #controlsContent'));
   };
 
+  // Touches that land on an interactive control (any button/link/form field, or an
+  // element explicitly marked interactive) must NOT be treated as gameplay steering.
+  // The handlers below preventDefault() every steering touch, and on mobile a
+  // preventDefault() on touchstart/touchmove/touchend suppresses the browser's
+  // synthesized click — which silently kills every click-bound UI button drawn over
+  // the canvas (Start/About/Close, the finish-screen share controls, the account
+  // chip/logout, …). Historically each such button was rescued one at a time (the
+  // restart-button defuse in #173, the auth touchend, the audio-button touchstart,
+  // the share defuseTouch); keying off the element role fixes the whole class at the
+  // source and covers buttons added later. Steering touches land on the canvas /
+  // background, which matches none of these. Buttons that run their OWN touch handler
+  // (audio/reset/camera/restart) keep working unchanged — they call their own
+  // preventDefault, so bailing here only drops the now-redundant document-level
+  // suppression and never double-fires.
+  const isInteractiveUiTouch = (event: TouchEvent): boolean => {
+    const target = event.target as Element | null;
+    return !!(target && typeof target.closest === 'function' &&
+      target.closest('button, a, input, select, textarea, label, [role="button"]'));
+  };
+
+  // A touch the gameplay layer must leave entirely alone: a scroll inside a guide
+  // panel or a tap on an interactive control. Both skip preventDefault() and steering
+  // so the browser delivers the native scroll / click.
+  const isNonGameplayTouch = (event: TouchEvent): boolean =>
+    isScrollableUiTouch(event) || isInteractiveUiTouch(event);
+
   // Handle touch start
   const handleTouchStart = (event: TouchEvent) => {
-    if (isScrollableUiTouch(event)) return; // let the controls guide scroll natively
+    if (isNonGameplayTouch(event)) return; // let UI controls + scrollable guides own their touch
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();
@@ -265,7 +291,7 @@ function setupTouchControls(signal?: AbortSignal) {
 
   // Handle touch move
   const handleTouchMove = (event: TouchEvent) => {
-    if (isScrollableUiTouch(event)) return; // let the controls guide scroll natively
+    if (isNonGameplayTouch(event)) return; // let UI controls + scrollable guides own their touch
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();
@@ -285,7 +311,7 @@ function setupTouchControls(signal?: AbortSignal) {
 
   // Handle touch end
   const handleTouchEnd = (event: TouchEvent) => {
-    if (isScrollableUiTouch(event)) return; // matches the start/move early-out above
+    if (isNonGameplayTouch(event)) return; // matches the start/move early-out above
     // Skip preventDefault during tests to avoid interfering with test automation
     if (!window.location.search.includes('test=')) {
       event.preventDefault();

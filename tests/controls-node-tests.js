@@ -146,6 +146,38 @@ async function main() {
   check('a drag inside #controlsContent is never read as ski steering', controls.left === false);
   document.body.removeChild(guide);
 
+  console.log('\n--- interactive UI controls: touch passthrough (mobile) ---');
+  // A tap on any interactive control (button/link/form field) drawn over the canvas
+  // must be left to the browser: NOT preventDefaulted, so the synthesized click still
+  // fires on mobile (else every click-bound UI button — Start/About/Close, the share
+  // controls, the account chip — is silently dead), and NOT read as ski steering even
+  // when the tap lands in a control region. Regression guard for the systemic fix that
+  // retired the per-button workarounds.
+  const uiBtn = document.createElement('button');
+  uiBtn.id = 'aboutGameButton';
+  uiBtn.textContent = 'About Game';
+  document.body.appendChild(uiBtn);
+  controls.left = false;
+  // Left-region coordinates, but the gesture starts on the button.
+  const btnPoint = [{ identifier: 9, clientX: W / 6, clientY: H / 2 }];
+  for (const type of ['touchstart', 'touchmove', 'touchend']) {
+    const evt = /** @type {any} */ (new window.Event(type, { bubbles: true, cancelable: true }));
+    evt.changedTouches = btnPoint;
+    uiBtn.dispatchEvent(evt);
+    check(`${type} on a button is NOT preventDefaulted (synthesized click survives)`,
+      evt.defaultPrevented === false);
+  }
+  check('a tap on a button is never read as ski steering', controls.left === false);
+  // A nested element inside a button (e.g. an icon span) is still treated as the button.
+  const icon = document.createElement('span');
+  uiBtn.appendChild(icon);
+  const nestedEvt = /** @type {any} */ (new window.Event('touchstart', { bubbles: true, cancelable: true }));
+  nestedEvt.changedTouches = [{ identifier: 10, clientX: W / 6, clientY: H / 2 }];
+  icon.dispatchEvent(nestedEvt);
+  check('a touch on an element nested in a button is NOT preventDefaulted',
+    nestedEvt.defaultPrevented === false);
+  document.body.removeChild(uiBtn);
+
   console.log('\n--- visual touch controls (mobile) ---');
   check('mobile setup creates the 5 visual touch-control overlays',
     document.querySelectorAll('.touch-control').length === 5);

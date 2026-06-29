@@ -66,6 +66,26 @@ test.describe('mobile touch', () => {
   });
 });
 
+// Regression for the start-menu "About Game" / "Close" buttons on mobile. These are
+// plain click-bound <button>s shown while controls.ts's document-level touch handlers
+// are already live (setupControls runs at module load, before any run), so before the
+// systemic fix their synthesized click was suppressed and the buttons were dead. A
+// real page.tap() routes through the genuine WebKit touch->click pipeline.
+test.describe('mobile start-menu buttons', () => {
+  test('About Game / Close open and dismiss the About panel via tap', async ({ page }) => {
+    await gotoGame(page);
+    // Still on the start screen (do NOT start the game): the About controls live here.
+    const aboutPanel = page.locator('#aboutGamePanel');
+    await expect(aboutPanel).toBeHidden();
+
+    await page.locator('#aboutGameButton').tap();
+    await expect(aboutPanel).toBeVisible();
+
+    await page.locator('#closeAboutButton').tap();
+    await expect(aboutPanel).toBeHidden();
+  });
+});
+
 // Regression for the dead finish-screen share buttons on mobile. controls.ts
 // attaches document-level touchstart/touchmove/touchend handlers that
 // preventDefault() every touch outside the scrollable guides; on a touch engine a
