@@ -40,18 +40,15 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
+// Plausibility floor + upper cap: single source of truth (see score-limits.ts). The
+// floor was measured empirically (issue #229, PR A); firestore.rules duplicates the same
+// literals because rules can't import JS, and a drift test keeps them in lockstep.
+import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from './score-limits.js';
 
 // Module state
 let firestore: Firestore | null = null; // Local cache of firestore instance, updated by initializeScores
 let analytics: Analytics | null = null;
 let currentUser: User | null = null;
-
-// The timed course runs from z=-15 to z=-195 (180 world metres). Four seconds is
-// deliberately loose: it rejects timer/startup artifacts like 0.01s while allowing
-// any physically plausible descent the current game can produce. Ten minutes is
-// a generous upper bound for completed runs and matches the Firestore rules cap.
-const MIN_VALID_SCORE_TIME = 4;
-const MAX_VALID_SCORE_TIME = 600;
 
 function isValidScoreTime(time: number) {
   return typeof time === 'number' &&

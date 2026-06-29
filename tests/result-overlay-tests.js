@@ -38,7 +38,7 @@ function makeDeps(/** @type {{ bestTime?: number, startTime?: number, onCrash?: 
     </div>`;
   document.body.classList.add('game-active');
   return {
-    state: { gameActive: true, bestTime, startTime: startTime ?? (performance.now() - 10000) },
+    state: { gameActive: true, bestTime, startTime: startTime ?? (performance.now() - 20000) },
     gameOverOverlay: document.getElementById('gameOverOverlay'),
     gameOverDetail: document.getElementById('gameOverDetail'),
     restartButton: document.getElementById('restartButton'),
@@ -60,17 +60,17 @@ async function main() {
 
   // --- isValidScoreTime: fallback computation + delegation to ScoresModule ---
   delete window.ScoresModule;
-  check('isValidScoreTime fallback accepts a sane time', isValidScoreTime(10) === true);
-  check('isValidScoreTime fallback rejects a tiny time', isValidScoreTime(1) === false);
+  check('isValidScoreTime fallback accepts a sane time', isValidScoreTime(20) === true);
+  check('isValidScoreTime fallback rejects a sub-floor time', isValidScoreTime(1) === false);
   window.ScoresModule = { isValidScoreTime: (t) => t === 42 };
-  check('isValidScoreTime delegates to ScoresModule', isValidScoreTime(42) === true && isValidScoreTime(10) === false);
+  check('isValidScoreTime delegates to ScoresModule', isValidScoreTime(42) === true && isValidScoreTime(20) === false);
   delete window.ScoresModule;
 
   // --- readStoredBestTime: empty / valid / invalid stored values ---
   local.clear();
   check('readStoredBestTime returns Infinity with no stored time', readStoredBestTime() === Infinity);
-  local.clear(); local.setItem('snowgliderBestTime', '12.5');
-  check('readStoredBestTime parses a valid stored time', readStoredBestTime() === 12.5);
+  local.clear(); local.setItem('snowgliderBestTime', '22.5');
+  check('readStoredBestTime parses a valid stored time', readStoredBestTime() === 22.5);
   local.clear(); local.setItem('snowgliderBestTime', '0.1');
   check('readStoredBestTime drops an invalid stored time', readStoredBestTime() === Infinity && local.getItem('snowgliderBestTime') === null);
 
@@ -106,7 +106,7 @@ async function main() {
   {
     leaderboardShown = 0;
     window.AuthModule.getCurrentUser = () => ({ uid: 'u1' });
-    const deps = makeDeps({ bestTime: 1 }); // existing best (1s) faster than the ~10s finish
+    const deps = makeDeps({ bestTime: 1 }); // existing best (1s) faster than the ~20s finish
     createShowGameOver(deps)(FINISH);
     check('finish that is not a new best shows "Your Time"', /Your Time/.test(deps.bestTimeDisplay.textContent));
     check('signed-in finish inserts + displays the leaderboard',
@@ -125,7 +125,7 @@ async function main() {
   // --- Finish with an INVALID elapsed time -> warn branch, no score ---
   {
     window.AuthModule = { recordScore: () => { throw new Error('should not be called'); }, getCurrentUser: () => null };
-    const deps = makeDeps({ bestTime: 5, startTime: performance.now() - 1000 }); // ~1s < MIN 4
+    const deps = makeDeps({ bestTime: 5, startTime: performance.now() - 1000 }); // ~1s < MIN 18
     createShowGameOver(deps)(FINISH);
     check('invalid finish time shows the existing best, records nothing', /Best Time/.test(deps.bestTimeDisplay.textContent));
   }

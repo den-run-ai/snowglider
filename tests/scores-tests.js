@@ -105,15 +105,17 @@ async function main() {
     !!ScoresModule && ['initializeScores', 'setCurrentUser', 'recordScore',
       'getLeaderboard', 'updateUserBestTime', 'updateLeaderboard',
       'isFirestoreAvailable', 'isValidScoreTime'].every(key => typeof ScoresModule[key] === 'function'));
-  check('score validation rejects impossible and non-finite times',
+  check('score validation rejects impossible, sub-floor and non-finite times',
     ScoresModule.isValidScoreTime(0.01) === false &&
+    ScoresModule.isValidScoreTime(14) === false &&     // below the 18 s plausibility floor (PR C)
+    ScoresModule.isValidScoreTime(17.99) === false &&  // just under the floor
     ScoresModule.isValidScoreTime(600.01) === false &&
     ScoresModule.isValidScoreTime(Infinity) === false &&
-    ScoresModule.isValidScoreTime(/** @type {any} */ ('14')) === false);
-  check('score validation accepts plausible numeric times',
-    ScoresModule.isValidScoreTime(4) === true &&
+    ScoresModule.isValidScoreTime(/** @type {any} */ ('20')) === false);
+  check('score validation accepts plausible numeric times at/above the floor',
+    ScoresModule.isValidScoreTime(18) === true &&
     ScoresModule.isValidScoreTime(600) === true &&
-    ScoresModule.isValidScoreTime(14.67) === true);
+    ScoresModule.isValidScoreTime(25.43) === true);
 
   console.log('\n--- Local score recording ---');
   resetState(ScoresModule);
@@ -153,32 +155,32 @@ async function main() {
   console.log('\n--- Authoritative best reconciliation ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
-  seed('users', 'u2', { bestTime: 14, updatedAt: { old: true } });
-  ScoresModule.updateUserBestTime('u2', 19.43);
+  seed('users', 'u2', { bestTime: 20, updatedAt: { old: true } });
+  ScoresModule.updateUserBestTime('u2', 25.43);
   await flushAll();
   check('slower run does not overwrite a faster Firestore user best',
-    read('users', 'u2')?.bestTime === 14);
+    read('users', 'u2')?.bestTime === 20);
   check('missing leaderboard entry is backfilled with the authoritative best',
-    read('leaderboard', 'u2')?.time === 14);
+    read('leaderboard', 'u2')?.time === 20);
   check('raw slower run never reaches the leaderboard',
-    calls.setDoc.every(call => call.path !== 'leaderboard/u2' || call.data.time !== 19.43));
+    calls.setDoc.every(call => call.path !== 'leaderboard/u2' || call.data.time !== 25.43));
 
   console.log('\n--- Leaderboard compare/write behavior ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
   seed('leaderboard', 'u3', {
     user: doc(firestoreInstance, 'users', 'u3'),
-    time: 17,
+    time: 25,
     achievedAt: { old: true }
   });
-  ScoresModule.updateLeaderboard('u3', 19);
+  ScoresModule.updateLeaderboard('u3', 28);
   await flushAll();
   check('leaderboard update does not downgrade a faster existing entry',
-    read('leaderboard', 'u3')?.time === 17);
-  ScoresModule.updateLeaderboard('u3', 16);
+    read('leaderboard', 'u3')?.time === 25);
+  ScoresModule.updateLeaderboard('u3', 22);
   await flushAll();
   check('leaderboard update accepts a faster time',
-    read('leaderboard', 'u3')?.time === 16);
+    read('leaderboard', 'u3')?.time === 22);
 
   console.log('\n--- Leaderboard fetch filtering ---');
   resetState(ScoresModule);
@@ -187,24 +189,28 @@ async function main() {
     user: doc(firestoreInstance, 'users', 'bad-fast'),
     time: 0.01
   });
+  seed('leaderboard', 'sub-floor', {              // forged sub-18s entry: must be filtered (PR C)
+    user: doc(firestoreInstance, 'users', 'sub-floor'),
+    time: 14
+  });
   seed('leaderboard', 'missing-user', {
-    time: 8
+    time: 24
   });
   seed('leaderboard', 'fast', {
     user: doc(firestoreInstance, 'users', 'fast'),
-    time: 14.67
+    time: 24.67
   });
   seed('leaderboard', 'slow', {
     user: doc(firestoreInstance, 'users', 'slow'),
     time: 58.64
   });
   const leaderboard = await ScoresModule.getLeaderboard();
-  check('getLeaderboard returns only valid entries with user refs',
+  check('getLeaderboard returns only valid (>= floor) entries with user refs',
     leaderboard.length === 2 &&
     leaderboard[0].userId === 'fast' &&
     leaderboard[1].userId === 'slow');
   check('getLeaderboard orders valid entries by ascending time',
-    leaderboard[0].time === 14.67 && leaderboard[1].time === 58.64);
+    leaderboard[0].time === 24.67 && leaderboard[1].time === 58.64);
 
   console.log('\n--- Offline write ordering ---');
   resetState(ScoresModule);
@@ -226,12 +232,12 @@ async function main() {
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
   currentAuthUser = { uid: 'hs', displayName: 'HS' };
   ScoresModule.setCurrentUser(currentAuthUser);
-  ScoresModule.recordScore(15); // first finish, no stored best => a new personal best
+  ScoresModule.recordScore(19); // first finish, no stored best => a new personal best
   await flushAll();
   check('a new authenticated personal best logs new_high_score',
-    calls.logEvent.some(event => event.name === 'new_high_score' && event.params.time === 15));
+    calls.logEvent.some(event => event.name === 'new_high_score' && event.params.time === 19));
   check('new personal best is also synced to the user doc',
-    read('users', 'hs')?.bestTime === 15);
+    read('users', 'hs')?.bestTime === 19);
 
   console.log('\n--- getActiveUser falls back to AuthModule ---');
   resetState(ScoresModule);
@@ -239,10 +245,10 @@ async function main() {
   // No setCurrentUser() call: recordScore must resolve the signed-in user via the
   // AuthModule.getAuthState()/getCurrentUser() fallback path.
   currentAuthUser = { uid: 'fallback', displayName: 'Fallback' };
-  ScoresModule.recordScore(16);
+  ScoresModule.recordScore(19);
   await flushAll();
   check('getActiveUser pulls the user from AuthModule when none was set',
-    read('users', 'fallback')?.bestTime === 16);
+    read('users', 'fallback')?.bestTime === 19);
 
   console.log('\n--- isFirestoreAvailable reflects AuthModule + local instance ---');
   resetState(ScoresModule);
@@ -268,7 +274,7 @@ async function main() {
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
   currentAuthUser = { uid: 'me', displayName: 'Me' };
   ScoresModule.setCurrentUser(currentAuthUser);
-  seed('leaderboard', 'me', { user: doc(firestoreInstance, 'users', 'me'), time: 12.34 });
+  seed('leaderboard', 'me', { user: doc(firestoreInstance, 'users', 'me'), time: 19.34 });
   seed('leaderboard', 'other', { user: doc(firestoreInstance, 'users', 'other'), time: 20 });
   ScoresModule.displayLeaderboard();
   await flushAll();
@@ -276,8 +282,8 @@ async function main() {
   check('displayLeaderboard renders the Top 10 Times table',
     lbHtml.includes('Top 10 Times') && lbHtml.includes('<table>'));
   check('displayLeaderboard renders rows ascending with formatted times',
-    lbHtml.includes('12.34s') && lbHtml.includes('20.00s') &&
-    lbHtml.indexOf('12.34s') < lbHtml.indexOf('20.00s'));
+    lbHtml.includes('19.34s') && lbHtml.includes('20.00s') &&
+    lbHtml.indexOf('19.34s') < lbHtml.indexOf('20.00s'));
   check('displayLeaderboard highlights and names the current user row',
     lbHtml.includes('current-user-score') && lbHtml.includes('Me'));
 

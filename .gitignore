@@ -27,3 +27,8 @@ dist/
 
 # Local-only security notes (not for publication)
 SECURITY.md
+
+# Firebase emulator debug logs (produced by `npm run test:firebase`)
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
