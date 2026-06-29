@@ -155,9 +155,11 @@ async function main() {
     aboutPanel.style.display === 'block' &&
     startMenu.style.display === 'none' &&
     keyboardHint.style.display === 'none');
+  check('showAbout also hides the difficulty picker', picker.style.display === 'none');
   SM.hideAbout();
   check('hideAbout restores the menu and hides the about panel',
     aboutPanel.style.display === 'none' && startMenu.style.display === 'flex');
+  check('hideAbout restores the difficulty picker', picker.style.display === 'flex');
 
   console.log('\n--- keyboard: Enter starts when the start screen is visible ---');
   startContainer.style.display = 'flex'; // start screen visible again
@@ -165,6 +167,13 @@ async function main() {
   launches = 0;
   document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
   check('Enter starts the game when the start screen is visible', launches === 1);
+
+  // Enter/Space focused on a difficulty option must NOT start the run (it should
+  // only select the tier) — the global shortcut excludes picker controls.
+  launches = 0;
+  document.querySelector('[data-difficulty="black"]')
+    .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  check('Enter on a focused difficulty option does NOT start the run', launches === 0);
 
   console.log('\n--- keyboard: Escape closes the about panel ---');
   SM.showAbout();

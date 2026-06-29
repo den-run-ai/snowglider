@@ -95,6 +95,10 @@ function maxTrajDiff(a, b) {
   check('three tiers in easy->hard order (bunny, blue, black)',
     ids.length === 3 && ids[0] === 'bunny' && ids[1] === 'blue' && ids[2] === 'black');
   check('default tier is blue (the classic game)', D.DEFAULT_DIFFICULTY === 'blue');
+  // Picker copy must not promise mechanics that aren't wired yet (labels-only stage):
+  // no "avalanche"/"steep"/"dense" until the per-tier tuning PR makes them true.
+  check('blurbs avoid promising unshipped mechanics',
+    D.DIFFICULTIES.every((c) => !/avalanche|steep|dense/i.test(c.blurb)));
   check('storage key is snowgliderDifficulty', D.DIFFICULTY_STORAGE_KEY === 'snowgliderDifficulty');
 
   check('isDifficulty accepts known ids, rejects junk',

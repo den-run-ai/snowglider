@@ -262,11 +262,15 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
+    const picker = document.getElementById('difficultyPicker');
 
     if (aboutPanel) aboutPanel.style.display = 'block';
     if (controlsGuide) controlsGuide.style.display = 'none';
     if (startMenu) startMenu.style.display = 'none';
     if (keyboardHint) keyboardHint.style.display = 'none';
+    // Hide the difficulty picker alongside the rest of the start controls so it
+    // doesn't stay visible/clickable over the About panel.
+    if (picker) picker.style.display = 'none';
   }
 
   function hideAbout() {
@@ -274,11 +278,13 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
+    const picker = document.getElementById('difficultyPicker');
 
     if (aboutPanel) aboutPanel.style.display = 'none';
     if (controlsGuide) controlsGuide.style.display = 'block';
     if (startMenu) startMenu.style.display = 'flex';
     if (keyboardHint) keyboardHint.style.display = 'block';
+    if (picker) picker.style.display = 'flex'; // restore (CSS lays it out as flex)
   }
 
   function initializeStartMenu() {
@@ -330,6 +336,14 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
     document.addEventListener('keydown', function (event) {
       const startContainer = document.getElementById('startGameContainer');
       const aboutPanel = document.getElementById('aboutGamePanel');
+
+      // Don't let Enter/Space start the run when a difficulty option is focused —
+      // the button's native activation should just select the tier. Otherwise a
+      // keyboard user picking Black/Bunny would also trigger the global start.
+      const target = event.target as Element | null;
+      if (target && typeof target.closest === 'function' && target.closest('#difficultyPicker')) {
+        return;
+      }
 
       if (startContainer &&
           startContainer.style.display !== 'none' &&

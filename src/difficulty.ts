@@ -123,7 +123,10 @@ export interface DifficultyConfig {
 const BUNNY: DifficultyConfig = {
   id: 'bunny',
   label: '● Bunny',
-  blurb: 'Gentle green run, no avalanche — learn to ski.',
+  // Picker copy is intentionally tier-identity only (Easy/Medium/Hard) for now: it
+  // must not promise mechanics that aren't wired yet (no avalanche / gentler terrain).
+  // The richer flavour copy lands with the per-tier tuning PR, where it becomes true.
+  blurb: 'Easy — the gentlest way down.',
   seed: 1001,
   ski: BUNNY_PHYSICS_TUNING,
   minScoreTime: 28, // PROVISIONAL — re-measure before ranked
@@ -132,7 +135,7 @@ const BUNNY: DifficultyConfig = {
 const BLUE: DifficultyConfig = {
   id: 'blue',
   label: '■ Blue',
-  blurb: 'The classic SnowGlider run.',
+  blurb: 'Medium — the classic SnowGlider run.',
   seed: 1002,
   ski: BLUE_PHYSICS_TUNING,
   minScoreTime: MIN_VALID_SCORE_TIME, // the measured shipped floor (18 s)
@@ -141,7 +144,7 @@ const BLUE: DifficultyConfig = {
 const BLACK: DifficultyConfig = {
   id: 'black',
   label: '◆ Black',
-  blurb: 'Steep, dense, fast — carve or crash.',
+  blurb: 'Hard — for confident skiers.',
   seed: 1003,
   ski: BLACK_PHYSICS_TUNING,
   minScoreTime: 13, // PROVISIONAL — re-measure before ranked
