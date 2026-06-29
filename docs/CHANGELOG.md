@@ -13,6 +13,33 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fix: systemic mobile dead-button class (Start-menu About/Close, logout, …)
+- **Root cause, finally fixed at the source.** `controls.ts` installs document-level
+  `touchstart`/`touchmove`/`touchend` handlers that `preventDefault()` *every* touch (for
+  ski steering). `preventDefault()` on a touch suppresses the browser's synthesized
+  `click`, so **any click-bound button drawn over the canvas was dead on mobile** unless
+  individually rescued. The tree had accumulated ~6 one-off workarounds for this single
+  cause: the restart-button defuse (#173), the controls-guide scroll exemption, the auth
+  sign-in `touchend`, the audio-button `touchstart`, and two share-control defuses. New
+  buttons (the start-menu **About Game** / **Close**, the account **logout**) kept falling
+  into the same trap.
+- **Systemic fix:** the gameplay touch handlers now bail (no `preventDefault`, no steering)
+  whenever the touch lands on an **interactive control** — `button, a, input, select,
+  textarea, label, [role="button"]` (via `closest()`, so nested icons count) — in addition
+  to the existing scrollable-guide exemption. Steering touches land on the canvas and are
+  unaffected; buttons with their own touch handlers (audio/reset/camera/restart) keep
+  working (they call their own `preventDefault`). This covers every current **and future**
+  click-bound button without per-button wiring.
+- **Logout was a self-inflicted variant:** its only touch handler was a `touchstart` that
+  called `preventDefault()` and nothing else — suppressing the click *and* never signing
+  out. Rebound to `click` + `touchend` (mirroring the sign-in buttons), guarded against
+  double-fire by the in-flight `disabled` check.
+- **Tests:** `tests/controls-node-tests.js` asserts a tap on a button (and on an element
+  nested in one) is never `preventDefault`ed nor read as steering; `tests/auth-tests.js`
+  covers logout via `touchend`; `tests/e2e/mobile.spec.ts` adds a real-tap WebKit check
+  that **About Game / Close** open and dismiss the panel. Verified the e2e fails without
+  the fix.
+
 ### Fix: finish-screen share buttons dead on mobile
 - **Every "Share Result" / per-platform / "Save image" / "Copy link" button on the
   finish result panel did nothing when tapped on a phone.** The buttons are bound to

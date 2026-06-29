@@ -78,9 +78,15 @@ physics. Details and the edge-engagement equations:
 - **Keyboard and touch are one contract.** Both only write the shared `controls`
   state; never branch physics on input source. Add a binding in
   [`controls.ts`](../src/controls.ts), not in the game loop.
-- **Touch buttons need their own `touchstart` handler.** The document-level
-  `touchstart` `preventDefault()` swallows synthesized clicks, so every on-screen
-  button wires its own handler (see the mute-button fix, #173).
+- **Click-bound buttons just work on touch now.** The document-level touch handlers
+  in [`controls.ts`](../src/controls.ts) `preventDefault()` steering touches, which
+  used to swallow the synthesized `click` on any on-screen button (hence the long
+  trail of per-button workarounds: #173, the auth `touchend`, the mute-button
+  `touchstart`, the share defuses). The handlers now **bail on touches that land on an
+  interactive control** (`button, a, input, select, textarea, label, [role="button"]`),
+  so a plain `click` listener is enough — no per-button touch wiring required.
+  Buttons that need to act on `touchstart`/`touchend` for other reasons (audio unlock,
+  popup user-activation) still may, but it's no longer mandatory.
 - **Reduced motion / automation.** Cosmetic layers (intro fly-over, snowman flex)
   are disabled under `reduced-motion` / test / automation so the deterministic path
   is unchanged — see [`ARCHITECTURE.md` §8](ARCHITECTURE.md#8-testing--deployment-seams).

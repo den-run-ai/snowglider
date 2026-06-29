@@ -169,6 +169,27 @@ async function main() {
     authUI.style.display === 'flex' && profileUI.style.display === 'none');
   check('signed-out: getCurrentUser() is null', AuthModule.getCurrentUser() === null);
 
+  console.log('\n--- Sign-out via touch (mobile tap) ---');
+  // The logout button previously bound only a touchstart handler that called
+  // preventDefault() and nothing else — which suppressed the synthesized click AND
+  // never signed out, so logout was dead on mobile. It must now sign out from
+  // 'touchend' (the tap-complete gesture) too, and not double-fire with the click.
+  fb.emitAuthState({ uid: 'u1', email: 'snow@glider.ai', displayName: 'Snow' });
+  await flush();
+  const signOutsBeforeTouch = calls.signOut;
+  const logoutTouch = new window.Event('touchend', { cancelable: true });
+  logoutBtn.dispatchEvent(logoutTouch);
+  check('logout touchend signs out even when the click is suppressed',
+    calls.signOut === signOutsBeforeTouch + 1 && logoutBtn.disabled === true);
+  check('logout touchend is preventDefaulted (suppresses the duplicate click)',
+    logoutTouch.defaultPrevented === true);
+  // A trailing synthetic click (before the async sign-out settles) must not sign out twice.
+  logoutBtn.dispatchEvent(new window.Event('click'));
+  check('trailing click after logout touchend does not sign out twice',
+    calls.signOut === signOutsBeforeTouch + 1);
+  await flush();
+  fb.emitAuthState(null);
+
   console.log('\n--- Sign-in via touch (game-page click-suppression scenario) ---');
   // On the game page, controls.js installs a document-level touchstart
   // preventDefault that suppresses this button's synthetic click — so sign-in must
