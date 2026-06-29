@@ -9,10 +9,10 @@ import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
-
-// Add timer and best time tracking (state.startTime / state.bestTime)
-const MIN_VALID_SCORE_TIME = 4;
-const MAX_VALID_SCORE_TIME = 600;
+// Plausibility floor + cap from the single source (see score-limits.ts) — used as the
+// local fallback when ScoresModule isn't present, so the client finish gate matches the
+// scores module and the Firestore rules (issue #229, PR C).
+import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 
 export function isValidScoreTime(time: number): boolean {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {

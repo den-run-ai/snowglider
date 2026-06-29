@@ -632,13 +632,14 @@ import { Snowman } from '../src/snowman.js';
       gameActive = true;
       bestTimeUpdated = false;
       
-      // Make sure bestTime has a value that can be beaten
-      if (bestTime === Infinity) {
-        bestTime = 10; // Set a beatable best time
-      }
-      
-      // Set time to be better than current best time
-      startTime = performance.now() - (bestTime * 500); // Half the current best time
+      // A beatable best ABOVE the 18s plausibility floor (src/score-limits.ts), so a
+      // faster finish is still a valid score. Forced unconditionally (not just when
+      // Infinity) so a small best left by an earlier test can't push the synthesized
+      // finish below the floor and make the real showGameOver drop it.
+      bestTime = 40;
+
+      // Finish in half the best time (20s): faster than the best AND above the floor.
+      startTime = performance.now() - (bestTime * 500);
       
       // Simulate reaching the end of the slope
       pos.x = 0; // Stay on the ski path

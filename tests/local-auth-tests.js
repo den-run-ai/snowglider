@@ -145,9 +145,9 @@ function main() {
 
   // --- AuthModule.recordScore: localStorage fallback when ScoresModule is absent ---
   delete a.window.ScoresModule;
-  Auth.recordScore(10);
+  Auth.recordScore(25);
   check('AuthModule.recordScore falls back to localStorage without ScoresModule',
-    a.localStorage.getItem('snowgliderBestTime') === '10');
+    a.localStorage.getItem('snowgliderBestTime') === '25');
 
   // --- AuthModule.displayLeaderboard: no ScoresModule, #leaderboard present ---
   Auth.displayLeaderboard();

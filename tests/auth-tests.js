@@ -323,7 +323,7 @@ async function main() {
     authUI.style.display === 'flex' && profileUI.classList.contains('expanded'));
   check('anonymous guest: AuthModule still reports signed-in (for UI/onboarding)',
     AuthModule.isUserSignedIn() === true);
-  AuthModule.recordScore(12.34); // guest finishes a run
+  AuthModule.recordScore(22.34); // guest finishes a run (valid time; only the guest guard should block it)
   await flush();
   check('anonymous guest: recordScore writes NO leaderboard entry for the guest',
     fb.read('leaderboard', 'guest1') === undefined &&
@@ -373,7 +373,7 @@ async function main() {
   // (see scores.ts: "the on-login syncUserData reconciliation re-applies it").
   // Write through the injected global store auth.ts reads (jsdom's window.localStorage
   // is read-only, so the harness's window.localStorage = global alias did not take).
-  localStorage.setItem('snowgliderBestTime', '17.5');
+  localStorage.setItem('snowgliderBestTime', '19.5');
   fb.setNextPopupResult(null);
   fb.emitAuthState({ uid: 'sync1', email: 's@g.ai', displayName: 'Sync', photoURL: null });
   // syncUserData is scheduled 100ms after sign-in; wait past it with margin, then let
@@ -385,7 +385,7 @@ async function main() {
   check('syncUserData writes the user profile doc on sign-in',
     !!fb.read('users', 'sync1') && fb.read('users', 'sync1').displayName === 'Sync');
   check('syncUserData backfills a valid local best to the leaderboard',
-    !!fb.read('leaderboard', 'sync1') && fb.read('leaderboard', 'sync1').time === 17.5);
+    !!fb.read('leaderboard', 'sync1') && fb.read('leaderboard', 'sync1').time === 19.5);
 
   // getUserIdToken delegates to the signed-in user's getIdToken (with forceRefresh).
   fb.emitAuthState({ uid: 'tok1', email: 't@g.ai', displayName: 'Tok', photoURL: null,

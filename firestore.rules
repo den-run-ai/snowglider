@@ -10,8 +10,14 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // Plausibility floor + upper cap. These two literals MUST equal
+    // MIN_VALID_SCORE_TIME / MAX_VALID_SCORE_TIME in src/score-limits.ts — Firestore
+    // rules cannot import JS, so the values are duplicated and kept in lockstep by the
+    // drift test in tests/score-limits-sync-tests.js. The floor (18 s) was measured
+    // empirically (issue #229, PR A): the shipped engine cannot produce a faster run, so
+    // a sub-floor write is forged and the server rejects it even from a patched client.
     function isValidScoreTime(time) {
-      return time is number && time >= 4 && time <= 600;
+      return time is number && time >= 18 && time <= 600;
     }
 
     function userDocPath(userId) {

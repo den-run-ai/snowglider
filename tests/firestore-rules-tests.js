@@ -122,19 +122,23 @@ async function main() {
   await runTest('user best times must be plausible score values', async () => {
     const alice = dbFor('alice');
 
-    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), bestTime(14.67), { merge: true }));
+    // Sub-floor and over-cap writes are rejected first (no doc is created), then a
+    // plausible at-the-floor time is accepted as a fresh create. 17.99 specifically
+    // guards the 18 s plausibility floor (PR C, issue #229).
     await assertFails(setDoc(doc(alice, 'users', 'alice'), bestTime(3.99), { merge: true }));
+    await assertFails(setDoc(doc(alice, 'users', 'alice'), bestTime(17.99), { merge: true }));
     await assertFails(setDoc(doc(alice, 'users', 'alice'), bestTime(601), { merge: true }));
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), bestTime(18), { merge: true }));
   });
 
   await runTest('user best times cannot be downgraded to a slower time', async () => {
     const alice = dbFor('alice');
     await seed(async admin => {
-      await setDoc(doc(admin, 'users', 'alice'), bestTime(14));
+      await setDoc(doc(admin, 'users', 'alice'), bestTime(20)); // a valid (>= floor) existing best
     });
 
-    await assertFails(setDoc(doc(alice, 'users', 'alice'), bestTime(19), { merge: true }));
-    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), bestTime(13.5), { merge: true }));
+    await assertFails(setDoc(doc(alice, 'users', 'alice'), bestTime(25), { merge: true }));     // slower
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), bestTime(19), { merge: true }));  // faster, plausible
   });
 
   await runTest('valid user best times can repair a corrupt stored best', async () => {
@@ -162,7 +166,7 @@ async function main() {
 
     await assertSucceeds(setDoc(
       doc(alice, 'leaderboard', 'alice'),
-      leaderboardEntry(alice, 'alice', 14.67)
+      leaderboardEntry(alice, 'alice', 25.43)
     ));
   });
 
@@ -170,12 +174,12 @@ async function main() {
     const alice = dbFor('alice');
     await seed(async admin => {
       await setDoc(doc(admin, 'users', 'alice'), profile());
-      await setDoc(doc(admin, 'leaderboard', 'alice'), leaderboardEntry(admin, 'alice', 14.67));
+      await setDoc(doc(admin, 'leaderboard', 'alice'), leaderboardEntry(admin, 'alice', 25.43));
     });
 
     await assertSucceeds(getDocs(query(
       collection(alice, 'leaderboard'),
-      where('time', '>=', 4),
+      where('time', '>=', 18),
       orderBy('time', 'asc'),
       limit(10)
     )));
@@ -186,13 +190,13 @@ async function main() {
 
     await assertFails(getDocs(query(
       collection(anon, 'leaderboard'),
-      where('time', '>=', 4),
+      where('time', '>=', 18),
       orderBy('time', 'asc'),
       limit(10)
     )));
     await assertFails(setDoc(
       doc(anon, 'leaderboard', 'alice'),
-      leaderboardEntry(anon, 'alice', 14.67)
+      leaderboardEntry(anon, 'alice', 25.43)
     ));
   });
 
@@ -205,11 +209,11 @@ async function main() {
 
     await assertFails(setDoc(
       doc(alice, 'leaderboard', 'alice'),
-      leaderboardEntry(alice, 'bob', 14.67)
+      leaderboardEntry(alice, 'bob', 25.43)
     ));
     await assertFails(setDoc(
       doc(alice, 'leaderboard', 'bob'),
-      leaderboardEntry(alice, 'bob', 14.67)
+      leaderboardEntry(alice, 'bob', 25.43)
     ));
   });
 
@@ -223,9 +227,23 @@ async function main() {
       doc(alice, 'leaderboard', 'alice'),
       leaderboardEntry(alice, 'alice', 0.01)
     ));
+    // A forged sub-floor time (faster than the engine can produce) is rejected server-side
+    // even from a patched client — the core PR C guard for issue #229.
+    await assertFails(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 14)
+    ));
+    await assertFails(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 17.99)
+    ));
     await assertFails(setDoc(
       doc(alice, 'leaderboard', 'alice'),
       leaderboardEntry(alice, 'alice', 601)
+    ));
+    await assertSucceeds(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 18)
     ));
   });
 
@@ -233,16 +251,16 @@ async function main() {
     const alice = dbFor('alice');
     await seed(async admin => {
       await setDoc(doc(admin, 'users', 'alice'), profile());
-      await setDoc(doc(admin, 'leaderboard', 'alice'), leaderboardEntry(admin, 'alice', 14));
+      await setDoc(doc(admin, 'leaderboard', 'alice'), leaderboardEntry(admin, 'alice', 20)); // valid existing best
     });
 
     await assertFails(setDoc(
       doc(alice, 'leaderboard', 'alice'),
-      leaderboardEntry(alice, 'alice', 19)
+      leaderboardEntry(alice, 'alice', 25)
     ));
     await assertSucceeds(setDoc(
       doc(alice, 'leaderboard', 'alice'),
-      leaderboardEntry(alice, 'alice', 13.5)
+      leaderboardEntry(alice, 'alice', 19)
     ));
   });
 
