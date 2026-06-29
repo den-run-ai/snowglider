@@ -15,6 +15,14 @@
       time <= MAX_VALID_SCORE_TIME;
   }
 
+  // Per-tier best-time localStorage key. Mirrors localBestTimeKey() in src/difficulty.ts
+  // (Blue / no tier == the original un-suffixed key); inlined because this classic
+  // bootstrap script can't import the ES module.
+  /** @param {string=} tier */
+  function localBestTimeKey(tier) {
+    return (!tier || tier === 'blue') ? 'snowgliderBestTime' : 'snowgliderBestTime_' + tier;
+  }
+
   function installScoresModule() {
     window.ScoresModule = {
       initializeScores: function () {
@@ -23,14 +31,15 @@
       setCurrentUser: function () {
         console.log("ScoresModule: setCurrentUser called in local mode");
       },
-      /** @param {number} time */
-      recordScore: function (time) {
+      /** @param {number} time @param {string=} tier */
+      recordScore: function (time, tier) {
         if (!isValidScoreTime(time)) {
           console.warn("Skipping local score record (Invalid time value):", time);
           return;
         }
 
-        const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
+        const key = localBestTimeKey(tier);
+        const localBestTimeStr = localStorage.getItem(key);
         const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
         // Inline (not isValidScoreTime) so the `typeof` check narrows localBestTime
         // from `number | null` to `number` for the `time < localBestTime` use below
@@ -41,13 +50,13 @@
           localBestTime <= MAX_VALID_SCORE_TIME;
         if (localBestTimeStr && !hasValidLocalBest) {
           console.warn("Ignoring invalid local best time:", localBestTimeStr);
-          localStorage.removeItem('snowgliderBestTime');
+          localStorage.removeItem(key);
         }
 
         const isNewPersonalBest = !hasValidLocalBest || time < localBestTime;
 
         if (isNewPersonalBest) {
-          localStorage.setItem('snowgliderBestTime', time.toString());
+          localStorage.setItem(key, time.toString());
           console.log("New local best time recorded:", time);
         } else {
           console.log("Score recorded, but not a new local best time:", time);
@@ -92,23 +101,24 @@
           authContainer.appendChild(localModeNotice);
         }
       },
-      /** @param {number} time */
-      recordScore: function (time) {
+      /** @param {number} time @param {string=} tier */
+      recordScore: function (time, tier) {
         if (!isValidScoreTime(time)) {
           console.warn("Skipping local score record (Invalid time value):", time);
           return;
         }
 
         if (window.ScoresModule && typeof window.ScoresModule.recordScore === 'function') {
-          window.ScoresModule.recordScore(time);
+          window.ScoresModule.recordScore(time, tier);
         } else {
-          localStorage.setItem('snowgliderBestTime', time.toString());
+          localStorage.setItem(localBestTimeKey(tier), time.toString());
           console.log("Score recorded locally:", time);
         }
       },
-      displayLeaderboard: function () {
+      /** @param {string=} tier */
+      displayLeaderboard: function (tier) {
         if (window.ScoresModule && typeof window.ScoresModule.displayLeaderboard === 'function') {
-          window.ScoresModule.displayLeaderboard();
+          window.ScoresModule.displayLeaderboard(tier);
         } else {
           console.log("Leaderboard not available in local mode");
           const leaderboardElement = document.getElementById('leaderboard');
