@@ -80,6 +80,10 @@ function fakeSnowman() {
   const { Trees } = await import('../../src/mountains/trees.ts');
   const { addRocks, rockCollisionRadius } = await import('../../src/mountains/rocks.ts');
   const { getTerrainHeight, getTerrainGradient, getDownhillDirection } = terrain;
+  // Finish line from the SHIPPED course constant, not a literal, so moving the finish
+  // re-points the termination/finishability checks at the real course (Codex review).
+  const { CourseModule } = await import('../../src/course.ts');
+  const FINISH_Z = CourseModule._config.FINISH_Z;
 
   const TREE_RADIUS = 2.5;            // mirrors collision.ts default treeCollisionRadius
   const SEEDS = [12345, 777, 42, 9001];
@@ -133,6 +137,12 @@ function fakeSnowman() {
     const treePositions = Trees.addTrees(scene);
     const rockPositions = addRocks(scene);
     console.log = _log; console.warn = _warn;
+    // Hazard-cleared course (mirrors the e2e reset spec, which empties these arrays
+    // in place): used by the finishability gate (G1) so the only thing under test is
+    // whether terrain + physics let a clean line reach the bottom. Asserting "a coast
+    // always finishes" on the RANDOM tree/rock field would be wrong — the course is
+    // meant to sometimes punish a passive line.
+    if (opts.clearHazards) { treePositions.length = 0; rockPositions.length = 0; }
     POLICY_TREES = treePositions;
 
     // Per-descent steering schedule for `wander` (in-game-time keyed, so identical
@@ -197,10 +207,11 @@ function fakeSnowman() {
         }
       }
 
-      if (reason || pos.z < -195 || t >= maxTime) break;
+      if (reason || pos.z < FINISH_Z || t >= maxTime) break;
     }
-    const terminated = reason !== null || pos.z < -195;
-    return { maxSpeed, maxStep, treeTunnel, rockTunnel, nonFinite, terminated, reason,
+    const finished = pos.z < FINISH_Z;              // strictly: reached the shipped finish line
+    const terminated = reason !== null || finished; // ended (finish / crash / off-side)
+    return { maxSpeed, maxStep, treeTunnel, rockTunnel, nonFinite, terminated, finished, reason,
              finalX: pos.x, finalZ: pos.z, framesUsed: f + 1, maxFrames: MAX_FRAMES,
              trees: treePositions.length, rocks: rockPositions.length };
   }
@@ -295,6 +306,23 @@ function fakeSnowman() {
     stuckRuns.length ? '(' + stuckRuns.slice(0, 3).map(r => `${r.policy}@${r.fps} seed ${r.seed}`).join('; ') + ')' : '');
   console.log('  PASS:', allTerminate ? 'every descent reached a definite outcome ✅' : 'a descent never ended (possible freeze) ❌');
   if (!allTerminate) hardFail = true;
+
+  // --- 6) Finish is reachable: a clean full-speed line reaches the shipped finish [GATING] ---
+  // Pairs with the avalanche-side winnability_harness (G2/G3) to protect the
+  // "winnable but not guaranteed" invariant: G1 asserts a winning path EXISTS for the
+  // real physics descent, G3 asserts that path also outruns the slide. We assert only
+  // that SOME clean line finishes (no wall-clock time), on a hazard-cleared course so
+  // balance tuning of the random tree/rock field can't flake it. A drag/gradient/
+  // course-length regression that drops a no-input coast short of the finish fails here.
+  const finishRuns = SEEDS.map(seed => runDescent(seed, 1 / 60, 'holdUp', { clearHazards: true }));
+  const allFinish = finishRuns.every(r => r.finished);
+  console.log(`\n--- Finish is reachable: clean full-speed line reaches z < ${FINISH_Z} [GATING] ---`);
+  console.log('  finished:', finishRuns.filter(r => r.finished).length, '/', SEEDS.length,
+    '| worst final z:', Math.max(...finishRuns.map(r => r.finalZ)).toFixed(1));
+  console.log('  PASS:', allFinish
+    ? 'a winning path exists on every seed ✅'
+    : 'no clean line reached the finish — course may be unwinnable ❌');
+  if (!allFinish) hardFail = true;
 
   // --- Per-policy summary table (diagnostic) ---
   console.log('\n  policy        rates        maxSpeed(60/30/10)   treeTun rockTun  finite term');

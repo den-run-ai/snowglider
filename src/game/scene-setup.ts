@@ -21,6 +21,7 @@ import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
 
 export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
+export const AVALANCHE_BOULDER_COUNT = 120;   // boulders in the slide (single source of truth; gated by winnability_harness)
 
 /**
  * Typed game state (Phase 3, issues #98/#84). Consolidates aliased mutable
@@ -240,7 +241,7 @@ export function setupScene(signal?: AbortSignal) {
 
   // --- Initialize Avalanche System ---
   if (typeof AvalancheSystem !== 'undefined') {
-    const av = new AvalancheSystem(scene, 120);
+    const av = new AvalancheSystem(scene, AVALANCHE_BOULDER_COUNT);
     av.setTerrainFunction(Snow.getTerrainHeight);
     state.avalanche = av;
     console.log("Avalanche system initialized");
