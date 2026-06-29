@@ -113,6 +113,10 @@ export interface DifficultyConfig {
   blurb: string;            // one-line description for the start-screen picker
   seed: number;             // base seed (derives the per-tier RNG streams in a later PR)
   ski: SnowmanPhysicsTuning;
+  // Whether this tier submits to the global per-tier leaderboard. Bunny/Black ship
+  // UNRANKED (practice only — local best/ghost still work) until their plausibility
+  // floors are measured + a winnability gate passes; flipped on in a later stacked PR.
+  ranked: boolean;
   // Per-tier leaderboard plausibility floor (seconds). Blue is the MEASURED shipped
   // floor (score-limits.ts). Bunny/Black are PROVISIONAL illustrative values and MUST
   // be re-measured with tests/verification/plausibility_floor_harness.js before the
@@ -129,6 +133,7 @@ const BUNNY: DifficultyConfig = {
   blurb: 'Easy — the gentlest way down.',
   seed: 1001,
   ski: BUNNY_PHYSICS_TUNING,
+  ranked: false, // unranked until its floor is measured (D3 follow-up)
   minScoreTime: 28, // PROVISIONAL — re-measure before ranked
 };
 
@@ -138,6 +143,7 @@ const BLUE: DifficultyConfig = {
   blurb: 'Medium — the classic SnowGlider run.',
   seed: 1002,
   ski: BLUE_PHYSICS_TUNING,
+  ranked: true, // the classic, measured, ranked board
   minScoreTime: MIN_VALID_SCORE_TIME, // the measured shipped floor (18 s)
 };
 
@@ -147,6 +153,7 @@ const BLACK: DifficultyConfig = {
   blurb: 'Hard — for confident skiers.',
   seed: 1003,
   ski: BLACK_PHYSICS_TUNING,
+  ranked: false, // unranked until its floor is measured (D3 follow-up)
   minScoreTime: 13, // PROVISIONAL — re-measure before ranked
 };
 

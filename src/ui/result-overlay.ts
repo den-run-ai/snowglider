@@ -14,7 +14,7 @@ import { EffectsModule } from '../effects.js';
 // scores module and the Firestore rules (issue #229, PR C).
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
-import { DEFAULT_DIFFICULTY, localBestTimeKey, readStoredDifficulty, type Difficulty } from '../difficulty.js';
+import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, type Difficulty } from '../difficulty.js';
 
 export function isValidScoreTime(time: number): boolean {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
@@ -99,6 +99,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
   return function showGameOver(reason: string) {
     // The tier this run was played on; routes the score/best/leaderboard per tier.
     const tier: Difficulty = getDifficulty ? getDifficulty() : readStoredDifficulty();
+    // Unranked tiers (Bunny/Black for now) are practice-only: local best/ghost still
+    // work, but nothing is submitted to the global board until their floors are measured.
+    const tierRanked = getDifficultyConfig(tier).ranked;
     // Allow tests to intercept showGameOver calls
     if (window._testShowGameOverOverride) {
       window._testShowGameOverOverride(reason);
@@ -171,9 +174,10 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
 
       // Record the score whenever the leaderboard API is available (it handles its own
       // auth + persistence); otherwise fall back to persisting a new local best.
-      if (canRecordScore) {
+      if (canRecordScore && tierRanked) {
         window.AuthModule.recordScore(currentTime, tier);
       } else if (isNewBestTime) {
+        // Unranked tier (or no leaderboard API): keep the local per-tier best only.
         localStorage.setItem(localBestTimeKey(tier), String(currentTime));
       }
 
@@ -187,8 +191,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         bestTimeDisplay.style.color = 'white';
       }
 
-      // Show login prompt if not logged in
-      if (!getSignedInUser()) {
+      // Show login prompt if not logged in — only on ranked tiers, where signing in
+      // actually saves to the global board (unranked tiers are local practice only).
+      if (!getSignedInUser() && tierRanked) {
         const loginPrompt = document.createElement('p');
         loginPrompt.textContent = 'Log in to save your score and see the leaderboard!';
         loginPrompt.style.color = '#4285F4';
@@ -239,8 +244,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       }
     }
 
-    // Get leaderboard if user is logged in
-    if (getSignedInUser()) {
+    // Get leaderboard if user is logged in — ranked tiers only (unranked tiers have
+    // no global board to show).
+    if (getSignedInUser() && tierRanked) {
       // Get the leaderboard element
       const leaderboardElement = document.getElementById('leaderboard');
 
