@@ -39,7 +39,7 @@ import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
 import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
-import { readStoredDifficulty } from './difficulty.js';
+import { resolveActiveDifficulty } from './difficulty.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
@@ -345,10 +345,12 @@ window.initializeGameWithAudio = function() {
   // create/resume the Web Audio context. No-op under automation / without Web Audio.
   Sfx.unlock();
 
-  // Lock in the tier chosen on the start screen for this run (the picker persists it
-  // to localStorage; re-read here so the latest pick applies). Cosmetic for now — it
-  // stamps the result screen — until later PRs wire per-tier tuning + leaderboards.
-  state.difficulty = readStoredDifficulty();
+  // Lock in the tier chosen on the start screen for this run. Prefer the live picker
+  // selection (so a pick still applies when localStorage writes are blocked), falling
+  // back to the persisted value. Cosmetic for now — it stamps the result screen —
+  // until later PRs wire per-tier tuning + leaderboards.
+  const pickedTier = window.SnowGliderStartMenu?.getSelectedDifficulty?.();
+  state.difficulty = resolveActiveDifficulty(pickedTier);
 
   // Reset the snowman to starting position
   resetSnowman();

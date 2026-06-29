@@ -194,6 +194,14 @@ export function readStoredDifficulty(storage?: Storage | null): Difficulty {
   }
 }
 
+/** Resolve the tier for a starting run: prefer a valid live picker choice (the
+ *  current session's visible selection), else the persisted value, else default.
+ *  This keeps the run honest when storage writes are blocked (private mode), where
+ *  the picker highlight changes but `setItem` silently fails — the live pick wins. */
+export function resolveActiveDifficulty(livePick: unknown, storage?: Storage | null): Difficulty {
+  return isDifficulty(livePick) ? livePick : readStoredDifficulty(storage);
+}
+
 /** Persist the player's chosen tier. No-op (never throws) when storage is
  *  unavailable (private mode / Node). */
 export function storeDifficulty(id: Difficulty, storage?: Storage | null): void {

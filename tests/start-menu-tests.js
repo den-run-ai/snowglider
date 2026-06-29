@@ -114,7 +114,26 @@ async function main() {
   check('clicking Black moves the selected highlight (blue deselected)',
     blackOpt.classList.contains('selected') && !blueOpt.classList.contains('selected'));
 
+  // Roving-tabindex arrow keys: only the selected option is tabbable, and arrows
+  // move + select the prev/next tier so keyboard-only players can reach all three.
+  window.localStorage.setItem('snowgliderDifficulty', 'blue');
+  SM.buildDifficultyPicker();
+  const tabbable = Array.from(picker.querySelectorAll('.difficulty-option'))
+    .filter((el) => el.getAttribute('tabindex') === '0');
+  check('only the selected option is tabbable (roving tabindex)',
+    tabbable.length === 1 && tabbable[0].getAttribute('data-difficulty') === 'blue');
+  picker.querySelector('[data-difficulty="blue"]')
+    .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  check('ArrowDown moves selection to the next tier (blue -> black)',
+    SM.getSelectedDifficulty() === 'black'
+    && picker.querySelector('[data-difficulty="black"]').getAttribute('tabindex') === '0');
+  picker.querySelector('[data-difficulty="black"]')
+    .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+  check('ArrowUp moves selection back (black -> blue)',
+    SM.getSelectedDifficulty() === 'blue');
+
   // Rebuilding the picker pre-selects the remembered tier.
+  window.localStorage.setItem('snowgliderDifficulty', 'black');
   SM.buildDifficultyPicker();
   check('rebuilt picker pre-selects the remembered tier (black)',
     SM.getSelectedDifficulty() === 'black'

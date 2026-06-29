@@ -212,6 +212,21 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
     });
   }
 
+  // Roving-tabindex arrow-key support for the radiogroup: arrows move AND select the
+  // prev/next tier (standard radio behaviour), then focus it — so a keyboard-only
+  // player can reach every tier even though only the selected option is tabbable.
+  function moveDifficultySelection(delta: number) {
+    const ids = DIFFICULTIES.map((c) => c.id);
+    const cur = ids.indexOf(selectedDifficulty);
+    const nextId = ids[(cur + delta + ids.length) % ids.length];
+    if (!nextId) return;
+    selectedDifficulty = nextId;
+    storeDifficulty(selectedDifficulty);
+    applyDifficultySelection();
+    const el = document.querySelector('#difficultyPicker [data-difficulty="' + selectedDifficulty + '"]');
+    if (el && typeof (el as HTMLElement).focus === 'function') (el as HTMLElement).focus();
+  }
+
   // Build the difficulty picker from the difficulty config (single source of truth
   // for the labels/blurbs), pre-selecting the remembered tier. Idempotent so a
   // re-init (or the test harness) can rebuild cleanly.
@@ -246,6 +261,15 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
         selectedDifficulty = cfg.id;
         storeDifficulty(cfg.id);
         applyDifficultySelection();
+      });
+      opt.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          moveDifficultySelection(1);
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          moveDifficultySelection(-1);
+        }
       });
       picker.appendChild(opt);
     });

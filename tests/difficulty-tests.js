@@ -131,6 +131,17 @@ function maxTrajDiff(a, b) {
   check('read/store are no-throw when storage is null (Node / private mode)',
     D.readStoredDifficulty(null) === 'blue' && (D.storeDifficulty('black', null), true));
 
+  // resolveActiveDifficulty prefers a valid live pick, else storage, else default.
+  const stored = fakeStorage();
+  stored.setItem(D.DIFFICULTY_STORAGE_KEY, 'bunny');
+  check('resolveActiveDifficulty uses a valid live pick over storage',
+    D.resolveActiveDifficulty('black', stored) === 'black');
+  check('resolveActiveDifficulty falls back to storage when the live pick is junk',
+    D.resolveActiveDifficulty(undefined, stored) === 'bunny'
+    && D.resolveActiveDifficulty('expert', stored) === 'bunny');
+  check('resolveActiveDifficulty falls back to default with no pick + no storage',
+    D.resolveActiveDifficulty(undefined, null) === 'blue');
+
   const blue = D.getDifficultyConfig('blue');
   check('Blue is authoritative-current: blue.ski === BLUE_PHYSICS_TUNING',
     blue.ski === D.BLUE_PHYSICS_TUNING);
