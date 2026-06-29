@@ -13,6 +13,26 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Difficulty tiers (stage 1): config spine + kernel tuning API
+- **New `src/difficulty.ts`** — the single source of truth for the planned ●Bunny /
+  ■Blue / ◆Black tiers, mirroring the `score-limits.ts` pattern. Carries each tier's
+  id, picker label/blurb, seed, ski tuning, and per-tier plausibility floor. Blue is
+  authoritative-current; Bunny/Black ski numbers are playtest starting points and the
+  non-Blue floors are PROVISIONAL until measured.
+- **Kernel tuning API.** The hard-coded physics locals in `stepSnowmanPhysics`
+  (gravity, friction, grip, carve/turn forces, tuck accel, plow decel, skid scrub, air
+  control) are extracted verbatim into `BLUE_PHYSICS_TUNING` and read through a new
+  trailing **optional** `tuning` parameter (also threaded through `updateSnowman` and
+  `Physics.stepPlayer`/`StepDeps`). It defaults to Blue, so the physics-invariant harness
+  and every existing caller are **byte-for-byte unchanged** (the no-input identity gate
+  still passes IDENTICAL). A tier varies feel by passing only its `config.ski`; the whole
+  `DifficultyConfig` never enters the kernel, keeping it pure.
+- **No felt gameplay change yet.** This stage lands the data + API + tests only; the
+  selection UI, the live per-tier wiring, per-tier leaderboards, and assists arrive in
+  later stacked PRs. `tests/difficulty-tests.js` guards the config integrity, the frozen
+  Blue constants, the omit-vs-Blue byte-identity, and that the param is live (Black ends
+  faster / Bunny slower on a tuck descent).
+
 ### Fix: systemic mobile dead-button class (Start-menu About/Close, logout, …)
 - **Root cause, finally fixed at the source.** `controls.ts` installs document-level
   `touchstart`/`touchmove`/`touchend` handlers that `preventDefault()` *every* touch (for

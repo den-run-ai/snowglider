@@ -16,6 +16,7 @@
 // native type-stripping run it exactly as before; the physics-invariant harness
 // confirms coasting stays bit-identical to the frozen baseline.
 import * as THREE from 'three';
+import type { SnowmanPhysicsTuning } from '../difficulty.js';
 import { detectCollisionsAndFinish } from './collision.js';
 import { createSnowman } from './model.js';
 import { resetSnowman, stepSnowmanPhysics } from './physics.js';
@@ -116,7 +117,8 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
                       turnPhase: number, currentTurnDirection: number, turnChangeCooldown: number, turnAmplitude: number,
                       getTerrainHeight: TerrainHeightFn, getTerrainGradient: TerrainVecFn, getDownhillDirection: TerrainVecFn,
                       treePositions: TreePos[], gameActive: boolean, showGameOver: ShowGameOverFn,
-                      rockPositions: RockPos[] = [], bankAirScore?: (delta: number) => void): UpdateResult {
+                      rockPositions: RockPos[] = [], bankAirScore?: (delta: number) => void,
+                      tuning?: SnowmanPhysicsTuning): UpdateResult {
   const { terrainHeightAtPosition, result } = stepSnowmanPhysics(
     snowman,
     delta,
@@ -134,7 +136,9 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     turnAmplitude,
     getTerrainHeight,
     getTerrainGradient,
-    getDownhillDirection
+    getDownhillDirection,
+    // undefined => stepSnowmanPhysics applies its BLUE default (byte-identical).
+    tuning
   );
 
   applySnowmanPose(snowman, {
