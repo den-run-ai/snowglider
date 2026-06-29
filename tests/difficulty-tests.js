@@ -110,12 +110,17 @@ function maxTrajDiff(a, b) {
     D.getDifficultyConfig('nope').id === 'blue' && D.getDifficultyConfig(undefined).id === 'blue');
 
   // Persistence helpers operate on an injected Storage (so they're testable headlessly).
+  /** A minimal but complete Storage (length/clear/key included) so it satisfies the
+   *  `Storage` parameter type under tsconfig.tests.json's @ts-check. */
   const fakeStorage = () => {
     const m = new Map();
     return {
       getItem: (k) => (m.has(k) ? m.get(k) : null),
       setItem: (k, v) => { m.set(k, String(v)); },
       removeItem: (k) => { m.delete(k); },
+      clear: () => { m.clear(); },
+      key: (i) => Array.from(m.keys())[i] ?? null,
+      get length() { return m.size; },
     };
   };
   const store = fakeStorage();

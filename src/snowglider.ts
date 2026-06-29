@@ -349,7 +349,9 @@ window.initializeGameWithAudio = function() {
   // selection (so a pick still applies when localStorage writes are blocked), falling
   // back to the persisted value. Cosmetic for now — it stamps the result screen —
   // until later PRs wire per-tier tuning + leaderboards.
-  const pickedTier = window.SnowGliderStartMenu?.getSelectedDifficulty?.();
+  const startMenu = window.SnowGliderStartMenu as
+    { getSelectedDifficulty?: () => unknown } | undefined;
+  const pickedTier = startMenu?.getSelectedDifficulty?.();
   state.difficulty = resolveActiveDifficulty(pickedTier);
 
   // Reset the snowman to starting position
