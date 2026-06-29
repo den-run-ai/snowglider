@@ -84,6 +84,7 @@ export const calls = {
 let authStateCallback = null; // the onAuthStateChanged listener auth.ts registers
 /** @type {PopupResult} */
 let nextPopupResult = null;   // controls how the next signInWithPopup/signInAnonymously resolves/rejects
+let nextSignOutError = null;  // when set, the next signOut() rejects with this (one-shot)
 /** @type {PopupResult} */
 let nextLinkResult = null;    // controls how the next linkWithPopup resolves/rejects (guest upgrade)
 
@@ -161,6 +162,7 @@ export function reset() {
   timestampCounter = 0;
   authStateCallback = null;
   nextPopupResult = null;
+  nextSignOutError = null;
   nextLinkResult = null;
   authInstance.currentUser = null;
 }
@@ -474,6 +476,11 @@ export function linkWithPopup(user, _provider) {
 // auth.ts imports this as `signOut as firebaseSignOut`.
 export function signOut() {
   calls.signOut++;
+  if (nextSignOutError) {
+    const err = nextSignOutError;
+    nextSignOutError = null; // one-shot
+    return Promise.reject(err);
+  }
   return Promise.resolve();
 }
 
@@ -508,6 +515,15 @@ export function setNextPopupResult(result) {
  */
 export function setNextLinkResult(result) {
   nextLinkResult = result;
+}
+
+/**
+ * Make the next signOut() reject with the given error (one-shot), so the logout
+ * failure path (alert + button re-enable) can be exercised.
+ * @param {unknown} error
+ */
+export function setNextSignOutError(error) {
+  nextSignOutError = error;
 }
 
 /**

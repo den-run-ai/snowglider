@@ -190,6 +190,19 @@ async function main() {
   await flush();
   fb.emitAuthState(null);
 
+  console.log('\n--- Sign-out failure surfaces an alert + re-enables the button ---');
+  fb.emitAuthState({ uid: 'u1', email: 'snow@glider.ai', displayName: 'Snow' });
+  await flush();
+  alerts.length = 0;
+  fb.setNextSignOutError(new Error('network down'));
+  logoutBtn.dispatchEvent(new window.Event('click'));
+  await flush();
+  await flush();
+  check('sign-out failure alerts the user', alerts.some(a => /network down/.test(a)));
+  check('sign-out failure re-enables the logout button',
+    logoutBtn.disabled === false && logoutBtn.textContent === 'Logout');
+  fb.emitAuthState(null);
+
   console.log('\n--- Sign-in via touch (game-page click-suppression scenario) ---');
   // On the game page, controls.js installs a document-level touchstart
   // preventDefault that suppresses this button's synthetic click — so sign-in must
