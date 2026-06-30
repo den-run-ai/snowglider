@@ -165,22 +165,29 @@ async function main() {
     check('finish picker is synced to the tier just played', syncedTier === 'blue');
   }
 
-  // --- Stale leaderboard is hidden when replaying on an unranked tier (Codex #255) ---
-  // The finish picker lets a signed-in player finish ranked Blue (board shown), then switch
-  // to unranked Bunny/Black and replay; the unranked finish must hide the stale Blue board.
+  // --- Leaderboard visibility tracks the tier across mid-session switches (Codex #255) ---
+  // The finish picker lets a signed-in player swap tiers between runs on the SAME overlay.
+  // Ranked Blue shows the board; unranked Bunny/Black must hide it; returning to Blue must
+  // re-show it — the element stays parented, so display must be re-set, not only on first
+  // insert (the Blue → Black → Blue round-trip is the regression Codex flagged).
   {
     window.AuthModule.getCurrentUser = () => ({ uid: 'u1' });
-    // 1) Ranked Blue finish on a fresh overlay: leaderboard inserted + shown.
-    const deps = makeDeps({ bestTime: 1, getDifficulty: () => 'blue' });
-    createShowGameOver(deps)(FINISH);
+    const blueDeps = makeDeps({ bestTime: 1, getDifficulty: () => 'blue' });
     const lb = document.getElementById('leaderboard');
-    check('ranked finish shows the leaderboard',
-      lb.style.display === 'block' && lb.parentNode === deps.gameOverOverlay);
-    // 2) Replay on an unranked tier (Black) reusing the SAME overlay DOM: board hidden.
-    const unrankedDeps = { ...deps, getDifficulty: () => 'black' };
-    createShowGameOver(unrankedDeps)(FINISH);
-    check('unranked replay hides the stale leaderboard',
-      document.getElementById('leaderboard').style.display === 'none');
+    // Reuse the SAME overlay DOM across all three finishes (no makeDeps reset between them);
+    // the casts pin the literal tier to the Difficulty union for typecheck:tests.
+    const blackDeps = { ...blueDeps, getDifficulty: /** @type {() => 'black'} */ (() => 'black') };
+
+    createShowGameOver(blueDeps)(FINISH);
+    check('ranked Blue finish shows the leaderboard',
+      lb.style.display === 'block' && lb.parentNode === blueDeps.gameOverOverlay);
+
+    createShowGameOver(blackDeps)(FINISH);
+    check('unranked Black replay hides the stale leaderboard', lb.style.display === 'none');
+
+    createShowGameOver(blueDeps)(FINISH);
+    check('returning to ranked Blue re-shows the already-parented leaderboard',
+      lb.style.display === 'block');
   }
 
   // --- Finish + valid time, no AuthModule.recordScore -> localStorage fallback best ---

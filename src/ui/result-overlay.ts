@@ -269,9 +269,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // Get the leaderboard element
       const leaderboardElement = document.getElementById('leaderboard');
 
-      // Add to game over overlay if not already there
-      if (leaderboardElement && leaderboardElement.parentNode !== gameOverOverlay) {
-        gameOverOverlay.insertBefore(leaderboardElement, restartButton);
+      if (leaderboardElement) {
+        // Add to game over overlay if not already there
+        if (leaderboardElement.parentNode !== gameOverOverlay) {
+          gameOverOverlay.insertBefore(leaderboardElement, restartButton);
+        }
+        // Always re-show it on a ranked finish — the element may already be parented but
+        // hidden by the else-branch below from a prior unranked replay (Blue → Black →
+        // Blue would otherwise refresh the board's contents while leaving it display:none).
         leaderboardElement.style.display = 'block';
       }
 
