@@ -21,6 +21,8 @@ import {
   applySmoothShadingNormals,
 } from './snow-surface.js';
 import { addRocks } from './rocks.js';
+import { addContactShadows } from './contact-shadows.js';
+import { getTerrainHeight as sampleTerrainHeight } from './terrain.js';
 
 // Create Terrain (Natural Mountain)
 export function createTerrain(scene: THREE.Scene) {
@@ -136,6 +138,11 @@ export function createTerrain(scene: THREE.Scene) {
   } else {
     console.warn("Trees module not found, skipping tree creation");
   }
+
+  // Baked contact-AO blobs under each tree + large rock (issue #17) so obstacles read
+  // as grounded against the bright snow instead of floating. One InstancedMesh (one draw
+  // call) — reuses the positions trees/rocks already produced; render-only, no physics.
+  addContactShadows(scene, treePositions, rockPositions, sampleTerrainHeight);
 
   return { terrain, treePositions, rockPositions };
 }
