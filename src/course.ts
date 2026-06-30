@@ -29,7 +29,7 @@ import * as THREE from 'three';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
-import { getDifficultyConfig, type Difficulty } from './difficulty.js';
+import { getDifficultyConfig, DEFAULT_DIFFICULTY, type Difficulty } from './difficulty.js';
 
 /** Terrain sampler injected via {@link CourseModule.init}. */
 export type TerrainHeightFn = (x: number, z: number) => number;
@@ -105,9 +105,10 @@ export const CourseModule = (function () {
   // Ghost sampling cadence
   const SAMPLE_INTERVAL = 0.05; // seconds between recorded trajectory samples (~20 Hz)
 
-  // localStorage keys
-  const LS_SPLITS = 'snowgliderBestSplits';
-  const LS_GHOST = 'snowgliderGhost';
+  // localStorage keys — per difficulty tier (`…_blue`, `…_bunny`, `…_black`). The
+  // pre-tier un-suffixed keys are migrated to the Blue tier once (migrateLegacyLocalKeys).
+  const LS_SPLITS_BASE = 'snowgliderBestSplits';
+  const LS_GHOST_BASE = 'snowgliderGhost';
 
   // --- Module state ---
   let scene: THREE.Scene | null = null;
@@ -315,6 +316,29 @@ export const CourseModule = (function () {
     scene.add(group);
   }
 
+  // Per-tier localStorage keys for the run's difficulty. getDifficulty is injected by
+  // the coordinator (reads GameState.difficulty); falls back to the default tier when
+  // absent (headless tests), so the keys are stable there.
+  function activeTier(): Difficulty {
+    return getDifficulty ? getDifficulty() : DEFAULT_DIFFICULTY;
+  }
+  function splitsKey(): string { return `${LS_SPLITS_BASE}_${activeTier()}`; }
+  function ghostKey(): string { return `${LS_GHOST_BASE}_${activeTier()}`; }
+
+  // One-time migration: the pre-tier un-suffixed keys become the Blue tier's keys, so a
+  // returning player keeps their existing best splits + ghost on the (default) Blue tier.
+  function migrateLegacyLocalKeys() {
+    try {
+      for (const base of [LS_SPLITS_BASE, LS_GHOST_BASE]) {
+        const legacy = localStorage.getItem(base);
+        if (legacy === null) continue;
+        const blueKey = `${base}_blue`;
+        if (localStorage.getItem(blueKey) === null) localStorage.setItem(blueKey, legacy);
+        localStorage.removeItem(base);
+      }
+    } catch { /* storage unavailable; nothing to migrate */ }
+  }
+
   // ---------------------------------------------------------------------------
   // Ghost
   // ---------------------------------------------------------------------------
@@ -322,7 +346,7 @@ export const CourseModule = (function () {
     ghostSamples = null;
     ghostTotalTime = 0;
     try {
-      const raw = localStorage.getItem(LS_GHOST);
+      const raw = localStorage.getItem(ghostKey());
       if (raw) {
         const data = JSON.parse(raw);
         if (Array.isArray(data) && data.length > 1) {
@@ -340,7 +364,7 @@ export const CourseModule = (function () {
   // within a session (the split flash + result table compare against this).
   function loadBests() {
     try {
-      const raw = localStorage.getItem(LS_SPLITS);
+      const raw = localStorage.getItem(splitsKey());
       bestSplits = raw ? JSON.parse(raw) : null;
     } catch {
       bestSplits = null;
@@ -416,6 +440,9 @@ export const CourseModule = (function () {
     renderer = opts.renderer ?? null;
     camera = opts.camera ?? null;
     getDifficulty = opts.getDifficulty ?? null;
+
+    // Migrate the pre-tier un-suffixed keys onto the Blue tier before any read.
+    migrateLegacyLocalKeys();
 
     // Load persisted bests
     loadBests();
@@ -558,10 +585,19 @@ export const CourseModule = (function () {
     // Record the finish split.
     runSplits[splitPoints.length - 1] = totalTime;
 
-    // Commit best splits + ghost if this is the best run so far.
-    if (isBest) {
+    // Local per-tier save decision: persist this tier's splits + ghost when it's the
+    // first run on the tier (no stored ghost) OR it beats the tier's OWN stored ghost
+    // time. This is independent of the GLOBAL best-time `isBest` (which still drives the
+    // result panel/medal), so a first Bunny/Black run is saved even when a faster Blue
+    // best already exists. `ghostTotalTime` is the tier's stored ghost finish time
+    // (loaded in reset(); 0 when none, hence the ghostSamples guard).
+    const tierBestTime = ghostSamples ? ghostTotalTime : Infinity;
+    const isTierBest = totalTime < tierBestTime;
+
+    // Commit best splits + ghost if this run is the tier's best so far.
+    if (isTierBest) {
       try {
-        localStorage.setItem(LS_SPLITS, JSON.stringify(runSplits));
+        localStorage.setItem(splitsKey(), JSON.stringify(runSplits));
         // Ensure the final sample lands exactly on the finish time, but keep the
         // player's real x/y/rotation so the ghost doesn't snap to center or dip
         // at the line (terrain-y at the finish is not 0).
@@ -573,7 +609,7 @@ export const CourseModule = (function () {
           z: FINISH_Z,
           rot: lastReal ? lastReal.rot : Math.PI
         });
-        localStorage.setItem(LS_GHOST, JSON.stringify(recordSamples));
+        localStorage.setItem(ghostKey(), JSON.stringify(recordSamples));
       } catch { /* storage may be unavailable; ignore */ }
     }
 

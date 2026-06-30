@@ -90,10 +90,23 @@ async function main() {
   check('module exports init/update/onFinish', !!Course && typeof Course.update === 'function' && typeof Course.onFinish === 'function');
 
   const terrain = (x, z) => 40 * Math.exp(-Math.sqrt(x * x + z * z) / 40) + (z < -30 ? (z + 30) * 0.12 : 0);
+
+  // Seed pre-tier (un-suffixed) keys so init()'s one-time migration can move them to
+  // the Blue tier (PR: tiers stage 3 / D1 per-tier local keys).
+  global.localStorage.clear();
+  global.localStorage.setItem('snowgliderGhost', '[{"t":0,"x":0,"y":0,"z":0,"rot":0},{"t":1,"x":0,"y":0,"z":-1,"rot":0}]');
+  global.localStorage.setItem('snowgliderBestSplits', '[1,2,3]');
+
   // Inject a difficulty getter so the result screen stamps the run's tier (PR: tiers stage 2).
   Course.init({ scene: new RealTHREE.Scene(), getTerrainHeight: terrain, createSnowman: fakeCreateSnowman,
     getDifficulty: () => 'black' });
   check('init builds gates + HUD', true);
+  check('legacy ghost key migrated to the Blue tier (and removed)',
+    global.localStorage.getItem('snowgliderGhost_blue') !== null
+    && global.localStorage.getItem('snowgliderGhost') === null);
+  check('legacy best-splits key migrated to the Blue tier (and removed)',
+    global.localStorage.getItem('snowgliderBestSplits_blue') === '[1,2,3]'
+    && global.localStorage.getItem('snowgliderBestSplits') === null);
 
   // Simulate a clean run reaching every split.
   global.localStorage.clear();
@@ -117,14 +130,19 @@ async function main() {
   const tierStamp = panel1.querySelector('#resultDifficulty');
   check('result panel stamps the run difficulty tier (◆ Black)',
     !!tierStamp && /◆ Black/.test(tierStamp.textContent || ''));
-  check('ghost trajectory persisted to localStorage', !!global.localStorage.getItem('snowgliderGhost'));
-  check('best splits persisted to localStorage', !!global.localStorage.getItem('snowgliderBestSplits'));
+  // The run was on the Black tier (getDifficulty above), so persistence is per-tier.
+  check('ghost trajectory persisted to the per-tier (Black) key',
+    !!global.localStorage.getItem('snowgliderGhost_black')
+    && global.localStorage.getItem('snowgliderGhost') === null);
+  check('best splits persisted to the per-tier (Black) key',
+    !!global.localStorage.getItem('snowgliderBestSplits_black')
+    && global.localStorage.getItem('snowgliderBestSplits') === null);
   const panelText1 = panel1.textContent || '';
   check('first finish shows a medal/result text', /descent|record|Finish/i.test(panelText1));
 
   // Gap 3 regression: the persisted ghost's final sample keeps the player's real x
   // (not a hardcoded 0) so it doesn't snap to center at the line.
-  const ghostSaved = JSON.parse(global.localStorage.getItem('snowgliderGhost'));
+  const ghostSaved = JSON.parse(global.localStorage.getItem('snowgliderGhost_black'));
   const ghostLast = ghostSaved[ghostSaved.length - 1];
   check('ghost final sample keeps real x (Gap 3, not snapped to 0)', Math.abs(ghostLast.x - 0) > 0.5 && ghostLast.z === cfg.FINISH_Z);
 
@@ -200,6 +218,23 @@ async function main() {
   const deltaTable = panel2.querySelector('#resultSplitTable');
   check('best-split deltas not stale after PB (Gap 2)',
     !!deltaTable && deltaTable.textContent.indexOf(EM_DASH) === -1);
+
+  // Codex fix (D1): the per-tier ghost/splits save is gated on the TIER's own stored
+  // best, not the global best time — so a first run on a tier still saves its baseline
+  // even when it is slower than an existing (global) best.
+  global.localStorage.removeItem('snowgliderGhost_black');
+  global.localStorage.removeItem('snowgliderBestSplits_black');
+  Course.reset(); // no stored ghost for this tier now
+  let t3 = 0;
+  for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
+    t3 += 0.2; // slow pace
+    Course.update({ x: 1.5, y: terrain(1.5, z), z }, t3, snowmanMock);
+  }
+  // previousBest tiny so totalTime > previousBest → NOT a global best.
+  Course.onFinish(t3, 0.001);
+  check('first run on a tier saves its ghost/splits even when slower than the global best',
+    !!global.localStorage.getItem('snowgliderGhost_black')
+    && !!global.localStorage.getItem('snowgliderBestSplits_black'));
 
   // flashAir (meaningful jumps #47): the on-slope air toast routes through the shared
   // #courseFlash element with the air time + grade label.
