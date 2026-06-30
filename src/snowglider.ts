@@ -152,6 +152,8 @@ const showGameOver = createShowGameOver({
   restartButton,
   bestTimeDisplay,
   onCrash: triggerCrashShatter,
+  // Route the finish score/best-time/leaderboard to the run's tier.
+  getDifficulty: () => state.difficulty,
 });
 
 // --- Per-frame run loop (see game/main-loop.ts) ---
@@ -353,6 +355,8 @@ window.initializeGameWithAudio = function() {
     { getSelectedDifficulty?: () => unknown } | undefined;
   const pickedTier = startMenu?.getSelectedDifficulty?.();
   state.difficulty = resolveActiveDifficulty(pickedTier);
+  // Show the chosen tier's own best time (the HUD + result screen compare against this).
+  state.bestTime = readStoredBestTime(state.difficulty);
 
   // Reset the snowman to starting position
   resetSnowman();

@@ -117,6 +117,14 @@ function main() {
   Scores.recordScore(33);
   check('recordScore replaces an invalid stored best', a.localStorage.getItem('snowgliderBestTime') === '33');
 
+  // --- Per-tier local best (D2): a tiered finish uses the per-tier key, not Blue ---
+  a.localStorage.removeItem('snowgliderBestTime');
+  Scores.recordScore(40, 'bunny');
+  check('ScoresModule.recordScore(tier) writes the per-tier key, leaving Blue untouched',
+    a.localStorage.getItem('snowgliderBestTime_bunny') === '40' &&
+    a.localStorage.getItem('snowgliderBestTime') === null);
+  a.localStorage.removeItem('snowgliderBestTime_bunny');
+
   // --- ScoresModule.displayLeaderboard / getLeaderboard ---
   Scores.displayLeaderboard();
   check('ScoresModule.displayLeaderboard writes the unavailable notice',
@@ -147,6 +155,10 @@ function main() {
   delete a.window.ScoresModule;
   Auth.recordScore(25);
   check('AuthModule.recordScore falls back to localStorage without ScoresModule',
+    a.localStorage.getItem('snowgliderBestTime') === '25');
+  Auth.recordScore(30, 'black'); // tiered finish in the no-ScoresModule fallback
+  check('AuthModule.recordScore fallback honors the per-tier key',
+    a.localStorage.getItem('snowgliderBestTime_black') === '30' &&
     a.localStorage.getItem('snowgliderBestTime') === '25');
 
   // --- AuthModule.displayLeaderboard: no ScoresModule, #leaderboard present ---

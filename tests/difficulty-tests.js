@@ -171,6 +171,20 @@ function maxTrajDiff(a, b) {
       frozenKeys.every((k) => typeof c.ski[k] === 'number' && Number.isFinite(c.ski[k]))
       && Object.keys(c.ski).length === frozenKeys.length));
 
+  console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
+  check('localBestTimeKey: Blue keeps the original key; others are suffixed',
+    D.localBestTimeKey('blue') === 'snowgliderBestTime'
+    && D.localBestTimeKey('bunny') === 'snowgliderBestTime_bunny'
+    && D.localBestTimeKey('black') === 'snowgliderBestTime_black');
+  check('leaderboardCollectionName: Blue == leaderboard; others are siblings',
+    D.leaderboardCollectionName('blue') === 'leaderboard'
+    && D.leaderboardCollectionName('bunny') === 'leaderboard_bunny'
+    && D.leaderboardCollectionName('black') === 'leaderboard_black');
+  check('userBestTimeField: Blue == bestTime; others are dedicated fields',
+    D.userBestTimeField('blue') === 'bestTime'
+    && D.userBestTimeField('bunny') === 'bestTimeBunny'
+    && D.userBestTimeField('black') === 'bestTimeBlack');
+
   console.log('--- Kernel tuning API: backward compatibility ---');
   const omitted = descend(update, undefined);
   const explicitBlue = descend(update, D.BLUE_PHYSICS_TUNING);

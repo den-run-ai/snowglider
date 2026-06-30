@@ -60,37 +60,54 @@ async function main() {
   });
   const db = admin.firestore();
 
-  // --- 1. Purge sub-floor leaderboard entries, collecting affected users. --------------
+  // Per-difficulty-tier leaderboard collections + user best-time fields. Mirrors the
+  // naming in src/difficulty.ts (Blue == the original un-suffixed names). The floor is
+  // the same for every tier for now (all tiers currently play the same physics); when
+  // per-tier floors diverge, give each tier its own floor here.
+  const TIERS = [
+    { id: 'blue', collection: 'leaderboard', bestField: 'bestTime' },
+    { id: 'bunny', collection: 'leaderboard_bunny', bestField: 'bestTimeBunny' },
+    { id: 'black', collection: 'leaderboard_black', bestField: 'bestTimeBlack' }
+  ];
+
+  // --- 1. Purge sub-floor leaderboard entries (every tier), collecting affected users. --
   const affectedUsers = new Set();
   let deleted = 0;
-  const lbSnap = await db.collection('leaderboard').get();
-  console.log(`Scanning ${lbSnap.size} leaderboard entries...`);
-  for (const docSnap of lbSnap.docs) {
-    const time = docSnap.get('time');
-    if (typeof time === 'number' && time < FLOOR) {
-      console.log(`  [leaderboard/${docSnap.id}] time=${time} < ${FLOOR} -> DELETE`);
-      affectedUsers.add(docSnap.id);
-      deleted++;
-      if (APPLY) await docSnap.ref.delete();
+  for (const tier of TIERS) {
+    const lbSnap = await db.collection(tier.collection).get();
+    console.log(`Scanning ${lbSnap.size} ${tier.collection} entries...`);
+    for (const docSnap of lbSnap.docs) {
+      const time = docSnap.get('time');
+      if (typeof time === 'number' && time < FLOOR) {
+        console.log(`  [${tier.collection}/${docSnap.id}] time=${time} < ${FLOOR} -> DELETE`);
+        affectedUsers.add(docSnap.id);
+        deleted++;
+        if (APPLY) await docSnap.ref.delete();
+      }
     }
   }
 
   // --- 2. Repair user best times that are themselves sub-floor (the bogus best). --------
-  // The leaderboard doc id is the uid, so the affected users are exactly those we purged;
-  // also sweep every users/{uid} whose stored bestTime is sub-floor, in case a user doc
-  // holds a forged best with no matching leaderboard row.
+  // Sweep every users/{uid} for any per-tier best-time field that is sub-floor, in case a
+  // user doc holds a forged best with no matching leaderboard row.
   let repaired = 0;
   const userSnap = await db.collection('users').get();
   console.log(`\nScanning ${userSnap.size} user docs for sub-floor best times...`);
   for (const docSnap of userSnap.docs) {
-    const bestTime = docSnap.get('bestTime');
-    if (typeof bestTime === 'number' && bestTime < FLOOR) {
-      console.log(`  [users/${docSnap.id}] bestTime=${bestTime} < ${FLOOR} -> CLEAR bestTime`);
+    const clears = {};
+    for (const tier of TIERS) {
+      const bestTime = docSnap.get(tier.bestField);
+      if (typeof bestTime === 'number' && bestTime < FLOOR) {
+        console.log(`  [users/${docSnap.id}] ${tier.bestField}=${bestTime} < ${FLOOR} -> CLEAR`);
+        clears[tier.bestField] = admin.firestore.FieldValue.delete();
+      }
+    }
+    if (Object.keys(clears).length > 0) {
       affectedUsers.add(docSnap.id);
-      repaired++;
+      repaired += Object.keys(clears).length;
       if (APPLY) {
         await docSnap.ref.update({
-          bestTime: admin.firestore.FieldValue.delete(),
+          ...clears,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
       }

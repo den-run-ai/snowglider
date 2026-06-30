@@ -175,6 +175,28 @@ export function getDifficultyConfig(id: unknown): DifficultyConfig {
   return isDifficulty(id) ? BY_ID[id] : BY_ID[DEFAULT_DIFFICULTY];
 }
 
+// --- Per-tier scoring storage names (single source of truth) -----------------
+// Blue maps to the ORIGINAL un-suffixed names so the existing leaderboard collection,
+// the `users/{uid}.bestTime` field, and the `snowgliderBestTime` localStorage key keep
+// working untouched — no migration of live Blue scores. Bunny/Black get sibling names.
+
+/** localStorage key for a tier's best time. */
+export function localBestTimeKey(tier: Difficulty): string {
+  return tier === 'blue' ? 'snowgliderBestTime' : `snowgliderBestTime_${tier}`;
+}
+
+/** Firestore leaderboard collection name for a tier. */
+export function leaderboardCollectionName(tier: Difficulty): string {
+  return tier === 'blue' ? 'leaderboard' : `leaderboard_${tier}`;
+}
+
+/** Field on `users/{uid}` holding a tier's best time. */
+export function userBestTimeField(tier: Difficulty): string {
+  if (tier === 'bunny') return 'bestTimeBunny';
+  if (tier === 'black') return 'bestTimeBlack';
+  return 'bestTime';
+}
+
 /** Resolve the Storage to read/write the tier from: the passed one, else the
  *  ambient localStorage when present (browser), else null (Node / no DOM). */
 function resolveStorage(storage?: Storage | null): Storage | null {

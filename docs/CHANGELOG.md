@@ -13,6 +13,25 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Difficulty tiers (stage 4 / D2): per-tier leaderboards, rules & best times
+- **Per-tier Firestore leaderboards.** Blue keeps the existing `leaderboard` collection
+  and `users/{uid}.bestTime` field untouched (zero migration of live scores); Bunny/Black
+  get sibling `leaderboard_bunny` / `leaderboard_black` collections and dedicated
+  `bestTimeBunny` / `bestTimeBlack` user-doc fields. All names come from one place
+  (`src/difficulty.ts`: `leaderboardCollectionName` / `userBestTimeField` / `localBestTimeKey`).
+- **scores.ts / result-overlay.ts / auth.ts** are now tier-aware: a finish records to its
+  tier's board + local best (`snowgliderBestTime_<tier>`, Blue == the original key), the
+  result screen + HUD show that tier's best, the leaderboard view (in-game + start screen)
+  shows that tier's board, and sign-in backfills every tier's local best. All paths default
+  to Blue, so existing callers/tests are byte-for-byte unchanged.
+- **firestore.rules** extends the user-doc validation to the new best-time fields (same
+  plausibility floor + no-downgrade per field) and adds matching rules for the sibling
+  leaderboard collections; the score-limits sync test is unaffected (one shared floor for
+  now). **`scripts/purge-implausible-scores.mjs`** sweeps all three boards + all three
+  user fields. Floors are a single 18 s for every tier until D3 makes them play differently.
+- Covered by the rules emulator suite (per-tier fields + sibling boards), the scores mock
+  suite (per-tier write/read, Blue back-compat), and the difficulty unit tests.
+
 ### Difficulty tiers (stage 3 / D1): per-tier local ghost + splits keys
 - **`course.ts` now keys the best splits and best-run ghost per difficulty tier**
   (`snowgliderBestSplits_<tier>`, `snowgliderGhost_<tier>`), read/written through the

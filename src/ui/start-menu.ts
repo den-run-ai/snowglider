@@ -8,7 +8,7 @@
 // under the current non-strict config. The `../audio.js` import specifier is
 // unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
-import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } from '../difficulty.js';
+import { DIFFICULTIES, getDifficultyConfig, readStoredDifficulty, storeDifficulty, type Difficulty } from '../difficulty.js';
 
 (function () {
   let startGamePending = false;
@@ -88,7 +88,8 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
       return;
     }
 
-    Promise.resolve(scores.getLeaderboard())
+    // Show the board for the currently-selected tier (the picker is the tier toggle).
+    Promise.resolve(scores.getLeaderboard(selectedDifficulty))
       .then((list) => {
         // Discard a superseded read: if another refresh ran after this one (e.g.
         // the player logged out while this signed-in read was in flight), don't
@@ -108,7 +109,8 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
         }
 
         const me = authState.user;
-        let html = '<h3>🏆 Global Top Times</h3><table><tr><th>#</th><th>Player</th><th>Time</th></tr>';
+        const tierLabel = getDifficultyConfig(selectedDifficulty).label;
+        let html = `<h3>🏆 ${tierLabel} Top Times</h3><table><tr><th>#</th><th>Player</th><th>Time</th></tr>`;
         list.slice(0, 5).forEach((entry, index) => {
           const isMe = me && entry.userId === me.uid;
           const name = isMe ? (me.displayName || 'You') : `Player ${index + 1}`;
@@ -223,6 +225,7 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
     selectedDifficulty = nextId;
     storeDifficulty(selectedDifficulty);
     applyDifficultySelection();
+    refreshStartAccountUI();
     const el = document.querySelector('#difficultyPicker [data-difficulty="' + selectedDifficulty + '"]');
     if (el && typeof (el as HTMLElement).focus === 'function') (el as HTMLElement).focus();
   }
@@ -261,6 +264,8 @@ import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } 
         selectedDifficulty = cfg.id;
         storeDifficulty(cfg.id);
         applyDifficultySelection();
+        // Swap the start-screen leaderboard preview to the newly-selected tier's board.
+        refreshStartAccountUI();
       });
       opt.addEventListener('keydown', function (e) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {

@@ -44,6 +44,16 @@ import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-au
 // floor was measured empirically (issue #229, PR A); firestore.rules duplicates the same
 // literals because rules can't import JS, and a drift test keeps them in lockstep.
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from './score-limits.js';
+// Per-tier scoring storage names. Blue maps to the original un-suffixed names, so the
+// default-tier paths/fields/keys (and every existing caller/test that passes no tier)
+// are byte-for-byte unchanged.
+import {
+  DEFAULT_DIFFICULTY,
+  localBestTimeKey,
+  leaderboardCollectionName,
+  userBestTimeField,
+  type Difficulty
+} from './difficulty.js';
 
 // Module state
 let firestore: Firestore | null = null; // Local cache of firestore instance, updated by initializeScores
@@ -57,8 +67,9 @@ function isValidScoreTime(time: number) {
     time <= MAX_VALID_SCORE_TIME;
 }
 
-function readLocalBestTime() {
-  const localBestTimeStr = localStorage.getItem('snowgliderBestTime');
+function readLocalBestTime(tier: Difficulty = DEFAULT_DIFFICULTY) {
+  const key = localBestTimeKey(tier);
+  const localBestTimeStr = localStorage.getItem(key);
   if (!localBestTimeStr) {
     return null;
   }
@@ -69,7 +80,7 @@ function readLocalBestTime() {
   }
 
   console.warn("Ignoring invalid local best time:", localBestTimeStr);
-  localStorage.removeItem('snowgliderBestTime');
+  localStorage.removeItem(key);
   return null;
 }
 
@@ -132,7 +143,7 @@ function getActiveUser() {
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
-function updateUserBestTime(userId: string, time: number) {
+function updateUserBestTime(userId: string, time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
   // Guard clauses
   if (!firestore) {
     console.log("Skipping best time update (Firestore unavailable).");
@@ -147,6 +158,9 @@ function updateUserBestTime(userId: string, time: number) {
     return;
   }
 
+  // Per-tier best-time field on the user doc (Blue == 'bestTime', unchanged).
+  const bestField = userBestTimeField(tier);
+
   try {
     const userDocRef = doc(firestore, 'users', userId);
 
@@ -158,9 +172,9 @@ function updateUserBestTime(userId: string, time: number) {
     // syncUserData reconciliation in auth.js, re-applies the authoritative best.
     getDoc(userDocRef)
       .then(docSnap => {
-        const storedBest = docSnap.exists() ? docSnap.data().bestTime : null;
+        const storedBest = docSnap.exists() ? docSnap.data()[bestField] : null;
         const hasStoredBest = isValidScoreTime(storedBest);
-        if (storedBest !== null && !hasStoredBest) {
+        if (storedBest !== null && storedBest !== undefined && !hasStoredBest) {
           console.warn(`Ignoring invalid stored best for user ${userId}:`, storedBest);
         }
         // The authoritative best is the better of the stored value and this run. This is
@@ -170,9 +184,9 @@ function updateUserBestTime(userId: string, time: number) {
 
         let userWrite;
         if (!hasStoredBest || time <= storedBest) {
-          console.log(`Updating best time for user ${userId} to ${time}`);
+          console.log(`Updating best time for user ${userId} to ${time} (${bestField})`);
           userWrite = setDoc(userDocRef, {
-            bestTime: time,
+            [bestField]: time,
             updatedAt: serverTimestamp() // Track when the best time was updated
           }, { merge: true });
         } else {
@@ -194,7 +208,7 @@ function updateUserBestTime(userId: string, time: number) {
         // queue and is not awaited by the surrounding chain (see comment above).
         void userWrite
           .catch(error => console.warn("Best time write did not complete:", error))
-          .then(() => updateLeaderboard(userId, authoritativeBest));
+          .then(() => updateLeaderboard(userId, authoritativeBest, tier));
       })
       .catch(error => {
         // getDoc can reject when offline with nothing cached (or on a permission/rules
@@ -217,7 +231,7 @@ function updateUserBestTime(userId: string, time: number) {
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
-function updateLeaderboard(userId: string, time: number) {
+function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
   if (!isValidScoreTime(time)) {
     console.warn("Skipping leaderboard update (Invalid time value):", time);
     return;
@@ -242,8 +256,9 @@ function updateLeaderboard(userId: string, time: number) {
   try {
     // Reference to the user document (used as a foreign key in leaderboard)
     const userDocRef = doc(firestore, 'users', userId);
-    // Use the user's UID as the document ID in the leaderboard collection
-    const leaderboardDocRef = doc(firestore, 'leaderboard', userId);
+    // Use the user's UID as the document ID in the tier's leaderboard collection
+    // (Blue == 'leaderboard', unchanged).
+    const leaderboardDocRef = doc(firestore, leaderboardCollectionName(tier), userId);
 
     // Read the current entry, then write only when this time improves (or creates) it,
     // so a slower run can never downgrade a faster board entry.
@@ -288,7 +303,7 @@ interface LeaderboardScore {
   userRef: any;       // Firestore DocumentReference to the user doc (untyped DocumentData)
 }
 
-function getLeaderboard(): Promise<LeaderboardScore[]> {
+function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<LeaderboardScore[]> {
   // Check AuthModule first for availability
    if (!window.AuthModule?.isFirebaseAvailable?.().firestore) {
     console.log("Cannot get leaderboard (Firestore unavailable according to AuthModule).");
@@ -306,7 +321,7 @@ function getLeaderboard(): Promise<LeaderboardScore[]> {
   try {
     // firestore is non-null on the normal path; if AuthModule lied (warned above)
     // this best-effort call throws and is handled by the surrounding catch.
-    const leaderboardRef = collection(firestore!, 'leaderboard');
+    const leaderboardRef = collection(firestore!, leaderboardCollectionName(tier));
     // Query for top 10 scores, ordered by time ascending
     const q = query(
       leaderboardRef,
@@ -357,7 +372,7 @@ function getLeaderboard(): Promise<LeaderboardScore[]> {
 /**
  * Display leaderboard in game over overlay
  */
-function displayLeaderboard() {
+function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
   const leaderboardElement = document.getElementById('leaderboard');
   if (!leaderboardElement) return;
 
@@ -381,7 +396,7 @@ function displayLeaderboard() {
     }
 
     console.log("attemptFetchAndRender: Firestore available, fetching leaderboard...");
-    getLeaderboard()
+    getLeaderboard(tier)
       .then(scores => {
         // Check availability *after* the async call, primarily the local instance
         // as getLeaderboard's catch block should have nulled it on error.
@@ -537,7 +552,7 @@ function displayLeaderboard() {
  * Record a completed run score
  * @param {number} time - Run completion time in seconds
  */
-function recordScore(time: number) {
+function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
   if (!isValidScoreTime(time)) {
     console.warn("Skipping score record (Invalid time value):", time);
     return;
@@ -545,11 +560,11 @@ function recordScore(time: number) {
 
   // Always store locally first as a fallback and for immediate personal best tracking
   try {
-    const localBestTime = readLocalBestTime();
+    const localBestTime = readLocalBestTime(tier);
     const isNewLocalBest = localBestTime === null || time < localBestTime;
 
     if (isNewLocalBest) {
-      localStorage.setItem('snowgliderBestTime', time.toString());
+      localStorage.setItem(localBestTimeKey(tier), time.toString());
       console.log("New local best time recorded:", time);
     } else {
       console.log("Score recorded, but not a new local best time:", time);
@@ -582,9 +597,9 @@ function recordScore(time: number) {
     // is better than (or equal to) what is already stored, so syncing on every finish is
     // safe and never downgrades a faster stored time.
     if (userAtTimeOfRecord && firestore) {
-      console.log("Attempting to sync best time to Firestore:", effectiveBestTime);
+      console.log("Attempting to sync best time to Firestore:", effectiveBestTime, `(${tier})`);
       // Use the snapshot of user data captured at function start time
-      updateUserBestTime(userAtTimeOfRecord.uid, effectiveBestTime); // This function handles leaderboard update too
+      updateUserBestTime(userAtTimeOfRecord.uid, effectiveBestTime, tier); // This function handles leaderboard update too
 
       // Track new best time in Analytics (if available)
       if (isNewLocalBest && analytics) {
@@ -609,7 +624,7 @@ function recordScore(time: number) {
     // Attempt to save locally even if other parts fail
     try {
       if (isValidScoreTime(time)) {
-        localStorage.setItem('snowgliderBestTime', time.toString());
+        localStorage.setItem(localBestTimeKey(tier), time.toString());
       }
     } catch (e) {
       console.error("LocalStorage error during fallback save:", e);

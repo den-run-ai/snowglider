@@ -44,10 +44,13 @@
 /** @typedef {{ resolve?: any, reject?: any } | null} PopupResult */
 
 // ---- shared, test-controllable state ----
-/** @type {{ users: Map<string, DocData>, leaderboard: Map<string, DocData> }} */
+/** @type {{ users: Map<string, DocData>, leaderboard: Map<string, DocData>, leaderboard_bunny: Map<string, DocData>, leaderboard_black: Map<string, DocData> }} */
 export const db = {
   users: new Map(),
-  leaderboard: new Map()
+  leaderboard: new Map(),
+  // Per-difficulty-tier sibling boards (Blue uses `leaderboard`; see src/difficulty.ts).
+  leaderboard_bunny: new Map(),
+  leaderboard_black: new Map()
 };
 
 /**
@@ -148,6 +151,8 @@ function writeDoc(ref, data, options) {
 export function reset() {
   db.users.clear();
   db.leaderboard.clear();
+  db.leaderboard_bunny.clear();
+  db.leaderboard_black.clear();
   calls.getDoc = [];
   calls.setDoc = [];
   calls.getDocs = [];
