@@ -53,9 +53,10 @@ async function main() {
 
   console.log('\n--- contact-shadows: edge cases ---');
   check('no obstacles -> returns null (no empty draw)', addContactShadows(new THREE.Scene(), [], [], getH) === null);
-  check('headless build has no texture map (document-guarded), did not throw',
-    mesh.material.map === null);
-  check('material is a soft transparent black overlay', mesh.material.transparent === true && mesh.material.depthWrite === false);
+  // mesh.material is typed Material | Material[]; this build uses a single MeshBasicMaterial.
+  const mat = /** @type {any} */ (mesh.material);
+  check('headless build has no texture map (document-guarded), did not throw', mat.map === null);
+  check('material is a soft transparent black overlay', mat.transparent === true && mat.depthWrite === false);
 
   console.log(`\ncontact-shadows: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
