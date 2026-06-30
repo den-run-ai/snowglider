@@ -788,12 +788,73 @@ canvas { display: block; }
 }
 
 .difficulty-option.selected {
+  /* Neutral fallback; the per-tier rules below override this for every known tier. */
   border-color: #4CAF50;
   background-color: rgba(76, 175, 80, 0.22);
 }
 
 .difficulty-option .difficulty-name { font-size: 15px; font-weight: 700; }
 .difficulty-option .difficulty-blurb { font-size: 12px; color: #b9c4d0; }
+
+/* Per-tier ski-trail-rating colors (● green / ■ blue / ◆ black). Keyed on the shared
+   [data-difficulty] attribute so BOTH the start-screen and finish-screen pickers pick
+   them up. The label/glyph is always tinted (so the color reads even when unselected);
+   the selected state deepens the border + fill in the same hue. The Black tier uses a
+   light label + a near-black selected fill so the black diamond stays legible on the
+   dark overlay rather than disappearing into it. */
+.difficulty-option[data-difficulty="bunny"] .difficulty-name { color: #5dd35d; }
+.difficulty-option[data-difficulty="blue"]  .difficulty-name { color: #5aa9f0; }
+.difficulty-option[data-difficulty="black"] .difficulty-name { color: #ccd5e1; }
+
+.difficulty-option[data-difficulty="bunny"].selected {
+  border-color: #4CAF50;
+  background-color: rgba(76, 175, 80, 0.22);
+}
+.difficulty-option[data-difficulty="blue"].selected {
+  border-color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.24);
+}
+.difficulty-option[data-difficulty="black"].selected {
+  border-color: #e6ebf2;
+  background-color: rgba(12, 16, 24, 0.6);
+}
+
+/* Finish/game-over overlay difficulty picker: same option styling as the start screen
+   (via the shared classes above), laid out to match. Lets the player switch tier and
+   replay without reloading. */
+#finishDifficultyPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 280px;
+  max-width: 86vw;
+  margin: 2px 0 18px;
+}
+
+#finishDifficultyPicker .difficulty-heading {
+  font-size: 12px;
+  color: #cfd8e3;
+  text-align: center;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Compact on the finish screen: drop the per-tier blurbs (already learned on the start
+   screen) so adding the picker above RESTART keeps the overlay short. */
+#finishDifficultyPicker .difficulty-option { padding: 6px 12px; }
+#finishDifficultyPicker .difficulty-blurb { display: none; }
+
+/* Keep the game-over overlay escapable. The result panel + leaderboard + this difficulty
+   picker can exceed the viewport on short/mobile screens; overflow-y:auto makes it scroll.
+   This pairs with `justify-content: safe center` (set inline in game/scene-setup.ts): plain
+   `center` + scrolling can strand overflow above the scroll origin, leaving GAME OVER or
+   RESTART unreachable, whereas `safe center` falls back to top-alignment when it overflows
+   so the whole panel scrolls into reach. flex-shrink:0 keeps RESTART from being squeezed. */
+#gameOverOverlay {
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+#gameOverOverlay button { flex-shrink: 0; }
 
 #startMenu {
   display: flex;

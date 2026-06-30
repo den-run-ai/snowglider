@@ -97,13 +97,19 @@ export interface ResultOverlayDeps {
   // The run's difficulty tier, so the score/best-time/leaderboard go to that tier.
   // Omitted => falls back to the persisted pick (readStoredDifficulty).
   getDifficulty?: () => Difficulty;
+  // Optional finish-screen difficulty picker (lets the player switch tier and replay
+  // without reloading). When present, showGameOver keeps it positioned directly above
+  // the restart button — the result panel/leaderboard get inserted above it during the
+  // call — and reflects the tier just played via setPickerTier.
+  finishDifficultyPicker?: HTMLElement;
+  setPickerTier?: (tier: Difficulty) => void;
 }
 
 // Build the showGameOver(reason) handler bound to the injected overlay/state. The
 // body is the original snowglider.ts implementation verbatim (deps are destructured
 // under the same names it used as module-locals).
 export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) => void {
-  const { state, gameOverOverlay, gameOverDetail, restartButton, bestTimeDisplay, onCrash, getDifficulty } = deps;
+  const { state, gameOverOverlay, gameOverDetail, restartButton, bestTimeDisplay, onCrash, getDifficulty, finishDifficultyPicker, setPickerTier } = deps;
   const FINISH_REASON = "You reached the end of the slope!";
 
   return function showGameOver(reason: string) {
@@ -263,14 +269,27 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // Get the leaderboard element
       const leaderboardElement = document.getElementById('leaderboard');
 
-      // Add to game over overlay if not already there
-      if (leaderboardElement && leaderboardElement.parentNode !== gameOverOverlay) {
-        gameOverOverlay.insertBefore(leaderboardElement, restartButton);
+      if (leaderboardElement) {
+        // Add to game over overlay if not already there
+        if (leaderboardElement.parentNode !== gameOverOverlay) {
+          gameOverOverlay.insertBefore(leaderboardElement, restartButton);
+        }
+        // Always re-show it on a ranked finish — the element may already be parented but
+        // hidden by the else-branch below from a prior unranked replay (Blue → Black →
+        // Blue would otherwise refresh the board's contents while leaving it display:none).
         leaderboardElement.style.display = 'block';
       }
 
       // Display leaderboard for the run's tier
       window.AuthModule.displayLeaderboard(tier);
+    } else {
+      // No global board for this result (unranked tier, or signed out): hide any
+      // leaderboard a previous RANKED finish left visible in the overlay. Without this,
+      // the finish-screen picker lets a signed-in player finish ranked Blue (board shown),
+      // switch to unranked Bunny/Black, and replay — and the stale Blue board would still
+      // show on that unranked finish even though the tier has no global board (Codex #255).
+      const leaderboardElement = document.getElementById('leaderboard');
+      if (leaderboardElement) leaderboardElement.style.display = 'none';
     }
 
     // Build the result screen (splits + medal) on a finish; otherwise just clear
@@ -291,6 +310,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       }
     }
     if (EffectsModule) EffectsModule.reset();
+
+    // Keep the difficulty picker directly above RESTART (the result panel/leaderboard
+    // were just inserted before the button above) and reflecting the tier just played,
+    // so "Play again on" defaults to the current tier and the player can switch + replay.
+    if (finishDifficultyPicker) {
+      if (setPickerTier) setPickerTier(tier);
+      gameOverOverlay.insertBefore(finishDifficultyPicker, restartButton);
+    }
 
     gameOverOverlay.style.display = 'flex';
   };

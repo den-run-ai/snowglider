@@ -127,6 +127,26 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   tier-gated follow-up because it would cross that determinism boundary. Docs: PHYSICS.md
   §11 + constants, ARCHITECTURE.md §3/§5.
 
+### Difficulty: switch tier at the finish + colored pickers
+- **Change difficulty on the game-over/finish screen and replay without reloading.** A new
+  "Play again on" picker (●Bunny / ■Blue / ◆Black) sits above RESTART; picking a tier sets
+  the run difficulty, persists it, and refreshes the per-tier best so the next RESTART starts
+  on the new tier. The physics kernel already reads `state.difficulty` live each frame and the
+  result/leaderboard read it via `getDifficulty()`, so no page reload (and no terrain rebuild,
+  since terrain isn't per-tier yet) is needed.
+- **The picker is now a shared widget** (`src/ui/difficulty-picker.ts`): the start screen and
+  the finish screen build from the same factory, so the DOM/ARIA radiogroup + roving-tabindex
+  keyboard contract can't drift. `start-menu.ts`'s inline picker logic was replaced by a call
+  into it (behavior unchanged).
+- **Tiers are colored by ski-trail rating on both screens**: green Bunny / blue Blue / black
+  (rendered as a legible light diamond on the dark overlay) Black, reinforcing the ●■◆ glyphs
+  and the Slope-HUD's green/blue/black language. The finish picker drops the blurbs to stay
+  compact, and `#gameOverOverlay` gains `overflow-y:auto` so the added height can't clip RESTART
+  off-screen (complements the deeper safe-centering fix in PR #251).
+- Covered by a new `difficulty-picker` unit suite (build / click / arrow keys / `setSelected` /
+  guards) and a result-overlay test that the finish picker is re-anchored above RESTART and
+  synced to the tier just played.
+
 ### Difficulty tiers (stage 5 / D3.1): felt per-tier ski feel + unranked Bunny/Black
 - **The kernel now uses the run's tier tuning.** The main loop passes
   `getDifficultyConfig(state.difficulty).ski` into `Physics.stepPlayer`, so Bunny feels

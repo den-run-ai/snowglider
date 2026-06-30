@@ -39,10 +39,11 @@ import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
 import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
-import { resolveActiveDifficulty } from './difficulty.js';
+import { resolveActiveDifficulty, readStoredDifficulty, storeDifficulty } from './difficulty.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
+import { buildDifficultyPicker } from './ui/difficulty-picker.js';
 import { setupScene } from './game/scene-setup.js';
 import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createLifecycle } from './game/lifecycle.js';
@@ -112,6 +113,32 @@ bestTimeDisplay.style.fontSize = '20px';
 bestTimeDisplay.style.marginBottom = '20px';
 gameOverOverlay.insertBefore(bestTimeDisplay, restartButton);
 
+// --- Finish-screen difficulty picker (switch tier + replay, no page reload) ---
+// The physics kernel reads the run's tuning live from `state.difficulty` every frame
+// (game/main-loop.ts), and showGameOver / the leaderboard read the tier via
+// getDifficulty(), so flipping `state.difficulty` here fully retargets the NEXT run
+// that the RESTART button kicks off. We also persist the pick and refresh
+// `state.bestTime` to the chosen tier's stored best, so the next run's record check /
+// result delta compare against the right baseline. showGameOver keeps this element
+// positioned directly above RESTART and synced to the tier just played.
+const finishDifficultyPicker = document.createElement('div');
+finishDifficultyPicker.id = 'finishDifficultyPicker';
+finishDifficultyPicker.setAttribute('role', 'radiogroup');
+finishDifficultyPicker.setAttribute('aria-label', 'Difficulty for your next run');
+const finishPickerHandle = buildDifficultyPicker(finishDifficultyPicker, {
+  // state.difficulty is only set once a run starts; seed from the persisted pick.
+  // showGameOver re-syncs this to the run's actual tier each time it's shown.
+  initial: readStoredDifficulty(),
+  heading: 'Play again on',
+  onChange: (id) => {
+    state.difficulty = id;
+    storeDifficulty(id);
+    // Compare the next run's record/result against the chosen tier's own best.
+    state.bestTime = readStoredBestTime(id);
+  },
+});
+gameOverOverlay.insertBefore(finishDifficultyPicker, restartButton);
+
 // --- Initial Camera Setup ---
 // Initialize camera with the snowman's position and rotation
 cameraManager.initialize(
@@ -155,6 +182,10 @@ const showGameOver = createShowGameOver({
   onCrash: triggerCrashShatter,
   // Route the finish score/best-time/leaderboard to the run's tier.
   getDifficulty: () => state.difficulty,
+  // Keep the finish-screen tier picker directly above RESTART and reflecting the tier
+  // just played, each time the overlay is shown.
+  finishDifficultyPicker,
+  setPickerTier: (tier) => finishPickerHandle.setSelected(tier),
 });
 
 // --- Per-frame run loop (see game/main-loop.ts) ---

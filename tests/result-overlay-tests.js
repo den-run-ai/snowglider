@@ -143,6 +143,53 @@ async function main() {
       document.getElementById('leaderboard').parentNode === deps.gameOverOverlay && leaderboardShown === 1);
   }
 
+  // --- Finish-screen difficulty picker: kept directly above RESTART + synced to tier ---
+  // The picker lets the player switch tier and replay without reloading; showGameOver
+  // must (a) re-anchor it immediately above the restart button even after the
+  // leaderboard/result panel get inserted, and (b) reflect the tier just played.
+  {
+    leaderboardShown = 0;
+    window.AuthModule.getCurrentUser = () => ({ uid: 'u1' });
+    const deps = makeDeps({ bestTime: 1, getDifficulty: () => 'blue' });
+    // A stand-in picker element inserted ABOVE the restart button (as snowglider.ts does);
+    // the later leaderboard insertion would otherwise leave it stranded above the board.
+    const picker = document.createElement('div');
+    picker.id = 'finishDifficultyPicker';
+    deps.gameOverOverlay.insertBefore(picker, deps.restartButton);
+    let syncedTier = null;
+    deps.finishDifficultyPicker = picker;
+    deps.setPickerTier = (t) => { syncedTier = t; };
+    createShowGameOver(deps)(FINISH);
+    check('finish picker is re-anchored directly above the restart button',
+      picker.nextElementSibling === deps.restartButton && picker.parentNode === deps.gameOverOverlay);
+    check('finish picker is synced to the tier just played', syncedTier === 'blue');
+  }
+
+  // --- Leaderboard visibility tracks the tier across mid-session switches (Codex #255) ---
+  // The finish picker lets a signed-in player swap tiers between runs on the SAME overlay.
+  // Ranked Blue shows the board; unranked Bunny/Black must hide it; returning to Blue must
+  // re-show it — the element stays parented, so display must be re-set, not only on first
+  // insert (the Blue → Black → Blue round-trip is the regression Codex flagged).
+  {
+    window.AuthModule.getCurrentUser = () => ({ uid: 'u1' });
+    const blueDeps = makeDeps({ bestTime: 1, getDifficulty: () => 'blue' });
+    const lb = document.getElementById('leaderboard');
+    // Reuse the SAME overlay DOM across all three finishes (no makeDeps reset between them);
+    // the casts pin the literal tier to the Difficulty union for typecheck:tests.
+    const blackDeps = { ...blueDeps, getDifficulty: /** @type {() => 'black'} */ (() => 'black') };
+
+    createShowGameOver(blueDeps)(FINISH);
+    check('ranked Blue finish shows the leaderboard',
+      lb.style.display === 'block' && lb.parentNode === blueDeps.gameOverOverlay);
+
+    createShowGameOver(blackDeps)(FINISH);
+    check('unranked Black replay hides the stale leaderboard', lb.style.display === 'none');
+
+    createShowGameOver(blueDeps)(FINISH);
+    check('returning to ranked Blue re-shows the already-parented leaderboard',
+      lb.style.display === 'block');
+  }
+
   // --- Finish + valid time, no AuthModule.recordScore -> localStorage fallback best ---
   {
     delete window.AuthModule;
