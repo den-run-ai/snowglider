@@ -297,8 +297,17 @@ function buildModal(): HTMLDivElement {
   const close = (): void => { overlay.style.display = 'none'; error.style.display = 'none'; };
   cancel.addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && overlay.style.display !== 'none') close();
+  // Keep modal keystrokes from reaching start-menu.ts's document-level keydown
+  // handler. That handler starts the run on Enter/Space whenever #startGameContainer
+  // is visible (it is — this modal only overlays it), so without this a Space or
+  // Enter typed in the textarea would launch the game and hide the start screen
+  // mid-report. The modal's focusable controls are all descendants of `overlay`, so
+  // stopping propagation here intercepts every in-modal keystroke before it bubbles
+  // to `document`; we don't preventDefault, so typing (space/newline) still works.
+  // Escape closes the modal.
+  overlay.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') close();
   });
 
   submit.addEventListener('click', () => {
