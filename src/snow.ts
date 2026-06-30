@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { Mountains } from './mountains.js';
 import { Trees } from './trees.js';
+import { Wind } from './wind.js';
 
 /** Minimal positional shape the snow systems read from the player. */
 interface Vec3Like {
@@ -49,6 +50,28 @@ const snowflakeCount = 1000;
 const snowflakeSpread = 100; // Spread area around player
 const snowflakeHeight = 50; // Height above player
 const snowflakeFallSpeed = 5;
+
+// --- Wind drift (issue #253) ---
+// The shared wind field (wind.ts) blows the falling snow sideways and pushes the ski
+// splash downwind. Cosmetic only — like the rest of this module it never touches the
+// player. How strongly a particle drifts is its WIND FACTOR: lighter (smaller) flakes
+// are carried further, so the snowfall reads as slanted rather than rigidly vertical.
+const SPLASH_WIND = 0.5; // fraction of the wind vector the spray is advected by
+
+/** Honour prefers-reduced-motion (same gating as Flex/Sky/snowtracks): the snowfall
+ *  falls straight and the splash stays put when the user asks for calmer motion. */
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** The wind vector the snow systems should drift by this frame — the live field, or a
+ *  zero vector under reduced motion so everything falls/sprays straight. */
+function windDrift(): { x: number; z: number } {
+  if (prefersReducedMotion()) return { x: 0, z: 0 };
+  return Wind.vector();
+}
 
 // Snowman code moved to snowman.js
 
@@ -82,6 +105,12 @@ function createSnowflakes(scene: THREE.Scene) {
     // More varied size range for realistic snow
     const size = 0.1 + Math.random() * 0.4; // Wider range for more varied flakes
     snowflake.scale.set(size, size, size);
+
+    // Wind susceptibility (issue #253): lighter (smaller) flakes are carried further by
+    // the wind, so the snowfall slants instead of falling rigidly straight. sizeNorm 0
+    // (smallest) => 0.40, sizeNorm 1 (largest) => 0.12.
+    const sizeNorm = (size - 0.1) / 0.4; // 0..1 across the size range
+    snowflake.userData.windFactor = 0.12 + 0.28 * (1 - sizeNorm);
     
     // Random positions in a box above the player
     resetSnowflakePosition(snowflake, { x: 0, y: 0, z: -40 });
@@ -126,15 +155,24 @@ function resetSnowflakePosition(snowflake: THREE.Sprite, playerPos: Vec3Like) {
 }
 
 function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scene) {
+  // Sample the shared wind once per frame (zero under reduced motion); each flake drifts
+  // by it scaled by its own wind factor, so the whole snowfall leans the same way (#253).
+  const wind = windDrift();
   snowflakes.forEach(snowflake => {
     // Apply falling movement
     snowflake.position.y -= snowflake.userData.speed * delta;
-    
+
     // Add some gentle sideways wobble for realism
     snowflake.userData.wobblePos += snowflake.userData.wobbleSpeed * delta;
     snowflake.position.x += Math.sin(snowflake.userData.wobblePos) * snowflake.userData.wobble;
     // Add slight z-axis wobble too for more 3D movement
     snowflake.position.z += Math.cos(snowflake.userData.wobblePos * 0.7) * snowflake.userData.wobble * 0.5;
+
+    // Wind drift: blow the flake downwind, lighter flakes further (windFactor). Falls back
+    // to 1 for any flake created before this field existed (defensive).
+    const windFactor = snowflake.userData.windFactor ?? 1;
+    snowflake.position.x += wind.x * windFactor * delta;
+    snowflake.position.z += wind.z * windFactor * delta;
     
     // Add rotation if this flake has rotation speed
     if (snowflake.userData.rotationSpeed) {
@@ -263,7 +301,11 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
   
   // Calculate current speed
   const speed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
-  
+
+  // Wind advection for the spray (issue #253): the kicked-up snow blows downwind as it
+  // hangs in the air. Sampled once per frame; zero under reduced motion.
+  const wind = windDrift();
+
   // Update existing active particles
   splash.particles.forEach(particle => {
     if (!particle.userData.active) return;
@@ -282,7 +324,11 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
     particle.position.x += particle.userData.xSpeed * delta;
     particle.position.y += particle.userData.ySpeed * delta;
     particle.position.z += particle.userData.zSpeed * delta;
-    
+
+    // Drift the airborne spray downwind (#253).
+    particle.position.x += wind.x * SPLASH_WIND * delta;
+    particle.position.z += wind.z * SPLASH_WIND * delta;
+
     // Apply gravity with slight random variation
     particle.userData.ySpeed -= (11 + Math.random() * 2) * delta;
     

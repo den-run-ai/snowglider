@@ -86,6 +86,25 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   new `tests/course-line-tests.js` (`npm run test:course-line`) plus extended
   `difficulty-tests.js` line-block assertions. (Terrain corridor, gates, obstacles, the
   per-tier avalanche, and the ranked flip follow in later D3.2 sub-PRs.)
+### Wind — shared wind field + snow drift (#253, Phase A)
+- **New `src/wind.ts`: one deterministic wind field for the whole scene.** Until now
+  "wind" was faked per-subsystem (the `sfx.ts` bed is speed-scaled only; the #172 scarf
+  swings on a fixed sine). `Wind` is a single horizontal vector `W(t)` — a slowly
+  wandering prevailing direction × a gusting magnitude — that consumers read so they all
+  agree on the same gust at the same instant. It is a **pure function of an internal clock**
+  (no `Math.random()`, no `Date.now()`, no `three`/DOM import), so it unit-tests headless
+  and keeps screenshots reproducible. Advanced once per render frame (`Wind.update`) and
+  rewound each run (`Wind.reset`); `configure()` can swap the profile for a future
+  calm-vs-gusty difficulty tier. New `tests/wind-tests.js` (21 checks).
+- **Snow drifts downwind (`snow.ts`).** Falling flakes blow sideways scaled by a per-flake
+  `windFactor` (lighter flakes carried further, so the snowfall slants), and the ski splash
+  is advected downwind. Honours `prefers-reduced-motion` (falls/sprays straight when calm).
+- **Cosmetic-only / invariant-safe.** Nothing here touches `pos`/`velocity`, so the
+  no-input coasting path stays **byte-identical** to the frozen baseline (`test:verify`
+  reports `max abs diff 0.000e+0`) — **no baseline regeneration**. A wind *force* on the
+  skier (gusts that push the player) is deliberately deferred to a separate, opt-in
+  tier-gated follow-up because it would cross that determinism boundary. Docs: PHYSICS.md
+  §11 + constants, ARCHITECTURE.md §3/§5.
 
 ### Difficulty tiers (stage 5 / D3.1): felt per-tier ski feel + unranked Bunny/Black
 - **The kernel now uses the run's tier tuning.** The main loop passes

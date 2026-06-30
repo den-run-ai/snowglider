@@ -596,3 +596,33 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Avalanche count / gravity / bounce / friction | 120 / 18 / 0.25 / 0.98 | `avalanche.js` |
 | Course length / checkpoints | 180 / `-60,-105,-150` | `course.js` |
 | FOV range / ref speed | 75–88 / 28 | `effects.js` |
+| Wind base / gust range / prevailing angle / gust rate | 2.4 / 4.8 / 0.35 rad / 0.7 rad/s | `wind.js` |
+
+---
+
+## 11. Wind (cosmetic)
+
+Implemented in [`src/wind.ts`](src/wind.ts) (`Wind`), advanced once per render frame from
+the main loop. **Wind is cosmetic — it never touches `pos`/`velocity`.** It exists so the
+snowfall, the scarf, the trees, and the audio bed all read *one* agreed-upon wind instead
+of each faking its own (issue #253).
+
+- **The field.** A single global horizontal vector `W(t)`: a prevailing direction that
+  wanders slowly around `prevailingAngle`, times a magnitude `base + gustRange·gust(t)`.
+  `gust(t) ∈ [0,1]` is a deterministic layered sum of sines (three octaves whose
+  amplitudes sum to 1). Defaults in the constants table above (magnitude ≈ 2.4–7.2).
+- **Deterministic.** `W` is a pure function of an internal clock (`Wind.update(dt)`
+  advances it; `Wind.reset()` rewinds to `t = 0` each run) — **no `Math.random()` / no
+  `Date.now()`** — so screenshots are reproducible and, if a wind *force* is ever added to
+  the player, the invariant harness can inject a fixed wind. `configure({...})` swaps the
+  profile (e.g. a calmer vs. gustier difficulty tier).
+- **Consumers.** Snow drift (`snow.ts`: flakes blow downwind scaled by a per-flake
+  `windFactor` — lighter flakes further — and the ski splash is advected by `SPLASH_WIND`).
+  *Follow-ups:* scarf streaming (`snowman-flex.ts`), tree sway (`mountains/trees.ts`),
+  audio bed (`sfx.ts`). Every consumer honours `prefers-reduced-motion` (calm) itself,
+  like `Flex`/`Sky`.
+- **Why this is invariant-safe.** Because no consumer writes `pos`/`velocity`, the
+  no-input coasting path stays byte-identical to the frozen baseline (§6) — adding wind
+  needed **no** baseline regeneration. A wind *force* on the skier would be the opposite: a
+  deliberate §6 physics change requiring a baseline regen + a new harness gate, which is
+  why it is deferred to a separate, opt-in (tier-gated) follow-up.
