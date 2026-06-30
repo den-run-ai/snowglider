@@ -58,6 +58,16 @@ async function main() {
   check('headless build has no texture map (document-guarded), did not throw', mat.map === null);
   check('material is a soft transparent black overlay', mat.transparent === true && mat.depthWrite === false);
 
+  // The decal builder must be fed EVERY rendered rock, not just the collision subset
+  // (Codex review #243): addRocks fills the optional out-array with all rendered rocks.
+  console.log('\n--- contact-shadows: all rendered rocks feed the decals ---');
+  const { addRocks } = await import('../src/mountains/rocks.ts');
+  const rockScene = new THREE.Scene();
+  const allRendered = [];
+  const collision = addRocks(rockScene, allRendered);
+  check('addRocks fills the out-array with rendered rocks', allRendered.length > 0);
+  check('all-rendered is a superset of the collision-hazard subset', allRendered.length >= collision.length);
+
   console.log(`\ncontact-shadows: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
