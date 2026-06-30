@@ -51,6 +51,11 @@ const flush = () => new Promise(r => setTimeout(r, 0));
 function keydown(key) {
   document.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
 }
+// A held-key auto-repeat keydown (event.repeat === true), as the OS/browser emit while
+// a key is held down.
+function keydownRepeat(key) {
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, repeat: true }));
+}
 function keyup(key) {
   document.dispatchEvent(new window.KeyboardEvent('keyup', { key, bubbles: true }));
 }
@@ -98,9 +103,19 @@ async function main() {
   let cameraToggles = 0;
   window.toggleCameraView = () => { cameraToggles++; };
   keydown('v');
-  // controls.ts registers the keydown handler on BOTH window and document ("for
-  // better coverage"), so a bubbling keydown legitimately fires it on each.
-  check('"v" key invokes window.toggleCameraView', cameraToggles >= 1);
+  // `V` is edge-triggered: each physical keypress must toggle the camera EXACTLY once.
+  // controls.ts registers the keydown handler on `window` only, so the bubbling keydown
+  // fires it a single time. (It used to be registered on BOTH window and document, which
+  // fired toggleCameraView twice per press — the camera flipped and immediately flipped
+  // back, so `V` looked dead. Regression guard: assert === 1, not >= 1.)
+  check('"v" key invokes window.toggleCameraView exactly once', cameraToggles === 1);
+  // Holding V emits OS/browser auto-repeat keydowns (event.repeat === true). The toggle
+  // is edge-triggered, so a long press must NOT keep flipping the camera — the V branch
+  // ignores repeats. Regression guard: a burst of repeat keydowns adds zero toggles.
+  keydownRepeat('v');
+  keydownRepeat('v');
+  keydownRepeat('V');
+  check('held "v" auto-repeat does not re-toggle the camera', cameraToggles === 1);
 
   console.log('\n--- touch controls (region mapping) ---');
   const W = window.innerWidth;
