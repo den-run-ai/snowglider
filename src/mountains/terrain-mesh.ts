@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { Trees, type TreePosition } from './trees.js';
 import { SimplexNoise, terrainRidgeField } from './noise.js';
-import { heightMap } from './terrain.js';
+import { heightMap, corridorWallHeight, hasActiveCorridor } from './terrain.js';
 import {
   createSnowAlbedoTexture,
   createSnowNormalTexture,
@@ -40,6 +40,10 @@ export function createTerrain(scene: THREE.Scene) {
 
   // Create Perlin noise for natural terrain variation
   const perlin = new SimplexNoise();
+
+  // Bank the winding corridor (D3.2b) only when a tier set one; straight tiers (Blue/
+  // Bunny) skip the add entirely so the mesh takes the literal original path.
+  const corridorActive = hasActiveCorridor();
 
   for (let i = 0; i < vertices.length; i += 3) {
     const x = vertices[i]!, z = vertices[i + 2]!;
@@ -72,6 +76,13 @@ export function createTerrain(scene: THREE.Scene) {
     // Add some random smaller bumps for natural backcountry terrain
     if (Math.random() > 0.6) {
       y += perlin.noise(x * 0.1 + 100, z * 0.1 + 100) * 2.0;
+    }
+
+    // Corridor walls (D3.2b) — the SAME formula getTerrainHeight adds, in lockstep, so
+    // the mesh vertex and the analytic sampler stay byte-identical (the two-formula
+    // contract). Added last, before the final height is committed to the heightmap.
+    if (corridorActive) {
+      y += corridorWallHeight(x, z);
     }
 
     vertices[i + 1] = y;

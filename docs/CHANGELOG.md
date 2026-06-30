@@ -89,6 +89,35 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   no-input invariant is byte-identical; no new per-frame shadow cost (the sun cycle
   already re-rendered the shadow map every frame). Covered by `tests/sun-shadow-tests.js`
   (`npm run test:sun-shadow`). See [`SNOW_RENDERING.md`](SNOW_RENDERING.md).
+
+### Difficulty tiers (D3.2b): winding terrain corridor (Black)
+- **Black's terrain now banks into a winding skiable channel** that follows the descent
+  centerline (D3.2a's `course-line.ts`). `mountains/terrain.ts` gains a corridor seam:
+  `setTerrainCorridor(corridor | null)` plus one shared `corridorWallHeight(x, z)` that
+  both `getTerrainHeight` and the mesh builder (`terrain-mesh.ts`) add as their last term,
+  so the two-formula contract holds in lockstep. The channel FLOOR (within
+  `channelHalfWidth` of the line) is a flat **0** wall term — height AND gradient are
+  exactly today's, so the on-line skiing feel is unchanged and the line stays skiable;
+  off the line the flanks ramp up to a wall, so running straight when the line turns
+  climbs a steepening slope (and the walls funnel avalanche boulders down the channel).
+- **`DifficultyConfig` gains an optional `terrain` block** (Black:
+  `{channelHalfWidth, wallRamp, wallHeight}`). `scene-setup.ts` resolves the run's
+  corridor from the chosen tier and calls `setTerrainCorridor` **before** building the
+  mesh, so the mesh vertices and `getTerrainHeight` bake in the same walls. The corridor
+  also resets the `heightMap` cache (its key has no tier dimension, so a stale entry from
+  another corridor would otherwise be served as the wrong height).
+- **Bunny/Blue byte-identical.** They carry no `terrain` block ⇒ a `null` corridor ⇒ the
+  wall add is skipped entirely (`hasActiveCorridor()` gate) and terrain is today's exact
+  mesh + `getTerrainHeight`. The no-input invariant harness uses its own constant-slope
+  terrain, so no baseline regen. Covered by the new `tests/terrain-corridor-tests.js`
+  (`npm run test:terrain-corridor`: on-line wall 0, off-line bounded ramp, two-formula
+  delta == wall, steeper-off-line gradient, cache reset) + extended `difficulty-tests.js`.
+- **Known limitation (tracked):** `setupScene()` builds terrain once and never rebuilds on
+  restart, so the corridor is fixed at scene build from the chosen tier — switching tiers
+  at the finish picker (#255) re-feels the kernel (per-frame `state.difficulty`) but won't
+  re-shape terrain without a rebuild. Gates + obstacles on the line and a follow-the-line
+  winnability harness land in D3.2c/d.
+
 ### Difficulty tiers (D3.2a): per-tier course-line spine (no felt change)
 - **The descent has a single seeded centerline.** New `src/course-line.ts` exposes
   `createCourseLine(cfg)` → `laneX(z)` / `tangent(z)` / `heading(z)`: plain-number

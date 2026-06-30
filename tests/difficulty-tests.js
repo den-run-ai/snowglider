@@ -190,6 +190,15 @@ function maxTrajDiff(a, b) {
   check('Black winds (curviness > 0, amplitude > 0, controlPoints > 0)',
     blackLine.curviness > 0 && blackLine.amplitude > 0 && blackLine.controlPoints > 0);
 
+  // Terrain corridor (D3.2b): only Black banks the terrain into a channel; Bunny/Blue
+  // carry NO corridor (terrain absent) so they build today's exact terrain.
+  const blackTerrain = D.getDifficultyConfig('black').terrain;
+  check('Black carries a well-formed terrain corridor (channelHalfWidth/wallRamp/wallHeight > 0)',
+    blackTerrain && blackTerrain.channelHalfWidth > 0 && blackTerrain.wallRamp > 0 && blackTerrain.wallHeight > 0);
+  check('Bunny and Blue carry no terrain corridor (straight ⇒ today\'s terrain)',
+    D.getDifficultyConfig('bunny').terrain === undefined
+    && D.getDifficultyConfig('blue').terrain === undefined);
+
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
   check('localBestTimeKey: Blue keeps the original key; others are suffixed',
     D.localBestTimeKey('blue') === 'snowgliderBestTime'

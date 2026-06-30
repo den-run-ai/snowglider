@@ -11,6 +11,10 @@
 // per-(x,z) cache. Keep it a single shared instance — splitting it would desync the
 // cache from the mesh.
 import { terrainRidgeField } from './noise.js';
+// Type-only: the corridor is built from a CourseLine the caller (scene-setup) passes
+// in, so terrain.ts gains no runtime dependency on the course-line / difficulty graph
+// and stays the pure physics seam.
+import type { CourseLine } from '../course-line.js';
 
 /** A 2D vector in the terrain x/z plane: a gradient or a unit downhill direction. */
 export interface TerrainVec2 {
@@ -20,6 +24,79 @@ export interface TerrainVec2 {
 
 // Global height map for efficient lookup - will be populated when terrain is created
 export const heightMap: Record<string, number> = {};
+
+// --- Difficulty corridor (D3.2b: "the line is the difficulty") --------------------
+//
+// A tier can bank the terrain into a winding skiable channel that follows the descent
+// centerline (course-line.ts). The channel FLOOR is byte-identical to today's terrain
+// — the corridor only RAISES the flanks off the line into walls, so running straight
+// when the line turns climbs a steepening slope (and the same walls funnel avalanche
+// boulders down the channel). Within `channelHalfWidth` of the line the wall term is a
+// flat 0 (height AND gradient unchanged), so the on-line skiing feel is exactly today's.
+//
+// Straight tiers (Bunny/Blue) never set a corridor, so `corridorWallHeight` returns 0
+// and getTerrainHeight is untouched — the byte-identical guardrail.
+
+/** Per-tier corridor shape (the `terrain` block of a difficulty config). */
+export interface TerrainCorridorParams {
+  /** Half-width of the flat skiable channel floor; the wall term is 0 within this. */
+  channelHalfWidth: number;
+  /** Lateral distance over which the flank ramps from the floor up to `wallHeight`. */
+  wallRamp: number;
+  /** Height the off-line flanks rise to — how hard the corridor funnels you back. */
+  wallHeight: number;
+}
+
+/** The active corridor: a centerline to follow + the wall shape around it. */
+export interface TerrainCorridor {
+  line: CourseLine;
+  params: TerrainCorridorParams;
+}
+
+let activeCorridor: TerrainCorridor | null = null;
+
+/**
+ * Set (or clear) the terrain corridor for the run. ALWAYS resets the heightMap cache:
+ * its key is `${x},${z}` with no tier dimension, so a stale entry from a different
+ * corridor would otherwise be served as the wrong height. Call this BEFORE createTerrain
+ * (so the mesh vertices bake in the same walls) — scene-setup.ts does, once per scene.
+ */
+export function setTerrainCorridor(corridor: TerrainCorridor | null): void {
+  activeCorridor = corridor;
+  resetHeightMap();
+}
+
+/** Empty the shared heightMap cache in place (it is an imported singleton, not reassigned). */
+export function resetHeightMap(): void {
+  for (const key in heightMap) delete heightMap[key];
+}
+
+/** Whether a corridor is active. Lets the mesh builder skip the wall add entirely for
+ *  straight tiers (so the Blue mesh takes the literal original code path). */
+export function hasActiveCorridor(): boolean {
+  return activeCorridor !== null;
+}
+
+/** Smootherstep clamped to [0,1] (zero 1st AND 2nd derivative at the ends → no kink). */
+function smootherstep01(t: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/**
+ * Extra terrain height from the corridor walls at (x, z): 0 on the line (and anywhere
+ * within `channelHalfWidth` of it), ramping up to `wallHeight` off the line. This is the
+ * ONE wall formula — both getTerrainHeight and the mesh builder (terrain-mesh.ts) add it,
+ * so the two-formula terrain contract holds. Returns 0 when no corridor is set.
+ */
+export function corridorWallHeight(x: number, z: number): number {
+  const c = activeCorridor;
+  if (!c) return 0;
+  const dx = Math.abs(x - c.line.laneX(z));
+  const t = (dx - c.params.channelHalfWidth) / c.params.wallRamp;
+  return c.params.wallHeight * smootherstep01(t);
+}
 
 // Calculate terrain height at (x, z)
 export function getTerrainHeight(x: number, z: number): number {
@@ -48,6 +125,13 @@ export function getTerrainHeight(x: number, z: number): number {
   // Use a stronger gradient (0.12) to ensure consistent downhill even with terrain noise
   if (z < -30) {
     y += (z + 30) * 0.12; // This creates a consistent downhill gradient
+  }
+
+  // Bank the winding corridor (Black). Gated so straight tiers (no corridor) take the
+  // literal original path — the byte-identical guardrail. Added as the LAST term, the
+  // same way + same formula as the mesh builder, so the two stay in lockstep.
+  if (activeCorridor) {
+    y += corridorWallHeight(x, z);
   }
 
   // Store in height map for future lookups
