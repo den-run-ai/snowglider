@@ -17,9 +17,11 @@
 // at the same rate the tests verify. The kernel (snowman/physics.ts) is untouched; the
 // accumulator lives entirely here. See `docs/PHYSICS.md` and the §-comments below.
 
+import * as THREE from 'three';
 import { Controls } from '../controls.js';
 import { Snow } from '../snow.js';
 import { Sky } from '../sky.js';
+import { aimSunLight } from './sun-shadow.js';
 import { Snowman, type UpdateResult, type LandingQuality } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
@@ -52,19 +54,22 @@ interface FrameEvents {
 
 export interface MainLoopDeps extends
   Pick<SceneContext, 'state' | 'scene' | 'camera' | 'renderer' | 'cameraManager' |
-    'snowman' | 'snowSplash' | 'treePositions' | 'rockPositions'> {
+    'directionalLight' | 'snowman' | 'snowSplash' | 'treePositions' | 'rockPositions'> {
   player: PlayerState;
   showGameOver: (reason: string) => void;
 }
 
 export function createMainLoop(deps: MainLoopDeps) {
   const {
-    state, scene, camera, renderer, cameraManager,
+    state, scene, camera, renderer, cameraManager, directionalLight,
     snowman, snowSplash, treePositions, rockPositions,
     player, showGameOver,
   } = deps;
   const pos = player.pos;
   const velocity = player.velocity;
+  // Scratch reused each frame by the player-following sun shadow (#18), so re-aiming the
+  // light allocates nothing per frame.
+  const sunDirScratch = new THREE.Vector3();
 
   // Previous-substep air state, so we can fire a takeoff whoosh on the ground->air
   // transition (the kernel's UpdateResult exposes justLanded but no justJumped).
@@ -397,6 +402,14 @@ export function createMainLoop(deps: MainLoopDeps) {
       const renderY = interpPrev.y + (interpCur.y - interpPrev.y) * alpha;
       const renderZ = interpPrev.z + (interpCur.z - interpPrev.z) * alpha;
       snowman.position.set(renderX, renderY, renderZ);
+
+      // Player-following sun shadow (#18): re-aim the directional light + its target at the
+      // interpolated render position (above) so the snowman and nearby obstacles cast a
+      // contact shadow across the whole descent, instead of sitting outside the default ±5
+      // shadow box. Runs on the render pose, before renderer.render below; the sun-cycle's
+      // direction (sky.ts) is preserved — only the light→target pair is offset to the player.
+      Sky.getSunDirection(sunDirScratch);
+      aimSunLight(directionalLight, sunDirScratch, Sky.getSunDistance(), renderX, renderY, renderZ);
 
       updateCamera();
       updateTimerDisplay(state.gameActive, state.startTime); // Update the timer display

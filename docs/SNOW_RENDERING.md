@@ -70,6 +70,37 @@ The design-intent palette these values serve (near-white `#EDF0F6` base albedo, 
 target the snow material and tints aim at; the code in `mountains.ts` /
 `scene-setup.ts` is the authoritative value.
 
+## Contact shadows follow the player (#18)
+
+A grounding shadow is the strongest "this object is on the snow" cue on an all-white
+slope. Every shadow-caster was already configured (`castShadow` on the snowman,
+trees, rocks, boulders, gates; `receiveShadow` on the terrain), but the directional
+(sun) light's shadow **camera** was left at three.js's default ±5-unit orthographic
+box centred on the world origin. The snowman spawns at `z = -15` — already outside
+that box — and skis far downhill, so it cast **no** contact shadow for essentially
+the whole run while the 2048² shadow map was spent on a patch nobody skis through.
+
+`src/game/sun-shadow.ts` fixes this in two pure pieces:
+
+- **`configureSunShadow(light, renderer)`** (called once in `scene-setup.ts`) widens
+  the frustum to `±SHADOW_HALF_EXTENT` (60) around the player, sets near/far to
+  bracket the sun distance, raises the map to 2048², enables `PCFSoftShadowMap`, and
+  applies `bias`/`normalBias` to kill acne and peter-panning on the low-relief snow.
+- **`aimSunLight(light, sunDir, distance, x, y, z)`** (called each frame in
+  `main-loop.ts`, on the **interpolated render position**, before `renderer.render`)
+  moves the light *and* its target so the frustum tracks the snowman:
+  `position = player + sunDir·distance`, `target = player`. The light→target vector
+  stays exactly `sunDir·distance`, so the shadow **direction** is unchanged — only the
+  frustum slides over to the player.
+
+The sun **direction** still comes from the sun cycle. Because the follow offsets the
+light's world position every frame, the cycle's direction is read via
+`Sky.getSunDirection()` / `Sky.getSunDistance()` (from the live Preetham `sunPosition`
+uniform + the captured midday distance), **not** from the light's position. This is a
+pure rendering change: it never touches `pos`/`velocity` or the physics height field,
+so the no-input invariant is unaffected, and it adds no new per-frame shadow cost (the
+sun cycle already re-rendered the shadow map every frame).
+
 ## Ownership boundaries
 
 Keeping each layer in its lane is what prevents the whiteout / grey / muddy

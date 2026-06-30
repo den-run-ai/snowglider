@@ -277,6 +277,14 @@ snowman.position = curState                       // restore authoritative physi
 > lifecycle, and passes run state + overlay DOM nodes into the modules as parameters
 > rather than letting them reach back into its bindings.
 >
+> **`src/game/sun-shadow.ts`** (#18) holds the two pure helpers for the player-following
+> sun shadow: `configureSunShadow(light, renderer)` (called once by `setupScene()` to
+> widen the directional light's default ±5 shadow frustum and enable soft shadows + bias)
+> and `aimSunLight(light, sunDir, distance, x, y, z)` (called each frame by the main loop,
+> on the interpolated render position, to slide the frustum over the player while keeping
+> the sun direction). The sun *direction* comes from the cycle via the new
+> `Sky.getSunDirection()` / `Sky.getSunDistance()` getters. See `SNOW_RENDERING.md`.
+>
 > After R2, `snowglider.ts` is a ~380-line coordinator: imports + `setupScene()` /
 > `createMainLoop()` / `createLifecycle()` wiring, the eager `Snowman.addTestHooks`
 > calls, `window.initializeGameWithAudio`, `publishGameGlobals()`, and the test-mode

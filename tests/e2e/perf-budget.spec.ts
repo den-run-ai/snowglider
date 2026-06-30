@@ -15,7 +15,7 @@ import { gotoGame, startGame } from './helpers';
 
 // --- Budget ceilings -------------------------------------------------------
 // Measured on Chromium (warm frame, 1280x720 viewport, deterministic forest seed):
-// calls ~252, triangles ~176k, geometries 86, textures 11, programs 16. These are
+// calls ~273, triangles ~183k, geometries ~155, textures 11, programs 16. These are
 // scene-dependent (the same geometry the production bundle builds), not
 // GPU/driver-dependent, so they hold across Chromium builds. Ceilings are padded
 // above those actuals as a REGRESSION GUARD, not an aspirational target.
@@ -35,11 +35,22 @@ import { gotoGame, startGame } from './helpers';
 // swing frame-to-frame, so a tight pin would flake. The other TIGHT guards are
 // geometries/textures/programs — trees.ts pools shared trunk/cone/branch
 // geometries+materials, so those live counts must NOT grow per object; a regression
-// back to per-tree geometry would push `geometries` from ~86 into the hundreds.
+// back to per-tree geometry would push `geometries` into the hundreds.
+//
+// Player-following sun shadow (#18) raised the resident-geometry + draw-call peaks.
+// Before, the directional light's shadow frustum was three.js's default ±5 box at the
+// world origin, so the shadow pass rendered essentially nothing (the player spawns at
+// z=-15, outside it) and only camera-visible geometry was ever uploaded. Now the
+// frustum follows the player (game/sun-shadow.ts), so the shadow pass renders the
+// surrounding casters — trees/rocks/snow-patches that already set `castShadow` — making
+// their geometry resident immediately and adding one shadow draw per caster batch. That
+// moved `geometries` from ~86 to ~155 (peak) and `calls` from ~252 to ~273. `geometries`
+// stays a TIGHT guard at 185: the forest geometry is still pooled, so a per-tree-mesh
+// regression would blow it into the hundreds and red-bar well under 185.
 const BUDGET = {
-  calls: 800, // draw calls per frame (measured peak ~252; TIGHT — instancing must hold)
-  triangles: 350_000, // rasterized triangles per frame (measured peak ~176k; loose — forest never culls)
-  geometries: 130, // live BufferGeometry count (measured ~86; TIGHT — pooled, must stay bounded)
+  calls: 800, // draw calls per frame (measured peak ~273; TIGHT — instancing must hold)
+  triangles: 350_000, // rasterized triangles per frame (measured peak ~183k; loose — forest never culls)
+  geometries: 185, // live BufferGeometry count (measured peak ~155 with the #18 shadow pass; TIGHT — pooled, must stay bounded)
   textures: 25, // live texture count (measured 11; TIGHT)
   programs: 25, // compiled shader programs (measured 16; TIGHT — catches shader-compile blowups)
 };
