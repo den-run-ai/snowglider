@@ -101,6 +101,26 @@ pure rendering change: it never touches `pos`/`velocity` or the physics height f
 so the no-input invariant is unaffected, and it adds no new per-frame shadow cost (the
 sun cycle already re-rendered the shadow map every frame).
 
+## Cavity / ambient-occlusion shading (#17)
+
+The "Core visual principle" above asks for troughs and lee sides to get their form
+from **occluded concavity**, not a grey tint. The shipped slope tint
+(`applySnowVertexColors`) only keyed off slope *magnitude* (normal tilt), so it
+darkened steep faces but left concave hollows — the rolls and gullies between moguls —
+as flat white, exactly where snow self-shadows. `applySnowVertexColors` now also bakes a
+**cavity/AO term** when handed the terrain grid (`cols`/`rows`):
+
+- For each vertex it compares the height to its 4 grid neighbours' mean. A vertex that
+  sits *below* the local mean is concave (a hollow) and takes a subtle darken + cool
+  blue-shift toward an occluded-pocket tint; convex peaks go negative and stay bright.
+- The term is a little stronger on steeper ground, gated by the **shared** `SLOPE_STEEP`
+  boundary from `src/slope-tiers.ts` — the same constant the HUD's difficulty mark uses,
+  so the on-snow shading and the on-screen tier never drift.
+- It reads vertex *heights* but never writes them, so the physics height field and the
+  authoritative terrain geometry are untouched (same render-only contract as the slope
+  tint and smoothed shading normals). It is build-time and deterministic — zero per-frame
+  cost. Covered by `tests/snow-surface-tests.js` (`npm run test:snow-surface`).
+
 ## Ownership boundaries
 
 Keeping each layer in its lane is what prevents the whiteout / grey / muddy
@@ -110,7 +130,7 @@ regressions from creeping back when one piece is retuned:
 |---|---|---|
 | Static snow-lighting (`scene-setup.ts`, `mountains.ts`) | albedo, normal-map de-striping, smoothed render normals, static light balance, near-white slope tint | sun-cycle animation |
 | Terrain (`mountains.ts` height field) | the slope geometry; replacing the periodic ridge that bands under low sun | lighting rebalance |
-| AO / curvature readability (if added) | concavity shading from the smoothed-normal clone | terrain physics changes |
+| Cavity / AO readability (`mountains/snow-surface.ts`, #17) | per-vertex concavity darken + cool-shift baked into the slope tint | terrain physics changes / height field |
 | Sun cycle (`src/sky.ts`, #163) | directional sun position/color/intensity, Preetham `sunPosition`/`exposure`, bounded fog/background tint | snow albedo, vertex tint, smoothed normals, terrain, **hemisphere fill** |
 
 ## The sun cycle is an atmospheric layer, not a readability fix

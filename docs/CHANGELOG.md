@@ -13,6 +13,27 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Feature: cavity / ambient-occlusion snow shading + single-sourced slope tiers (#17)
+- **Readability gap.** The shipped per-vertex slope tint (`applySnowVertexColors`) keyed
+  off slope *magnitude* only, so it darkened steep faces but left concave hollows — the
+  rolls and gullies between moguls — as flat white, exactly where real snow self-shadows
+  (the "occluded concavity" the rendering doc's core principle calls for).
+- **Cavity/AO term.** `applySnowVertexColors` now also bakes an ambient-occlusion term
+  when handed the terrain grid: each vertex is compared to its 4 grid-neighbours' mean
+  height; vertices below the local mean (concave) take a subtle darken + cool blue-shift,
+  a little stronger on steeper ground. Convex peaks stay bright. Build-time, deterministic,
+  zero per-frame cost; reads vertex heights but never writes them, so the physics height
+  field / authoritative geometry are untouched.
+- **Single-sourced slope thresholds.** The HUD's `SLOPE_MODERATE` / `SLOPE_STEEP` tier
+  edges moved into a shared `src/slope-tiers.ts`, consumed by both the HUD (no behaviour
+  change) and the new cavity term's steep-slope gating, so the on-snow shading and the
+  on-screen difficulty mark can't drift apart.
+- Covered by `tests/snow-surface-tests.js` (`npm run test:snow-surface`); terrain /
+  regression / physics-invariant suites unchanged (no height-field touch). See
+  [`SNOW_RENDERING.md`](SNOW_RENDERING.md). The obstacle-silhouette half of the original
+  readability proposal is deferred to its own perf-aware PR (per-object contact decals
+  interact with the instanced-forest draw-call budget).
+
 ### Feature: player-following sun shadow + frustum fix (#18)
 - **Latent bug.** Everything in the scene set `castShadow` and the terrain set
   `receiveShadow`, but nothing configured the directional (sun) light's shadow

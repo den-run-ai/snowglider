@@ -5,6 +5,7 @@
 
 import type { PlayerPos, UpdateResult } from '../snowman.js';
 import { setupCollapsiblePanel } from './collapsible-panel.js';
+import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
 
 // --- Real-world units for the Game Stats readout ---
 // The simulation runs in metric world units where 1 unit ≈ 1 metre (the same
@@ -25,8 +26,8 @@ const RAD_TO_DEG = 180 / Math.PI;
 // ~24°, which is steep in absolute terms), and the boundaries double as the
 // snowplow's "can I stop here?" cue — the wedge can fully stop you up to the black
 // line and only checks speed beyond it (PHYSICS.md §3.4, issue #54).
-const SLOPE_MODERATE = 0.32;     // ≈18° / 32% — green (●) → blue (■)
-const SLOPE_STEEP = 0.58;        // ≈30° / 58% — blue (■) → black diamond (◆)
+// SLOPE_MODERATE / SLOPE_STEEP are single-sourced in ../slope-tiers.js so the terrain's
+// slope-aware snow shading (mountains/snow-surface.ts) keys off the same boundaries.
 // The raw per-frame gradient is noisy (high-frequency terrain detail makes it jump
 // several degrees frame-to-frame as the snowman moves), which made the readout — and
 // its difficulty tier — flicker. Smooth the *display* value with an exponential
