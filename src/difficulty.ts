@@ -1,0 +1,173 @@
+// difficulty.ts — single source of truth for the SnowGlider difficulty tiers.
+//
+// Mirrors the score-limits.ts pattern: one config object is the spine, everything
+// *reads* it, nothing hard-codes a tier. This first stage (the config spine + the
+// kernel tuning API) lands the data and the type surface; later stacked PRs wire the
+// selection, terrain/obstacle/avalanche tuning, per-tier leaderboards, and assists.
+//
+// Design anchors (see the difficulty-tiers proposal):
+//   - Ski-resort trail ratings as the names: ● Bunny (Easy) / ■ Blue (Medium) /
+//     ◆ Black (Hard), matching the green/yellow/red Slope-HUD language.
+//   - Blue == today's frozen constants. `BLUE_PHYSICS_TUNING` is the current
+//     hard-coded physics locals extracted verbatim, so the no-input identity gate
+//     and the historical baseline never need regenerating for the default tier.
+//
+// This module is intentionally dependency-free (it only reads the score-limits
+// floor), so it can be imported by the physics kernel without pulling in THREE.
+import { MIN_VALID_SCORE_TIME } from './score-limits.js';
+
+/** The three difficulty tiers, keyed by their ski-resort trail rating. */
+export type Difficulty = 'bunny' | 'blue' | 'black';
+
+/**
+ * The physics-kernel tuning struct. These are exactly the constants that were
+ * hard-coded as locals inside `stepSnowmanPhysics` (src/snowman/physics.ts); the
+ * kernel now takes this struct as an optional, BLUE-defaulted parameter so a tier
+ * can vary the handling feel without forking the kernel. Only `config.ski` (a value
+ * of this type) is ever passed into the kernel — never the whole DifficultyConfig —
+ * which keeps the kernel pure and the no-input baseline frozen.
+ */
+export interface SnowmanPhysicsTuning {
+  gravity: number;            // along-slope gravity (grounded)
+  airGravity: number;         // downward gravity while airborne
+  baseFriction: number;       // friction floor at low speed
+  frictionRamp: number;       // extra friction added at high speed (max = base + ramp)
+  gripBase: number;           // terrain-grip floor (edge bite on flats)
+  carveLock: number;          // carveCharge past this reads + behaves as a carve
+  carveBuild: number;         // per-second carve-charge build rate (held turn)
+  carveRelease: number;       // per-second carve-charge release rate
+  parallelTurnForce: number;  // skidded parallel turn authority (tight/pivoty)
+  carveTurnForce: number;     // carved turn authority (wide/drawn-out arc)
+  tuckAccel: number;          // straight-line tuck acceleration (Up, no steer)
+  plowDecelLight: number;     // light-wedge brake deceleration
+  plowDecelFull: number;      // full-wedge brake deceleration
+  skidScrubMax: number;       // base wash-out scrub for an uncommitted (skidded) turn
+  airControl: number;         // side force available while airborne
+}
+
+/**
+ * BLUE == today's shipped constants, extracted VERBATIM from the kernel's former
+ * hard-coded locals. This is the default tuning the kernel uses when no tier passes
+ * its own, so the physics-invariant harness (which calls with no tuning) and the
+ * frozen baseline stay bit-for-bit unchanged.
+ */
+export const BLUE_PHYSICS_TUNING: SnowmanPhysicsTuning = {
+  gravity: 9.8,
+  airGravity: 16,
+  baseFriction: 0.012,
+  frictionRamp: 0.020,
+  gripBase: 0.6,
+  carveLock: 0.6,
+  carveBuild: 1.5,
+  carveRelease: 3.0,
+  parallelTurnForce: 19.0,
+  carveTurnForce: 10.0,
+  tuckAccel: 10.0,
+  plowDecelLight: 3.14,
+  plowDecelFull: 5.68,
+  skidScrubMax: 0.10,
+  airControl: 5.0,
+};
+
+// --- Per-tier ski tuning (playtest starting points; Blue is authoritative-current) ---
+// Bunny: easier to earn a carve, sloppy turns barely cost speed, slower terminal,
+// gentler tuck — it teaches carving without punishing. Brake decel stays identical to
+// Blue (per the proposal, Bunny difficulty comes from capped terrain + assists later,
+// not a stronger brake).
+const BUNNY_PHYSICS_TUNING: SnowmanPhysicsTuning = {
+  ...BLUE_PHYSICS_TUNING,
+  baseFriction: 0.020,
+  frictionRamp: 0.025,   // max 0.045
+  gripBase: 0.7,
+  carveLock: 0.45,
+  carveBuild: 2.0,
+  tuckAccel: 7,
+  skidScrubMax: 0.06,
+};
+
+// Black: the carve is hard to lock, panic-steering bleeds speed fast, less friction so
+// it runs faster, weaker air control. Brake decel unchanged (there is just more red
+// terrain to fail on, wired in a later PR).
+const BLACK_PHYSICS_TUNING: SnowmanPhysicsTuning = {
+  ...BLUE_PHYSICS_TUNING,
+  baseFriction: 0.008,
+  frictionRamp: 0.014,   // max 0.022
+  gripBase: 0.5,
+  carveLock: 0.72,
+  carveBuild: 1.2,
+  tuckAccel: 13,
+  skidScrubMax: 0.14,
+  airControl: 3.0,
+};
+
+/**
+ * A difficulty tier's full config. This stage carries the identity, the picker copy,
+ * the per-tier seed, the kernel ski tuning, and the per-tier plausibility floor.
+ * Terrain / obstacle / avalanche / surface / assist tuning are added by later stacked
+ * PRs as each lands, so this interface grows additively rather than shipping a wide
+ * speculative surface up front.
+ */
+export interface DifficultyConfig {
+  id: Difficulty;
+  label: string;            // "● Bunny", "■ Blue", "◆ Black"
+  blurb: string;            // one-line description for the start-screen picker
+  seed: number;             // base seed (derives the per-tier RNG streams in a later PR)
+  ski: SnowmanPhysicsTuning;
+  // Per-tier leaderboard plausibility floor (seconds). Blue is the MEASURED shipped
+  // floor (score-limits.ts). Bunny/Black are PROVISIONAL illustrative values and MUST
+  // be re-measured with tests/verification/plausibility_floor_harness.js before the
+  // per-tier leaderboards ship ranked (a later stacked PR).
+  minScoreTime: number;
+}
+
+const BUNNY: DifficultyConfig = {
+  id: 'bunny',
+  label: '● Bunny',
+  blurb: 'Gentle green run, no avalanche — learn to ski.',
+  seed: 1001,
+  ski: BUNNY_PHYSICS_TUNING,
+  minScoreTime: 28, // PROVISIONAL — re-measure before ranked
+};
+
+const BLUE: DifficultyConfig = {
+  id: 'blue',
+  label: '■ Blue',
+  blurb: 'The classic SnowGlider run.',
+  seed: 1002,
+  ski: BLUE_PHYSICS_TUNING,
+  minScoreTime: MIN_VALID_SCORE_TIME, // the measured shipped floor (18 s)
+};
+
+const BLACK: DifficultyConfig = {
+  id: 'black',
+  label: '◆ Black',
+  blurb: 'Steep, dense, fast — carve or crash.',
+  seed: 1003,
+  ski: BLACK_PHYSICS_TUNING,
+  minScoreTime: 13, // PROVISIONAL — re-measure before ranked
+};
+
+/** All tiers in display order (easy → hard). */
+export const DIFFICULTIES: readonly DifficultyConfig[] = [BUNNY, BLUE, BLACK];
+
+/** The default tier == the classic game. */
+export const DEFAULT_DIFFICULTY: Difficulty = 'blue';
+
+/** localStorage key for the player's last-chosen tier. */
+export const DIFFICULTY_STORAGE_KEY = 'snowgliderDifficulty';
+
+const BY_ID: Record<Difficulty, DifficultyConfig> = {
+  bunny: BUNNY,
+  blue: BLUE,
+  black: BLACK,
+};
+
+/** Type guard: is `value` one of the known difficulty ids? */
+export function isDifficulty(value: unknown): value is Difficulty {
+  return value === 'bunny' || value === 'blue' || value === 'black';
+}
+
+/** Resolve a tier id to its config, falling back to the default tier. */
+export function getDifficultyConfig(id: unknown): DifficultyConfig {
+  return isDifficulty(id) ? BY_ID[id] : BY_ID[DEFAULT_DIFFICULTY];
+}

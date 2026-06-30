@@ -18,6 +18,7 @@
 // Because the kernel is untouched, the physics-invariant harness (which imports
 // snowman.ts directly) is unaffected and coasting stays byte-identical.
 import type * as THREE from 'three';
+import type { SnowmanPhysicsTuning } from './difficulty.js';
 import {
   Snowman,
   type PlayerPos,
@@ -72,6 +73,9 @@ export interface StepDeps {
   // step, *before* its synchronous finish check can build the result screen. Optional
   // so headless callers (the physics-invariant harness) need not provide it.
   bankAirScore?: (delta: number) => void;
+  // Difficulty ski tuning for the kernel. Omitted => the kernel applies its BLUE
+  // default, so the no-input baseline and every existing caller stay byte-identical.
+  tuning?: SnowmanPhysicsTuning;
 }
 
 /** Build the initial run state (matches the orchestrator's old module-scoped
@@ -125,7 +129,8 @@ function stepPlayer(player: PlayerState, deps: StepDeps): UpdateResult {
     player.lastTerrainHeight, player.airTime, player.jumpCooldown, deps.controls,
     player.turnPhase, player.currentTurnDirection, player.turnChangeCooldown, TURN_AMPLITUDE,
     deps.getTerrainHeight, deps.getTerrainGradient, deps.getDownhillDirection,
-    deps.treePositions, deps.gameActive, deps.showGameOver, deps.rockPositions, deps.bankAirScore
+    deps.treePositions, deps.gameActive, deps.showGameOver, deps.rockPositions, deps.bankAirScore,
+    deps.tuning
   );
 
   // Write the mutable scalars back (pos/velocity were mutated in place above).

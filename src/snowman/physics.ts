@@ -1,6 +1,7 @@
 // Snowman physics kernel: reset + per-frame movement integration.
 import * as THREE from 'three';
 
+import { BLUE_PHYSICS_TUNING, type SnowmanPhysicsTuning } from '../difficulty.js';
 import type {
   CameraManagerLike,
   LandingQuality,
@@ -97,7 +98,11 @@ export function stepSnowmanPhysics(
   turnAmplitude: number,
   getTerrainHeight: TerrainHeightFn,
   getTerrainGradient: TerrainVecFn,
-  getDownhillDirection: TerrainVecFn
+  getDownhillDirection: TerrainVecFn,
+  // Difficulty tuning: defaults to the shipped Blue constants so every existing
+  // caller (and the physics-invariant harness, which passes no tuning) is
+  // byte-for-byte unchanged. A tier passes its own `config.ski` to vary the feel.
+  tuning: SnowmanPhysicsTuning = BLUE_PHYSICS_TUNING
 ): SnowmanPhysicsStepOutput {
   // --- Frame-rate-independent drag (issue: "floor it forward and blow past the
   // obstacles") ----------------------------------------------------------------
@@ -295,17 +300,17 @@ export function stepSnowmanPhysics(
     airTime += delta;
     
     // Apply gravity to vertical velocity
-    verticalVelocity -= 16 * delta;
-    
+    verticalVelocity -= tuning.airGravity * delta;
+
     // Update vertical position
     pos.y += verticalVelocity * delta;
-    
+
     // Air control
     if (controls.left) {
-      velocity.x -= 5.0 * delta;
+      velocity.x -= tuning.airControl * delta;
     }
     if (controls.right) {
-      velocity.x += 5.0 * delta;
+      velocity.x += tuning.airControl * delta;
     }
     
     // Less friction in air (frame-rate-independent; see dragFactor above)
@@ -313,13 +318,13 @@ export function stepSnowmanPhysics(
     velocity.z *= dragFactor(0.01);
   } else {
     // Update velocity based on gravity, gradient, and an improved friction model
-    const gravity = 9.8;
-    
+    const gravity = tuning.gravity;
+
     // Dynamic friction based on speed - less friction at lower speeds for smoother acceleration
     // This prevents the jittery start by reducing initial resistance
     const speedFactor = Math.min(1, currentSpeed / 8);
-    const baseFriction = 0.012; // Lower base friction for smoother, glidier starts
-    const friction = baseFriction + (0.020 * speedFactor); // Maximum 0.032 at high speeds (faster cruising)
+    const baseFriction = tuning.baseFriction; // Lower base friction for smoother, glidier starts
+    const friction = baseFriction + (tuning.frictionRamp * speedFactor); // Blue: max 0.032 at high speeds (faster cruising)
     
     // Apply forces to velocity (gravity pulls along slope direction) with smoother acceleration
     velocity.x += dir.x * steepness * gravity * delta;
@@ -341,7 +346,7 @@ export function stepSnowmanPhysics(
     const snowplow = !!controls.down && !isInAir;
 
     // Terrain-dependent grip: a touch more bite on moderate pitches, looser when flat.
-    const terrainGrip = 0.6 + Math.min(0.4, steepness * 0.5);
+    const terrainGrip = tuning.gripBase + Math.min(0.4, steepness * 0.5);
 
     // --- Edge engagement: carve vs skidded parallel (issues #48 / #54) -------
     // `carveCharge` (0..1) tracks how committed/locked-in the current edge is: it
@@ -354,9 +359,9 @@ export function stepSnowmanPhysics(
     // and resetSnowman clears it. It is read/written every frame but only *used*
     // under steering input, so the no-input coasting path stays byte-identical to the
     // frozen baseline.
-    const CARVE_BUILD_RATE = 1.5;    // ~0.4s of a held turn to lock a carve in (> CARVE_LOCK)
-    const CARVE_RELEASE_RATE = 3.0;  // edge releases ~2x faster than it engages
-    const CARVE_LOCK = 0.6;          // carveCharge past this reads + behaves as a carve
+    const CARVE_BUILD_RATE = tuning.carveBuild;    // ~0.4s (Blue) of a held turn to lock a carve in (> CARVE_LOCK)
+    const CARVE_RELEASE_RATE = tuning.carveRelease; // edge releases ~2x faster than it engages
+    const CARVE_LOCK = tuning.carveLock;            // carveCharge past this reads + behaves as a carve
 
     const ud = snowman.userData || (snowman.userData = {});
     let carveCharge = ud.carveCharge || 0;
@@ -383,8 +388,8 @@ export function stepSnowmanPhysics(
     //   - a committed CARVE draws a wide, clean arc (low authority) but holds speed.
     // Blending by carveCharge makes the two turns *feel* different to drive, not just
     // post different numbers. Snowplow stays the tightest, most planted turn.
-    const PARALLEL_TURN_FORCE = 19.0;  // skidded parallel: tight, pivoty
-    const CARVE_TURN_FORCE = 10.0;     // carved: wide, drawn-out arc
+    const PARALLEL_TURN_FORCE = tuning.parallelTurnForce;  // skidded parallel: tight, pivoty
+    const CARVE_TURN_FORCE = tuning.carveTurnForce;        // carved: wide, drawn-out arc
     let turnForce = snowplow
       ? 24.0                           // planted wedge = sharpest steering
       : PARALLEL_TURN_FORCE + (CARVE_TURN_FORCE - PARALLEL_TURN_FORCE) * carveCharge;
@@ -402,7 +407,7 @@ export function stepSnowmanPhysics(
     // full wedge's brake cap (5.68), so without this gate holding W+S would accelerate
     // downhill instead of braking. A wedge and a forward push are mutually exclusive
     // anyway, so the snowplow simply ignores Up.
-    const accelerationForce = 10.0;
+    const accelerationForce = tuning.tuckAccel;
     if (controls.up && !snowplow) {
       velocity.z -= accelerationForce * delta;
     }
@@ -437,8 +442,8 @@ export function stepSnowmanPhysics(
     // calls black could still be stopped. Recomputing here keeps the brake honest; the
     // per-frame coast friction below then vanishes as v→0, so it does not shift the
     // boundary.)
-    const PLOW_MIN_DECEL = 3.14;    // light wedge: stops on green (<18°), only slows above
-    const PLOW_MAX_DECEL = 5.68;    // full wedge: stops up to the black-diamond line (~30°), fails above
+    const PLOW_MIN_DECEL = tuning.plowDecelLight;  // light wedge: stops on green (<18°), only slows above
+    const PLOW_MAX_DECEL = tuning.plowDecelFull;   // full wedge: stops up to the black-diamond line (~30°), fails above
     const brakeSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
     if (snowplow && brakeSpeed > 0.001) {
       const brakeDecel = PLOW_MIN_DECEL + (PLOW_MAX_DECEL - PLOW_MIN_DECEL) * plowCharge;
@@ -455,7 +460,7 @@ export function stepSnowmanPhysics(
     // so braking through a turn stays controlled. Gated on steering, so the no-input
     // coasting path is untouched and stays byte-identical to the frozen baseline.
     const CARVE_SCRUB_RELIEF = 0.92; // a locked carve sheds ~92% of the edge wash-out
-    const SKID_SCRUB = 0.10;         // base wash-out scrub for an uncommitted (skidded) turn
+    const SKID_SCRUB = tuning.skidScrubMax;  // base wash-out scrub for an uncommitted (skidded) turn
     const TURN_TAX = 0.008;          // small always-on turn cost, faded out by a carve
     let skidScrub = 0;
     if (steering !== 0 && currentSpeed > 4) {
