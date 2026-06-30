@@ -280,6 +280,11 @@ export function createMainLoop(deps: MainLoopDeps) {
     state.animationRunning = false;
     try { console.error('[SnowGlider] Fatal animation-loop error — stopping the run:', err); } catch { /* */ }
     try { Diag.endRun(); } catch { /* telemetry must never block recovery */ }
+    // The loop stops here, so nothing else will drive the continuous SFX gains (wind /
+    // carve / avalanche bed) back down — they'd hold their last targets and keep droning
+    // under the recovery overlay until reload. This shutdown path bypasses showGameOver(),
+    // so end the run audio explicitly (Codex #262). Guarded: audio must never re-throw here.
+    try { Sfx.endRun('crash'); } catch { /* audio teardown must never block recovery */ }
     try { showFatalErrorOverlay(err); } catch { /* overlay must never re-throw into the loop */ }
   }
 
