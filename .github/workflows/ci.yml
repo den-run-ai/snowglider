@@ -240,11 +240,16 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v5
 
-  # Push the repo's firestore.rules to the live Firebase project. Runs only after
-  # `test` (which includes the Firestore-rules emulator suite AND the score-limits
-  # <-> rules drift test), and only on main — so PRs never touch prod. Closes the
-  # gap where firestore.rules evolved in-repo but was never deployed (prod sat on a
-  # stale ruleset for months because deployment was purely manual).
+  # Push the repo's firestore.rules to the live Firebase project. Chained AFTER the
+  # Pages deploy (`needs: deploy-pages`), which itself needs `test` (the Firestore-rules
+  # emulator suite AND the score-limits <-> rules drift test). Ordering matters: a merge
+  # can change BOTH the client score-writing code and firestore.rules, so publishing the
+  # new rules BEFORE the new client is live would leave the old live client running
+  # against the new rules and break leaderboard writes until the next deploy. Gating on
+  # deploy-pages means rules only go out once the matching client is already serving.
+  # Only on main — so PRs never touch prod. Closes the gap where firestore.rules evolved
+  # in-repo but was never deployed (prod sat on a stale ruleset for months because
+  # deployment was purely manual).
   #
   # Requires a repo secret `FIREBASE_SERVICE_ACCOUNT` = the JSON of a service account
   # with the "Firebase Rules Admin" role (least privilege — do NOT reuse the broad
@@ -253,7 +258,7 @@ jobs:
   deploy-rules:
     name: Deploy Firestore rules
     runs-on: ubuntu-latest
-    needs: test
+    needs: deploy-pages
     if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     permissions:
       contents: read  # only reads the repo; auth to Firebase is via the SA secret
