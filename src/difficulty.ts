@@ -15,6 +15,10 @@
 // This module is intentionally dependency-free (it only reads the score-limits
 // floor), so it can be imported by the physics kernel without pulling in THREE.
 import { MIN_VALID_SCORE_TIME } from './score-limits.js';
+// Type-only import: the lane shape lives next to the centerline primitive it feeds
+// (course-line.ts, also THREE-free), and `import type` erases at build time so this
+// stays a runtime-dependency-free module.
+import type { CourseLineParams } from './course-line.js';
 
 /** The three difficulty tiers, keyed by their ski-resort trail rating. */
 export type Difficulty = 'bunny' | 'blue' | 'black';
@@ -122,7 +126,17 @@ export interface DifficultyConfig {
   // be re-measured with tests/verification/plausibility_floor_harness.js before the
   // per-tier leaderboards ship ranked (a later stacked PR).
   minScoreTime: number;
+  // The descent centerline shape (course-line.ts reads this + `seed`). Bunny/Blue are
+  // STRAIGHT (`curviness 0` ⇒ `laneX ≡ 0`), so their terrain/gates/obstacles stay
+  // byte-identical to today; Black winds. Only the line *data* lands here for now — the
+  // terrain corridor, gates, and obstacle field that read it are wired in later D3.2
+  // sub-PRs, so this PR is no felt change for any tier.
+  line: CourseLineParams;
 }
+
+// The classic straight fall line: `laneX ≡ 0` everywhere. Shared by Bunny + Blue so
+// their course is provably unchanged (the byte-identical guardrail).
+const STRAIGHT_LINE: CourseLineParams = { curviness: 0, amplitude: 0, controlPoints: 0 };
 
 const BUNNY: DifficultyConfig = {
   id: 'bunny',
@@ -135,6 +149,7 @@ const BUNNY: DifficultyConfig = {
   ski: BUNNY_PHYSICS_TUNING,
   ranked: false, // unranked until its floor is measured (D3 follow-up)
   minScoreTime: 28, // PROVISIONAL — re-measure before ranked
+  line: STRAIGHT_LINE, // easy tier stays a straight fall line
 };
 
 const BLUE: DifficultyConfig = {
@@ -145,6 +160,7 @@ const BLUE: DifficultyConfig = {
   ski: BLUE_PHYSICS_TUNING,
   ranked: true, // the classic, measured, ranked board
   minScoreTime: MIN_VALID_SCORE_TIME, // the measured shipped floor (18 s)
+  line: STRAIGHT_LINE, // the classic straight run — byte-identical to today
 };
 
 const BLACK: DifficultyConfig = {
@@ -155,6 +171,10 @@ const BLACK: DifficultyConfig = {
   ski: BLACK_PHYSICS_TUNING,
   ranked: false, // unranked until its floor is measured (D3 follow-up)
   minScoreTime: 13, // PROVISIONAL — re-measure before ranked
+  // The winding corridor — "the line is the difficulty". A ±18 u serpentine of ~5
+  // turns over the run; the fixed seed (1003) makes it identical for everyone. Tuned
+  // for real against Black's #240 physics in a later D3.2 sub-PR (terrain + winnability).
+  line: { curviness: 1, amplitude: 18, controlPoints: 5 },
 };
 
 /** All tiers in display order (easy → hard). */
