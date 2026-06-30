@@ -239,3 +239,47 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  # Push the repo's firestore.rules to the live Firebase project. Runs only after
+  # `test` (which includes the Firestore-rules emulator suite AND the score-limits
+  # <-> rules drift test), and only on main — so PRs never touch prod. Closes the
+  # gap where firestore.rules evolved in-repo but was never deployed (prod sat on a
+  # stale ruleset for months because deployment was purely manual).
+  #
+  # Requires a repo secret `FIREBASE_SERVICE_ACCOUNT` = the JSON of a service account
+  # with the "Firebase Rules Admin" role (least privilege — do NOT reuse the broad
+  # firebase-adminsdk data key). Until that secret is set the step self-skips, so this
+  # never breaks CI on forks or before the secret is configured.
+  deploy-rules:
+    name: Deploy Firestore rules
+    runs-on: ubuntu-latest
+    needs: test
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    permissions:
+      contents: read  # only reads the repo; auth to Firebase is via the SA secret
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Deploy firestore.rules to the live project
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::warning::FIREBASE_SERVICE_ACCOUNT secret not set — skipping Firestore rules deploy."
+            exit 0
+          fi
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          # Write via env (not string interpolation) so JSON quoting can't break the file.
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
+          # Pinned to match the emulator suite (package.json test:firebase) — bump together.
+          npx -y firebase-tools@15.20.0 deploy --only firestore:rules \
+            --project sn0wglider --non-interactive
