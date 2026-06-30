@@ -165,6 +165,24 @@ async function main() {
     check('finish picker is synced to the tier just played', syncedTier === 'blue');
   }
 
+  // --- Stale leaderboard is hidden when replaying on an unranked tier (Codex #255) ---
+  // The finish picker lets a signed-in player finish ranked Blue (board shown), then switch
+  // to unranked Bunny/Black and replay; the unranked finish must hide the stale Blue board.
+  {
+    window.AuthModule.getCurrentUser = () => ({ uid: 'u1' });
+    // 1) Ranked Blue finish on a fresh overlay: leaderboard inserted + shown.
+    const deps = makeDeps({ bestTime: 1, getDifficulty: () => 'blue' });
+    createShowGameOver(deps)(FINISH);
+    const lb = document.getElementById('leaderboard');
+    check('ranked finish shows the leaderboard',
+      lb.style.display === 'block' && lb.parentNode === deps.gameOverOverlay);
+    // 2) Replay on an unranked tier (Black) reusing the SAME overlay DOM: board hidden.
+    const unrankedDeps = { ...deps, getDifficulty: () => 'black' };
+    createShowGameOver(unrankedDeps)(FINISH);
+    check('unranked replay hides the stale leaderboard',
+      document.getElementById('leaderboard').style.display === 'none');
+  }
+
   // --- Finish + valid time, no AuthModule.recordScore -> localStorage fallback best ---
   {
     delete window.AuthModule;

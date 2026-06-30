@@ -277,6 +277,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
 
       // Display leaderboard for the run's tier
       window.AuthModule.displayLeaderboard(tier);
+    } else {
+      // No global board for this result (unranked tier, or signed out): hide any
+      // leaderboard a previous RANKED finish left visible in the overlay. Without this,
+      // the finish-screen picker lets a signed-in player finish ranked Blue (board shown),
+      // switch to unranked Bunny/Black, and replay — and the stale Blue board would still
+      // show on that unranked finish even though the tier has no global board (Codex #255).
+      const leaderboardElement = document.getElementById('leaderboard');
+      if (leaderboardElement) leaderboardElement.style.display = 'none';
     }
 
     // Build the result screen (splits + medal) on a finish; otherwise just clear
