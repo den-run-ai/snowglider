@@ -98,9 +98,12 @@ async function main() {
   let cameraToggles = 0;
   window.toggleCameraView = () => { cameraToggles++; };
   keydown('v');
-  // controls.ts registers the keydown handler on BOTH window and document ("for
-  // better coverage"), so a bubbling keydown legitimately fires it on each.
-  check('"v" key invokes window.toggleCameraView', cameraToggles >= 1);
+  // `V` is edge-triggered: each physical keypress must toggle the camera EXACTLY once.
+  // controls.ts registers the keydown handler on `window` only, so the bubbling keydown
+  // fires it a single time. (It used to be registered on BOTH window and document, which
+  // fired toggleCameraView twice per press — the camera flipped and immediately flipped
+  // back, so `V` looked dead. Regression guard: assert === 1, not >= 1.)
+  check('"v" key invokes window.toggleCameraView exactly once', cameraToggles === 1);
 
   console.log('\n--- touch controls (region mapping) ---');
   const W = window.innerWidth;

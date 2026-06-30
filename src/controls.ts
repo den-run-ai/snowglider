@@ -142,14 +142,16 @@ function setupKeyboardControls(signal?: AbortSignal) {
     }
   };
   
-  // Add keyboard listeners to both window and document for better coverage. The
-  // teardown signal (when supplied) lets disposeGame remove them on HMR/unmount.
+  // Register on `window` ONLY. A keydown dispatched at the focused element bubbles
+  // up to `window`, so a single window-level listener catches every key. Registering
+  // the SAME handler on both `window` and `document` (as this used to) fires it twice
+  // per keypress: harmless for the movement keys, which only set a boolean, but it
+  // broke the edge-triggered `V` toggle — `toggleCameraView()` ran twice and the
+  // camera flipped to the new mode and immediately back, so `V` looked dead.
+  // The teardown signal (when supplied) lets disposeGame remove them on HMR/unmount.
   const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
   window.addEventListener('keydown', handleKeyDown, opts);
-  document.addEventListener('keydown', handleKeyDown, opts);
-
   window.addEventListener('keyup', handleKeyUp, opts);
-  document.addEventListener('keyup', handleKeyUp, opts);
 }
 
 // Setup touch control handlers
