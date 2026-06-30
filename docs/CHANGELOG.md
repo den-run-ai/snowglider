@@ -107,6 +107,22 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   new `tests/course-line-tests.js` (`npm run test:course-line`) plus extended
   `difficulty-tests.js` line-block assertions. (Terrain corridor, gates, obstacles, the
   per-tier avalanche, and the ranked flip follow in later D3.2 sub-PRs.)
+
+### Wind — scarf streams in the apparent wind (#253, Phase A)
+- **The red scarf now reacts to the wind field.** The scarf tail trails the **apparent**
+  wind `(wind − player velocity)` — the wind a moving snowman actually feels — resolved
+  into the snowman's local frame: a crosswind streams the tail sideways, a head/tail wind
+  lifts it fore/aft, and the body braces lightly *into* a crosswind. The main loop computes
+  the local-frame apparent wind from `Wind.vector()`, the player velocity, and the snowman
+  heading, and passes it to the cosmetic flex layer as `windSway`/`windStream`.
+- **Invariant-safe & opt-in.** Both new `FlexMotion` fields **default to 0**, so every
+  existing caller and the flex tests are byte-identical (a dedicated test pins "absent ==
+  explicit 0"); the scarf is a child-mesh transform only, so the no-input physics path is
+  untouched. Smoothed between gusts, clamped so a gust never throws the pose, and calmed
+  under `prefers-reduced-motion` by the flex layer's existing gate. New flex tests cover
+  the sideways/fore-aft stream, the brace, the default-0 safety, and bounded gusting.
+  Docs: PHYSICS.md §11 consumers, ARCHITECTURE.md §3.
+
 ### Wind — shared wind field + snow drift (#253, Phase A)
 - **New `src/wind.ts`: one deterministic wind field for the whole scene.** Until now
   "wind" was faked per-subsystem (the `sfx.ts` bed is speed-scaled only; the #172 scarf

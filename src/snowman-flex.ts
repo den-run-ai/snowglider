@@ -25,6 +25,13 @@ export interface FlexMotion {
   justLanded: boolean;
   landingForce: number;
   isInAir: boolean;
+  /** Apparent wind (wind − player velocity) resolved into the snowman's LOCAL frame and
+   *  normalized to ~[-1,1] by the caller, so the scarf streams downwind (issue #253).
+   *  `windSway` = sideways component (swings the tail left/right); `windStream` = forward
+   *  component (lifts the tail back in a headwind / forward in a tailwind). BOTH DEFAULT
+   *  to 0 (absent), so every existing caller/test is byte-identical. */
+  windSway?: number;
+  windStream?: number;
 }
 
 interface XYZ { x: number; y: number; z: number; }
@@ -33,6 +40,9 @@ interface FlexState {
   t: number; settle: number; settleVel: number; leanZ: number; lagY: number;
   // Ski flex (issue #189): a smoothed base camber + a landing compression spring.
   skiCamber: number; skiSettle: number; skiSettleVel: number;
+  // Wind (issue #253): smoothed apparent-wind sway/stream so the scarf cloth and the
+  // brace lean ease between gusts instead of snapping.
+  windSwayS: number; windStreamS: number;
 }
 
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
@@ -57,6 +67,15 @@ const LEAN_GLIDE = 0.5;         // fraction of the lean kept when not actively c
 
 const BALLS: ReadonlyArray<string> = ['bottom', 'middle', 'head'];
 const BALL_PHASE: ReadonlyArray<number> = [0, 1.1, 2.2]; // stagger so the stack ripples
+
+// --- wind tuning (issue #253) -----------------------------------------------
+// The caller passes apparent wind (wind - velocity) resolved into the snowman's local
+// frame, normalized to ~[-1,1]. The scarf streams with it; the body braces lightly into
+// a crosswind. All amplitudes are clamped so a gust never throws the pose.
+const SCARF_WIND_SWAY = 0.55;   // rad of tail side-swing at full crosswind
+const SCARF_WIND_STREAM = 0.35; // rad of tail fore/aft lift at full head/tail wind
+const BRACE_LEAN = 0.07;        // rad the head cluster leans INTO a full crosswind
+const WIND_SMOOTH = 4;          // per-s lerp easing the (already gust-smooth) wind inputs
 
 // --- ski flex tuning (issue #189) -------------------------------------------
 // The skis are split (in model.ts) into a tip arm (extends +z) and a tail arm (extends
@@ -86,7 +105,7 @@ function getState(ud: Record<string, unknown>): FlexState {
 }
 
 function freshState(): FlexState {
-  return { t: 0, settle: 0, settleVel: 0, leanZ: 0, lagY: 0, skiCamber: SKI_CAMBER_GLIDE, skiSettle: 0, skiSettleVel: 0 };
+  return { t: 0, settle: 0, settleVel: 0, leanZ: 0, lagY: 0, skiCamber: SKI_CAMBER_GLIDE, skiSettle: 0, skiSettleVel: 0, windSwayS: 0, windStreamS: 0 };
 }
 
 function prefersReducedMotion(): boolean {
@@ -112,6 +131,14 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
   const speedN = clamp(speed / SPEED_REF, 0, 1);
   const turn = clamp(finite(m.turnRate), -1, 1);
   const air = !!m.isInAir;
+
+  // Smooth the apparent-wind inputs (issue #253). Absent => 0, so a caller that doesn't
+  // pass wind leaves the scarf/brace byte-identical to before.
+  const swayIn = clamp(finite(m.windSway ?? 0), -1, 1);
+  const streamIn = clamp(finite(m.windStream ?? 0), -1, 1);
+  fs.windSwayS += (swayIn - fs.windSwayS) * clamp(dt * WIND_SMOOTH, 0, 1);
+  fs.windStreamS += (streamIn - fs.windStreamS) * clamp(dt * WIND_SMOOTH, 0, 1);
+  fs.windSwayS = finite(fs.windSwayS); fs.windStreamS = finite(fs.windStreamS);
 
   fs.t += dt;
 
@@ -153,18 +180,30 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
     fs.leanZ += (targetLean - fs.leanZ) * clamp(dt * 5, 0, 1);
     fs.lagY = finite(fs.lagY); fs.leanZ = finite(fs.leanZ);
 
+    // Brace lightly INTO a crosswind (opposite the direction the scarf streams). Tiny and
+    // clamped so it never reads as a turn; zero while airborne (#253).
+    const brace = air ? 0 : clamp(-fs.windSwayS * BRACE_LEAN, -0.09, 0.09);
+
     hg.rotation.set(
       hb.rotation.x + clamp(fs.settle * 0.25, -0.1, 0.1),
       hb.rotation.y + clamp(fs.lagY, -0.28, 0.28),
-      hb.rotation.z + clamp(fs.leanZ, -0.34, 0.34)
+      hb.rotation.z + clamp(fs.leanZ + brace, -0.36, 0.36)
     );
   }
 
   // Scarf tail trail — present-or-absent (added by the optional scarf follow-up, PR C).
+  // It swings with turns, flutters with speed, AND now streams in the apparent wind so a
+  // crosswind trails it sideways and a head/tail wind lifts it fore/aft (issue #253).
   const tail = parts.scarfTail; const tb = base.scarfTail;
   if (tail && tb) {
-    const swing = clamp(-turn * 0.4 + Math.sin(fs.t * 7.0) * 0.12 * (0.4 + speedN), -0.6, 0.6);
-    tail.rotation.set(tb.rotation.x + (air ? -0.3 : 0.1), tb.rotation.y, tb.rotation.z + swing);
+    const windSwing = fs.windSwayS * SCARF_WIND_SWAY;
+    // Negate the apparent-wind stream: the tail's rest pose is forward-draped (more-negative
+    // rotation.x sends it toward +z), so a head/tail wind must ADD positive rotation.x to
+    // trail it behind. A downhill self-motion headwind (windStreamS < 0) thus streams the
+    // scarf back; a tailwind (> 0) pushes it forward (Codex #259).
+    const windLift = clamp(-fs.windStreamS * SCARF_WIND_STREAM, -0.4, 0.4);
+    const swing = clamp(-turn * 0.4 + windSwing + Math.sin(fs.t * 7.0) * 0.12 * (0.4 + speedN), -0.8, 0.8);
+    tail.rotation.set(tb.rotation.x + (air ? -0.3 : 0.1) + windLift, tb.rotation.y, tb.rotation.z + swing);
   }
 
   // --- Ski flex (issue #189) -------------------------------------------------

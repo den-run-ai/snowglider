@@ -42,6 +42,13 @@ import { AVALANCHE_TRIGGER_DISTANCE, type SceneContext } from './scene-setup.js'
 export const FIXED_DT = 1 / 60;
 export const MAX_SUBSTEPS = 8;
 
+// Apparent-wind normalization for the scarf (#253): the local-frame apparent wind is
+// divided by this reference speed and clamped to [-1,1] before it reaches the cosmetic
+// flex layer. ~16 ≈ a brisk run, so a strong gust or fast straight-line saturates the
+// scarf stream without it ever exceeding its clamps.
+const WIND_LOCAL_REF = 16;
+const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
+
 /** Events that can fire on ANY substep within a render frame, reduced across the
  *  frame so a jump/land that completes mid-frame still drives its one-shot cosmetics
  *  (whoosh / thump / toast / shake). Reading only the LAST substep's result would
@@ -188,6 +195,19 @@ export function createMainLoop(deps: MainLoopDeps) {
       CourseModule.flashAir(ev.landingQuality, ev.landingForce);
     }
 
+    // Apparent wind for the scarf (#253): the wind a moving snowman feels is
+    // wind - velocity. Resolve it into the snowman's LOCAL frame (heading = rotation.y,
+    // forward = (sin h, cos h), lateral = (cos h, -sin h)) and normalize, so the scarf
+    // streams sideways in a crosswind and lifts fore/aft in a head/tail wind. Reads
+    // Wind/velocity/rotation only — never writes pos/velocity.
+    const wv = Wind.vector();
+    const appX = wv.x - velocity.x;
+    const appZ = wv.z - velocity.z;
+    const h = snowman.rotation.y;
+    const sinH = Math.sin(h), cosH = Math.cos(h);
+    const windStream = clamp((appX * sinH + appZ * cosH) / WIND_LOCAL_REF, -1, 1); // forward
+    const windSway = clamp((appX * cosH - appZ * sinH) / WIND_LOCAL_REF, -1, 1);   // sideways
+
     // Cosmetic flexibility / jiggle (issue #53). Purely visual: reads the per-frame
     // result, only writes child-mesh transforms — never pos/velocity.
     const flexSpeed = result.currentSpeed;
@@ -197,7 +217,9 @@ export function createMainLoop(deps: MainLoopDeps) {
       turnRate: flexSpeed > 1e-3 ? velocity.x / flexSpeed : 0, // zero-speed guard (no 0/0 NaN)
       justLanded: ev.justLanded,
       landingForce: ev.landingForce,
-      isInAir: player.isInAir
+      isInAir: player.isInAir,
+      windSway,
+      windStream
     });
 
     // Sound effects (issue #158): a takeoff whoosh on the ground->air transition, a
