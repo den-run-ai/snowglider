@@ -125,24 +125,34 @@ async function main() {
   const diagBody = buildIssueBody({ category: 'bug', message: 'm', context: { diagnostics: '{"fps":60}' } });
   check('diagnostics render in a details block', diagBody.includes('<details>') && diagBody.includes('{"fps":60}'));
 
-  // ---- collectContext: real jsdom reads ----
+  // ---- collectContext: opt-in gating ----
   console.log('--- collectContext ---');
-  const ctx = collectContext(false);
-  check('collectContext reads the build-id meta', ctx.build === '2026-06-30 05:00');
-  check('collectContext reads the location', ctx.url === 'https://snowglider.ai/play');
-  check('collectContext reads the viewport', typeof ctx.viewport === 'string' && ctx.viewport.includes('x'));
-  check('collectContext reads the user agent', typeof ctx.userAgent === 'string' && ctx.userAgent.length > 0);
-  check('collectContext skips diagnostics when none present', ctx.diagnostics === undefined);
+  // Opt-OUT: nothing is attached — no build, URL, viewport, or user-agent. This is
+  // the privacy contract behind the "Include diagnostics" checkbox.
+  const optedOut = collectContext(false);
+  check('opt-out attaches NO build', optedOut.build === undefined);
+  check('opt-out attaches NO url (no query-string leak)', optedOut.url === undefined);
+  check('opt-out attaches NO viewport', optedOut.viewport === undefined);
+  check('opt-out attaches NO user agent', optedOut.userAgent === undefined);
+  check('opt-out attaches NO diagnostics', optedOut.diagnostics === undefined);
 
-  // Opt-in diagnostics via __snowgliderDiag.snapshot() (NOT dump(), which would
-  // trigger a file download). dump is present here to assert we don't call it.
+  // Opt-IN (no diag API present yet): device/page context is collected.
+  const ctx = collectContext(true);
+  check('opt-in reads the build-id meta', ctx.build === '2026-06-30 05:00');
+  check('opt-in reads the location', ctx.url === 'https://snowglider.ai/play');
+  check('opt-in reads the viewport', typeof ctx.viewport === 'string' && ctx.viewport.includes('x'));
+  check('opt-in reads the user agent', typeof ctx.userAgent === 'string' && ctx.userAgent.length > 0);
+  check('opt-in omits diagnostics trace when no diag API present', ctx.diagnostics === undefined);
+
+  // Opt-IN with a diagnostics API: serialise via __snowgliderDiag.snapshot() (NOT
+  // dump(), which would trigger a file download). dump is present here to assert
+  // we never call it.
   let dumpCalls = 0;
   g.window.__snowgliderDiag = { snapshot: () => ({ fps: 60, ok: true }), dump: () => { dumpCalls++; return {}; } };
   const withDiag = collectContext(true);
-  check('collectContext serialises diagnostics when opted in', (withDiag.diagnostics || '').includes('"fps":60'));
+  check('opt-in serialises diagnostics when available', (withDiag.diagnostics || '').includes('"fps":60'));
   check('collectContext uses snapshot(), never the downloading dump()', dumpCalls === 0);
-  const optedOut = collectContext(false);
-  check('collectContext omits diagnostics when not opted in', optedOut.diagnostics === undefined);
+  check('opt-out still attaches nothing even when a diag API exists', collectContext(false).diagnostics === undefined);
   delete g.window.__snowgliderDiag;
 
   // ---- logFeedbackEvent: analytics seam ----

@@ -80,13 +80,21 @@ export interface FeedbackContext {
 }
 
 /**
- * Gather best-effort runtime context for the issue body. `includeDiagnostics`
- * additionally serialises `window.__snowgliderDiag.dump()` (the same trace the
- * diagnostics bug-report API exposes). Every access is guarded so this is inert
- * under SSR / Node / tests.
+ * Gather best-effort runtime context for the issue body, ONLY when
+ * `includeDiagnostics` is true (the modal's opt-in checkbox). It then collects
+ * build id, URL, viewport, user-agent, and — if available — the
+ * `window.__snowgliderDiag.snapshot()` physics trace. With the box unchecked it
+ * returns an empty object so an ordinary submission carries only the player's
+ * message. Every access is guarded so this is inert under SSR / Node / tests.
  */
 export function collectContext(includeDiagnostics: boolean): FeedbackContext {
   const ctx: FeedbackContext = {};
+  // ALL of the following is device/page context gated behind the opt-in checkbox
+  // ("Include diagnostics (build, device, physics trace)"). With the box unchecked
+  // we attach nothing, so an ordinary submission never leaks the URL (which can
+  // carry query-string state), the viewport, or the user-agent — only the player's
+  // own message goes into the issue.
+  if (!includeDiagnostics) return ctx;
   if (typeof document !== 'undefined' && document.querySelector) {
     const meta = document.querySelector('meta[name="build-id"]');
     const content = meta && 'content' in meta ? (meta as HTMLMetaElement).content : '';
@@ -106,7 +114,7 @@ export function collectContext(includeDiagnostics: boolean): FeedbackContext {
   // Use snapshot(), NOT dump(): both return the same trace, but dump() also
   // downloads a snowglider-diag-*.json file as a side effect — we only want the
   // data to embed in the issue body, not a surprise download on every submit.
-  if (includeDiagnostics && typeof window !== 'undefined' && window.__snowgliderDiag &&
+  if (typeof window !== 'undefined' && window.__snowgliderDiag &&
       typeof window.__snowgliderDiag.snapshot === 'function') {
     try {
       const snap = window.__snowgliderDiag.snapshot();
