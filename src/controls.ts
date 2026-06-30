@@ -103,10 +103,13 @@ function setupKeyboardControls(signal?: AbortSignal) {
       case ' ':  // Spacebar
         gameControls.jump = true;
         break;
-      case 'v':  // Toggle camera view
+      case 'v':  // Toggle camera view (edge-triggered: once per physical press)
       case 'V':
-        // This will be handled in the main game code
-        if (typeof window.toggleCameraView === 'function') {
+        // Ignore OS/browser key auto-repeat while V is held. Unlike the movement keys
+        // (which just set an idempotent boolean), this flips a mode, so a long press
+        // must toggle exactly once — without the `event.repeat` guard the repeated
+        // keydowns would flicker the camera and leave it in an arbitrary mode.
+        if (!event.repeat && typeof window.toggleCameraView === 'function') {
           window.toggleCameraView();
         }
         break;
