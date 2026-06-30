@@ -50,10 +50,19 @@ namespace tidy.
 
 ## The og:image card
 
-The social-share card is the asset named `og-card.png`. `index.html` references it
-from the `og:image` / `twitter:image` meta tags. When the card changes, re-upload
-`og-card.png` (same name) and re-run the Facebook / LinkedIn / X card debuggers so
-the scrapers re-cache.
+The social-share card is the asset named `og-card.png`.
+
+> **Transitional (as of this PR):** `index.html`'s `og:image` / `twitter:image` meta
+> tags still point at the legacy `assets/og-image` **branch** URL
+> (`raw.githubusercontent.com/.../assets/og-image/og-card.png`). This PR only lands the
+> Release-based hosting **tooling**; repointing the production meta tags is the gated
+> migration step (run `scripts/rewrite-asset-links.mjs`, then verify the live
+> `snowglider.ai` link preview) and is intentionally **not** done here. Until that step
+> lands, treat the branch URL as the source of truth for the live card.
+
+Once the meta tags are repointed to the Release asset: when the card changes, re-upload
+`og-card.png` (same name) and re-run the Facebook / LinkedIn / X card debuggers so the
+scrapers re-cache.
 
 ## Screen recordings & demo videos
 
