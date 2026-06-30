@@ -295,6 +295,34 @@ async function main() {
     lb.querySelectorAll('table tr').length === 6);
   check('leaderboard formats times to 2 decimals', lb.innerHTML.includes('10.00s'));
 
+  // Unranked tier (Bunny/Black): no global-board onboarding — hint hidden when signed
+  // out, and the board is neither fetched nor rendered when signed in.
+  resetAccountDom();
+  window.localStorage.setItem('snowgliderDifficulty', 'bunny');
+  SM.buildDifficultyPicker(); // selectedDifficulty -> bunny (unranked)
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('unranked tier hides the sign-in hint (signed out, Firestore up)',
+    hint.style.display === 'none');
+  resetAccountDom();
+  let unrankedReads = 0;
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
+    getLeaderboard: () => { unrankedReads++; return many; }
+  });
+  refresh();
+  await settle();
+  check('unranked tier hides the board and skips the fetch (signed in)',
+    lb.style.display === 'none' && unrankedReads === 0);
+  window.localStorage.setItem('snowgliderDifficulty', 'blue'); // restore for the rest
+  SM.buildDifficultyPicker();
+
   // Current user is highlighted and shown by display name.
   resetAccountDom();
   setAccount({

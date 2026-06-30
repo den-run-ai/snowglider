@@ -171,6 +171,11 @@ function maxTrajDiff(a, b) {
       frozenKeys.every((k) => typeof c.ski[k] === 'number' && Number.isFinite(c.ski[k]))
       && Object.keys(c.ski).length === frozenKeys.length));
 
+  check('ranked: only Blue is ranked for now (Bunny/Black unranked until floors measured)',
+    D.getDifficultyConfig('blue').ranked === true
+    && D.getDifficultyConfig('bunny').ranked === false
+    && D.getDifficultyConfig('black').ranked === false);
+
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
   check('localBestTimeKey: Blue keeps the original key; others are suffixed',
     D.localBestTimeKey('blue') === 'snowgliderBestTime'

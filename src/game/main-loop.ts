@@ -27,6 +27,7 @@ import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
+import { getDifficultyConfig } from '../difficulty.js';
 import { updateStatsHud, updateTimerDisplay } from '../ui/hud.js';
 import { AVALANCHE_TRIGGER_DISTANCE, type SceneContext } from './scene-setup.js';
 
@@ -128,7 +129,10 @@ export function createMainLoop(deps: MainLoopDeps) {
       // Meaningful jumps (#47): bank a manual jump's air score from inside the step,
       // before its synchronous finish check can build the result screen — so a jump
       // landed on the finish frame still counts (see Snowman.updateSnowman).
-      bankAirScore: (points: number) => { if (CourseModule) CourseModule.addAirScore(points); }
+      bankAirScore: (points: number) => { if (CourseModule) CourseModule.addAirScore(points); },
+      // Felt per-tier difficulty (D3): the run's ski tuning. Blue's ski === BLUE_PHYSICS_TUNING,
+      // so a Blue run is byte-identical to the frozen baseline; Bunny/Black vary the handling.
+      tuning: getDifficultyConfig(state.difficulty).ski
     });
 
     return result;

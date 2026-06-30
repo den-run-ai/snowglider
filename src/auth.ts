@@ -674,6 +674,11 @@ function syncUserData(user: User) {
       // after the user doc is confirmed/created (Blue == the original snowgliderBestTime
       // key / bestTime field, unchanged).
       for (const cfg of DIFFICULTIES) {
+        // Only backfill RANKED tiers. updateUserBestTime always follows with
+        // updateLeaderboard, so backfilling an unranked tier here would publish a
+        // practice score to the global board — exactly what the finish overlay avoids
+        // for unranked tiers. Their best stays local until the tier is ranked.
+        if (!cfg.ranked) continue;
         const key = localBestTimeKey(cfg.id);
         const raw = localStorage.getItem(key);
         if (!raw) continue;

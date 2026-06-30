@@ -13,6 +13,23 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Difficulty tiers (stage 5 / D3.1): felt per-tier ski feel + unranked Bunny/Black
+- **The kernel now uses the run's tier tuning.** The main loop passes
+  `getDifficultyConfig(state.difficulty).ski` into `Physics.stepPlayer`, so Bunny feels
+  easier (gentler carve, more friction, softer tuck) and Black harder (snappier/looser,
+  less friction, faster) — the first *felt* difficulty. Blue's `ski` is
+  `BLUE_PHYSICS_TUNING`, so a Blue run stays byte-for-byte identical (the no-input
+  invariant harness still reports IDENTICAL).
+- **Bunny/Black ship UNRANKED.** A new `DifficultyConfig.ranked` flag (Blue `true`,
+  Bunny/Black `false`) gates Firestore submission: unranked finishes keep their local
+  per-tier best + ghost but post nothing to the global board, and the result screen omits
+  the leaderboard + "sign in to save" prompt for them. They flip to ranked in a later D3
+  sub-PR once their plausibility floors are measured and a winnability gate passes — this
+  is what keeps a faster Black run from being rejected by Blue's 18 s floor in the interim.
+- Terrain / obstacle / avalanche tuning and seeded RNG streams are still to come (later D3
+  sub-PRs). Covered by the per-tier kernel descent tests + the result-overlay ranked-gating
+  test.
+
 ### Difficulty tiers (stage 4 / D2): per-tier leaderboards, rules & best times
 - **Per-tier Firestore leaderboards.** Blue keeps the existing `leaderboard` collection
   and `users/{uid}.bestTime` field untouched (zero migration of live scores); Bunny/Black

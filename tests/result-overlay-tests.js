@@ -27,7 +27,7 @@ function check(name, condition) {
 let local;
 
 // Reset the overlay DOM for one showGameOver scenario; returns the injected deps.
-function makeDeps(/** @type {{ bestTime?: number, startTime?: number, onCrash?: (r: string) => void }} */ { bestTime = Infinity, startTime, onCrash } = {}) {
+function makeDeps(/** @type {{ bestTime?: number, startTime?: number, onCrash?: (r: string) => void, getDifficulty?: () => ('bunny'|'blue'|'black') }} */ { bestTime = Infinity, startTime, onCrash, getDifficulty } = {}) {
   document.body.innerHTML = `
     <div id="gameStatsContainer"><button id="toggleStats">▲</button></div>
     <div id="leaderboard" style="display:none"></div>
@@ -44,6 +44,7 @@ function makeDeps(/** @type {{ bestTime?: number, startTime?: number, onCrash?: 
     restartButton: document.getElementById('restartButton'),
     bestTimeDisplay: document.getElementById('bestTimeDisplay'),
     onCrash,
+    getDifficulty,
   };
 }
 
@@ -100,6 +101,35 @@ async function main() {
     check('finish (not signed in) inserts the login prompt', !!document.getElementById('loginPrompt'));
     check('finish logs a complete_game analytics event', analyticsEvents.some(e => e[0] === 'complete_game'));
     check('overlay is shown', deps.gameOverOverlay.style.display === 'flex');
+  }
+
+  // --- Unranked tier (D3): finish records NO Firestore score, keeps the per-tier local best ---
+  {
+    local.clear();
+    recorded = null;
+    window.AuthModule.getCurrentUser = () => null;
+    // ~30s finish — a realistic, plausible Bunny time (Bunny plays slower; its floor is 28s).
+    const deps = makeDeps({ bestTime: Infinity, startTime: performance.now() - 30000, getDifficulty: () => 'bunny' });
+    createShowGameOver(deps)(FINISH);
+    check('unranked tier does NOT submit a score via AuthModule', recorded === null);
+    check('unranked tier still saves the per-tier local best',
+      typeof local.getItem('snowgliderBestTime_bunny') === 'string'
+      && local.getItem('snowgliderBestTime') === null);
+    check('unranked tier omits the sign-in-to-save login prompt',
+      !document.getElementById('loginPrompt'));
+  }
+
+  // --- Fast Black finish below Blue's 18s floor is valid for its own (13s) tier floor ---
+  {
+    local.clear();
+    recorded = null;
+    window.AuthModule.getCurrentUser = () => null;
+    // ~15s finish: under Blue's 18s floor, but above Black's 13s floor.
+    const deps = makeDeps({ bestTime: Infinity, startTime: performance.now() - 15000, getDifficulty: () => 'black' });
+    createShowGameOver(deps)(FINISH);
+    check('fast Black finish (15s < Blue floor) is treated as a valid finish, saves its local best',
+      typeof local.getItem('snowgliderBestTime_black') === 'string'
+      && /New Best Time/.test(deps.bestTimeDisplay.textContent));
   }
 
   // --- Finish + valid time, NOT a new best, signed in -> leaderboard insertion ---
