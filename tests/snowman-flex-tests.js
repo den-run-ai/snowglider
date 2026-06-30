@@ -46,7 +46,9 @@ function makeSnowman() {
     rightArmGroup: makePart(-1.35, 4.9, 0),
     // Ski flex arms (issue #189): pivot at the waist (root-local z = -0.1).
     leftSkiTip: makePart(0, 0, -0.1), leftSkiTail: makePart(0, 0, -0.1),
-    rightSkiTip: makePart(0, 0, -0.1), rightSkiTail: makePart(0, 0, -0.1)
+    rightSkiTip: makePart(0, 0, -0.1), rightSkiTail: makePart(0, 0, -0.1),
+    // Scarf tail (issue #53 / wind streaming #253).
+    scarfTail: makePart(0.3, 6.25, 0.75)
   };
   return { userData: { parts, partBaseTransforms: recordBase(parts) } };
 }
@@ -166,6 +168,48 @@ async function main() {
     Flex.reset(sm);
     const restored = skiKeys.every((k) => sm.userData.parts[k].rotation.x === base[k].rotation.x);
     check('reset() restores ski arms to neutral', restored);
+  }
+
+  // --- Scarf wind streaming (issue #253) -------------------------------------
+  {
+    const base = makeSnowman().userData.partBaseTransforms;
+
+    // A steady crosswind streams the tail sideways (rotation.z), opposite to the sign of
+    // windSway in this neutral pose, and well beyond the idle sine flutter (~0.07).
+    const sm = makeSnowman();
+    for (let i = 0; i < 60; i++) Flex.update(sm, 1 / 60, { speed: 6, technique: 'glide', turnRate: 0, justLanded: false, landingForce: 0, isInAir: false, windSway: 1, windStream: 0 });
+    const tz = sm.userData.parts.scarfTail.rotation.z - base.scarfTail.rotation.z;
+    check('crosswind streams the scarf sideways (rotation.z)', Math.abs(tz) > 0.2 && Number.isFinite(tz));
+
+    // A head/tail wind lifts the tail fore/aft (rotation.x).
+    const sm2 = makeSnowman();
+    for (let i = 0; i < 60; i++) Flex.update(sm2, 1 / 60, { speed: 6, technique: 'glide', turnRate: 0, justLanded: false, landingForce: 0, isInAir: false, windSway: 0, windStream: 1 });
+    const tx = sm2.userData.parts.scarfTail.rotation.x - base.scarfTail.rotation.x;
+    check('head/tail wind lifts the scarf fore/aft (rotation.x)', tx > 0.1 && Number.isFinite(tx));
+
+    // The body braces INTO the crosswind: the head leans opposite the scarf stream.
+    check('body braces into the crosswind (head leans opposite the scarf)', Math.sign(sm.userData.parts.headGroup.rotation.z) === -Math.sign(tz));
+
+    // DEFAULT-0 SAFETY: omitting the wind fields == passing 0 (so existing callers/tests
+    // stay byte-identical). Drive two snowmen in lockstep, identical except for the absent
+    // vs explicit-0 wind, and require every scarf transform to match exactly.
+    const a = makeSnowman(), b = makeSnowman();
+    for (let i = 0; i < 90; i++) {
+      const m = { speed: 14, technique: 'carve', turnRate: Math.sin(i / 9), justLanded: false, landingForce: 0, isInAir: false };
+      Flex.update(a, 1 / 60, m);
+      Flex.update(b, 1 / 60, { ...m, windSway: 0, windStream: 0 });
+    }
+    const at = a.userData.parts.scarfTail.rotation, bt = b.userData.parts.scarfTail.rotation;
+    check('absent wind == windSway/windStream 0 (byte-identical scarf)', at.x === bt.x && at.y === bt.y && at.z === bt.z);
+
+    // Bounded + finite under a hard gusting sweep.
+    const sm3 = makeSnowman(); let okay = true;
+    for (let i = 0; i < 400; i++) {
+      Flex.update(sm3, 1 / 60, { speed: 22, technique: 'carve', turnRate: Math.sin(i / 7), justLanded: false, landingForce: 0, isInAir: i % 50 < 8, windSway: Math.sin(i / 5), windStream: Math.cos(i / 11) });
+      const r = sm3.userData.parts.scarfTail.rotation;
+      if (![r.x, r.y, r.z].every(Number.isFinite) || Math.abs(r.z) > 1.2 || Math.abs(r.x) > 1.2) okay = false;
+    }
+    check('scarf stays bounded + finite over 400 gusting frames', okay);
   }
 
   console.log(`\nSNOWMAN-FLEX TOTAL: ${pass} passed, ${fail} failed`);

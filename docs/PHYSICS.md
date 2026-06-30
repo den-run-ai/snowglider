@@ -618,9 +618,13 @@ of each faking its own (issue #253).
   profile (e.g. a calmer vs. gustier difficulty tier).
 - **Consumers.** Snow drift (`snow.ts`: flakes blow downwind scaled by a per-flake
   `windFactor` — lighter flakes further — and the ski splash is advected by `SPLASH_WIND`).
-  *Follow-ups:* scarf streaming (`snowman-flex.ts`), tree sway (`mountains/trees.ts`),
-  audio bed (`sfx.ts`). Every consumer honours `prefers-reduced-motion` (calm) itself,
-  like `Flex`/`Sky`.
+  Scarf streaming (`snowman-flex.ts`: the scarf tail trails the **apparent** wind
+  `(wind − velocity)` resolved into the snowman's local frame — sideways in a crosswind,
+  lifted fore/aft in a head/tail wind — plus a light brace-into-the-wind body lean; the
+  main loop computes the local-frame apparent wind and passes it in as `windSway`/
+  `windStream`, both defaulting to 0 so the no-wind pose is byte-identical).
+  *Follow-ups:* tree sway (`mountains/trees.ts`), audio bed (`sfx.ts`). Every consumer
+  honours `prefers-reduced-motion` (calm) itself, like `Flex`/`Sky`.
 - **Why this is invariant-safe.** Because no consumer writes `pos`/`velocity`, the
   no-input coasting path stays byte-identical to the frozen baseline (§6) — adding wind
   needed **no** baseline regeneration. A wind *force* on the skier would be the opposite: a
