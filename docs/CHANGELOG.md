@@ -19,10 +19,12 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   tracking, Firebase Analytics for engagement) were unused for feedback.
 - **`src/ui/feedback.ts` (new).** A "💬 Feedback" button on the start screen opens a small
   modal (category: feature / bug / general, a message, and an opt-in "include diagnostics"
-  checkbox). **Submit opens a GitHub _prefilled_ new-issue URL** (`/issues/new?title=…&body=…&labels=…`)
+  checkbox). **Submit opens a GitHub _prefilled_ new-issue URL** (`/issues/new?title=…&body=…`)
   in a new tab — keyless by design: a static GitHub-Pages client must never hold a write
   token, so the player previews and submits the issue under their **own** GitHub account.
-  No server, no Cloud Function.
+  No server, no Cloud Function. (No `labels=` param — GitHub 404s that form for users
+  without label permission, i.e. ordinary players; labels come from the title prefix and
+  the `.github/ISSUE_TEMPLATE/*` templates instead.)
 - **Analytics.** Fires a `feedback_submitted` event (category dimension only — no message
   text/PII) through the existing `window.firebaseModules.logEvent` seam (`auth.ts`), the
   same path `share_result` / `complete_run` use; no-ops when Analytics is absent.

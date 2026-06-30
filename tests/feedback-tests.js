@@ -79,16 +79,18 @@ async function main() {
   check('title carries the [Feature] prefix + first line',
     parsed.searchParams.get('title') === '[Feature] Add a replay mode');
   check('body contains the message', (parsed.searchParams.get('body') || '').includes('Add a replay mode'));
-  check('labels include enhancement + game-feedback',
-    parsed.searchParams.get('labels') === 'enhancement,game-feedback');
+  // The URL must NOT carry a `labels` param: GitHub 404s the /issues/new form for
+  // users without label permission (i.e. ordinary players). Labels are applied
+  // repo-side (templates / title prefix), not via the query string.
+  check('URL omits the labels param (avoids 404 for non-collaborators)',
+    parsed.searchParams.get('labels') === null && !url.includes('labels='));
 
   const bugUrl = new URL(buildFeedbackIssueUrl({ category: 'bug', message: 'Avalanche clips through trees' }));
   check('bug title prefix', bugUrl.searchParams.get('title') === '[Bug] Avalanche clips through trees');
-  check('bug labels include bug + game-feedback', bugUrl.searchParams.get('labels') === 'bug,game-feedback');
+  check('bug URL also omits labels', bugUrl.searchParams.get('labels') === null);
 
   const genUrl = new URL(buildFeedbackIssueUrl({ category: 'general', message: 'Love the game' }));
   check('general title prefix', genUrl.searchParams.get('title') === '[Feedback] Love the game');
-  check('general labels = game-feedback only', genUrl.searchParams.get('labels') === FEEDBACK_LABEL);
 
   const fbUrl = new URL(buildFeedbackIssueUrl({ category: /** @type {any} */ ('bogus'), message: 'x' }));
   check('invalid category defaults to [Feature]', (fbUrl.searchParams.get('title') || '').startsWith('[Feature]'));

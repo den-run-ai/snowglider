@@ -159,10 +159,16 @@ export function buildFeedbackIssueUrl(opts: BuildIssueOptions): string {
   const cat = isFeedbackCategory(opts.category) ? opts.category : DEFAULT_CATEGORY;
   const meta = FEEDBACK_CATEGORIES[cat];
   const title = meta.titlePrefix + (firstLine(opts.message || '') || 'feedback');
+  // NB: deliberately NO `labels=` param. GitHub's /issues/new `labels` query
+  // parameter requires permission to add labels and returns a 404 (instead of the
+  // prefilled form) for users who lack it. This form is for ordinary players
+  // submitting under their own accounts, so labels are applied repo-side instead:
+  // the `[Feature]`/`[Bug]`/`[Feedback]` title prefix is the categorisation signal,
+  // and the .github/ISSUE_TEMPLATE/* templates carry the labels for the Issues-tab
+  // path. (meta.issueLabels documents that intended labelling.)
   const params = new URLSearchParams({
     title,
     body: buildIssueBody({ ...opts, category: cat }),
-    labels: meta.issueLabels.join(','),
   });
   return `https://github.com/${REPO_SLUG}/issues/new?${params.toString()}`;
 }
