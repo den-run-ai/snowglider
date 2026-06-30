@@ -13,6 +13,26 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Feature: player-following sun shadow + frustum fix (#18)
+- **Latent bug.** Everything in the scene set `castShadow` and the terrain set
+  `receiveShadow`, but nothing configured the directional (sun) light's shadow
+  **camera** — it used three.js's default ±5-unit orthographic box centred on the
+  world origin. The snowman spawns at `z = -15` (already outside the box) and skis far
+  downhill, so it cast **no contact shadow for essentially the entire run**, while the
+  2048² shadow map was spent on a patch of slope nobody skis through.
+- **Fix (`src/game/sun-shadow.ts`).** `configureSunShadow()` widens the frustum to ±60
+  around the player, brackets near/far to the sun distance, enables `PCFSoftShadowMap`,
+  and biases away acne/peter-panning. `aimSunLight()` re-aims the light **and its
+  target** at the interpolated render position each frame (before `renderer.render`), so
+  the frustum follows the snowman while the sun *direction* (and thus the shadow
+  direction) is preserved. The direction is read from the sun cycle via new
+  `Sky.getSunDirection()` / `Sky.getSunDistance()` getters rather than from the now-
+  offset light position.
+- **Pure rendering change:** no `pos`/`velocity` or physics-height-field touch, so the
+  no-input invariant is byte-identical; no new per-frame shadow cost (the sun cycle
+  already re-rendered the shadow map every frame). Covered by `tests/sun-shadow-tests.js`
+  (`npm run test:sun-shadow`). See [`SNOW_RENDERING.md`](SNOW_RENDERING.md).
+
 ### Difficulty tiers (stage 5 / D3.1): felt per-tier ski feel + unranked Bunny/Black
 - **The kernel now uses the run's tier tuning.** The main loop passes
   `getDifficultyConfig(state.difficulty).ski` into `Physics.stepPlayer`, so Bunny feels

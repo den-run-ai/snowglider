@@ -509,6 +509,29 @@ function update(dt: number): void {
   applyProgress(cycle, cycleProgress(cycle.elapsed));
 }
 
+/**
+ * Current unit sun direction the cycle is driving. Read from the live Preetham
+ * `sunPosition` uniform (which the cycle keeps as a unit vector) rather than from the
+ * directional light's world position — the player-following shadow (game/sun-shadow.ts)
+ * offsets that light to sit over the player each frame, so the light's position is no
+ * longer a reliable sun-direction source. Returns straight overhead `(0,1,0)` before the
+ * sky is built. Writes into `target` when given (to avoid per-frame allocation).
+ */
+function getSunDirection(target?: THREE.Vector3): THREE.Vector3 {
+  const out = target ?? new THREE.Vector3();
+  if (!cycle) return out.set(0, 1, 0);
+  return out.copy(skyUniforms(cycle.material).sunPosition.value).normalize();
+}
+
+/**
+ * Distance to place the sun light from the player along {@link getSunDirection} — the
+ * captured midday sun distance, so the light→player geometry matches the static look.
+ * Returns 1 before the sky is built.
+ */
+function getSunDistance(): number {
+  return cycle ? cycle.midday.distance : 1;
+}
+
 /** Drop the sun-cycle singleton (dispose-audit teardown / dev-HMR). The `cycle` captures
  *  the live scene + directionalLight + sky material/fog, so on an embed/HMR unmount it
  *  would keep the disposed scene graph reachable. applyAtmosphericSky rebuilds it on the
@@ -522,6 +545,8 @@ export const Sky = {
   applyAtmosphericSky,
   update,
   teardown,
+  getSunDirection,
+  getSunDistance,
   cycleProgress,
   ZENITH_COLOR,
   HORIZON_COLOR,

@@ -17,6 +17,7 @@ import { SnowTrails } from '../snowtracks.js';
 import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
+import { configureSunShadow } from './sun-shadow.js';
 import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
 import { readStoredDifficulty, type Difficulty } from '../difficulty.js';
@@ -201,9 +202,14 @@ export function setupScene(signal?: AbortSignal) {
   const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5 * Math.PI);
   directionalLight.position.set(50, 100, 50);
   directionalLight.castShadow = true;
-  directionalLight.shadow.mapSize.width = 2048;
-  directionalLight.shadow.mapSize.height = 2048;
   scene.add(directionalLight);
+  // Player-following sun shadow (issue #18): the default DirectionalLight shadow box is a
+  // ±5 volume at the origin, so the snowman (spawns at z=-15, skis downhill) sat outside it
+  // and cast no contact shadow for the whole run. Widen + bias the frustum here; the main
+  // loop re-aims the light + target at the player each frame (game/sun-shadow.ts). The
+  // target must be in the scene for Three.js to orient the shadow camera toward it.
+  configureSunShadow(directionalLight, renderer);
+  scene.add(directionalLight.target);
 
   // --- Sky & fog ---
   // Preetham atmospheric sky + sun, with horizon-tinted distance fog (issue #2),
@@ -345,6 +351,7 @@ export function setupScene(signal?: AbortSignal) {
     renderer,
     camera,
     cameraManager,
+    directionalLight,
     gameOverOverlay,
     gameOverDetail,
     restartButton,
