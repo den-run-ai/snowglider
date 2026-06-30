@@ -21,7 +21,7 @@ import { configureSunShadow } from './sun-shadow.js';
 import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
 import { readStoredDifficulty, getDifficultyConfig, type Difficulty } from '../difficulty.js';
-import { courseLineFor } from '../course-line.js';
+import { courseLineFor, setActiveCourseLine } from '../course-line.js';
 
 export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
 export const AVALANCHE_BOULDER_COUNT = 120;   // boulders in the slide (single source of truth; gated by winnability_harness)
@@ -241,24 +241,25 @@ export function setupScene(signal?: AbortSignal) {
   // not touch the snow's cool-shadow fill. (Sky.applyGradientSky is a fallback.)
   Sky.applyAtmosphericSky(scene, directionalLight);
 
-  // --- Difficulty corridor (D3.2b: "the line is the difficulty") ---
-  // Shape the terrain into the run's tier corridor BEFORE building the mesh, so the
-  // mesh vertices and getTerrainHeight bake in the same walls (two-formula contract).
-  // setupScene is one-shot (terrain is built once, never rebuilt on restart — see
-  // game/teardown.ts), so the corridor is fixed at scene build from `builtDifficulty`;
-  // straight tiers (Bunny/Blue) resolve to `null` ⇒ today's exact terrain.
+  // --- Difficulty line + corridor ("the line is the difficulty") ---
+  // Build the run's centerline ONCE and share that single instance: register it as the
+  // active line (D3.2c — the gates and obstacle field read it via activeLaneX) and hand
+  // the SAME instance to the terrain corridor (D3.2b — walls banked onto it). Straight
+  // tiers (Bunny/Blue, curviness 0) resolve to `null` everywhere ⇒ gates at x=0, today's
+  // obstacle placement, and today's exact terrain — the byte-identical guardrail.
   //
-  // If the player locks a DIFFERENT tier for the run (the start-screen picker, or the
-  // finish "Play again on" picker), the corridor here would not match. Rather than
-  // rebuild the mesh in place (a large, leak-prone teardown), the coordinator reloads on
-  // that mismatch (maybeReloadForRunTier) so setupScene re-runs for the locked tier — see
-  // snowglider.ts. `builtDifficulty` is the tier this build used; it drives that check.
+  // setupScene is one-shot (terrain/gates/obstacles are built once, never rebuilt on
+  // restart — see game/teardown.ts), so all of this is fixed at scene build from
+  // `builtDifficulty`. If the player locks a DIFFERENT tier for the run (the start-screen
+  // picker, or the finish "Play again on" picker) it would not match; rather than rebuild
+  // in place (a large, leak-prone teardown) the coordinator reloads on that mismatch
+  // (maybeReloadForRunTier) so setupScene re-runs for the locked tier — see snowglider.ts.
   const builtDifficulty = readStoredDifficulty();
-  const corridorConfig = getDifficultyConfig(builtDifficulty);
+  const runConfig = getDifficultyConfig(builtDifficulty);
+  const courseLine = runConfig.line.curviness > 0 ? courseLineFor(runConfig) : null;
+  setActiveCourseLine(courseLine);
   Snow.setTerrainCorridor(
-    corridorConfig.terrain
-      ? { line: courseLineFor(corridorConfig), params: corridorConfig.terrain }
-      : null
+    courseLine && runConfig.terrain ? { line: courseLine, params: runConfig.terrain } : null
   );
 
   // --- Create main game objects ---

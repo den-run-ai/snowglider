@@ -33,7 +33,10 @@ function near(a, b, eps, msg) {
   const CL = await import('../src/course-line.js');
   const D = await import('../src/difficulty.js');
   const { FINISH_Z } = await import('../src/snowman/collision.js');
-  const { createCourseLine, courseLineFor, LANE_Z_TOP, LANE_Z_BOTTOM } = CL;
+  const {
+    createCourseLine, courseLineFor, LANE_Z_TOP, LANE_Z_BOTTOM,
+    setActiveCourseLine, getActiveCourseLine, activeLaneX,
+  } = CL;
 
   console.log('\n🎿 SNOWGLIDER COURSE-LINE TESTS (course-line.ts) 🎿');
   console.log('==================================================\n');
@@ -120,6 +123,40 @@ function near(a, b, eps, msg) {
   runTest('curviness 0 forces a straight line regardless of amplitude / control points', () => {
     const flat = createCourseLine({ seed: 1003, curviness: 0, amplitude: 30, controlPoints: 6 });
     for (const z of zSamples) assert(Object.is(flat.laneX(z), 0), `flat laneX(${z}) is exactly 0`);
+  });
+
+  // --- Active-line registry (the run's shared centerline; D3.2c consumers read it) ---
+  runTest('activeLaneX is exactly 0 with no active line (straight-tier byte-identical seam)', () => {
+    setActiveCourseLine(null);
+    assert(getActiveCourseLine() === null, 'no active line by default');
+    for (const z of zSamples) assert(Object.is(activeLaneX(z), 0), `activeLaneX(${z}) is exactly 0`);
+  });
+
+  runTest('setActiveCourseLine wires activeLaneX to follow the line, and clears back to 0', () => {
+    setActiveCourseLine(black);
+    assert(getActiveCourseLine() === black, 'getActiveCourseLine returns the set line');
+    for (const z of zSamples) near(activeLaneX(z), black.laneX(z), 0, `activeLaneX == line.laneX at ${z}`);
+    setActiveCourseLine(null);
+    for (const z of zSamples) assert(Object.is(activeLaneX(z), 0), `cleared activeLaneX(${z}) is 0`);
+  });
+
+  runTest('gate-on-line: checkpoint gate x = activeLaneX(CHECKPOINT_Z) alternates L/R', () => {
+    // The shipped checkpoint depths (course.ts CHECKPOINT_Z); gates read activeLaneX here.
+    const CHECKPOINT_Z = [-60, -105, -150];
+    setActiveCourseLine(black);
+    const xs = CHECKPOINT_Z.map((z) => activeLaneX(z));
+    for (let i = 0; i < xs.length; i++) {
+      assert(Math.abs(xs[i]) <= blackParams.amplitude + 1e-9, `gate ${i} within amplitude`);
+    }
+    // The winding line puts consecutive gates on opposite sides (a turn rhythm).
+    let sawSignFlip = false;
+    for (let i = 1; i < xs.length; i++) {
+      if (Math.sign(xs[i]) !== 0 && Math.sign(xs[i - 1]) !== 0 && Math.sign(xs[i]) !== Math.sign(xs[i - 1])) {
+        sawSignFlip = true;
+      }
+    }
+    assert(sawSignFlip, `gates alternate sides (xs = ${xs.map((v) => v.toFixed(1)).join(', ')})`);
+    setActiveCourseLine(null); // leave clean for any later importer
   });
 
   console.log('\n==================================================');

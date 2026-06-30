@@ -181,3 +181,31 @@ export function createCourseLine(cfg: CourseLineConfig): CourseLine {
 export function courseLineFor(config: { seed: number; line: CourseLineParams }): CourseLine {
   return createCourseLine({ seed: config.seed, ...config.line });
 }
+
+// --- Active-line registry (the run's one shared centerline) ----------------------
+//
+// "One centerline, many consumers." scene-setup registers the run's CourseLine here,
+// and every consumer that needs "where is the safe line at depth z?" reads it through
+// `activeLaneX(z)` — the gates (course.ts), the obstacle field (trees.ts / rocks.ts),
+// and the winnability harness — so none of them duplicate the path math. Straight tiers
+// (Bunny/Blue) register `null`, and `activeLaneX` then returns an exact 0, which keeps
+// their gate positions and obstacle placement byte-identical to today. The terrain
+// corridor (terrain.ts) is handed the SAME CourseLine instance, so all consumers agree.
+
+let activeLine: CourseLine | null = null;
+
+/** Register (or clear) the run's centerline. Called once per scene by scene-setup. */
+export function setActiveCourseLine(line: CourseLine | null): void {
+  activeLine = line;
+}
+
+/** The run's active centerline, or null for a straight tier. */
+export function getActiveCourseLine(): CourseLine | null {
+  return activeLine;
+}
+
+/** Lateral world-x of the run's active line at depth `z` — exactly 0 when none is set
+ *  (so straight-tier consumers stay byte-identical). The one accessor gates + obstacles read. */
+export function activeLaneX(z: number): number {
+  return activeLine ? activeLine.laneX(z) : 0;
+}

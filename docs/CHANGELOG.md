@@ -90,6 +90,36 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   already re-rendered the shadow map every frame). Covered by `tests/sun-shadow-tests.js`
   (`npm run test:sun-shadow`). See [`SNOW_RENDERING.md`](SNOW_RENDERING.md).
 
+### Difficulty tiers (D3.2c): gates + obstacles on the line (Black)
+- **The checkpoint + finish gates now sit ON the run's centerline.** `course.ts`
+  `makeGate` takes a `laneOffset` (the whole gate — poles, banner, label, terrain
+  sampling — shifts onto the line), and `buildGates` passes `activeLaneX(z)` per gate, so
+  Black's gates alternate left/right with the winding corridor (a turn rhythm). Straight
+  tiers pass 0 ⇒ gates at x=0, byte-identical.
+- **One shared centerline registry.** `course-line.ts` gains
+  `setActiveCourseLine`/`getActiveCourseLine`/`activeLaneX(z)` (the SAME `CourseLine`
+  instance the terrain corridor uses). `scene-setup.ts` registers it once per scene, so
+  the gates, the obstacle field, and (later) the winnability harness all read one line —
+  the path math is never duplicated. `activeLaneX` returns an exact 0 for straight tiers.
+- **The obstacle field follows the corridor.** `mountains/trees.ts` and
+  `mountains/rocks.ts` measure lateral distance from the centerline (`Math.abs(x - lane)`
+  instead of `Math.abs(x)`) for the clear lane, the density zones, and the collidable-rock
+  clearance, so for Black the clear corridor + the dense flanks track the winding line
+  (running straight when it turns puts you in the trees/rocks). `rocks.ts` also adds a
+  deterministic **rock-gate pinch** pass: collidable rocks framing the corridor at
+  intervals, placed just OUTSIDE the cleared corridor so the on-line path stays open
+  (winnable) while drifting wide clips a gate. Because `lane === 0` and the pinch pass is
+  skipped entirely when no corridor line is active, Bunny/Blue consume the identical
+  `Math.random()` sequence and their gate/obstacle layout is byte-identical.
+- **Guardrails.** `test:verify` IDENTICAL; `test:trees`/`test:terrain`/`test:tree-collision`/
+  `test:regression` unchanged; new `tests/corridor-obstacles-tests.js`
+  (`npm run test:corridor-obstacles`: clearance follows the line, on-line corridor always
+  passable, pinch offset clears the corridor) + extended `course-line-tests.js` (active-line
+  registry + gate-on-line alternation). Like D3.2b, the corridor is fixed at scene build
+  (gates/obstacles are built once, never rebuilt on restart). Per-tier avalanche + a
+  follow-the-line winnability harness (which validates the line is makeable at speed) land
+  in D3.2d.
+
 ### Difficulty tiers (D3.2b): winding terrain corridor (Black)
 - **Black's terrain now banks into a winding skiable channel** that follows the descent
   centerline (D3.2a's `course-line.ts`). `mountains/terrain.ts` gains a corridor seam:

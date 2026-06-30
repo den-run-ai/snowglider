@@ -9,6 +9,10 @@
 // (Stage R-mountains, issue #34).
 import * as THREE from 'three';
 import { getTerrainHeight, getTerrainGradient } from './terrain.js';
+// The run's centerline: the clear collidable corridor + cliff exclusion follow it, and
+// a Black run adds deterministic rock-gate pinches along it. activeLaneX is exactly 0
+// for straight tiers, so `x - lane` collapses to `x` and Bunny/Blue stay byte-identical.
+import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 
 /** A placed rock's world position and size. */
 export interface RockPosition {
@@ -53,7 +57,9 @@ export function rockCollisionRadius(size: number): number {
 export function rockIsCollisionHazard(x: number, z: number, size: number): boolean {
   if (size < ROCK_COLLISION_MIN_SIZE) return false;
   const radius = rockCollisionRadius(size);
-  if (Math.abs(x) < ROCK_COLLISION_PATH_HALF_WIDTH + radius) return false;
+  // Clearance is measured from the run's centerline at this z (the winding corridor for
+  // Black); lane === 0 for straight tiers, so this stays `Math.abs(x)` for Bunny/Blue.
+  if (Math.abs(x - activeLaneX(z)) < ROCK_COLLISION_PATH_HALF_WIDTH + radius) return false;
   const dx = x - SNOWMAN_START_X;
   const dz = z - SNOWMAN_START_Z;
   if (Math.sqrt(dx * dx + dz * dz) < ROCK_COLLISION_START_CLEAR_RADIUS + radius) return false;
@@ -309,12 +315,13 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
   // clear of the ski line/spawn pocket also registers as a collision hazard (radius
   // capped at 3u, in sync with snowman collision) — you can't ski through a cliff.
   for (let z = -180; z < 80; z += 30) {
+    const lane = activeLaneX(z);
     for (let x = -130; x <= 130; x += 30) {
-      // Keep the whole formation off the centre line (the ski corridor is |x| < 5).
-      if (Math.abs(x) < 18) continue;
+      // Keep the whole formation off the centerline (the ski corridor follows the line).
+      if (Math.abs(x - lane) < 18) continue;
       const cx = x + (Math.random() * 14 - 7);
       const cz = z + (Math.random() * 14 - 7);
-      if (Math.abs(cx) < 16) continue;
+      if (Math.abs(cx - activeLaneX(cz)) < 16) continue;
       if (Math.abs(cx) > 145 || Math.abs(cz) > 195) continue;
 
       // Only on genuinely steep pitches, and not on every one even then.
@@ -328,7 +335,7 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
       for (let b = 0; b < blocks; b++) {
         const bx = b === 0 ? cx : cx + (Math.random() * 6 - 3);
         const bz = b === 0 ? cz : cz + (Math.random() * 6 - 3);
-        if (Math.abs(bx) < 14) continue; // never let a satellite block drift onto the line
+        if (Math.abs(bx - activeLaneX(bz)) < 14) continue; // never let a satellite block drift onto the line
         const bSize = b === 0 ? baseSize : baseSize * (0.55 + Math.random() * 0.4);
         const bHeight = getTerrainHeight(bx, bz);
 
@@ -344,6 +351,35 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
         if (rockIsCollisionHazard(bx, bz, bSize)) {
           collisionRockPositions.push({ x: bx, y: bHeight, z: bz, size: bSize });
         }
+      }
+    }
+  }
+
+  // Rock-gate pinches (Black). A few collidable rocks framing the corridor at intervals,
+  // so the winding line threads a series of rock "gates": drift wide off the line and you
+  // clip one. Placed DETERMINISTICALLY at the channel edge (just outside the collidable
+  // clear corridor) so the on-line path stays clear and winnable — they punish leaving the
+  // line, not following it. Only runs when a corridor line is active; straight tiers add
+  // nothing here, so Bunny/Blue consume no extra Math.random() and stay byte-identical.
+  // (Provisional placement; tightened/validated against the winnability harness in D3.2d.)
+  const courseLine = getActiveCourseLine();
+  if (courseLine) {
+    const PINCH_Z = [-42, -78, -126, -168];   // between/around the checkpoints (-60,-105,-150)
+    const PINCH_EDGE = 8;                       // > ROCK_COLLISION_PATH_HALF_WIDTH + radius ⇒ line stays clear
+    const PINCH_SIZE = 2.2;                     // collidable (>= ROCK_COLLISION_MIN_SIZE)
+    for (const pz of PINCH_Z) {
+      const lx = courseLine.laneX(pz);
+      for (const sideSign of [-1, 1]) {
+        const rx = lx + sideSign * PINCH_EDGE;
+        const ry = getTerrainHeight(rx, pz);
+        const rock = createRock(PINCH_SIZE, { cliff: true });
+        rock.position.set(rx, ry - PINCH_SIZE * 0.28, pz);
+        rock.rotation.y = Math.random() * Math.PI * 2;
+        const g = getTerrainGradient(rx, pz);
+        rock.rotation.x = Math.atan(g.z) * 0.8;
+        rock.rotation.z = -Math.atan(g.x) * 0.8;
+        scene.add(rock);
+        collisionRockPositions.push({ x: rx, y: ry, z: pz, size: PINCH_SIZE });
       }
     }
   }

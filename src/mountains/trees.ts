@@ -16,6 +16,10 @@
 import * as THREE from 'three';
 import { getTerrainHeight as sampleTerrainHeight, getTerrainGradient as sampleTerrainGradient } from './terrain.js';
 import { forestDensityField } from './noise.js';
+// The run's centerline: the clear corridor + density zones follow it (Black). Returns
+// exactly 0 for straight tiers, so `Math.abs(x - lane)` collapses to today's `Math.abs(x)`
+// and the placement (and its Math.random() sequence) stays byte-identical for Bunny/Blue.
+import { activeLaneX } from '../course-line.js';
 
 /** A placed tree's world position and size; addTrees returns these for collision. */
 export interface TreePosition {
@@ -549,19 +553,23 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   
   // Add trees across the mountain - extended for longer run
   for(let z = -180; z < 80; z += 10) {
+    // Lateral distance is measured from the run's centerline at this z (the winding
+    // corridor for Black), so the clear lane + the density zones follow the line.
+    // For straight tiers lane === 0, so every `x - lane` below is exactly `x`.
+    const lane = activeLaneX(z);
     for(let x = -100; x < 100; x += 10) {
       // Special handling for center area (former ski path)
       // Keep very center (±3 units) clear for minimal navigation while adding more trees elsewhere
-      if(Math.abs(x) < 3) continue;
-      
+      if(Math.abs(x - lane) < 3) continue;
+
       // For the area that was previously the ski path (between 3-18 units from center),
       // add trees with increasing density from center
       // - Inner zone (3-8 units): Medium density (50% chance to skip)
       // - Middle zone (8-13 units): Higher density (30% chance to skip)
       // - Outer zone (13-18 units): Full density (10% chance to skip)
-      if(Math.abs(x) >= 3 && Math.abs(x) < 8 && Math.random() < 0.5) continue;
-      if(Math.abs(x) >= 8 && Math.abs(x) < 13 && Math.random() < 0.3) continue;
-      if(Math.abs(x) >= 13 && Math.abs(x) < 18 && Math.random() < 0.1) continue;
+      if(Math.abs(x - lane) >= 3 && Math.abs(x - lane) < 8 && Math.random() < 0.5) continue;
+      if(Math.abs(x - lane) >= 8 && Math.abs(x - lane) < 13 && Math.random() < 0.3) continue;
+      if(Math.abs(x - lane) >= 13 && Math.abs(x - lane) < 18 && Math.random() < 0.1) continue;
       
       // Skip positions that would be too far from the actual terrain plane
       if (Math.abs(x) > 150 || Math.abs(z) > 200) continue;
@@ -576,10 +584,10 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
       
       // Different tree density based on location and size variation by zone
-      // Define zones from center outward
-      const innerZone = Math.abs(x) >= 3 && Math.abs(x) < 8;
-      const middleZone = Math.abs(x) >= 8 && Math.abs(x) < 13;
-      const outerZone = Math.abs(x) >= 13 && Math.abs(x) < 18;
+      // Define zones from the centerline outward
+      const innerZone = Math.abs(x - lane) >= 3 && Math.abs(x - lane) < 8;
+      const middleZone = Math.abs(x - lane) >= 8 && Math.abs(x - lane) < 13;
+      const outerZone = Math.abs(x - lane) >= 13 && Math.abs(x - lane) < 18;
       const centerArea = innerZone || middleZone || outerZone;
       
       // Adjust placement chance based on location, then bias it into the shared
@@ -607,14 +615,15 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
           const clusterZ = zPos + (Math.random() * 4 - 2);
           
           // For clustered trees, use the same criteria but add even more trees in center area
-          // Keep only the very center (±3 units) clear for minimal navigation
-          if(Math.abs(clusterX) >= 3) {
+          // Keep only the very centerline (±3 units) clear for minimal navigation
+          const laneC = activeLaneX(clusterZ);
+          if(Math.abs(clusterX - laneC) >= 3) {
             const clusterY = getTerrainHeight(clusterX, clusterZ);
-            
+
             // Determine which zone the cluster tree falls in
-            const clusterInnerZone = Math.abs(clusterX) >= 3 && Math.abs(clusterX) < 8;
-            const clusterMiddleZone = Math.abs(clusterX) >= 8 && Math.abs(clusterX) < 13;
-            const clusterOuterZone = Math.abs(clusterX) >= 13 && Math.abs(clusterX) < 18;
+            const clusterInnerZone = Math.abs(clusterX - laneC) >= 3 && Math.abs(clusterX - laneC) < 8;
+            const clusterMiddleZone = Math.abs(clusterX - laneC) >= 8 && Math.abs(clusterX - laneC) < 13;
+            const clusterOuterZone = Math.abs(clusterX - laneC) >= 13 && Math.abs(clusterX - laneC) < 18;
             
             // Adjust size based on zone for clustered trees too
             let clusterSizeVariation = sizeVariation; // Default to parent tree size
@@ -649,9 +658,11 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       
       // Range between -180 and 80 for z
       const z = -180 + Math.random() * 260;
-      const y = getTerrainHeight(x, z);
-      
-      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
+      // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
+      const xPos = x + activeLaneX(z);
+      const y = getTerrainHeight(xPos, z);
+
+      treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});
     }
     else if (zoneChoice < 0.5) {
       // 30% in middle zone (8-13 units from center) - small trees
@@ -661,9 +672,11 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       
       // Range between -180 and 80 for z
       const z = -180 + Math.random() * 260;
-      const y = getTerrainHeight(x, z);
-      
-      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
+      // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
+      const xPos = x + activeLaneX(z);
+      const y = getTerrainHeight(xPos, z);
+
+      treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});
     }
     else {
       // 50% in outer zone (13-18 units from center) - medium trees
@@ -673,9 +686,11 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       
       // Range between -180 and 80 for z
       const z = -180 + Math.random() * 260;
-      const y = getTerrainHeight(x, z);
-      
-      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
+      // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
+      const xPos = x + activeLaneX(z);
+      const y = getTerrainHeight(xPos, z);
+
+      treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});
     }
   }
   
