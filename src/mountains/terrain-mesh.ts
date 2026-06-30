@@ -94,7 +94,9 @@ export function createTerrain(scene: THREE.Scene) {
   // matte like real powder; the gentle normalScale avoids harsh corrugation.
   const albedo = createSnowAlbedoTexture();
   const normalMap = createSnowNormalTexture();
-  applySnowVertexColors(geometry);
+  // Pass the 151x201 grid so the slope tint also bakes the cavity/AO term (hollows
+  // read as shaded depressions, not flat white). Same grid as applySmoothShadingNormals.
+  applySnowVertexColors(geometry, 151, 201);
 
   const material = new THREE.MeshStandardMaterial({
     color: 0xffffff,

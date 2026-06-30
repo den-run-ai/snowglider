@@ -8,6 +8,18 @@
 // deterministic forestDensityField so the ground ties to the tree stands.
 import * as THREE from 'three';
 import { forestDensityField } from './noise.js';
+import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
+
+// Cavity / ambient-occlusion shading (issue #17 follow-up). The shipped slope tint
+// keys off slope *magnitude* (normal tilt), so it darkens steep faces but leaves
+// concave hollows — the rolls and gullies between moguls — as flat white, which is
+// exactly where real snow self-shadows and pools cool light. These constants bake a
+// subtle darken + blue-shift into vertices that sit BELOW their neighbours (concave),
+// added on top of the slope tint. Build-time and deterministic, so zero per-frame cost.
+const CAVITY_SCALE = 1.2;        // metres of concavity (neighbour-mean minus vertex) that reaches full occlusion
+const CAVITY_MAX_AMT = 0.30;     // max lerp toward the occluded colour (kept subtle — powder must stay bright)
+const CAVITY_COLOR = { r: 0.80, g: 0.84, b: 0.93 }; // cool, slightly-dark occluded-pocket tint (palette #93A9CC, softened)
+
 
 // --- Procedural snow surface textures (issue #17) ---
 // Authored for the project's legacy colour pipeline (`ColorManagement.enabled =
@@ -145,12 +157,26 @@ export function createSnowNormalTexture(): THREE.CanvasTexture {
  * blue cast for depth, the way real powder shadows do. Applied via `vertexColors`,
  * so it adds slope-dependent depth without touching the height field — physics is
  * unaffected. Mutates `geometry` in place; call after `computeVertexNormals()`.
+ *
+ * When `cols`/`rows` (the PlaneGeometry grid vertex counts) are supplied, a curvature
+ * /ambient-occlusion term is added on top of the slope tint: vertices that sit below
+ * their grid neighbours (concave hollows) take a subtle darken + cool blue-shift, a
+ * little stronger on steeper ground (gated by the shared {@link SLOPE_STEEP} boundary).
+ * This is the cue the slope-magnitude tint misses — hollows read as shaded depressions
+ * instead of flat white. Reads vertex *heights* but never modifies them, so the physics
+ * height field / authoritative geometry are untouched.
  */
-export function applySnowVertexColors(geometry: THREE.BufferGeometry): void {
+export function applySnowVertexColors(
+  geometry: THREE.BufferGeometry, cols?: number, rows?: number
+): void {
   const normals = geometry.attributes.normal!.array as Float32Array;
   const positions = geometry.attributes.position!.array as Float32Array;
   const count = geometry.attributes.position!.count;
   const colors = new Float32Array(count * 3);
+  // The cavity/AO term needs the grid topology to find each vertex's neighbours; only
+  // engage it when a matching grid is passed (the live terrain), else fall back to the
+  // pure slope tint (keeps the function usable from tests / other callers unchanged).
+  const cavity = !!cols && !!rows && cols * rows === count;
   const snow = { r: 1.0, g: 1.0, b: 1.0 };
   const shade = { r: 0.93, g: 0.95, b: 0.99 }; // barely-cool powder shadow (almost white)
   // Where conifer stands grow — gentle slopes inside the forest-density bands — the
@@ -176,6 +202,30 @@ export function applySnowVertexColors(geometry: THREE.BufferGeometry): void {
     r += (forestTint.r - r) * amt;
     g += (forestTint.g - g) * amt;
     b += (forestTint.b - b) * amt;
+    // Cavity / AO: darken + cool-shift vertices that dip below their neighbours.
+    if (cavity) {
+      const c = i % cols;
+      const row = (i / cols) | 0;
+      const yC = positions[i * 3 + 1]!;
+      // 4-neighbour heights, edge-clamped (matches applySmoothShadingNormals' clamping).
+      const yl = positions[(row * cols + Math.max(0, c - 1)) * 3 + 1]!;
+      const yr = positions[(row * cols + Math.min(cols - 1, c + 1)) * 3 + 1]!;
+      const yu = positions[(Math.max(0, row - 1) * cols + c) * 3 + 1]!;
+      const yd = positions[(Math.min(rows - 1, row + 1) * cols + c) * 3 + 1]!;
+      // Concavity > 0 when the vertex sits below the local mean (a hollow); convex peaks
+      // go negative and are left bright. Normalise to an occlusion amount in [0, 1].
+      const concavity = (yl + yr + yu + yd) / 4 - yC;
+      let occ = Math.min(1, Math.max(0, concavity / CAVITY_SCALE));
+      // Self-shadowing reads stronger on steeper ground: scale the term from ~0.7 on
+      // gentle slopes up to ~1.3 past the black-diamond pitch (shared SLOPE_* edges).
+      const slopeMag = Math.sqrt(Math.max(0, 1 - ny * ny)) / Math.max(ny, 1e-3);
+      const steep = Math.min(1, Math.max(0, (slopeMag - SLOPE_MODERATE) / (SLOPE_STEEP - SLOPE_MODERATE)));
+      occ *= 0.7 + 0.6 * steep;
+      const occAmt = Math.min(1, occ) * CAVITY_MAX_AMT;
+      r += (CAVITY_COLOR.r - r) * occAmt;
+      g += (CAVITY_COLOR.g - g) * occAmt;
+      b += (CAVITY_COLOR.b - b) * occAmt;
+    }
     colors[i * 3] = r;
     colors[i * 3 + 1] = g;
     colors[i * 3 + 2] = b;
