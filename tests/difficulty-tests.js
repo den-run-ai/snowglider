@@ -95,6 +95,10 @@ function maxTrajDiff(a, b) {
   check('three tiers in easy->hard order (bunny, blue, black)',
     ids.length === 3 && ids[0] === 'bunny' && ids[1] === 'blue' && ids[2] === 'black');
   check('default tier is blue (the classic game)', D.DEFAULT_DIFFICULTY === 'blue');
+  // Picker copy must not promise mechanics that aren't wired yet (labels-only stage):
+  // no "avalanche"/"steep"/"dense" until the per-tier tuning PR makes them true.
+  check('blurbs avoid promising unshipped mechanics',
+    D.DIFFICULTIES.every((c) => !/avalanche|steep|dense/i.test(c.blurb)));
   check('storage key is snowgliderDifficulty', D.DIFFICULTY_STORAGE_KEY === 'snowgliderDifficulty');
 
   check('isDifficulty accepts known ids, rejects junk',
@@ -104,6 +108,44 @@ function maxTrajDiff(a, b) {
     D.getDifficultyConfig('black').id === 'black');
   check('getDifficultyConfig falls back to the default tier on junk',
     D.getDifficultyConfig('nope').id === 'blue' && D.getDifficultyConfig(undefined).id === 'blue');
+
+  // Persistence helpers operate on an injected Storage (so they're testable headlessly).
+  /** A minimal but complete Storage (length/clear/key included) so it satisfies the
+   *  `Storage` parameter type under tsconfig.tests.json's @ts-check. */
+  const fakeStorage = () => {
+    const m = new Map();
+    return {
+      getItem: (k) => (m.has(k) ? m.get(k) : null),
+      setItem: (k, v) => { m.set(k, String(v)); },
+      removeItem: (k) => { m.delete(k); },
+      clear: () => { m.clear(); },
+      key: (i) => Array.from(m.keys())[i] ?? null,
+      get length() { return m.size; },
+    };
+  };
+  const store = fakeStorage();
+  check('readStoredDifficulty defaults to blue on an empty store',
+    D.readStoredDifficulty(store) === 'blue');
+  D.storeDifficulty('black', store);
+  check('storeDifficulty round-trips through readStoredDifficulty',
+    D.readStoredDifficulty(store) === 'black'
+    && store.getItem(D.DIFFICULTY_STORAGE_KEY) === 'black');
+  store.setItem(D.DIFFICULTY_STORAGE_KEY, 'expert');
+  check('readStoredDifficulty falls back to blue on a junk stored value',
+    D.readStoredDifficulty(store) === 'blue');
+  check('read/store are no-throw when storage is null (Node / private mode)',
+    D.readStoredDifficulty(null) === 'blue' && (D.storeDifficulty('black', null), true));
+
+  // resolveActiveDifficulty prefers a valid live pick, else storage, else default.
+  const stored = fakeStorage();
+  stored.setItem(D.DIFFICULTY_STORAGE_KEY, 'bunny');
+  check('resolveActiveDifficulty uses a valid live pick over storage',
+    D.resolveActiveDifficulty('black', stored) === 'black');
+  check('resolveActiveDifficulty falls back to storage when the live pick is junk',
+    D.resolveActiveDifficulty(undefined, stored) === 'bunny'
+    && D.resolveActiveDifficulty('expert', stored) === 'bunny');
+  check('resolveActiveDifficulty falls back to default with no pick + no storage',
+    D.resolveActiveDifficulty(undefined, null) === 'blue');
 
   const blue = D.getDifficultyConfig('blue');
   check('Blue is authoritative-current: blue.ski === BLUE_PHYSICS_TUNING',

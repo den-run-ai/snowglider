@@ -29,6 +29,7 @@ import * as THREE from 'three';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
+import { getDifficultyConfig, type Difficulty } from './difficulty.js';
 
 /** Terrain sampler injected via {@link CourseModule.init}. */
 export type TerrainHeightFn = (x: number, z: number) => number;
@@ -61,6 +62,9 @@ export interface CourseInitOptions {
   // tests, where the share card falls back to a gradient background.
   renderer?: THREE.WebGLRenderer;
   camera?: THREE.Camera;
+  // Optional getter for the run's difficulty tier, used to stamp the result screen.
+  // Omitted in headless tests, where the result panel simply shows no tier label.
+  getDifficulty?: () => Difficulty;
 }
 
 /** Result of {@link medalFor}: which medal a finished run earned. */
@@ -111,6 +115,7 @@ export const CourseModule = (function () {
   let createSnowman: CreateSnowmanFn | null = null;
   let renderer: THREE.WebGLRenderer | null = null;  // for share-image frame capture
   let camera: THREE.Camera | null = null;
+  let getDifficulty: (() => Difficulty) | null = null;  // for the result-screen tier label
 
   let gateGroup: THREE.Group | null = null;        // container for all gate meshes
   let ghost: THREE.Object3D | null = null;         // ghost snowman group (or null)
@@ -410,6 +415,7 @@ export const CourseModule = (function () {
     createSnowman = opts.createSnowman;
     renderer = opts.renderer ?? null;
     camera = opts.camera ?? null;
+    getDifficulty = opts.getDifficulty ?? null;
 
     // Load persisted bests
     loadBests();
@@ -608,6 +614,19 @@ export const CourseModule = (function () {
     header.appendChild(titleWrap);
     panel.appendChild(header);
 
+    // Difficulty tier stamp (cosmetic): the tier this run was played on. Only shown
+    // when a getDifficulty getter was injected (omitted in headless tests).
+    if (getDifficulty) {
+      const tier = document.createElement('div');
+      tier.id = 'resultDifficulty';
+      tier.textContent = getDifficultyConfig(getDifficulty()).label;
+      Object.assign(tier.style, {
+        fontSize: '13px', fontWeight: '700', color: '#cfd8e3',
+        marginBottom: '10px', letterSpacing: '0.04em'
+      });
+      panel.appendChild(tier);
+    }
+
     // Improvement line
     const improve = document.createElement('div');
     Object.assign(improve.style, { fontSize: '14px', marginBottom: '12px' });
@@ -732,6 +751,7 @@ export const CourseModule = (function () {
     createSnowman = null;
     renderer = null;
     camera = null;
+    getDifficulty = null;
   }
 
   return {

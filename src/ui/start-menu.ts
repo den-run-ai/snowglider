@@ -8,9 +8,14 @@
 // under the current non-strict config. The `../audio.js` import specifier is
 // unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
+import { DIFFICULTIES, readStoredDifficulty, storeDifficulty, type Difficulty } from '../difficulty.js';
 
 (function () {
   let startGamePending = false;
+  // The player's chosen difficulty tier, remembered across sessions in
+  // localStorage. The picker writes it; the game reads the persisted value at run
+  // start (src/snowglider.ts) so changing the pick then starting takes effect.
+  let selectedDifficulty: Difficulty = readStoredDifficulty();
   // Monotonic token for refreshStartAccountUI: bumped on every call so a slow
   // in-flight leaderboard read can detect that a newer refresh superseded it
   // (e.g. the player logged out mid-read) and discard its now-stale result.
@@ -195,16 +200,101 @@ import { AudioModule } from '../audio.js';
     }
   }
 
+  // Reflect `selectedDifficulty` onto the picker buttons (highlight + ARIA state).
+  function applyDifficultySelection() {
+    const picker = document.getElementById('difficultyPicker');
+    if (!picker) return;
+    picker.querySelectorAll('.difficulty-option').forEach((el) => {
+      const isSel = el.getAttribute('data-difficulty') === selectedDifficulty;
+      el.classList.toggle('selected', isSel);
+      el.setAttribute('aria-checked', isSel ? 'true' : 'false');
+      el.setAttribute('tabindex', isSel ? '0' : '-1');
+    });
+  }
+
+  // Roving-tabindex arrow-key support for the radiogroup: arrows move AND select the
+  // prev/next tier (standard radio behaviour), then focus it — so a keyboard-only
+  // player can reach every tier even though only the selected option is tabbable.
+  function moveDifficultySelection(delta: number) {
+    const ids = DIFFICULTIES.map((c) => c.id);
+    const cur = ids.indexOf(selectedDifficulty);
+    const nextId = ids[(cur + delta + ids.length) % ids.length];
+    if (!nextId) return;
+    selectedDifficulty = nextId;
+    storeDifficulty(selectedDifficulty);
+    applyDifficultySelection();
+    const el = document.querySelector('#difficultyPicker [data-difficulty="' + selectedDifficulty + '"]');
+    if (el && typeof (el as HTMLElement).focus === 'function') (el as HTMLElement).focus();
+  }
+
+  // Build the difficulty picker from the difficulty config (single source of truth
+  // for the labels/blurbs), pre-selecting the remembered tier. Idempotent so a
+  // re-init (or the test harness) can rebuild cleanly.
+  function buildDifficultyPicker() {
+    const picker = document.getElementById('difficultyPicker');
+    if (!picker) return;
+    picker.innerHTML = '';
+    selectedDifficulty = readStoredDifficulty();
+
+    const heading = document.createElement('div');
+    heading.className = 'difficulty-heading';
+    heading.textContent = 'Difficulty';
+    picker.appendChild(heading);
+
+    DIFFICULTIES.forEach((cfg) => {
+      const opt = document.createElement('button');
+      opt.type = 'button';
+      opt.className = 'difficulty-option';
+      opt.setAttribute('role', 'radio');
+      opt.setAttribute('data-difficulty', cfg.id);
+
+      const name = document.createElement('span');
+      name.className = 'difficulty-name';
+      name.textContent = cfg.label;
+      const blurb = document.createElement('span');
+      blurb.className = 'difficulty-blurb';
+      blurb.textContent = cfg.blurb;
+      opt.appendChild(name);
+      opt.appendChild(blurb);
+
+      opt.addEventListener('click', function () {
+        selectedDifficulty = cfg.id;
+        storeDifficulty(cfg.id);
+        applyDifficultySelection();
+      });
+      opt.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          moveDifficultySelection(1);
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          moveDifficultySelection(-1);
+        }
+      });
+      picker.appendChild(opt);
+    });
+
+    applyDifficultySelection();
+  }
+
+  function getSelectedDifficulty(): Difficulty {
+    return selectedDifficulty;
+  }
+
   function showAbout() {
     const aboutPanel = document.getElementById('aboutGamePanel');
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
+    const picker = document.getElementById('difficultyPicker');
 
     if (aboutPanel) aboutPanel.style.display = 'block';
     if (controlsGuide) controlsGuide.style.display = 'none';
     if (startMenu) startMenu.style.display = 'none';
     if (keyboardHint) keyboardHint.style.display = 'none';
+    // Hide the difficulty picker alongside the rest of the start controls so it
+    // doesn't stay visible/clickable over the About panel.
+    if (picker) picker.style.display = 'none';
   }
 
   function hideAbout() {
@@ -212,15 +302,18 @@ import { AudioModule } from '../audio.js';
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
+    const picker = document.getElementById('difficultyPicker');
 
     if (aboutPanel) aboutPanel.style.display = 'none';
     if (controlsGuide) controlsGuide.style.display = 'block';
     if (startMenu) startMenu.style.display = 'flex';
     if (keyboardHint) keyboardHint.style.display = 'block';
+    if (picker) picker.style.display = 'flex'; // restore (CSS lays it out as flex)
   }
 
   function initializeStartMenu() {
     addBuildBadge();
+    buildDifficultyPicker();
     // Surface the account/sign-in control above the start overlay while it's up.
     document.body.classList.add('start-screen-active');
     if ((window as any).SnowGliderGameScriptsReady) {
@@ -268,6 +361,14 @@ import { AudioModule } from '../audio.js';
       const startContainer = document.getElementById('startGameContainer');
       const aboutPanel = document.getElementById('aboutGamePanel');
 
+      // Don't let Enter/Space start the run when a difficulty option is focused —
+      // the button's native activation should just select the tier. Otherwise a
+      // keyboard user picking Black/Bunny would also trigger the global start.
+      const target = event.target as Element | null;
+      if (target && typeof target.closest === 'function' && target.closest('#difficultyPicker')) {
+        return;
+      }
+
       if (startContainer &&
           startContainer.style.display !== 'none' &&
           aboutPanel &&
@@ -303,6 +404,8 @@ import { AudioModule } from '../audio.js';
     hideAbout,
     initializeStartMenu,
     startPendingGameIfReady,
-    refreshStartAccountUI
+    refreshStartAccountUI,
+    buildDifficultyPicker,
+    getSelectedDifficulty
   };
 })();

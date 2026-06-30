@@ -19,6 +19,7 @@ import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
 import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
+import { readStoredDifficulty, type Difficulty } from '../difficulty.js';
 
 export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
 export const AVALANCHE_BOULDER_COUNT = 120;   // boulders in the slide (single source of truth; gated by winnability_harness)
@@ -50,6 +51,7 @@ export interface GameState {
   gameActive: boolean;               // true while a run is live (drives the loop + input)
   animationRunning: boolean;         // true while the requestAnimationFrame loop is running
   gameInitialized: boolean;          // true once the first run has been initialized
+  difficulty: Difficulty;            // selected tier for this run (re-read from storage at run start)
 }
 
 /**
@@ -237,6 +239,7 @@ export function setupScene(signal?: AbortSignal) {
     gameActive: false,       // start inactive until the user clicks the start button
     animationRunning: false,
     gameInitialized: false,
+    difficulty: readStoredDifficulty(), // remembered pick; re-read at each run start
   };
 
   // --- Initialize Avalanche System ---
@@ -318,7 +321,10 @@ export function setupScene(signal?: AbortSignal) {
         getTerrainHeight: Snow.getTerrainHeight,
         createSnowman: Snowman.createSnowman,
         renderer: renderer,
-        camera: camera
+        camera: camera,
+        // Lets the result screen stamp the run's tier; reads the live GameState so
+        // it reflects the difficulty chosen for the run that just finished.
+        getDifficulty: () => state.difficulty
       });
       console.log("Course module initialized (gates, splits, ghost)");
     } catch (e) {

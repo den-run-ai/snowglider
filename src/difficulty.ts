@@ -123,7 +123,10 @@ export interface DifficultyConfig {
 const BUNNY: DifficultyConfig = {
   id: 'bunny',
   label: '● Bunny',
-  blurb: 'Gentle green run, no avalanche — learn to ski.',
+  // Picker copy is intentionally tier-identity only (Easy/Medium/Hard) for now: it
+  // must not promise mechanics that aren't wired yet (no avalanche / gentler terrain).
+  // The richer flavour copy lands with the per-tier tuning PR, where it becomes true.
+  blurb: 'Easy — the gentlest way down.',
   seed: 1001,
   ski: BUNNY_PHYSICS_TUNING,
   minScoreTime: 28, // PROVISIONAL — re-measure before ranked
@@ -132,7 +135,7 @@ const BUNNY: DifficultyConfig = {
 const BLUE: DifficultyConfig = {
   id: 'blue',
   label: '■ Blue',
-  blurb: 'The classic SnowGlider run.',
+  blurb: 'Medium — the classic SnowGlider run.',
   seed: 1002,
   ski: BLUE_PHYSICS_TUNING,
   minScoreTime: MIN_VALID_SCORE_TIME, // the measured shipped floor (18 s)
@@ -141,7 +144,7 @@ const BLUE: DifficultyConfig = {
 const BLACK: DifficultyConfig = {
   id: 'black',
   label: '◆ Black',
-  blurb: 'Steep, dense, fast — carve or crash.',
+  blurb: 'Hard — for confident skiers.',
   seed: 1003,
   ski: BLACK_PHYSICS_TUNING,
   minScoreTime: 13, // PROVISIONAL — re-measure before ranked
@@ -170,4 +173,42 @@ export function isDifficulty(value: unknown): value is Difficulty {
 /** Resolve a tier id to its config, falling back to the default tier. */
 export function getDifficultyConfig(id: unknown): DifficultyConfig {
   return isDifficulty(id) ? BY_ID[id] : BY_ID[DEFAULT_DIFFICULTY];
+}
+
+/** Resolve the Storage to read/write the tier from: the passed one, else the
+ *  ambient localStorage when present (browser), else null (Node / no DOM). */
+function resolveStorage(storage?: Storage | null): Storage | null {
+  if (storage !== undefined) return storage;
+  return typeof localStorage !== 'undefined' ? localStorage : null;
+}
+
+/** Read the player's last-chosen tier from storage, validated. Falls back to the
+ *  default tier on junk, an absent key, or unavailable storage — never throws. */
+export function readStoredDifficulty(storage?: Storage | null): Difficulty {
+  try {
+    const s = resolveStorage(storage);
+    const raw = s ? s.getItem(DIFFICULTY_STORAGE_KEY) : null;
+    return isDifficulty(raw) ? raw : DEFAULT_DIFFICULTY;
+  } catch {
+    return DEFAULT_DIFFICULTY;
+  }
+}
+
+/** Resolve the tier for a starting run: prefer a valid live picker choice (the
+ *  current session's visible selection), else the persisted value, else default.
+ *  This keeps the run honest when storage writes are blocked (private mode), where
+ *  the picker highlight changes but `setItem` silently fails — the live pick wins. */
+export function resolveActiveDifficulty(livePick: unknown, storage?: Storage | null): Difficulty {
+  return isDifficulty(livePick) ? livePick : readStoredDifficulty(storage);
+}
+
+/** Persist the player's chosen tier. No-op (never throws) when storage is
+ *  unavailable (private mode / Node). */
+export function storeDifficulty(id: Difficulty, storage?: Storage | null): void {
+  try {
+    const s = resolveStorage(storage);
+    if (s) s.setItem(DIFFICULTY_STORAGE_KEY, id);
+  } catch {
+    /* storage unavailable; the choice simply won't persist */
+  }
 }
