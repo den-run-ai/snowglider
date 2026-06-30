@@ -13,6 +13,21 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Feature: obstacle contact shadows (#17)
+- **Readability gap.** Trees and rocks sat on the bright snow with no grounding cue, so a
+  tree could read as floating / pasted-on. The slope/cavity shading darkens the terrain
+  itself, but nothing darkened the snow where an obstacle meets it.
+- **Contact-AO decals (`src/mountains/contact-shadows.ts`, new).** A soft baked AO blob is
+  placed under each tree and large rock as a **single `InstancedMesh`** (one shared quad +
+  one shared radial-alpha texture → one extra draw call, one geometry, one texture — the
+  same perf discipline as the instanced forest; stays inside the `perf-budget.spec.ts`
+  ceilings). The blobs never cast/receive shadows, so they add no shadow-pass cost.
+- Reuses the tree/rock positions the placement code already produces (no duplicated
+  placement logic); only reads the terrain height to sit each blob on the surface — never
+  touches the height field or any physics path. Headless-safe (radial texture is
+  `document`-guarded). Covered by `tests/contact-shadows-tests.js`
+  (`npm run test:contact-shadows`). See [`SNOW_RENDERING.md`](SNOW_RENDERING.md).
+
 ### Feature: cavity / ambient-occlusion snow shading + single-sourced slope tiers (#17)
 - **Readability gap.** The shipped per-vertex slope tint (`applySnowVertexColors`) keyed
   off slope *magnitude* only, so it darkened steep faces but left concave hollows — the
@@ -125,7 +140,6 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   later stacked PRs. `tests/difficulty-tests.js` guards the config integrity, the frozen
   Blue constants, the omit-vs-Blue byte-identity, and that the param is live (Black ends
   faster / Bunny slower on a tuck descent).
-
 ### Fix: systemic mobile dead-button class (Start-menu About/Close, logout, …)
 - **Root cause, finally fixed at the source.** `controls.ts` installs document-level
   `touchstart`/`touchmove`/`touchend` handlers that `preventDefault()` *every* touch (for

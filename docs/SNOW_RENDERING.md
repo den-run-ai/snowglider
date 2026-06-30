@@ -121,6 +121,27 @@ as flat white, exactly where snow self-shadows. `applySnowVertexColors` now also
   tint and smoothed shading normals). It is build-time and deterministic — zero per-frame
   cost. Covered by `tests/snow-surface-tests.js` (`npm run test:snow-surface`).
 
+## Obstacle contact shadows (#17)
+
+Trees and rocks sat ON the bright snow with no grounding cue, so on an all-white slope
+a tree could read as floating / pasted-on. The slope tint and lighting shade the terrain
+itself, but nothing darkened the snow right where an obstacle meets it.
+`mountains/contact-shadows.ts` adds a soft baked **contact shadow** (ambient-occlusion
+blob) under each tree and large rock:
+
+- One `InstancedMesh` of a single shared horizontal quad + one shared radial-alpha
+  texture — so the whole forest's grounding cue is **one extra draw call, one geometry,
+  one texture** (the same perf discipline as the instanced forest; it stays well inside
+  the `perf-budget.spec.ts` ceilings). The blobs never cast or receive shadows — they ARE
+  the (fake) shadow — so they add no shadow-pass cost.
+- It reuses the tree/rock positions the placement code already computed (no duplicated
+  placement logic) and only READS the terrain height to sit each blob on the surface;
+  it never touches the height field or any physics path. Headless-safe (the radial
+  texture is `document`-guarded). Covered by `tests/contact-shadows-tests.js`
+  (`npm run test:contact-shadows`).
+
+This complements, rather than duplicates, the player-following directional shadow: the
+contact blob is a tight AO darkening right at the base, independent of sun direction.
 ## Ownership boundaries
 
 Keeping each layer in its lane is what prevents the whiteout / grey / muddy
@@ -131,6 +152,7 @@ regressions from creeping back when one piece is retuned:
 | Static snow-lighting (`scene-setup.ts`, `mountains.ts`) | albedo, normal-map de-striping, smoothed render normals, static light balance, near-white slope tint | sun-cycle animation |
 | Terrain (`mountains.ts` height field) | the slope geometry; replacing the periodic ridge that bands under low sun | lighting rebalance |
 | Cavity / AO readability (`mountains/snow-surface.ts`, #17) | per-vertex concavity darken + cool-shift baked into the slope tint | terrain physics changes / height field |
+| Obstacle contact shadows (`mountains/contact-shadows.ts`, #17) | baked AO blobs under trees/rocks (one InstancedMesh) | casting real shadows / physics |
 | Sun cycle (`src/sky.ts`, #163) | directional sun position/color/intensity, Preetham `sunPosition`/`exposure`, bounded fog/background tint | snow albedo, vertex tint, smoothed normals, terrain, **hemisphere fill** |
 
 ## The sun cycle is an atmospheric layer, not a readability fix

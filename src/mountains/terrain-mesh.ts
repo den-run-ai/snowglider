@@ -20,7 +20,9 @@ import {
   applySnowVertexColors,
   applySmoothShadingNormals,
 } from './snow-surface.js';
-import { addRocks } from './rocks.js';
+import { addRocks, type RockPosition } from './rocks.js';
+import { addContactShadows } from './contact-shadows.js';
+import { getTerrainHeight as sampleTerrainHeight } from './terrain.js';
 
 // Create Terrain (Natural Mountain)
 export function createTerrain(scene: THREE.Scene) {
@@ -126,8 +128,11 @@ export function createTerrain(scene: THREE.Scene) {
   console.log(`Height map contains ${Object.keys(heightMap).length} terrain points`);
 
   // Add rocks to make the mountain more realistic. The returned subset is the
-  // collision source of truth for rocks large enough to read as hazards.
-  const rockPositions = addRocks(scene);
+  // collision source of truth for rocks large enough to read as hazards; `allRocks`
+  // captures EVERY rendered rock so the contact shadows below ground decorative + safety-
+  // filtered rocks too (Codex review #243), not just the collision subset.
+  const allRocks: RockPosition[] = [];
+  const rockPositions = addRocks(scene, allRocks);
 
   // Add trees to make the slope more visible using the separate Trees module
   let treePositions: TreePosition[] = [];
@@ -136,6 +141,11 @@ export function createTerrain(scene: THREE.Scene) {
   } else {
     console.warn("Trees module not found, skipping tree creation");
   }
+
+  // Baked contact-AO blobs under each tree + large rock (issue #17) so obstacles read
+  // as grounded against the bright snow instead of floating. One InstancedMesh (one draw
+  // call) — reuses the positions trees/rocks already produced; render-only, no physics.
+  addContactShadows(scene, treePositions, allRocks, sampleTerrainHeight);
 
   return { terrain, treePositions, rockPositions };
 }

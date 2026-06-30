@@ -314,8 +314,10 @@ snowman.position = curState                       // restore authoritative physi
 > mesh-vertex formula (the *two-formula terrain contract*); **`snow-surface.ts`**
 > holds the snow albedo/normal CanvasTextures and the vertex-colour / smoothed-normal
 > passes; **`terrain-mesh.ts`** holds `createTerrain` (which pre-populates `heightMap`
-> and scatters rocks + trees); and **`rocks.ts`** holds rock meshes/colours/placement
-> plus the collision-hazard subset. `src/mountains/index.ts` is the assembly hub that
+> and scatters rocks + trees); **`rocks.ts`** holds rock meshes/colours/placement
+> plus the collision-hazard subset; and **`contact-shadows.ts`** (#17) bakes the soft
+> AO blob under each tree/large rock as one InstancedMesh (render-only grounding cue, no
+> physics). `src/mountains/index.ts` is the assembly hub that
 > builds the `Mountains` object and re-exports the named/type surface
 > (`terrainRidgeField`, `forestDensityField`, `rockCollisionRadius`, `TerrainVec2`,
 > `RockPosition`). The terrain/regression suites and the physics-invariant harness pin

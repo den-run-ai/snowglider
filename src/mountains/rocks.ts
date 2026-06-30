@@ -228,8 +228,14 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
   return rock;
 }
 
-// Add rocks to create a more realistic mountain environment
-export function addRocks(scene: THREE.Scene): RockPosition[] {
+// Add rocks to create a more realistic mountain environment.
+//
+// `outAllRendered`, when supplied, is filled with EVERY rendered rock (scatter boulders
+// + cliff blocks), not just the collision-hazard subset that's returned. Contact shadows
+// (mountains/contact-shadows.ts) need the full rendered set so decorative rocks — and
+// large rocks filtered out of the hazard list by the ski-lane/spawn safety checks — still
+// get a grounding blob (Codex review #243). Optional, so existing callers are unchanged.
+export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): RockPosition[] {
   // Remove any existing rocks from the scene to prevent duplicates
   for (let i = scene.children.length - 1; i >= 0; i--) {
     const child = scene.children[i]!;
@@ -288,6 +294,7 @@ export function addRocks(scene: THREE.Scene): RockPosition[] {
     rock.rotation.z = -Math.atan(gradient.x) * 0.8;
 
     scene.add(rock);
+    outAllRendered?.push({ x: pos.x, y: terrainHeight, z: pos.z, size: pos.size });
 
     if (rockIsCollisionHazard(pos.x, pos.z, pos.size)) {
       collisionRockPositions.push({ x: pos.x, y: terrainHeight, z: pos.z, size: pos.size });
@@ -332,6 +339,7 @@ export function addRocks(scene: THREE.Scene): RockPosition[] {
         rock.rotation.x = Math.atan(g.z) * 0.8;
         rock.rotation.z = -Math.atan(g.x) * 0.8;
         scene.add(rock);
+        outAllRendered?.push({ x: bx, y: bHeight, z: bz, size: bSize });
 
         if (rockIsCollisionHazard(bx, bz, bSize)) {
           collisionRockPositions.push({ x: bx, y: bHeight, z: bz, size: bSize });
