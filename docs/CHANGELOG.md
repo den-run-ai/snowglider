@@ -13,6 +13,25 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Feature: in-game feedback / feature-request form (#258)
+- **Gap.** A player who hit a bug or had an idea had no in-game path to report it — they
+  had to leave the game and find the repo. Two backends we already run (GitHub for
+  tracking, Firebase Analytics for engagement) were unused for feedback.
+- **`src/ui/feedback.ts` (new).** A "💬 Feedback" button on the start screen opens a small
+  modal (category: feature / bug / general, a message, and an opt-in "include diagnostics"
+  checkbox). **Submit opens a GitHub _prefilled_ new-issue URL** (`/issues/new?title=…&body=…&labels=…`)
+  in a new tab — keyless by design: a static GitHub-Pages client must never hold a write
+  token, so the player previews and submits the issue under their **own** GitHub account.
+  No server, no Cloud Function.
+- **Analytics.** Fires a `feedback_submitted` event (category dimension only — no message
+  text/PII) through the existing `window.firebaseModules.logEvent` seam (`auth.ts`), the
+  same path `share_result` / `complete_run` use; no-ops when Analytics is absent.
+- Opt-in diagnostics pull build id, URL, viewport, user-agent, and `window.__snowgliderDiag.dump()`
+  into the issue body. Every `window`/`navigator`/`__snowgliderDiag` read is guarded so the
+  module is inert under SSR/Node/tests. Pure helpers are headless-tested
+  (`tests/feedback-tests.js`, `npm run test:feedback`). Structured issue templates added
+  under `.github/ISSUE_TEMPLATE/`.
+
 ### Feature: obstacle contact shadows (#17)
 - **Readability gap.** Trees and rocks sat on the bright snow with no grounding cue, so a
   tree could read as floating / pasted-on. The slope/cavity shading darkens the terrain

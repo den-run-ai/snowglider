@@ -27,6 +27,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - Tracking camera that follows the snowman's movements
 - Background music (simplified native HTML5 audio; see the audio history in [`CHANGELOG.md`](docs/CHANGELOG.md))
 - Timer with best time tracking
+- In-game feedback form — send a feature request or bug report straight from the start screen; it opens a prefilled GitHub issue (you submit under your own account) and logs an anonymous Firebase Analytics event
 - Comprehensive test suite for verifying game mechanics
 
 ## Roadmap

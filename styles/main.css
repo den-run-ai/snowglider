@@ -850,6 +850,10 @@ canvas { display: block; }
   background-color: #ff7979;
 }
 
+.menu-button.feedback {
+  background-color: #0984e3;
+}
+
 .menu-button:hover {
   background-color: #45a049;
   transform: scale(1.05);
@@ -861,6 +865,10 @@ canvas { display: block; }
 
 .menu-button.about:hover {
   background-color: #ff6b6b;
+}
+
+.menu-button.feedback:hover {
+  background-color: #0a74c4;
 }
 
 .menu-button:active {
