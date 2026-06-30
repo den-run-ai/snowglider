@@ -103,11 +103,14 @@ export function collectContext(includeDiagnostics: boolean): FeedbackContext {
   if (typeof navigator !== 'undefined' && navigator.userAgent) {
     ctx.userAgent = navigator.userAgent;
   }
+  // Use snapshot(), NOT dump(): both return the same trace, but dump() also
+  // downloads a snowglider-diag-*.json file as a side effect — we only want the
+  // data to embed in the issue body, not a surprise download on every submit.
   if (includeDiagnostics && typeof window !== 'undefined' && window.__snowgliderDiag &&
-      typeof window.__snowgliderDiag.dump === 'function') {
+      typeof window.__snowgliderDiag.snapshot === 'function') {
     try {
-      const dump = window.__snowgliderDiag.dump();
-      ctx.diagnostics = truncate(JSON.stringify(dump), 3000);
+      const snap = window.__snowgliderDiag.snapshot();
+      ctx.diagnostics = truncate(JSON.stringify(snap), 3000);
     } catch { /* diagnostics are opt-in and best-effort */ }
   }
   return ctx;
@@ -353,6 +356,16 @@ export function initFeedback(): void {
   if (btn && btn.dataset.feedbackWired !== '1') {
     btn.dataset.feedbackWired = '1';
     btn.addEventListener('click', openFeedback);
+    // Keep Enter/Space on this button from bubbling to start-menu.ts's document
+    // keydown handler, which starts the run for any target outside #difficultyPicker
+    // while #startGameContainer is visible (the button sits inside it). Without this,
+    // keyboard-activating the button would launch the game instead of just opening
+    // the modal. We don't preventDefault, so the button's native click still fires.
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        e.stopPropagation();
+      }
+    });
   }
 }
 

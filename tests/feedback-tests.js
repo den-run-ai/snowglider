@@ -132,10 +132,13 @@ async function main() {
   check('collectContext reads the user agent', typeof ctx.userAgent === 'string' && ctx.userAgent.length > 0);
   check('collectContext skips diagnostics when none present', ctx.diagnostics === undefined);
 
-  // Opt-in diagnostics via __snowgliderDiag.dump().
-  g.window.__snowgliderDiag = { dump: () => ({ fps: 60, ok: true }) };
+  // Opt-in diagnostics via __snowgliderDiag.snapshot() (NOT dump(), which would
+  // trigger a file download). dump is present here to assert we don't call it.
+  let dumpCalls = 0;
+  g.window.__snowgliderDiag = { snapshot: () => ({ fps: 60, ok: true }), dump: () => { dumpCalls++; return {}; } };
   const withDiag = collectContext(true);
   check('collectContext serialises diagnostics when opted in', (withDiag.diagnostics || '').includes('"fps":60'));
+  check('collectContext uses snapshot(), never the downloading dump()', dumpCalls === 0);
   const optedOut = collectContext(false);
   check('collectContext omits diagnostics when not opted in', optedOut.diagnostics === undefined);
   delete g.window.__snowgliderDiag;
@@ -191,9 +194,24 @@ async function main() {
   console.log('--- keystroke isolation ---');
   // Mimic start-menu.ts's document-level keydown handler that starts the run on
   // Enter/Space. With the modal open, in-modal keystrokes must NOT reach it.
+  /** @type {boolean} */
   let docSawKey = false;
   const docHandler = () => { docSawKey = true; };
   document.addEventListener('keydown', docHandler);
+
+  // Codex P2: Enter/Space on the (focusable) start-screen button must not bubble
+  // to the start-menu handler either, or keyboard-activating it would start the run.
+  if (btn) {
+    btn.dispatchEvent(new window.KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    check('Space on the feedback button does not reach the start-menu handler', docSawKey === false);
+    btn.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    check('Enter on the feedback button does not reach the start-menu handler', docSawKey === false);
+    // A non-activation key (e.g. Tab) is left alone to bubble normally.
+    btn.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    check('Tab on the feedback button still bubbles (not swallowed)', docSawKey);
+    docSawKey = false;
+  }
+
   if (btn) btn.click(); // reopen
   overlay = document.getElementById('feedbackOverlay');
   const ta2 = /** @type {HTMLTextAreaElement} */ (document.getElementById('feedbackMessage'));
