@@ -26,6 +26,7 @@ import { Wind } from '../wind.js';
 import { Snowman, type UpdateResult, type LandingQuality } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
+import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
@@ -285,6 +286,11 @@ export function createMainLoop(deps: MainLoopDeps) {
     // under the recovery overlay until reload. This shutdown path bypasses showGameOver(),
     // so end the run audio explicitly (Codex #262). Guarded: audio must never re-throw here.
     try { Sfx.endRun('crash'); } catch { /* audio teardown must never block recovery */ }
+    // Sfx.endRun only silences the procedural Web Audio beds; the looping background
+    // music (audio.ts) is separate and would keep playing under the recovery overlay.
+    // showGameOver() normally pauses it via enableSound(false), so mirror that here
+    // (Codex #262). Guarded: audio must never re-throw into recovery.
+    try { if (AudioModule) AudioModule.enableSound(false); } catch { /* audio teardown must never block recovery */ }
     try { showFatalErrorOverlay(err); } catch { /* overlay must never re-throw into the loop */ }
   }
 
