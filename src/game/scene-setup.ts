@@ -118,7 +118,19 @@ export function setupScene(signal?: AbortSignal) {
   gameOverOverlay.style.display = 'flex';
   gameOverOverlay.style.flexDirection = 'column';
   gameOverOverlay.style.alignItems = 'center';
-  gameOverOverlay.style.justifyContent = 'center';
+  // `safe center` keeps the contents centered when they fit, but falls back to
+  // top-alignment when they're taller than the viewport instead of clipping the
+  // overflow off both ends (the flex-centering overflow trap). Combined with the
+  // vertical scroll below, this keeps the whole stack — crucially the RESTART
+  // button at the bottom — reachable on short screens or when the finish result
+  // panel + expanded share menu make the overlay taller than the viewport.
+  gameOverOverlay.style.justifyContent = 'safe center';
+  // Allow the overlay itself to scroll when its contents overflow, so nothing
+  // (GAME OVER header, result panel, RESTART) becomes unreachable.
+  gameOverOverlay.style.overflowY = 'auto';
+  gameOverOverlay.style.boxSizing = 'border-box';
+  gameOverOverlay.style.padding = '24px 16px';
+  gameOverOverlay.style.setProperty('-webkit-overflow-scrolling', 'touch');
   gameOverOverlay.style.zIndex = '1000';
   gameOverOverlay.style.display = 'none'; // Initially hidden
 
@@ -144,9 +156,12 @@ export function setupScene(signal?: AbortSignal) {
 
   // Restart button
   const restartButton = document.createElement('button');
+  restartButton.id = 'restartButton';
   restartButton.textContent = 'RESTART';
   restartButton.style.padding = '15px 30px';
   restartButton.style.fontSize = '22px';
+  // Never let the flex column squeeze the primary "get out of here" control.
+  restartButton.style.flexShrink = '0';
   restartButton.style.backgroundColor = '#ff4136';
   restartButton.style.color = 'white';
   restartButton.style.border = 'none';
