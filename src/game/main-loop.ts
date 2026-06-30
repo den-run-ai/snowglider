@@ -26,12 +26,14 @@ import { Wind } from '../wind.js';
 import { Snowman, type UpdateResult, type LandingQuality } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
+import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { getDifficultyConfig } from '../difficulty.js';
 import { updateStatsHud, updateTimerDisplay } from '../ui/hud.js';
+import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
 import { AVALANCHE_TRIGGER_DISTANCE, type SceneContext } from './scene-setup.js';
 
 // The physics grid. FIXED_DT is the rate the invariant harness pins (1/60 s), so the
@@ -284,9 +286,41 @@ export function createMainLoop(deps: MainLoopDeps) {
   // --- Animation Loop (fixed-timestep accumulator) ---
   let lastTime = 0;
   let accumulator = 0;
+  // Set once a frame throws an uncaught error: the loop hard-stops (no reschedule) and
+  // the recovery overlay is shown, instead of spinning rAF and re-throwing on a frozen
+  // frame forever. animate() reschedules at the TOP of the frame, so without this guard
+  // a single bad frame (e.g. a stale-cache module skew after a deploy) freezes the
+  // screen silently. Cleared only by a full page reload (the overlay's action).
+  let loopFailed = false;
+
+  // Stop the loop cleanly after a fatal per-frame error and offer a one-tap reload. The
+  // overlay/log are best-effort and self-guarded so recovery can never re-throw into the
+  // loop. A fatal loop error is almost always a bad module graph or a lost WebGL context,
+  // neither of which the in-game restart fixes — hence a reload, not a restart.
+  function onFatalLoopError(err: unknown): void {
+    loopFailed = true;
+    state.gameActive = false;
+    state.animationRunning = false;
+    try { console.error('[SnowGlider] Fatal animation-loop error — stopping the run:', err); } catch { /* */ }
+    try { Diag.endRun(); } catch { /* telemetry must never block recovery */ }
+    // The loop stops here, so nothing else will drive the continuous SFX gains (wind /
+    // carve / avalanche bed) back down — they'd hold their last targets and keep droning
+    // under the recovery overlay until reload. This shutdown path bypasses showGameOver(),
+    // so end the run audio explicitly (Codex #262). Guarded: audio must never re-throw here.
+    try { Sfx.endRun('crash'); } catch { /* audio teardown must never block recovery */ }
+    // Sfx.endRun only silences the procedural Web Audio beds; the looping background
+    // music (audio.ts) is separate and would keep playing under the recovery overlay.
+    // showGameOver() normally pauses it via enableSound(false), so mirror that here
+    // (Codex #262). Guarded: audio must never re-throw into recovery.
+    try { if (AudioModule) AudioModule.enableSound(false); } catch { /* audio teardown must never block recovery */ }
+    try { showFatalErrorOverlay(err); } catch { /* overlay must never re-throw into the loop */ }
+  }
+
   function animate(time: number) {
+    if (loopFailed) return; // a prior frame failed fatally; stay stopped until reload
     if (state.gameActive) {
       requestAnimationFrame(animate);
+      try {
       // Ceiling the frame delta at the spiral guard (MAX_SUBSTEPS * FIXED_DT) so a long
       // stall (tab restore, GC pause) can't pour an unbounded backlog into the accumulator.
       const frameDelta = Math.min((time - lastTime) / 1000, MAX_SUBSTEPS * FIXED_DT);
@@ -458,6 +492,10 @@ export function createMainLoop(deps: MainLoopDeps) {
 
       // Restore the authoritative (un-interpolated) physics position for the next frame.
       snowman.position.set(pos.x, pos.y, pos.z);
+      } catch (err) {
+        // A frame threw: stop cleanly and show the reload prompt instead of freezing.
+        onFatalLoopError(err);
+      }
     } else if (state.animationRunning) {
       state.animationRunning = false;
     }
