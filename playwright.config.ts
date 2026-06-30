@@ -45,7 +45,10 @@ export default defineConfig({
       // the user-flow specs have a fast, reliable baseline to compare WebKit against.
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /mobile\.spec\.ts/,
+      // Exclude mobile specs (their own project) and the visual-regression specs
+      // under tests/e2e/visual/ — those are opt-in only via playwright.visual.config.ts
+      // (environment-specific baselines; see that file's header), never the CI e2e job.
+      testIgnore: [/mobile\.spec\.ts/, /visual\//],
     },
     {
       // WebKit — the closest CI proxy for desktop/iOS Safari. This is the whole
@@ -54,7 +57,7 @@ export default defineConfig({
       // CLAUDE.md — that still needs a real device.)
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
-      testIgnore: /mobile\.spec\.ts/,
+      testIgnore: [/mobile\.spec\.ts/, /visual\//],
     },
     {
       // Emulated iPhone (WebKit engine, mobile UA, touch, mobile viewport). The
