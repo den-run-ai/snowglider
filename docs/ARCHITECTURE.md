@@ -104,8 +104,9 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 |--------|------|-------|----------------|
 | `Mountains` | `mountains.ts` (facade → `src/mountains/*`) | object + fns | Terrain height field, gradient, mesh, rocks / `rockPositions`, `SimplexNoise` |
 | `Trees` | `trees.ts` (facade → `src/mountains/trees.ts`) | object + fns | Tree meshes + placement; returns `treePositions` |
-| `Snow` | `snow.ts` | object + fns | Snowflakes + ski snow-splash particles |
+| `Snow` | `snow.ts` | object + fns | Snowflakes + ski snow-splash particles (drift downwind, issue #253) |
 | `Sky` | `sky.ts` | object + fns | Preetham atmospheric sky + sun & horizon distance fog (gradient-dome fallback), issue #2 |
+| `Wind` | `wind.ts` | object + fns | Shared deterministic horizontal wind field (a pure clock-advanced sample read by snow drift and, in follow-ups, the scarf / tree sway / audio bed); cosmetic-only, no `THREE`/DOM import, issue #253 |
 | `Camera` | `camera.ts` | `class Camera` | Chase/orbit camera positioning & look-ahead |
 | `Snowman` | `snowman.ts` | object + fns | Snowman model, `updateSnowman` physics, test hooks |
 | `Flex` | `snowman-flex.ts` | object + fns | Cosmetic snowman flex (squash/jiggle, head-cluster bob/lean, landing settle); runs after physics, never touches the kernel (#53) |
@@ -220,7 +221,8 @@ alpha = accumulator / FIXED_DT                    // 0..1 leftover for render in
                                                   // --- once per RENDER frame (cosmetic) ---
 renderObservers(frameDelta, latestResult, events)   // HUD stats, Flex.update, Sfx jump/land/skiing
 Diag.record(frameDelta, …, step=maxSubstepStep)  // telemetry: REAL frame dt (FPS/clamped) + substep step (tunnelRisk)
-Snow.updateSnowflakes(...)
+Wind.update(frameDelta)                          // advance the shared wind field (deterministic, cosmetic)
+Snow.updateSnowflakes(...)                        // flakes drift downwind by Wind.vector()
 snowTrails.update(frameDelta, snowman, isInAir)  // carve/fade ski grooves (cosmetic, reads pos only)
 Sky.update(frameDelta)                           // golden-hour↔midday sun cycle
 avalanche.checkBurial(...)                       // burial = game over — once per frame, BEFORE hasPassed (runs on no-step frames too)

@@ -22,6 +22,7 @@ import { Controls } from '../controls.js';
 import { Snow } from '../snow.js';
 import { Sky } from '../sky.js';
 import { aimSunLight } from './sun-shadow.js';
+import { Wind } from '../wind.js';
 import { Snowman, type UpdateResult, type LandingQuality } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
@@ -335,6 +336,11 @@ export function createMainLoop(deps: MainLoopDeps) {
         recordDiag(frameDelta, result, maxSubstepStep);
       }
 
+      // Advance the shared wind field (issue #253). Deterministic and cosmetic-only —
+      // every wind consumer (snow drift, scarf, tree sway, audio bed) reads this one
+      // clock-advanced sample, so they all agree on the same gust at the same instant.
+      Wind.update(frameDelta);
+
       Snow.updateSnowflakes(frameDelta, pos, scene);
 
       // Dynamic ski trails / snow accumulation (#17): carve fading grooves behind the
@@ -449,6 +455,8 @@ export function createMainLoop(deps: MainLoopDeps) {
     interpPrev.x = interpCur.x = pos.x;
     interpPrev.y = interpCur.y = pos.y;
     interpPrev.z = interpCur.z = pos.z;
+    // Restart each run from the same deterministic point in the gust cycle (#253).
+    Wind.reset();
   }
 
   // Seed the frame clock and kick the loop. Replaces the lifecycle sites' previous
