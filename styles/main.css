@@ -844,11 +844,12 @@ canvas { display: block; }
 #finishDifficultyPicker .difficulty-option { padding: 6px 12px; }
 #finishDifficultyPicker .difficulty-blurb { display: none; }
 
-/* Keep the game-over overlay escapable. On origin/main the overlay centers its column
-   with no overflow handling, so a tall result panel + this picker could push RESTART
-   off-screen. overflow-y:auto lets it scroll instead of clipping the button. (The
-   deeper "safe center" overlay fix lives in PR #251; this is the self-contained guard
-   for the height this picker adds.) */
+/* Keep the game-over overlay escapable. The result panel + leaderboard + this difficulty
+   picker can exceed the viewport on short/mobile screens; overflow-y:auto makes it scroll.
+   This pairs with `justify-content: safe center` (set inline in game/scene-setup.ts): plain
+   `center` + scrolling can strand overflow above the scroll origin, leaving GAME OVER or
+   RESTART unreachable, whereas `safe center` falls back to top-alignment when it overflows
+   so the whole panel scrolls into reach. flex-shrink:0 keeps RESTART from being squeezed. */
 #gameOverOverlay {
   overflow-y: auto;
   box-sizing: border-box;
