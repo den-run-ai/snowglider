@@ -68,6 +68,24 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   no-input invariant is byte-identical; no new per-frame shadow cost (the sun cycle
   already re-rendered the shadow map every frame). Covered by `tests/sun-shadow-tests.js`
   (`npm run test:sun-shadow`). See [`SNOW_RENDERING.md`](SNOW_RENDERING.md).
+### Difficulty tiers (D3.2a): per-tier course-line spine (no felt change)
+- **The descent has a single seeded centerline.** New `src/course-line.ts` exposes
+  `createCourseLine(cfg)` → `laneX(z)` / `tangent(z)` / `heading(z)`: plain-number
+  Catmull-Rom over seed-jittered, `±amplitude`-bounded control points, pinned to x=0 at
+  the start + finish gates. It is THREE-free and DOM-free (like `intro.ts`), so it is
+  headless-unit-testable and importable by the terrain kernel. This is the one source of
+  truth the later D3.2 sub-PRs all read — terrain corridor, checkpoint gates, the obstacle
+  field, and the winnability harness — so the path math is never duplicated.
+- **`DifficultyConfig` gains a `line` block, and the per-tier `seed` is now used.**
+  Bunny + Blue are `STRAIGHT_LINE` (`curviness 0` ⇒ `laneX ≡ 0`); Black winds (a ±18 u,
+  ~5-turn serpentine fixed by `seed: 1003`, so the Black course is identical for everyone
+  — required for fair ranked times + shared ghosts).
+- **No felt change for any tier.** Nothing in the running game reads `laneX` yet (the
+  terrain/gate/obstacle/avalanche consumers land in D3.2b–d), and Blue/Bunny resolve to an
+  exact straight line, so the no-input invariant harness stays IDENTICAL. Covered by the
+  new `tests/course-line-tests.js` (`npm run test:course-line`) plus extended
+  `difficulty-tests.js` line-block assertions. (Terrain corridor, gates, obstacles, the
+  per-tier avalanche, and the ranked flip follow in later D3.2 sub-PRs.)
 
 ### Difficulty tiers (stage 5 / D3.1): felt per-tier ski feel + unranked Bunny/Black
 - **The kernel now uses the run's tier tuning.** The main loop passes

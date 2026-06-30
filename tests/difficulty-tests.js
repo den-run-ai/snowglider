@@ -176,6 +176,20 @@ function maxTrajDiff(a, b) {
     && D.getDifficultyConfig('bunny').ranked === false
     && D.getDifficultyConfig('black').ranked === false);
 
+  console.log('--- Per-tier course line (the `line` block, fed to course-line.ts) ---');
+  const lineKeys = ['curviness', 'amplitude', 'controlPoints'];
+  check('every tier carries a well-formed line block (finite curviness/amplitude/controlPoints)',
+    D.DIFFICULTIES.every((c) =>
+      c.line && lineKeys.every((k) => typeof c.line[k] === 'number' && Number.isFinite(c.line[k]))));
+  // Bunny + Blue MUST be straight (curviness 0 ⇒ laneX ≡ 0) — the byte-identical guarantee.
+  check('Bunny and Blue are straight (curviness 0)',
+    D.getDifficultyConfig('bunny').line.curviness === 0
+    && D.getDifficultyConfig('blue').line.curviness === 0);
+  // Black is the winding corridor: a non-trivial, bounded serpentine.
+  const blackLine = D.getDifficultyConfig('black').line;
+  check('Black winds (curviness > 0, amplitude > 0, controlPoints > 0)',
+    blackLine.curviness > 0 && blackLine.amplitude > 0 && blackLine.controlPoints > 0);
+
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
   check('localBestTimeKey: Blue keeps the original key; others are suffixed',
     D.localBestTimeKey('blue') === 'snowgliderBestTime'
