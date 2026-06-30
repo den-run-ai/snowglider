@@ -197,7 +197,11 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
   const tail = parts.scarfTail; const tb = base.scarfTail;
   if (tail && tb) {
     const windSwing = fs.windSwayS * SCARF_WIND_SWAY;
-    const windLift = clamp(fs.windStreamS * SCARF_WIND_STREAM, -0.4, 0.4);
+    // Negate the apparent-wind stream: the tail's rest pose is forward-draped (more-negative
+    // rotation.x sends it toward +z), so a head/tail wind must ADD positive rotation.x to
+    // trail it behind. A downhill self-motion headwind (windStreamS < 0) thus streams the
+    // scarf back; a tailwind (> 0) pushes it forward (Codex #259).
+    const windLift = clamp(-fs.windStreamS * SCARF_WIND_STREAM, -0.4, 0.4);
     const swing = clamp(-turn * 0.4 + windSwing + Math.sin(fs.t * 7.0) * 0.12 * (0.4 + speedN), -0.8, 0.8);
     tail.rotation.set(tb.rotation.x + (air ? -0.3 : 0.1) + windLift, tb.rotation.y, tb.rotation.z + swing);
   }

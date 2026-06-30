@@ -181,11 +181,18 @@ async function main() {
     const tz = sm.userData.parts.scarfTail.rotation.z - base.scarfTail.rotation.z;
     check('crosswind streams the scarf sideways (rotation.z)', Math.abs(tz) > 0.2 && Number.isFinite(tz));
 
-    // A head/tail wind lifts the tail fore/aft (rotation.x).
+    // A head/tail wind lifts the tail fore/aft (rotation.x). A self-motion headwind
+    // (windStream < 0 — the common downhill case) trails the tail BEHIND the snowman:
+    // rotation.x goes positive, away from the forward-draped rest pose (Codex #259).
     const sm2 = makeSnowman();
-    for (let i = 0; i < 60; i++) Flex.update(sm2, 1 / 60, { speed: 6, technique: 'glide', turnRate: 0, justLanded: false, landingForce: 0, isInAir: false, windSway: 0, windStream: 1 });
+    for (let i = 0; i < 60; i++) Flex.update(sm2, 1 / 60, { speed: 6, technique: 'glide', turnRate: 0, justLanded: false, landingForce: 0, isInAir: false, windSway: 0, windStream: -1 });
     const tx = sm2.userData.parts.scarfTail.rotation.x - base.scarfTail.rotation.x;
-    check('head/tail wind lifts the scarf fore/aft (rotation.x)', tx > 0.1 && Number.isFinite(tx));
+    check('headwind trails the scarf behind (rotation.x > 0)', tx > 0.1 && Number.isFinite(tx));
+    // ...and a tailwind (windStream > 0) pushes it forward (rotation.x < 0).
+    const sm2b = makeSnowman();
+    for (let i = 0; i < 60; i++) Flex.update(sm2b, 1 / 60, { speed: 6, technique: 'glide', turnRate: 0, justLanded: false, landingForce: 0, isInAir: false, windSway: 0, windStream: 1 });
+    const txb = sm2b.userData.parts.scarfTail.rotation.x - base.scarfTail.rotation.x;
+    check('tailwind pushes the scarf forward (rotation.x < 0)', txb < -0.1 && Number.isFinite(txb));
 
     // The body braces INTO the crosswind: the head leans opposite the scarf stream.
     check('body braces into the crosswind (head leans opposite the scarf)', Math.sign(sm.userData.parts.headGroup.rotation.z) === -Math.sign(tz));
