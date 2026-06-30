@@ -171,7 +171,12 @@ export function buildFeedbackIssueUrl(opts: BuildIssueOptions): string {
  */
 export function logFeedbackEvent(category: FeedbackCategory): void {
   try {
-    const fm = typeof window !== 'undefined' ? window.firebaseModules : undefined;
+    // window.firebaseModules is typed `any` (the shared seam), so narrow it to the
+    // one method we call before touching it — keeps this access type-safe instead
+    // of leaking `any` through the no-unsafe-* lint rules.
+    const fm = typeof window !== 'undefined'
+      ? (window.firebaseModules as { logEvent?: (name: string, params?: Record<string, unknown>) => void } | undefined)
+      : undefined;
     if (fm && typeof fm.logEvent === 'function') {
       fm.logEvent('feedback_submitted', { category });
     }

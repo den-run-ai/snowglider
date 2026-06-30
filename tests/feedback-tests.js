@@ -121,8 +121,9 @@ async function main() {
 
   // ---- logFeedbackEvent: analytics seam ----
   console.log('--- logFeedbackEvent ---');
+  /** @type {{ name: string, params: { category?: string } } | null} */
   let logged = null;
-  setGlobal('window', { firebaseModules: { logEvent: (name, params) => { logged = { name, params }; } } });
+  setGlobal('window', { firebaseModules: { logEvent: (/** @type {string} */ name, /** @type {{ category?: string }} */ params) => { logged = { name, params }; } } });
   logFeedbackEvent('feature');
   check('fires feedback_submitted', logged && logged.name === 'feedback_submitted');
   check('carries only the category dimension', logged && logged.params && logged.params.category === 'feature');
