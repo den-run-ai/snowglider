@@ -232,15 +232,18 @@ function setupTouchControls(signal?: AbortSignal) {
   window.addEventListener('resize', updateTouchRegions, opts);
   
   // Touches that begin inside a scrollable UI panel (the Controls / Ski Techniques
-  // guides) must be handed to the browser so the panel can scroll natively. The
-  // document-level handlers below otherwise call preventDefault() on every move —
-  // killing the scroll — and would also mis-read the drag as ski steering. A
-  // TouchEvent's target stays the element the gesture started on, so excluding these
-  // targets lets the overflow areas scroll without leaking into gameplay input.
+  // guides, or the finish/game-over result overlay) must be handed to the browser so
+  // the panel can scroll natively. The document-level handlers below otherwise call
+  // preventDefault() on every move — killing the scroll — and would also mis-read the
+  // drag as ski steering. A TouchEvent's target stays the element the gesture started
+  // on, so excluding these targets lets the overflow areas scroll without leaking into
+  // gameplay input. `#gameOverOverlay` is included because on a tall finish screen
+  // (result panel + expanded share menu) it scrolls to keep RESTART reachable, and the
+  // run is already over there, so a drag is never gameplay steering.
   const isScrollableUiTouch = (event: TouchEvent): boolean => {
     const target = event.target as Element | null;
     return !!(target && typeof target.closest === 'function' &&
-      target.closest('#controlsGuide, #controlsContent'));
+      target.closest('#controlsGuide, #controlsContent, #gameOverOverlay'));
   };
 
   // Touches that land on an interactive control (any button/link/form field, or an

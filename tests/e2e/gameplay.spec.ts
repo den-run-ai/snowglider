@@ -50,6 +50,53 @@ test.describe('gameplay flow', () => {
     expect((await getControls(page))?.left).toBe(false);
   });
 
+  test('finish result overlay stays exitable when it overflows the viewport', async ({ page }) => {
+    // Regression for the "impossible to leave the share-results window" bug: on a
+    // finished run the medal/splits result panel plus the (desktop) expanded share
+    // menu makes #gameOverOverlay taller than the window. It used to center its
+    // contents with justify-content:center and no scroll, so the overflow was
+    // clipped off both ends — the RESTART button fell below the viewport with no
+    // way to reach it, trapping the player on the share screen.
+    await gotoGame(page);
+    await startGame(page);
+
+    // A deliberately short window guarantees the result panel + share menu overflow.
+    await page.setViewportSize({ width: 820, height: 460 });
+
+    // Drive the real game-over path with a valid finish time so the full result
+    // panel (medal + splits + share controls) is built exactly as a finished run.
+    await page.evaluate(() => {
+      const w = window as unknown as { startTime: number; showGameOver: (r: string) => void };
+      // ~20s elapsed clears the leaderboard plausibility floor (MIN_VALID_SCORE_TIME
+      // = 18s) so showGameOver builds the full result panel, as a real finish would.
+      w.startTime = performance.now() - 20000;
+      w.showGameOver('You reached the end of the slope!');
+    });
+
+    await expect(page.locator('#gameOverOverlay')).toBeVisible();
+    await expect(page.locator('#courseResult')).toBeVisible();
+
+    // Expand the desktop per-platform share menu (X/Facebook/…) — the worst case
+    // from the bug report, which makes the overlay clearly taller than the window.
+    await page.click('#shareResultBtn');
+    await expect(page.locator('#shareMenu')).toBeVisible();
+
+    // The scenario is only meaningful if the overlay actually overflows.
+    const overflows = await page.evaluate(() => {
+      const ov = document.getElementById('gameOverOverlay')!;
+      return ov.scrollHeight > ov.clientHeight + 1;
+    });
+    expect(overflows, 'overlay should overflow the short viewport in this scenario').toBe(true);
+
+    // The fix: the overlay scrolls, so RESTART can be reached and clicked. On the
+    // old clipping overlay Playwright cannot bring the button into view and this
+    // click times out — exactly the user-facing "can't exit" bug.
+    await page.click('#restartButton');
+
+    // Clicking RESTART dismisses the overlay and resumes a live run.
+    await expect(page.locator('#gameOverOverlay')).toBeHidden();
+  });
+
   test('reset returns the snowman to the start', async ({ page }) => {
     await gotoGame(page);
     await startGame(page);
