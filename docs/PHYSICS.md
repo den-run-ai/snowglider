@@ -330,6 +330,46 @@ false at auto-jump/hop takeoffs, cleared on landing and in `resetSnowman`), so t
 auto-jump / hop / coasting landing path is byte-identical to before — see §6 and the
 new gating checks in the invariant harness.
 
+### 4.1 Freestyle tricks (#32 — Expert tier only)
+
+On the ◆◆ **Expert** tier (`ski.freestyleTricks` in `src/difficulty.ts` — the only
+tier that sets it), a *manual* jump's air phase accepts trick input, re-using the
+existing controls while airborne:
+
+```
+// Double gate: tuning.freestyleTricks (Expert only) AND playerJump provenance.
+// Pure userData accumulator writes — pos/velocity are NEVER touched here (the
+// existing ±5 m/s² airControl drift above is unchanged and still applies):
+Left/Right : trickSpin ∓= 360 * delta      // SPIN_RATE_DEG (deg/s of yaw, right = +)
+Up/Down    : trickFlip ±= 300 * delta      // FLIP_RATE_DEG (+ = frontflip, − = backflip)
+Jump       : re-press → grab               // released after takeoff first (arms), then held:
+             trickGrabTime += delta        // the takeoff press itself can never grab
+
+// At touchdown, the landing branch settles the tricks (gradeFreestyleTrick):
+spinHalves = floor((|trickSpin| + 60) / 180)   // completed 180s within SPIN_LAND_TOL_DEG
+flips      = floor((|trickFlip| + 75) / 360)   // completed 360s within FLIP_LAND_TOL_DEG
+underRotated = residual(trickSpin, 180) > 60 || residual(trickFlip, 360) > 75
+trickScore = spinHalves*40 + flips*120 + (grab >= 0.25s ? grabTime*60 : 0)
+if underRotated: trickScore *= 0.5 ; quality := SKETCHY   // spoils even a perfect aim
+airScoreDelta = round(airTime*100 + cleanBonus + trickScore)
+trickName = "540 + BACKFLIP + GRAB"-style label (null when nothing completed)
+```
+
+The rotation itself is **cosmetic** — applied in `pose.ts` from the `userData`
+accumulators (`trickSpin` drives `rotation.y` directly while spinning, pausing the
+velocity-facing smoothing; `trickFlip` rides on top of the clamped tilt; a held grab
+tucks `scale.y`) — so the trajectory of a trick flight is identical to the same
+flight without the trick system. The **only** physics consequence is at touchdown:
+landing mid-rotation (under-rotated) forces the SKETCHY scrub, which is the
+freestyle risk/reward. Trick points ride inside `airScoreDelta` (same banking path),
+and `trickName` is returned for the toast (`✈ AIR <t>s · <trick> · <grade>`).
+Trick state lives on `snowman.userData` with the same lifecycle as `playerJump`:
+reset at every manual takeoff, consumed at landing, cleared in `resetSnowman`.
+Because spins can't yet alter the *velocity* heading (that needs heading-relative
+velocity, #244), a spun landing is still graded by velocity-vs-fall-line alignment.
+Tunables + grading live in `src/snowman/physics.ts` (exported constants +
+`gradeFreestyleTrick`), pinned by `tests/freestyle-tests.js`.
+
 ---
 
 ## 5. Collisions, bounds & game over
@@ -598,6 +638,10 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Jump landing grade (CLEAN / OK align) | `> 0.85` / `> 0.55` | `snowman/physics.ts` |
 | Clean-landing boost (per s / cap) | `airTime*0.04` / `0.06` | `snowman/physics.ts` |
 | Air score (per s / clean bonus) | `airTime*100` / `+50` | `snowman/physics.ts` |
+| Freestyle spin / flip rate (Expert, #32) | 360 / 300 deg/s | `snowman/physics.ts` |
+| Freestyle score (per 180° spin / 360° flip / grab s) | 40 / 120 / 60 | `snowman/physics.ts` |
+| Freestyle landing tolerance (spin / flip residual) | 60° / 75° | `snowman/physics.ts` |
+| Freestyle grab min hold / under-rotation penalty | 0.25 s / ×0.5 + SKETCHY | `snowman/physics.ts` |
 | Max tilt | 0.25 rad (~14°) | `snowman.js` |
 | Tree collision radius | 2.5 | `snowman.js` |
 | Rock hazard min size / radius clamp | 1.25 / `1.25 .. 3.0` | `mountains.ts`, `snowman.ts` |

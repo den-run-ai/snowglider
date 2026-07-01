@@ -109,6 +109,11 @@ export interface UpdateResult {
   // the air-score points earned this frame (0 unless a manual jump just landed).
   landingQuality: LandingQuality | null;
   airScoreDelta: number;
+  // Freestyle tricks (#32, Expert tier): the completed-trick toast label (e.g.
+  // "360", "BACKFLIP + GRAB"), set only on the frame a manual jump lands with at
+  // least one completed trick component. Null on every other frame and on every
+  // non-freestyle tier; the trick points ride inside airScoreDelta.
+  trickName: string | null;
 }
 
 // Update snowman physics and movement

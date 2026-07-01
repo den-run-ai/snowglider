@@ -285,7 +285,7 @@ async function main() {
       { bestTimeBunny: 17.99, updatedAt: serverTimestamp() }, { merge: true }));
     // plausible per-tier fields accepted (fresh create)
     await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
-      { bestTimeBunny: 20, bestTimeBlack: 18, updatedAt: serverTimestamp() }, { merge: true }));
+      { bestTimeBunny: 20, bestTimeBlack: 18, bestTimeExpert: 21, updatedAt: serverTimestamp() }, { merge: true }));
     // downgrade rejected, improvement accepted (bunny)
     await assertFails(setDoc(doc(alice, 'users', 'alice'),
       { bestTimeBunny: 25, updatedAt: serverTimestamp() }, { merge: true }));
@@ -296,12 +296,12 @@ async function main() {
   await runTest('an unknown best-time-like field is still rejected', async () => {
     const alice = dbFor('alice');
     await assertFails(setDoc(doc(alice, 'users', 'alice'),
-      { ...profile(), bestTimeExpert: 20 }, { merge: true }));
+      { ...profile(), bestTimeRainbow: 20 }, { merge: true }));
   });
 
-  // Bunny/Black are UNRANKED for now: reads allowed, but ALL client writes denied
+  // Bunny/Black/Expert are UNRANKED for now: reads allowed, but ALL client writes denied
   // (the unranked guarantee is enforced server-side, not just in the finish overlay).
-  for (const coll of ['leaderboard_bunny', 'leaderboard_black']) {
+  for (const coll of ['leaderboard_bunny', 'leaderboard_black', 'leaderboard_expert']) {
     await runTest(`${coll} (unranked): every client write is denied, even a valid owner entry`, async () => {
       const alice = dbFor('alice');
       await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));

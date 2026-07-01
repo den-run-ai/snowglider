@@ -25,8 +25,9 @@ service cloud.firestore {
     }
 
     // Per-difficulty best-time fields. `bestTime` is the Blue tier (unchanged);
-    // bestTimeBunny / bestTimeBlack are the other tiers. All validate against the same
-    // plausibility floor for now (every tier currently plays the same physics).
+    // bestTimeBunny / bestTimeBlack / bestTimeExpert are the other tiers. All validate
+    // against the same plausibility floor for now (every tier currently plays the same
+    // physics).
     function validUserKeys(data) {
       return data.keys().hasOnly([
         'displayName',
@@ -36,6 +37,7 @@ service cloud.firestore {
         'bestTime',
         'bestTimeBunny',
         'bestTimeBlack',
+        'bestTimeExpert',
         'updatedAt'
       ]);
     }
@@ -49,6 +51,7 @@ service cloud.firestore {
         && (!('bestTime' in data) || isValidScoreTime(data.bestTime))
         && (!('bestTimeBunny' in data) || isValidScoreTime(data.bestTimeBunny))
         && (!('bestTimeBlack' in data) || isValidScoreTime(data.bestTimeBlack))
+        && (!('bestTimeExpert' in data) || isValidScoreTime(data.bestTimeExpert))
         && (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
@@ -66,6 +69,7 @@ service cloud.firestore {
           'bestTime',
           'bestTimeBunny',
           'bestTimeBlack',
+          'bestTimeExpert',
           'updatedAt'
         ])
         && (!changedUserKeys().hasAny(['displayName']) ||
@@ -112,6 +116,14 @@ service cloud.firestore {
             !isValidScoreTime(resource.data.bestTimeBlack) ||
             request.resource.data.bestTimeBlack <= resource.data.bestTimeBlack)
         )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeExpert'])
+        || (
+          isValidScoreTime(request.resource.data.bestTimeExpert)
+          && (!('bestTimeExpert' in resource.data) ||
+            !isValidScoreTime(resource.data.bestTimeExpert) ||
+            request.resource.data.bestTimeExpert <= resource.data.bestTimeExpert)
+        )
       );
     }
 
@@ -152,7 +164,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Per-tier sibling boards (Bunny / Black). These tiers are currently UNRANKED
+    // Per-tier sibling boards (Bunny / Black / Expert). These tiers are currently UNRANKED
     // (difficulty.ts `ranked: false`): reads are allowed (the boards are simply empty),
     // but NO client may write — the unranked guarantee must hold server-side, not just in
     // the finish overlay. The D3 flip-to-ranked PR (after each floor is measured + a
@@ -164,6 +176,11 @@ service cloud.firestore {
     }
 
     match /leaderboard_black/{userId} {
+      allow get, list: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /leaderboard_expert/{userId} {
       allow get, list: if isSignedIn();
       allow write: if false;
     }

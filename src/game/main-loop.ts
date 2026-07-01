@@ -60,6 +60,7 @@ interface FrameEvents {
   tookOff: boolean;                    // ground->air edge seen within the frame's substeps
   landingQuality: LandingQuality | null;
   landingForce: number;
+  trickName: string | null;            // freestyle (#32): completed-trick label, Expert only
 }
 
 export interface MainLoopDeps extends
@@ -99,7 +100,7 @@ export function createMainLoop(deps: MainLoopDeps) {
   const interpCur = { x: 0, y: 0, z: 0 };
 
   function newFrameEvents(): FrameEvents {
-    return { justLanded: false, tookOff: false, landingQuality: null, landingForce: 0 };
+    return { justLanded: false, tookOff: false, landingQuality: null, landingForce: 0, trickName: null };
   }
 
   // Reduce one substep's result into the frame's aggregated events (§5). Also advances
@@ -111,6 +112,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       ev.justLanded = true;
       ev.landingForce = result.landingForce;
       ev.landingQuality = result.landingQuality; // null for auto-jumps; non-null only on a manual jump
+      ev.trickName = result.trickName;           // freestyle (#32): null outside an Expert trick landing
     }
     if (result.isInAir && !prevInAir) ev.tookOff = true;
     prevInAir = result.isInAir;
@@ -194,10 +196,11 @@ export function createMainLoop(deps: MainLoopDeps) {
     }
 
     // Meaningful jumps (#47): on a graded *manual*-jump landing, toast the air time +
-    // grade. landingQuality is non-null only for a player-initiated jump, so auto-jumps /
+    // grade — plus the completed trick's name on an Expert freestyle landing (#32).
+    // landingQuality is non-null only for a player-initiated jump, so auto-jumps /
     // hop turns / coasting never toast. (The air score itself is banked inside the step.)
     if (ev.justLanded && ev.landingQuality && CourseModule) {
-      CourseModule.flashAir(ev.landingQuality, ev.landingForce);
+      CourseModule.flashAir(ev.landingQuality, ev.landingForce, ev.trickName);
     }
 
     // Apparent wind for the scarf (#253): the wind a moving snowman feels is

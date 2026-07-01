@@ -51,9 +51,10 @@ let slopeTierIdx = 0;
 // This is the *chosen* difficulty for the run — distinct from the Slope row, which
 // reports the pitch under the player at this instant.
 const DIFFICULTY_COLORS: Record<Difficulty, string> = {
-  bunny: '#4CAF50', // green
-  blue: '#4FC3F7',  // blue
-  black: '#FFFFFF', // white: a true-black glyph is invisible on the dark panel
+  bunny: '#4CAF50',  // green
+  blue: '#4FC3F7',   // blue
+  black: '#FFFFFF',  // white: a true-black glyph is invisible on the dark panel
+  expert: '#FFD54F', // amber: sets the ◆◆ freestyle tier apart from Black's white
 };
 // Only repaint the level badge when the tier actually changes (it's read every
 // render frame from the live run state). `null` forces a repaint on the next call.

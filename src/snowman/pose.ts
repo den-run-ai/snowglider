@@ -88,23 +88,42 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
     snowman.userData.targetRotationY = Math.atan2(movementDir.x, movementDir.z);
   }
   
-  // Apply rotation with smoothing - more stability at higher speeds
-  const rotationSmoothingY = Math.min(1, Math.max(0.05, delta * 2.5));
-  
-  // Interpolate toward target rotation - never rotate more than 15 degrees at once
-  const currentRotY = snowman.rotation.y;
-  const targetRotY = snowman.userData.targetRotationY;
-  
-  // Determine the shortest rotation direction (handle wrapping at 2pi)
-  let deltaRotation = targetRotY - currentRotY;
-  if (deltaRotation > Math.PI) deltaRotation -= Math.PI * 2;
-  if (deltaRotation < -Math.PI) deltaRotation += Math.PI * 2;
-  
-  // Apply smoothed rotation with a max rate to prevent spinning
-  const maxRotationRate = delta * 3; // Max ~180deg per second
-  const appliedDelta = Math.max(-maxRotationRate, Math.min(maxRotationRate, deltaRotation * rotationSmoothingY));
-  snowman.rotation.y += appliedDelta;
-  
+  // Freestyle spin (#32): while a trick air phase carries yaw (userData.trickSpin,
+  // degrees, + = clockwise from above — physics accumulates it only on the Expert
+  // tier during a manual jump), the spin drives the heading directly and the smoothed
+  // velocity-facing interpolation below pauses (it would fight the spin at its capped
+  // ~180°/s). Incremental application against `trickSpinApplied` so each physics
+  // degree turns the model exactly once; when the phase settles (trickSpin reset to 0
+  // on landing) the tracker clears WITHOUT unwinding — a completed rotation is a
+  // multiple of 180° so the smoothing only has to recover the residual, which is the
+  // ride-away-switch / crossed-up look the landing grade just charged for. Cosmetic
+  // only; with no trick state this whole branch is the unchanged smoothing path.
+  const trickSpin = (snowman.userData.trickSpin as number) || 0;
+  if (isInAir && trickSpin !== 0) {
+    const spinApplied = (snowman.userData.trickSpinApplied as number) || 0;
+    snowman.rotation.y -= (trickSpin - spinApplied) * (Math.PI / 180);
+    snowman.userData.trickSpinApplied = trickSpin;
+  } else {
+    snowman.userData.trickSpinApplied = 0;
+
+    // Apply rotation with smoothing - more stability at higher speeds
+    const rotationSmoothingY = Math.min(1, Math.max(0.05, delta * 2.5));
+
+    // Interpolate toward target rotation - never rotate more than 15 degrees at once
+    const currentRotY = snowman.rotation.y;
+    const targetRotY = snowman.userData.targetRotationY;
+
+    // Determine the shortest rotation direction (handle wrapping at 2pi)
+    let deltaRotation = targetRotY - currentRotY;
+    if (deltaRotation > Math.PI) deltaRotation -= Math.PI * 2;
+    if (deltaRotation < -Math.PI) deltaRotation += Math.PI * 2;
+
+    // Apply smoothed rotation with a max rate to prevent spinning
+    const maxRotationRate = delta * 3; // Max ~180deg per second
+    const appliedDelta = Math.max(-maxRotationRate, Math.min(maxRotationRate, deltaRotation * rotationSmoothingY));
+    snowman.rotation.y += appliedDelta;
+  }
+
   // Normalize rotation to 0-2pi range
   snowman.rotation.y = snowman.rotation.y % (Math.PI * 2);
   if (snowman.rotation.y < 0) snowman.rotation.y += Math.PI * 2;
@@ -121,6 +140,8 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
     if (!isInAir) {
       if (technique === 'tuck') crouchTarget = 0.86;                            // deep aero crouch
       else if (technique === 'snowplow') crouchTarget = 1.0 - 0.10 * plowCharge; // squat into the wedge
+    } else if (snowman.userData.trickGrabbing) {
+      crouchTarget = 0.80; // freestyle grab (#32): fold into the board-grab tuck mid-air
     }
     snowman.scale.y += (crouchTarget - snowman.scale.y) * Math.min(1, delta * 8);
   }
@@ -184,4 +205,17 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   // Apply clamped rotations
   snowman.rotation.x = Math.max(-maxPitchAngle, Math.min(maxPitchAngle, snowman.userData.currentRotX));
   snowman.rotation.z = Math.max(-maxRollAngle, Math.min(maxRollAngle, snowman.userData.currentRotZ));
+
+  // Freestyle flip (#32): the somersault angle (userData.trickFlip, degrees,
+  // + = frontflip/nose-down) rides ON TOP of the clamped jump/terrain tilt, so the
+  // body rotates through the full flip while the underlying smoothed tilt state stays
+  // sane for the landing. A completed flip is a multiple of 360° — visually identical
+  // to no offset — so when the physics settles the trick on touchdown (trickFlip back
+  // to 0) a stomped flip snaps seamlessly and only an under-rotated one visibly
+  // rights itself (the landing the grade just charged for). Zero-trick frames add
+  // nothing and are byte-identical to the clamped assignment above.
+  const trickFlip = (snowman.userData.trickFlip as number) || 0;
+  if (isInAir && trickFlip !== 0) {
+    snowman.rotation.x += trickFlip * (Math.PI / 180);
+  }
 }

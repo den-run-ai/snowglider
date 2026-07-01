@@ -203,6 +203,13 @@ snowplow, parallel, and hop checks. **Auto-jumps fire on the no-input path**, so
   headline) — needs the avalanche proximity/burial seam.
 - **Phase 3 (#32):** spins/grabs/style combos using the existing air control;
   also produces richer per-run telemetry an AI coach (P3) can use.
+  **First pass shipped:** the ◆◆ Expert difficulty tier unlocks in-air spins
+  (Left/Right), front/backflips (Up/Down), and grabs (re-pressed Jump) on a manual
+  jump, named in the air toast and scored into the air score, with an
+  under-rotated landing forced SKETCHY. Double-gated on `ski.freestyleTricks` +
+  `playerJump`, cosmetic rotation only — see [`PHYSICS.md` §4.1](PHYSICS.md).
+  Combo multipliers and *physical* spins (heading-relative velocity, #244) remain
+  with #245.
 
 ## 7. Risks & mitigations
 

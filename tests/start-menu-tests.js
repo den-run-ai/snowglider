@@ -93,10 +93,10 @@ async function main() {
   check('addBuildBadge no longer injects a pill into the start button',
     !/build-badge/.test(btn.innerHTML));
 
-  console.log('\n--- difficulty picker (●Bunny / ■Blue / ◆Black) ---');
+  console.log('\n--- difficulty picker (●Bunny / ■Blue / ◆Black / ◆◆Expert) ---');
   const picker = document.getElementById('difficultyPicker');
   const options = picker.querySelectorAll('.difficulty-option');
-  check('picker builds one option per tier (3)', options.length === 3);
+  check('picker builds one option per tier (4)', options.length === 4);
   check('exposes getSelectedDifficulty', typeof SM.getSelectedDifficulty === 'function');
   check('default selection is blue (the classic game)',
     SM.getSelectedDifficulty() === 'blue');
