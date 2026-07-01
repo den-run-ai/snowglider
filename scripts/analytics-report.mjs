@@ -568,9 +568,10 @@ function buildInsights(users, boardEntries, nowMs, tiers, limits) {
   const provider = {};
   for (const u of users) { const p = classifyProvider(u); provider[p] = (provider[p] || 0) + 1; }
 
-  // Merged per-tier leaderboard, each row judged against its own tier floor, fastest first.
-  const board = boardEntries.map((e) => {
-    const uid = (e.user || '').split('/').pop();
+  // Merged per-tier leaderboard, plausible rows only, fastest first. Skip rows with no
+  // `user` reference — malformed/legacy docs the in-game board also ignores (scores.ts).
+  const board = boardEntries.filter((e) => e.user).map((e) => {
+    const uid = e.user.split('/').pop();
     const u = usersById.get(uid);
     return {
       uid, time: e.time, achievedAt: e.achievedAt, tier: e.tier,
