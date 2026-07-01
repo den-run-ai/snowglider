@@ -58,6 +58,24 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   caller and the `?test=` suites keep the pre-#253 path. New `sfx-tests.js` field-gain
   checks (`npm run test:sfx`); docs: PHYSICS.md §11 consumers, ARCHITECTURE.md §3.
 
+### Fix: tag bot traffic + de-duplicate the finish analytics event
+- **Why.** The analytics reporter's anomaly detector traced a June-2026 GA4 event spike to
+  automated/bot traffic (bursts of `game_reset` / `game_over` / `session_health` with no
+  matching rise in `game_start`) rather than real players, and found that every finish was
+  double-counted by firing **both** `complete_run` (scores.ts) and `complete_game`
+  (result-overlay.ts).
+- **`src/analytics-env.ts` (new).** `isAutomatedClient()` (reads `navigator.webdriver`) and
+  `withTrafficTag(params)` add a stable `is_bot` param to every analytics event so
+  automated traffic can be excluded in GA4 (register `is_bot` as a custom dimension, filter
+  `is_bot = true`) without dropping the data. Wired into the `window.firebaseModules.logEvent`
+  wrapper (`auth.ts`, covers game_start/game_over/game_reset/share_result/feedback_submitted/
+  diagnostics) and the direct `logEvent` calls (`complete_run`, `new_high_score`, `login`).
+- **De-dup.** Removed the redundant `complete_game` emit from `result-overlay.ts`;
+  `complete_run` (fired by `AuthModule.recordScore`, the scoring source of truth) is now the
+  single canonical finish event.
+- **Tests.** New `tests/analytics-env-tests.js` (10 assertions) for the tag helper;
+  `result-overlay-tests.js` updated to assert the overlay no longer double-logs a finish.
+
 ### Feature: in-game feedback / feature-request form (#258)
 - **Gap.** A player who hit a bug or had an idea had no in-game path to report it — they
   had to leave the game and find the repo. Two backends we already run (GitHub for

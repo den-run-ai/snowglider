@@ -226,18 +226,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         }
       }
 
-      // Track successful run in Analytics
-      try {
-        // Only try to use analytics when properly initialized with modular SDK
-        if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-          // Using the direct logEvent function
-          window.firebaseModules.logEvent('complete_game', {
-            time: currentTime
-          });
-        }
-      } catch (e) {
-        console.log("Analytics tracking skipped:", (e as Error).message);
-      }
+      // NOTE: the finish is tracked by the canonical `complete_run` event emitted from
+      // AuthModule.recordScore (scores.ts) above — the source of truth for a scored run.
+      // We deliberately do NOT emit a second `complete_game` here: firing both double-
+      // counted every finish in GA4 (a prime driver of inflated event totals / false
+      // anomaly spikes). See docs/ANALYTICS.md.
     } else if (reason === "You reached the end of the slope!") {
       console.warn("Finish reached with invalid elapsed time; score not recorded:", finishTime);
       bestTimeDisplay.textContent = state.bestTime !== Infinity ?

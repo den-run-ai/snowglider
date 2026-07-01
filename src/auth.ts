@@ -72,6 +72,7 @@ import { getAnalytics, logEvent, type Analytics } from "https://www.gstatic.com/
 import { initializeApp, type FirebaseApp, type FirebaseOptions } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import ScoresModule from "./scores.js";
 import { DIFFICULTIES, localBestTimeKey, type Difficulty } from "./difficulty.js";
+import { withTrafficTag } from "./analytics-env.js";
 
 // Initialize Firebase Auth
 function initializeAuth(firebaseConfig: FirebaseOptions) {
@@ -141,7 +142,7 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
     if (typeof window !== 'undefined' && analytics) {
       window.firebaseModules = Object.assign(window.firebaseModules || {}, {
         logEvent: (name: string, params?: Record<string, unknown>) => {
-          try { if (analytics) logEvent(analytics, name, params); }
+          try { if (analytics) logEvent(analytics, name, withTrafficTag(params)); }
           catch (e) { console.log('logEvent skipped:', (e as Error).message); }
         }
       });
@@ -526,7 +527,7 @@ function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
     .then(result => {
       console.log(`Popup sign-in successful (${meta.method}) for:`, result.user.email);
       if (analytics) {
-        logEvent(analytics, 'login', { method: meta.method });
+        logEvent(analytics, 'login', withTrafficTag({ method: meta.method }));
       }
       if (linkedInPlace) {
         handleSignedInUser(result.user);
@@ -553,7 +554,7 @@ function signInAsGuest(btn: HTMLButtonElement) {
     .then(result => {
       console.log("Guest (anonymous) sign-in successful:", result.user.uid);
       if (analytics) {
-        logEvent(analytics, 'login', { method: 'Anonymous' });
+        logEvent(analytics, 'login', withTrafficTag({ method: 'Anonymous' }));
       }
     })
     .catch(handleSignInError);

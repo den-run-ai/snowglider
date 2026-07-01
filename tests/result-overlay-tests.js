@@ -99,7 +99,9 @@ async function main() {
     check('finish records the score via AuthModule', typeof recorded === 'number');
     check('finish sets a new best time readout', /New Best Time/.test(deps.bestTimeDisplay.textContent));
     check('finish (not signed in) inserts the login prompt', !!document.getElementById('loginPrompt'));
-    check('finish logs a complete_game analytics event', analyticsEvents.some(e => e[0] === 'complete_game'));
+    // The finish event is owned by `complete_run` (scores.ts recordScore); the overlay must
+    // NOT emit a duplicate `complete_game` (double-counted every finish in GA4).
+    check('finish does not double-log a complete_game event', !analyticsEvents.some(e => e[0] === 'complete_game'));
     check('overlay is shown', deps.gameOverOverlay.style.display === 'flex');
   }
 
