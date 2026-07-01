@@ -228,12 +228,17 @@ export function createMainLoop(deps: MainLoopDeps) {
     });
 
     // Sound effects (issue #158): a takeoff whoosh on the ground->air transition, a
-    // touchdown thump scaled by air time, and the continuous wind + ski-edge bed. Reads
-    // the per-frame result/events only — never pos/velocity — so the harness is
-    // unaffected, and every call is a no-op until the SFX context is unlocked.
+    // touchdown thump scaled by air time, and the continuous wind + ski-edge bed. The wind
+    // bed also reads the shared Wind field (#253 PR5) so a gusty slope hisses even at a
+    // standstill. Wind.strength() returns this frame's cached normalized magnitude — the
+    // SAME pre-Wind.update() sample the scarf reads above, so audio and the visible wind
+    // agree on the same gust (Wind.update() advances the clock after these observers; the
+    // one-frame lag is imperceptible and smoothed by the bed's ramp). Reads the per-frame
+    // result/events + wind only — never pos/velocity — so the harness is unaffected, and
+    // every call is a no-op until the SFX context is unlocked.
     if (ev.tookOff) Sfx.jump();
     if (ev.justLanded) Sfx.land(ev.landingForce);
-    Sfx.updateSkiing(result.currentSpeed, result.technique, result.isInAir);
+    Sfx.updateSkiing(result.currentSpeed, result.technique, result.isInAir, Wind.strength());
   }
 
   // --- Update Snowman: ONE physics step + its observers (legacy / test seam) -------
