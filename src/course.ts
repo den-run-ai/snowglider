@@ -538,7 +538,8 @@ export const CourseModule = (function () {
         // ghost skis buried underground — physically impossible to follow. Clamp the
         // render height to the current surface so the ghost always rides on top,
         // while `max` preserves any real jump arc recorded above the terrain.
-        const surfaceY = getTerrainHeight ? getTerrainHeight(gp.x, gp.z) : gp.y;
+        // A live ghost implies init() ran, so getTerrainHeight is always set here.
+        const surfaceY = getTerrainHeight!(gp.x, gp.z);
         ghost.position.set(gp.x, Math.max(gp.y, surfaceY), gp.z);
         if (typeof gp.rot === 'number') ghost.rotation.y = gp.rot;
       }
