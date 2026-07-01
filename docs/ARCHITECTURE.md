@@ -415,7 +415,10 @@ fallbacks** — they are what keep the game runnable without a Firebase project.
 - **Node suites** (`tests/*-tests.js`) import the physics/terrain `.ts` modules
   directly (transpiled for Node) and run headless. The **verification harness**
   (`tests/verification/`) compares live physics against a frozen baseline and
-  smoke-tests the DOM modules.
+  smoke-tests the DOM modules. `npm test` aggregates them via
+  [`tests/run-node-suite.js`](../tests/run-node-suite.js), an auto-discovering runner
+  (one child `node` process per suite) that replaced the old hand-maintained `&&`
+  chain — a new `tests/*-tests.js` file is picked up with no `package.json` edit.
 - **Browser suites** load inside the real game via `?test=…`, served through Vite
   so the `.ts` modules resolve, and are appended by the loader after the bundle
   (`main.ts`).
