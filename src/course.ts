@@ -30,6 +30,7 @@ import { FINISH_Z } from './snowman/collision.js'; // single source of truth for
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
 import { getDifficultyConfig, DEFAULT_DIFFICULTY, type Difficulty } from './difficulty.js';
+import { activeLaneX } from './course-line.js'; // gates sit on the run's centerline (0 for straight tiers)
 
 /** Terrain sampler injected via {@link CourseModule.init}. */
 export type TerrainHeightFn = (x: number, z: number) => number;
@@ -235,7 +236,10 @@ export const CourseModule = (function () {
   // ---------------------------------------------------------------------------
   // Gate / finish meshes
   // ---------------------------------------------------------------------------
-  function makeGate(zPos: number, colorHex: number, label: string, isFinish: boolean): THREE.Group {
+  // `laneOffset` shifts the whole gate laterally onto the run's centerline at this z
+  // (0 for straight tiers ⇒ the gate is built exactly as before). The terrain heights
+  // are sampled at the shifted pole positions so the poles still meet the ground.
+  function makeGate(zPos: number, colorHex: number, label: string, isFinish: boolean, laneOffset = 0): THREE.Group {
     const sampleHeight = getTerrainHeight;
     if (!sampleHeight) throw new Error('CourseModule.makeGate called before init()');
     const group = new THREE.Group();
@@ -244,7 +248,8 @@ export const CourseModule = (function () {
     const poleHeight = isFinish ? 9 : 6;
     const poleRadius = isFinish ? 0.35 : 0.25;
 
-    [-halfW, halfW].forEach((xOff) => {
+    [-halfW, halfW].forEach((side) => {
+      const xOff = laneOffset + side;
       const groundY = sampleHeight(xOff, zPos);
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 10),
@@ -254,24 +259,24 @@ export const CourseModule = (function () {
       pole.castShadow = true;
       group.add(pole);
 
-      // Small flag near the top of each pole
+      // Small flag near the top of each pole, nudged toward the gate centre.
       const flag = new THREE.Mesh(
         new THREE.PlaneGeometry(1.8, 1.1),
         new THREE.MeshStandardMaterial({
           color: colorHex, side: THREE.DoubleSide, roughness: 0.8
         })
       );
-      flag.position.set(xOff + (xOff < 0 ? 1.0 : -1.0), groundY + poleHeight - 0.9, zPos);
+      flag.position.set(xOff + (side < 0 ? 1.0 : -1.0), groundY + poleHeight - 0.9, zPos);
       group.add(flag);
     });
 
     // Banner across the top spanning the gate
-    const midY = (sampleHeight(-halfW, zPos) + sampleHeight(halfW, zPos)) / 2;
+    const midY = (sampleHeight(laneOffset - halfW, zPos) + sampleHeight(laneOffset + halfW, zPos)) / 2;
     const banner = new THREE.Mesh(
       new THREE.BoxGeometry(halfW * 2, isFinish ? 1.6 : 1.0, 0.2),
       new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.7 })
     );
-    banner.position.set(0, midY + poleHeight - 0.4, zPos);
+    banner.position.set(laneOffset, midY + poleHeight - 0.4, zPos);
     banner.castShadow = true;
     group.add(banner);
 
@@ -293,7 +298,7 @@ export const CourseModule = (function () {
         new THREE.PlaneGeometry(halfW * 2 * 0.9, (isFinish ? 1.6 : 1.0) * 0.9),
         textMat
       );
-      textPlane.position.set(0, midY + poleHeight - 0.4, zPos + 0.12);
+      textPlane.position.set(laneOffset, midY + poleHeight - 0.4, zPos + 0.12);
       group.add(textPlane);
     }
 
@@ -306,12 +311,14 @@ export const CourseModule = (function () {
     gateGroup = group;
 
     const palette = [0x00b894, 0x0984e3, 0xfdcb6e]; // green, blue, amber for CPs
+    // Gates sit ON the run's centerline: at the line's x for this z, which alternates
+    // left/right with the winding corridor (a turn rhythm). Straight tiers ⇒ x=0.
     CHECKPOINT_Z.forEach((z, i) => {
       // Single source of truth for the label so the 3D banner and the HUD/result
       // table never drift apart (was "CHECKPOINT n" here vs "CP n" in the HUD).
-      group.add(makeGate(z, palette[i % palette.length]!, splitPoints[i]!.label, false));
+      group.add(makeGate(z, palette[i % palette.length]!, splitPoints[i]!.label, false, activeLaneX(z)));
     });
-    group.add(makeGate(FINISH_Z, 0xffd700, 'FINISH', true));
+    group.add(makeGate(FINISH_Z, 0xffd700, 'FINISH', true, activeLaneX(FINISH_Z)));
 
     scene.add(group);
   }

@@ -16,6 +16,10 @@
 import * as THREE from 'three';
 import { getTerrainHeight as sampleTerrainHeight, getTerrainGradient as sampleTerrainGradient } from './terrain.js';
 import { forestDensityField } from './noise.js';
+// The run's centerline: the clear corridor + density zones follow it (Black). Returns
+// exactly 0 for straight tiers, so `Math.abs(x - lane)` collapses to today's `Math.abs(x)`
+// and the placement (and its Math.random() sequence) stays byte-identical for Bunny/Blue.
+import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 
 /** A placed tree's world position and size; addTrees returns these for collision. */
 export interface TreePosition {
@@ -523,6 +527,26 @@ function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[
   return built;
 }
 
+// Half-width (world units) of the corridor's clear lane for tree placement — the same strip
+// the grid check keeps clear, and wider than the 2.5u tree collision radius so the on-line
+// route stays fully passable. Measured PERPENDICULAR to the line (see treeInCorridorLane).
+const TREE_CORRIDOR_CLEAR = 3;
+
+/** Is a tree at (x, z) inside the winding corridor's clear lane — i.e. within TREE_CORRIDOR_CLEAR
+ *  of the line, measured PERPENDICULAR to the curve? On a steep turn the line runs diagonally, so
+ *  a fixed horizontal band is thinner than it looks perpendicular to it: a tree `d` units to the
+ *  side of the lane is only `d · |tangent.z|` from the actual path (`tangent.z` = 1/√(1+slope²),
+ *  the line's -z component). Culling on that perpendicular distance keeps the on-line route clear
+ *  even on sharp turns, where the naive horizontal `|x-lane|<3` left trees ~1.6u from the path —
+ *  inside the 2.5u collision radius. Only ever true when a corridor line is active (Black); straight
+ *  tiers have no line ⇒ always false ⇒ addTrees culls nothing and their layout + Math.random()
+ *  sequence stay byte-identical. Pure + exported for the corridor-obstacles test. */
+function treeInCorridorLane(x: number, z: number): boolean {
+  const line = getActiveCourseLine();
+  if (line === null) return false;
+  return Math.abs(x - line.laneX(z)) * Math.abs(line.tangent(z).z) < TREE_CORRIDOR_CLEAR;
+}
+
 // Add trees to make the scene more interesting
 function addTrees(scene: THREE.Scene): TreePosition[] {
   // Remove + dispose any previously-built instanced forest in THIS scene, to prevent
@@ -549,19 +573,23 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   
   // Add trees across the mountain - extended for longer run
   for(let z = -180; z < 80; z += 10) {
+    // Lateral distance is measured from the run's centerline at this z (the winding
+    // corridor for Black), so the clear lane + the density zones follow the line.
+    // For straight tiers lane === 0, so every `x - lane` below is exactly `x`.
+    const lane = activeLaneX(z);
     for(let x = -100; x < 100; x += 10) {
       // Special handling for center area (former ski path)
       // Keep very center (±3 units) clear for minimal navigation while adding more trees elsewhere
-      if(Math.abs(x) < 3) continue;
-      
+      if(Math.abs(x - lane) < 3) continue;
+
       // For the area that was previously the ski path (between 3-18 units from center),
       // add trees with increasing density from center
       // - Inner zone (3-8 units): Medium density (50% chance to skip)
       // - Middle zone (8-13 units): Higher density (30% chance to skip)
       // - Outer zone (13-18 units): Full density (10% chance to skip)
-      if(Math.abs(x) >= 3 && Math.abs(x) < 8 && Math.random() < 0.5) continue;
-      if(Math.abs(x) >= 8 && Math.abs(x) < 13 && Math.random() < 0.3) continue;
-      if(Math.abs(x) >= 13 && Math.abs(x) < 18 && Math.random() < 0.1) continue;
+      if(Math.abs(x - lane) >= 3 && Math.abs(x - lane) < 8 && Math.random() < 0.5) continue;
+      if(Math.abs(x - lane) >= 8 && Math.abs(x - lane) < 13 && Math.random() < 0.3) continue;
+      if(Math.abs(x - lane) >= 13 && Math.abs(x - lane) < 18 && Math.random() < 0.1) continue;
       
       // Skip positions that would be too far from the actual terrain plane
       if (Math.abs(x) > 150 || Math.abs(z) > 200) continue;
@@ -569,17 +597,25 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       // Random offset with more natural clustering
       const xPos = x + (Math.random() * 5 - 2.5);
       const zPos = z + (Math.random() * 5 - 2.5);
-      
+
+      // For a winding corridor (Black), drop a tree the ±2.5 jitter pushed onto the on-line
+      // route: the grid check at 3 units + jitter can land ~0.5u from the line, well inside the
+      // 2.5u tree collision radius, making the intended clear lane randomly crashable. Re-checked
+      // at the FINAL (jittered) x/z since the line's lane shifts with z. No-op for straight tiers
+      // (no line ⇒ same draw sequence); the cluster branch below already re-checks its own final
+      // position.
+      if (treeInCorridorLane(xPos, zPos)) continue;
+
       // Only place trees on suitable slopes (not too steep)
       const y = getTerrainHeight(xPos, zPos);
       const gradient = getTerrainGradient(xPos, zPos);
       const steepness = Math.sqrt(gradient.x*gradient.x + gradient.z*gradient.z);
       
       // Different tree density based on location and size variation by zone
-      // Define zones from center outward
-      const innerZone = Math.abs(x) >= 3 && Math.abs(x) < 8;
-      const middleZone = Math.abs(x) >= 8 && Math.abs(x) < 13;
-      const outerZone = Math.abs(x) >= 13 && Math.abs(x) < 18;
+      // Define zones from the centerline outward
+      const innerZone = Math.abs(x - lane) >= 3 && Math.abs(x - lane) < 8;
+      const middleZone = Math.abs(x - lane) >= 8 && Math.abs(x - lane) < 13;
+      const outerZone = Math.abs(x - lane) >= 13 && Math.abs(x - lane) < 18;
       const centerArea = innerZone || middleZone || outerZone;
       
       // Adjust placement chance based on location, then bias it into the shared
@@ -606,15 +642,20 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
           const clusterX = xPos + (Math.random() * 4 - 2);
           const clusterZ = zPos + (Math.random() * 4 - 2);
           
-          // For clustered trees, use the same criteria but add even more trees in center area
-          // Keep only the very center (±3 units) clear for minimal navigation
-          if(Math.abs(clusterX) >= 3) {
+          // For clustered trees, use the same criteria but add even more trees in center area.
+          // Keep the on-line lane clear: the horizontal `>= 3` preserves the straight-tier center
+          // strip byte-for-byte (laneC ≡ 0, treeInCorridorLane ≡ false), while the perpendicular
+          // treeInCorridorLane drops a cluster that lands within the clear lane on a steep Black
+          // turn (where >= 3 horizontal can still be ~1.5u perpendicular — inside the collision
+          // radius). For a live line `!treeInCorridorLane` already implies `>= 3` horizontal.
+          const laneC = activeLaneX(clusterZ);
+          if(Math.abs(clusterX - laneC) >= 3 && !treeInCorridorLane(clusterX, clusterZ)) {
             const clusterY = getTerrainHeight(clusterX, clusterZ);
-            
+
             // Determine which zone the cluster tree falls in
-            const clusterInnerZone = Math.abs(clusterX) >= 3 && Math.abs(clusterX) < 8;
-            const clusterMiddleZone = Math.abs(clusterX) >= 8 && Math.abs(clusterX) < 13;
-            const clusterOuterZone = Math.abs(clusterX) >= 13 && Math.abs(clusterX) < 18;
+            const clusterInnerZone = Math.abs(clusterX - laneC) >= 3 && Math.abs(clusterX - laneC) < 8;
+            const clusterMiddleZone = Math.abs(clusterX - laneC) >= 8 && Math.abs(clusterX - laneC) < 13;
+            const clusterOuterZone = Math.abs(clusterX - laneC) >= 13 && Math.abs(clusterX - laneC) < 18;
             
             // Adjust size based on zone for clustered trees too
             let clusterSizeVariation = sizeVariation; // Default to parent tree size
@@ -649,9 +690,15 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       
       // Range between -180 and 80 for z
       const z = -180 + Math.random() * 260;
-      const y = getTerrainHeight(x, z);
-      
-      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
+      // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
+      const xPos = x + activeLaneX(z);
+      // Drop it if the offset landed inside the on-line clear lane (measured perpendicular to the
+      // curve): on steep Black turns the inner band can otherwise sit within the tree collision
+      // radius of the path. No-op for straight tiers (no line) ⇒ byte-identical placement.
+      if (treeInCorridorLane(xPos, z)) continue;
+      const y = getTerrainHeight(xPos, z);
+
+      treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});
     }
     else if (zoneChoice < 0.5) {
       // 30% in middle zone (8-13 units from center) - small trees
@@ -661,9 +708,15 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       
       // Range between -180 and 80 for z
       const z = -180 + Math.random() * 260;
-      const y = getTerrainHeight(x, z);
-      
-      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
+      // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
+      const xPos = x + activeLaneX(z);
+      // Drop it if the offset landed inside the on-line clear lane (measured perpendicular to the
+      // curve): on steep Black turns the inner band can otherwise sit within the tree collision
+      // radius of the path. No-op for straight tiers (no line) ⇒ byte-identical placement.
+      if (treeInCorridorLane(xPos, z)) continue;
+      const y = getTerrainHeight(xPos, z);
+
+      treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});
     }
     else {
       // 50% in outer zone (13-18 units from center) - medium trees
@@ -673,9 +726,15 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       
       // Range between -180 and 80 for z
       const z = -180 + Math.random() * 260;
-      const y = getTerrainHeight(x, z);
-      
-      treePositions.push({x: x, y: y, z: z, scale: sizeVar});
+      // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
+      const xPos = x + activeLaneX(z);
+      // Drop it if the offset landed inside the on-line clear lane (measured perpendicular to the
+      // curve): on steep Black turns the inner band can otherwise sit within the tree collision
+      // radius of the path. No-op for straight tiers (no line) ⇒ byte-identical placement.
+      if (treeInCorridorLane(xPos, z)) continue;
+      const y = getTerrainHeight(xPos, z);
+
+      treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});
     }
   }
   
@@ -760,7 +819,8 @@ export const Trees = {
   addTrees,
   getTerrainHeight,
   getTerrainGradient,
-  resetTreePools
+  resetTreePools,
+  treeInCorridorLane
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).
