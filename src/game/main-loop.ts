@@ -32,7 +32,7 @@ import { Diag } from '../diagnostics.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { getDifficultyConfig } from '../difficulty.js';
-import { updateStatsHud, updateTimerDisplay } from '../ui/hud.js';
+import { updateStatsHud, updateTimerDisplay, updateLevelHud } from '../ui/hud.js';
 import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
 import { AVALANCHE_TRIGGER_DISTANCE, type SceneContext } from './scene-setup.js';
 
@@ -184,6 +184,9 @@ export function createMainLoop(deps: MainLoopDeps) {
     const grad = Snow.getTerrainGradient(pos.x, pos.z);
     const slopeRatio = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
     updateStatsHud(result, pos, player.isInAir, slopeRatio);
+    // Keep the selected-tier badge in sync with the run's live difficulty (cheap:
+    // only touches the DOM when the tier actually changes).
+    updateLevelHud(state.difficulty);
 
     // Camera shake on a meaningful landing (scales with time spent aloft).
     if (ev.justLanded && ev.landingForce > 0.25 && EffectsModule) {

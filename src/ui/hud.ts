@@ -6,6 +6,7 @@
 import type { PlayerPos, UpdateResult } from '../snowman.js';
 import { setupCollapsiblePanel } from './collapsible-panel.js';
 import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
+import { getDifficultyConfig, type Difficulty } from '../difficulty.js';
 
 // --- Real-world units for the Game Stats readout ---
 // The simulation runs in metric world units where 1 unit ≈ 1 metre (the same
@@ -45,6 +46,19 @@ const SLOPE_EDGES = [SLOPE_MODERATE, SLOPE_STEEP]; // green|blue edge, blue|blac
 let smoothedSlope: number | null = null;
 let slopeTierIdx = 0;
 
+// Colours for the selected-tier badge in the Game Stats panel, matching the
+// ski-trail language the Slope readout already uses (● green / ■ blue / ◆ black).
+// This is the *chosen* difficulty for the run — distinct from the Slope row, which
+// reports the pitch under the player at this instant.
+const DIFFICULTY_COLORS: Record<Difficulty, string> = {
+  bunny: '#4CAF50', // green
+  blue: '#4FC3F7',  // blue
+  black: '#FFFFFF', // white: a true-black glyph is invisible on the dark panel
+};
+// Only repaint the level badge when the tier actually changes (it's read every
+// render frame from the live run state). `null` forces a repaint on the next call.
+let lastLevelTier: Difficulty | null = null;
+
 // Format a run time for the Game Stats panel. One decimal is plenty of
 // precision for the live readout, and keeps the values consistent wherever the
 // panel's time elements are written.
@@ -57,6 +71,8 @@ export function initializeGameStats(): void {
   // Re-seed the slope EMA + tier so a new run doesn't drift in from the last run.
   smoothedSlope = null;
   slopeTierIdx = 0;
+  // Force the level badge to repaint on the next frame of the new run.
+  lastLevelTier = null;
   // Game stats panel collapse/swipe behavior (shared with the Controls panel).
   setupCollapsiblePanel({
     name: 'game stats',
@@ -78,6 +94,20 @@ export function initializeControlsToggle(): void {
     resetListeners: true,
     autoCollapseOnSmallScreens: true,
   });
+}
+
+// Show which difficulty tier the current run is set to (● Bunny / ■ Blue / ◆ Black),
+// so the selected level stays legible during play — not only on the start/finish
+// screens. Reads the run's live tier every frame but only touches the DOM when the
+// tier changes (a replay can switch tiers via the finish-screen picker with no reload).
+export function updateLevelHud(difficulty: Difficulty): void {
+  if (difficulty === lastLevelTier) return;
+  const el = document.getElementById('levelValue');
+  if (!el) return;
+  const cfg = getDifficultyConfig(difficulty);
+  el.textContent = cfg.label; // e.g. "● Bunny", "■ Blue", "◆ Black"
+  el.style.color = DIFFICULTY_COLORS[difficulty] ?? '#FFFFFF';
+  lastLevelTier = difficulty;
 }
 
 // Per-frame stats readout: color-coded speed, altitude, terrain slope, and the
