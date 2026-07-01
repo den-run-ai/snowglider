@@ -35,8 +35,8 @@ ui-debug.log
 
 # Firebase service-account / admin SDK keys — live secrets, NEVER commit.
 # Rotate immediately if one is ever pushed. These MUST cover every name
-# scripts/analytics-report.mjs auto-discovers (*-firebase-adminsdk-*.json and
-# serviceAccount*.json, case-insensitive) so a usable key can't sit un-ignored.
+# scripts/analytics-report.mjs auto-discovers (its regexes are narrowed to
+# exactly these patterns) so a usable key can't sit un-ignored.
 *-firebase-adminsdk-*.json
 serviceAccount*.json
 serviceaccount*.json

@@ -85,8 +85,11 @@ function findServiceAccount() {
   for (const dir of dirs) {
     let names;
     try { names = readdirSync(dir); } catch { continue; }
+    // Only accept names .gitignore is guaranteed to ignore (*-firebase-adminsdk-*.json,
+    // serviceAccount*/serviceaccount*.json, *-serviceAccount*/*-serviceaccount*.json) so a
+    // discoverable key can never sit in the checkout as an unignored, committable file.
     const hit = names.find((n) => /-firebase-adminsdk-.*\.json$/.test(n)) ||
-                names.find((n) => /serviceAccount.*\.json$/i.test(n));
+                names.find((n) => /(?:^|-)service[Aa]ccount.*\.json$/.test(n));
     if (hit) return join(dir, hit);
   }
   die('no service-account key found. Pass --sa <path>, set $SNOWGLIDER_SA, or place a\n' +
