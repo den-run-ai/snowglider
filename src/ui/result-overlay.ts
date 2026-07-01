@@ -226,17 +226,22 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         }
       }
 
-      // Track successful run in Analytics
-      try {
-        // Only try to use analytics when properly initialized with modular SDK
-        if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-          // Using the direct logEvent function
-          window.firebaseModules.logEvent('complete_game', {
-            time: currentTime
-          });
+      // Track the finish with the canonical `complete_run` event. A ranked, recordable
+      // finish already emits it from AuthModule.recordScore (scores.ts, the scoring source
+      // of truth) — emitting again here would double-count in GA4. But recordScore never
+      // runs for an unranked tier (or when the leaderboard API is absent), so emit it here
+      // for exactly those finishes; otherwise unranked runs vanish from analytics. (This
+      // replaces the old `complete_game`, which fired for EVERY finish and thus double-
+      // counted the ranked ones — a driver of inflated totals / false spikes. See
+      // docs/ANALYTICS.md.)
+      if (!(canRecordScore && tierRanked)) {
+        try {
+          if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
+            window.firebaseModules.logEvent('complete_run', { time: currentTime });
+          }
+        } catch (e) {
+          console.log("Analytics tracking skipped:", (e as Error).message);
         }
-      } catch (e) {
-        console.log("Analytics tracking skipped:", (e as Error).message);
       }
     } else if (reason === "You reached the end of the slope!") {
       console.warn("Finish reached with invalid elapsed time; score not recorded:", finishTime);

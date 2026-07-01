@@ -99,7 +99,11 @@ async function main() {
     check('finish records the score via AuthModule', typeof recorded === 'number');
     check('finish sets a new best time readout', /New Best Time/.test(deps.bestTimeDisplay.textContent));
     check('finish (not signed in) inserts the login prompt', !!document.getElementById('loginPrompt'));
-    check('finish logs a complete_game analytics event', analyticsEvents.some(e => e[0] === 'complete_game'));
+    // Ranked finish: recordScore (mocked here) owns the canonical `complete_run` event, so
+    // the overlay must emit NO finish event itself — no duplicate `complete_run` and no
+    // legacy `complete_game` (which used to double-count every finish in GA4).
+    check('ranked finish emits no finish event from the overlay (recordScore owns complete_run)',
+      !analyticsEvents.some(e => e[0] === 'complete_run' || e[0] === 'complete_game'));
     check('overlay is shown', deps.gameOverOverlay.style.display === 'flex');
   }
 
@@ -107,11 +111,16 @@ async function main() {
   {
     local.clear();
     recorded = null;
+    analyticsEvents.length = 0;
     window.AuthModule.getCurrentUser = () => null;
     // ~30s finish — a realistic, plausible Bunny time (Bunny plays slower; its floor is 28s).
     const deps = makeDeps({ bestTime: Infinity, startTime: performance.now() - 30000, getDifficulty: () => 'bunny' });
     createShowGameOver(deps)(FINISH);
     check('unranked tier does NOT submit a score via AuthModule', recorded === null);
+    // recordScore never runs for an unranked tier, so the overlay must emit the canonical
+    // finish event itself — otherwise unranked runs are dropped from analytics entirely.
+    check('unranked finish still emits the canonical complete_run event',
+      analyticsEvents.some(e => e[0] === 'complete_run'));
     check('unranked tier still saves the per-tier local best',
       typeof local.getItem('snowgliderBestTime_bunny') === 'string'
       && local.getItem('snowgliderBestTime') === null);

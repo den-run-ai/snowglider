@@ -44,6 +44,7 @@ import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-au
 // floor was measured empirically (issue #229, PR A); firestore.rules duplicates the same
 // literals because rules can't import JS, and a drift test keeps them in lockstep.
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from './score-limits.js';
+import { withTrafficTag } from './analytics-env.js';
 // Per-tier scoring storage names. Blue maps to the original un-suffixed names, so the
 // default-tier paths/fields/keys (and every existing caller/test that passes no tier)
 // are byte-for-byte unchanged.
@@ -579,7 +580,7 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
 
     // Track completion in Analytics (if available)
     if (analytics) {
-      logEvent(analytics, 'complete_run', { time: time });
+      logEvent(analytics, 'complete_run', withTrafficTag({ time: time }));
     }
 
     // Read the signed-in user at record time so auth UI and scoring stay in sync.
@@ -603,7 +604,7 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
 
       // Track new best time in Analytics (if available)
       if (isNewLocalBest && analytics) {
-        logEvent(analytics, 'new_high_score', { time: time });
+        logEvent(analytics, 'new_high_score', withTrafficTag({ time: time }));
       }
     } else {
       // Log reasons why Firestore update was skipped

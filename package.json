@@ -20,6 +20,7 @@
     "test:auth": "node --import ./tests/loaders/register-firebase-mock.mjs tests/auth-tests.js && node tests/firebase-bootstrap-tests.js",
     "test:local-auth": "node tests/local-auth-tests.js",
     "test:scores": "node --import ./tests/loaders/register-firebase-mock.mjs tests/scores-tests.js",
+    "test:analytics-env": "node --import ./tests/loaders/register-ts-resolve.mjs tests/analytics-env-tests.js",
     "test:limits-sync": "node --import ./tests/loaders/register-ts-resolve.mjs tests/score-limits-sync-tests.js",
     "test:start-menu": "node --import ./tests/loaders/register-ts-resolve.mjs tests/start-menu-tests.js",
     "test:difficulty-picker": "node --import ./tests/loaders/register-ts-resolve.mjs tests/difficulty-picker-tests.js",
