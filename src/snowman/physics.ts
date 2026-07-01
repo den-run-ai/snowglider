@@ -29,6 +29,77 @@ export const JUMP_BOOST_CAP = 0.06;        // ...hard-capped so jump-spam can't 
 const AIR_SCORE_PER_SEC = 100;      // air-score points per second aloft
 const AIR_SCORE_CLEAN_BONUS = 50;   // extra points for sticking a CLEAN landing
 
+// --- Freestyle tricks (#32, Expert tier only) --------------------------------
+// The in-air trick vocabulary for a *manual* jump on a tier whose ski tuning sets
+// `freestyleTricks` (the ◆◆ Expert tier): steering Left/Right spins (yaw), Up/Down
+// flips (front/back somersault), and re-pressing Jump mid-air holds a grab. All of
+// it is double-gated — playerJump provenance AND tuning.freestyleTricks — so every
+// other tier, and every auto-jump / hop / coasting air phase, stays byte-identical
+// to today (the §5 no-input invariant). Tricks never touch pos/velocity in the air
+// (the existing airControl nudge is unchanged; the rotation itself is cosmetic and
+// applied in pose.ts from the userData accumulators). Their one physics consequence
+// is at touchdown: landing mid-rotation (under-rotated) spoils the landing — forced
+// SKETCHY, today's scrub — no matter how well the skis are aimed, which is the
+// freestyle risk/reward. Constants are exported for the headless trick tests.
+export const SPIN_RATE_DEG = 360;        // deg/s of yaw while steering in the air
+export const FLIP_RATE_DEG = 300;        // deg/s of pitch while holding Up/Down
+export const SPIN_SCORE_PER_180 = 40;    // air-score points per completed half spin
+export const FLIP_SCORE_PER_360 = 120;   // air-score points per completed somersault
+export const GRAB_SCORE_PER_SEC = 60;    // air-score points per second of held grab
+export const GRAB_MIN_HOLD = 0.25;       // s a grab must be held before it counts
+export const SPIN_LAND_TOL_DEG = 60;     // residual yaw to the nearest 180° that still rides away
+export const FLIP_LAND_TOL_DEG = 75;     // residual pitch to the nearest 360° that still rides away
+const TRICK_UNDER_ROTATED_FACTOR = 0.5;  // an under-rotated trick pays half score
+
+/** The settled outcome of one air phase's tricks, computed at touchdown. */
+export interface TrickGrade {
+  /** Toast label, e.g. "360", "BACKFLIP + GRAB", "540 + DOUBLE FRONTFLIP"; null when
+   *  no trick component completed (a plain jump keeps its plain toast). */
+  name: string | null;
+  /** Trick points added to this landing's airScoreDelta (already halved if under-rotated). */
+  score: number;
+  /** Landed mid-rotation: the landing is spoiled (forced SKETCHY) regardless of aim. */
+  underRotated: boolean;
+}
+
+/** Residual angle (deg) from `deg` to the nearest multiple of `period`. */
+function residualToNearest(deg: number, period: number): number {
+  const a = Math.abs(deg) % period;
+  return Math.min(a, period - a);
+}
+
+/**
+ * Grade one air phase's accumulated tricks. Pure — exported so the freestyle tests
+ * pin the naming/scoring/under-rotation table without stepping the kernel. A spin is
+ * credited per completed 180° (landing switch is a trick); a flip only per completed
+ * 360° (anything else is not feet-down); a grab needs GRAB_MIN_HOLD of held Jump.
+ * Credit counts increments actually reached (within the landing tolerance — a 350°
+ * spin credits the 360) but never rounds a half-finished rotation up: landing
+ * sideways at 90° credits nothing AND flags under-rotated.
+ */
+export function gradeFreestyleTrick(spinDeg: number, flipDeg: number, grabTime: number): TrickGrade {
+  const spinHalves = Math.floor((Math.abs(spinDeg) + SPIN_LAND_TOL_DEG) / 180);
+  const flips = Math.floor((Math.abs(flipDeg) + FLIP_LAND_TOL_DEG) / 360);
+  const underRotated = residualToNearest(spinDeg, 180) > SPIN_LAND_TOL_DEG
+    || residualToNearest(flipDeg, 360) > FLIP_LAND_TOL_DEG;
+  const grabbed = grabTime >= GRAB_MIN_HOLD;
+
+  const parts: string[] = [];
+  if (spinHalves >= 1) parts.push(String(spinHalves * 180));
+  if (flips >= 1) {
+    const flipName = flipDeg > 0 ? 'FRONTFLIP' : 'BACKFLIP';
+    parts.push(flips === 1 ? flipName : flips === 2 ? `DOUBLE ${flipName}` : `${flips}x ${flipName}`);
+  }
+  if (grabbed) parts.push('GRAB');
+
+  let score = spinHalves * SPIN_SCORE_PER_180
+    + flips * FLIP_SCORE_PER_360
+    + (grabbed ? grabTime * GRAB_SCORE_PER_SEC : 0);
+  if (underRotated) score *= TRICK_UNDER_ROTATED_FACTOR;
+
+  return { name: parts.length ? parts.join(' + ') : null, score: Math.round(score), underRotated };
+}
+
 export interface SnowmanPhysicsStepOutput {
   terrainHeightAtPosition: number;
   result: UpdateResult;
@@ -65,6 +136,16 @@ export function resetSnowman(
     // Clear jump provenance so a new run never inherits a stale "this air phase was
     // a deliberate jump" flag from the previous run (meaningful jumps #47, §3.1).
     snowman.userData.playerJump = false;
+    // Clear the freestyle trick slate (#32) so a new run never inherits a mid-air
+    // rotation or an armed grab from the previous run. trickCameraYaw is the pose
+    // layer's camera-heading correction for the spin (incl. its post-landing
+    // ease-out), cleared with the rest so a fresh run's camera starts uncorrected.
+    snowman.userData.trickSpin = 0;
+    snowman.userData.trickFlip = 0;
+    snowman.userData.trickGrabTime = 0;
+    snowman.userData.trickGrabArmed = false;
+    snowman.userData.trickGrabbing = false;
+    snowman.userData.trickCameraYaw = 0;
   }
   
   // Force all rotations to be explicit - avoid any chance of NaN or unexpected values
@@ -137,6 +218,8 @@ export function stepSnowmanPhysics(
   // Meaningful jumps (#47): graded only when a *manual* jump lands this frame.
   let landingQuality: LandingQuality | null = null;
   let airScoreDelta = 0;
+  // Freestyle (#32): non-null only when a manual jump lands with a completed trick.
+  let trickName: string | null = null;
   
   // Get current terrain height at position
   const terrainHeightAtPosition = getTerrainHeight(pos.x, pos.z);
@@ -168,26 +251,50 @@ export function stepSnowmanPhysics(
         ? (velocity.x*landDir.x + velocity.z*landDir.z) / landSpeed
         : 1;
 
-      if (alignment > LANDING_CLEAN_ALIGN) {
+      // Freestyle (#32): settle this air phase's tricks. On a non-freestyle tier the
+      // accumulators were never written, so the grade is the zero grade (no name, no
+      // score, not under-rotated) and everything below reduces to the #47 behaviour.
+      const ud = snowman.userData;
+      const trick = gradeFreestyleTrick(
+        (ud && (ud.trickSpin as number)) || 0,
+        (ud && (ud.trickFlip as number)) || 0,
+        (ud && (ud.trickGrabTime as number)) || 0
+      );
+      trickName = trick.name;
+
+      if (alignment > LANDING_CLEAN_ALIGN && !trick.underRotated) {
         // CLEAN: replace the scrub with a small, capped forward impulse along the
         // current heading — a well-timed, well-aimed jump becomes a speed tool (§3.3).
         landingQuality = 'clean';
         const boost = Math.min(JUMP_BOOST_CAP, airTime * JUMP_BOOST_PER_SEC);
         velocity.x *= (1 + boost);
         velocity.z *= (1 + boost);
-      } else if (alignment > LANDING_OK_ALIGN) {
+      } else if (alignment > LANDING_OK_ALIGN && !trick.underRotated) {
         // OK: neither punished nor rewarded — keep your speed, no boost.
         landingQuality = 'ok';
       } else {
-        // SKETCHY: badly crossed up — keep today's landing scrub.
+        // SKETCHY: badly crossed up — or landed mid-rotation on a trick (#32), which
+        // spoils even a perfectly-aimed touchdown — keep today's landing scrub.
         landingQuality = 'sketchy';
         velocity.x *= (1 - landingImpact);
         velocity.z *= (1 - landingImpact);
       }
 
-      // Air score for this jump: time aloft plus a clean-stomp bonus (never negative).
+      // Air score for this jump: time aloft plus a clean-stomp bonus plus any trick
+      // points (0 on non-freestyle tiers; already halved if under-rotated). Never negative.
       airScoreDelta = Math.max(0, Math.round(airTime * AIR_SCORE_PER_SEC
-        + (landingQuality === 'clean' ? AIR_SCORE_CLEAN_BONUS : 0)));
+        + (landingQuality === 'clean' ? AIR_SCORE_CLEAN_BONUS : 0)
+        + trick.score));
+
+      // Consume the trick state with the landing (mirrors the playerJump lifecycle):
+      // the grounded / between-jumps state must never carry a stale rotation.
+      if (ud) {
+        ud.trickSpin = 0;
+        ud.trickFlip = 0;
+        ud.trickGrabTime = 0;
+        ud.trickGrabArmed = false;
+        ud.trickGrabbing = false;
+      }
     } else {
       // Auto-jump (terrain lip) or hop-turn landing: unchanged from today. This is
       // the no-input / coasting path the physics-invariant harness pins, so the
@@ -270,7 +377,17 @@ export function stepSnowmanPhysics(
       jumpCooldown = 0.5; // Prevent jump spam
       // Deliberate straight jump: mark this air phase player-initiated so the landing
       // can grade it and award the clean-landing boost / air score (§3.1).
-      if (snowman.userData) snowman.userData.playerJump = true;
+      if (snowman.userData) {
+        snowman.userData.playerJump = true;
+        // Freestyle (#32): a fresh trick slate for this air phase. The grab is DISARMED
+        // until the (still held) Jump key is released mid-air, so the takeoff press can
+        // never read as a grab. Input-gated (controls.jump), so coasting never runs this.
+        snowman.userData.trickSpin = 0;
+        snowman.userData.trickFlip = 0;
+        snowman.userData.trickGrabTime = 0;
+        snowman.userData.trickGrabArmed = false;
+        snowman.userData.trickGrabbing = false;
+      }
     }
   }
 
@@ -312,7 +429,29 @@ export function stepSnowmanPhysics(
     if (controls.right) {
       velocity.x += tuning.airControl * delta;
     }
-    
+
+    // Freestyle tricks (#32): spin / flip / grab accumulate ONLY in a player-initiated
+    // air phase on a freestyle tier (◆◆ Expert). Left/Right yaw the body (on top of the
+    // unchanged airControl drift above), Up/Down somersault it, and re-pressing Jump —
+    // it must be RELEASED after the takeoff press first — holds a grab. Pure userData
+    // accumulator writes: pos/velocity are never touched here, so the coasting baseline
+    // and every non-freestyle tier stay byte-identical; the rotation itself is applied
+    // cosmetically in pose.ts, and the landing branch settles the consequences.
+    if (tuning.freestyleTricks && snowman.userData && snowman.userData.playerJump) {
+      const ud = snowman.userData;
+      const spinDir = (controls.right ? 1 : 0) - (controls.left ? 1 : 0); // + = clockwise from above
+      if (spinDir !== 0) ud.trickSpin = ((ud.trickSpin as number) || 0) + spinDir * SPIN_RATE_DEG * delta;
+      const flipDir = (controls.up ? 1 : 0) - (controls.down ? 1 : 0);    // + = frontflip
+      if (flipDir !== 0) ud.trickFlip = ((ud.trickFlip as number) || 0) + flipDir * FLIP_RATE_DEG * delta;
+      if (!controls.jump) {
+        ud.trickGrabArmed = true; // takeoff press released — a new press now grabs
+        ud.trickGrabbing = false;
+      } else if (ud.trickGrabArmed) {
+        ud.trickGrabTime = ((ud.trickGrabTime as number) || 0) + delta;
+        ud.trickGrabbing = true;  // pose cue: tuck into the grab while held
+      }
+    }
+
     // Less friction in air (frame-rate-independent; see dragFactor above)
     velocity.x *= dragFactor(0.01);
     velocity.z *= dragFactor(0.01);
@@ -551,7 +690,8 @@ export function stepSnowmanPhysics(
       justLanded,
       landingForce,
       landingQuality,
-      airScoreDelta
+      airScoreDelta,
+      trickName
     }
   };
 }

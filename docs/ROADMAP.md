@@ -97,8 +97,9 @@ The avalanche existed but wasn't well communicated, especially when it came from
 Jump was a listed control that did little for the player; a first reward pass has landed.
 
 - **Shipped (#186):** a first **meaningful-jumps** pass — a *player-initiated* jump (Space, no steer) is now graded on landing as **CLEAN / OK / SKETCHY** from air time and landing alignment, awards a **capped speed boost** on a clean landing, and flashes an **air-score** readout via `CourseModule` (`src/snowman/physics.ts`, `src/course.ts`). Terrain auto-jumps and hop turns are excluded so no-input coasting stays byte-identical; see [`MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md).
-- **Remaining (○):** obstacle/tree clears and avalanche-dodge windows, shortcuts, and style/combo/trick bonuses (freestyle).
-- **Open issues:** jumping should help avoid obstacles and maybe avalanches (**#47** — first pass shipped in #186), freestyle ski tricks (**#32**).
+- **Shipped (freestyle first pass, #32):** the **◆◆ Expert tier** (after Black) unlocks in-air **freestyle tricks** re-using the existing controls during a manual jump — Left/Right spins, Up/Down front/backflips, a re-pressed Jump grabs. Completed tricks are named in the air toast (`✈ AIR 1.2s · 360 + GRAB · CLEAN`) and scored into the air score; landing mid-rotation forces a SKETCHY scrub (the freestyle risk/reward). Rotation is cosmetic (pose-only) and everything is double-gated on `ski.freestyleTricks` + `playerJump`, so all other tiers and the no-input baseline are byte-identical ([`PHYSICS.md` §4.1](PHYSICS.md)).
+- **Remaining (○):** obstacle/tree clears and avalanche-dodge windows, shortcuts, combo multipliers, and *physical* spins (heading-relative velocity, #244).
+- **Open issues:** jumping should help avoid obstacles and maybe avalanches (**#47** — first pass shipped in #186), freestyle ski tricks (**#32** — first pass shipped, Expert tier), round 2 combos/clears (**#245**).
 
 ### 5. Dynamic hazards and a living world — ○ open
 
@@ -343,7 +344,7 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Intro fly-over of the mountain | #51 | ✅ **closed** — cinematic camera fly-over at game start (`src/intro.ts`) |
 | Mobile music-disable button broken *(bug)* | #50 | ✅ **closed** — fixed in #173, then subsumed by the systemic mobile dead-button fix (gameplay touch handler now bails on interactive controls) |
 | Jumping should help avoid obstacles/avalanches | #47 | ◐ first pass in #186 (player-jump landing grade + capped boost + air score); obstacle/avalanche clears open |
-| Freestyle ski tricks | #32 | ○ open |
+| Freestyle ski tricks | #32 | ◐ first pass shipped — Expert-tier spins/flips/grabs; combos + physical spins (#244/#245) remain |
 | Pause/save game state | #39 | ○ open |
 | Social media sharing | #31 | ✅ **closed** — desktop platform menu + Instagram screenshot card (#177), OG-image fix (#193); native share on mobile |
 | Difficulty tiers (● Bunny / ■ Blue / ◆ Black) | #247 | ◐ in progress — config spine + kernel tuning (#236), pickers (#237/#255), per-tier ghosts/splits (#238), per-tier leaderboards (#239), felt per-tier ski feel unranked (#240) all merged; "the line is the difficulty" D3.2 stack (#254/#257/#261/#263) in flight, Level-during-play HUD (#266) merged; ranked flip (D3.3) pending |

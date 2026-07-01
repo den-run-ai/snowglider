@@ -220,11 +220,14 @@ export const CourseModule = (function () {
   // #47 §3.6), surfaced from the main loop through the same HUD flash element +
   // styling the split timing already uses. Keeping the label/colour mapping here
   // (next to the flash element it drives) keeps the loop a thin dispatcher and makes
-  // the presentation unit-testable. showFlash itself stays private.
-  function flashAir(quality: 'clean' | 'ok' | 'sketchy', seconds: number) {
+  // the presentation unit-testable. showFlash itself stays private. `trick` is the
+  // freestyle completed-trick label (#32, Expert tier) — e.g. "360 + GRAB" — folded
+  // into the same toast; null/omitted keeps the plain #47 air toast byte-identical.
+  function flashAir(quality: 'clean' | 'ok' | 'sketchy', seconds: number, trick?: string | null) {
     const label = quality === 'clean' ? 'CLEAN' : quality === 'ok' ? 'OK' : 'SKETCHY';
     const color = quality === 'clean' ? '#55efc4' : quality === 'ok' ? '#74b9ff' : '#ff7675';
-    showFlash(`✈ AIR ${seconds.toFixed(1)}s &middot; ${label}`, color);
+    const trickPart = trick ? `${trick} &middot; ` : '';
+    showFlash(`✈ AIR ${seconds.toFixed(1)}s &middot; ${trickPart}${label}`, color);
   }
 
   // Bank air-score points earned this run (from a graded manual-jump landing in the

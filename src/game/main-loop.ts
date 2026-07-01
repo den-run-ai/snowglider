@@ -60,6 +60,7 @@ interface FrameEvents {
   tookOff: boolean;                    // ground->air edge seen within the frame's substeps
   landingQuality: LandingQuality | null;
   landingForce: number;
+  trickName: string | null;            // freestyle (#32): completed-trick label, Expert only
 }
 
 export interface MainLoopDeps extends
@@ -99,7 +100,7 @@ export function createMainLoop(deps: MainLoopDeps) {
   const interpCur = { x: 0, y: 0, z: 0 };
 
   function newFrameEvents(): FrameEvents {
-    return { justLanded: false, tookOff: false, landingQuality: null, landingForce: 0 };
+    return { justLanded: false, tookOff: false, landingQuality: null, landingForce: 0, trickName: null };
   }
 
   // Reduce one substep's result into the frame's aggregated events (§5). Also advances
@@ -111,6 +112,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       ev.justLanded = true;
       ev.landingForce = result.landingForce;
       ev.landingQuality = result.landingQuality; // null for auto-jumps; non-null only on a manual jump
+      ev.trickName = result.trickName;           // freestyle (#32): null outside an Expert trick landing
     }
     if (result.isInAir && !prevInAir) ev.tookOff = true;
     prevInAir = result.isInAir;
@@ -194,10 +196,11 @@ export function createMainLoop(deps: MainLoopDeps) {
     }
 
     // Meaningful jumps (#47): on a graded *manual*-jump landing, toast the air time +
-    // grade. landingQuality is non-null only for a player-initiated jump, so auto-jumps /
+    // grade — plus the completed trick's name on an Expert freestyle landing (#32).
+    // landingQuality is non-null only for a player-initiated jump, so auto-jumps /
     // hop turns / coasting never toast. (The air score itself is banked inside the step.)
     if (ev.justLanded && ev.landingQuality && CourseModule) {
-      CourseModule.flashAir(ev.landingQuality, ev.landingForce);
+      CourseModule.flashAir(ev.landingQuality, ev.landingForce, ev.trickName);
     }
 
     // Apparent wind for the scarf (#253): the wind a moving snowman feels is
@@ -280,8 +283,30 @@ export function createMainLoop(deps: MainLoopDeps) {
     });
   }
 
+  // Scratch Euler reused when a freestyle spin is riding on the snowman's yaw (#32),
+  // so handing the camera a corrected heading allocates nothing per frame.
+  const cameraRotScratch = new THREE.Euler();
+
   // --- Update Camera: Follow the Snowman ---
   function updateCamera() {
+    // Freestyle (#32): the trick spin is written onto the snowman's root rotation.y
+    // (pose.ts) — the transform the follow camera also derives its orbit angle from,
+    // so left alone the camera would whirl around the rider at the spin rate
+    // (~360°/s) instead of staying behind the line of travel (codex review, PR #275).
+    // pose.ts maintains `userData.trickCameraYaw` (radians): the spun yaw while
+    // airborne, then — after a switch / under-rotated landing — the leftover residual,
+    // eased out in lock-step with the heading recovery so the camera never snaps to
+    // the spun side at touchdown (codex round 2). Adding it back recovers the
+    // trick-free heading for the camera only; the model itself keeps spinning. Zero
+    // on every non-trick frame, so this passes the snowman's own Euler through
+    // untouched outside an Expert spin.
+    const trickCameraYaw = (snowman.userData && (snowman.userData.trickCameraYaw as number)) || 0;
+    if (trickCameraYaw !== 0) {
+      cameraRotScratch.copy(snowman.rotation);
+      cameraRotScratch.y = snowman.rotation.y + trickCameraYaw;
+      cameraManager.update(snowman.position, cameraRotScratch, velocity, Snow.getTerrainHeight);
+      return;
+    }
     // Simply delegate to the camera manager
     cameraManager.update(
       snowman.position,

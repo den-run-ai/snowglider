@@ -22,8 +22,8 @@ import type { CourseLineParams } from './course-line.js';
 // Type-only too: the corridor shape lives next to the terrain seam that reads it.
 import type { TerrainCorridorParams } from './mountains/terrain.js';
 
-/** The three difficulty tiers, keyed by their ski-resort trail rating. */
-export type Difficulty = 'bunny' | 'blue' | 'black';
+/** The four difficulty tiers, keyed by their ski-resort trail rating. */
+export type Difficulty = 'bunny' | 'blue' | 'black' | 'expert';
 
 /**
  * The physics-kernel tuning struct. These are exactly the constants that were
@@ -49,6 +49,11 @@ export interface SnowmanPhysicsTuning {
   plowDecelFull: number;      // full-wedge brake deceleration
   skidScrubMax: number;       // base wash-out scrub for an uncommitted (skidded) turn
   airControl: number;         // side force available while airborne
+  // Freestyle tricks (#32): whether the kernel accepts in-air trick input (spins /
+  // flips / grabs on a manual jump). Expert-only. False on every other tier, so the
+  // BLUE default — the tuning the physics-invariant harness runs with — is
+  // byte-identical to the pre-freestyle kernel even under airborne steering input.
+  freestyleTricks: boolean;
 }
 
 /**
@@ -73,6 +78,7 @@ export const BLUE_PHYSICS_TUNING: SnowmanPhysicsTuning = {
   plowDecelFull: 5.68,
   skidScrubMax: 0.10,
   airControl: 5.0,
+  freestyleTricks: false,
 };
 
 // --- Per-tier ski tuning (playtest starting points; Blue is authoritative-current) ---
@@ -104,6 +110,16 @@ const BLACK_PHYSICS_TUNING: SnowmanPhysicsTuning = {
   tuckAccel: 13,
   skidScrubMax: 0.14,
   airControl: 3.0,
+};
+
+// Expert: Black's handling with the freestyle trick system unlocked (#32). The tier
+// after Hard is not a new physics feel — it is the same unforgiving Black setup plus
+// the in-air trick vocabulary (spin/flip/grab on a manual jump), which adds its own
+// risk: an under-rotated trick spoils the landing. Kernel gating lives behind this
+// single flag, so every other tier's air phase is byte-identical to today.
+const EXPERT_PHYSICS_TUNING: SnowmanPhysicsTuning = {
+  ...BLACK_PHYSICS_TUNING,
+  freestyleTricks: true,
 };
 
 /**
@@ -240,8 +256,26 @@ const BLACK: DifficultyConfig = {
   avalanche: { enabled: true, triggerDistance: 60, boulderCount: 150, slideSpeedBase: 9, slideSpeedJitter: 3 },
 };
 
+// Expert (◆◆ double black): the tier after Hard. Same winding corridor + heavy slide
+// as Black (values copied, own seed so the line is its own course), same ski feel —
+// what changes is the unlocked freestyle trick system (ski.freestyleTricks). Unranked
+// practice tier like Bunny/Black until its floor is measured (D3 follow-up).
+const EXPERT: DifficultyConfig = {
+  id: 'expert',
+  label: '◆◆ Expert',
+  blurb: 'Expert — freestyle: spin, flip & grab in the air.',
+  seed: 1004,
+  ski: EXPERT_PHYSICS_TUNING,
+  ranked: false, // unranked until its floor is measured (D3 follow-up)
+  minScoreTime: 13, // PROVISIONAL — re-measure before ranked (mirrors Black)
+  // Black's serpentine, re-seeded: the same difficulty of line, its own fixed course.
+  line: { curviness: 1, amplitude: 18, controlPoints: 5 },
+  terrain: { channelHalfWidth: 7, wallRamp: 9, wallHeight: 10 },
+  avalanche: { enabled: true, triggerDistance: 60, boulderCount: 150, slideSpeedBase: 9, slideSpeedJitter: 3 },
+};
+
 /** All tiers in display order (easy → hard). */
-export const DIFFICULTIES: readonly DifficultyConfig[] = [BUNNY, BLUE, BLACK];
+export const DIFFICULTIES: readonly DifficultyConfig[] = [BUNNY, BLUE, BLACK, EXPERT];
 
 /** The default tier == the classic game. */
 export const DEFAULT_DIFFICULTY: Difficulty = 'blue';
@@ -253,11 +287,12 @@ const BY_ID: Record<Difficulty, DifficultyConfig> = {
   bunny: BUNNY,
   blue: BLUE,
   black: BLACK,
+  expert: EXPERT,
 };
 
 /** Type guard: is `value` one of the known difficulty ids? */
 export function isDifficulty(value: unknown): value is Difficulty {
-  return value === 'bunny' || value === 'blue' || value === 'black';
+  return value === 'bunny' || value === 'blue' || value === 'black' || value === 'expert';
 }
 
 /** Resolve a tier id to its config, falling back to the default tier. */
@@ -284,6 +319,7 @@ export function leaderboardCollectionName(tier: Difficulty): string {
 export function userBestTimeField(tier: Difficulty): string {
   if (tier === 'bunny') return 'bestTimeBunny';
   if (tier === 'black') return 'bestTimeBlack';
+  if (tier === 'expert') return 'bestTimeExpert';
   return 'bestTime';
 }
 

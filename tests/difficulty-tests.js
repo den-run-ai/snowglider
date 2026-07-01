@@ -92,8 +92,9 @@ function maxTrajDiff(a, b) {
 
   console.log('--- Config spine integrity ---');
   const ids = D.DIFFICULTIES.map((c) => c.id);
-  check('three tiers in easy->hard order (bunny, blue, black)',
-    ids.length === 3 && ids[0] === 'bunny' && ids[1] === 'blue' && ids[2] === 'black');
+  check('four tiers in easy->hard order (bunny, blue, black, expert)',
+    ids.length === 4 && ids[0] === 'bunny' && ids[1] === 'blue' && ids[2] === 'black'
+    && ids[3] === 'expert');
   check('default tier is blue (the classic game)', D.DEFAULT_DIFFICULTY === 'blue');
   // Picker copy must not promise mechanics that aren't wired yet (labels-only stage):
   // no "avalanche"/"steep"/"dense" until the per-tier tuning PR makes them true.
@@ -103,7 +104,8 @@ function maxTrajDiff(a, b) {
 
   check('isDifficulty accepts known ids, rejects junk',
     D.isDifficulty('bunny') && D.isDifficulty('blue') && D.isDifficulty('black')
-    && !D.isDifficulty('expert') && !D.isDifficulty(null) && !D.isDifficulty(undefined));
+    && D.isDifficulty('expert')
+    && !D.isDifficulty('rainbow') && !D.isDifficulty(null) && !D.isDifficulty(undefined));
   check('getDifficultyConfig resolves a known id',
     D.getDifficultyConfig('black').id === 'black');
   check('getDifficultyConfig falls back to the default tier on junk',
@@ -130,7 +132,7 @@ function maxTrajDiff(a, b) {
   check('storeDifficulty round-trips through readStoredDifficulty',
     D.readStoredDifficulty(store) === 'black'
     && store.getItem(D.DIFFICULTY_STORAGE_KEY) === 'black');
-  store.setItem(D.DIFFICULTY_STORAGE_KEY, 'expert');
+  store.setItem(D.DIFFICULTY_STORAGE_KEY, 'rainbow');
   check('readStoredDifficulty falls back to blue on a junk stored value',
     D.readStoredDifficulty(store) === 'blue');
   check('read/store are no-throw when storage is null (Node / private mode)',
@@ -143,7 +145,7 @@ function maxTrajDiff(a, b) {
     D.resolveActiveDifficulty('black', stored) === 'black');
   check('resolveActiveDifficulty falls back to storage when the live pick is junk',
     D.resolveActiveDifficulty(undefined, stored) === 'bunny'
-    && D.resolveActiveDifficulty('expert', stored) === 'bunny');
+    && D.resolveActiveDifficulty('rainbow', stored) === 'bunny');
   check('resolveActiveDifficulty falls back to default with no pick + no storage',
     D.resolveActiveDifficulty(undefined, null) === 'blue');
 
@@ -172,20 +174,35 @@ function maxTrajDiff(a, b) {
     plowDecelLight: 3.14, plowDecelFull: 5.68, skidScrubMax: 0.10, airControl: 5.0,
   };
   const frozenKeys = Object.keys(FROZEN);
+  // The ski tuning is the frozen numeric constants plus the freestyleTricks flag
+  // (#32): a boolean, false on Blue so the default tier's kernel path is unchanged.
   check('BLUE_PHYSICS_TUNING matches the frozen physics constants verbatim',
     frozenKeys.every((k) => D.BLUE_PHYSICS_TUNING[k] === FROZEN[k])
-    && Object.keys(D.BLUE_PHYSICS_TUNING).length === frozenKeys.length);
+    && D.BLUE_PHYSICS_TUNING.freestyleTricks === false
+    && Object.keys(D.BLUE_PHYSICS_TUNING).length === frozenKeys.length + 1);
 
   // Every tier's ski tuning carries the full key set with finite numbers.
   check('every tier ski tuning has the full key set with finite numbers',
     D.DIFFICULTIES.every((c) =>
       frozenKeys.every((k) => typeof c.ski[k] === 'number' && Number.isFinite(c.ski[k]))
-      && Object.keys(c.ski).length === frozenKeys.length));
+      && typeof c.ski.freestyleTricks === 'boolean'
+      && Object.keys(c.ski).length === frozenKeys.length + 1));
 
-  check('ranked: only Blue is ranked for now (Bunny/Black unranked until floors measured)',
+  // Freestyle tricks (#32) are the Expert tier's differentiator — and Expert-ONLY:
+  // every other tier's kernel keeps the flag off so its air phase is unchanged.
+  check('freestyle tricks are Expert-only (ski.freestyleTricks)',
+    D.getDifficultyConfig('expert').ski.freestyleTricks === true
+    && D.DIFFICULTIES.every((c) => c.id === 'expert' || c.ski.freestyleTricks === false));
+  // Expert is "after Hard": Black's exact handling numbers, tricks unlocked on top.
+  check('Expert ski tuning === Black handling (numbers verbatim) + the freestyle flag',
+    frozenKeys.every((k) =>
+      D.getDifficultyConfig('expert').ski[k] === D.getDifficultyConfig('black').ski[k]));
+
+  check('ranked: only Blue is ranked for now (Bunny/Black/Expert unranked until floors measured)',
     D.getDifficultyConfig('blue').ranked === true
     && D.getDifficultyConfig('bunny').ranked === false
-    && D.getDifficultyConfig('black').ranked === false);
+    && D.getDifficultyConfig('black').ranked === false
+    && D.getDifficultyConfig('expert').ranked === false);
 
   console.log('--- Per-tier course line (the `line` block, fed to course-line.ts) ---');
   const lineKeys = ['curviness', 'amplitude', 'controlPoints'];
@@ -200,6 +217,13 @@ function maxTrajDiff(a, b) {
   const blackLine = D.getDifficultyConfig('black').line;
   check('Black winds (curviness > 0, amplitude > 0, controlPoints > 0)',
     blackLine.curviness > 0 && blackLine.amplitude > 0 && blackLine.controlPoints > 0);
+  // Expert reuses Black's line difficulty, re-seeded so it is its own fixed course.
+  const expertLine = D.getDifficultyConfig('expert').line;
+  check('Expert winds like Black but on its own seed',
+    expertLine.curviness === blackLine.curviness
+    && expertLine.amplitude === blackLine.amplitude
+    && expertLine.controlPoints === blackLine.controlPoints
+    && D.getDifficultyConfig('expert').seed !== D.getDifficultyConfig('black').seed);
 
   // Terrain corridor (D3.2b): only Black banks the terrain into a channel; Bunny/Blue
   // carry NO corridor (terrain absent) so they build today's exact terrain.
@@ -234,20 +258,31 @@ function maxTrajDiff(a, b) {
     && blackAv.triggerDistance < blueAv.triggerDistance
     && blackAv.slideSpeedBase > blueAv.slideSpeedBase
     && blackAv.boulderCount >= blueAv.boulderCount);
+  // Expert keeps Black's slide (the tier after Hard is not an easier mountain).
+  const expertAv = D.getDifficultyConfig('expert').avalanche;
+  check('Expert avalanche matches Black\'s slide',
+    expertAv.enabled === true
+    && expertAv.triggerDistance === blackAv.triggerDistance
+    && expertAv.boulderCount === blackAv.boulderCount
+    && expertAv.slideSpeedBase === blackAv.slideSpeedBase
+    && expertAv.slideSpeedJitter === blackAv.slideSpeedJitter);
 
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
   check('localBestTimeKey: Blue keeps the original key; others are suffixed',
     D.localBestTimeKey('blue') === 'snowgliderBestTime'
     && D.localBestTimeKey('bunny') === 'snowgliderBestTime_bunny'
-    && D.localBestTimeKey('black') === 'snowgliderBestTime_black');
+    && D.localBestTimeKey('black') === 'snowgliderBestTime_black'
+    && D.localBestTimeKey('expert') === 'snowgliderBestTime_expert');
   check('leaderboardCollectionName: Blue == leaderboard; others are siblings',
     D.leaderboardCollectionName('blue') === 'leaderboard'
     && D.leaderboardCollectionName('bunny') === 'leaderboard_bunny'
-    && D.leaderboardCollectionName('black') === 'leaderboard_black');
+    && D.leaderboardCollectionName('black') === 'leaderboard_black'
+    && D.leaderboardCollectionName('expert') === 'leaderboard_expert');
   check('userBestTimeField: Blue == bestTime; others are dedicated fields',
     D.userBestTimeField('blue') === 'bestTime'
     && D.userBestTimeField('bunny') === 'bestTimeBunny'
-    && D.userBestTimeField('black') === 'bestTimeBlack');
+    && D.userBestTimeField('black') === 'bestTimeBlack'
+    && D.userBestTimeField('expert') === 'bestTimeExpert');
 
   console.log('--- Kernel tuning API: backward compatibility ---');
   const omitted = descend(update, undefined);

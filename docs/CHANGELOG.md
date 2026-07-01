@@ -13,6 +13,32 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Freestyle jumps on a new ◆◆ Expert tier (#32 first pass)
+- **A fourth difficulty tier, after Hard.** `difficulty.ts` gains **◆◆ Expert** —
+  Black's exact handling numbers, winding corridor, and heavy slide (its own seed, so
+  it is its own fixed course), unranked practice like Bunny/Black until its floor is
+  measured. The picker, HUD badge (amber ◆◆), per-tier ghost/best-time storage
+  (`snowgliderBestTime_expert`, `leaderboard_expert`, `bestTimeExpert`), and the
+  read-only Firestore rules all extend the existing per-tier pattern.
+- **Freestyle tricks, re-using the existing controls in the air (#32).** On Expert
+  only, a *manual* jump's air phase accepts trick input: **Left/Right spin** (360°/s
+  yaw), **Up/Down front/backflip** (300°/s), and a **re-pressed Jump holds a grab**
+  (the held takeoff press never grabs). Completed tricks are named in the landing
+  toast (`✈ AIR 1.2s · 360 + GRAB · CLEAN`) and their points (40 per 180° spin, 120
+  per flip, 60/s grab) ride the existing air-score channel to the result screen.
+  **Landing mid-rotation is the risk:** an under-rotated spin/flip forces a SKETCHY
+  landing (today's scrub) no matter how well the skis are aimed, and pays half score.
+- **Kernel-safe by construction.** Trick accumulation is double-gated on the new
+  `ski.freestyleTricks` tuning flag (Expert only) AND `playerJump` provenance, and the
+  rotation is purely cosmetic (`pose.ts` — spin drives the heading, flips ride on the
+  clamped tilt, a grab tucks the crouch): pos/velocity are never touched in the air,
+  so every other tier and the no-input coasting baseline stay **byte-identical**
+  (`test:verify` unchanged, no baseline regeneration). The follow camera is handed
+  the trick-free heading while a spin rides on the snowman's yaw (main-loop
+  `updateCamera`), so it stays behind the line of travel instead of orbiting with
+  the trick (codex review). New `tests/freestyle-tests.js` pins the grading table
+  (`gradeFreestyleTrick`) and the double gate end-to-end; PHYSICS.md gains §4.1.
+
 ### Wind — a resonant gust "howl" whistles on the wind (#253, Phase A)
 - **You can now hear the wind howl, not just whoosh.** The procedural `sfx.ts` engine gains
   a second, distinct wind layer: alongside the broadband ambient bed, a narrow high-Q
