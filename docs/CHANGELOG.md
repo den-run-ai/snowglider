@@ -118,9 +118,11 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   (min `|tangent.z|` ≈ 0.50 at z≈-90), so a tree 3u to the side is only ~1.5u *perpendicular* to
   the path — well inside the 2.5u collision radius, making the "clear" lane randomly crashable. A
   new pure `treeInCorridorLane(x, z)` drops any tree whose PERPENDICULAR distance to the line
-  (`|x-lane| · |tangent.z|`) is under the 3u clearance; both loops consult it. It returns `false`
-  whenever no line is active, so straight tiers cull nothing and stay byte-identical (the grid
-  cluster branch already re-checked its own final position).
+  (`|x-lane| · |tangent.z|`) is under the 3u clearance; all three placement paths consult it — the
+  grid jitter, the 60 "former ski path" trees, and the grid's clustered-tree branch (whose old
+  horizontal `>= 3` gate is kept alongside it purely to preserve the straight-tier center strip
+  byte-for-byte). It returns `false` whenever no line is active, so straight tiers cull nothing and
+  stay byte-identical.
 - **Guardrails.** `test:verify` IDENTICAL; `test:trees`/`test:terrain`/`test:tree-collision`/
   `test:regression` unchanged; new `tests/corridor-obstacles-tests.js`
   (`npm run test:corridor-obstacles`: clearance follows the line, on-line corridor always

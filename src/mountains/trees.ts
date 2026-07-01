@@ -642,10 +642,14 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
           const clusterX = xPos + (Math.random() * 4 - 2);
           const clusterZ = zPos + (Math.random() * 4 - 2);
           
-          // For clustered trees, use the same criteria but add even more trees in center area
-          // Keep only the very centerline (±3 units) clear for minimal navigation
+          // For clustered trees, use the same criteria but add even more trees in center area.
+          // Keep the on-line lane clear: the horizontal `>= 3` preserves the straight-tier center
+          // strip byte-for-byte (laneC ≡ 0, treeInCorridorLane ≡ false), while the perpendicular
+          // treeInCorridorLane drops a cluster that lands within the clear lane on a steep Black
+          // turn (where >= 3 horizontal can still be ~1.5u perpendicular — inside the collision
+          // radius). For a live line `!treeInCorridorLane` already implies `>= 3` horizontal.
           const laneC = activeLaneX(clusterZ);
-          if(Math.abs(clusterX - laneC) >= 3) {
+          if(Math.abs(clusterX - laneC) >= 3 && !treeInCorridorLane(clusterX, clusterZ)) {
             const clusterY = getTerrainHeight(clusterX, clusterZ);
 
             // Determine which zone the cluster tree falls in
