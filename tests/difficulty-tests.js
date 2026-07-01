@@ -147,6 +147,17 @@ function maxTrajDiff(a, b) {
   check('resolveActiveDifficulty falls back to default with no pick + no storage',
     D.resolveActiveDifficulty(undefined, null) === 'blue');
 
+  // runTierNeedsRebuild: the scene (corridor/gates/obstacles/avalanche) is baked from the
+  // built tier, so a run needs a rebuild exactly when its tier differs — except under
+  // automation, which must stay on one reload-free path.
+  check('runTierNeedsRebuild: same tier needs no rebuild',
+    D.runTierNeedsRebuild('black', 'black', false) === false);
+  check('runTierNeedsRebuild: a different tier needs a rebuild',
+    D.runTierNeedsRebuild('black', 'blue', false) === true);
+  check('runTierNeedsRebuild: never rebuilds under automation (tests stay on one path)',
+    D.runTierNeedsRebuild('black', 'blue', true) === false
+    && D.runTierNeedsRebuild('black', 'black', true) === false);
+
   const blue = D.getDifficultyConfig('blue');
   check('Blue is authoritative-current: blue.ski === BLUE_PHYSICS_TUNING',
     blue.ski === D.BLUE_PHYSICS_TUNING);
@@ -189,6 +200,15 @@ function maxTrajDiff(a, b) {
   const blackLine = D.getDifficultyConfig('black').line;
   check('Black winds (curviness > 0, amplitude > 0, controlPoints > 0)',
     blackLine.curviness > 0 && blackLine.amplitude > 0 && blackLine.controlPoints > 0);
+
+  // Terrain corridor (D3.2b): only Black banks the terrain into a channel; Bunny/Blue
+  // carry NO corridor (terrain absent) so they build today's exact terrain.
+  const blackTerrain = D.getDifficultyConfig('black').terrain;
+  check('Black carries a well-formed terrain corridor (channelHalfWidth/wallRamp/wallHeight > 0)',
+    blackTerrain && blackTerrain.channelHalfWidth > 0 && blackTerrain.wallRamp > 0 && blackTerrain.wallHeight > 0);
+  check('Bunny and Blue carry no terrain corridor (straight ⇒ today\'s terrain)',
+    D.getDifficultyConfig('bunny').terrain === undefined
+    && D.getDifficultyConfig('blue').terrain === undefined);
 
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
   check('localBestTimeKey: Blue keeps the original key; others are suffixed',

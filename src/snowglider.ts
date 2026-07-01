@@ -39,7 +39,7 @@ import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
 import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
-import { resolveActiveDifficulty, readStoredDifficulty, storeDifficulty } from './difficulty.js';
+import { resolveActiveDifficulty, readStoredDifficulty, storeDifficulty, runTierNeedsRebuild } from './difficulty.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
@@ -254,6 +254,34 @@ Diag.init(
   }
 );
 
+// --- Keep the built scene in step with the run's locked tier ---
+// The corridor, course line, gate positions, obstacle field, and avalanche tuning are
+// baked into the scene ONCE by setupScene() from state.builtDifficulty. The physics kernel
+// re-reads state.difficulty live every frame, but that geometry does not — so when a run
+// locks a DIFFERENT tier (the start-screen picker, or the finish "Play again on" picker),
+// the shape of the mountain would not match the run (e.g. a ranked Blue run left on Black's
+// winding corridor + obstacle field, or a Black run on the centered course).
+//
+// Rebuilding terrain + trees + rocks + gates + avalanche in place is a large, leak-prone
+// teardown; a reload is exact and cheap enough for this rare, deliberate action — the tier is
+// persisted first, so setupScene() rebuilds the whole scene from it on load and the start menu
+// re-highlights it. The reload lands back on the start screen, so the player just presses Start
+// once more (their gesture is preserved — the run's AudioModule.startAudio()/Sfx.unlock() need a
+// trusted user gesture, which an auto-resumed run wouldn't have). Returns true when a reload was
+// scheduled; callers must then bail out of starting a run against the doomed scene.
+//
+// Skipped under test/automation (the suites never switch tiers mid-session and must stay on a
+// single, reload-free path), and when the tier can't be persisted (private mode) — reloading
+// there would just rebuild the SAME scene and swallow every Start.
+function maybeReloadForRunTier(): boolean {
+  const automation = Boolean(window.isTestMode) || Boolean(navigator.webdriver);
+  if (!runTierNeedsRebuild(state.difficulty, state.builtDifficulty, automation)) return false;
+  storeDifficulty(state.difficulty);
+  if (readStoredDifficulty() !== state.difficulty) return false; // persist failed (e.g. private mode)
+  location.reload();
+  return true;
+}
+
 // --- Run lifecycle (see game/lifecycle.ts): reset / restart / camera toggle ---
 // Built after the loop (restartGame uses startLoop). Re-publish the three hooks the
 // touch handlers + controls.js drive by bare name, then wire the DOM controls.
@@ -266,6 +294,7 @@ const { resetSnowman, restartGame, toggleCameraView, initLifecycleUI } = createL
   player,
   startLoop,
   resetLoopState,
+  maybeReloadForRunTier,
   signal: listenerAbort.signal,
 });
 // Make reset/restart/toggle accessible globally for touch + keyboard handlers.
@@ -388,6 +417,10 @@ window.initializeGameWithAudio = function() {
     { getSelectedDifficulty?: () => unknown } | undefined;
   const pickedTier = startMenu?.getSelectedDifficulty?.();
   state.difficulty = resolveActiveDifficulty(pickedTier);
+  // If the player picked a tier the scene wasn't built for, reload to reshape the terrain
+  // corridor/gates/obstacles/avalanche for it; the run resumes automatically after. Bail so
+  // we don't start a run against the scene that's about to be torn down.
+  if (maybeReloadForRunTier()) return;
   // Show the chosen tier's own best time (the HUD + result screen compare against this).
   state.bestTime = readStoredBestTime(state.difficulty);
 

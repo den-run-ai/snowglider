@@ -19,6 +19,8 @@ import { MIN_VALID_SCORE_TIME } from './score-limits.js';
 // (course-line.ts, also THREE-free), and `import type` erases at build time so this
 // stays a runtime-dependency-free module.
 import type { CourseLineParams } from './course-line.js';
+// Type-only too: the corridor shape lives next to the terrain seam that reads it.
+import type { TerrainCorridorParams } from './mountains/terrain.js';
 
 /** The three difficulty tiers, keyed by their ski-resort trail rating. */
 export type Difficulty = 'bunny' | 'blue' | 'black';
@@ -132,6 +134,11 @@ export interface DifficultyConfig {
   // terrain corridor, gates, and obstacle field that read it are wired in later D3.2
   // sub-PRs, so this PR is no felt change for any tier.
   line: CourseLineParams;
+  // The winding-corridor terrain shape (mountains/terrain.ts banks the skiable channel
+  // onto the `line` and raises walls off it). Present ONLY for tiers whose terrain winds
+  // (Black); absent ⇒ straight tiers build today's exact terrain — the byte-identical
+  // guardrail. Wired into the run by scene-setup.ts before the mesh is built (D3.2b).
+  terrain?: TerrainCorridorParams;
 }
 
 // The classic straight fall line: `laneX ≡ 0` everywhere. Shared by Bunny + Blue so
@@ -175,6 +182,11 @@ const BLACK: DifficultyConfig = {
   // turns over the run; the fixed seed (1003) makes it identical for everyone. Tuned
   // for real against Black's #240 physics in a later D3.2 sub-PR (terrain + winnability).
   line: { curviness: 1, amplitude: 18, controlPoints: 5 },
+  // Bank that line into a skiable channel: a 14 u-wide flat floor (the on-line feel is
+  // exactly today's), flanks ramping ~9 u up to a 10 u wall — running straight when the
+  // line turns climbs the wall, and the walls funnel avalanche boulders down the channel.
+  // Provisional — re-tuned against the winnability harness in D3.2d.
+  terrain: { channelHalfWidth: 7, wallRamp: 9, wallHeight: 10 },
 };
 
 /** All tiers in display order (easy → hard). */
@@ -249,6 +261,15 @@ export function readStoredDifficulty(storage?: Storage | null): Difficulty {
  *  the picker highlight changes but `setItem` silently fails — the live pick wins. */
 export function resolveActiveDifficulty(livePick: unknown, storage?: Storage | null): Difficulty {
   return isDifficulty(livePick) ? livePick : readStoredDifficulty(storage);
+}
+
+/** Does a run on `runTier` need the scene rebuilt for it? The corridor/gates/obstacles/
+ *  avalanche are baked once from `builtTier` (the tier setupScene ran on); they only match
+ *  the run when the tiers agree. `automation` forces `false` so the test/E2E suites stay on
+ *  a single, reload-free path (they never switch tiers mid-session). Pure decision core of
+ *  snowglider.ts `maybeReloadForRunTier`; the reload + persistence side effects stay there. */
+export function runTierNeedsRebuild(runTier: Difficulty, builtTier: Difficulty, automation: boolean): boolean {
+  return !automation && runTier !== builtTier;
 }
 
 /** Persist the player's chosen tier. No-op (never throws) when storage is

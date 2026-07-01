@@ -24,11 +24,14 @@ import {
 } from './noise.js';
 import {
   type TerrainVec2,
+  type TerrainCorridorParams,
+  type TerrainCorridor,
   heightMap,
   getTerrainHeight,
   getTerrainGradient,
   getDownhillDirection,
   debugHeightMap,
+  setTerrainCorridor,
 } from './terrain.js';
 import { createTerrain } from './terrain-mesh.js';
 import {
@@ -46,7 +49,8 @@ import {
 // rockCollisionRadius was a named export of the pre-split mountains.ts too — keep it
 // on the facade so `import { rockCollisionRadius } from './mountains.js'` still works.
 export { terrainRidgeField, forestDensityField, rockCollisionRadius, ROCK_COLLISION_MIN_SIZE };
-export type { TerrainVec2, RockPosition };
+export { setTerrainCorridor };
+export type { TerrainVec2, TerrainCorridorParams, TerrainCorridor, RockPosition };
 
 // Export all mountain-related functions and classes
 export const Mountains = {
@@ -57,6 +61,7 @@ export const Mountains = {
   terrainRidgeField,
   forestDensityField,
   createTerrain,
+  setTerrainCorridor,
   createRock,
   addRocks,
   ROCK_COLLISION_MIN_SIZE,

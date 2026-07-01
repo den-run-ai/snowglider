@@ -25,6 +25,11 @@ export interface LifecycleDeps extends
   // button (the loop keeps running), so it must reseed here or the stale pre-reset position
   // leaks into the render lerp and the first diagnostics step.
   resetLoopState: () => void;
+  // If the run's locked tier no longer matches the tier the scene was built for (the finish
+  // "Play again on" picker switched it), reload to rebuild the scene for it and return true so
+  // restartGame bails. Wired by the coordinator (snowglider.ts); omitted by the lifecycle unit
+  // test, where restartGame keeps its old, reload-free behavior.
+  maybeReloadForRunTier?: () => boolean;
   // Optional AbortSignal tying the game-lifetime DOM listeners wired in initLifecycleUI
   // (reset / camera-toggle / restart buttons) to disposeGame's teardown. Omitted by the
   // lifecycle unit test, which never tears down.
@@ -32,7 +37,7 @@ export interface LifecycleDeps extends
 }
 
 export function createLifecycle(deps: LifecycleDeps) {
-  const { state, cameraManager, snowman, gameOverOverlay, restartButton, player, startLoop, resetLoopState, signal } = deps;
+  const { state, cameraManager, snowman, gameOverOverlay, restartButton, player, startLoop, resetLoopState, maybeReloadForRunTier, signal } = deps;
   const pos = player.pos;
   // Listener options for the game-lifetime button handlers below: thread the teardown
   // signal when supplied so disposeGame can remove them, else live for the page.
@@ -99,6 +104,10 @@ export function createLifecycle(deps: LifecycleDeps) {
   }
 
   function restartGame() {
+    // The finish "Play again on" picker can switch tiers; if it did, the built scene no longer
+    // matches, so reload to reshape it for the new tier (the run resumes automatically after).
+    // Bail here so we don't start a run against the scene that's about to be torn down.
+    if (maybeReloadForRunTier && maybeReloadForRunTier()) return;
     gameOverOverlay.style.display = 'none';
     state.gameActive = true;
 
