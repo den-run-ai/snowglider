@@ -196,22 +196,6 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     return true;
   }
 
-  // One-shot resume after a tier-switch reload. When the player picks a tier the built
-  // scene doesn't match, the game reloads to rebuild the scene for it (snowglider.ts
-  // maybeReloadForRunTier) and leaves this flag so we drop straight back into the run —
-  // the reload stays invisible to the player's Start/Restart click. Consumed once (the
-  // flag never sets under test/automation, so this is a no-op there).
-  function resumeRunAfterTierReload() {
-    let resume = false;
-    try {
-      resume = sessionStorage.getItem('snowglider:autostart-run') === '1';
-      if (resume) sessionStorage.removeItem('snowglider:autostart-run');
-    } catch {
-      resume = false; // storage blocked — nothing to resume
-    }
-    if (resume) startGame();
-  }
-
   function setStartButtonWaiting(waiting: boolean) {
     const startButton = document.getElementById('startGameButton');
     if (!(startButton instanceof HTMLButtonElement)) {
@@ -288,7 +272,6 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     if ((window as any).SnowGliderGameScriptsReady) {
       startPendingGameIfReady();
       refreshStartAccountUI();
-      resumeRunAfterTierReload();
     }
 
     const startGameButton = document.getElementById('startGameButton');
@@ -362,8 +345,6 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     // Firebase auth + Firestore finishing their async init after scripts load.
     refreshStartAccountUI();
     setTimeout(refreshStartAccountUI, 1500);
-    // If a tier switch reloaded the page to rebuild the scene, drop straight into the run.
-    resumeRunAfterTierReload();
   });
   // Re-render whenever auth state changes (auth.ts dispatches this on login/logout),
   // so signing in from the elevated start-screen control immediately swaps the

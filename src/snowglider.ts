@@ -263,22 +263,21 @@ Diag.init(
 // winding corridor + obstacle field, or a Black run on the centered course).
 //
 // Rebuilding terrain + trees + rocks + gates + avalanche in place is a large, leak-prone
-// teardown; a reload is exact and cheap enough for this rare, deliberate action — setupScene()
-// then rebuilds the whole scene from the now-persisted tier, and a one-shot sessionStorage
-// flag resumes straight into the run so the player's Start/Restart click still lands them in
-// the game (see start-menu.ts resumeRunAfterTierReload). Returns true when a reload was
+// teardown; a reload is exact and cheap enough for this rare, deliberate action — the tier is
+// persisted first, so setupScene() rebuilds the whole scene from it on load and the start menu
+// re-highlights it. The reload lands back on the start screen, so the player just presses Start
+// once more (their gesture is preserved — the run's AudioModule.startAudio()/Sfx.unlock() need a
+// trusted user gesture, which an auto-resumed run wouldn't have). Returns true when a reload was
 // scheduled; callers must then bail out of starting a run against the doomed scene.
 //
 // Skipped under test/automation (the suites never switch tiers mid-session and must stay on a
 // single, reload-free path), and when the tier can't be persisted (private mode) — reloading
 // there would just rebuild the SAME scene and swallow every Start.
-const RUN_TIER_AUTOSTART_KEY = 'snowglider:autostart-run';
 function maybeReloadForRunTier(): boolean {
   const automation = Boolean(window.isTestMode) || Boolean(navigator.webdriver);
   if (!runTierNeedsRebuild(state.difficulty, state.builtDifficulty, automation)) return false;
   storeDifficulty(state.difficulty);
   if (readStoredDifficulty() !== state.difficulty) return false; // persist failed (e.g. private mode)
-  try { sessionStorage.setItem(RUN_TIER_AUTOSTART_KEY, '1'); } catch { /* resume flag is best-effort */ }
   location.reload();
   return true;
 }

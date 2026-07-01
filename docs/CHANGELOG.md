@@ -116,12 +116,13 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   (`state.builtDifficulty`) and never rebuilds on restart, so a run that locks a *different*
   tier (the start-screen picker, or the finish "Play again on" picker) would ski a mismatched
   mountain. Instead of an in-place rebuild (a large, leak-prone teardown) the coordinator
-  reloads on that mismatch (`maybeReloadForRunTier`) so `setupScene()` re-runs and reshapes the
-  scene for the locked tier; a one-shot flag resumes straight into the run
-  (`start-menu.ts resumeRunAfterTierReload`). Skipped under test/automation (the suites stay on
-  one reload-free path) and when the tier can't be persisted (private mode). Pure decision core
-  `runTierNeedsRebuild` is unit-tested. Gates + obstacles on the line and a follow-the-line
-  winnability harness land in D3.2c/d.
+  persists the tier and reloads on that mismatch (`maybeReloadForRunTier`) so `setupScene()`
+  re-runs and reshapes the scene for it. The reload lands back on the start screen with the tier
+  re-selected, so the player presses Start once more — keeping the run start a trusted user
+  gesture (the audio/SFX unlock needs one; an auto-resumed run wouldn't have it). Skipped under
+  test/automation (the suites stay on one reload-free path) and when the tier can't be persisted
+  (private mode). Pure decision core `runTierNeedsRebuild` is unit-tested. Gates + obstacles on
+  the line and a follow-the-line winnability harness land in D3.2c/d.
 
 ### Difficulty tiers (D3.2a): per-tier course-line spine (no felt change)
 - **The descent has a single seeded centerline.** New `src/course-line.ts` exposes
