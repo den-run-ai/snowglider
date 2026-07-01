@@ -280,6 +280,18 @@ let treeSwayClock = 0;
 const TREE_SWAY_MIN_AMP = 0.08;
 const TREE_SWAY_MAX_AMP = 0.35;
 
+/** Map a normalized wind strength (0..1) to the canopy sway amplitude. The MIN_AMP floor
+ *  is a *breeze* minimum, so a genuinely calm field (strength 0 — e.g. a
+ *  `Wind.configure({ baseStrength: 0, gustRange: 0 })` profile) must read as fully still,
+ *  matching the snow/scarf consumers rather than fluttering on its own. Any positive wind
+ *  gets at least the floor, ramping to MAX_AMP at full strength. The live game's default
+ *  field never reaches 0 (baseStrength keeps strength ≳ 0.33), so normal play is unchanged.
+ *  Pure + exported for the headless trees test. */
+function treeSwayAmplitude(strength: number): number {
+  const s = Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 0;
+  return s > 0 ? TREE_SWAY_MIN_AMP + (TREE_SWAY_MAX_AMP - TREE_SWAY_MIN_AMP) * s : 0;
+}
+
 /** Honour prefers-reduced-motion (same gate as snow drift / Flex / Sky): a calm forest
  *  when the user asks for reduced motion. Guarded so it is a no-op (motion on) headless. */
 function prefersReducedTreeMotion(): boolean {
@@ -362,8 +374,7 @@ function updateWind(dt: number): void {
   }
   const dir = Wind.dir();
   treeWindUniforms.uWindDir.value.set(dir.x, dir.z);
-  treeWindUniforms.uWindAmp.value =
-    TREE_SWAY_MIN_AMP + (TREE_SWAY_MAX_AMP - TREE_SWAY_MIN_AMP) * Wind.strength();
+  treeWindUniforms.uWindAmp.value = treeSwayAmplitude(Wind.strength());
 }
 
 /** Rewind the sway clock (called on each run reset, alongside Wind.reset) so every run
@@ -953,7 +964,8 @@ export const Trees = {
   resetTreePools,
   treeInCorridorLane,
   updateWind,
-  resetWind
+  resetWind,
+  treeSwayAmplitude
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).

@@ -198,7 +198,7 @@ async function main() {
   // injection against a stub shader object and the uniform plumbing through updateWind /
   // resetWind, so no WebGL context is needed. (The rendered result is a browser concern.)
   {
-    const { Wind } = await import('../src/wind.js');
+    const { Wind, DEFAULT_WIND_CONFIG } = await import('../src/wind.js');
 
     // Build a forest so the lazy instanced materials exist, then read them off the meshes.
     const scene = new THREE.Scene();
@@ -272,6 +272,28 @@ async function main() {
     const ampA = U.uWindAmp.value;
     Trees.resetWind(); Wind.reset(); Trees.updateWind(2.0);
     assert(U.uWindAmp.value === ampA, 'tree sway is deterministic (reset + same advance ⇒ same amplitude)');
+
+    // treeSwayAmplitude (pure): a calm field (strength 0) reads as fully still, while any
+    // positive wind gets at least the breeze floor and ramps to the max at full strength.
+    assert(Trees.treeSwayAmplitude(0) === 0, 'treeSwayAmplitude(0) is fully still (dead calm ⇒ no sway)');
+    assert(Trees.treeSwayAmplitude(1) === 0.35, 'treeSwayAmplitude(1) reaches the max lean');
+    assert(Trees.treeSwayAmplitude(0.5) > 0.08 && Trees.treeSwayAmplitude(0.5) < 0.35,
+      'treeSwayAmplitude(mid) sits between the breeze floor and the max');
+    assert(Trees.treeSwayAmplitude(0.0001) >= 0.08,
+      'any positive wind gets at least the breeze floor');
+    assert(Trees.treeSwayAmplitude(-3) === 0 && Trees.treeSwayAmplitude(NaN) === 0,
+      'treeSwayAmplitude clamps junk/negative strength to still');
+
+    // Integration: a dead-calm wind profile drives updateWind to zero amplitude, so trees
+    // stop fluttering in step with the snow/scarf consumers (regression for the P2 finding).
+    Wind.configure({ baseStrength: 0, gustRange: 0 });
+    Wind.reset();
+    Trees.updateWind(2.0);
+    assert(U.uWindAmp.value === 0, 'updateWind holds trees still under a dead-calm wind field',
+      `amp=${U.uWindAmp.value}`);
+    // Restore the live field so the singleton is left in its default state.
+    Wind.configure({ baseStrength: DEFAULT_WIND_CONFIG.baseStrength, gustRange: DEFAULT_WIND_CONFIG.gustRange });
+    Wind.reset();
   }
 
   console.log(`\n=================================`);
