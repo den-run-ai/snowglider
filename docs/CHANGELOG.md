@@ -211,7 +211,11 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   stays fully still in step with the snow/scarf consumers (the live field never reaches 0, so
   play is unchanged). (2) The forest `castShadow`s, so each InstancedMesh gets a matching
   `customDepthMaterial` carrying the same sway from the same shared uniforms, keeping the cast
-  shadows leaning with the trees instead of staying put. Both covered by `trees-tests.js`.
+  shadows leaning with the trees instead of staying put. The two depth materials are created at
+  module load, not lazily inside `buildForest`: `new MeshDepthMaterial()` draws `Math.random` for
+  its uuid, and the verification harnesses seed `Math.random` then place trees + rocks on one
+  stream, so building them mid-stream would have shifted the seeded rock field. Both covered by
+  `trees-tests.js`.
 
 ### Wind — scarf streams in the apparent wind (#253, Phase A)
 - **The red scarf now reacts to the wind field.** The scarf tail trails the **apparent**

@@ -987,6 +987,17 @@ export function resetTreePools(): void {
   barkNormalTexture = foliageNormalTexture = null;
 }
 
+// Create the shadow-caster depth materials at module load. `new MeshDepthMaterial()` draws
+// Math.random via three's generateUUID, and the verification harnesses seed Math.random and
+// then place obstacles on ONE stream (`addTrees(scene)` immediately followed by
+// `addRocks(scene)` in forward_stress_harness.js). Building these lazily inside buildForest —
+// between the tree placement and the rock placement — would shift that seeded stream and move
+// the rock field, so pin their uuid draws to import time, OUTSIDE any seeded window. (The
+// visible bark/foliage/snow materials stay lazy, exactly as before; only these NEW materials
+// are pinned out, so the harness sees the same stream it did before this change.)
+getSwayDepthMaterial(true);
+getSwayDepthMaterial(false);
+
 // Export all tree-related functions
 export const Trees = {
   createTree,
