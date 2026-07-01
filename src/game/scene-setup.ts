@@ -297,7 +297,9 @@ export function setupScene(signal?: AbortSignal) {
   // Per-tier slide (D3.2d): Bunny is OFF (enabled:false ⇒ the system builds but stays inert,
   // so window.avalanche + the lifecycle reset path stay valid), Blue is today's exact slide
   // (byte-identical), Black fires earlier/faster/heavier. The tier's `avalanche` block is the
-  // single source; `enabled` gates the trigger in main-loop.ts.
+  // single source; `enabled` gates the trigger in main-loop.ts. Built once from
+  // `builtDifficulty` like the corridor above — if the run locks a different tier, the
+  // coordinator reloads (maybeReloadForRunTier) so this rebuilds for it, not stays stale.
   if (typeof AvalancheSystem !== 'undefined') {
     const avc = runConfig.avalanche;
     const av = new AvalancheSystem(scene, avc.boulderCount, {

@@ -117,10 +117,12 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   two-sided companion, so the Black slide can't be silently neutered and still pass). Measured
   margin: Black escapes with a closest-boulder of ~7 u (comparable to Blue's), top speed ~13.5 m/s.
 - **Guardrails.** `test:verify` IDENTICAL + smoke 53/0; `test:winnable` G2–G6 all green;
-  `test:avalanche` 12/0; `test:difficulty` extended to 34/0 (avalanche-block checks: Blue verbatim,
+  `test:avalanche` 12/0; `test:difficulty` extended to 37/0 (avalanche-block checks: Blue verbatim,
   Bunny off, Black earlier+faster+heavier); the stack below (`course-line`/`terrain-corridor`/
   `corridor-obstacles`) unchanged; lint 0 errors; typecheck clean; full `npm test` exit 0; vite
   build ok. Bunny/Blue stay byte-identical (Bunny's slide never arms; Blue's numbers are verbatim).
+  Like the rest of the scene, the avalanche is built once from the run's `builtDifficulty`; a run
+  that locks a different tier reloads to rebuild it (D3.2b's `maybeReloadForRunTier`).
 
 ### Difficulty tiers (D3.2c): gates + obstacles on the line (Black)
 - **The checkpoint + finish gates now sit ON the run's centerline.** `course.ts`
