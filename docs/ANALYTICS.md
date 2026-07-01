@@ -44,6 +44,15 @@ the **finish-time distribution** (the core balance signal), sign-in provider mix
 recency, activity/leaderboard timelines, the global leaderboard, and cross-collection
 **data-health** checks (e.g. leaderboard rows whose time disagrees with the profile best).
 
+Two accuracy notes:
+- **Finish times are filtered to the game's valid range** (`MIN/MAX_VALID_SCORE_TIME` from
+  `src/score-limits.ts`). Legacy/forged sub-floor times the app itself rejects are excluded
+  from the distribution, median, and leaderboard, and counted under data-health.
+- The **monthly timelines are point-in-time**: Firestore keeps only each player's latest
+  `lastLogin` and current-PB `achievedAt`, so "most-recent login by month" is last-seen
+  distribution (not visit volume) and "personal best set by month" is when current PBs were
+  set (not every run). Use the GA4 daily chart for true activity over time.
+
 ## Enabling GA4 (engagement, events, anomaly spikes)
 
 The game already logs a rich GA4 event stream, but the Data API must be turned on and the

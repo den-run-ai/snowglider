@@ -493,11 +493,29 @@ function anonName(id) {
   return 'player_' + createHash('sha256').update(String(id)).digest('hex').slice(0, 8);
 }
 
+// Read the plausibility bounds from the game's single source of truth (src/score-limits.ts)
+// so the reporter never folds forged/legacy times — the sub-floor scores the app itself
+// rejects via isValidScoreTime — into the finish-time distribution or leaderboard. Falls
+// back to the firestore.rules range if the file moves.
+function readScoreLimits(repoRoot) {
+  const fallback = { min: 4, max: 600 };
+  try {
+    const src = readFileSync(join(repoRoot, 'src', 'score-limits.ts'), 'utf8');
+    const min = src.match(/MIN_VALID_SCORE_TIME\s*=\s*([\d.]+)/);
+    const max = src.match(/MAX_VALID_SCORE_TIME\s*=\s*([\d.]+)/);
+    return { min: min ? Number(min[1]) : fallback.min, max: max ? Number(max[1]) : fallback.max };
+  } catch { return fallback; }
+}
+
 // --------------------------------------------------------------------- build insights ----
-function buildInsights(users, leaderboard, nowMs) {
+function buildInsights(users, leaderboard, nowMs, limits) {
   const usersById = new Map(users.map((u) => [u.id, u]));
+  const isPlausibleTime = (t) => num(t) && t >= limits.min && t <= limits.max;
   const withBest = users.filter((u) => num(u.bestTime));
-  const bestTimes = withBest.map((u) => u.bestTime);
+  // Time-based stats/histogram/leaderboard use ONLY plausible times; user/run *counts*
+  // stay honest (a forged record still means the account exists).
+  const bestTimes = withBest.map((u) => u.bestTime).filter(isPlausibleTime);
+  const implausibleUserTimes = withBest.filter((u) => !isPlausibleTime(u.bestTime)).length;
 
   // Recency buckets from lastLogin.
   const buckets = { 'Last 24h': 0, 'Last 7 days': 0, 'Last 30 days': 0, 'Last 90 days': 0, 'Older': 0, 'Unknown': 0 };
@@ -524,7 +542,8 @@ function buildInsights(users, leaderboard, nowMs) {
       uid, time: e.time, achievedAt: e.achievedAt,
       name: OPTS.redact ? anonName(uid) : (u?.displayName || '(unknown)'),
     };
-  }).filter((e) => num(e.time)).sort((a, b) => a.time - b.time);
+  }).filter((e) => isPlausibleTime(e.time)).sort((a, b) => a.time - b.time);
+  const implausibleBoardEntries = leaderboard.filter((e) => num(e.time) && !isPlausibleTime(e.time)).length;
 
   // Health / consistency checks.
   const boardUids = new Set(board.map((b) => b.uid));
@@ -560,8 +579,10 @@ function buildInsights(users, leaderboard, nowMs) {
     leaderboard: board.slice(0, 20).map((b) => ({
       name: b.name, time: b.time, achievedAt: b.achievedAt,
     })),
+    plausibility: { min: limits.min, max: limits.max, excludedUserTimes: implausibleUserTimes, excludedBoardEntries: implausibleBoardEntries },
     health: {
       completedNotOnBoard, staleBoard, orphanBoard,
+      implausibleTimes: implausibleUserTimes + implausibleBoardEntries,
       usersMissingProfile: users.filter((u) => !u.displayName && !u.email).length,
     },
     players: OPTS.redact ? users.map((u) => ({
@@ -788,7 +809,7 @@ function renderHtml(data) {
 
   <section>
     <h2>Finish-time distribution</h2>
-    <p class="hint">How long players take to complete the course — the core game-balance signal.</p>
+    <p class="hint">How long players take to complete the course — the core game-balance signal. Only times within the game's valid range (${I.plausibility.min}–${I.plausibility.max}s) are counted${(I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries) ? `; <b>${I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries}</b> implausible/forged time(s) excluded` : ''}.</p>
     ${I.bestTime.stats ? `<div class="stats-line">
       <span>fastest <b>${fmtTime(I.bestTime.stats.min)}</b></span>
       <span>p25 <b>${fmtTime(I.bestTime.stats.p25)}</b></span>
@@ -815,11 +836,13 @@ function renderHtml(data) {
 
   <section class="grid2">
     <div>
-      <h2>Logins by month</h2>
+      <h2>Most-recent login by month</h2>
+      <p class="hint">Firestore keeps only each player's <em>latest</em> login, so this is last-seen distribution, not visit volume — a returning player moves rather than adds a bar. For true activity over time use the GA4 daily chart above.</p>
       ${vbars(I.activityByMonth.map((r) => ({ label: r.month.slice(2), count: r.count })), { color: '#3aa0ff' })}
     </div>
     <div>
-      <h2>Leaderboard posts by month</h2>
+      <h2>Personal best set by month</h2>
+      <p class="hint"><code>achievedAt</code> is overwritten when a player beats their time, so this shows when current PBs were set — not every run.</p>
       ${vbars(I.runsByMonth.map((r) => ({ label: r.month.slice(2), count: r.count })), { color: '#5ad1a0' })}
     </div>
   </section>
@@ -855,6 +878,7 @@ function renderHtml(data) {
       <div class="flag${I.health.completedNotOnBoard ? ' warn' : ''}"><b>${I.health.completedNotOnBoard}</b>finished a run but not on leaderboard</div>
       <div class="flag${I.health.staleBoard ? ' warn' : ''}"><b>${I.health.staleBoard}</b>leaderboard time ≠ profile best time</div>
       <div class="flag${I.health.orphanBoard ? ' warn' : ''}"><b>${I.health.orphanBoard}</b>leaderboard rows with no user doc</div>
+      <div class="flag${I.health.implausibleTimes ? ' warn' : ''}"><b>${I.health.implausibleTimes}</b>implausible/forged times (excluded from stats)</div>
       <div class="flag${I.health.usersMissingProfile ? ' warn' : ''}"><b>${I.health.usersMissingProfile}</b>users missing name &amp; email</div>
     </div>
   </section>
@@ -893,7 +917,8 @@ function renderHtml(data) {
   else log('  (no src/ found — coverage audit skipped)');
 
   const nowMs = Date.now();
-  const insights = buildInsights(users, leaderboard, nowMs);
+  const scoreLimits = readScoreLimits(REPO_ROOT);
+  const insights = buildInsights(users, leaderboard, nowMs, scoreLimits);
   const data = {
     meta: {
       project: sa.project_id,
