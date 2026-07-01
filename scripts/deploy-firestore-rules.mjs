@@ -48,10 +48,11 @@ if (!saRaw) die('FIREBASE_SERVICE_ACCOUNT not set');
 let sa;
 try {
   sa = JSON.parse(saRaw);
-} catch (e) {
-  die(`FIREBASE_SERVICE_ACCOUNT is not valid JSON: ${e.message}`);
+} catch {
+  // Note: never interpolate the parse error — it can echo a chunk of the (secret) input.
+  die('FIREBASE_SERVICE_ACCOUNT is not valid JSON');
 }
-if (sa.type !== 'service_account') die(`FIREBASE_SERVICE_ACCOUNT is not a service_account key (type=${sa.type})`);
+if (sa.type !== 'service_account') die('FIREBASE_SERVICE_ACCOUNT is not a service_account key');
 for (const k of ['client_email', 'private_key', 'project_id']) {
   if (!sa[k]) die(`service-account key missing required field: ${k}`);
 }
@@ -110,7 +111,9 @@ async function api(token, method, path, payload) {
 }
 
 const token = await getAccessToken();
-console.log(`Authenticated as ${sa.client_email} (project ${project})`);
+// Don't log SA-derived fields (client_email/project_id) — they're part of the secret
+// credential blob. The project is still visible below via the API-returned ruleset path.
+console.log('Authenticated to the Firebase Rules API.');
 
 // Read the currently-released ruleset first: it tells us whether to PATCH or create the
 // release, and prints a before/after so the deploy is auditable in the CI log.
