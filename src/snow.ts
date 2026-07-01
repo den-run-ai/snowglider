@@ -485,6 +485,10 @@ export const Snow = {
   addRocks: Mountains.addRocks,
   addBranchesAtLayer: Trees.addBranchesAtLayer,
   addSnowCaps: Trees.addSnowCaps,
+  // Wind sway for the instanced forest (issue #253) — advanced/rewound by the main loop
+  // alongside the snow drift, so the whole scene reads one wind clock.
+  updateTreeWind: Trees.updateWind,
+  resetTreeWind: Trees.resetWind,
   debugHeightMap: Mountains.debugHeightMap,
   heightMap: Mountains.heightMap,
   

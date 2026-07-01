@@ -170,6 +170,16 @@ async function testDedupSweep(THREE, disposeSceneResources) {
   inst.addEventListener('dispose', () => instDisposed++);
   scene.add(inst);
 
+  // A mesh carrying a customDepthMaterial (the swaying-tree shadow-caster case): it is NOT
+  // reachable via obj.material, so the sweep must collect it explicitly or the shadow-pass
+  // material/program leaks.
+  const cdmMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+  const cdmDepth = new THREE.MeshDepthMaterial();
+  cdmMesh.customDepthMaterial = cdmDepth;
+  let cdmDepthDisposed = 0;
+  cdmDepth.addEventListener('dispose', () => cdmDepthDisposed++);
+  scene.add(cdmMesh);
+
   disposeSceneResources(scene);
 
   check('shared geometry disposed exactly once across 3 meshes', geoDisposed.length === 1);
@@ -178,6 +188,7 @@ async function testDedupSweep(THREE, disposeSceneResources) {
   check('the unique second geometry disposed once', geo2Disposed === 1);
   check('both materials in an array material disposed once each', matADisposed === 1 && matBDisposed === 1);
   check('InstancedMesh per-instance buffers disposed (InstancedMesh.dispose called)', instDisposed === 1);
+  check('customDepthMaterial (shadow-caster) disposed by the sweep', cdmDepthDisposed === 1);
 }
 
 // Build a fake SceneContext: a real THREE.Scene (so the sweep runs), spy subsystems,

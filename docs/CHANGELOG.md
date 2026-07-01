@@ -219,6 +219,42 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   `difficulty-tests.js` line-block assertions. (Terrain corridor, gates, obstacles, the
   per-tier avalanche, and the ranked flip follow in later D3.2 sub-PRs.)
 
+### Wind — the forest sways in the wind field (#253, Phase A)
+- **The trees now lean and flutter in the shared wind.** The instanced forest reads the
+  same `Wind` field as the snow and the scarf and sways downwind: a GPU **vertex sway**
+  (an `onBeforeCompile` injection on the instanced tree materials) bends each vertex in the
+  wind direction by an amount that scales with `Wind.strength()`, so the whole forest moves
+  for the cost of three uniform writes per frame — **no** per-frame CPU walk of the hundreds
+  of instances. The trunk material is "rooted" (the bend is weighted 0 at the base and 1 at
+  its top, so trees pivot at the ground) while the foliage/snow canopy above sways as a
+  unit at the matching amplitude; a spatial phase from each vertex's world x/z desyncs
+  neighbouring trees so the stand never waves in lockstep. The main loop advances it right
+  after `Wind.update` (`Snow.updateTreeWind`) and rewinds it on each run reset
+  (`Snow.resetTreeWind`).
+- **Cosmetic-only / invariant-safe.** The sway displaces vertices in the shader and never
+  touches `treePositions` or any `pos`/`velocity`, so the no-input coasting path stays
+  **byte-identical** to the frozen baseline (`test:verify` reports `max abs diff 0.000e+0`)
+  — **no baseline regeneration**. It needs no per-instance data, so the *shared* pooled
+  tree geometry is untouched (no multi-scene hazard); the non-instanced Group-shim path is
+  left un-swayed (`USE_INSTANCING`-gated). Calmed under `prefers-reduced-motion` (amplitude
+  → 0) like the snow drift / Flex / Sky. New `trees-tests.js` sway checks; docs: PHYSICS.md
+  §11 consumers, ARCHITECTURE.md §3.
+- **Review fixes.** (1) A genuinely calm field (`Wind.strength() === 0`, e.g. a
+  `Wind.configure({ baseStrength: 0, gustRange: 0 })` profile) now maps to zero amplitude — the
+  0.08 breeze floor is gated on positive wind via the pure `treeSwayAmplitude` — so the canopy
+  stays fully still in step with the snow/scarf consumers (the live field never reaches 0, so
+  play is unchanged). (2) The forest `castShadow`s, so each InstancedMesh gets a matching
+  `customDepthMaterial` carrying the same sway from the same shared uniforms, keeping the cast
+  shadows leaning with the trees instead of staying put. `new MeshDepthMaterial()` draws
+  `Math.random` for its uuid, and seeded harnesses place obstacles on that stream (the Node
+  forward-stress seeds then `addTrees`→`addRocks`; browser perf/teardown specs seed before the
+  bundle loads), so the two materials are built with `Math.random` swapped to a private RNG (in a
+  try/finally) — their uuid draws never shift the caller's seeded stream, while the pre-existing
+  visible materials keep drawing from it as the harnesses baseline. (3) `disposeSceneResources`
+  now also collects `customDepthMaterial`/`customDistanceMaterial` (not reachable via
+  `obj.material`) so the shadow-caster material is freed even without the pool reset. Covered by
+  `trees-tests.js` + `teardown-tests.js`.
+
 ### Wind — scarf streams in the apparent wind (#253, Phase A)
 - **The red scarf now reacts to the wind field.** The scarf tail trails the **apparent**
   wind `(wind − player velocity)` — the wind a moving snowman actually feels — resolved

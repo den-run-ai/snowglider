@@ -106,7 +106,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `Trees` | `trees.ts` (facade → `src/mountains/trees.ts`) | object + fns | Tree meshes + placement; returns `treePositions` |
 | `Snow` | `snow.ts` | object + fns | Snowflakes + ski snow-splash particles (drift downwind, issue #253) |
 | `Sky` | `sky.ts` | object + fns | Preetham atmospheric sky + sun & horizon distance fog (gradient-dome fallback), issue #2 |
-| `Wind` | `wind.ts` | object + fns | Shared deterministic horizontal wind field (a pure clock-advanced sample read by snow drift and the scarf, and in follow-ups tree sway / audio bed); cosmetic-only, no `THREE`/DOM import, issue #253 |
+| `Wind` | `wind.ts` | object + fns | Shared deterministic horizontal wind field (a pure clock-advanced sample read by snow drift, the scarf, and the tree sway, and in a follow-up the audio bed); cosmetic-only, no `THREE`/DOM import, issue #253 |
 | `Camera` | `camera.ts` | `class Camera` | Chase/orbit camera positioning & look-ahead |
 | `Snowman` | `snowman.ts` | object + fns | Snowman model, `updateSnowman` physics, test hooks |
 | `Flex` | `snowman-flex.ts` | object + fns | Cosmetic snowman flex (squash/jiggle, head-cluster bob/lean, landing settle); runs after physics, never touches the kernel (#53) |
