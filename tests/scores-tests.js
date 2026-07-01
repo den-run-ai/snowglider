@@ -322,6 +322,24 @@ async function main() {
   check('displayLeaderboard highlights and names the current user row',
     lbHtml.includes('current-user-score') && lbHtml.includes('Me'));
 
+  console.log('\n--- displayLeaderboard: user-controlled strings render as text (XSS regression) ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  // A display name that would execute if it ever reached innerHTML as markup.
+  currentAuthUser = { uid: 'evil', displayName: '<img src=x onerror=window.__pwned=1>' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  seed('leaderboard', 'evil', { user: doc(firestoreInstance, 'users', 'evil'), time: 19.5 });
+  seed('leaderboard', 'bystander', { user: doc(firestoreInstance, 'users', 'bystander'), time: 21 });
+  ScoresModule.displayLeaderboard();
+  await flushAll();
+  const lbEl = document.getElementById('leaderboard');
+  check('malicious display name renders as literal text, not markup',
+    lbEl.textContent.includes('<img src=x onerror=window.__pwned=1>'));
+  check('malicious display name injects no element into the leaderboard',
+    lbEl.querySelectorAll('img').length === 0);
+  check('no injected handler ran',
+    /** @type {any} */ (env.window).__pwned === undefined);
+
   console.log('\n--- displayLeaderboard: empty board ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
