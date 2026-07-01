@@ -45,9 +45,13 @@ recency, activity/leaderboard timelines, the global leaderboard, and cross-colle
 **data-health** checks (e.g. leaderboard rows whose time disagrees with the profile best).
 
 Two accuracy notes:
-- **Finish times are filtered to the game's valid range** (`MIN/MAX_VALID_SCORE_TIME` from
-  `src/score-limits.ts`). Legacy/forged sub-floor times the app itself rejects are excluded
-  from the distribution, median, and leaderboard, and counted under data-health.
+- **Per-tier aware.** Completions, the finish-time distribution, and the leaderboard read
+  every tier's best-time field (`bestTime` / `bestTimeBunny` / `bestTimeBlack`) and every
+  tier's leaderboard collection (`leaderboard` / `leaderboard_bunny` / `leaderboard_black`),
+  each judged against **its own floor** from `src/difficulty.ts` (bunny 28s, blue 18s,
+  black 13s; cap `MAX_VALID_SCORE_TIME`). So a player who finished only Bunny/Black still
+  counts as a completion, a fast Black run isn't dropped by Blue's floor, and legacy/forged
+  sub-floor times the app rejects are excluded and surfaced under data-health.
 - The **monthly timelines are point-in-time**: Firestore keeps only each player's latest
   `lastLogin` and current-PB `achievedAt`, so "most-recent login by month" is last-seen
   distribution (not visit volume) and "personal best set by month" is when current PBs were

@@ -507,17 +507,51 @@ function readScoreLimits(repoRoot) {
   } catch { return fallback; }
 }
 
+// The difficulty tiers, each with its Firestore best-time FIELD and leaderboard COLLECTION
+// (mirrors difficulty.ts userBestTimeField / leaderboardCollectionName: Blue keeps the
+// original un-suffixed names) and its own plausibility FLOOR. recordScore stores per-tier
+// bests on bestTimeBunny / bestTimeBlack, so counting only `bestTime` would miss anyone who
+// finished Bunny/Black but not Blue. Floors are read from difficulty.ts (Blue == the global
+// MIN_VALID_SCORE_TIME) so a legitimately fast Black run isn't judged against Blue's floor.
+function readTiers(repoRoot, limits) {
+  const tiers = [
+    { id: 'bunny', field: 'bestTimeBunny', collection: 'leaderboard_bunny', floor: 28 },
+    { id: 'blue',  field: 'bestTime',      collection: 'leaderboard',        floor: limits.min },
+    { id: 'black', field: 'bestTimeBlack', collection: 'leaderboard_black',  floor: 13 },
+  ];
+  try {
+    const src = readFileSync(join(repoRoot, 'src', 'difficulty.ts'), 'utf8');
+    for (const t of tiers) {
+      const m = src.match(new RegExp(`id:\\s*'${t.id}'[\\s\\S]{0,400}?minScoreTime:\\s*([\\w.]+)`));
+      if (m) t.floor = m[1] === 'MIN_VALID_SCORE_TIME' ? limits.min : Number(m[1]);
+    }
+  } catch { /* keep defaults */ }
+  return tiers;
+}
+
 // --------------------------------------------------------------------- build insights ----
-function buildInsights(users, leaderboard, nowMs, limits) {
+// `boardEntries` is the merged per-tier leaderboard (each row tagged with `.tier`); `tiers`
+// carries each tier's best-time field + plausibility floor; `maxTime` is the shared cap.
+function buildInsights(users, boardEntries, nowMs, tiers, maxTime) {
   const usersById = new Map(users.map((u) => [u.id, u]));
-  const isPlausibleTime = (t) => num(t) && t >= limits.min && t <= limits.max;
-  const withBest = users.filter((u) => num(u.bestTime));
-  // A "completed run" requires a PLAUSIBLE best time — a user whose only record is an
-  // app-rejected sub-floor/forged time hasn't really finished, so they must not inflate
-  // the completion count/rate/funnel any more than they inflate the time distribution.
-  const completed = withBest.filter((u) => isPlausibleTime(u.bestTime));
-  const bestTimes = completed.map((u) => u.bestTime);
-  const implausibleUserTimes = withBest.filter((u) => !isPlausibleTime(u.bestTime)).length;
+  const floorByTier = Object.fromEntries(tiers.map((t) => [t.id, t.floor]));
+  const blueFloor = floorByTier.blue ?? Math.min(...tiers.map((t) => t.floor));
+  const isPlausible = (t, floor) => num(t) && t >= floor && t <= maxTime;
+
+  // Every tier best a user has recorded (bestTime / bestTimeBunny / bestTimeBlack), each
+  // judged against its OWN tier floor — so a fast Black run isn't dropped by Blue's floor,
+  // and a player who finished only Bunny/Black still counts as a completion.
+  const userBests = (u) => tiers
+    .map((t) => ({ tier: t.id, time: u[t.field], floor: t.floor }))
+    .filter((b) => num(b.time));
+  const completed = users.filter((u) => userBests(u).some((b) => isPlausible(b.time, b.floor)));
+  const bestTimes = users.flatMap((u) => userBests(u).filter((b) => isPlausible(b.time, b.floor)).map((b) => b.time));
+  const implausibleUserTimes = users.flatMap(userBests).filter((b) => !isPlausible(b.time, b.floor)).length;
+  // The single fastest PLAUSIBLE time each user has across tiers (for the players table).
+  const bestOf = (u) => {
+    const plausible = userBests(u).filter((b) => isPlausible(b.time, b.floor)).map((b) => b.time);
+    return plausible.length ? Math.min(...plausible) : null;
+  };
 
   // Recency buckets from lastLogin.
   const buckets = { 'Last 24h': 0, 'Last 7 days': 0, 'Last 30 days': 0, 'Last 90 days': 0, 'Older': 0, 'Unknown': 0 };
@@ -536,33 +570,36 @@ function buildInsights(users, leaderboard, nowMs, limits) {
   const provider = {};
   for (const u of users) { const p = classifyProvider(u); provider[p] = (provider[p] || 0) + 1; }
 
-  // Leaderboard joined + sorted fastest first.
-  const board = leaderboard.map((e) => {
+  // Merged per-tier leaderboard, each row judged against its own tier floor, fastest first.
+  const board = boardEntries.map((e) => {
     const uid = (e.user || '').split('/').pop();
     const u = usersById.get(uid);
     return {
-      uid, time: e.time, achievedAt: e.achievedAt,
+      uid, time: e.time, achievedAt: e.achievedAt, tier: e.tier,
       name: OPTS.redact ? anonName(uid) : (u?.displayName || '(unknown)'),
     };
-  }).filter((e) => isPlausibleTime(e.time)).sort((a, b) => a.time - b.time);
-  const implausibleBoardEntries = leaderboard.filter((e) => num(e.time) && !isPlausibleTime(e.time)).length;
+  }).filter((e) => isPlausible(e.time, floorByTier[e.tier] ?? blueFloor)).sort((a, b) => a.time - b.time);
+  const implausibleBoardEntries = boardEntries
+    .filter((e) => num(e.time) && !isPlausible(e.time, floorByTier[e.tier] ?? blueFloor)).length;
 
   // Health / consistency checks.
   const boardUids = new Set(board.map((b) => b.uid));
   const completedNotOnBoard = completed.filter((u) => !boardUids.has(u.id)).length;
   let staleBoard = 0;
-  for (const e of leaderboard) {
+  for (const e of boardEntries) {
     const u = usersById.get((e.user || '').split('/').pop());
-    if (u && num(u.bestTime) && num(e.time) && Math.abs(u.bestTime - e.time) > 0.5) staleBoard++;
+    const uBest = u && tiers.find((t) => t.id === e.tier) ? u[tiers.find((t) => t.id === e.tier).field] : undefined;
+    if (num(uBest) && num(e.time) && Math.abs(uBest - e.time) > 0.5) staleBoard++;
   }
-  const orphanBoard = leaderboard.filter((e) => !usersById.has((e.user || '').split('/').pop())).length;
+  const orphanBoard = boardEntries.filter((e) => !usersById.has((e.user || '').split('/').pop())).length;
+  const tiersWithData = tiers.filter((t) => boardEntries.some((e) => e.tier === t.id)).map((t) => t.id);
 
   return {
     kpis: {
       totalUsers: users.length,
       completedRun: completed.length,
       completionRate: users.length ? completed.length / users.length : 0,
-      leaderboardEntries: leaderboard.length,
+      leaderboardEntries: boardEntries.length,
       fastestTime: board[0]?.time ?? null,
       medianBestTime: stats(bestTimes)?.median ?? null,
       activeLast30d: buckets['Last 24h'] + buckets['Last 7 days'] + buckets['Last 30 days'],
@@ -577,11 +614,15 @@ function buildInsights(users, leaderboard, nowMs, limits) {
       .sort((a, b) => b.count - a.count),
     recency: Object.entries(buckets).map(([label, count]) => ({ label, count })),
     activityByMonth: monthlyCounts(users.map((u) => u.lastLogin)),
-    runsByMonth: monthlyCounts(leaderboard.map((e) => e.achievedAt)),
+    runsByMonth: monthlyCounts(boardEntries.map((e) => e.achievedAt)),
     leaderboard: board.slice(0, 20).map((b) => ({
-      name: b.name, time: b.time, achievedAt: b.achievedAt,
+      name: b.name, time: b.time, achievedAt: b.achievedAt, tier: b.tier,
     })),
-    plausibility: { min: limits.min, max: limits.max, excludedUserTimes: implausibleUserTimes, excludedBoardEntries: implausibleBoardEntries },
+    tiers: tiersWithData,
+    plausibility: {
+      floors: Object.fromEntries(tiers.map((t) => [t.id, t.floor])), max: maxTime,
+      excludedUserTimes: implausibleUserTimes, excludedBoardEntries: implausibleBoardEntries,
+    },
     health: {
       completedNotOnBoard, staleBoard, orphanBoard,
       implausibleTimes: implausibleUserTimes + implausibleBoardEntries,
@@ -589,10 +630,10 @@ function buildInsights(users, leaderboard, nowMs, limits) {
     },
     players: OPTS.redact ? users.map((u) => ({
       id: anonName(u.id), provider: classifyProvider(u),
-      bestTime: num(u.bestTime) ? u.bestTime : null, lastLogin: u.lastLogin || null,
+      bestTime: bestOf(u), lastLogin: u.lastLogin || null,
     })) : users.map((u) => ({
       id: u.id, name: u.displayName || null, email: redactEmail(u.email),
-      provider: classifyProvider(u), bestTime: num(u.bestTime) ? u.bestTime : null,
+      provider: classifyProvider(u), bestTime: bestOf(u),
       lastLogin: u.lastLogin || null,
     })),
   };
@@ -662,10 +703,11 @@ function histogramHtml(hist) {
   return vbars(rows, { color: '#5ad1a0' });
 }
 
-function leaderboardTable(rows) {
+function leaderboardTable(rows, tiers = []) {
   if (!rows.length) return '<p class="empty">No leaderboard entries yet.</p>';
-  return `<table class="tbl"><thead><tr><th>#</th><th>Player</th><th>Time</th><th>Achieved</th></tr></thead><tbody>${
-    rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td class="mono">${fmtTime(r.time)}</td><td>${fmtDate(r.achievedAt)}</td></tr>`).join('')
+  const showTier = tiers.length > 1; // only surface the tier column once boards span >1 tier
+  return `<table class="tbl"><thead><tr><th>#</th><th>Player</th>${showTier ? '<th>Tier</th>' : ''}<th>Time</th><th>Achieved</th></tr></thead><tbody>${
+    rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td>${showTier ? `<td>${esc(r.tier || '—')}</td>` : ''}<td class="mono">${fmtTime(r.time)}</td><td>${fmtDate(r.achievedAt)}</td></tr>`).join('')
   }</tbody></table>`;
 }
 
@@ -811,7 +853,7 @@ function renderHtml(data) {
 
   <section>
     <h2>Finish-time distribution</h2>
-    <p class="hint">How long players take to complete the course — the core game-balance signal. Only times within the game's valid range (${I.plausibility.min}–${I.plausibility.max}s) are counted${(I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries) ? `; <b>${I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries}</b> implausible/forged time(s) excluded` : ''}.</p>
+    <p class="hint">Best finish times across all tiers — the core game-balance signal. Each time is kept only if it clears its own tier floor (${Object.entries(I.plausibility.floors).map(([t, f]) => `${t} ${f}s`).join(', ')}; max ${I.plausibility.max}s)${(I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries) ? `; <b>${I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries}</b> implausible/forged time(s) excluded` : ''}.</p>
     ${I.bestTime.stats ? `<div class="stats-line">
       <span>fastest <b>${fmtTime(I.bestTime.stats.min)}</b></span>
       <span>p25 <b>${fmtTime(I.bestTime.stats.p25)}</b></span>
@@ -852,7 +894,7 @@ function renderHtml(data) {
   <section>
     <h2>Global leaderboard</h2>
     <p class="hint">Fastest completed runs synced to Firestore.</p>
-    ${leaderboardTable(I.leaderboard)}
+    ${leaderboardTable(I.leaderboard, I.tiers)}
   </section>
 
   <section>
@@ -902,12 +944,19 @@ function renderHtml(data) {
 
   log('minting Firestore token…');
   const fsToken = await getAccessToken(sa, 'https://www.googleapis.com/auth/datastore');
+  const scoreLimits = readScoreLimits(REPO_ROOT);
+  const tiers = readTiers(REPO_ROOT, scoreLimits);
   log('reading Firestore collections…');
-  const [users, leaderboard] = await Promise.all([
+  // Read the users doc + EVERY tier's leaderboard collection (Blue = 'leaderboard',
+  // Bunny/Black = 'leaderboard_<tier>'). A tier with no board yet just returns []. Tag each
+  // row with its tier so per-tier floors apply downstream.
+  const [users, ...boards] = await Promise.all([
     fetchCollection(fsToken, sa.project_id, 'users'),
-    fetchCollection(fsToken, sa.project_id, 'leaderboard'),
+    ...tiers.map((t) => fetchCollection(fsToken, sa.project_id, t.collection)),
   ]);
-  log(`  users: ${users.length}   leaderboard: ${leaderboard.length}`);
+  const boardEntries = boards.flatMap((rows, i) => rows.map((e) => ({ ...e, tier: tiers[i].id })));
+  log(`  users: ${users.length}   leaderboard rows: ${boardEntries.length}` +
+    (boardEntries.length ? ` (${tiers.map((t, i) => `${t.id}:${boards[i].length}`).filter((_, i) => boards[i].length).join(', ')})` : ''));
 
   log('checking GA4…');
   const ga4 = await fetchGa4(sa);
@@ -919,8 +968,7 @@ function renderHtml(data) {
   else log('  (no src/ found — coverage audit skipped)');
 
   const nowMs = Date.now();
-  const scoreLimits = readScoreLimits(REPO_ROOT);
-  const insights = buildInsights(users, leaderboard, nowMs, scoreLimits);
+  const insights = buildInsights(users, boardEntries, nowMs, tiers, scoreLimits.max);
   const data = {
     meta: {
       project: sa.project_id,
@@ -928,7 +976,7 @@ function renderHtml(data) {
       generatedAtMs: nowMs,
       redacted: OPTS.redact,
       userCount: users.length,
-      leaderboardCount: leaderboard.length,
+      leaderboardCount: boardEntries.length,
       source: 'firestore' + (ga4.available ? '+ga4' : ''),
     },
     insights,
