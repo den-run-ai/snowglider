@@ -33,9 +33,11 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   rotation is purely cosmetic (`pose.ts` — spin drives the heading, flips ride on the
   clamped tilt, a grab tucks the crouch): pos/velocity are never touched in the air,
   so every other tier and the no-input coasting baseline stay **byte-identical**
-  (`test:verify` unchanged, no baseline regeneration). New `tests/freestyle-tests.js`
-  pins the grading table (`gradeFreestyleTrick`) and the double gate end-to-end;
-  PHYSICS.md gains §4.1.
+  (`test:verify` unchanged, no baseline regeneration). The follow camera is handed
+  the trick-free heading while a spin rides on the snowman's yaw (main-loop
+  `updateCamera`), so it stays behind the line of travel instead of orbiting with
+  the trick (codex review). New `tests/freestyle-tests.js` pins the grading table
+  (`gradeFreestyleTrick`) and the double gate end-to-end; PHYSICS.md gains §4.1.
 
 ### Wind — a resonant gust "howl" whistles on the wind (#253, Phase A)
 - **You can now hear the wind howl, not just whoosh.** The procedural `sfx.ts` engine gains

@@ -283,8 +283,28 @@ export function createMainLoop(deps: MainLoopDeps) {
     });
   }
 
+  // Scratch Euler reused when a freestyle spin is riding on the snowman's yaw (#32),
+  // so handing the camera a corrected heading allocates nothing per frame.
+  const cameraRotScratch = new THREE.Euler();
+
   // --- Update Camera: Follow the Snowman ---
   function updateCamera() {
+    // Freestyle (#32): the trick spin is written onto the snowman's root rotation.y
+    // (pose.ts) — the transform the follow camera also derives its orbit angle from,
+    // so left alone the camera would whirl around the rider at the spin rate
+    // (~360°/s) instead of staying behind the line of travel (codex review, PR #275).
+    // pose.ts tracks exactly how much spin it has applied (userData.trickSpinApplied,
+    // degrees, applied as -y), so adding it back recovers the trick-free heading for
+    // the camera only — the model itself keeps spinning. Zero on every non-trick
+    // frame (and cleared on landing), so this passes the snowman's own Euler through
+    // untouched outside an Expert spin.
+    const spinDeg = (snowman.userData && (snowman.userData.trickSpinApplied as number)) || 0;
+    if (spinDeg !== 0) {
+      cameraRotScratch.copy(snowman.rotation);
+      cameraRotScratch.y = snowman.rotation.y + spinDeg * (Math.PI / 180);
+      cameraManager.update(snowman.position, cameraRotScratch, velocity, Snow.getTerrainHeight);
+      return;
+    }
     // Simply delegate to the camera manager
     cameraManager.update(
       snowman.position,
