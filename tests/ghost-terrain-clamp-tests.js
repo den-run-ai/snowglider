@@ -34,7 +34,7 @@ async function main() {
     fillRect() {}, fillText() {},
     set fillStyle(_v) {}, set font(_v) {}, set textAlign(_v) {}, set textBaseline(_v) {},
   };
-  env.window.HTMLCanvasElement.prototype.getContext = () => noopCtx;
+  env.window.HTMLCanvasElement.prototype.getContext = /** @type {any} */ (() => noopCtx);
 
   const THREE = await import('three');
   const { CourseModule } = await import('../src/course.ts');
