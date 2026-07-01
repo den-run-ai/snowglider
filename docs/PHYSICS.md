@@ -643,8 +643,14 @@ of each faking its own (issue #253).
   sways as a unit; a spatial phase from each vertex's world x/z desyncs neighbouring trees.
   No per-instance data and no position/collision change, so it is invariant-safe and the
   shared pooled geometry is untouched).
-  *Follow-up:* audio bed (`sfx.ts`). Every consumer honours `prefers-reduced-motion`
-  (calm) itself, like `Flex`/`Sky`.
+  Audio bed (`sfx.ts`: the procedural ambient wind noise adds `Wind.strength() ×
+  WIND_FIELD_GAIN` on top of its speed-scaled whoosh via the pure `windGainForField`, so a
+  gusty slope hisses at a standstill and swells with gusts; the main loop passes
+  `Wind.strength()` into `Sfx.updateSkiing`. Keyed on `strength` (not the raw gust, which
+  stays non-zero in a calm profile) so a dead-calm field reduces exactly to the old
+  speed-only gain). The audio bed reads the field even under `prefers-reduced-motion` — it
+  is the one consumer that stays audible when *visible* motion is damped (the reduced-motion
+  gate lives in each visual consumer, not in `Wind` itself).
 - **Why this is invariant-safe.** Because no consumer writes `pos`/`velocity`, the
   no-input coasting path stays byte-identical to the frozen baseline (§6) — adding wind
   needed **no** baseline regeneration. A wind *force* on the skier would be the opposite: a

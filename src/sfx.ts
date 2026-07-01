@@ -6,7 +6,8 @@
 //   - skiing dynamics .... a speed-scaled wind/whoosh bed + an edge swish on turns
 //   - snowman actions .... jump whoosh, landing thump
 //   - avalanche .......... a low rumble that crescendos as the slide closes in
-//   - snowing / wind / nature  the always-on ambient wind bed (loud = fast, soft = idle)
+//   - snowing / wind / nature  the always-on ambient wind bed (loud = fast or gusty,
+//                              soft = idle on a calm slope; coupled to the shared Wind field)
 //   - crashes / finish ... a wipeout whoomph and a success chime
 //
 // Why procedural (and not THREE.Audio / Howler / recorded clips)? The project's
@@ -25,7 +26,7 @@
 //     dedicated test opts in via window.testHooks.sfxEnabled — so every existing
 //     test keeps its current (music-only) audio path and stays byte-identical.
 //   - **Headless-testable.** The gain-mapping math lives in exported pure functions
-//     (windGainForSpeed, carveGainForTechnique, avalancheGainForDistance,
+//     (windGainForSpeed, windGainForField, carveGainForTechnique, avalancheGainForDistance,
 //     landGainForForce) that need no AudioContext, so they unit-test in Node.
 //   - **Defensive.** Without a Web Audio implementation (jsdom/Node) every method is
 //     an inert no-op; node creation is wrapped so a hostile environment can't throw
@@ -41,6 +42,7 @@ const SFX_ENABLED = true;
 const SPEED_REF = 20;            // speed at which the wind term saturates
 const WIND_BASE = 0.05;          // ambient wind floor while barely moving (nature bed)
 const WIND_SPEED_GAIN = 0.40;    // extra wind at full speed
+const WIND_FIELD_GAIN = 0.16;    // extra ambient bed at full Wind-field strength (#253 PR5)
 const CARVE_SPEED_REF = 12;      // edge swish fades out below this speed
 const AVAL_NEAR = 8;             // distance (world units) at which rumble is full
 const AVAL_FAR = 80;             // distance beyond which the slide is inaudible
@@ -65,11 +67,25 @@ function techniqueEdge(technique: string): number {
 
 const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
 
-/** Ambient + speed wind bed gain (0..~0.45). Always at least WIND_BASE while a run
- *  is active so the slope never sounds dead; rises toward the top speed. */
+/** Motion-whoosh wind gain from the skier's own speed (0..~0.45): the air rushing past.
+ *  This is the calm-field baseline — {@link windGainForField} reduces to exactly this when
+ *  the wind is dead. Always at least WIND_BASE while a run is active so the slope never
+ *  sounds dead; rises toward the top speed. */
 export function windGainForSpeed(speed: number): number {
   const s = Number.isFinite(speed) ? Math.max(0, speed) : 0;
   return WIND_BASE + clamp01(s / SPEED_REF) * WIND_SPEED_GAIN;
+}
+
+/** Full wind-bed gain (0..~0.61): the motion whoosh PLUS the ambient environmental wind
+ *  from the shared Wind field (issue #253, PR5). `windStrength` is Wind.strength() (0..1,
+ *  the normalized field magnitude, which already swings with gusts). A windy slope lifts
+ *  the bed's floor so it hisses even at a standstill and swells as gusts pass through.
+ *  Deliberately keyed on strength and NOT the raw gust factor: gust keeps oscillating in a
+ *  dead-calm field (baseStrength = gustRange = 0) whereas strength collapses to 0, so this
+ *  reduces EXACTLY to windGainForSpeed(speed) when there is no wind (the pre-#253 sound). */
+export function windGainForField(speed: number, windStrength: number): number {
+  const st = clamp01(Number.isFinite(windStrength) ? windStrength : 0);
+  return windGainForSpeed(speed) + st * WIND_FIELD_GAIN;
 }
 
 /** Ski-edge swish gain (0..~0.3). Gated by technique and tapered to silence as the
@@ -264,14 +280,17 @@ export const Sfx = (function() {
       }
     },
 
-    // Per-frame continuous skiing bed: wind scales with speed, edge swish with the
-    // active technique. No-op until unlocked. `isInAir` silences the ground edge.
-    updateSkiing: function(speed: number, technique: string, isInAir: boolean) {
+    // Per-frame continuous skiing bed: wind scales with the skier's speed AND the shared
+    // Wind field (#253 PR5) so a gusty slope hisses even at a standstill; edge swish with
+    // the active technique. No-op until unlocked. `isInAir` silences the ground edge.
+    // `windStrength` is Wind.strength() (0..1); it defaults to 0 so direct callers and the
+    // ?test= suites stay on the exact pre-#253 calm-field path.
+    updateSkiing: function(speed: number, technique: string, isInAir: boolean, windStrength = 0) {
       if (!running || !ctx || muted) return;
       if (wind) {
-        rampTo(wind.gain.gain, windGainForSpeed(speed));
-        // A faster glide brightens the wind (rising whoosh).
-        rampTo(wind.filter.frequency, 300 + clamp01(speed / SPEED_REF) * 700);
+        rampTo(wind.gain.gain, windGainForField(speed, windStrength));
+        // A faster glide — or a stronger wind — brightens the wind (rising whoosh / whistle).
+        rampTo(wind.filter.frequency, 300 + clamp01(speed / SPEED_REF) * 700 + clamp01(windStrength) * 180);
       }
       if (carve) {
         const g = isInAir ? 0 : carveGainForTechnique(technique, speed);

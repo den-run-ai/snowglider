@@ -219,6 +219,28 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   `difficulty-tests.js` line-block assertions. (Terrain corridor, gates, obstacles, the
   per-tier avalanche, and the ranked flip follow in later D3.2 sub-PRs.)
 
+### Wind — the ambient audio bed breathes with the wind field (#253, Phase A)
+- **The wind you hear now tracks the wind you see.** The procedural ambient bed in
+  `sfx.ts` was purely *speed*-scaled — it only rose as the snowman sped up. It now also
+  reads the shared `Wind` field, so a gusty slope hisses even at a standstill and the bed
+  swells and eases as gusts roll through, in lockstep with the same field that drifts the
+  snow, streams the scarf, and sways the trees. A new pure `windGainForField(speed,
+  windStrength)` layers `Wind.strength() × WIND_FIELD_GAIN` (0.16 at full strength) on top
+  of the existing motion whoosh, and a stronger wind also brightens the bed's lowpass
+  (a faint rising whistle). The main loop passes `Wind.strength()` into `Sfx.updateSkiing`
+  — the same cached pre-`Wind.update()` sample the scarf reads, so audio and the visible
+  wind agree on the same gust.
+- **Keyed on `strength`, not the raw gust — so a dead-calm field is silent.** In a truly
+  calm profile (`Wind.configure({ baseStrength: 0, gustRange: 0 })`) the gust factor keeps
+  oscillating but `Wind.strength()` collapses to 0, so `windGainForField` reduces *exactly*
+  to the old `windGainForSpeed(speed)`: an unwindy run sounds identical to pre-#253.
+- **Cosmetic / invariant-safe.** SFX touches no `pos`/`velocity` and is a no-op under
+  automation (`window.isTestMode` / webdriver, unless a test opts in), so the physics
+  invariant stays **byte-identical** (`test:verify` unchanged) — **no baseline
+  regeneration**. The new field param defaults to 0, so every existing `updateSkiing`
+  caller and the `?test=` suites keep the pre-#253 path. New `sfx-tests.js` field-gain
+  checks (`npm run test:sfx`); docs: PHYSICS.md §11 consumers, ARCHITECTURE.md §3.
+
 ### Wind — the forest sways in the wind field (#253, Phase A)
 - **The trees now lean and flutter in the shared wind.** The instanced forest reads the
   same `Wind` field as the snow and the scarf and sways downwind: a GPU **vertex sway**

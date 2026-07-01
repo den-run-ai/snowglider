@@ -20,7 +20,7 @@ const approx = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
 async function main() {
   const Sfx = await import('../src/sfx.js');
-  const { windGainForSpeed, carveGainForTechnique, avalancheGainForDistance, landGainForForce } = Sfx;
+  const { windGainForSpeed, windGainForField, carveGainForTechnique, avalancheGainForDistance, landGainForForce } = Sfx;
 
   // --- wind bed gain -----------------------------------------------------------
   check('wind: idle floor at speed 0 (slope never silent)', windGainForSpeed(0) > 0 && windGainForSpeed(0) < 0.1);
@@ -28,6 +28,19 @@ async function main() {
   check('wind: saturates (clamped) past the reference speed', approx(windGainForSpeed(100), windGainForSpeed(20)));
   check('wind: NaN-safe', Number.isFinite(windGainForSpeed(NaN)) && windGainForSpeed(NaN) === windGainForSpeed(0));
   check('wind: negative speed treated as 0', windGainForSpeed(-50) === windGainForSpeed(0));
+
+  // --- wind bed coupled to the shared Wind field (#253 PR5) --------------------
+  // The KEY invariant: a dead-calm field (strength 0) reduces EXACTLY to the pre-#253
+  // speed-only sound, so an unwindy run (and the ?test= suites) are byte-identical.
+  check('windField: dead-calm (strength 0) == pure speed gain, at rest', windGainForField(0, 0) === windGainForSpeed(0));
+  check('windField: dead-calm (strength 0) == pure speed gain, moving', windGainForField(14, 0) === windGainForSpeed(14));
+  check('windField: a gusty standstill is louder than a calm standstill', windGainForField(0, 1) > windGainForField(0, 0));
+  check('windField: rises with field strength at a fixed speed', windGainForField(6, 1) > windGainForField(6, 0.3));
+  check('windField: strength clamped at 1 (a storm cannot overdrive the bed)', approx(windGainForField(6, 5), windGainForField(6, 1)));
+  check('windField: negative strength treated as calm', windGainForField(10, -3) === windGainForField(10, 0));
+  check('windField: NaN strength treated as calm', windGainForField(10, NaN) === windGainForField(10, 0));
+  check('windField: still moves with speed at full wind', windGainForField(20, 1) > windGainForField(5, 1));
+  check('windField: stays within the mixer headroom (<= ~0.62)', windGainForField(100, 1) <= 0.62);
 
   // --- ski-edge swish gain -----------------------------------------------------
   check('carve: glide is silent', carveGainForTechnique('glide', 18) === 0);
@@ -57,7 +70,8 @@ async function main() {
   let threw = false;
   try {
     engine.unlock();                         // gated off (no window) — must not throw
-    engine.updateSkiing(18, 'carve', false); // no-op without a context
+    engine.updateSkiing(18, 'carve', false); // no-op without a context (legacy 3-arg)
+    engine.updateSkiing(18, 'carve', false, 0.7); // 4-arg wind-field form (#253 PR5)
     engine.setAvalanche(true, 10);
     engine.jump();
     engine.land(0.8);
