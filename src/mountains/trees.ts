@@ -529,16 +529,22 @@ function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[
 
 // Half-width (world units) of the corridor's clear lane for tree placement — the same strip
 // the grid check keeps clear, and wider than the 2.5u tree collision radius so the on-line
-// route stays fully passable.
+// route stays fully passable. Measured PERPENDICULAR to the line (see treeInCorridorLane).
 const TREE_CORRIDOR_CLEAR = 3;
 
-/** Is a tree at the FINAL (jittered) position (x, z) inside the winding corridor's clear lane
- *  (within TREE_CORRIDOR_CLEAR of the line, measured at that z)? Only ever true when a corridor
- *  line is active (Black); straight tiers (Bunny/Blue) have no line, so this is always false ⇒
- *  addTrees culls nothing and their layout + Math.random() sequence stay byte-identical. Pure +
- *  exported for the corridor-obstacles test. */
+/** Is a tree at (x, z) inside the winding corridor's clear lane — i.e. within TREE_CORRIDOR_CLEAR
+ *  of the line, measured PERPENDICULAR to the curve? On a steep turn the line runs diagonally, so
+ *  a fixed horizontal band is thinner than it looks perpendicular to it: a tree `d` units to the
+ *  side of the lane is only `d · |tangent.z|` from the actual path (`tangent.z` = 1/√(1+slope²),
+ *  the line's -z component). Culling on that perpendicular distance keeps the on-line route clear
+ *  even on sharp turns, where the naive horizontal `|x-lane|<3` left trees ~1.6u from the path —
+ *  inside the 2.5u collision radius. Only ever true when a corridor line is active (Black); straight
+ *  tiers have no line ⇒ always false ⇒ addTrees culls nothing and their layout + Math.random()
+ *  sequence stay byte-identical. Pure + exported for the corridor-obstacles test. */
 function treeInCorridorLane(x: number, z: number): boolean {
-  return getActiveCourseLine() !== null && Math.abs(x - activeLaneX(z)) < TREE_CORRIDOR_CLEAR;
+  const line = getActiveCourseLine();
+  if (line === null) return false;
+  return Math.abs(x - line.laneX(z)) * Math.abs(line.tangent(z).z) < TREE_CORRIDOR_CLEAR;
 }
 
 // Add trees to make the scene more interesting
@@ -682,6 +688,10 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       const z = -180 + Math.random() * 260;
       // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
       const xPos = x + activeLaneX(z);
+      // Drop it if the offset landed inside the on-line clear lane (measured perpendicular to the
+      // curve): on steep Black turns the inner band can otherwise sit within the tree collision
+      // radius of the path. No-op for straight tiers (no line) ⇒ byte-identical placement.
+      if (treeInCorridorLane(xPos, z)) continue;
       const y = getTerrainHeight(xPos, z);
 
       treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});
@@ -696,6 +706,10 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       const z = -180 + Math.random() * 260;
       // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
       const xPos = x + activeLaneX(z);
+      // Drop it if the offset landed inside the on-line clear lane (measured perpendicular to the
+      // curve): on steep Black turns the inner band can otherwise sit within the tree collision
+      // radius of the path. No-op for straight tiers (no line) ⇒ byte-identical placement.
+      if (treeInCorridorLane(xPos, z)) continue;
       const y = getTerrainHeight(xPos, z);
 
       treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});
@@ -710,6 +724,10 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       const z = -180 + Math.random() * 260;
       // Place relative to the run's centerline at this z (0 for straight tiers ⇒ x unchanged).
       const xPos = x + activeLaneX(z);
+      // Drop it if the offset landed inside the on-line clear lane (measured perpendicular to the
+      // curve): on steep Black turns the inner band can otherwise sit within the tree collision
+      // radius of the path. No-op for straight tiers (no line) ⇒ byte-identical placement.
+      if (treeInCorridorLane(xPos, z)) continue;
       const y = getTerrainHeight(xPos, z);
 
       treePositions.push({x: xPos, y: y, z: z, scale: sizeVar});

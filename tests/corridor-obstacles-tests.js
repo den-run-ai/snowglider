@@ -109,28 +109,36 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     }
   });
 
-  runTest('tree corridor lane: active line ⇒ on-line in the clear lane, off-line kept', () => {
+  runTest('tree corridor lane: culls within PERPENDICULAR clearance of the winding line', () => {
     setActiveCourseLine(line);
     for (const z of zSamples) {
       const cx = line.laneX(z);
+      // |tangent.z| = 1/sqrt(1+slope^2): 1 on straight sections, < 1 where the line turns. The
+      // horizontal edge of the 3u perpendicular clearance is therefore 3 / |tangent.z|.
+      const tz = Math.abs(line.tangent(z).z);
+      const edge = 3 / tz;
       assert(Trees.treeInCorridorLane(cx, z) === true, `on-line tree culled at z=${z}`);
-      assert(Trees.treeInCorridorLane(cx + 2, z) === true, `within-lane (2u) tree culled at z=${z}`);
-      assert(Trees.treeInCorridorLane(cx + 4, z) === false, `outside-lane (4u) tree kept at z=${z}`);
-      assert(Trees.treeInCorridorLane(cx - 12, z) === false, `well-off-line tree kept at z=${z}`);
+      assert(Trees.treeInCorridorLane(cx + edge - 0.4, z) === true,
+        `inside perp clearance culled at z=${z} (|tz|=${tz.toFixed(2)})`);
+      assert(Trees.treeInCorridorLane(cx + edge + 0.4, z) === false,
+        `outside perp clearance kept at z=${z} (|tz|=${tz.toFixed(2)})`);
     }
   });
 
-  runTest('tree corridor lane: catches a grid column that PASSES then jitters INTO the lane', () => {
-    // The bug: the grid clear check reads the PRE-jitter (x, lane(z)); a jitter up to ±2.5 can
-    // push a column just outside the lane to within the 2.5u tree collision radius. Re-checking
-    // the FINAL position flags it. A grid tree at lane(z)+3.5 passes the grid check (|x-lane| >= 3)
-    // but a -2.5 jitter lands it at lane+1 — inside the clear lane — which must now be culled.
+  runTest('tree corridor lane: clearance widens on steep turns (perpendicular, regression)', () => {
+    // The naive horizontal `|x-lane| < 3` left a tree 3u to the side of a steep turn only ~1.6u
+    // from the actual path — inside the 2.5u collision radius. Measuring perpendicular to the
+    // curve culls it. Find the steepest sampled section (smallest |tangent.z|) and prove it.
     setActiveCourseLine(line);
+    let steepZ = zSamples[0], minTz = 1;
     for (const z of zSamples) {
-      const cx = line.laneX(z);
-      assert(Trees.treeInCorridorLane(cx + 3.5, z) === false, `pre-jitter column (3.5u) not culled at z=${z}`);
-      assert(Trees.treeInCorridorLane(cx + 1, z) === true, `jittered-in tree (1u) culled at z=${z}`);
+      const tz = Math.abs(line.tangent(z).z);
+      if (tz < minTz) { minTz = tz; steepZ = z; }
     }
+    assert(minTz < 0.9, `the Black line has a genuinely steep section (min |tangent.z|=${minTz.toFixed(3)})`);
+    const cx = line.laneX(steepZ);
+    assert(Trees.treeInCorridorLane(cx + 3, steepZ) === true,
+      `steep-turn tree at +3 horizontal culled (perp ${(3 * minTz).toFixed(2)}u < 3) at z=${steepZ}`);
   });
 
   setActiveCourseLine(null); // leave clean for any later importer

@@ -111,13 +111,16 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   (winnable) while drifting wide clips a gate. Because `lane === 0` and the pinch pass is
   skipped entirely when no corridor line is active, Bunny/Blue consume the identical
   `Math.random()` sequence and their gate/obstacle layout is byte-identical.
-- **The jittered tree position is re-checked against the line.** Tree placement applies a ±2.5
-  random offset AFTER the grid clear-lane check, which could nudge a Black tree from a column
-  just outside the lane to within the 2.5u collision radius — a randomly-crashable "clear" lane.
-  A new pure `treeInCorridorLane(x, z)` re-tests the FINAL (jittered) position against the line
-  and drops those, keeping the on-line route open. It returns `false` whenever no line is active,
-  so straight tiers cull nothing and stay byte-identical (the cluster branch already re-checked
-  its own final position).
+- **Tree placement clears the line PERPENDICULARLY.** Both tree loops (the grid jitter and the
+  60 "former ski path" trees) could seat a Black tree inside the on-line route: the grid loop
+  applies a ±2.5 jitter AFTER its clear-lane check, and the inner "ski path" band sits only 3u to
+  the side. Measured horizontally that looked clear, but on a steep turn the line runs diagonally
+  (min `|tangent.z|` ≈ 0.50 at z≈-90), so a tree 3u to the side is only ~1.5u *perpendicular* to
+  the path — well inside the 2.5u collision radius, making the "clear" lane randomly crashable. A
+  new pure `treeInCorridorLane(x, z)` drops any tree whose PERPENDICULAR distance to the line
+  (`|x-lane| · |tangent.z|`) is under the 3u clearance; both loops consult it. It returns `false`
+  whenever no line is active, so straight tiers cull nothing and stay byte-identical (the grid
+  cluster branch already re-checked its own final position).
 - **Guardrails.** `test:verify` IDENTICAL; `test:trees`/`test:terrain`/`test:tree-collision`/
   `test:regression` unchanged; new `tests/corridor-obstacles-tests.js`
   (`npm run test:corridor-obstacles`: clearance follows the line, on-line corridor always
