@@ -107,6 +107,40 @@ const BLACK_PHYSICS_TUNING: SnowmanPhysicsTuning = {
 };
 
 /**
+ * Per-tier avalanche tuning (the `avalanche` block of a difficulty config). The slide is
+ * "the mountain chasing you": a tier can make it fire earlier, run faster, and pack more
+ * boulders (Black), or turn it off entirely (Bunny). Only these numbers reach the
+ * AvalancheSystem (via scene-setup) — never the kernel. `boulderCount` sizes the
+ * InstancedMesh; `triggerDistance` is how far downhill the player travels before a slide
+ * (re)arms; `slideSpeedBase`/`slideSpeedJitter` set each boulder's initial downhill speed
+ * (`-(base + random()*jitter)` m/s). Black's numbers are PROVISIONAL — they are validated
+ * and tuned against the follow-the-line winnability harness (D3.2d), the quantitative gate
+ * the ranked flip depends on.
+ */
+export interface AvalancheTuning {
+  enabled: boolean;         // false ⇒ this tier has no avalanche (Bunny) — the slide never arms
+  triggerDistance: number;  // downhill units the player travels before a slide (re)arms
+  boulderCount: number;     // boulders in the slide (sizes the InstancedMesh)
+  slideSpeedBase: number;   // base initial downhill boulder speed (m/s)
+  slideSpeedJitter: number; // random 0..jitter added to the base, per boulder
+}
+
+/**
+ * BLUE == today's shipped slide, extracted VERBATIM: the 80 u trigger distance and 120
+ * boulders that lived as `AVALANCHE_TRIGGER_DISTANCE`/`AVALANCHE_BOULDER_COUNT`, and the
+ * `-(7 + random()*3)` m/s per-boulder speed that lived in avalanche.ts `trigger()`. So the
+ * default tier's avalanche stays byte-identical — the same boulder count draws from the
+ * same Math.random() stream in the same order (the byte-identical guardrail).
+ */
+export const BLUE_AVALANCHE: AvalancheTuning = {
+  enabled: true,
+  triggerDistance: 80,
+  boulderCount: 120,
+  slideSpeedBase: 7,
+  slideSpeedJitter: 3,
+};
+
+/**
  * A difficulty tier's full config. This stage carries the identity, the picker copy,
  * the per-tier seed, the kernel ski tuning, and the per-tier plausibility floor.
  * Terrain / obstacle / avalanche / surface / assist tuning are added by later stacked
@@ -139,6 +173,12 @@ export interface DifficultyConfig {
   // (Black); absent ⇒ straight tiers build today's exact terrain — the byte-identical
   // guardrail. Wired into the run by scene-setup.ts before the mesh is built (D3.2b).
   terrain?: TerrainCorridorParams;
+  // The per-tier avalanche slide (scene-setup.ts builds the AvalancheSystem from it).
+  // Blue is today's shipped slide (byte-identical); Bunny turns it off; Black fires
+  // earlier, faster, and heavier. Required so every tier is explicit and scene-setup
+  // needs no fallback. Black's numbers are provisional — the follow-the-line winnability
+  // harness (D3.2d) is where they get tuned for real (the ranked-flip gate).
+  avalanche: AvalancheTuning;
 }
 
 // The classic straight fall line: `laneX ≡ 0` everywhere. Shared by Bunny + Blue so
@@ -157,6 +197,10 @@ const BUNNY: DifficultyConfig = {
   ranked: false, // unranked until its floor is measured (D3 follow-up)
   minScoreTime: 28, // PROVISIONAL — re-measure before ranked
   line: STRAIGHT_LINE, // easy tier stays a straight fall line
+  // Bunny has NO avalanche — the easy tier is a calm learning run. `enabled: false` keeps
+  // the AvalancheSystem inert (main-loop skips the trigger), and triggerDistance Infinity is
+  // belt-and-suspenders. boulderCount stays a valid non-zero so the InstancedMesh is sound.
+  avalanche: { ...BLUE_AVALANCHE, enabled: false, triggerDistance: Infinity },
 };
 
 const BLUE: DifficultyConfig = {
@@ -168,6 +212,7 @@ const BLUE: DifficultyConfig = {
   ranked: true, // the classic, measured, ranked board
   minScoreTime: MIN_VALID_SCORE_TIME, // the measured shipped floor (18 s)
   line: STRAIGHT_LINE, // the classic straight run — byte-identical to today
+  avalanche: BLUE_AVALANCHE, // today's exact slide — the byte-identical guardrail
 };
 
 const BLACK: DifficultyConfig = {
@@ -187,6 +232,12 @@ const BLACK: DifficultyConfig = {
   // line turns climbs the wall, and the walls funnel avalanche boulders down the channel.
   // Provisional — re-tuned against the winnability harness in D3.2d.
   terrain: { channelHalfWidth: 7, wallRamp: 9, wallHeight: 10 },
+  // The Black slide is the mountain chasing you: it arms sooner (60 u vs Blue's 80 ⇒ more
+  // slides over the run), the boulders start faster (-(9 + rand*3) vs -(7 + rand*3)), and it
+  // packs more of them (150 vs 120 ⇒ a broader, harder-to-flank wall). PROVISIONAL — tuned
+  // against the follow-the-line winnability harness so a skilled Black line still escapes
+  // (D3.2d); the corridor walls funnel these boulders down the channel onto the fast line.
+  avalanche: { enabled: true, triggerDistance: 60, boulderCount: 150, slideSpeedBase: 9, slideSpeedJitter: 3 },
 };
 
 /** All tiers in display order (easy → hard). */

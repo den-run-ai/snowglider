@@ -34,7 +34,7 @@ import { Physics, type PlayerState } from '../player-state.js';
 import { getDifficultyConfig } from '../difficulty.js';
 import { updateStatsHud, updateTimerDisplay } from '../ui/hud.js';
 import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
-import { AVALANCHE_TRIGGER_DISTANCE, type SceneContext } from './scene-setup.js';
+import { type SceneContext } from './scene-setup.js';
 
 // The physics grid. FIXED_DT is the rate the invariant harness pins (1/60 s), so the
 // kernel is byte-identical here to the headless suites. MAX_SUBSTEPS caps how many
@@ -344,8 +344,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       const avalanche = state.avalanche;
       if (avalanche) {
         // Trigger based on distance traveled (player starts at z=-15, skis toward -Z).
+        // Per-tier (D3.2d): `enabled` is false for Bunny (never fires); `triggerDistance` is
+        // the active tier's arm distance (Black arms sooner than Blue). Both come from the
+        // system's own fields, set from the tier's `avalanche` block in scene-setup.
         const distanceTraveled = state.lastAvalancheZ - pos.z;
-        if (!state.avalancheTriggered && distanceTraveled > AVALANCHE_TRIGGER_DISTANCE) {
+        if (avalanche.enabled && !state.avalancheTriggered && distanceTraveled > avalanche.triggerDistance) {
           avalanche.trigger(snowman.position);
           state.avalancheTriggered = true;
           console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));

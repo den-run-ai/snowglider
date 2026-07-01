@@ -90,6 +90,38 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   already re-rendered the shadow map every frame). Covered by `tests/sun-shadow-tests.js`
   (`npm run test:sun-shadow`). See [`SNOW_RENDERING.md`](SNOW_RENDERING.md).
 
+### Difficulty tiers (D3.2d): per-tier avalanche + the follow-the-line winnability gate (Black)
+- **The avalanche is now per-tier.** A new `avalanche` block on each `DifficultyConfig`
+  (`difficulty.ts`) drives the slide: **Blue** carries today's exact numbers verbatim
+  (`BLUE_AVALANCHE` — 80 u trigger, 120 boulders, `-(7 + rand*3)` m/s), so the default
+  tier is byte-identical; **Bunny** turns it OFF (`enabled: false` — the easy tier is a
+  calm learning run); **Black** fires **earlier** (60 u trigger ⇒ more slides over the run),
+  **faster** (`-(9 + rand*3)` m/s against its faster physics), and **heavier** (150 boulders
+  ⇒ a broader wall). The walls of the D3.2b corridor funnel these boulders down the channel
+  onto the fast line, so the safe way down is *the line*.
+- **`avalanche.ts` parameterised.** `AvalancheSystem` gains `enabled` / `triggerDistance` /
+  `slideSpeedBase` / `slideSpeedJitter` (constructor `AvalancheParams`), all defaulting to
+  today's Blue slide so an omitted-params `new AvalancheSystem(scene, count)` is unchanged.
+  `trigger()` draws the boulder speed from `slideSpeedBase`/`Jitter` in **one** `Math.random()`
+  call (same stream position ⇒ Blue byte-identical). `scene-setup.ts` builds the system from
+  the active tier's block; `main-loop.ts` gates the trigger on `avalanche.enabled` and reads
+  `avalanche.triggerDistance`. `AVALANCHE_TRIGGER_DISTANCE`/`AVALANCHE_BOULDER_COUNT` are now
+  re-exported from `BLUE_AVALANCHE` (one source of truth).
+- **The winnability harness is the ranked-flip gate.** `tests/verification/winnability_harness.js`
+  gains a **follow-the-line carve controller** (`runLineDescent`) that skis each tier's real
+  `laneX(z)` on its real corridor at its real physics, against its own avalanche, steering to
+  the line with a downhill lookahead. New gates: **G5** — every tier's line reaches the finish
+  with no burial and without climbing out of the corridor, *every seed* (this is the quantitative
+  proof Black's provisional avalanche + corridor numbers are actually makeable at Black's speed);
+  **G6** — a too-slow line riding perfectly ON the Black corridor is buried every seed (the
+  two-sided companion, so the Black slide can't be silently neutered and still pass). Measured
+  margin: Black escapes with a closest-boulder of ~7 u (comparable to Blue's), top speed ~13.5 m/s.
+- **Guardrails.** `test:verify` IDENTICAL + smoke 53/0; `test:winnable` G2–G6 all green;
+  `test:avalanche` 12/0; `test:difficulty` extended to 34/0 (avalanche-block checks: Blue verbatim,
+  Bunny off, Black earlier+faster+heavier); the stack below (`course-line`/`terrain-corridor`/
+  `corridor-obstacles`) unchanged; lint 0 errors; typecheck clean; full `npm test` exit 0; vite
+  build ok. Bunny/Blue stay byte-identical (Bunny's slide never arms; Blue's numbers are verbatim).
+
 ### Difficulty tiers (D3.2c): gates + obstacles on the line (Black)
 - **The checkpoint + finish gates now sit ON the run's centerline.** `course.ts`
   `makeGate` takes a `laneOffset` (the whole gate — poles, banner, label, terrain

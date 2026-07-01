@@ -20,11 +20,15 @@ import { Sky } from '../sky.js';
 import { configureSunShadow } from './sun-shadow.js';
 import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
-import { readStoredDifficulty, getDifficultyConfig, type Difficulty } from '../difficulty.js';
+import { readStoredDifficulty, getDifficultyConfig, BLUE_AVALANCHE, type Difficulty } from '../difficulty.js';
 import { courseLineFor, setActiveCourseLine } from '../course-line.js';
 
-export const AVALANCHE_TRIGGER_DISTANCE = 80; // Trigger avalanche after traveling 80 units downhill
-export const AVALANCHE_BOULDER_COUNT = 120;   // boulders in the slide (single source of truth; gated by winnability_harness)
+// The shipped Blue avalanche numbers, re-exported from the difficulty spine so there is
+// ONE source of truth (difficulty.ts BLUE_AVALANCHE). The winnability harness reads these
+// for its Blue gates; the LIVE run reads the ACTIVE tier's `avalanche` block (below), so a
+// non-Blue tier fires its own earlier/faster/heavier slide.
+export const AVALANCHE_TRIGGER_DISTANCE = BLUE_AVALANCHE.triggerDistance; // 80 — Blue's shipped trigger
+export const AVALANCHE_BOULDER_COUNT = BLUE_AVALANCHE.boulderCount;       // 120 — Blue's shipped boulder count
 
 /**
  * Typed game state (Phase 3, issues #98/#84). Consolidates aliased mutable
@@ -290,8 +294,18 @@ export function setupScene(signal?: AbortSignal) {
   };
 
   // --- Initialize Avalanche System ---
+  // Per-tier slide (D3.2d): Bunny is OFF (enabled:false ⇒ the system builds but stays inert,
+  // so window.avalanche + the lifecycle reset path stay valid), Blue is today's exact slide
+  // (byte-identical), Black fires earlier/faster/heavier. The tier's `avalanche` block is the
+  // single source; `enabled` gates the trigger in main-loop.ts.
   if (typeof AvalancheSystem !== 'undefined') {
-    const av = new AvalancheSystem(scene, AVALANCHE_BOULDER_COUNT);
+    const avc = runConfig.avalanche;
+    const av = new AvalancheSystem(scene, avc.boulderCount, {
+      enabled: avc.enabled,
+      triggerDistance: avc.triggerDistance,
+      slideSpeedBase: avc.slideSpeedBase,
+      slideSpeedJitter: avc.slideSpeedJitter,
+    });
     av.setTerrainFunction(Snow.getTerrainHeight);
     state.avalanche = av;
     console.log("Avalanche system initialized");

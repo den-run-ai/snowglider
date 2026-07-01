@@ -31,10 +31,36 @@ export interface Vec3Like {
 /** Terrain sampler injected via {@link AvalancheSystem.setTerrainFunction}. */
 export type TerrainHeightFn = (x: number, z: number) => number;
 
+/**
+ * Per-tier avalanche knobs (the subset of difficulty.ts's `AvalancheTuning` the system
+ * itself reads). Every field is optional and DEFAULTS to today's shipped Blue slide, so an
+ * existing `new AvalancheSystem(scene, count)` call — and the byte-identical Blue path —
+ * is unchanged. Bunny passes `enabled: false` (the slide never arms); Black passes a
+ * shorter `triggerDistance` and a higher `slideSpeedBase` (earlier + faster).
+ */
+export interface AvalancheParams {
+  /** false ⇒ the slide never arms (main-loop skips `trigger()`); the system stays inert. */
+  enabled?: boolean;
+  /** Downhill units the player travels before a slide (re)arms (read by main-loop.ts). */
+  triggerDistance?: number;
+  /** Base initial downhill boulder speed (m/s). */
+  slideSpeedBase?: number;
+  /** Random 0..jitter added to the base, per boulder. */
+  slideSpeedJitter?: number;
+}
+
 export class AvalancheSystem {
   scene: THREE.Scene;
   count: number;
   active: boolean;
+  // --- Per-tier tuning (difficulty.ts AvalancheTuning) ----------------------
+  // enabled gates the trigger (Bunny is off); triggerDistance is read by main-loop.ts;
+  // slideSpeedBase/Jitter set each boulder's initial downhill speed in trigger(). All
+  // default to today's Blue slide so the default tier is byte-identical.
+  enabled: boolean;
+  triggerDistance: number;
+  slideSpeedBase: number;
+  slideSpeedJitter: number;
   dummy: THREE.Object3D;
   /** Terrain height function - set via setTerrainFunction(). */
   getTerrainHeight: TerrainHeightFn | null;
@@ -58,10 +84,15 @@ export class AvalancheSystem {
   powderNext: number;            // round-robin cursor into the powder pool
   powderTexture: THREE.Texture | null;  // shared puff texture (disposed once)
 
-  constructor(scene: THREE.Scene, count: number = 120) {
+  constructor(scene: THREE.Scene, count: number = 120, params: AvalancheParams = {}) {
     this.scene = scene;
     this.count = count;
     this.active = false;
+    // Per-tier tuning, defaulting to today's Blue slide (byte-identical when omitted).
+    this.enabled = params.enabled ?? true;
+    this.triggerDistance = params.triggerDistance ?? 80;
+    this.slideSpeedBase = params.slideSpeedBase ?? 7;
+    this.slideSpeedJitter = params.slideSpeedJitter ?? 3;
     this.dummy = new THREE.Object3D();
 
     // Terrain height function - set via setTerrainFunction()
@@ -188,15 +219,17 @@ export class AvalancheSystem {
       // Initial velocity - moving toward player (downhill = -Z)
       this.velocities[idx]     = (Math.random() - 0.5) * 2;
       this.velocities[idx + 1] = 0;
-      // Initial downhill speed of the slide. Softened from -(8 + rand*4) so a skilled,
-      // full-speed line can actually outrun it: after the frame-rate physics fixes
-      // (#209 drag + the avalanche friction fix) removed the low-FPS speed bonus mobile
-      // players were unknowingly riding, the real top skiing speed (~8.2 m/s, only ~6.5
-      // where the slide fires) sat below the old slide's reach, so even a clean centered
-      // line was buried on most seeds. -(7 + rand*3) keeps the slide a real threat to a
-      // genuinely slow line (<~5.5 m/s) while making it escapable at speed. Gated by the
-      // winnability harness (G2/G3); balance rationale in the winnability follow-up issue.
-      this.velocities[idx + 2] = -(7 + Math.random() * 3); // Negative Z = downhill
+      // Initial downhill speed of the slide. Blue's default is -(7 + rand*3): softened from
+      // -(8 + rand*4) so a skilled, full-speed line can actually outrun it — after the
+      // frame-rate physics fixes (#209 drag + the avalanche friction fix) removed the low-FPS
+      // speed bonus mobile players were unknowingly riding, the real top skiing speed
+      // (~8.2 m/s, only ~6.5 where the slide fires) sat below the old slide's reach, so even a
+      // clean centered line was buried on most seeds. -(7 + rand*3) keeps the slide a real
+      // threat to a genuinely slow line (<~5.5 m/s) while staying escapable at speed. Per
+      // tier now (D3.2d): Black raises slideSpeedBase (a faster slide against its faster
+      // physics). Gated by the winnability harness (G2/G3 for Blue, the per-tier follow-the-
+      // line gate for the rest); one Math.random() call, so Blue stays byte-identical.
+      this.velocities[idx + 2] = -(this.slideSpeedBase + Math.random() * this.slideSpeedJitter); // Negative Z = downhill
 
       // Random sizes
       this.sizes[i] = 0.4 + Math.random() * 1.2;
