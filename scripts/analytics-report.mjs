@@ -538,11 +538,21 @@ function readScoreLimits(repoRoot) {
 // global floor is forged/legacy regardless of tier. The reporter therefore uses the SERVER
 // floor for all tiers — see buildInsights.
 function readTiers() {
-  return [
-    { id: 'bunny', field: 'bestTimeBunny', collection: 'leaderboard_bunny' },
-    { id: 'blue',  field: 'bestTime',      collection: 'leaderboard' },
-    { id: 'black', field: 'bestTimeBlack', collection: 'leaderboard_black' },
+  const tiers = [
+    { id: 'bunny', field: 'bestTimeBunny', collection: 'leaderboard_bunny', ranked: false },
+    { id: 'blue',  field: 'bestTime',      collection: 'leaderboard',        ranked: true },
+    { id: 'black', field: 'bestTimeBlack', collection: 'leaderboard_black',  ranked: false },
   ];
+  // `ranked` decides which tiers even HAVE a global board — read from difficulty.ts so a
+  // later "ship Bunny/Black ranked" change is picked up automatically.
+  try {
+    const src = readFileSync(join(REPO_ROOT, 'src', 'difficulty.ts'), 'utf8');
+    for (const t of tiers) {
+      const m = src.match(new RegExp(`id:\\s*'${t.id}'[\\s\\S]{0,400}?ranked:\\s*(true|false)`));
+      if (m) t.ranked = m[1] === 'true';
+    }
+  } catch { /* keep defaults */ }
+  return tiers;
 }
 
 // --------------------------------------------------------------------- build insights ----
@@ -601,7 +611,12 @@ function buildInsights(users, boardEntries, nowMs, tiers, limits) {
 
   // Health / consistency checks.
   const boardUids = new Set(board.map((b) => b.uid));
-  const completedNotOnBoard = completed.filter((u) => !boardUids.has(u.id)).length;
+  // Only a plausible RANKED-tier best is *expected* on a global board — unranked tiers
+  // (Bunny/Black) have no board by design, so a Bunny/Black-only completion is a normal
+  // state, not a "finished but not on leaderboard" anomaly.
+  const rankedFields = tiers.filter((t) => t.ranked).map((t) => t.field);
+  const completedNotOnBoard = users.filter((u) =>
+    rankedFields.some((f) => isPlausible(u[f])) && !boardUids.has(u.id)).length;
   let staleBoard = 0;
   for (const e of boardEntries) {
     const u = usersById.get((e.user || '').split('/').pop());

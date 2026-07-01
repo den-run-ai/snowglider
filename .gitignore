@@ -34,10 +34,14 @@ firebase-debug.log
 ui-debug.log
 
 # Firebase service-account / admin SDK keys — live secrets, NEVER commit.
-# Rotate immediately if one is ever pushed. Used by scripts/analytics-report.mjs.
+# Rotate immediately if one is ever pushed. These MUST cover every name
+# scripts/analytics-report.mjs auto-discovers (*-firebase-adminsdk-*.json and
+# serviceAccount*.json, case-insensitive) so a usable key can't sit un-ignored.
 *-firebase-adminsdk-*.json
-serviceAccountKey.json
+serviceAccount*.json
+serviceaccount*.json
 *-serviceaccount*.json
+*-serviceAccount*.json
 
 # Generated analytics reports (contain player emails/names — never commit)
 analytics-out/
