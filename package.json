@@ -5,7 +5,7 @@
   "main": "src/snowglider.js",
   "license": "MIT",
   "scripts": {
-    "test": "npm run test:terrain && npm run test:physics && npm run test:difficulty && npm run test:course-line && npm run test:terrain-corridor && npm run test:corridor-obstacles && npm run test:regression && npm run test:tree-collision && npm run test:trees && npm run test:avalanche && npm run test:snowtrails && npm run test:auth && npm run test:local-auth && npm run test:scores && npm run test:limits-sync && npm run test:start-menu && npm run test:difficulty-picker && npm run test:collapsible && npm run test:result-overlay && npm run test:fatal-overlay && npm run test:lifecycle && npm run test:test-hooks && npm run test:controls && npm run test:camera && npm run test:flex && npm run test:debris && npm run test:leak && npm run test:teardown && npm run test:intro && npm run test:sfx && npm run test:diagnostics && npm run test:contract && npm run test:share && npm run test:feedback && npm run test:share-card && npm run test:share-menu && npm run test:audio-asset && npm run test:sky && npm run test:wind && npm run test:contact-shadows && npm run test:snow-surface && npm run test:sun-shadow && npm run test:coverage-merge && npm run test:verify && npm run test:turn-styles && npm run test:stress && npm run test:winnable && npm run test:floor",
+    "test": "node tests/run-node-suite.js",
     "test:terrain": "node --import ./tests/loaders/register-ts-resolve.mjs tests/terrain-tests.js",
     "test:physics": "node tests/physics-tests.js && node --import ./tests/loaders/register-ts-resolve.mjs tests/player-state-tests.js",
     "test:difficulty": "node --import ./tests/loaders/register-ts-resolve.mjs tests/difficulty-tests.js",

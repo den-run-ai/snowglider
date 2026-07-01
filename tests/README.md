@@ -78,10 +78,38 @@ Run the full Node suite:
 ```bash
 npm test
 ```
-This runs, in order: `test:terrain`, `test:physics`, `test:regression`,
-`test:tree-collision`, `test:avalanche`, `test:auth`, `test:scores`,
-`test:controls` (a stub — controls are browser-only), and `test:verify` (the
-verification harness).
+`npm test` runs [`tests/run-node-suite.js`](run-node-suite.js), an
+**auto-discovering** runner (it replaced the old hand-maintained 40+-command `&&`
+chain). It finds every headless suite on disk — the `tests/*-tests.js` files plus
+the `tests/verification/*.js` harnesses — and runs each in its own child `node`
+process, so **dropping a new `tests/<name>-tests.js` file in is enough to get it run
+by `npm test`; no `package.json` edit is needed.** It prints a per-suite pass/fail
+line and a final summary, and exits non-zero if any suite fails.
+
+Discovery skips two documented sets (see the header of `run-node-suite.js`):
+- **Browser-context suites** (`browser-*-tests.js`, `audio-tests.js`,
+  `camera-tests.js`, `controls-tests.js`) — these need a DOM/WebGL and are driven by
+  the in-page `?test=` runner (`npm run test:browser`), not Node.
+- **`firestore-rules-tests.js`** — needs the Java-backed Firestore emulator, so it
+  runs in its own `npm run test:firebase` job.
+
+Every suite is launched with the superset `--import
+tests/loaders/register-firebase-mock.mjs` hook. That hook layers the Firebase-CDN
+mock on top of the `.js`→`.ts` resolve fallback, and **both hooks are conditional
+no-ops unless their trigger fires**, so one loader covers the plain-`node`,
+`register-ts-resolve`, and `register-firebase-mock` cases that the old per-suite
+`test:*` scripts wired by hand.
+
+Run (or filter to) specific suites without editing anything:
+```bash
+node tests/run-node-suite.js --list       # list every discovered suite
+node tests/run-node-suite.js terrain      # run only suites whose path matches "terrain"
+node tests/run-node-suite.js share auth   # multiple filters = OR
+```
+
+The individual `test:*` scripts below are kept for convenience and backward
+compatibility (docs, muscle memory, targeted CI steps); they are no longer the way
+the full suite is aggregated.
 
 Run specific test categories:
 ```bash
