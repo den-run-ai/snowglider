@@ -171,5 +171,21 @@ module.exports = [
     languageOptions: {
       sourceType: "module"
     }
+  },
+  {
+    // Dev-only Node tooling for asset hosting (see docs/ASSETS.md). These run
+    // under `node` as ES modules, so they need node globals + module source type;
+    // the `**/*.js` block above only matches `.js` (and as sourceType "script").
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        ...globals.node
+      }
+    },
+    rules: {
+      ...warningRules
+    }
   }
 ];
