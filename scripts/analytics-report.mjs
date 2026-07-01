@@ -268,7 +268,12 @@ async function fetchGa4(sa) {
         series.get(ev).set(date, c);
         dayTotals.set(date, (dayTotals.get(date) || 0) + c);
       }
-      const sortedDays = [...days].sort();
+      // GA4 omits days with zero events, which would compress quiet stretches out of the
+      // baseline and make a post-lull spike compare against too few / only-active days.
+      // Rebuild the full calendar range between the first and last returned day and
+      // zero-fill the gaps (detectAnomalies reads missing days as 0).
+      const observed = [...days].sort();
+      const sortedDays = observed.length ? allDaysBetween(observed[0], observed[observed.length - 1]) : [];
       series.set('(all events)', dayTotals);
       anomalies = {
         available: true, window: '90daysAgo → today',
@@ -333,6 +338,19 @@ function histogram(values, binCount = 10) {
 // itself). Flag days that are both a large multiple of the baseline AND far above it in
 // robust-z terms — that combination is what a real "anomaly spike" looks like and avoids
 // firing on tiny-count noise. Returns spikes sorted most-recent first.
+// Every calendar day (inclusive) between two GA4 'YYYYMMDD' dates, so zero-event days GA4
+// omits are restored into the anomaly baseline.
+function allDaysBetween(minYmd, maxYmd) {
+  const toUTC = (s) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+  const fmt = (ms) => {
+    const d = new Date(ms);
+    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+  };
+  const out = [];
+  for (let ms = toUTC(minYmd), end = toUTC(maxYmd); ms <= end; ms += 86400e3) out.push(fmt(ms));
+  return out;
+}
+
 function detectAnomalies(seriesByEvent, sortedDays, { minCount = 15, z = 3.5, mult = 3 } = {}) {
   const spikes = [];
   const MADK = 1.4826; // scale MAD to be a std-dev estimate for normal data
