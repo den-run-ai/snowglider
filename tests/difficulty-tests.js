@@ -210,6 +210,31 @@ function maxTrajDiff(a, b) {
     D.getDifficultyConfig('bunny').terrain === undefined
     && D.getDifficultyConfig('blue').terrain === undefined);
 
+  console.log('--- Per-tier avalanche (the `avalanche` block, fed to AvalancheSystem — D3.2d) ---');
+  const avKeys = ['enabled', 'triggerDistance', 'boulderCount', 'slideSpeedBase', 'slideSpeedJitter'];
+  check('every tier carries a well-formed avalanche block (all keys present, right types)',
+    D.DIFFICULTIES.every((c) => c.avalanche
+      && typeof c.avalanche.enabled === 'boolean'
+      && avKeys.slice(1).every((k) => typeof c.avalanche[k] === 'number')));
+  // Blue == today's shipped slide, VERBATIM — the byte-identical guardrail: 80 u trigger, 120
+  // boulders, -(7 + rand*3) m/s. Any drift here changes the default tier's avalanche.
+  const blueAv = D.getDifficultyConfig('blue').avalanche;
+  check('Blue avalanche === BLUE_AVALANCHE (today\'s exact slide: 80 u / 120 / 7 / 3, enabled)',
+    blueAv === D.BLUE_AVALANCHE
+    && blueAv.enabled === true && blueAv.triggerDistance === 80 && blueAv.boulderCount === 120
+    && blueAv.slideSpeedBase === 7 && blueAv.slideSpeedJitter === 3);
+  // Bunny is OFF — the easy tier is a calm learning run (no slide arms).
+  check('Bunny avalanche is disabled (enabled === false)',
+    D.getDifficultyConfig('bunny').avalanche.enabled === false);
+  // Black fires EARLIER (shorter trigger), FASTER (higher base speed), and HEAVIER (more
+  // boulders) than Blue — validated as still winnable by the follow-the-line winnability gate.
+  const blackAv = D.getDifficultyConfig('black').avalanche;
+  check('Black avalanche is on, earlier + faster + heavier than Blue',
+    blackAv.enabled === true
+    && blackAv.triggerDistance < blueAv.triggerDistance
+    && blackAv.slideSpeedBase > blueAv.slideSpeedBase
+    && blackAv.boulderCount >= blueAv.boulderCount);
+
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
   check('localBestTimeKey: Blue keeps the original key; others are suffixed',
     D.localBestTimeKey('blue') === 'snowgliderBestTime'

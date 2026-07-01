@@ -447,19 +447,31 @@ from the main loop in [`src/snowglider.ts`](src/snowglider.ts).
 
 ### 7.1 Trigger
 
-`AVALANCHE_TRIGGER_DISTANCE = 80`. Once the player has descended 80 units past the
-last trigger point (`lastAvalancheZ - pos.z > 80`), `trigger(playerPos)` fires.
+The trigger distance is **per difficulty tier** (D3.2d): once the player has descended
+`avalanche.triggerDistance` units past the last trigger point
+(`lastAvalancheZ - pos.z > triggerDistance`) and `avalanche.enabled`, `trigger(playerPos)`
+fires. **Blue** (default) uses `80` — its shipped `BLUE_AVALANCHE`; **Black** arms sooner at
+`60` (more slides over the run); **Bunny** is `enabled: false`, so the slide never arms. The
+tier's `avalanche` block lives in [`src/difficulty.ts`](src/difficulty.ts) and is passed to
+the `AvalancheSystem` by `scene-setup.ts`; `main-loop.ts` reads `avalanche.triggerDistance`.
+`AVALANCHE_TRIGGER_DISTANCE`/`AVALANCHE_BOULDER_COUNT` are re-exported from `BLUE_AVALANCHE`
+as the single source of truth for Blue.
 
-### 7.2 Spawn (120 instanced boulders)
+### 7.2 Spawn (per-tier boulder count; 120 on Blue)
 
 ```
 angle = (rand - 0.5) * π * 0.6         // arc behind the player
 dist  = 25 + rand*15
 pos   = playerPos + ( sin(angle)*dist , 8 + rand*6 , dist*cos(angle) )  // +z = uphill/behind
-vel.z = -(8 + rand*4)                   // toward player (downhill)
+vel.z = -(slideSpeedBase + rand*slideSpeedJitter)   // toward player (downhill); Blue 7/3, Black 9/3
 vel.x = (rand - 0.5) * 2
 size  = 0.4 + rand*1.2
 ```
+
+The boulder count and `slideSpeedBase`/`slideSpeedJitter` are the tier's `avalanche` block:
+Blue is `120` boulders at `-(7 + rand*3)` m/s (today's exact slide); Black is `150` at
+`-(9 + rand*3)` — faster and heavier against its faster physics. Because the speed is one
+`Math.random()` call in the same position, Blue's spawn stream is byte-identical.
 
 ### 7.3 Per-frame physics
 
@@ -592,8 +604,9 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Rock hazard clear-zone (path half-width / start radius) | `|x|>=5` / `10` from `(0,-15)` | `mountains.ts` |
 | Off-mountain / fall bounds | `|x|>120` / `terrain−0.5` | `snowman.js` |
 | Downhill terrain bias | `(z+30)*0.12` for `z<-30` | `mountains.js` |
-| Avalanche trigger distance | 80 | `snowglider.js` |
-| Avalanche count / gravity / bounce / friction | 120 / 18 / 0.25 / 0.98 | `avalanche.js` |
+| Avalanche trigger distance (per tier) | Blue 80 / Black 60 / Bunny off | `difficulty.ts` |
+| Avalanche count / initial speed (per tier) | Blue 120 / `-(7+r*3)` · Black 150 / `-(9+r*3)` | `difficulty.ts` |
+| Avalanche gravity / bounce / friction | 18 / 0.25 / 0.98 | `avalanche.js` |
 | Course length / checkpoints | 180 / `-60,-105,-150` | `course.js` |
 | FOV range / ref speed | 75–88 / 28 | `effects.js` |
 | Wind base / gust range / prevailing angle / gust rate | 2.4 / 4.8 / 0.35 rad / 0.7 rad/s | `wind.js` |
