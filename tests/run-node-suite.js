@@ -44,15 +44,21 @@ const LOADER = pathToFileURL(
 // in-page `?test=` runner (tests/puppeteer-runner.js / unified-test-runner.js), not
 // Node. They cannot run headless, so discovery skips them here. New browser suites
 // belong in that runner, not this one.
+//
+// Anything following the `browser-*-tests.js` naming convention is skipped BY
+// PATTERN, so a browser suite added later is left out automatically — otherwise the
+// runner would try to execute a DOM/WebGL suite under Node and break `npm test`. The
+// explicit set below is only for the three browser suites that predate that
+// convention and don't carry the `browser-` prefix.
 const BROWSER_ONLY = new Set([
   'audio-tests.js',
-  'browser-tests.js',
-  'browser-avalanche-tests.js',
-  'browser-regression-tests.js',
-  'browser-tree-tests.js',
   'camera-tests.js',
   'controls-tests.js'
 ]);
+
+function isBrowserOnly(name) {
+  return name.startsWith('browser-') || BROWSER_ONLY.has(name);
+}
 
 // Suites that need external services the base `npm test` environment does not
 // provide. Firestore rules need a Java-backed emulator, so they run in their own
@@ -82,7 +88,7 @@ function discoverSuites() {
     TESTS_DIR,
     (name) =>
       name.endsWith('-tests.js') &&
-      !BROWSER_ONLY.has(name) &&
+      !isBrowserOnly(name) &&
       !REQUIRES_EXTERNAL.has(name)
   );
 
