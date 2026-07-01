@@ -509,47 +509,45 @@ function readScoreLimits(repoRoot) {
 
 // The difficulty tiers, each with its Firestore best-time FIELD and leaderboard COLLECTION
 // (mirrors difficulty.ts userBestTimeField / leaderboardCollectionName: Blue keeps the
-// original un-suffixed names) and its own plausibility FLOOR. recordScore stores per-tier
-// bests on bestTimeBunny / bestTimeBlack, so counting only `bestTime` would miss anyone who
-// finished Bunny/Black but not Blue. Floors are read from difficulty.ts (Blue == the global
-// MIN_VALID_SCORE_TIME) so a legitimately fast Black run isn't judged against Blue's floor.
-function readTiers(repoRoot, limits) {
-  const tiers = [
-    { id: 'bunny', field: 'bestTimeBunny', collection: 'leaderboard_bunny', floor: 28 },
-    { id: 'blue',  field: 'bestTime',      collection: 'leaderboard',        floor: limits.min },
-    { id: 'black', field: 'bestTimeBlack', collection: 'leaderboard_black',  floor: 13 },
+// original un-suffixed names). recordScore stores per-tier bests on bestTimeBunny /
+// bestTimeBlack (and per-tier leaderboard_<tier> collections), so counting only `bestTime`
+// would miss anyone who finished Bunny/Black but not Blue.
+//
+// NOTE on the floor: plausibility is NOT judged against the client per-tier floors
+// (difficulty.ts minScoreTime — those gate LOCAL practice bests). firestore.rules
+// validates EVERY tier field and EVERY leaderboard collection against the single global
+// isValidScoreTime (>= MIN_VALID_SCORE_TIME, <= MAX), so any value in Firestore below that
+// global floor is forged/legacy regardless of tier. The reporter therefore uses the SERVER
+// floor for all tiers — see buildInsights.
+function readTiers() {
+  return [
+    { id: 'bunny', field: 'bestTimeBunny', collection: 'leaderboard_bunny' },
+    { id: 'blue',  field: 'bestTime',      collection: 'leaderboard' },
+    { id: 'black', field: 'bestTimeBlack', collection: 'leaderboard_black' },
   ];
-  try {
-    const src = readFileSync(join(repoRoot, 'src', 'difficulty.ts'), 'utf8');
-    for (const t of tiers) {
-      const m = src.match(new RegExp(`id:\\s*'${t.id}'[\\s\\S]{0,400}?minScoreTime:\\s*([\\w.]+)`));
-      if (m) t.floor = m[1] === 'MIN_VALID_SCORE_TIME' ? limits.min : Number(m[1]);
-    }
-  } catch { /* keep defaults */ }
-  return tiers;
 }
 
 // --------------------------------------------------------------------- build insights ----
 // `boardEntries` is the merged per-tier leaderboard (each row tagged with `.tier`); `tiers`
-// carries each tier's best-time field + plausibility floor; `maxTime` is the shared cap.
-function buildInsights(users, boardEntries, nowMs, tiers, maxTime) {
+// carries each tier's best-time field; `limits` is the SERVER validation range
+// (firestore.rules isValidScoreTime), applied uniformly to every tier — see readTiers.
+function buildInsights(users, boardEntries, nowMs, tiers, limits) {
   const usersById = new Map(users.map((u) => [u.id, u]));
-  const floorByTier = Object.fromEntries(tiers.map((t) => [t.id, t.floor]));
-  const blueFloor = floorByTier.blue ?? Math.min(...tiers.map((t) => t.floor));
-  const isPlausible = (t, floor) => num(t) && t >= floor && t <= maxTime;
+  const isPlausible = (t) => num(t) && t >= limits.min && t <= limits.max;
 
-  // Every tier best a user has recorded (bestTime / bestTimeBunny / bestTimeBlack), each
-  // judged against its OWN tier floor — so a fast Black run isn't dropped by Blue's floor,
-  // and a player who finished only Bunny/Black still counts as a completion.
+  // Every tier best a user has recorded (bestTime / bestTimeBunny / bestTimeBlack). A
+  // player who finished only Bunny/Black still counts, but each time is judged against the
+  // SERVER floor the write had to clear, so a forged sub-floor value is excluded whatever
+  // its tier field.
   const userBests = (u) => tiers
-    .map((t) => ({ tier: t.id, time: u[t.field], floor: t.floor }))
+    .map((t) => ({ tier: t.id, time: u[t.field] }))
     .filter((b) => num(b.time));
-  const completed = users.filter((u) => userBests(u).some((b) => isPlausible(b.time, b.floor)));
-  const bestTimes = users.flatMap((u) => userBests(u).filter((b) => isPlausible(b.time, b.floor)).map((b) => b.time));
-  const implausibleUserTimes = users.flatMap(userBests).filter((b) => !isPlausible(b.time, b.floor)).length;
+  const completed = users.filter((u) => userBests(u).some((b) => isPlausible(b.time)));
+  const bestTimes = users.flatMap((u) => userBests(u).filter((b) => isPlausible(b.time)).map((b) => b.time));
+  const implausibleUserTimes = users.flatMap(userBests).filter((b) => !isPlausible(b.time)).length;
   // The single fastest PLAUSIBLE time each user has across tiers (for the players table).
   const bestOf = (u) => {
-    const plausible = userBests(u).filter((b) => isPlausible(b.time, b.floor)).map((b) => b.time);
+    const plausible = userBests(u).filter((b) => isPlausible(b.time)).map((b) => b.time);
     return plausible.length ? Math.min(...plausible) : null;
   };
 
@@ -578,9 +576,9 @@ function buildInsights(users, boardEntries, nowMs, tiers, maxTime) {
       uid, time: e.time, achievedAt: e.achievedAt, tier: e.tier,
       name: OPTS.redact ? anonName(uid) : (u?.displayName || '(unknown)'),
     };
-  }).filter((e) => isPlausible(e.time, floorByTier[e.tier] ?? blueFloor)).sort((a, b) => a.time - b.time);
+  }).filter((e) => isPlausible(e.time)).sort((a, b) => a.time - b.time);
   const implausibleBoardEntries = boardEntries
-    .filter((e) => num(e.time) && !isPlausible(e.time, floorByTier[e.tier] ?? blueFloor)).length;
+    .filter((e) => num(e.time) && !isPlausible(e.time)).length;
 
   // Health / consistency checks.
   const boardUids = new Set(board.map((b) => b.uid));
@@ -620,7 +618,7 @@ function buildInsights(users, boardEntries, nowMs, tiers, maxTime) {
     })),
     tiers: tiersWithData,
     plausibility: {
-      floors: Object.fromEntries(tiers.map((t) => [t.id, t.floor])), max: maxTime,
+      min: limits.min, max: limits.max,
       excludedUserTimes: implausibleUserTimes, excludedBoardEntries: implausibleBoardEntries,
     },
     health: {
@@ -853,7 +851,7 @@ function renderHtml(data) {
 
   <section>
     <h2>Finish-time distribution</h2>
-    <p class="hint">Best finish times across all tiers — the core game-balance signal. Each time is kept only if it clears its own tier floor (${Object.entries(I.plausibility.floors).map(([t, f]) => `${t} ${f}s`).join(', ')}; max ${I.plausibility.max}s)${(I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries) ? `; <b>${I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries}</b> implausible/forged time(s) excluded` : ''}.</p>
+    <p class="hint">Best finish times across all tiers — the core game-balance signal. Times are kept only if they clear the server validation range (${I.plausibility.min}–${I.plausibility.max}s, enforced by firestore.rules on every tier)${(I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries) ? `; <b>${I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries}</b> implausible/forged time(s) excluded` : ''}.</p>
     ${I.bestTime.stats ? `<div class="stats-line">
       <span>fastest <b>${fmtTime(I.bestTime.stats.min)}</b></span>
       <span>p25 <b>${fmtTime(I.bestTime.stats.p25)}</b></span>
@@ -945,7 +943,7 @@ function renderHtml(data) {
   log('minting Firestore token…');
   const fsToken = await getAccessToken(sa, 'https://www.googleapis.com/auth/datastore');
   const scoreLimits = readScoreLimits(REPO_ROOT);
-  const tiers = readTiers(REPO_ROOT, scoreLimits);
+  const tiers = readTiers();
   log('reading Firestore collections…');
   // Read the users doc + EVERY tier's leaderboard collection (Blue = 'leaderboard',
   // Bunny/Black = 'leaderboard_<tier>'). A tier with no board yet just returns []. Tag each
@@ -968,7 +966,7 @@ function renderHtml(data) {
   else log('  (no src/ found — coverage audit skipped)');
 
   const nowMs = Date.now();
-  const insights = buildInsights(users, boardEntries, nowMs, tiers, scoreLimits.max);
+  const insights = buildInsights(users, boardEntries, nowMs, tiers, scoreLimits);
   const data = {
     meta: {
       project: sa.project_id,
