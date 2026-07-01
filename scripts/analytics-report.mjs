@@ -512,9 +512,11 @@ function buildInsights(users, leaderboard, nowMs, limits) {
   const usersById = new Map(users.map((u) => [u.id, u]));
   const isPlausibleTime = (t) => num(t) && t >= limits.min && t <= limits.max;
   const withBest = users.filter((u) => num(u.bestTime));
-  // Time-based stats/histogram/leaderboard use ONLY plausible times; user/run *counts*
-  // stay honest (a forged record still means the account exists).
-  const bestTimes = withBest.map((u) => u.bestTime).filter(isPlausibleTime);
+  // A "completed run" requires a PLAUSIBLE best time — a user whose only record is an
+  // app-rejected sub-floor/forged time hasn't really finished, so they must not inflate
+  // the completion count/rate/funnel any more than they inflate the time distribution.
+  const completed = withBest.filter((u) => isPlausibleTime(u.bestTime));
+  const bestTimes = completed.map((u) => u.bestTime);
   const implausibleUserTimes = withBest.filter((u) => !isPlausibleTime(u.bestTime)).length;
 
   // Recency buckets from lastLogin.
@@ -547,7 +549,7 @@ function buildInsights(users, leaderboard, nowMs, limits) {
 
   // Health / consistency checks.
   const boardUids = new Set(board.map((b) => b.uid));
-  const completedNotOnBoard = withBest.filter((u) => !boardUids.has(u.id)).length;
+  const completedNotOnBoard = completed.filter((u) => !boardUids.has(u.id)).length;
   let staleBoard = 0;
   for (const e of leaderboard) {
     const u = usersById.get((e.user || '').split('/').pop());
@@ -558,8 +560,8 @@ function buildInsights(users, leaderboard, nowMs, limits) {
   return {
     kpis: {
       totalUsers: users.length,
-      completedRun: withBest.length,
-      completionRate: users.length ? withBest.length / users.length : 0,
+      completedRun: completed.length,
+      completionRate: users.length ? completed.length / users.length : 0,
       leaderboardEntries: leaderboard.length,
       fastestTime: board[0]?.time ?? null,
       medianBestTime: stats(bestTimes)?.median ?? null,
@@ -567,7 +569,7 @@ function buildInsights(users, leaderboard, nowMs, limits) {
     },
     funnel: [
       { stage: 'Registered', count: users.length },
-      { stage: 'Completed a run', count: withBest.length },
+      { stage: 'Completed a run', count: completed.length },
       { stage: 'On global leaderboard', count: boardUids.size },
     ],
     bestTime: { stats: stats(bestTimes), histogram: histogram(bestTimes, 10) },
