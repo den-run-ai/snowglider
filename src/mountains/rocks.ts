@@ -380,6 +380,9 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
         rock.rotation.z = -Math.atan(g.x) * 0.8;
         scene.add(rock);
         collisionRockPositions.push({ x: rx, y: ry, z: pz, size: PINCH_SIZE });
+        // Register with the rendered-rock list too (like the scatter + cliff rocks above), so
+        // these collidable pinch hazards get the grounding contact-AO blob addContactShadows draws.
+        outAllRendered?.push({ x: rx, y: ry, z: pz, size: PINCH_SIZE });
       }
     }
   }
