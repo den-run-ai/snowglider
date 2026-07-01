@@ -45,7 +45,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   Direct `file://` opens are not supported after the ES-module migration because browser module graphs
   and the import map do not load reliably from a null origin.
 - Run lint: `npm run lint` (eslint)
-- Run all Node tests: `npm test`
+- Run all Node tests: `npm test` (auto-discovering runner — see below)
 - Run Node tests with coverage: `npm run test:coverage`
 - Run browser tests: `npm run test:browser` (puppeteer)
 - Run specific tests: 
@@ -53,6 +53,17 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   - `npm run test:physics` - Physics simulation tests
   - `npm run test:regression` - Regression tests
   - `npm run test:tree-collision` - Tree collision tests
+- `npm test` runs `tests/run-node-suite.js`, an **auto-discovering** runner: it finds
+  every `tests/*-tests.js` and `tests/verification/*.js` suite and runs each in its own
+  child `node` process. **Adding a Node suite needs no `package.json` edit — just drop
+  the `tests/<name>-tests.js` file in and it's picked up.** Browser suites
+  (`browser-*`, `audio`/`camera`/`controls-tests.js`) and the emulator-only
+  `firestore-rules-tests.js` are intentionally skipped (documented denylists in the
+  runner header). Every suite loads with the superset
+  `register-firebase-mock.mjs` hook (both its sub-hooks are no-ops unless triggered),
+  so no per-suite loader wiring is needed. Filter with `node tests/run-node-suite.js
+  <substring>`; list with `--list`. The individual `test:*` scripts remain for
+  targeted runs.
 - Browser tests (serve first with `npm start`, then append `?test=` — `file://` no longer works):
  - All tests: `http://localhost:8080/?test=unified`
  - Camera tests: `http://localhost:8080/?test=camera`
