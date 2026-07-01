@@ -112,10 +112,15 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   terrain, so no baseline regen. Covered by the new `tests/terrain-corridor-tests.js`
   (`npm run test:terrain-corridor`: on-line wall 0, off-line bounded ramp, two-formula
   delta == wall, steeper-off-line gradient, cache reset) + extended `difficulty-tests.js`.
-- **Known limitation (tracked):** `setupScene()` builds terrain once and never rebuilds on
-  restart, so the corridor is fixed at scene build from the chosen tier — switching tiers
-  at the finish picker (#255) re-feels the kernel (per-frame `state.difficulty`) but won't
-  re-shape terrain without a rebuild. Gates + obstacles on the line and a follow-the-line
+- **Locked-tier reload guard.** `setupScene()` builds terrain once from the stored tier
+  (`state.builtDifficulty`) and never rebuilds on restart, so a run that locks a *different*
+  tier (the start-screen picker, or the finish "Play again on" picker) would ski a mismatched
+  mountain. Instead of an in-place rebuild (a large, leak-prone teardown) the coordinator
+  reloads on that mismatch (`maybeReloadForRunTier`) so `setupScene()` re-runs and reshapes the
+  scene for the locked tier; a one-shot flag resumes straight into the run
+  (`start-menu.ts resumeRunAfterTierReload`). Skipped under test/automation (the suites stay on
+  one reload-free path) and when the tier can't be persisted (private mode). Pure decision core
+  `runTierNeedsRebuild` is unit-tested. Gates + obstacles on the line and a follow-the-line
   winnability harness land in D3.2c/d.
 
 ### Difficulty tiers (D3.2a): per-tier course-line spine (no felt change)

@@ -147,6 +147,17 @@ function maxTrajDiff(a, b) {
   check('resolveActiveDifficulty falls back to default with no pick + no storage',
     D.resolveActiveDifficulty(undefined, null) === 'blue');
 
+  // runTierNeedsRebuild: the scene (corridor/gates/obstacles/avalanche) is baked from the
+  // built tier, so a run needs a rebuild exactly when its tier differs — except under
+  // automation, which must stay on one reload-free path.
+  check('runTierNeedsRebuild: same tier needs no rebuild',
+    D.runTierNeedsRebuild('black', 'black', false) === false);
+  check('runTierNeedsRebuild: a different tier needs a rebuild',
+    D.runTierNeedsRebuild('black', 'blue', false) === true);
+  check('runTierNeedsRebuild: never rebuilds under automation (tests stay on one path)',
+    D.runTierNeedsRebuild('black', 'blue', true) === false
+    && D.runTierNeedsRebuild('black', 'black', true) === false);
+
   const blue = D.getDifficultyConfig('blue');
   check('Blue is authoritative-current: blue.ski === BLUE_PHYSICS_TUNING',
     blue.ski === D.BLUE_PHYSICS_TUNING);

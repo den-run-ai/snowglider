@@ -54,6 +54,9 @@ export interface GameState {
   animationRunning: boolean;         // true while the requestAnimationFrame loop is running
   gameInitialized: boolean;          // true once the first run has been initialized
   difficulty: Difficulty;            // selected tier for this run (re-read from storage at run start)
+  builtDifficulty: Difficulty;       // tier the terrain corridor/mesh (and later gates/obstacles/
+                                     // avalanche) were baked from at scene build; a run-start
+                                     // mismatch triggers a reload so the scene matches the run
 }
 
 /**
@@ -242,11 +245,16 @@ export function setupScene(signal?: AbortSignal) {
   // Shape the terrain into the run's tier corridor BEFORE building the mesh, so the
   // mesh vertices and getTerrainHeight bake in the same walls (two-formula contract).
   // setupScene is one-shot (terrain is built once, never rebuilt on restart — see
-  // game/teardown.ts), so the corridor is fixed at scene build from the chosen tier;
-  // straight tiers (Bunny/Blue) resolve to `null` ⇒ today's exact terrain. (Switching
-  // tiers at the finish picker (#255) won't re-shape terrain without a rebuild — a
-  // tracked follow-up; the per-frame kernel feel still changes via state.difficulty.)
-  const corridorConfig = getDifficultyConfig(readStoredDifficulty());
+  // game/teardown.ts), so the corridor is fixed at scene build from `builtDifficulty`;
+  // straight tiers (Bunny/Blue) resolve to `null` ⇒ today's exact terrain.
+  //
+  // If the player locks a DIFFERENT tier for the run (the start-screen picker, or the
+  // finish "Play again on" picker), the corridor here would not match. Rather than
+  // rebuild the mesh in place (a large, leak-prone teardown), the coordinator reloads on
+  // that mismatch (maybeReloadForRunTier) so setupScene re-runs for the locked tier — see
+  // snowglider.ts. `builtDifficulty` is the tier this build used; it drives that check.
+  const builtDifficulty = readStoredDifficulty();
+  const corridorConfig = getDifficultyConfig(builtDifficulty);
   Snow.setTerrainCorridor(
     corridorConfig.terrain
       ? { line: courseLineFor(corridorConfig), params: corridorConfig.terrain }
@@ -276,7 +284,8 @@ export function setupScene(signal?: AbortSignal) {
     gameActive: false,       // start inactive until the user clicks the start button
     animationRunning: false,
     gameInitialized: false,
-    difficulty: readStoredDifficulty(), // remembered pick; re-read at each run start
+    difficulty: builtDifficulty, // remembered pick; re-read at each run start
+    builtDifficulty,             // the tier the scene above was built for (corridor/mesh)
   };
 
   // --- Initialize Avalanche System ---
