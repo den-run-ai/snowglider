@@ -591,14 +591,18 @@ function buildInsights(users, boardEntries, nowMs, tiers, limits) {
     if (num(uBest) && num(e.time) && Math.abs(uBest - e.time) > 0.5) staleBoard++;
   }
   const orphanBoard = boardEntries.filter((e) => !usersById.has((e.user || '').split('/').pop())).length;
-  const tiersWithData = tiers.filter((t) => boardEntries.some((e) => e.tier === t.id)).map((t) => t.id);
+  // Everything the report SHOWS as "leaderboard" (KPI count, tier set, PB-by-month timeline)
+  // uses the filtered `board` — valid rows only — so forged/malformed docs never create
+  // phantom entries/bars. Raw `boardEntries` is kept only for provenance (meta) and the
+  // data-health flags that are specifically ABOUT those invalid rows.
+  const tiersWithData = tiers.filter((t) => board.some((e) => e.tier === t.id)).map((t) => t.id);
 
   return {
     kpis: {
       totalUsers: users.length,
       completedRun: completed.length,
       completionRate: users.length ? completed.length / users.length : 0,
-      leaderboardEntries: boardEntries.length,
+      leaderboardEntries: board.length,
       fastestTime: board[0]?.time ?? null,
       medianBestTime: stats(bestTimes)?.median ?? null,
       activeLast30d: buckets['Last 24h'] + buckets['Last 7 days'] + buckets['Last 30 days'],
@@ -613,7 +617,7 @@ function buildInsights(users, boardEntries, nowMs, tiers, limits) {
       .sort((a, b) => b.count - a.count),
     recency: Object.entries(buckets).map(([label, count]) => ({ label, count })),
     activityByMonth: monthlyCounts(users.map((u) => u.lastLogin)),
-    runsByMonth: monthlyCounts(boardEntries.map((e) => e.achievedAt)),
+    runsByMonth: monthlyCounts(board.map((e) => e.achievedAt)),
     leaderboard: board.slice(0, 20).map((b) => ({
       name: b.name, time: b.time, achievedAt: b.achievedAt, tier: b.tier,
     })),
