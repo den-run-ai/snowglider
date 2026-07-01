@@ -25,6 +25,7 @@
     "test:difficulty-picker": "node --import ./tests/loaders/register-ts-resolve.mjs tests/difficulty-picker-tests.js",
     "test:collapsible": "node --import ./tests/loaders/register-ts-resolve.mjs tests/collapsible-panel-tests.js",
     "test:result-overlay": "node --import ./tests/loaders/register-ts-resolve.mjs tests/result-overlay-tests.js",
+    "test:ghost-clamp": "node --import ./tests/loaders/register-ts-resolve.mjs tests/ghost-terrain-clamp-tests.js",
     "test:fatal-overlay": "node --import ./tests/loaders/register-ts-resolve.mjs tests/fatal-error-overlay-tests.js",
     "test:lifecycle": "node --import ./tests/loaders/register-ts-resolve.mjs tests/lifecycle-tests.js",
     "test:test-hooks": "node --import ./tests/loaders/register-ts-resolve.mjs tests/test-hooks-tests.js",
