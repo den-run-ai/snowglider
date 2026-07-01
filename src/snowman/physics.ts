@@ -253,9 +253,9 @@ export function stepSnowmanPhysics(
       // score, not under-rotated) and everything below reduces to the #47 behaviour.
       const ud = snowman.userData;
       const trick = gradeFreestyleTrick(
-        (ud && ud.trickSpin) || 0,
-        (ud && ud.trickFlip) || 0,
-        (ud && ud.trickGrabTime) || 0
+        (ud && (ud.trickSpin as number)) || 0,
+        (ud && (ud.trickFlip as number)) || 0,
+        (ud && (ud.trickGrabTime as number)) || 0
       );
       trickName = trick.name;
 
@@ -437,14 +437,14 @@ export function stepSnowmanPhysics(
     if (tuning.freestyleTricks && snowman.userData && snowman.userData.playerJump) {
       const ud = snowman.userData;
       const spinDir = (controls.right ? 1 : 0) - (controls.left ? 1 : 0); // + = clockwise from above
-      if (spinDir !== 0) ud.trickSpin = (ud.trickSpin || 0) + spinDir * SPIN_RATE_DEG * delta;
+      if (spinDir !== 0) ud.trickSpin = ((ud.trickSpin as number) || 0) + spinDir * SPIN_RATE_DEG * delta;
       const flipDir = (controls.up ? 1 : 0) - (controls.down ? 1 : 0);    // + = frontflip
-      if (flipDir !== 0) ud.trickFlip = (ud.trickFlip || 0) + flipDir * FLIP_RATE_DEG * delta;
+      if (flipDir !== 0) ud.trickFlip = ((ud.trickFlip as number) || 0) + flipDir * FLIP_RATE_DEG * delta;
       if (!controls.jump) {
         ud.trickGrabArmed = true; // takeoff press released — a new press now grabs
         ud.trickGrabbing = false;
       } else if (ud.trickGrabArmed) {
-        ud.trickGrabTime = (ud.trickGrabTime || 0) + delta;
+        ud.trickGrabTime = ((ud.trickGrabTime as number) || 0) + delta;
         ud.trickGrabbing = true;  // pose cue: tuck into the grab while held
       }
     }

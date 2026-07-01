@@ -111,7 +111,7 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
 
     // Interpolate toward target rotation - never rotate more than 15 degrees at once
     const currentRotY = snowman.rotation.y;
-    const targetRotY = snowman.userData.targetRotationY;
+    const targetRotY = snowman.userData.targetRotationY as number;
 
     // Determine the shortest rotation direction (handle wrapping at 2pi)
     let deltaRotation = targetRotY - currentRotY;
