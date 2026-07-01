@@ -25,7 +25,8 @@ function runTest(name, fn) {
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
 
 (async () => {
-  const { rockIsCollisionHazard, rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } =
+  const THREE = await import('three');
+  const { rockIsCollisionHazard, rockCollisionRadius, ROCK_COLLISION_MIN_SIZE, addRocks } =
     await import('../src/mountains/rocks.js');
   const { Trees } = await import('../src/mountains/trees.js');
   const { courseLineFor, setActiveCourseLine } = await import('../src/course-line.js');
@@ -139,6 +140,41 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     const cx = line.laneX(steepZ);
     assert(Trees.treeInCorridorLane(cx + 3, steepZ) === true,
       `steep-turn tree at +3 horizontal culled (perp ${(3 * minTz).toFixed(2)}u < 3) at z=${steepZ}`);
+  });
+
+  // End-to-end placement (exercises the imperative addTrees/addRocks paths, not just the pure
+  // predicates): with a Black line active, EVERY placed tree must clear the perpendicular corridor.
+  runTest('addTrees on a Black line: every placed tree clears the perpendicular corridor', () => {
+    setActiveCourseLine(line);
+    const trees = Trees.addTrees(new THREE.Scene());
+    assert(trees.length > 0, 'trees were placed');
+    let worst = Infinity, worstZ = 0;
+    for (const t of trees) {
+      const perp = Math.abs(t.x - line.laneX(t.z)) * Math.abs(line.tangent(t.z).z);
+      if (perp < worst) { worst = perp; worstZ = t.z; }
+    }
+    // The culls drop anything under the 3u perpendicular clearance (same measure the code uses),
+    // so the closest placed tree is >= 3u — well outside the 2.5u tree collision radius.
+    assert(worst >= 3 - 1e-6, `closest tree clears the 3u perpendicular corridor (worst ${worst.toFixed(2)}u at z=${worstZ})`);
+    setActiveCourseLine(null);
+  });
+
+  runTest('addRocks on a Black line: pinch rocks register in BOTH the collision and rendered lists', () => {
+    setActiveCourseLine(line);
+    const rendered = [];
+    const collidable = addRocks(new THREE.Scene(), rendered);
+    assert(collidable.length > 0 && rendered.length > 0, 'rocks placed + rendered');
+    const PINCH_Z = [-42, -78, -126, -168], PINCH_EDGE = 8;
+    const near = (list, px, pz) => list.some(r => Math.abs(r.x - px) < 0.5 && Math.abs(r.z - pz) < 0.5);
+    for (const pz of PINCH_Z) {
+      const cx = line.laneX(pz);
+      for (const s of [-1, 1]) {
+        const px = cx + s * PINCH_EDGE;
+        assert(near(collidable, px, pz), `pinch rock at (${px.toFixed(1)}, ${pz}) is collidable`);
+        assert(near(rendered, px, pz), `pinch rock at (${px.toFixed(1)}, ${pz}) is in the rendered list (contact shadow)`);
+      }
+    }
+    setActiveCourseLine(null);
   });
 
   setActiveCourseLine(null); // leave clean for any later importer
