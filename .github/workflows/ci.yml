@@ -271,20 +271,18 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'npm'
+          # No npm cache / npm ci needed: the deploy script uses only Node built-ins.
 
       - name: Deploy firestore.rules to the live project
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_PROJECT: sn0wglider
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
             echo "::warning::FIREBASE_SERVICE_ACCOUNT secret not set — skipping Firestore rules deploy."
             exit 0
           fi
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
-          # Write via env (not string interpolation) so JSON quoting can't break the file.
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
-          trap 'rm -f "$GOOGLE_APPLICATION_CREDENTIALS"' EXIT
-          # Pinned to match the emulator suite (package.json test:firebase) — bump together.
-          npx -y firebase-tools@15.20.0 deploy --only firestore:rules \
-            --project sn0wglider --non-interactive
+          # Deploy via the Rules REST API (pure Node, no firebase-tools): firebase-tools'
+          # ADC auth is unreliable on GitHub runners (issue #10726). See the script header.
+          # The SA JSON is passed only through the env — it is never written to disk.
+          node scripts/deploy-firestore-rules.mjs
