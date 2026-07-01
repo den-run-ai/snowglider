@@ -185,6 +185,27 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   `difficulty-tests.js` line-block assertions. (Terrain corridor, gates, obstacles, the
   per-tier avalanche, and the ranked flip follow in later D3.2 sub-PRs.)
 
+### Wind — the forest sways in the wind field (#253, Phase A)
+- **The trees now lean and flutter in the shared wind.** The instanced forest reads the
+  same `Wind` field as the snow and the scarf and sways downwind: a GPU **vertex sway**
+  (an `onBeforeCompile` injection on the instanced tree materials) bends each vertex in the
+  wind direction by an amount that scales with `Wind.strength()`, so the whole forest moves
+  for the cost of three uniform writes per frame — **no** per-frame CPU walk of the hundreds
+  of instances. The trunk material is "rooted" (the bend is weighted 0 at the base and 1 at
+  its top, so trees pivot at the ground) while the foliage/snow canopy above sways as a
+  unit at the matching amplitude; a spatial phase from each vertex's world x/z desyncs
+  neighbouring trees so the stand never waves in lockstep. The main loop advances it right
+  after `Wind.update` (`Snow.updateTreeWind`) and rewinds it on each run reset
+  (`Snow.resetTreeWind`).
+- **Cosmetic-only / invariant-safe.** The sway displaces vertices in the shader and never
+  touches `treePositions` or any `pos`/`velocity`, so the no-input coasting path stays
+  **byte-identical** to the frozen baseline (`test:verify` reports `max abs diff 0.000e+0`)
+  — **no baseline regeneration**. It needs no per-instance data, so the *shared* pooled
+  tree geometry is untouched (no multi-scene hazard); the non-instanced Group-shim path is
+  left un-swayed (`USE_INSTANCING`-gated). Calmed under `prefers-reduced-motion` (amplitude
+  → 0) like the snow drift / Flex / Sky. New `trees-tests.js` sway checks; docs: PHYSICS.md
+  §11 consumers, ARCHITECTURE.md §3.
+
 ### Wind — scarf streams in the apparent wind (#253, Phase A)
 - **The red scarf now reacts to the wind field.** The scarf tail trails the **apparent**
   wind `(wind − player velocity)` — the wind a moving snowman actually feels — resolved

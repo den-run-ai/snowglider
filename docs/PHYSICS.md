@@ -623,8 +623,15 @@ of each faking its own (issue #253).
   lifted fore/aft in a head/tail wind — plus a light brace-into-the-wind body lean; the
   main loop computes the local-frame apparent wind and passes it in as `windSway`/
   `windStream`, both defaulting to 0 so the no-wind pose is byte-identical).
-  *Follow-ups:* tree sway (`mountains/trees.ts`), audio bed (`sfx.ts`). Every consumer
-  honours `prefers-reduced-motion` (calm) itself, like `Flex`/`Sky`.
+  Tree sway (`mountains/trees.ts`: the instanced forest leans downwind via a GPU vertex
+  sway — an `onBeforeCompile` injection on the instanced tree materials, driven by a shared
+  uniform set the main loop refreshes once per frame from `Wind.dir()`/`strength()`. The
+  trunk material is "rooted" so the bend is planted at the base while the canopy above it
+  sways as a unit; a spatial phase from each vertex's world x/z desyncs neighbouring trees.
+  No per-instance data and no position/collision change, so it is invariant-safe and the
+  shared pooled geometry is untouched).
+  *Follow-up:* audio bed (`sfx.ts`). Every consumer honours `prefers-reduced-motion`
+  (calm) itself, like `Flex`/`Sky`.
 - **Why this is invariant-safe.** Because no consumer writes `pos`/`velocity`, the
   no-input coasting path stays byte-identical to the frozen baseline (§6) — adding wind
   needed **no** baseline regeneration. A wind *force* on the skier would be the opposite: a

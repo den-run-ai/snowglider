@@ -396,6 +396,8 @@ export function createMainLoop(deps: MainLoopDeps) {
       // every wind consumer (snow drift, scarf, tree sway, audio bed) reads this one
       // clock-advanced sample, so they all agree on the same gust at the same instant.
       Wind.update(frameDelta);
+      // Push the wind into the instanced forest's vertex sway (GPU; a few uniform writes).
+      Snow.updateTreeWind(frameDelta);
 
       Snow.updateSnowflakes(frameDelta, pos, scene);
 
@@ -517,6 +519,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     interpPrev.z = interpCur.z = pos.z;
     // Restart each run from the same deterministic point in the gust cycle (#253).
     Wind.reset();
+    Snow.resetTreeWind();
   }
 
   // Seed the frame clock and kick the loop. Replaces the lifecycle sites' previous

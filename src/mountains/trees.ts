@@ -20,6 +20,7 @@ import { forestDensityField } from './noise.js';
 // exactly 0 for straight tiers, so `Math.abs(x - lane)` collapses to today's `Math.abs(x)`
 // and the placement (and its Math.random() sequence) stays byte-identical for Bunny/Blue.
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
+import { Wind } from '../wind.js';
 
 /** A placed tree's world position and size; addTrees returns these for collision. */
 export interface TreePosition {
@@ -242,8 +243,136 @@ function getFoliageMaterials(): THREE.MeshStandardMaterial[] {
 function getSnowMaterial(): THREE.MeshStandardMaterial {
   if (!snowMaterial) {
     snowMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
+    applyTreeSway(snowMaterial, false); // snow caps ride the canopy sway (USE_INSTANCING-gated)
   }
   return snowMaterial;
+}
+
+// --- Wind sway (issue #253, Phase A) ---------------------------------------------
+// The forest leans and flutters in the shared, deterministic wind field (src/wind.ts) —
+// the same field that drifts the snowfall and streams the scarf. This is a GPU vertex
+// sway (an `onBeforeCompile` injection on the instanced tree materials), NOT a per-frame
+// CPU walk of the hundreds of instances: the shader displaces each vertex downwind in
+// the material-space that sits between the instance transform and the view transform, so
+// the whole forest sways for the cost of three uniform writes per frame.
+//
+// Cosmetic only: it moves vertices in the shader and never touches any position/collision
+// data (`treePositions` is unchanged), so the physics invariant stays byte-identical.
+// Honours `prefers-reduced-motion` (amplitude -> 0) like the snow drift / Flex / Sky.
+//
+// Two sway profiles keep trees looking rooted without needing any per-instance data
+// (which would have to live on the *shared* pooled geometry and break its one-forest
+// assumption): the TRUNK material is "rooted" — the bend is weighted 0 at the trunk base
+// and 1 at its top, so the tree pivots at the ground — while the FOLIAGE/SNOW canopy
+// above it sways as a unit at the same top-of-trunk amplitude, so the join stays
+// continuous. A spatial phase from each vertex's world x/z desyncs neighbouring trees so
+// the stand doesn't wave in lockstep. One shared uniform set drives every material.
+const treeWindUniforms = {
+  uWindDir: { value: new THREE.Vector2(1, 0) }, // unit downwind direction (world x, z)
+  uWindAmp: { value: 0 },                        // world-unit lean at full weight; 0 = calm
+  uWindSwayTime: { value: 0 }                    // seconds, drives the flutter oscillation
+};
+let treeSwayClock = 0;
+
+// Amplitude band mapped from Wind.strength() (0..1): even the steady breeze nudges the
+// canopy, a full gust leans it a bit more, and it never exceeds ~a third of a unit — a
+// gentle sway on the ~8-14 unit-tall trees, not a storm.
+const TREE_SWAY_MIN_AMP = 0.08;
+const TREE_SWAY_MAX_AMP = 0.35;
+
+/** Honour prefers-reduced-motion (same gate as snow drift / Flex / Sky): a calm forest
+ *  when the user asks for reduced motion. Guarded so it is a no-op (motion on) headless. */
+function prefersReducedTreeMotion(): boolean {
+  return typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// Vertex-shader head: the wind uniforms + tuning defines, prepended at `<common>` so they
+// are in scope by the time `<project_vertex>` runs. `TREE_TRUNK_HALF` is the trunk
+// geometry's local half-height (see getTrunkGeometry: CylinderGeometry height 4) — the
+// rooted weight normalises `position.y` (local, scale-independent) against it.
+const TREE_SWAY_HEAD_BASE = `#include <common>
+  uniform vec2 uWindDir;
+  uniform float uWindAmp;
+  uniform float uWindSwayTime;
+  #define TREE_SWAY_RATE 1.1
+  #define TREE_TRUNK_HALF 2.0`;
+
+// Expanded default three r0.184 `<project_vertex>` with the sway applied in model space —
+// after `instanceMatrix`, before `modelViewMatrix`. The forest InstancedMeshes have an
+// identity model matrix, so model space is world space here and the lean is added to the
+// world x/z. Rooted (trunk) vs. uniform (canopy) is selected by `TREE_SWAY_ROOTED`, which
+// only the bark material defines. Pinned to the stock chunk; if a three upgrade rewrites
+// `<project_vertex>` this replace must be revisited (docs/THREEJS_UPGRADE.md).
+const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
+#ifdef USE_BATCHING
+  mvPosition = batchingMatrix * mvPosition;
+#endif
+#ifdef USE_INSTANCING
+  mvPosition = instanceMatrix * mvPosition;
+  {
+    #ifdef TREE_SWAY_ROOTED
+      float swayWeight = clamp( ( position.y + TREE_TRUNK_HALF ) / ( 2.0 * TREE_TRUNK_HALF ), 0.0, 1.0 );
+    #else
+      float swayWeight = 1.0;
+    #endif
+    float swayPhase = dot( mvPosition.xz, vec2( 0.35, 0.27 ) );
+    float swayOsc = sin( uWindSwayTime * TREE_SWAY_RATE + swayPhase )
+                  + 0.3 * sin( uWindSwayTime * TREE_SWAY_RATE * 2.1 + swayPhase * 1.7 );
+    float lean = uWindAmp * swayWeight * ( 0.75 + 0.25 * swayOsc );
+    mvPosition.x += uWindDir.x * lean;
+    mvPosition.z += uWindDir.y * lean;
+  }
+#endif
+mvPosition = modelViewMatrix * mvPosition;
+gl_Position = projectionMatrix * mvPosition;`;
+
+/** Inject the wind vertex sway into a tree material's shader. `rooted` selects the trunk
+ *  profile (bend planted at the base). Guarded by USE_INSTANCING so the non-instanced
+ *  Group-shim path (createTree) is untouched, and it wires the SHARED uniform objects so a
+ *  single updateTreeWind() drives every tree material at once. */
+function applyTreeSway(material: THREE.Material, rooted: boolean): void {
+  const head = rooted ? `${TREE_SWAY_HEAD_BASE}\n  #define TREE_SWAY_ROOTED` : TREE_SWAY_HEAD_BASE;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uWindDir = treeWindUniforms.uWindDir;
+    shader.uniforms.uWindAmp = treeWindUniforms.uWindAmp;
+    shader.uniforms.uWindSwayTime = treeWindUniforms.uWindSwayTime;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', head)
+      .replace('#include <project_vertex>', TREE_SWAY_PROJECT_VERTEX);
+  };
+  // onBeforeCompile edits are not part of three's default program cache key; a stable key
+  // (varied by profile) keeps the swayed program from colliding with an unswayed build.
+  material.customProgramCacheKey = () => (rooted ? 'tree-wind-sway-rooted-v1' : 'tree-wind-sway-v1');
+}
+
+/** Advance the forest's wind sway one render frame. Reads the shared Wind field (downwind
+ *  direction + strength) into the shared uniforms; amplitude collapses to 0 under
+ *  prefers-reduced-motion. Deterministic (the flutter clock only ever advances by dt), so
+ *  it stays screenshot-reproducible like the rest of the wind stack. Cheap: three uniform
+ *  writes, no per-instance work. */
+function updateWind(dt: number): void {
+  const d = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+  treeSwayClock += d;
+  treeWindUniforms.uWindSwayTime.value = treeSwayClock;
+  if (prefersReducedTreeMotion()) {
+    treeWindUniforms.uWindAmp.value = 0;
+    return;
+  }
+  const dir = Wind.dir();
+  treeWindUniforms.uWindDir.value.set(dir.x, dir.z);
+  treeWindUniforms.uWindAmp.value =
+    TREE_SWAY_MIN_AMP + (TREE_SWAY_MAX_AMP - TREE_SWAY_MIN_AMP) * Wind.strength();
+}
+
+/** Rewind the sway clock (called on each run reset, alongside Wind.reset) so every run
+ *  starts from the same deterministic point in the flutter cycle. */
+function resetWind(): void {
+  treeSwayClock = 0;
+  treeWindUniforms.uWindSwayTime.value = 0;
+  treeWindUniforms.uWindAmp.value = 0;
+  treeWindUniforms.uWindDir.value.set(1, 0);
 }
 
 // --- Instanced materials (one per family; white base, tinted per-instance) ---
@@ -264,6 +393,7 @@ function getBarkInstancedMaterial(): THREE.MeshStandardMaterial {
       normalMap: getBarkNormal(),
       normalScale: new THREE.Vector2(0.7, 0.7)
     });
+    applyTreeSway(barkInstancedMaterial, true); // rooted: bend planted at the trunk base
   }
   return barkInstancedMaterial;
 }
@@ -277,6 +407,7 @@ function getFoliageInstancedMaterial(): THREE.MeshStandardMaterial {
       normalMap: getFoliageNormal(),
       normalScale: new THREE.Vector2(0.5, 0.5)
     });
+    applyTreeSway(foliageInstancedMaterial, false); // canopy sways as a unit
   }
   return foliageInstancedMaterial;
 }
@@ -820,7 +951,9 @@ export const Trees = {
   getTerrainHeight,
   getTerrainGradient,
   resetTreePools,
-  treeInCorridorLane
+  treeInCorridorLane,
+  updateWind,
+  resetWind
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).
