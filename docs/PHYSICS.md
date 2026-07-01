@@ -651,6 +651,15 @@ of each faking its own (issue #253).
   speed-only gain). The audio bed reads the field even under `prefers-reduced-motion` — it
   is the one consumer that stays audible when *visible* motion is damped (the reduced-motion
   gate lives in each visual consumer, not in `Wind` itself).
+- **Wind "howl" (audio, `sfx.ts`).** A second, distinct wind sound: a narrow high-Q
+  bandpass "whistle" layered on the ambient bed, driven each frame by
+  `Sfx.updateWindHowl(Wind.strength(), Wind.gust())` (called from the render loop after
+  `Wind.update()`). Its gain comes from `howlGainForWind(strength)` — silent below a knee so
+  a light breeze does not whistle, then swelling as the wind builds — and its pitch from
+  `howlFreqForGust(gust)`, sweeping up on a gust and back in the lull so the tone wavers.
+  Keyed on `strength`, which is 0 in a dead-calm field, so the howl is exactly silent with
+  no wind (a windless run is unchanged). Reads the field only — no `pos`/`velocity` — so it
+  is invariant-safe like the visual consumers.
 - **Why this is invariant-safe.** Because no consumer writes `pos`/`velocity`, the
   no-input coasting path stays byte-identical to the frozen baseline (§6) — adding wind
   needed **no** baseline regeneration. A wind *force* on the skier would be the opposite: a

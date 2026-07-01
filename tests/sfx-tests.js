@@ -20,7 +20,8 @@ const approx = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
 async function main() {
   const Sfx = await import('../src/sfx.js');
-  const { windGainForSpeed, windGainForField, carveGainForTechnique, avalancheGainForDistance, landGainForForce } = Sfx;
+  const { windGainForSpeed, windGainForField, carveGainForTechnique, avalancheGainForDistance,
+    landGainForForce, howlGainForWind, howlFreqForGust } = Sfx;
 
   // --- wind bed gain -----------------------------------------------------------
   check('wind: idle floor at speed 0 (slope never silent)', windGainForSpeed(0) > 0 && windGainForSpeed(0) < 0.1);
@@ -64,6 +65,24 @@ async function main() {
   check('land: clamped at the top end', approx(landGainForForce(5), landGainForForce(1.2)));
   check('land: NaN-safe', landGainForForce(NaN) === 0);
 
+  // --- wind "howl" whistle: gain (from field strength) + pitch (from gust) (#253) ----
+  // The KEY invariant, matching the rest of the wind stack: a dead-calm / light-breeze
+  // field makes NO whistle, so an unwindy run is byte-identical to the pre-#253 sound.
+  check('howl: silent on a calm slope (strength 0)', howlGainForWind(0) === 0);
+  check('howl: silent for a light breeze below the knee', howlGainForWind(0.4) === 0);
+  check('howl: whistles once the wind blows past the knee', howlGainForWind(0.75) > 0);
+  check('howl: louder in a stronger wind', howlGainForWind(1) > howlGainForWind(0.7));
+  check('howl: clamped at full strength (a storm cannot overdrive it)', approx(howlGainForWind(5), howlGainForWind(1)));
+  check('howl: stays under its own headroom (<= ~0.11)', howlGainForWind(1) <= 0.111);
+  check('howl: negative strength treated as calm', howlGainForWind(-3) === 0);
+  check('howl: NaN strength treated as calm', howlGainForWind(NaN) === 0);
+  // Pitch sweeps up with the gust so the tone wavers (a "howl", not a static whistle).
+  check('howl: pitch rises on a gust', howlFreqForGust(1) > howlFreqForGust(0));
+  check('howl: lull pitch is the low end', approx(howlFreqForGust(0), 600));
+  check('howl: full-gust pitch is the high end', approx(howlFreqForGust(1), 1200));
+  check('howl: gust clamped past 1', approx(howlFreqForGust(9), howlFreqForGust(1)));
+  check('howl: NaN gust treated as a lull', howlFreqForGust(NaN) === howlFreqForGust(0));
+
   // --- engine: inert + defensive in Node (no AudioContext) ---------------------
   const engine = Sfx.Sfx;
   check('engine: isEnabled() true', engine.isEnabled() === true);
@@ -72,6 +91,7 @@ async function main() {
     engine.unlock();                         // gated off (no window) — must not throw
     engine.updateSkiing(18, 'carve', false); // no-op without a context (legacy 3-arg)
     engine.updateSkiing(18, 'carve', false, 0.7); // 4-arg wind-field form (#253 PR5)
+    engine.updateWindHowl(0.8, 0.6);         // no-op without a context (wind howl)
     engine.setAvalanche(true, 10);
     engine.jump();
     engine.land(0.8);
