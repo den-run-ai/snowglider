@@ -409,6 +409,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       Wind.update(frameDelta);
       // Push the wind into the instanced forest's vertex sway (GPU; a few uniform writes).
       Snow.updateTreeWind(frameDelta);
+      // Drive the wind "howl" (#253): a resonant whistle that swells with the field's
+      // strength and sweeps its pitch with each gust. Reads the freshly-advanced sample
+      // (audio can lag a frame imperceptibly, unlike the scarf which reads the pre-update
+      // sample); a no-op until the SFX context is unlocked and silent on a calm slope.
+      Sfx.updateWindHowl(Wind.strength(), Wind.gust());
 
       Snow.updateSnowflakes(frameDelta, pos, scene);
 

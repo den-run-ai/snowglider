@@ -13,6 +13,51 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Wind — a resonant gust "howl" whistles on the wind (#253, Phase A)
+- **You can now hear the wind howl, not just whoosh.** The procedural `sfx.ts` engine gains
+  a second, distinct wind layer: alongside the broadband ambient bed, a narrow high-Q
+  bandpass "howl" — the tonal, whistling resonance of a strong wind. It stays silent on a
+  calm slope and emerges only when the shared `Wind` field blows hard, swelling with each
+  gust; its pitch sweeps up on a gust and falls back in the lull so it wavers like real
+  wind rather than droning. Two pure functions drive it: `howlGainForWind(strength)` (from
+  `Wind.strength()`, with a knee below which a light breeze does not whistle) and
+  `howlFreqForGust(gust)` (the pitch sweep from `Wind.gust()`). The main loop drives a new
+  `Sfx.updateWindHowl(Wind.strength(), Wind.gust())` right after `Wind.update()`, so the
+  howl agrees with the same field that drifts the snow, streams the scarf, and sways the
+  trees.
+- **Silent when there is no wind — so an unwindy run is unchanged.** Keyed on `strength`
+  (which collapses to 0 in a dead-calm profile) and gated below `HOWL_KNEE`, so
+  `howlGainForWind` is *exactly* 0 with no wind: no new sound on a calm slope, and the
+  whistle is a separate bed from the speed-scaled bed so the two wind layers are
+  independent.
+- **Cosmetic / invariant-safe.** The howl touches no `pos`/`velocity` and is a no-op under
+  automation (`window.isTestMode` / webdriver unless a test opts in), so the physics
+  invariant stays **byte-identical** (`test:verify` unchanged) — **no baseline
+  regeneration**. New `sfx-tests.js` howl checks (`npm run test:sfx`); PHYSICS.md §11
+  consumers updated.
+
+### Wind — the ambient audio bed breathes with the wind field (#253, Phase A)
+- **The wind you hear now tracks the wind you see.** The procedural ambient bed in
+  `sfx.ts` was purely *speed*-scaled — it only rose as the snowman sped up. It now also
+  reads the shared `Wind` field, so a gusty slope hisses even at a standstill and the bed
+  swells and eases as gusts roll through, in lockstep with the same field that drifts the
+  snow, streams the scarf, and sways the trees. A new pure `windGainForField(speed,
+  windStrength)` layers `Wind.strength() × WIND_FIELD_GAIN` (0.16 at full strength) on top
+  of the existing motion whoosh, and a stronger wind also brightens the bed's lowpass
+  (a faint rising whistle). The main loop passes `Wind.strength()` into `Sfx.updateSkiing`
+  — the same cached pre-`Wind.update()` sample the scarf reads, so audio and the visible
+  wind agree on the same gust.
+- **Keyed on `strength`, not the raw gust — so a dead-calm field is silent.** In a truly
+  calm profile (`Wind.configure({ baseStrength: 0, gustRange: 0 })`) the gust factor keeps
+  oscillating but `Wind.strength()` collapses to 0, so `windGainForField` reduces *exactly*
+  to the old `windGainForSpeed(speed)`: an unwindy run sounds identical to pre-#253.
+- **Cosmetic / invariant-safe.** SFX touches no `pos`/`velocity` and is a no-op under
+  automation (`window.isTestMode` / webdriver, unless a test opts in), so the physics
+  invariant stays **byte-identical** (`test:verify` unchanged) — **no baseline
+  regeneration**. The new field param defaults to 0, so every existing `updateSkiing`
+  caller and the `?test=` suites keep the pre-#253 path. New `sfx-tests.js` field-gain
+  checks (`npm run test:sfx`); docs: PHYSICS.md §11 consumers, ARCHITECTURE.md §3.
+
 ### Feature: in-game feedback / feature-request form (#258)
 - **Gap.** A player who hit a bug or had an idea had no in-game path to report it — they
   had to leave the game and find the repo. Two backends we already run (GitHub for
