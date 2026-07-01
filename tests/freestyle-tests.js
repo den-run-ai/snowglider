@@ -307,6 +307,52 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
       `no-input flight must be byte-identical with the flag on (maxDiff ${maxDiff})`);
   });
 
+  runTest('camera heading never snaps through a spin or its switch landing', () => {
+    // The follow camera reads rotation.y + userData.trickCameraYaw (main-loop
+    // updateCamera). pose.ts must keep that sum CONTINUOUS: frozen at the pre-spin
+    // heading while the model spins, then eased back in lock-step with the heading
+    // recovery after a switch / under-rotated landing — never a one-frame jump by
+    // the spun residual at touchdown (codex on PR #275, rounds 1 + 2).
+    let s = 7 >>> 0;
+    Math.random = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const snowman = fakeSnowman();
+    const pos = { x: 0, z: -60, y: getTerrainHeight(0, -60) };
+    const velocity = { x: 0, z: -16 };
+    let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, -60),
+               airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+    const step = (c) => {
+      st = update(snowman, 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity, st.lastTerrainHeight,
+        st.airTime, st.jumpCooldown, c, st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown,
+        3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
+        [], undefined, EXPERT_SKI);
+    };
+    const wrap = (a) => { a = a % (Math.PI * 2); if (a > Math.PI) a -= Math.PI * 2; if (a < -Math.PI) a += Math.PI * 2; return a; };
+    const camHeading = () => snowman.rotation.y + (snowman.userData.trickCameraYaw || 0);
+
+    step(ctrl({ jump: true }));
+    // ~150° of spin: within tolerance of the 180 => a credited switch landing.
+    for (let i = 0; i < 25 && st.isInAir; i++) step(ctrl({ left: true }));
+    assert(Math.abs(snowman.userData.trickSpin) > 120, 'test setup: a real spin accumulated');
+    let prev = camHeading();
+    let maxJump = 0;
+    let landedFrame = -1;
+    let frames = 0;
+    while (frames < 600 && (st.isInAir || landedFrame === -1 || frames < landedFrame + 240)) {
+      step(NONE);
+      frames++;
+      if (!st.isInAir && landedFrame === -1) landedFrame = frames;
+      const cur = camHeading();
+      maxJump = Math.max(maxJump, Math.abs(wrap(cur - prev)));
+      prev = cur;
+    }
+    assert(landedFrame !== -1, 'flight must land');
+    // Heading recovery is capped at 3 rad/s (0.05 rad/frame); allow slack but stay
+    // far below the ~2.6 rad snap the pre-fix code produced at touchdown.
+    assert(maxJump < 0.2, `camera heading jumped ${maxJump.toFixed(3)} rad in one frame`);
+    assert((snowman.userData.trickCameraYaw || 0) === 0,
+      'camera correction must fully ease out after the landing');
+  });
+
   runTest('resetSnowman clears the trick slate', () => {
     const snowman = fakeSnowman();
     snowman.userData.trickSpin = 270;

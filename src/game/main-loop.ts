@@ -293,15 +293,17 @@ export function createMainLoop(deps: MainLoopDeps) {
     // (pose.ts) — the transform the follow camera also derives its orbit angle from,
     // so left alone the camera would whirl around the rider at the spin rate
     // (~360°/s) instead of staying behind the line of travel (codex review, PR #275).
-    // pose.ts tracks exactly how much spin it has applied (userData.trickSpinApplied,
-    // degrees, applied as -y), so adding it back recovers the trick-free heading for
-    // the camera only — the model itself keeps spinning. Zero on every non-trick
-    // frame (and cleared on landing), so this passes the snowman's own Euler through
+    // pose.ts maintains `userData.trickCameraYaw` (radians): the spun yaw while
+    // airborne, then — after a switch / under-rotated landing — the leftover residual,
+    // eased out in lock-step with the heading recovery so the camera never snaps to
+    // the spun side at touchdown (codex round 2). Adding it back recovers the
+    // trick-free heading for the camera only; the model itself keeps spinning. Zero
+    // on every non-trick frame, so this passes the snowman's own Euler through
     // untouched outside an Expert spin.
-    const spinDeg = (snowman.userData && (snowman.userData.trickSpinApplied as number)) || 0;
-    if (spinDeg !== 0) {
+    const trickCameraYaw = (snowman.userData && (snowman.userData.trickCameraYaw as number)) || 0;
+    if (trickCameraYaw !== 0) {
       cameraRotScratch.copy(snowman.rotation);
-      cameraRotScratch.y = snowman.rotation.y + spinDeg * (Math.PI / 180);
+      cameraRotScratch.y = snowman.rotation.y + trickCameraYaw;
       cameraManager.update(snowman.position, cameraRotScratch, velocity, Snow.getTerrainHeight);
       return;
     }

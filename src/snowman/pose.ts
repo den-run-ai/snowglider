@@ -101,10 +101,39 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   const trickSpin = (snowman.userData.trickSpin as number) || 0;
   if (isInAir && trickSpin !== 0) {
     const spinApplied = (snowman.userData.trickSpinApplied as number) || 0;
-    snowman.rotation.y -= (trickSpin - spinApplied) * (Math.PI / 180);
+    const spinDeltaRad = (trickSpin - spinApplied) * (Math.PI / 180);
+    snowman.rotation.y -= spinDeltaRad;
     snowman.userData.trickSpinApplied = trickSpin;
+    // Camera-safe heading (#32, codex on PR #275): accumulate the same yaw so the
+    // follow camera can add it back and stay behind the line of travel while the
+    // model spins. Accumulated (not assigned) so a new spin launched while a prior
+    // landing's correction is still easing out below continues smoothly from it.
+    snowman.userData.trickCameraYaw =
+      ((snowman.userData.trickCameraYaw as number) || 0) + spinDeltaRad;
   } else {
     snowman.userData.trickSpinApplied = 0;
+
+    // Ease any leftover camera correction out instead of dropping it (codex on
+    // PR #275, round 2): at touchdown the physics clears trickSpin while the root
+    // rotation.y still carries the spun residual (a switch landing is ~180° off the
+    // travel line), so zeroing the correction here would snap the follow camera to
+    // the spun side for the ~1 s the heading smoothing below needs to recover.
+    // Instead: drop whole turns (a completed 360 needs no correction), then decay
+    // the residual with the SAME smoothing factor + max rate the heading recovery
+    // uses — the two motions cancel per-frame, so `rotation.y + trickCameraYaw`
+    // (the camera's heading) holds the travel line while the body swings back.
+    // Guarded on a non-zero value, so every non-trick frame is untouched.
+    let camYaw = (snowman.userData.trickCameraYaw as number) || 0;
+    if (camYaw !== 0) {
+      camYaw = camYaw % (Math.PI * 2);
+      if (camYaw > Math.PI) camYaw -= Math.PI * 2;
+      if (camYaw < -Math.PI) camYaw += Math.PI * 2;
+      const camSmoothing = Math.min(1, Math.max(0.05, delta * 2.5));
+      const camMaxRate = delta * 3;
+      camYaw -= Math.max(-camMaxRate, Math.min(camMaxRate, camYaw * camSmoothing));
+      if (Math.abs(camYaw) < 1e-3) camYaw = 0;
+      snowman.userData.trickCameraYaw = camYaw;
+    }
 
     // Apply rotation with smoothing - more stability at higher speeds
     const rotationSmoothingY = Math.min(1, Math.max(0.05, delta * 2.5));

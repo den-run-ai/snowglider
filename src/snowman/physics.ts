@@ -137,12 +137,15 @@ export function resetSnowman(
     // a deliberate jump" flag from the previous run (meaningful jumps #47, §3.1).
     snowman.userData.playerJump = false;
     // Clear the freestyle trick slate (#32) so a new run never inherits a mid-air
-    // rotation or an armed grab from the previous run.
+    // rotation or an armed grab from the previous run. trickCameraYaw is the pose
+    // layer's camera-heading correction for the spin (incl. its post-landing
+    // ease-out), cleared with the rest so a fresh run's camera starts uncorrected.
     snowman.userData.trickSpin = 0;
     snowman.userData.trickFlip = 0;
     snowman.userData.trickGrabTime = 0;
     snowman.userData.trickGrabArmed = false;
     snowman.userData.trickGrabbing = false;
+    snowman.userData.trickCameraYaw = 0;
   }
   
   // Force all rotations to be explicit - avoid any chance of NaN or unexpected values
