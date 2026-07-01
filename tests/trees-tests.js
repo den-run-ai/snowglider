@@ -247,6 +247,32 @@ async function main() {
     // the stub shaders captured the same uWindAmp reference the trunk + foliage share.
     assert(trunkShader.uniforms.uWindAmp === foliageShader.uniforms.uWindAmp,
       'all tree materials share one uWindAmp uniform (a single update drives the forest)');
+
+    // Shadow casters sway too: the forest InstancedMeshes castShadow, so each needs a
+    // customDepthMaterial carrying the SAME sway — else the shadows stay put while the trees
+    // lean (detached shadows). Verify the depth material exists, is shadow-map ready, and
+    // injects the matching instanced sway from the same shared uniform.
+    const trunkMesh = /** @type {any} */ (forest.find(m => m.userData.forestPart === 'trunk'));
+    const coneMesh = /** @type {any} */ (forest.find(m => m.userData.forestPart === 'cone'));
+    const trunkDepth = /** @type {any} */ (trunkMesh?.customDepthMaterial);
+    const coneDepth = /** @type {any} */ (coneMesh?.customDepthMaterial);
+    assert(trunkMesh.castShadow && coneMesh.castShadow, 'forest meshes cast shadows');
+    assert(trunkDepth instanceof THREE.MeshDepthMaterial && coneDepth instanceof THREE.MeshDepthMaterial,
+      'each shadow-casting forest mesh has a MeshDepthMaterial customDepthMaterial');
+    assert(trunkDepth.depthPacking === THREE.RGBADepthPacking,
+      'the depth material uses RGBA depth packing (shadow-map ready)');
+    const trunkDepthShader = { uniforms: {}, vertexShader: stubVS };
+    const coneDepthShader = { uniforms: {}, vertexShader: stubVS };
+    trunkDepth.onBeforeCompile(trunkDepthShader);
+    coneDepth.onBeforeCompile(coneDepthShader);
+    assert(/uWindDir/.test(trunkDepthShader.vertexShader) && /instanceMatrix/.test(trunkDepthShader.vertexShader),
+      'the depth material injects the same instanced sway (shadow leans with the tree)');
+    assert(/TREE_SWAY_ROOTED/.test(trunkDepthShader.vertexShader) &&
+      !/#define TREE_SWAY_ROOTED/.test(coneDepthShader.vertexShader),
+      'depth sway matches the profile: trunk rooted, canopy not');
+    assert(trunkDepthShader.uniforms.uWindAmp === trunkShader.uniforms.uWindAmp,
+      'depth + visible materials share one uWindAmp (a single updateWind drives shadows too)');
+
     const U = trunkShader.uniforms;
 
     // resetWind → calm baseline (no lean).

@@ -205,6 +205,13 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   left un-swayed (`USE_INSTANCING`-gated). Calmed under `prefers-reduced-motion` (amplitude
   → 0) like the snow drift / Flex / Sky. New `trees-tests.js` sway checks; docs: PHYSICS.md
   §11 consumers, ARCHITECTURE.md §3.
+- **Review fixes.** (1) A genuinely calm field (`Wind.strength() === 0`, e.g. a
+  `Wind.configure({ baseStrength: 0, gustRange: 0 })` profile) now maps to zero amplitude — the
+  0.08 breeze floor is gated on positive wind via the pure `treeSwayAmplitude` — so the canopy
+  stays fully still in step with the snow/scarf consumers (the live field never reaches 0, so
+  play is unchanged). (2) The forest `castShadow`s, so each InstancedMesh gets a matching
+  `customDepthMaterial` carrying the same sway from the same shared uniforms, keeping the cast
+  shadows leaning with the trees instead of staying put. Both covered by `trees-tests.js`.
 
 ### Wind — scarf streams in the apparent wind (#253, Phase A)
 - **The red scarf now reacts to the wind field.** The scarf tail trails the **apparent**

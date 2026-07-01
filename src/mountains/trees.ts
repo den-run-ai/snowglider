@@ -139,6 +139,10 @@ let foliageMaterials: THREE.MeshStandardMaterial[] | null = null;
 let snowMaterial: THREE.MeshStandardMaterial | null = null;
 let barkInstancedMaterial: THREE.MeshStandardMaterial | null = null;
 let foliageInstancedMaterial: THREE.MeshStandardMaterial | null = null;
+// Shadow-caster (depth) materials carrying the SAME sway, one per profile (see
+// getSwayDepthMaterial). Kept beside the visible ones so resetTreePools frees them too.
+let rootedDepthMaterial: THREE.MeshDepthMaterial | null = null;
+let canopyDepthMaterial: THREE.MeshDepthMaterial | null = null;
 
 /** Canonical trunk: top/bottom radius + height match the old defaults at scale 1. */
 function getTrunkGeometry(): THREE.CylinderGeometry {
@@ -423,6 +427,28 @@ function getFoliageInstancedMaterial(): THREE.MeshStandardMaterial {
   return foliageInstancedMaterial;
 }
 
+/** The shadow-caster material for a swaying instanced family. The forest InstancedMeshes
+ *  `castShadow`, and three renders the shadow map with a MeshDepthMaterial that does NOT
+ *  inherit the visible material's `onBeforeCompile` sway — so without a matching custom depth
+ *  material the trunks/canopies would lean in the wind while their cast shadows stayed put
+ *  (detached shadows). This injects the SAME sway (from the SAME shared uniforms, so one
+ *  updateWind drives both) with `depthPacking: RGBADepthPacking` for the shadow map, and is
+ *  memoized per profile (`rooted` = trunk). Headless-safe (no texture/DOM). */
+function getSwayDepthMaterial(rooted: boolean): THREE.MeshDepthMaterial {
+  if (rooted) {
+    if (!rootedDepthMaterial) {
+      rootedDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+      applyTreeSway(rootedDepthMaterial, true);
+    }
+    return rootedDepthMaterial;
+  }
+  if (!canopyDepthMaterial) {
+    canopyDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    applyTreeSway(canopyDepthMaterial, false);
+  }
+  return canopyDepthMaterial;
+}
+
 /** Pick a random palette index (forest colour variety); one RNG draw, as before. */
 function pickColorIndex(paletteLength: number): number {
   return Math.floor(Math.random() * paletteLength);
@@ -642,19 +668,24 @@ function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: numbe
 
 // Allocate the 5 InstancedMeshes from the collected buckets and add them to the scene.
 function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[] {
-  const defs: Array<[GeomKey, THREE.Material, THREE.Color[] | null]> = [
-    ['trunk', getBarkInstancedMaterial(), getTrunkColors()],
-    ['cone', getFoliageInstancedMaterial(), getFoliageColors()],
-    ['branch', getFoliageInstancedMaterial(), getFoliageColors()],
-    ['snowCap', getSnowMaterial(), null],
-    ['snowPatch', getSnowMaterial(), null]
+  // The 4th field is the sway profile: only the trunk is rooted (bend planted at the base);
+  // the canopy families lean as a unit. It drives BOTH the visible material (already swayed)
+  // and the matching shadow-caster depth material below.
+  const defs: Array<[GeomKey, THREE.Material, THREE.Color[] | null, boolean]> = [
+    ['trunk', getBarkInstancedMaterial(), getTrunkColors(), true],
+    ['cone', getFoliageInstancedMaterial(), getFoliageColors(), false],
+    ['branch', getFoliageInstancedMaterial(), getFoliageColors(), false],
+    ['snowCap', getSnowMaterial(), null, false],
+    ['snowPatch', getSnowMaterial(), null, false]
   ];
   const built: THREE.InstancedMesh[] = [];
-  for (const [key, material, palette] of defs) {
+  for (const [key, material, palette, rooted] of defs) {
     const list = buckets[key];
     if (list.length === 0) continue; // skip empty families (no zero-count draw)
     const im = new THREE.InstancedMesh(geometryForKey(key), material, list.length);
     im.castShadow = true;
+    // Shadow caster sways in lockstep with the visible mesh (shared wind uniforms).
+    im.customDepthMaterial = getSwayDepthMaterial(rooted);
     im.name = 'forestInstanced';        // scene-cleanup + test handle
     im.userData.forestPart = key;       // lets tests identify the trunk mesh (1 per tree)
     for (let i = 0; i < list.length; i++) {
@@ -941,6 +972,8 @@ export function resetTreePools(): void {
   free(snowMaterial);
   free(barkInstancedMaterial);
   free(foliageInstancedMaterial);
+  free(rootedDepthMaterial);
+  free(canopyDepthMaterial);
   (trunkMaterials || []).forEach(free);
   (foliageMaterials || []).forEach(free);
   free(barkNormalTexture);
@@ -950,6 +983,7 @@ export function resetTreePools(): void {
   trunkColors = foliageColors = null;
   trunkMaterials = foliageMaterials = null;
   snowMaterial = barkInstancedMaterial = foliageInstancedMaterial = null;
+  rootedDepthMaterial = canopyDepthMaterial = null;
   barkNormalTexture = foliageNormalTexture = null;
 }
 
