@@ -531,7 +531,16 @@ export const CourseModule = (function () {
       ghost.visible = true;
       const gp = ghostPositionAt(elapsed);
       if (gp) {
-        ghost.position.set(gp.x, gp.y, gp.z);
+        // A ghost stores each sample's recorded y, which was the terrain height at
+        // that (x, z) when the run happened. If the terrain has since changed shape
+        // (e.g. the Black-tier corridor/course-line raised the surface where an older
+        // ghost was recorded), that stale y ends up BELOW the current snow and the
+        // ghost skis buried underground — physically impossible to follow. Clamp the
+        // render height to the current surface so the ghost always rides on top,
+        // while `max` preserves any real jump arc recorded above the terrain.
+        // A live ghost implies init() ran, so getTerrainHeight is always set here.
+        const surfaceY = getTerrainHeight!(gp.x, gp.z);
+        ghost.position.set(gp.x, Math.max(gp.y, surfaceY), gp.z);
         if (typeof gp.rot === 'number') ghost.rotation.y = gp.rot;
       }
       // Ahead/behind readout, expressed in time at the player's current depth.
