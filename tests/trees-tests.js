@@ -272,6 +272,12 @@ async function main() {
       'depth sway matches the profile: trunk rooted, canopy not');
     assert(trunkDepthShader.uniforms.uWindAmp === trunkShader.uniforms.uWindAmp,
       'depth + visible materials share one uWindAmp (a single updateWind drives shadows too)');
+    // The depth materials are built with Math.random swapped to a private RNG (so their uuid
+    // draws never shift a caller's seeded obstacle stream — see getSwayDepthMaterial); that
+    // private RNG still yields DISTINCT uuids for the two profiles. (End-to-end RNG-neutrality
+    // is guarded by the seeded forward_stress harness.)
+    assert(typeof trunkDepth.uuid === 'string' && trunkDepth.uuid !== coneDepth.uuid,
+      'the two shadow-caster depth materials get distinct uuids from the private RNG');
 
     const U = trunkShader.uniforms;
 

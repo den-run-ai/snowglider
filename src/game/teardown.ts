@@ -62,6 +62,12 @@ export function disposeSceneResources(scene: THREE.Scene): void {
     const mat = m.material;
     if (Array.isArray(mat)) mat.forEach((x) => { if (x) mats.add(x); });
     else if (mat) mats.add(mat);
+    // Custom shadow-pass materials (e.g. the swaying-tree customDepthMaterial) are NOT reachable
+    // via obj.material, so collect them explicitly — otherwise the shadow-caster material/program
+    // leaks when a caller uses this sweep without the module's own pool reset. Shared/pooled
+    // instances dedup in the Set and dispose() is idempotent, so this is safe next to resetTreePools.
+    if (m.customDepthMaterial) mats.add(m.customDepthMaterial);
+    if (m.customDistanceMaterial) mats.add(m.customDistanceMaterial);
     // InstancedMesh owns instanceMatrix/instanceColor buffers freed only by its own
     // dispose() (geometry/material handled above). Each is a distinct scene node, so no
     // dedup is needed — but a Set keeps the disposal uniform and double-call-safe.

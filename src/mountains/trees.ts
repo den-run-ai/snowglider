@@ -427,26 +427,45 @@ function getFoliageInstancedMaterial(): THREE.MeshStandardMaterial {
   return foliageInstancedMaterial;
 }
 
+// Private, self-contained RNG used ONLY while constructing the depth materials below. A
+// `new MeshDepthMaterial()` draws Math.random (three's generateUUID, 4×) for its uuid, and these
+// are NEW materials that must not perturb a caller's SEEDED Math.random stream — the Node
+// forward_stress harness seeds Math.random then places obstacles on one stream, and the browser
+// perf/teardown specs seed before the bundle even loads. xorshift32; distinct draws ⇒ distinct uuids.
+let depthUuidRngState = 0x1a2b3c4d;
+function depthUuidRandom(): number {
+  depthUuidRngState ^= depthUuidRngState << 13;
+  depthUuidRngState ^= depthUuidRngState >>> 17;
+  depthUuidRngState ^= depthUuidRngState << 5;
+  return (depthUuidRngState >>> 0) / 0x100000000;
+}
+
 /** The shadow-caster material for a swaying instanced family. The forest InstancedMeshes
  *  `castShadow`, and three renders the shadow map with a MeshDepthMaterial that does NOT
  *  inherit the visible material's `onBeforeCompile` sway — so without a matching custom depth
  *  material the trunks/canopies would lean in the wind while their cast shadows stayed put
  *  (detached shadows). This injects the SAME sway (from the SAME shared uniforms, so one
  *  updateWind drives both) with `depthPacking: RGBADepthPacking` for the shadow map, and is
- *  memoized per profile (`rooted` = trunk). Headless-safe (no texture/DOM). */
+ *  memoized per profile (`rooted` = trunk). Headless-safe (no texture/DOM).
+ *
+ *  The `new MeshDepthMaterial()` uuid draw is fed from the private `depthUuidRandom` (Math.random
+ *  is swapped in a try/finally and restored) so it never touches — and never shifts — a caller's
+ *  seeded RNG stream. The pre-existing visible materials deliberately keep drawing from the live
+ *  stream; the verification harnesses baseline that, so only these NEW materials are stream-neutral. */
 function getSwayDepthMaterial(rooted: boolean): THREE.MeshDepthMaterial {
-  if (rooted) {
-    if (!rootedDepthMaterial) {
-      rootedDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-      applyTreeSway(rootedDepthMaterial, true);
-    }
-    return rootedDepthMaterial;
+  const existing = rooted ? rootedDepthMaterial : canopyDepthMaterial;
+  if (existing) return existing;
+  const savedRandom = Math.random;
+  Math.random = depthUuidRandom;
+  let material: THREE.MeshDepthMaterial;
+  try {
+    material = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    applyTreeSway(material, rooted);
+  } finally {
+    Math.random = savedRandom;
   }
-  if (!canopyDepthMaterial) {
-    canopyDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-    applyTreeSway(canopyDepthMaterial, false);
-  }
-  return canopyDepthMaterial;
+  if (rooted) rootedDepthMaterial = material; else canopyDepthMaterial = material;
+  return material;
 }
 
 /** Pick a random palette index (forest colour variety); one RNG draw, as before. */
@@ -986,17 +1005,6 @@ export function resetTreePools(): void {
   rootedDepthMaterial = canopyDepthMaterial = null;
   barkNormalTexture = foliageNormalTexture = null;
 }
-
-// Create the shadow-caster depth materials at module load. `new MeshDepthMaterial()` draws
-// Math.random via three's generateUUID, and the verification harnesses seed Math.random and
-// then place obstacles on ONE stream (`addTrees(scene)` immediately followed by
-// `addRocks(scene)` in forward_stress_harness.js). Building these lazily inside buildForest —
-// between the tree placement and the rock placement — would shift that seeded stream and move
-// the rock field, so pin their uuid draws to import time, OUTSIDE any seeded window. (The
-// visible bark/foliage/snow materials stay lazy, exactly as before; only these NEW materials
-// are pinned out, so the harness sees the same stream it did before this change.)
-getSwayDepthMaterial(true);
-getSwayDepthMaterial(false);
 
 // Export all tree-related functions
 export const Trees = {

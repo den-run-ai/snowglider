@@ -211,11 +211,15 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   stays fully still in step with the snow/scarf consumers (the live field never reaches 0, so
   play is unchanged). (2) The forest `castShadow`s, so each InstancedMesh gets a matching
   `customDepthMaterial` carrying the same sway from the same shared uniforms, keeping the cast
-  shadows leaning with the trees instead of staying put. The two depth materials are created at
-  module load, not lazily inside `buildForest`: `new MeshDepthMaterial()` draws `Math.random` for
-  its uuid, and the verification harnesses seed `Math.random` then place trees + rocks on one
-  stream, so building them mid-stream would have shifted the seeded rock field. Both covered by
-  `trees-tests.js`.
+  shadows leaning with the trees instead of staying put. `new MeshDepthMaterial()` draws
+  `Math.random` for its uuid, and seeded harnesses place obstacles on that stream (the Node
+  forward-stress seeds then `addTrees`→`addRocks`; browser perf/teardown specs seed before the
+  bundle loads), so the two materials are built with `Math.random` swapped to a private RNG (in a
+  try/finally) — their uuid draws never shift the caller's seeded stream, while the pre-existing
+  visible materials keep drawing from it as the harnesses baseline. (3) `disposeSceneResources`
+  now also collects `customDepthMaterial`/`customDistanceMaterial` (not reachable via
+  `obj.material`) so the shadow-caster material is freed even without the pool reset. Covered by
+  `trees-tests.js` + `teardown-tests.js`.
 
 ### Wind — scarf streams in the apparent wind (#253, Phase A)
 - **The red scarf now reacts to the wind field.** The scarf tail trails the **apparent**
