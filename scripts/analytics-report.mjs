@@ -457,13 +457,28 @@ function monthlyCounts(isoDates) {
     .map(([month, count]) => ({ month, count }));
 }
 
+// Parse a URL's hostname (empty string if unparseable) so provider checks match on the
+// real host, not an arbitrary substring of the URL (avoids js/incomplete-url-substring
+// sanitization — a spoofable `includes('googleusercontent.com')` check).
+function hostOf(url) {
+  try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
+}
+function hostIs(host, domain) {
+  return host === domain || host.endsWith('.' + domain);
+}
+function emailDomain(email) {
+  const at = email.lastIndexOf('@');
+  return at === -1 ? '' : email.slice(at + 1);
+}
+
 // Best-effort sign-in provider from the stored profile (Firestore has no provider field).
 function classifyProvider(user) {
-  const photo = (user.photoURL || '').toLowerCase();
+  const host = hostOf(user.photoURL || '');
   const email = (user.email || '').toLowerCase();
-  if (photo.includes('githubusercontent.com') || email.includes('users.noreply.github.com')) return 'GitHub';
-  if (email.includes('privaterelay.appleid.com')) return 'Apple';
-  if (photo.includes('googleusercontent.com') || email.endsWith('@gmail.com')) return 'Google';
+  const dom = emailDomain(email);
+  if (hostIs(host, 'githubusercontent.com') || dom === 'users.noreply.github.com') return 'GitHub';
+  if (dom === 'privaterelay.appleid.com') return 'Apple';
+  if (hostIs(host, 'googleusercontent.com') || dom === 'gmail.com') return 'Google';
   if (email) return 'Other (email)';
   return 'Unknown';
 }
