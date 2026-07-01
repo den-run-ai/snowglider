@@ -111,14 +111,21 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   (winnable) while drifting wide clips a gate. Because `lane === 0` and the pinch pass is
   skipped entirely when no corridor line is active, Bunny/Blue consume the identical
   `Math.random()` sequence and their gate/obstacle layout is byte-identical.
+- **The jittered tree position is re-checked against the line.** Tree placement applies a ±2.5
+  random offset AFTER the grid clear-lane check, which could nudge a Black tree from a column
+  just outside the lane to within the 2.5u collision radius — a randomly-crashable "clear" lane.
+  A new pure `treeInCorridorLane(x, z)` re-tests the FINAL (jittered) position against the line
+  and drops those, keeping the on-line route open. It returns `false` whenever no line is active,
+  so straight tiers cull nothing and stay byte-identical (the cluster branch already re-checked
+  its own final position).
 - **Guardrails.** `test:verify` IDENTICAL; `test:trees`/`test:terrain`/`test:tree-collision`/
   `test:regression` unchanged; new `tests/corridor-obstacles-tests.js`
   (`npm run test:corridor-obstacles`: clearance follows the line, on-line corridor always
-  passable, pinch offset clears the corridor) + extended `course-line-tests.js` (active-line
-  registry + gate-on-line alternation). Like D3.2b, the corridor is fixed at scene build
-  (gates/obstacles are built once, never rebuilt on restart). Per-tier avalanche + a
-  follow-the-line winnability harness (which validates the line is makeable at speed) land
-  in D3.2d.
+  passable, the jitter re-check culls a column that jitters into the lane, pinch offset clears
+  the corridor) + extended `course-line-tests.js` (active-line registry + gate-on-line
+  alternation). Like D3.2b, the scene is fixed at build; a run that locks a different tier reloads
+  to rebuild it (D3.2b's `maybeReloadForRunTier`). Per-tier avalanche + a follow-the-line
+  winnability harness (which validates the line is makeable at speed) land in D3.2d.
 
 ### Difficulty tiers (D3.2b): winding terrain corridor (Black)
 - **Black's terrain now banks into a winding skiable channel** that follows the descent

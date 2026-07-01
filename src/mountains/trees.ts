@@ -19,7 +19,7 @@ import { forestDensityField } from './noise.js';
 // The run's centerline: the clear corridor + density zones follow it (Black). Returns
 // exactly 0 for straight tiers, so `Math.abs(x - lane)` collapses to today's `Math.abs(x)`
 // and the placement (and its Math.random() sequence) stays byte-identical for Bunny/Blue.
-import { activeLaneX } from '../course-line.js';
+import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 
 /** A placed tree's world position and size; addTrees returns these for collision. */
 export interface TreePosition {
@@ -527,6 +527,20 @@ function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[
   return built;
 }
 
+// Half-width (world units) of the corridor's clear lane for tree placement — the same strip
+// the grid check keeps clear, and wider than the 2.5u tree collision radius so the on-line
+// route stays fully passable.
+const TREE_CORRIDOR_CLEAR = 3;
+
+/** Is a tree at the FINAL (jittered) position (x, z) inside the winding corridor's clear lane
+ *  (within TREE_CORRIDOR_CLEAR of the line, measured at that z)? Only ever true when a corridor
+ *  line is active (Black); straight tiers (Bunny/Blue) have no line, so this is always false ⇒
+ *  addTrees culls nothing and their layout + Math.random() sequence stay byte-identical. Pure +
+ *  exported for the corridor-obstacles test. */
+function treeInCorridorLane(x: number, z: number): boolean {
+  return getActiveCourseLine() !== null && Math.abs(x - activeLaneX(z)) < TREE_CORRIDOR_CLEAR;
+}
+
 // Add trees to make the scene more interesting
 function addTrees(scene: THREE.Scene): TreePosition[] {
   // Remove + dispose any previously-built instanced forest in THIS scene, to prevent
@@ -577,7 +591,15 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       // Random offset with more natural clustering
       const xPos = x + (Math.random() * 5 - 2.5);
       const zPos = z + (Math.random() * 5 - 2.5);
-      
+
+      // For a winding corridor (Black), drop a tree the ±2.5 jitter pushed onto the on-line
+      // route: the grid check at 3 units + jitter can land ~0.5u from the line, well inside the
+      // 2.5u tree collision radius, making the intended clear lane randomly crashable. Re-checked
+      // at the FINAL (jittered) x/z since the line's lane shifts with z. No-op for straight tiers
+      // (no line ⇒ same draw sequence); the cluster branch below already re-checks its own final
+      // position.
+      if (treeInCorridorLane(xPos, zPos)) continue;
+
       // Only place trees on suitable slopes (not too steep)
       const y = getTerrainHeight(xPos, zPos);
       const gradient = getTerrainGradient(xPos, zPos);
@@ -775,7 +797,8 @@ export const Trees = {
   addTrees,
   getTerrainHeight,
   getTerrainGradient,
-  resetTreePools
+  resetTreePools,
+  treeInCorridorLane
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).

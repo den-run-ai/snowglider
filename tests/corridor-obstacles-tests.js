@@ -27,6 +27,7 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
 (async () => {
   const { rockIsCollisionHazard, rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } =
     await import('../src/mountains/rocks.js');
+  const { Trees } = await import('../src/mountains/trees.js');
   const { courseLineFor, setActiveCourseLine } = await import('../src/course-line.js');
   const { getDifficultyConfig } = await import('../src/difficulty.js');
 
@@ -96,6 +97,39 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
       assert(rockIsCollisionHazard(cx + PINCH_EDGE, pz, PINCH_SIZE) === true, `+pinch is a hazard at z=${pz}`);
       assert(rockIsCollisionHazard(cx - PINCH_EDGE, pz, PINCH_SIZE) === true, `-pinch is a hazard at z=${pz}`);
       assert(rockIsCollisionHazard(cx, pz, PINCH_SIZE) === false, `line between the pinch stays clear at z=${pz}`);
+    }
+  });
+
+  runTest('tree corridor lane: no active line ⇒ nothing culled (Bunny/Blue byte-identical)', () => {
+    setActiveCourseLine(null);
+    for (const z of zSamples) {
+      for (const x of [0, 3, 6, 12, -12]) {
+        assert(Trees.treeInCorridorLane(x, z) === false, `no line ⇒ never in-lane at x=${x}, z=${z}`);
+      }
+    }
+  });
+
+  runTest('tree corridor lane: active line ⇒ on-line in the clear lane, off-line kept', () => {
+    setActiveCourseLine(line);
+    for (const z of zSamples) {
+      const cx = line.laneX(z);
+      assert(Trees.treeInCorridorLane(cx, z) === true, `on-line tree culled at z=${z}`);
+      assert(Trees.treeInCorridorLane(cx + 2, z) === true, `within-lane (2u) tree culled at z=${z}`);
+      assert(Trees.treeInCorridorLane(cx + 4, z) === false, `outside-lane (4u) tree kept at z=${z}`);
+      assert(Trees.treeInCorridorLane(cx - 12, z) === false, `well-off-line tree kept at z=${z}`);
+    }
+  });
+
+  runTest('tree corridor lane: catches a grid column that PASSES then jitters INTO the lane', () => {
+    // The bug: the grid clear check reads the PRE-jitter (x, lane(z)); a jitter up to ±2.5 can
+    // push a column just outside the lane to within the 2.5u tree collision radius. Re-checking
+    // the FINAL position flags it. A grid tree at lane(z)+3.5 passes the grid check (|x-lane| >= 3)
+    // but a -2.5 jitter lands it at lane+1 — inside the clear lane — which must now be culled.
+    setActiveCourseLine(line);
+    for (const z of zSamples) {
+      const cx = line.laneX(z);
+      assert(Trees.treeInCorridorLane(cx + 3.5, z) === false, `pre-jitter column (3.5u) not culled at z=${z}`);
+      assert(Trees.treeInCorridorLane(cx + 1, z) === true, `jittered-in tree (1u) culled at z=${z}`);
     }
   });
 
