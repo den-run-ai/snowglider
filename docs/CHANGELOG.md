@@ -70,9 +70,11 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   `is_bot = true`) without dropping the data. Wired into the `window.firebaseModules.logEvent`
   wrapper (`auth.ts`, covers game_start/game_over/game_reset/share_result/feedback_submitted/
   diagnostics) and the direct `logEvent` calls (`complete_run`, `new_high_score`, `login`).
-- **De-dup.** Removed the redundant `complete_game` emit from `result-overlay.ts`;
-  `complete_run` (fired by `AuthModule.recordScore`, the scoring source of truth) is now the
-  single canonical finish event.
+- **De-dup.** Replaced the redundant `complete_game` emit in `result-overlay.ts` with the
+  canonical `complete_run`. A ranked finish emits it once from `AuthModule.recordScore` (the
+  scoring source of truth); the overlay emits it only for finishes `recordScore` skips —
+  unranked tiers or a missing leaderboard API — so those runs stay in analytics without
+  double-counting the ranked ones.
 - **Tests.** New `tests/analytics-env-tests.js` (10 assertions) for the tag helper;
   `result-overlay-tests.js` updated to assert the overlay no longer double-logs a finish.
 
