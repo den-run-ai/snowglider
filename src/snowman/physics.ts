@@ -50,6 +50,21 @@ export const LAND_WIPEOUT_NORMAL = 34; // above this (tuning.wipeouts only) the 
 export const WIPEOUT_FLIP_RESIDUAL_DEG = 120; // landing this far into a somersault (tuning.wipeouts) crashes
 const HARSH_SCRUB_FACTOR = 1.5;        // a harsh (forced-SKETCHY) landing scrubs 1.5× the base impact
 
+// --- Lip-consistent launch (jump-system completion JP-6, `tuning.lipLaunch`) --
+// When a tier sets `lipLaunch` (Expert), the terrain auto-jump's takeoff velocity
+// derives from the LIP GEOMETRY the player actually rode off instead of the legacy
+// `6 + 0.3·speed` constant: sample the terrain slope along the travel direction just
+// behind and just ahead of the lip, take the convexity Δslope = max(0, slopeBehind −
+// slopeAhead), and launch at v_y = clamp(speed·Δslope·LIP_K, LIP_MIN, LIP_MAX) —
+// bigger ramps at higher speed give proportionally bigger, physically plausible arcs
+// (what makes the sculpted kickers work). Gated entirely behind the flag, so the
+// frozen no-input auto-jump constants never move on Blue/Bunny/Black. Exported for
+// the harness's lipLaunch gate check; mirrored in PHYSICS.md §4.3/§10.
+export const LIP_SAMPLE_DIST = 2.0; // u along travel the behind/ahead slopes sample over
+export const LIP_K = 1.0;           // v_y per (speed × slope-change)
+export const LIP_MIN = 4;           // m/s floor — a barely-convex lip still pops a little
+export const LIP_MAX = 16;          // m/s ceiling — no super-launches off cliff edges
+
 // --- Scored obstacle clears (jump-system completion JP-2, #245 items 1) ------
 // A *manual* jump that sails over a tree/rock the run would otherwise have hit
 // banks CLEAR_SCORE per obstacle, capped per air phase so a single huge jump over
@@ -408,7 +423,30 @@ export function stepSnowmanPhysics(
   // default, so this extra term is also a no-op for the frozen baseline; Bunny sets
   // it false so lips never loft and the grounded `pos.y = terrain` glues the run.
   if (!isInAir && tuning.autoJump && !controls.jump && heightDifference < -0.8 && movingFast && jumpCooldown <= 0) {
-    verticalVelocity = 6 + (currentSpeed * 0.3);
+    if (tuning.lipLaunch && currentSpeed > 1e-3) {
+      // Lip-consistent launch (JP-6): derive v_y from the convexity of the lip the
+      // player actually rode off — the approach-ramp pitch minus the slope ahead,
+      // clamped. Entirely behind the flag (Expert), so the legacy constant below is
+      // byte-identical for every other tier.
+      //
+      // IMPORTANT (Codex review on #292): by the time heightDifference < -0.8 has
+      // fired, `pos` has already crossed PAST the drop — terrainHeightAtPosition is
+      // the low post-lip surface. The ramp pitch must therefore be measured
+      // entirely from samples BEHIND the current position (two points still on the
+      // approach), never against the dropped current height, or slopeBehind reads
+      // negative and every kicker collapses to the LIP_MIN floor.
+      const ux = velocity.x / currentSpeed;
+      const uz = velocity.z / currentSpeed;
+      const hBehind1 = getTerrainHeight(pos.x - ux * LIP_SAMPLE_DIST, pos.z - uz * LIP_SAMPLE_DIST);
+      const hBehind2 = getTerrainHeight(pos.x - ux * 2 * LIP_SAMPLE_DIST, pos.z - uz * 2 * LIP_SAMPLE_DIST);
+      const hAhead = getTerrainHeight(pos.x + ux * LIP_SAMPLE_DIST, pos.z + uz * LIP_SAMPLE_DIST);
+      const slopeBehind = (hBehind1 - hBehind2) / LIP_SAMPLE_DIST;               // + = the approach was climbing (a ramp)
+      const slopeAhead = (hAhead - terrainHeightAtPosition) / LIP_SAMPLE_DIST;   // − = keeps dropping away ahead
+      const dSlope = Math.max(0, slopeBehind - slopeAhead);                      // convexity along travel
+      verticalVelocity = Math.min(LIP_MAX, Math.max(LIP_MIN, currentSpeed * dSlope * LIP_K));
+    } else {
+      verticalVelocity = 6 + (currentSpeed * 0.3);
+    }
     isInAir = true;
     // Terrain auto-jump is never player-initiated — stamp provenance false so its
     // landing keeps today's scrub and the no-input baseline never moves (§3.1).

@@ -273,6 +273,11 @@ function fakeSnowman() {
     // `finally` so the later straight-terrain gates are never served stale corridor heights.
     if (winds) terrain.setTerrainCorridor({ line, params: config.terrain });
     else terrain.setTerrainCorridor(null);
+    // Sculpted kickers (JP-6): the tier's designed air is part of its real course —
+    // a line rider goes straight off every kicker (they sit ON laneX), so this gate
+    // also proves the kicker+lipLaunch arcs land back in the corridor and the run
+    // still finishes / out-skis the slide. Cleared in the finally with the corridor.
+    terrain.setTerrainKickers(config.features ?? null, line);
     try {
       Math.random = makeRng(seed);               // one stream: kernel auto-turn AND boulder spawn
       const _log = console.log; console.log = () => {};
@@ -328,6 +333,7 @@ function fakeSnowman() {
       return { tier, buried, finished, maxSpeed, minDist, maxOffLine, z: pos.z };
     } finally {
       terrain.setTerrainCorridor(null);          // restore straight terrain + clear the cache
+      terrain.setTerrainKickers(null);           // and drop the tier's kickers (JP-6)
     }
   }
 
@@ -342,6 +348,7 @@ function fakeSnowman() {
     const winds = config.line.curviness > 0 && !!config.terrain;
     if (winds) terrain.setTerrainCorridor({ line, params: config.terrain });
     else terrain.setTerrainCorridor(null);
+    terrain.setTerrainKickers(config.features ?? null, line); // the tier's real course (JP-6)
     try {
       Math.random = makeRng(seed);
       const _log = console.log; console.log = () => {};
@@ -375,6 +382,7 @@ function fakeSnowman() {
       return { buried, finished };
     } finally {
       terrain.setTerrainCorridor(null);
+      terrain.setTerrainKickers(null);
     }
   }
 
@@ -433,8 +441,11 @@ function fakeSnowman() {
   // corridor bound is the makeable-envelope check — a skilled line stays inside the walled
   // channel; drifting past it means the numbers made the line unfollowable (fail, retune).
   const CORRIDOR_BOUND = 16; // u off the centerline; Black's wall is fully up by ~channelHalfWidth+wallRamp
+  // Expert joined the list at JP-6: its line rider goes straight off all three
+  // sculpted kickers (they sit ON laneX) with lipLaunch arcs — the gate proves the
+  // designed air still lands in the corridor, finishes, and out-skis the slide.
   console.log('\n--- G5: each tier\'s winding line is winnable at its own physics [GATING] ---');
-  for (const tier of ['bunny', 'blue', 'black']) {
+  for (const tier of ['bunny', 'blue', 'black', 'expert']) {
     const runs = SEEDS.map(s => runLineDescent(s, tier));
     const escapes = runs.filter(r => r.finished && !r.buried).length;
     const maxOff = Math.max(...runs.map(r => r.maxOffLine));

@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { Trees, type TreePosition } from './trees.js';
 import { SimplexNoise, terrainRidgeField } from './noise.js';
-import { heightMap, corridorWallHeight, hasActiveCorridor } from './terrain.js';
+import { heightMap, corridorWallHeight, hasActiveCorridor, kickerRampHeight, hasActiveKickers } from './terrain.js';
 import {
   createSnowAlbedoTexture,
   createSnowNormalTexture,
@@ -44,6 +44,8 @@ export function createTerrain(scene: THREE.Scene) {
   // Bank the winding corridor (D3.2b) only when a tier set one; straight tiers (Blue/
   // Bunny) skip the add entirely so the mesh takes the literal original path.
   const corridorActive = hasActiveCorridor();
+  // Sculpted kickers (JP-6) only when a tier shipped `features`; same guardrail.
+  const kickersActive = hasActiveKickers();
 
   for (let i = 0; i < vertices.length; i += 3) {
     const x = vertices[i]!, z = vertices[i + 2]!;
@@ -83,6 +85,12 @@ export function createTerrain(scene: THREE.Scene) {
     // contract). Added last, before the final height is committed to the heightmap.
     if (corridorActive) {
       y += corridorWallHeight(x, z);
+    }
+
+    // Kicker ramps (JP-6) — the SAME formula getTerrainHeight adds (two-formula
+    // contract §2.2): the visual ramp and the physical ramp can never disagree.
+    if (kickersActive) {
+      y += kickerRampHeight(x, z);
     }
 
     vertices[i + 1] = y;

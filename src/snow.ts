@@ -522,6 +522,7 @@ export const Snow = {
   getDownhillDirection: Mountains.getDownhillDirection,
   createTerrain: Mountains.createTerrain,
   setTerrainCorridor: Mountains.setTerrainCorridor,
+  setTerrainKickers: Mountains.setTerrainKickers,
   createTree: Trees.createTree,
   createRock: Mountains.createRock,
   addTrees: Trees.addTrees,
