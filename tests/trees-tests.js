@@ -95,7 +95,7 @@ async function main() {
       'addTrees returns a non-empty treePositions array', `${positions.length} trees`);
 
     const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(forest.length >= 1 && forest.length <= 6,
+    assert(forest.length >= 1 && forest.length <= 5,
       'forest renders as a handful of InstancedMeshes', `${forest.length} meshes`);
     assert(forest.every(m => m.isInstancedMesh), 'forest meshes are InstancedMeshes');
 
@@ -117,7 +117,7 @@ async function main() {
     // accumulating duplicate InstancedMeshes in the scene (covers the teardown loop).
     const positions2 = Trees.addTrees(scene);
     const forest2 = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(forest2.length >= 1 && forest2.length <= 6,
+    assert(forest2.length >= 1 && forest2.length <= 5,
       're-init rebuilds the forest without duplicating instanced meshes',
       `${forest2.length} meshes after re-init`);
     assert(positions2.length > 0, 're-init still returns tree positions');

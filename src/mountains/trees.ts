@@ -179,7 +179,6 @@ let trunkMaterials: THREE.MeshStandardMaterial[] | null = null;
 let foliageMaterials: THREE.MeshStandardMaterial[] | null = null;
 let snowMaterial: THREE.MeshStandardMaterial | null = null;
 let barkInstancedMaterial: THREE.MeshStandardMaterial | null = null;
-let bareBarkInstancedMaterial: THREE.MeshStandardMaterial | null = null;
 let foliageInstancedMaterial: THREE.MeshStandardMaterial | null = null;
 // Shadow-caster (depth) materials carrying the SAME sway, one per profile (see
 // getSwayDepthMaterial). Kept beside the visible ones so resetTreePools frees them too.
@@ -246,7 +245,7 @@ function getSnowPatchGeometry(): THREE.SphereGeometry {
 // `buildForest`. Same HSL values as before → identical look, now via `instanceColor`.
 
 // First weathered shade in the bark palette. Live trees mostly pick from the rich
-// browns below it; dead snags pick from here upward.
+// browns below it; the weathered shades are reserved for future non-live wood uses.
 const TRUNK_WEATHERED_START = 6;
 
 /** Bark palette: richer live browns plus weathered grey-brown/silver wood. */
@@ -342,7 +341,7 @@ function getSnowMaterial(): THREE.MeshStandardMaterial {
 // Three sway profiles keep trees looking rooted without needing any per-instance data
 // (which would have to live on the *shared* pooled geometry and break its one-forest
 // assumption): the TRUNK material is "rooted" — the bend is weighted 0 at the trunk base
-// and 1 at its top, so the tree pivots at the ground — while snow/dead wood use a
+// and 1 at its top, so the tree pivots at the ground — while snow-laden parts use a
 // damped "canopy" lean. Live foliage uses the same canopy lean plus a small
 // crosswind flutter so needle layers flex under gusts. A spatial phase from each
 // vertex's world x/z desyncs neighbouring trees so the stand doesn't wave in
@@ -498,21 +497,6 @@ function getBarkInstancedMaterial(): THREE.MeshStandardMaterial {
   return barkInstancedMaterial;
 }
 
-/** Bark material for dead-snag bare branches; stiff canopy lean, no needle flutter. */
-function getBareBarkInstancedMaterial(): THREE.MeshStandardMaterial {
-  if (!bareBarkInstancedMaterial) {
-    bareBarkInstancedMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.95,
-      map: getBarkAlbedo(),
-      normalMap: getBarkNormal(),
-      normalScale: new THREE.Vector2(0.8, 0.8)
-    });
-    applyTreeSway(bareBarkInstancedMaterial, 'canopy');
-  }
-  return bareBarkInstancedMaterial;
-}
-
 /** White foliage material for the instanced cones + branches (tinted per-instance). */
 function getFoliageInstancedMaterial(): THREE.MeshStandardMaterial {
   if (!foliageInstancedMaterial) {
@@ -589,8 +573,8 @@ function pickColorIndex(paletteLength: number): number {
 // collector and rebuilds real Meshes from its bucket, preserving the public API for
 // headless callers.
 
-type GeomKey = 'trunk' | 'cone' | 'branch' | 'bareBranch' | 'snowCap' | 'snowPatch';
-const GEOM_KEYS: GeomKey[] = ['trunk', 'cone', 'branch', 'bareBranch', 'snowCap', 'snowPatch'];
+type GeomKey = 'trunk' | 'cone' | 'branch' | 'snowCap' | 'snowPatch';
+const GEOM_KEYS: GeomKey[] = ['trunk', 'cone', 'branch', 'snowCap', 'snowPatch'];
 
 /** One placed part: its world matrix and (for tinted families) a palette colour index. */
 interface InstanceDesc {
@@ -600,7 +584,7 @@ interface InstanceDesc {
 type Buckets = Record<GeomKey, InstanceDesc[]>;
 
 function createBuckets(): Buckets {
-  return { trunk: [], cone: [], branch: [], bareBranch: [], snowCap: [], snowPatch: [] };
+  return { trunk: [], cone: [], branch: [], snowCap: [], snowPatch: [] };
 }
 
 // Scratch objects reused across pushPart calls (no per-part allocation churn).
@@ -626,11 +610,11 @@ function pushPart(
   buckets[key].push(colorIndex === undefined ? { matrix: _world.clone() } : { matrix: _world.clone(), colorIndex });
 }
 
-type TreeSpecies = 'fir' | 'spruce' | 'snag';
+type TreeSpecies = 'fir' | 'spruce';
 
 function pickTreeSpecies(): TreeSpecies {
   const r = Math.random();
-  return r < 0.60 ? 'fir' : r < 0.92 ? 'spruce' : 'snag';
+  return r < 0.62 ? 'fir' : 'spruce';
 }
 
 function pickFoliageBaseIndex(species: TreeSpecies): number {
@@ -639,45 +623,29 @@ function pickFoliageBaseIndex(species: TreeSpecies): number {
   return pickColorIndex(FOLIAGE_FROST_START - 2);
 }
 
-function jitterFoliageIndex(baseIndex: number): number {
-  const idx = baseIndex + Math.floor(Math.random() * 3) - 1;
-  return Math.min(getFoliageColors().length - 1, Math.max(0, idx));
-}
-
 // Collect one tree's parts into the buckets. Species variety lives here: classic
-// firs with broad lower boughs, narrow spruces with more stacked layers, and sparse
-// weathered snags. This is visual only; collision uses the unchanged treePositions.
+// firs with broad lower boughs and narrow spruces with more stacked layers. This is
+// visual only; collision uses the unchanged treePositions.
 function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets): void {
   const species = pickTreeSpecies();
   const heightScale = (0.8 + Math.random() * 0.4) * scale * (species === 'spruce' ? 1.15 : 1);
   const widthScale = (0.85 + Math.random() * 0.3) * scale * (species === 'spruce' ? 0.68 : 1);
 
   // Tree trunk — base at y=0 (so its centre is at trunkHeight/2), sized via scale.
-  const trunkHeight = 4 * heightScale * (species === 'snag' ? 1.1 : 1);
-  const trunkWidth = widthScale * (species === 'snag' ? 0.7 : 1);
-  const trunkColorIndex = species === 'snag'
-    ? TRUNK_WEATHERED_START + pickColorIndex(getTrunkColors().length - TRUNK_WEATHERED_START)
-    : pickColorIndex(TRUNK_WEATHERED_START + 1);
+  const trunkHeight = 4 * heightScale;
+  const trunkWidth = widthScale;
+  const trunkColorIndex = pickColorIndex(TRUNK_WEATHERED_START);
   pushPart(buckets, 'trunk', treeMatrix,
     { x: 0, y: trunkHeight / 2, z: 0 }, { x: 0, y: 0, z: 0 },
     { x: trunkWidth, y: trunkHeight / 4, z: trunkWidth }, trunkColorIndex);
 
-  if (species === 'snag') {
-    collectSnagBranches(buckets, treeMatrix, trunkHeight, widthScale, trunkColorIndex);
-    const capRadius = trunkWidth * 0.55;
-    pushPart(buckets, 'snowCap', treeMatrix,
-      { x: 0, y: trunkHeight - capRadius * 0.2, z: 0 }, { x: 0, y: 0, z: 0 },
-      { x: capRadius, y: capRadius * 0.45, z: capRadius });
-    return;
-  }
-
   const layerCount = species === 'spruce'
-    ? 6 + Math.floor(Math.random() * 3)
-    : 4 + Math.floor(Math.random() * 3);
+    ? 8 + Math.floor(Math.random() * 3)
+    : 6 + Math.floor(Math.random() * 3);
   const foliageBase = trunkHeight * (species === 'spruce'
-    ? 0.16 + Math.random() * 0.10
-    : 0.32 + Math.random() * 0.14);
-  const treeTop = trunkHeight + (species === 'spruce' ? 1.6 : 1.2) * heightScale;
+    ? 0.04 + Math.random() * 0.06
+    : 0.16 + Math.random() * 0.08);
+  const treeTop = trunkHeight + (species === 'spruce' ? 1.1 : 0.8) * heightScale;
   const taper = species === 'spruce' ? 0.80 : 0.72;
   const baseFoliageIndex = pickFoliageBaseIndex(species);
   const snowLoad = Math.random();
@@ -688,9 +656,11 @@ function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets)
     const t = layerCount > 1 ? i / (layerCount - 1) : 0;
     const layerScale = 1 - t * taper;
     const layerY = foliageBase + t * (treeTop - foliageBase);
-    const coneRadius = 2.2 * widthScale * layerScale;
+    const coneWidth = widthScale * layerScale * (species === 'fir' ? 1.12 : 1.0);
+    const coneScaleY = heightScale * layerScale * (species === 'spruce' ? 1.1 : 1.22);
+    const coneRadius = 2.2 * coneWidth;
 
-    const coneColorIndex = jitterFoliageIndex(baseFoliageIndex);
+    const coneColorIndex = baseFoliageIndex;
 
     // Slight random tilt for natural look
     const xTilt = (Math.random() - 0.5) * 0.12;
@@ -699,9 +669,9 @@ function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets)
     pushPart(buckets, 'cone', treeMatrix,
       { x: 0, y: layerY, z: 0 }, { x: xTilt, y: Math.random() * Math.PI * 2, z: zTilt },
       {
-        x: widthScale * layerScale,
-        y: heightScale * layerScale * (species === 'spruce' ? 0.85 : 1),
-        z: widthScale * layerScale
+        x: coneWidth,
+        y: coneScaleY,
+        z: coneWidth
       },
       coneColorIndex);
 
@@ -710,40 +680,18 @@ function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets)
     }
 
     if (Math.random() < 0.25 + snowLoad * 0.45) {
-      collectLayerSnow(buckets, treeMatrix, layerY, coneRadius,
-        heightScale * layerScale * (species === 'spruce' ? 0.85 : 1), widthScale);
+      collectLayerSnow(buckets, treeMatrix, layerY, coneRadius, coneScaleY, widthScale);
     }
 
     topLayerY = layerY;
     topLayerScale = layerScale;
   }
 
-  const tipY = topLayerY + 1.25 * heightScale * topLayerScale * (species === 'spruce' ? 0.85 : 1);
+  const tipY = topLayerY + 1.25 * heightScale * topLayerScale * (species === 'spruce' ? 1.1 : 1.22);
   const capRadius = widthScale * (species === 'spruce' ? 0.5 : 0.75);
   pushPart(buckets, 'snowCap', treeMatrix,
     { x: 0, y: tipY - capRadius * 0.25, z: 0 }, { x: 0, y: 0, z: 0 },
     { x: capRadius, y: capRadius * 0.5, z: capRadius });
-}
-
-function collectSnagBranches(
-  buckets: Buckets,
-  treeMatrix: THREE.Matrix4,
-  trunkHeight: number,
-  widthScale: number,
-  colorIndex: number
-): void {
-  const branchCount = 3 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < branchCount; i++) {
-    const angle = (i / branchCount) * Math.PI * 2 + Math.random() * 1.2;
-    const y = trunkHeight * (0.45 + Math.random() * 0.5);
-    const length = (0.9 + Math.random() * 0.9) * widthScale;
-    const thickness = 0.05 + Math.random() * 0.05;
-    const droop = -(0.15 + Math.random() * 0.45);
-    pushPart(buckets, 'bareBranch', treeMatrix,
-      { x: Math.cos(angle) * length * 0.4, y, z: Math.sin(angle) * length * 0.4 },
-      { x: (Math.random() - 0.5) * 0.2, y: angle, z: droop },
-      { x: length, y: thickness, z: thickness }, colorIndex);
-  }
 }
 
 function collectLayerSnow(
@@ -833,7 +781,6 @@ function geometryForKey(key: GeomKey): THREE.BufferGeometry {
     case 'trunk': return getTrunkGeometry();
     case 'cone': return getConeGeometry();
     case 'branch': return getBranchGeometry();
-    case 'bareBranch': return getBranchGeometry();
     case 'snowCap': return getSnowCapGeometry();
     case 'snowPatch': return getSnowPatchGeometry();
   }
@@ -842,7 +789,7 @@ function geometryForKey(key: GeomKey): THREE.BufferGeometry {
 /** Rebuild a real Mesh from one collected part (for the Group-returning createTree shim). */
 function meshFromDesc(key: GeomKey, desc: InstanceDesc): THREE.Mesh {
   let material: THREE.Material;
-  if (key === 'trunk' || key === 'bareBranch') material = getTrunkMaterials()[desc.colorIndex!]!;
+  if (key === 'trunk') material = getTrunkMaterials()[desc.colorIndex!]!;
   else if (key === 'cone' || key === 'branch') material = getFoliageMaterials()[desc.colorIndex!]!;
   else material = getSnowMaterial();
   const mesh = new THREE.Mesh(geometryForKey(key), material);
@@ -890,7 +837,6 @@ function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[
     ['trunk', getBarkInstancedMaterial(), getTrunkColors(), 'rooted'],
     ['cone', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter'],
     ['branch', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter'],
-    ['bareBranch', getBareBarkInstancedMaterial(), getTrunkColors(), 'canopy'],
     ['snowCap', getSnowMaterial(), null, 'canopy'],
     ['snowPatch', getSnowMaterial(), null, 'canopy']
   ];
@@ -1210,7 +1156,6 @@ export function resetTreePools(): void {
   free(snowPatchGeometry);
   free(snowMaterial);
   free(barkInstancedMaterial);
-  free(bareBarkInstancedMaterial);
   free(foliageInstancedMaterial);
   (Object.keys(swayDepthMaterials) as SwayProfile[]).forEach(k => {
     free(swayDepthMaterials[k]);
@@ -1225,7 +1170,7 @@ export function resetTreePools(): void {
   trunkGeometry = coneGeometry = branchGeometry = snowCapGeometry = snowPatchGeometry = null;
   trunkColors = foliageColors = null;
   trunkMaterials = foliageMaterials = null;
-  snowMaterial = barkInstancedMaterial = bareBarkInstancedMaterial = foliageInstancedMaterial = null;
+  snowMaterial = barkInstancedMaterial = foliageInstancedMaterial = null;
   barkNormalTexture = barkAlbedoTexture = foliageNormalTexture = null;
 }
 
