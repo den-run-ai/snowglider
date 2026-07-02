@@ -47,8 +47,9 @@ export interface RunClockGuardOptions {
 
 /**
  * Install the visibilitychange handler that pauses the run clock while hidden.
- * @param {Object} state - The live run state; only `gameActive` (read) and
- *   `startTime` (shifted on resume) are touched.
+ * @param {Object} state - The live run state; only `startTime` is touched (shifted,
+ *   clamped to now, on resume). `gameActive` stays in the type for the callers'
+ *   convenience but is no longer read — see the capture-always note below.
  */
 export function createRunClockGuard(
   state: { gameActive: boolean; startTime: number },
@@ -57,9 +58,16 @@ export function createRunClockGuard(
   const doc = opts.doc ?? document;
   const now = opts.now ?? (() => performance.now());
 
-  // performance.now() at the moment the document went hidden mid-run; null whenever
-  // we are not paused. Captured only while a run is active, so hiding on the start
-  // menu / game-over screen never shifts the next run's clock.
+  // performance.now() at the moment the document went hidden; null whenever we are
+  // not hidden. Captured UNCONDITIONALLY — not only while a run is active — because
+  // a run can BECOME active while the document is already hidden (the player clicks
+  // Start, then switches tabs during the first-start loading delay; the deferred
+  // startGameplayLoop timer still fires in the background). Gating the capture on
+  // gameActive would leave that run unguarded: no interval to shift out on resume
+  // and no physics gate on throttled hidden frames (codex review round 2, PR #278).
+  // While no run is active the loop isn't running, so a menu/game-over pause is
+  // inert, and the resume shift below is clamped so it can never push startTime
+  // past `now` (a fresh run re-seeds startTime at start anyway).
   let hiddenAt: number | null = null;
   // Set on each hidden->visible resume, consumed by the loop's next frame. On
   // browsers that STOP rAF for hidden tabs (the common case) no paused frame ever
@@ -73,11 +81,16 @@ export function createRunClockGuard(
 
   doc.addEventListener('visibilitychange', () => {
     if (doc.visibilityState === 'hidden') {
-      if (state.gameActive && hiddenAt === null) hiddenAt = now();
+      if (hiddenAt === null) hiddenAt = now();
     } else if (hiddenAt !== null) {
       // Hidden time doesn't count: every elapsed-time consumer derives from
       // startTime, so this one shift keeps HUD/splits/ghost/finish coherent.
-      state.startTime += now() - hiddenAt;
+      // Clamped to `now` for the run-started-while-hidden case: if startTime was
+      // seeded AFTER the hide began, shifting by the full hidden span would push
+      // it into the future (negative elapsed) — the correct resume point for a
+      // run with zero visible play time is elapsed exactly 0.
+      const t = now();
+      state.startTime = Math.min(state.startTime + (t - hiddenAt), t);
       hiddenAt = null;
       resumed = true;
     }
