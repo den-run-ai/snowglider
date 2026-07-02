@@ -223,11 +223,15 @@ export const CourseModule = (function () {
   // the presentation unit-testable. showFlash itself stays private. `trick` is the
   // freestyle completed-trick label (#32, Expert tier) — e.g. "360 + GRAB" — folded
   // into the same toast; null/omitted keeps the plain #47 air toast byte-identical.
-  function flashAir(quality: 'clean' | 'ok' | 'sketchy', seconds: number, trick?: string | null) {
+  // `combo` (JP-7, optional): the live style-chain label ("×1.56"), appended when a
+  // chain is running — "✈ AIR 1.2s · 360 · CLEAN ×1.56". Empty/absent keeps the
+  // plain toast byte-identical.
+  function flashAir(quality: 'clean' | 'ok' | 'sketchy', seconds: number, trick?: string | null, combo?: string) {
     const label = quality === 'clean' ? 'CLEAN' : quality === 'ok' ? 'OK' : 'SKETCHY';
     const color = quality === 'clean' ? '#55efc4' : quality === 'ok' ? '#74b9ff' : '#ff7675';
     const trickPart = trick ? `${trick} &middot; ` : '';
-    showFlash(`✈ AIR ${seconds.toFixed(1)}s &middot; ${trickPart}${label}`, color);
+    const comboPart = combo ? ` ${combo}` : '';
+    showFlash(`✈ AIR ${seconds.toFixed(1)}s &middot; ${trickPart}${label}${comboPart}`, color);
   }
 
   // Scored obstacle clear toast (jump-system completion JP-2, #245): a *manual* jump
