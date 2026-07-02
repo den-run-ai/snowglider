@@ -230,6 +230,13 @@ export const CourseModule = (function () {
     showFlash(`✈ AIR ${seconds.toFixed(1)}s &middot; ${trickPart}${label}`, color);
   }
 
+  // Scored obstacle clear toast (jump-system completion JP-2, #245): a *manual* jump
+  // sailing over a tree/rock the run would otherwise have hit. Same flash element +
+  // pattern as flashAir; gold so it reads as a reward distinct from the landing grades.
+  function flashClear(kind: 'tree' | 'rock') {
+    showFlash(`✦ CLEARED! ${kind === 'tree' ? '🌲' : '🪨'}`, '#ffeaa7');
+  }
+
   // Bank air-score points earned this run (from a graded manual-jump landing in the
   // physics kernel). Reset to 0 each run in reset(); surfaced on the result screen.
   function addAirScore(points: number) {
@@ -814,6 +821,7 @@ export const CourseModule = (function () {
     reset,
     update,
     flashAir,
+    flashClear,
     addAirScore,
     hideHud,
     onFinish,

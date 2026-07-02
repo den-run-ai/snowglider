@@ -68,6 +68,7 @@ interface FrameEvents {
   landingQuality: LandingQuality | null;
   landingForce: number;
   trickName: string | null;            // freestyle (#32): completed-trick label, Expert only
+  obstacleCleared: 'tree' | 'rock' | null; // scored clear (JP-2): last cleared type this frame
 }
 
 export interface MainLoopDeps extends
@@ -112,7 +113,7 @@ export function createMainLoop(deps: MainLoopDeps) {
   const interpCur = { x: 0, y: 0, z: 0 };
 
   function newFrameEvents(): FrameEvents {
-    return { justLanded: false, tookOff: false, landingQuality: null, landingForce: 0, trickName: null };
+    return { justLanded: false, tookOff: false, landingQuality: null, landingForce: 0, trickName: null, obstacleCleared: null };
   }
 
   // Reduce one substep's result into the frame's aggregated events (§5). Also advances
@@ -127,6 +128,9 @@ export function createMainLoop(deps: MainLoopDeps) {
       ev.trickName = result.trickName;           // freestyle (#32): null outside an Expert trick landing
     }
     if (result.isInAir && !prevInAir) ev.tookOff = true;
+    // Scored clear (JP-2): a one-shot cue like the landing — reduce across substeps
+    // so a clear on substep 1 of 3 still toasts. (The points bank in-kernel.)
+    if (result.obstacleCleared) ev.obstacleCleared = result.obstacleCleared;
     prevInAir = result.isInAir;
   }
 
@@ -216,6 +220,14 @@ export function createMainLoop(deps: MainLoopDeps) {
     // grade — plus the completed trick's name on an Expert freestyle landing (#32).
     // landingQuality is non-null only for a player-initiated jump, so auto-jumps /
     // hop turns / coasting never toast. (The air score itself is banked inside the step.)
+    // Scored obstacle clear (JP-2): toast the mid-air reward cue. Dispatched BEFORE
+    // the landing toast so if one frame carries both (clear in an early substep,
+    // landing in a later one) the graded landing — the richer, terminal cue — wins
+    // the shared flash element. The points were already banked in-kernel.
+    if (ev.obstacleCleared && CourseModule) {
+      CourseModule.flashClear(ev.obstacleCleared);
+    }
+
     if (ev.justLanded && ev.landingQuality && CourseModule) {
       CourseModule.flashAir(ev.landingQuality, ev.landingForce, ev.trickName);
     }

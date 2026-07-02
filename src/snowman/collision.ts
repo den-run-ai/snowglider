@@ -7,6 +7,16 @@ import type { PlayerPos, RockPos, ShowGameOverFn, TreePos } from './index.js';
 // enforced finish can't drift. The winnability/forward-stress gates read it via course.ts.
 export const FINISH_Z = -195;
 
+/** One airborne obstacle clear this frame (jump-system completion JP-2, #245):
+ *  the horizontal-overlap test WOULD have collided, but an airborne suppression
+ *  branch (isJumpingHighAboveTrees / isJumpingOverRock) let the player sail over.
+ *  `key` identifies the obstacle (stable per run) so the caller can dedup the
+ *  many consecutive overlap frames of one pass into a single scored clear. */
+export interface ObstacleClear {
+  type: 'tree' | 'rock';
+  key: string;
+}
+
 interface SnowmanCollisionState {
   pos: PlayerPos;
   isInAir: boolean;
@@ -16,6 +26,11 @@ interface SnowmanCollisionState {
   rockPositions: RockPos[];
   gameActive: boolean;
   showGameOver: ShowGameOverFn;
+  // Invoked with this frame's airborne clears BEFORE the finish/game-over check
+  // below can fire showGameOver synchronously — so a clear banked on the finish
+  // frame still lands on the result screen (same rationale as bankAirScore, #186).
+  // Detection only: provenance / dedup / cap / scoring are the caller's policy.
+  onObstaclesCleared?: (clears: ObstacleClear[]) => void;
 }
 
 export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
@@ -27,8 +42,13 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     treePositions,
     rockPositions,
     gameActive,
-    showGameOver
+    showGameOver,
+    onObstaclesCleared
   } = state;
+
+  // Airborne clears observed this frame (JP-2). Collected inside the collision
+  // walks below — a clear is exactly "overlap true AND suppression branch fired".
+  const clears: ObstacleClear[] = [];
 
   // Check if snowman is off the terrain or falling
   const fallThreshold = 0.5; // How far below terrain to allow before reset
@@ -64,7 +84,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   }
 
   // Check collision with any tree
-  const treeCollision = treePositions.some(treePos => {
+  const treeCollision = treePositions.some((treePos, treeIndex) => {
     // Special case for tests - direct position match or very close positions always collide
     // Use a small epsilon for floating point comparison, increased for test reliability
     // This helps with floating-point precision issues in tests
@@ -92,6 +112,13 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
 
     // Only consider jumping over trees when genuinely in the air AND moving upward AND high enough
     const isJumpingHighAboveTrees = isInAir && verticalVelocity > 0 && pos.y > (treePos.y + 5);
+
+    // Airborne clear (JP-2): this frame WOULD have hit the tree but the suppression
+    // branch is letting the player sail over — record it (index keys the obstacle for
+    // per-air-phase dedup by the caller). Pure observation: collision outcome unchanged.
+    if (isCloseEnough && isJumpingHighAboveTrees) {
+      clears.push({ type: 'tree', key: `t${treeIndex}` });
+    }
 
     // Debug collision in browser tests when needed
     if (window.location.search.includes('test=true')) {
@@ -124,7 +151,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
 
   // Check collision with large, exposed rocks. Small half-buried stones remain
   // terrain detail; only positions returned by Mountains.addRocks reach this list.
-  const rockCollision = rockPositions.some(rockPos => {
+  const rockCollision = rockPositions.some((rockPos, rockIndex) => {
     const dx = pos.x - rockPos.x;
     const dz = pos.z - rockPos.z;
     const horizontalDistance = Math.sqrt(dx*dx + dz*dz);
@@ -143,8 +170,19 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
       console.log(`ROCK CHECK: dist=${horizontalDistance.toFixed(2)}, radius=${rockRadius.toFixed(2)}, jumping=${isJumpingOverRock}, collision=${horizontalDistance < rockRadius && !isJumpingOverRock}`);
     }
 
+    // Airborne clear (JP-2): overlapping the rock while the height-based clearance
+    // suppresses the hit. Mirrors the tree branch above; observation only.
+    if (horizontalDistance < rockRadius && isJumpingOverRock) {
+      clears.push({ type: 'rock', key: `r${rockIndex}` });
+    }
+
     return horizontalDistance < rockRadius && !isJumpingOverRock;
   });
+
+  // Surface this frame's airborne clears BEFORE the finish/game-over block below —
+  // showGameOver can fire synchronously (finish line) and build the result screen,
+  // so a clear scored on that same frame must already be banked (JP-2).
+  if (clears.length && onObstaclesCleared) onObstaclesCleared(clears);
 
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
   // Allow wider boundaries to match the extended mountain terrain

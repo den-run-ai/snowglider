@@ -17,9 +17,9 @@
 // confirms coasting stays bit-identical to the frozen baseline.
 import * as THREE from 'three';
 import type { SnowmanPhysicsTuning } from '../difficulty.js';
-import { detectCollisionsAndFinish } from './collision.js';
+import { detectCollisionsAndFinish, type ObstacleClear } from './collision.js';
 import { createSnowman } from './model.js';
-import { resetSnowman, stepSnowmanPhysics } from './physics.js';
+import { CLEAR_MAX_PER_AIR, CLEAR_SCORE, resetSnowman, stepSnowmanPhysics } from './physics.js';
 import { applySnowmanPose } from './pose.js';
 import { addTestHooks } from './test-hooks.js';
 
@@ -114,6 +114,11 @@ export interface UpdateResult {
   // least one completed trick component. Null on every other frame and on every
   // non-freestyle tier; the trick points ride inside airScoreDelta.
   trickName: string | null;
+  // Scored obstacle clears (jump-system completion JP-2, #245): the obstacle type
+  // when a *manual* jump cleared a would-have-hit tree/rock this frame (deduped per
+  // obstacle, capped per air phase; the points bank via bankAirScore). Null on every
+  // other frame — auto-jump / hop air never scores a clear (playerJump provenance).
+  obstacleCleared: 'tree' | 'rock' | null;
 }
 
 // Update snowman physics and movement
@@ -180,7 +185,35 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     treePositions,
     rockPositions,
     gameActive,
-    showGameOver
+    showGameOver,
+    // Scored obstacle clears (JP-2, #245): collision.ts reports every airborne
+    // "would-have-hit but sailed over" observation; the POLICY lives here —
+    //   provenance: only a *manual* jump's air scores (playerJump still true while
+    //     airborne; auto-jump/hop air banks nothing, the §3.1 discipline);
+    //   dedup: one pass over an obstacle spans many overlap frames — the per-air
+    //     `clearedObstacles` set (stamped fresh at each manual takeoff) counts it once;
+    //   cap: at most CLEAR_MAX_PER_AIR scored clears per air phase;
+    //   banking: CLEAR_SCORE per clear through the SAME bankAirScore path as the
+    //     landing score — and collision.ts invokes this callback BEFORE its finish
+    //     check can synchronously build the result screen, so a clear on the finish
+    //     frame still counts (#186 rationale).
+    // The callback runs synchronously inside detectCollisionsAndFinish, so stamping
+    // `result.obstacleCleared` here is visible to this frame's caller (toast cue).
+    onObstaclesCleared: (clears: ObstacleClear[]) => {
+      const ud = snowman.userData;
+      if (!ud || !ud.playerJump) return;
+      if (!ud.clearedObstacles) ud.clearedObstacles = {};
+      const seen = ud.clearedObstacles as Record<string, boolean>;
+      for (const clear of clears) {
+        if (seen[clear.key]) continue;
+        seen[clear.key] = true;
+        const count = ((ud.clearsThisAir as number) || 0) + 1;
+        ud.clearsThisAir = count;
+        if (count > CLEAR_MAX_PER_AIR) continue;
+        result.obstacleCleared = clear.type;
+        if (bankAirScore) bankAirScore(CLEAR_SCORE);
+      }
+    }
   });
 
   // Return updated state variables

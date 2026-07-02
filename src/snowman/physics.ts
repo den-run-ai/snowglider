@@ -29,6 +29,17 @@ export const JUMP_BOOST_CAP = 0.06;        // ...hard-capped so jump-spam can't 
 const AIR_SCORE_PER_SEC = 100;      // air-score points per second aloft
 const AIR_SCORE_CLEAN_BONUS = 50;   // extra points for sticking a CLEAN landing
 
+// --- Scored obstacle clears (jump-system completion JP-2, #245 items 1) ------
+// A *manual* jump that sails over a tree/rock the run would otherwise have hit
+// banks CLEAR_SCORE per obstacle, capped per air phase so a single huge jump over
+// dense forest can't print unbounded points. Provenance-gated on playerJump (an
+// auto-jump/hop clear banks nothing), deduped per obstacle (one pass over a tree
+// spans many overlap frames = ONE clear). Detection lives in collision.ts
+// (ObstacleClear); the policy — provenance, dedup, cap, banking — is applied in
+// index.ts updateSnowman. Exported for the harness/tests; mirrored in PHYSICS.md §10.
+export const CLEAR_SCORE = 75;      // air-score points banked per cleared obstacle
+export const CLEAR_MAX_PER_AIR = 3; // max scored clears in one air phase
+
 // --- Freestyle tricks (#32, Expert tier only) --------------------------------
 // The in-air trick vocabulary for a *manual* jump on a tier whose ski tuning sets
 // `freestyleTricks` (the ◆◆ Expert tier): steering Left/Right spins (yaw), Up/Down
@@ -146,6 +157,10 @@ export function resetSnowman(
     snowman.userData.trickGrabArmed = false;
     snowman.userData.trickGrabbing = false;
     snowman.userData.trickCameraYaw = 0;
+    // Clear the scored-obstacle-clear slate (JP-2) so a new run never inherits a
+    // previous air phase's dedup set or count.
+    snowman.userData.clearsThisAir = 0;
+    snowman.userData.clearedObstacles = {};
   }
   
   // Force all rotations to be explicit - avoid any chance of NaN or unexpected values
@@ -294,6 +309,10 @@ export function stepSnowmanPhysics(
         ud.trickGrabTime = 0;
         ud.trickGrabArmed = false;
         ud.trickGrabbing = false;
+        // Consume the clear slate too (JP-2) — belt-and-suspenders with the fresh
+        // slate stamped at the next manual takeoff.
+        ud.clearsThisAir = 0;
+        ud.clearedObstacles = {};
       }
     } else {
       // Auto-jump (terrain lip) or hop-turn landing: unchanged from today. This is
@@ -393,6 +412,10 @@ export function stepSnowmanPhysics(
         snowman.userData.trickGrabTime = 0;
         snowman.userData.trickGrabArmed = false;
         snowman.userData.trickGrabbing = false;
+        // Scored clears (JP-2): a fresh dedup slate for this air phase, so the cap and
+        // the per-obstacle dedup are per-jump, not per-run.
+        snowman.userData.clearsThisAir = 0;
+        snowman.userData.clearedObstacles = {};
       }
     }
   }
@@ -697,7 +720,11 @@ export function stepSnowmanPhysics(
       landingForce,
       landingQuality,
       airScoreDelta,
-      trickName
+      trickName,
+      // Scored clears (JP-2) are observed by the collision walk AFTER this step, so
+      // the kernel step always reports null; updateSnowman (index.ts) stamps the
+      // type when a provenance-gated, deduped, in-cap clear is scored this frame.
+      obstacleCleared: null
     }
   };
 }
