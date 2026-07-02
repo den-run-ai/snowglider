@@ -692,7 +692,11 @@ const ScoresModule = {
   updateUserBestTime,
   updateLeaderboard,
   isFirestoreAvailable,
-  isValidScoreTime
+  isValidScoreTime,
+  // Deliberate test seam (not a game API): lets the headless suite exercise the
+  // row builder's avatar scheme-allowlist branch directly — no leaderboard data
+  // path supplies a photoURL yet, so the guard is unreachable from the public API.
+  leaderboardRow
 };
 
 // Export as both a module and a global for flexibility

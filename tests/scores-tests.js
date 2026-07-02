@@ -340,6 +340,31 @@ async function main() {
   check('no injected handler ran',
     /** @type {any} */ (env.window).__pwned === undefined);
 
+  console.log('\n--- leaderboardRow: avatar scheme allowlist (unit seam) ---');
+  {
+    const row = ScoresModule.leaderboardRow(1, 'Alice', 'https://example.com/a.png', 19.5, false);
+    const img = row.querySelector('img.mini-avatar');
+    check('an https avatar URL renders as an img via property assignment',
+      !!img && img.src === 'https://example.com/a.png' && img.alt === '');
+    check('the avatar img carries referrerpolicy=no-referrer',
+      !!img && img.referrerPolicy === 'no-referrer');
+    check('row cells carry rank, name, and formatted time as text',
+      row.cells.length === 3 && row.cells[0].textContent === '1' &&
+      row.cells[1].textContent.includes('Alice') && row.cells[2].textContent === '19.50s');
+    const jsRow = ScoresModule.leaderboardRow(2, 'Mallory', 'javascript:alert(1)', 20, false);
+    const dataRow = ScoresModule.leaderboardRow(3, 'Trudy', 'data:text/html,x', 21, false);
+    const httpRow = ScoresModule.leaderboardRow(4, 'Eve', 'http://example.com/a.png', 22, false);
+    check('javascript:, data:, and plain-http avatar URLs are all rejected (no img)',
+      !jsRow.querySelector('img') && !dataRow.querySelector('img') && !httpRow.querySelector('img'));
+    check('rejected-avatar rows still render the name as text',
+      jsRow.cells[1].textContent.includes('Mallory'));
+    const meRow = ScoresModule.leaderboardRow(5, 'Me', null, 23, true);
+    check('current-user rows are flagged and a null photoURL renders no avatar',
+      meRow.className === 'current-user-score' && !meRow.querySelector('img'));
+    const plainRow = ScoresModule.leaderboardRow(6, 'Zoe', null, 24, false);
+    check('non-current-user rows carry no highlight class', plainRow.className === '');
+  }
+
   console.log('\n--- displayLeaderboard: empty board ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
