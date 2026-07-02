@@ -323,10 +323,12 @@ landingForce = airTime                          // fed to camera shake (EffectsM
 
 if (playerJump):                                // a graded *manual*-jump landing
     alignment = dot(velocityHeading, downhill)  // cosine vs the fall line at touchdown
-    if   alignment > 0.85: quality = CLEAN  ; velocity *= (1 + min(0.06, airTime*0.04))  // boost
-    elif alignment > 0.55: quality = OK     ;                                            // neutral
-    else:                  quality = SKETCHY; velocity *= (1 - landingImpact)            // scrub
-    airScoreDelta = round(airTime*100 + (quality==CLEAN ? 50 : 0))
+    vImpact   = |v³ · n|                        // impact into the surface — see §4.2 (JP-4)
+    if   wipeout (§4.2, tuning.wipeouts only):  quality = WIPEOUT; run ends (crash path)
+    elif alignment > 0.85 and vImpact < 24: quality = CLEAN  ; velocity *= (1 + min(0.06, airTime*0.04))  // boost
+    elif alignment > 0.55 and vImpact <= 30: quality = OK    ;                                            // neutral
+    else:                  quality = SKETCHY; velocity *= (1 - scrub)   // deeper scrub if vImpact > 30
+    airScoreDelta = quality==WIPEOUT ? 0 : round(airTime*100 + (quality==CLEAN ? 50 : 0))
 else:                                           // auto-jump / hop — UNCHANGED from before
     velocity *= (1 - landingImpact)             // bleed speed on impact
 jumpCooldown = 0.3
@@ -431,6 +433,39 @@ Because spins can't yet alter the *velocity* heading (that needs heading-relativ
 velocity, #244), a spun landing is still graded by velocity-vs-fall-line alignment.
 Tunables + grading live in `src/snowman/physics.ts` (exported constants +
 `gradeFreestyleTrick`), pinned by `tests/freestyle-tests.js`.
+
+### 4.2 Impact-consistent grading & wipeouts (JP-4 — MEANINGFUL_JUMPS §8.3)
+
+Landing harshness is **physical, not just aim**: the grade also reads the velocity
+component *into* the landing surface —
+
+```
+n       = normalize(-∇x, 1, -∇z)                       // surface normal at the landing point
+vImpact = |(vx, verticalVelocity, vz) · n|             // computed before verticalVelocity is zeroed
+```
+
+Touching down where the surface falls away along travel (a downslope transition)
+absorbs the fall — `vImpact` drops — while flatting out from big air reads harsh
+even perfectly aligned. Grade gates (in the `playerJump` branch only):
+
+- **CLEAN** additionally requires `vImpact < LAND_SOFT_NORMAL (24)`;
+- `vImpact > LAND_HARSH_NORMAL (30)` forces **SKETCHY** with a deeper scrub
+  (`min(0.5, landingImpact × 1.5)`) and a heavier touchdown shake;
+- **WIPEOUT** (`tuning.wipeouts` tiers — Expert only): `vImpact >
+  LAND_WIPEOUT_NORMAL (34)` **or** landing more than 120° into a somersault
+  (`WIPEOUT_FLIP_RESIDUAL_DEG`; the flip is the only rotation whose residual can
+  exceed 120° — a spin's residual to the nearest 180° maxes at 90°). A wipeout
+  banks **zero** air score and `updateSnowman` routes it to the crash path
+  (`showGameOver` → the #171 shatter): freestyle risk with real consequences.
+
+Thresholds are calibrated to **measured** touchdown impacts (probe over speeds
+8–25 on the harness hill + constant 9°/18°/30° slopes: a plain full-power straight
+jump lands at `vImpact ≈ 15–28`), so ordinary stomps keep the #186 CLEAN boost and
+harsh/wipeout live past what a plain downhill jump reaches (flat-outs and
+kicker-scale air get there). Pinned by the harness's **landing-monotonicity** check
+(equal touchdown velocity: a downslope landing never grades worse than flat) and
+the **wipeout-gate** check (`'wipeout'` unreachable when `tuning.wipeouts` is
+false); the freestyle suite pins the wipeout residual/impact tables.
 
 ---
 
@@ -698,6 +733,8 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Manual / auto jump impulse | `10 + v*0.5` / `6 + v*0.3` | `snowman.js` |
 | Landing scrub | `min(0.5, airTime*0.15)` | `snowman.js` |
 | Jump landing grade (CLEAN / OK align) | `> 0.85` / `> 0.55` | `snowman/physics.ts` |
+| Landing impact bands (soft / harsh / wipeout, JP-4) | `vImpact` 24 / 30 / 34 m/s | `snowman/physics.ts` |
+| Wipeout flip residual / harsh scrub factor (JP-4) | 120° / ×1.5 | `snowman/physics.ts` |
 | Clean-landing boost (per s / cap) | `airTime*0.04` / `0.06` | `snowman/physics.ts` |
 | Air score (per s / clean bonus) | `airTime*100` / `+50` | `snowman/physics.ts` |
 | Obstacle clear score / cap per air (JP-2) | 75 / 3 | `snowman/physics.ts` |

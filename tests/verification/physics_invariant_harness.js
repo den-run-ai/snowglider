@@ -662,6 +662,69 @@ console.log('  PASS:', clearsOk
   : 'clear scoring leaked / duplicated / uncapped ❌');
 if (!clearsOk) hardFail = true;
 
+// 14) Landing monotonicity (JP-4, §4.2) [GATING]. For the SAME touchdown velocity
+// (equal airtime), a downslope landing must never grade WORSE than a flat landing —
+// the surface falling away along travel absorbs the impact (vImpact = |v³·n| drops),
+// which is the physical claim the impact-consistent grade makes. Single landing
+// frames on constant slopes isolate the grade; playerJump pre-stamped.
+function slopeLand(slope, vx, vz, vv, tuning, trickFlip = 0) {
+  const gH = (x, z) => slope * z;
+  const gG = () => ({ x: 0, z: slope });
+  const gD = () => ({ x: 0, z: -1 });
+  Math.random = makeRng(31);
+  const snowman = fakeSnowman();
+  snowman.userData.playerJump = true;
+  if (trickFlip) snowman.userData.trickFlip = trickFlip;
+  const pos = { x: 0, z: -60, y: gH(0, -60) - 0.01 }; // just below terrain => lands now
+  const velocity = { x: vx, z: vz };
+  const r = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, true, vv, gH(0, -60),
+    1.5, 0, NONE, 0, 0, 3, 3.0, gH, gG, gD, [], false, function () {},
+    [], undefined, tuning);
+  return { quality: r.landingQuality, airScore: r.airScoreDelta };
+}
+const GRADE_RANK = { wipeout: 0, sketchy: 1, ok: 2, clean: 3 };
+// Three touchdown severities, each landed flat (slope 0) vs on a 27° downslope
+// (slope 0.5), same velocity: the downslope grade must rank >= the flat grade.
+const monoCases = [-15, -26, -34].map((vv) => ({
+  vv,
+  flat: slopeLand(0, 0, -16, vv, undefined),
+  down: slopeLand(0.5, 0, -16, vv, undefined),
+}));
+const monotonicOk = monoCases.every((c) =>
+  GRADE_RANK[c.down.quality] >= GRADE_RANK[c.flat.quality]);
+// And the grade must actually SEPARATE somewhere (the vImpact term is live, not
+// vacuously equal): the -26 m/s touchdown is clean on the downslope but not flat.
+const separates = monoCases[1].down.quality === 'clean' && monoCases[1].flat.quality !== 'clean';
+console.log('\n--- Landing monotonicity: downslope never grades worse than flat (JP-4) [GATING] ---');
+for (const c of monoCases) {
+  console.log(`  vv ${c.vv}: flat=${c.flat.quality} | 27° downslope=${c.down.quality}`);
+}
+console.log('  PASS:', monotonicOk && separates
+  ? 'downslope >= flat at every severity, and the impact term separates grades ✅'
+  : 'impact grading not monotonic with slope ❌');
+if (!monotonicOk || !separates) hardFail = true;
+
+// 15) Wipeout gate (JP-4) [GATING]. 'wipeout' must be UNREACHABLE when
+// tuning.wipeouts is false (the Blue/Bunny/Black default), even at extreme impact
+// or landing mid-somersault — those grade sketchy as before. With the flag on
+// (Expert), the same landings are wipeouts and bank ZERO air score.
+const EXPERT_SKI = (await import('../../src/difficulty.ts')).getDifficultyConfig('expert').ski;
+const slamOff = slopeLand(0, 0, -16, -40, undefined);           // default (wipeouts false)
+const slamOn = slopeLand(0, 0, -16, -40, EXPERT_SKI);           // Expert: extreme slam
+const headOff = slopeLand(0, 0, -16, -10, undefined, 180);      // mid-somersault, flag off
+const headOn = slopeLand(0, 0, -16, -10, EXPERT_SKI, 180);      // mid-somersault, Expert
+const wipeoutGateOk =
+  slamOff.quality === 'sketchy' && headOff.quality === 'sketchy' &&
+  slamOn.quality === 'wipeout' && slamOn.airScore === 0 &&
+  headOn.quality === 'wipeout' && headOn.airScore === 0;
+console.log('\n--- Wipeout gate: unreachable without tuning.wipeouts; crash on Expert (JP-4) [GATING] ---');
+console.log('  extreme slam  : default =', slamOff.quality, '| Expert =', slamOn.quality, `(airScore ${slamOn.airScore})`);
+console.log('  mid-somersault: default =', headOff.quality, '| Expert =', headOn.quality, `(airScore ${headOn.airScore})`);
+console.log('  PASS:', wipeoutGateOk
+  ? 'wipeout gated to the flag; forced sketchy elsewhere; banks nothing ✅'
+  : 'wipeout leaked past its gate ❌');
+if (!wipeoutGateOk) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();

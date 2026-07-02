@@ -248,7 +248,10 @@ export function createMainLoop(deps: MainLoopDeps) {
       CourseModule.flashClear(ev.obstacleCleared);
     }
 
-    if (ev.justLanded && ev.landingQuality && CourseModule) {
+    // 'wipeout' (JP-4) is excluded: that landing ended the run through the crash
+    // path (showGameOver + shatter) — the game-over overlay is the feedback, and
+    // flashAir only speaks the ride-away grades.
+    if (ev.justLanded && ev.landingQuality && ev.landingQuality !== 'wipeout' && CourseModule) {
       CourseModule.flashAir(ev.landingQuality, ev.landingForce, ev.trickName);
     }
 

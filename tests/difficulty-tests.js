@@ -175,15 +175,17 @@ function maxTrajDiff(a, b) {
   };
   const frozenKeys = Object.keys(FROZEN);
   // The ski tuning is the frozen numeric constants plus the boolean feature flags:
-  // freestyleTricks (#32) and the per-tier jump availability pair manualJump/autoJump
-  // (jump-system completion, workstream A). On Blue: tricks off, both jumps ON —
-  // exactly today's shipped mechanics, so the default tier's kernel path is unchanged.
-  const flagKeys = ['freestyleTricks', 'manualJump', 'autoJump'];
+  // freestyleTricks (#32), the per-tier jump availability pair manualJump/autoJump
+  // (workstream A), and wipeouts (workstream C). On Blue: tricks off, both jumps ON,
+  // wipeouts OFF — exactly today's shipped mechanics, so the default tier's kernel
+  // path is unchanged.
+  const flagKeys = ['freestyleTricks', 'manualJump', 'autoJump', 'wipeouts'];
   check('BLUE_PHYSICS_TUNING matches the frozen physics constants verbatim',
     frozenKeys.every((k) => D.BLUE_PHYSICS_TUNING[k] === FROZEN[k])
     && D.BLUE_PHYSICS_TUNING.freestyleTricks === false
     && D.BLUE_PHYSICS_TUNING.manualJump === true
     && D.BLUE_PHYSICS_TUNING.autoJump === true
+    && D.BLUE_PHYSICS_TUNING.wipeouts === false
     && Object.keys(D.BLUE_PHYSICS_TUNING).length === frozenKeys.length + flagKeys.length);
 
   // Every tier's ski tuning carries the full key set with finite numbers.
@@ -206,6 +208,12 @@ function maxTrajDiff(a, b) {
       && D.getDifficultyConfig(t).ski.autoJump === true));
   check('no tier ships the unsupported manualJump:false + autoJump:true combination',
     D.DIFFICULTIES.every((c) => c.ski.manualJump || !c.ski.autoJump));
+
+  // Wipeouts (workstream C): only Expert crashes on an extreme landing — every other
+  // tier keeps the forgiving scrub, so their manual-jump landings never end a run.
+  check('wipeouts are Expert-only (ski.wipeouts)',
+    D.getDifficultyConfig('expert').ski.wipeouts === true
+    && D.DIFFICULTIES.every((c) => c.id === 'expert' || c.ski.wipeouts === false));
 
   // Freestyle tricks (#32) are the Expert tier's differentiator — and Expert-ONLY:
   // every other tier's kernel keeps the flag off so its air phase is unchanged.

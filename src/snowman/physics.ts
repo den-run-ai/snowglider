@@ -29,6 +29,27 @@ export const JUMP_BOOST_CAP = 0.06;        // ...hard-capped so jump-spam can't 
 const AIR_SCORE_PER_SEC = 100;      // air-score points per second aloft
 const AIR_SCORE_CLEAN_BONUS = 50;   // extra points for sticking a CLEAN landing
 
+// --- Impact-consistent landing grade (workstream C / JP-4; MEANINGFUL_JUMPS §8.3) --
+// Real landing harshness is the velocity component INTO the landing surface, not
+// just how the skis are aimed: touching down on a downslope transition is soft
+// (the surface falls away with you) while flatting out from big air is harsh, even
+// perfectly aligned. `vImpact = |v³ · n|` — the 3D velocity (vx, verticalVelocity,
+// vz) against the surface normal n = normalize(-∇x, 1, -∇z) at the landing point.
+// Gated on playerJump provenance like the rest of the grade, so auto-jump / hop /
+// coasting landings never compute it. Thresholds are calibrated to MEASURED
+// touchdown impacts (probe over speeds 8–25 on the harness hill + constant
+// 9°/18°/30° slopes): a plain full-power straight jump lands at vImpact ≈ 15–28,
+// so the soft line sits above the everyday band's bulk (ordinary stomps keep the
+// #186 CLEAN boost), harsh starts past anything a plain downhill jump reaches
+// (flat-outs and kicker-scale air get there), and wipeout is the extreme tail.
+// Locked by the harness's landing-monotonicity + wipeout-gate checks; mirrored in
+// PHYSICS.md §4.2/§10.
+export const LAND_SOFT_NORMAL = 24;    // m/s into the surface; CLEAN additionally requires < this
+export const LAND_HARSH_NORMAL = 30;   // above this the landing is forced SKETCHY (deeper scrub)
+export const LAND_WIPEOUT_NORMAL = 34; // above this (tuning.wipeouts only) the landing is a crash
+export const WIPEOUT_FLIP_RESIDUAL_DEG = 120; // landing this far into a somersault (tuning.wipeouts) crashes
+const HARSH_SCRUB_FACTOR = 1.5;        // a harsh (forced-SKETCHY) landing scrubs 1.5× the base impact
+
 // --- Scored obstacle clears (jump-system completion JP-2, #245 items 1) ------
 // A *manual* jump that sails over a tree/rock the run would otherwise have hit
 // banks CLEAR_SCORE per obstacle, capped per air phase so a single huge jump over
@@ -266,6 +287,16 @@ export function stepSnowmanPhysics(
         ? (velocity.x*landDir.x + velocity.z*landDir.z) / landSpeed
         : 1;
 
+      // Impact against the landing surface (JP-4, §4.2): the normal component of
+      // the full 3D touchdown velocity. verticalVelocity still holds the fall speed
+      // here (it is zeroed below), so a downslope landing (surface falling away
+      // along the travel direction) reads soft and a flat-out from big air harsh.
+      const landGrad = getTerrainGradient(pos.x, pos.z);
+      const nInvLen = 1 / Math.sqrt(landGrad.x*landGrad.x + 1 + landGrad.z*landGrad.z);
+      const vImpact = Math.abs(
+        (-velocity.x*landGrad.x + verticalVelocity - velocity.z*landGrad.z) * nInvLen
+      );
+
       // Freestyle (#32): settle this air phase's tricks. On a non-freestyle tier the
       // accumulators were never written, so the grade is the zero grade (no name, no
       // score, not under-rotated) and everything below reduces to the #47 behaviour.
@@ -277,29 +308,55 @@ export function stepSnowmanPhysics(
       );
       trickName = trick.name;
 
-      if (alignment > LANDING_CLEAN_ALIGN && !trick.underRotated) {
+      // Wipeout (JP-4, tuning.wipeouts — Expert only): an extreme landing crashes
+      // instead of scrubbing. Two ways in: slamming the surface (vImpact past the
+      // wipeout threshold) or landing mid-SOMERSAULT — the flip residual is the only
+      // rotation that can exceed 120° (spin residual maxes at 90° to the nearest
+      // 180°), i.e. coming down head-first. The run ends via the crash path in
+      // updateSnowman (showGameOver → #171 shatter); the kernel just grades it.
+      const flipResidual = residualToNearest((ud && (ud.trickFlip as number)) || 0, 360);
+      if (tuning.wipeouts
+          && (vImpact > LAND_WIPEOUT_NORMAL || flipResidual > WIPEOUT_FLIP_RESIDUAL_DEG)) {
+        landingQuality = 'wipeout';
+        // No reward on a crash landing (airScoreDelta stays 0); heavier camera hit.
+        landingForce = airTime * 1.5;
+        velocity.x *= (1 - landingImpact);
+        velocity.z *= (1 - landingImpact);
+      } else if (alignment > LANDING_CLEAN_ALIGN && !trick.underRotated
+          && vImpact < LAND_SOFT_NORMAL) {
         // CLEAN: replace the scrub with a small, capped forward impulse along the
         // current heading — a well-timed, well-aimed jump becomes a speed tool (§3.3).
+        // JP-4: a clean stomp now also has to be SOFT (vImpact under the soft
+        // threshold) — aim alone no longer earns the boost off a flat slam.
         landingQuality = 'clean';
         const boost = Math.min(JUMP_BOOST_CAP, airTime * JUMP_BOOST_PER_SEC);
         velocity.x *= (1 + boost);
         velocity.z *= (1 + boost);
-      } else if (alignment > LANDING_OK_ALIGN && !trick.underRotated) {
+      } else if (alignment > LANDING_OK_ALIGN && !trick.underRotated
+          && vImpact <= LAND_HARSH_NORMAL) {
         // OK: neither punished nor rewarded — keep your speed, no boost.
         landingQuality = 'ok';
       } else {
-        // SKETCHY: badly crossed up — or landed mid-rotation on a trick (#32), which
-        // spoils even a perfectly-aimed touchdown — keep today's landing scrub.
+        // SKETCHY: badly crossed up, landed mid-rotation on a trick (#32), or came
+        // down too hard (JP-4: vImpact past the harsh threshold forces SKETCHY with
+        // a deeper scrub — landing harshness is physical, not just aim).
         landingQuality = 'sketchy';
-        velocity.x *= (1 - landingImpact);
-        velocity.z *= (1 - landingImpact);
+        const harsh = vImpact > LAND_HARSH_NORMAL;
+        const scrub = harsh
+          ? Math.min(0.5, landingImpact * HARSH_SCRUB_FACTOR)
+          : landingImpact;
+        if (harsh) landingForce = airTime * 1.5; // stronger touchdown shake
+        velocity.x *= (1 - scrub);
+        velocity.z *= (1 - scrub);
       }
 
       // Air score for this jump: time aloft plus a clean-stomp bonus plus any trick
-      // points (0 on non-freestyle tiers; already halved if under-rotated). Never negative.
-      airScoreDelta = Math.max(0, Math.round(airTime * AIR_SCORE_PER_SEC
-        + (landingQuality === 'clean' ? AIR_SCORE_CLEAN_BONUS : 0)
-        + trick.score));
+      // points (0 on non-freestyle tiers; already halved if under-rotated). Never
+      // negative — and a wipeout banks NOTHING (the landing is a crash, not a score).
+      airScoreDelta = landingQuality === 'wipeout' ? 0
+        : Math.max(0, Math.round(airTime * AIR_SCORE_PER_SEC
+          + (landingQuality === 'clean' ? AIR_SCORE_CLEAN_BONUS : 0)
+          + trick.score));
 
       // Consume the trick state with the landing (mirrors the playerJump lifecycle):
       // the grounded / between-jumps state must never carry a stale rotation.

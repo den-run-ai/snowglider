@@ -87,8 +87,11 @@ export type ShowGameOverFn = (reason: string) => void;
 export type SkiTechnique = 'air' | 'glide' | 'snowplow' | 'skid' | 'carve' | 'parallel' | 'tuck' | 'hop';
 
 /** How a *manual* jump's landing was graded (meaningful jumps #47, §3.2). Null on
- *  any non-manual-jump landing (auto-jump / hop / no landing this frame). */
-export type LandingQuality = 'clean' | 'ok' | 'sketchy';
+ *  any non-manual-jump landing (auto-jump / hop / no landing this frame).
+ *  'wipeout' (JP-4, `tuning.wipeouts` tiers only) is an extreme landing — slammed
+ *  the surface or came down mid-somersault — routed to the CRASH path (run over,
+ *  #171 shatter) by updateSnowman below. */
+export type LandingQuality = 'clean' | 'ok' | 'sketchy' | 'wipeout';
 
 /** Per-frame physics output returned by updateSnowman. */
 export interface UpdateResult {
@@ -177,6 +180,16 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
   // the physics-invariant harness — which passes no bankAirScore — are untouched.
   if (bankAirScore && result.airScoreDelta > 0) bankAirScore(result.airScoreDelta);
 
+  // Wipeout landing (JP-4, tuning.wipeouts tiers): an extreme manual-jump landing is
+  // a crash — end the run through the same showGameOver path a tree hit uses, which
+  // also fires the #171 shatter (result-overlay routes any non-finish reason to
+  // onCrash). Kernel-graded, loop-agnostic: unreachable unless the tier's tuning
+  // sets `wipeouts` (harness-pinned), so every other tier is byte-identical.
+  const wipedOut = result.landingQuality === 'wipeout' && gameActive;
+  if (wipedOut) {
+    showGameOver("WIPEOUT!!! Crashed on the landing!");
+  }
+
   detectCollisionsAndFinish({
     pos,
     isInAir,
@@ -184,7 +197,12 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     terrainHeightAtPosition,
     treePositions,
     rockPositions,
-    gameActive,
+    // A wipeout above just ended the run, so the outcome check must see it as
+    // INACTIVE: showGameOver has no re-entry guard, and a wipeout landing that also
+    // crosses FINISH_Z this frame would otherwise fire a second, finish-reason call
+    // that replaces the crash overlay and records a successful score for a crashed
+    // landing (Codex review on #290).
+    gameActive: gameActive && !wipedOut,
     showGameOver,
     // Scored obstacle clears (JP-2, #245): collision.ts reports every airborne
     // "would-have-hit but sailed over" observation; the POLICY lives here —
