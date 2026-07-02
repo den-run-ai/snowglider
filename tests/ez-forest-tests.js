@@ -56,6 +56,14 @@ async function main() {
 
   // --- Archetype generation: deterministic, low-poly, stream-neutral ------------
   {
+    // Warm the one-time module import OUTSIDE the seeded window: the chunk's
+    // import-eval mints texture uuids from the ambient Math.random by design (the
+    // private-stream swap must not span the fetch await, or every concurrent game
+    // caller would read a deterministic sequence — see loadEzTreeModule). The
+    // neutrality contract covers GENERATION, which is what re-runs in the game.
+    await EzForest.ensureEzArchetypes();
+    EzForest.resetEzForest();
+
     const seeded = mulberry(42);
     const savedRandom = Math.random;
     Math.random = seeded.next;
@@ -203,6 +211,46 @@ async function main() {
     assert(branchTotal3 === positions3.length,
       'racing re-inits keep exactly one EZ forest (stale async builds dropped)',
       `${branchTotal3} === ${positions3.length}`);
+
+    Trees.setEzForestEnabled(null);
+  }
+
+  // --- Chunk-load failure: collider gate, stylized fallback, then retry ----------
+  {
+    Trees.setEzForestEnabled(true);
+
+    // Swap in a controllable importer (clears the module memo) and drop the cached
+    // archetypes so the next build really goes through the failing import.
+    /** @type {(err: Error) => void} */
+    let rejectImport = () => {};
+    EzForest.__setEzModuleImporterForTests(
+      () => new Promise((_resolve, reject) => { rejectImport = reject; }));
+    EzForest.resetEzForest();
+
+    const scene = new THREE.Scene();
+    Trees.addTrees(scene);
+    assert(Trees.treeCollidersReady() === false,
+      'tree colliders are gated while the EZ build awaits its chunk');
+
+    rejectImport(new Error('simulated chunk-load failure'));
+    await Trees.ezForestReady();
+    assert(Trees.treeCollidersReady() === true,
+      'tree colliders re-arm once the failed build settles');
+    const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    const parts = new Set(forest.map(m => m.userData.forestPart));
+    assert(parts.has('trunk') && parts.has('cone'),
+      'a failed chunk load falls back to the visible stylized forest',
+      [...parts].sort().join(', '));
+    assert(!parts.has('ezBranches') && !parts.has('ezLeaves'),
+      'no EZ meshes appear on the failure path');
+
+    // The rejected import must not wedge the memo (retry path): restore the real
+    // importer and re-init — archetypes must generate again.
+    EzForest.__setEzModuleImporterForTests(null);
+    EzForest.resetEzForest();
+    const retried = await EzForest.ensureEzArchetypes();
+    assert(Array.isArray(retried) && retried.length >= 3,
+      'a re-init after a failed chunk load retries the import and succeeds');
 
     Trees.setEzForestEnabled(null);
   }

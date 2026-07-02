@@ -595,7 +595,9 @@ function pickColorIndex(paletteLength: number): number {
 // bark maps, wind sway with matching shadow-depth materials, and instanced snow.
 // The archetype chunk loads lazily (it is ~4 MB of embedded textures), so the
 // visual forest is appended asynchronously a moment after addTrees returns —
-// collision (`treePositions`) is computed synchronously either way and never waits.
+// collision (`treePositions`) is computed synchronously either way and never waits,
+// but the physics loop holds tree collision off (treeCollidersReady) until the
+// visible forest exists, so nobody crashes into a tree that hasn't rendered yet.
 
 /** World-space height an archetype is scaled to at treeScale 1 (matches the ~8-13u
  *  stylized conifers so collision radii and sightlines stay comparable). */
@@ -675,23 +677,44 @@ function hashPlacement(x: number, z: number, salt: number): number {
 const ezBuildTokens = new WeakMap<THREE.Scene, number>();
 // The most recent scheduled build; tests/tools await this to see the full forest.
 let ezForestBuildPromise: Promise<void> = Promise.resolve();
+// EZ builds still awaiting their archetype chunk. While non-zero the forest has
+// collision positions but no visible tree meshes yet, so the physics loop consults
+// treeCollidersReady() and skips tree collision — a player must never crash into
+// an invisible tree during (or after a failure of) the async load.
+let ezBuildsPending = 0;
 
 /** Resolves when the last scheduled EZ forest build has been appended (or skipped). */
 function ezForestReady(): Promise<void> {
   return ezForestBuildPromise;
 }
 
+/** False only while an EZ forest build is in flight (trees not yet visible). The
+ *  stylized path builds synchronously inside addTrees, so it is always ready. */
+function treeCollidersReady(): boolean {
+  return ezBuildsPending === 0;
+}
+
 function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
   const token = (ezBuildTokens.get(scene) ?? 0) + 1;
   ezBuildTokens.set(scene, token);
+  ezBuildsPending++;
   ezForestBuildPromise = ensureEzArchetypes()
     .then((archetypes) => {
       if (ezBuildTokens.get(scene) !== token) return; // superseded by a re-init
       buildEzForest(scene, placements, archetypes);
     })
     .catch((err) => {
-      console.error('EzForest: falling back to no EZ forest for this init', err);
-    });
+      // No archetypes (offline chunk fetch, package missing): the collision
+      // positions for these placements are live, so a forest MUST exist — build
+      // the stylized trees for the same placements rather than leaving the run
+      // littered with invisible obstacles once colliders re-arm.
+      console.error('EzForest: archetype load failed — building the stylized fallback forest', err);
+      if (ezBuildTokens.get(scene) !== token) return; // superseded by a re-init
+      const buckets = createBuckets();
+      placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
+      buildForest(scene, buckets);
+    })
+    .finally(() => { ezBuildsPending--; });
 }
 
 /** Append the EZ forest InstancedMeshes for the collected placements. Synchronous
@@ -1455,11 +1478,13 @@ export const Trees = {
   resetWind,
   treeSwayAmplitude,
   // EZ evergreen prototype seams (issue #282): flag control + build-completion
-  // promise (the archetype chunk loads lazily, so tests/tools await this).
+  // promise (the archetype chunk loads lazily, so tests/tools await this) + the
+  // collider gate the physics loop reads while that build is in flight.
   setEzForestEnabled,
   isEzForestEnabled,
   ezForestReady,
-  ezDetailForPlacement
+  ezDetailForPlacement,
+  treeCollidersReady
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).
