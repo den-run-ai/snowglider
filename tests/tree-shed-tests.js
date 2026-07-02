@@ -243,6 +243,87 @@ async function main() {
     TreeShed.teardown();
   }
 
+  // --- Puff pool under a DOM (the visible shed burst) --------------------------------
+  // The pool is document-guarded (headless Node above never built it); mirror the
+  // avalanche powder coverage: bring up jsdom + a stubbed 2d canvas context, shed a
+  // tree, and watch the sprites spawn, billow, fade, and reclaim.
+  {
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<!doctype html><html><body></body></html>');
+    const g = /** @type {any} */ (globalThis);
+    g.window = dom.window;
+    g.document = dom.window.document;
+    dom.window.matchMedia = () => /** @type {any} */ ({ matches: false });
+    // jsdom has no 2d context without the native canvas pkg — stub what the
+    // radial-gradient puff texture draws with.
+    const origCreate = dom.window.document.createElement.bind(dom.window.document);
+    dom.window.document.createElement = function (tag) {
+      const el = origCreate(tag);
+      if (tag === 'canvas') {
+        el.getContext = () => ({
+          fillStyle: '',
+          createRadialGradient: () => ({ addColorStop() {} }),
+          fillRect() {}
+        });
+      }
+      return el;
+    };
+
+    const scene2 = new THREE.Scene();
+    const positions3 = Trees.addTrees(scene2);
+    Wind.configure({ baseStrength: 8, gustRange: 2, gustRate: 2, seed: 0 });
+    Wind.reset();
+    TreeShed.configure({ gustEdge: 0.01, minStrength: 0, minLoad: 0, radius: 60, maxTrees: 3, cooldown: 1000, keep: 0.25, shedRate: 10, reloadRate: 0 });
+    const player3 = { x: positions3[0].x, y: positions3[0].y, z: positions3[0].z };
+    Wind.update(0.05);
+    const events3 = TreeShed.update(0.05, player3, positions3, scene2);
+    assert(events3.length > 0, 'a shed fires under the DOM too');
+    const livePuffs = () => scene2.children.filter(c => c.name === 'treeShedPuff' && c.visible);
+    const burst = livePuffs();
+    assert(burst.length >= 2, 'shed trees burst pooled puff sprites into the scene', `${burst.length} puffs`);
+
+    // Puffs billow: advance and watch one drift, expand, and take opacity.
+    const p0 = /** @type {any} */ (burst[0]);
+    const y0 = p0.position.y;
+    const s0 = p0.scale.x;
+    for (let i = 0; i < 6; i++) { Wind.update(0.05); TreeShed.update(0.05, player3, positions3, scene2); }
+    assert(p0.position.y < y0, 'a puff sinks (falling snow dust)');
+    assert(p0.scale.x > s0, 'a puff expands as it billows');
+    assert(p0.material.opacity > 0, 'a live puff is visible (blooming opacity)');
+
+    // ...and are reclaimed once their life runs out.
+    for (let i = 0; i < 50; i++) { Wind.update(0.05); TreeShed.update(0.05, player3, positions3, scene2); }
+    assert(livePuffs().length === 0, 'expired puffs are hidden back into the pool');
+
+    // reset() hides in-flight puffs immediately.
+    Wind.update(0.05);
+    TreeShed.update(0.05, player3, positions3, scene2); // may shed again (cooldown reset on registry? no — force below)
+    TreeShed.configure({ cooldown: 0 });
+    Wind.update(0.05);
+    TreeShed.update(0.05, player3, positions3, scene2);
+    TreeShed.reset();
+    assert(livePuffs().length === 0, 'reset() reclaims every in-flight puff');
+
+    // teardown() disposes the pool + template resources and is idempotent.
+    TreeShed.teardown();
+    TreeShed.teardown();
+    assert(scene2.children.filter(c => c.name === 'treeShedPuff').length === 0,
+      'teardown removes the pooled sprites from the scene');
+
+    // Reduced motion: the whole system is inert — no load writes, no puffs.
+    dom.window.matchMedia = () => /** @type {any} */ ({ matches: true });
+    Wind.update(0.05);
+    const rmEvents = TreeShed.update(0.05, player3, positions3, scene2);
+    assert(rmEvents.length === 0 && scene2.children.filter(c => c.name === 'treeShedPuff').length === 0,
+      'prefers-reduced-motion keeps the shed system fully inert');
+    TreeShed.teardown();
+
+    Wind.configure(DEFAULT_WIND_CONFIG);
+    Wind.reset();
+    delete g.window;
+    delete g.document;
+  }
+
   // --- Hygiene: deterministic by construction ---------------------------------------
   {
     const fs = await import('node:fs');

@@ -203,6 +203,16 @@ async function main() {
       calls.oscillators.includes('triangle'));
     check('engine: sketchy landing layers the bandpass skid wash',
       calls.filters.includes('bandpass'));
+
+    // Forest layer (#253 Phase B): the rustle bed ramps with wind × proximity and a
+    // nearby shed whumps (a sine thud + lowpass wash); a far shed stays silent.
+    const oscBefore = calls.oscillators.length;
+    engine.updateForest(1, 0.5, 1);   // storm, deep in trees — bed audible
+    engine.treeShed(300);             // far shed: gain 0 → no nodes fired
+    check('engine: a far-away shed plays nothing', calls.oscillators.length === oscBefore);
+    engine.treeShed(3);               // close shed: whump fires
+    check('engine: a close shed layers the sine whump', calls.oscillators.length > oscBefore);
+    engine.updateWindHowl(0.9, 0.5);  // howl bed ramps without throwing on the fake ctx
     engine.teardown();
 
     if (originalWindow === undefined) delete g.window;

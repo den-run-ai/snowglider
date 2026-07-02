@@ -428,6 +428,9 @@ export const TreeShed = (function() {
       dumping = null;
       active.clear();
       registryVersion = -1;
+      // A rebuilt world starts from a clean gust edge, not mid-gust state.
+      prevGust = 0;
+      cooldown = 0;
     }
   };
 })();
