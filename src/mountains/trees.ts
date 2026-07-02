@@ -21,9 +21,10 @@ import { forestDensityField } from './noise.js';
 // and the placement (and its Math.random() sequence) stays byte-identical for Bunny/Blue.
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 import { Wind } from '../wind.js';
-// EZ-Tree evergreen prototype (issue #282, opt-in via ?eztrees): ez-forest.ts
-// provides low-poly conifer archetype geometry; this file renders it through the
-// same instanced/tint/sway/snow pipeline. Default path is byte-identical when off.
+// EZ-Tree evergreens (issue #282; default for players, stylized under automation/
+// headless — see ez-forest.ts flag section): ez-forest.ts provides low-poly conifer
+// archetype geometry; this file renders it through the same instanced/tint/sway/
+// snow pipeline. The stylized path is byte-identical whenever the flag is off.
 import { isEzForestEnabled, setEzForestEnabled, ensureEzArchetypes, resetEzForest, EZ_SPECIES_COUNT } from './ez-forest.js';
 import type { EzArchetype, EzDetail } from './ez-forest.js';
 

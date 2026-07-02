@@ -30,14 +30,36 @@ async function main() {
   const { Trees } = await import('../src/trees.js');
   const EzForest = await import('../src/mountains/ez-forest.js');
 
-  // --- Flag: default OFF, override wins ---------------------------------------
+  // --- Flag: headless default OFF, override wins --------------------------------
   {
     assert(Trees.isEzForestEnabled() === false,
-      'EZ forest is OFF by default (no window/?eztrees)');
+      'EZ forest is OFF by default headless (seeded harness streams must not shift)');
     Trees.setEzForestEnabled(true);
     assert(Trees.isEzForestEnabled() === true, 'setEzForestEnabled(true) turns the flag on');
     Trees.setEzForestEnabled(null);
     assert(Trees.isEzForestEnabled() === false, 'setEzForestEnabled(null) restores the default');
+  }
+
+  // --- Flag precedence (pure resolveEzForestEnabled; issue #282 PR 3) ------------
+  // override > URL opt-out > URL opt-in > automation gate > player default ON.
+  {
+    const resolve = EzForest.resolveEzForestEnabled;
+    assert(resolve('', false, null) === true,
+      'a real player with no URL flags gets the EZ evergreens (default flipped ON)');
+    assert(resolve('', true, null) === false,
+      'automation (isTestMode/webdriver) keeps the stylized forest by default');
+    assert(resolve('?eztrees=1', true, null) === true &&
+      resolve('?foo=1&eztrees', true, null) === true,
+      'an explicit ?eztrees opt-in beats the automation gate');
+    assert(resolve('?classictrees', false, null) === false &&
+      resolve('?eztrees=0', false, null) === false &&
+      resolve('?eztrees=off', false, null) === false,
+      'players can opt back to the stylized forest (?classictrees / ?eztrees=0)');
+    assert(resolve('?eztrees=0', true, true) === true &&
+      resolve('?eztrees=1', false, false) === false,
+      'a setEzForestEnabled override beats every URL flag');
+    assert(resolve('?eztreesfoo=1', true, null) === false,
+      'unrelated params that merely share the prefix do not opt in');
   }
 
   // --- Default path untouched when the flag is off ------------------------------
