@@ -343,7 +343,7 @@ async function main() {
   console.log('\n--- leaderboardRow: avatar scheme allowlist (unit seam) ---');
   {
     const row = ScoresModule.leaderboardRow(1, 'Alice', 'https://example.com/a.png', 19.5, false);
-    const img = row.querySelector('img.mini-avatar');
+    const img = /** @type {HTMLImageElement | null} */ (row.querySelector('img.mini-avatar'));
     check('an https avatar URL renders as an img via property assignment',
       !!img && img.src === 'https://example.com/a.png' && img.alt === '');
     check('the avatar img carries referrerpolicy=no-referrer',
