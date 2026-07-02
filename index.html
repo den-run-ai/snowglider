@@ -80,7 +80,9 @@
         <span><span class="key">↓</span> <span class="key">S</span></span>
         <span>Brake</span>
       </div>
-      <div class="control-row">
+      <!-- Tier-aware (workstream A): start-menu.ts hides the jump rows + the
+           touch-note jump clause when the selected tier has no jump verb (Bunny). -->
+      <div class="control-row" id="jumpControlRow">
         <span><span class="key">Space</span></span>
         <span>Jump</span>
       </div>
@@ -105,12 +107,12 @@
         <span><span class="key">↑</span><span class="key">W</span></span>
         <span>Tuck — straight-line (no steering) for maximum speed; fold into a low aero crouch</span>
       </div>
-      <div class="control-row">
+      <div class="control-row" id="hopControlRow">
         <span><span class="key">Space</span>+<span class="key">←</span><span class="key">→</span></span>
         <span>Hop turn — quick pivot for tight, steep terrain</span>
       </div>
     </div>
-    <p class="touch-note">📱 On touch devices: tap the left/right of the screen to steer, top/bottom for speed, and the center to jump.</p>
+    <p class="touch-note">📱 On touch devices: tap the left/right of the screen to steer, top/bottom for speed<span id="touchJumpNote">, and the center to jump</span>.</p>
     
     <!-- Difficulty tier picker (●Bunny / ■Blue / ◆Black); options are built by
          start-menu.ts from the difficulty config, with the last choice remembered. -->

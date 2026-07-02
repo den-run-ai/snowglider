@@ -72,7 +72,7 @@ async function main() {
 
   console.log('--- module surface ---');
   check('exposes the Controls API',
-    !!Controls && ['setupControls', 'resetControls', 'getControls', 'isTouchDevice', 'toggleTouchControls']
+    !!Controls && ['setupControls', 'resetControls', 'getControls', 'isTouchDevice', 'toggleTouchControls', 'setJumpEnabled']
       .every(k => typeof Controls[k] === 'function'));
 
   const controls = Controls.setupControls();
@@ -202,6 +202,41 @@ async function main() {
   check('toggleTouchControls(true) recreates the visual controls and returns true',
     Controls.toggleTouchControls(true) === true &&
     document.querySelectorAll('.touch-control').length === 5);
+
+  console.log('\n--- per-tier jump availability (setJumpEnabled, workstream A) ---');
+  // On a no-jump tier (Bunny) the CENTER touch region must be excluded from
+  // hit-testing and the visual jump indicator hidden — the touch surface must not
+  // advertise a dead verb. Keyboard deliberately still writes `jump` (the kernel's
+  // tuning.manualJump gate is the physics source of truth).
+  Controls.setJumpEnabled(false);
+  dispatchTouch('touchstart', document, [{ identifier: 11, clientX: W / 2, clientY: H / 2 }]);
+  check('centre-region touch does NOT set jump while disabled', controls.jump === false);
+  dispatchTouch('touchend', document, [{ identifier: 11, clientX: W / 2, clientY: H / 2 }]);
+  const jumpIndicator = /** @type {HTMLElement|null} */ (document.querySelector('.touch-jump'));
+  check('the touch-jump indicator is hidden while disabled',
+    !!jumpIndicator && jumpIndicator.style.display === 'none');
+  keydown(' ');
+  check('keyboard Space still writes jump (kernel tuning gates the physics)', controls.jump === true);
+  keyup(' ');
+  // Disabling mid-hold must clear a latched jump so it can't carry across the toggle.
+  keydown(' ');
+  Controls.setJumpEnabled(false);
+  check('disabling clears a latched jump press', controls.jump === false);
+  keyup(' ');
+  Controls.setJumpEnabled(true);
+  dispatchTouch('touchstart', document, [{ identifier: 12, clientX: W / 2, clientY: H / 2 }]);
+  check('re-enabling restores the centre jump region', controls.jump === true);
+  dispatchTouch('touchend', document, [{ identifier: 12, clientX: W / 2, clientY: H / 2 }]);
+  check('re-enabling un-hides the touch-jump indicator',
+    !!jumpIndicator && jumpIndicator.style.display !== 'none');
+  // Rebuilding the visual controls while disabled creates the indicator hidden.
+  Controls.setJumpEnabled(false);
+  Controls.toggleTouchControls(false);
+  Controls.toggleTouchControls(true);
+  const rebuilt = /** @type {HTMLElement|null} */ (document.querySelector('.touch-jump'));
+  check('visual controls rebuilt while disabled keep the jump indicator hidden',
+    !!rebuilt && rebuilt.style.display === 'none');
+  Controls.setJumpEnabled(true);
 
   console.log('\n--- button touch handlers ---');
   let resetCalls = 0;

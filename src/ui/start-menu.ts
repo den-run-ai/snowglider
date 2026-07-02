@@ -210,6 +210,19 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     }
   }
 
+  // Tier-aware jump copy (workstream A): a tier without the jump verb (Bunny,
+  // ski.manualJump false) must not advertise it. Hides/shows the two jump rows in
+  // the controls guide and the touch-note's ", and the center to jump" clause to
+  // match the selected tier. The in-run touch REGION itself is gated separately at
+  // run start (Controls.setJumpEnabled, called from the lifecycle reset).
+  function updateJumpCopy() {
+    const hasJump = getDifficultyConfig(selectedDifficulty).ski.manualJump;
+    for (const id of ['jumpControlRow', 'hopControlRow', 'touchJumpNote']) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = hasJump ? '' : 'none';
+    }
+  }
+
   // Build (or rebuild) the start-screen difficulty picker via the shared picker
   // widget (src/ui/difficulty-picker.ts) — the same factory builds the finish-screen
   // picker, so the DOM/ARIA/keyboard contract stays single-source. Pre-selects the
@@ -226,8 +239,11 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
         storeDifficulty(id);
         // Swap the start-screen leaderboard preview to the newly-selected tier's board.
         refreshStartAccountUI();
+        // Keep the controls guide + touch-note honest for the newly-selected tier.
+        updateJumpCopy();
       },
     });
+    updateJumpCopy();
   }
 
   function getSelectedDifficulty(): Difficulty {

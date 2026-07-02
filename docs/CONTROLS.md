@@ -31,14 +31,34 @@ and touch are fully interchangeable ([`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-i
 | **← / →** or **A / D** | Tap left / right of screen | **Steer.** Default is a *parallel (skidded)* turn; holding a smooth line locks it into a *carve* — see Techniques below | [`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer), §3.6 |
 | **↑ / W** | Tap top of screen | **Speed up.** With no steering this is the *tuck* (least friction, most speed, least control); the snowman folds forward into a low aero crouch as the visible cue | [`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer) |
 | **↓ / S** | Tap bottom of screen | **Brake — snowplow / "pizza".** A hold ramp: a tap only trims speed, a sustained hold deepens the wedge to a full stop — but only on green/blue pitches; a black-diamond slope is too steep to stop (only slows). Clamped so it never reverses uphill | [`PHYSICS.md` §3.4](PHYSICS.md#34-snowplow-brake-stop-slow-down-and-steep-slope-failure) |
-| **Space** | Tap center of screen | **Jump.** A straight pop when not steering; a *player-initiated* jump is graded on landing and can earn a capped speed boost | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air), [`MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md) |
-| **Space + ← / →** | (center + side) | **Hop turn.** A quick grounded edge-set pivot for tight, steep terrain: snaps the heading and scrubs speed with a small pop | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air) (hop turn) |
+| **Space** | Tap center of screen | **Jump.** A straight pop when not steering; a *player-initiated* jump is graded on landing and can earn a capped speed boost. **Not available on ● Bunny** — see the per-tier table below | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air), [`MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md) |
+| **Space + ← / →** | (center + side) | **Hop turn.** A quick grounded edge-set pivot for tight, steep terrain: snaps the heading and scrubs speed with a small pop. Rides the jump verb, so also **not available on ● Bunny** | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air) (hop turn) |
 | **V** | — | **Toggle camera view** (follow ↔ alternate) | [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input) |
 | *(no input)* | — | **Idle wander** — a gentle auto-turn biased back toward center keeps an unattended snowman alive. No-input coasting is the **deterministic baseline** and must stay byte-identical | [`PHYSICS.md` §3.5](PHYSICS.md#35-automatic-turning-idle-wander), §6 |
 
 > The on-screen Reset and Restart buttons (and their touch handlers) call the
 > `window.resetSnowman` / `window.restartGame` seams — see
 > [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input) and §3.
+
+### Per-tier control availability
+
+Every tier shares the steering / speed / brake verbs. The **jump verb** is per-tier
+(jump-system completion, workstream A), gated by `ski.manualJump` / `ski.autoJump`
+in [`difficulty.ts`](../src/difficulty.ts) — the physics kernel is the single source
+of truth; the touch surface follows via `Controls.setJumpEnabled(...)` at run start
+(center region excluded from hit-testing, indicator hidden) and the start screen
+hides the jump copy for a no-jump tier.
+
+| Verb | ● Bunny | ■ Blue | ◆ Black | ◆◆ Expert |
+|---|---|---|---|---|
+| Steer / Carve, Speed/Tuck, Brake/Snowplow | ✅ | ✅ | ✅ | ✅ |
+| Jump (Space / center tap) | — | ✅ | ✅ | ✅ |
+| Hop turn (Space + steer) | — | ✅ | ✅ | ✅ |
+| Terrain auto-jump (lips loft you) | — | ✅ | ✅ | ✅ |
+| Freestyle tricks in the air (#32) | — | — | — | ✅ |
+
+On Bunny, holding Space is provably ≡ no input (pinned by the invariant harness's
+Bunny-suppression check) and lips never loft — the gentlest way down.
 
 ---
 
