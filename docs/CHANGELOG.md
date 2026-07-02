@@ -13,6 +13,21 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Scored obstacle clears (jump-system completion JP-2, #286 / #245)
+- **Sailing a deliberate jump over a tree or rock the run would otherwise have hit
+  now scores.** The collision layer's existing airborne suppression branches are
+  surfaced as `ObstacleClear` observations (`collision.ts`), and `updateSnowman`
+  applies the policy: **provenance-gated** on `playerJump` (auto-jump / hop air
+  banks nothing and its bytes are unchanged), **deduped** per obstacle per air
+  phase (one pass = one clear, however many overlap frames), **capped** at
+  `CLEAR_MAX_PER_AIR = 3`, banking `CLEAR_SCORE = 75` each through the same
+  `bankAirScore` path as the landing score — invoked before the finish check so a
+  clear on the finish frame still counts. A gold `✦ CLEARED!` toast cues it
+  (`CourseModule.flashClear`; a same-frame landing toast wins the shared element).
+- **Pinned by a new GATING harness check**: exactly one scored clear per obstacle,
+  zero on an auto-jump's identical flight (trajectory byte-identical), cap honoured
+  over a dense row. Constants mirrored in `PHYSICS.md` §4/§10.
+
 ### Per-tier jump availability — no jumps on ● Bunny (jump-system completion JP-1, #286)
 - **The jump verb is now per-tier.** `SnowmanPhysicsTuning` gains two boolean gates,
   `manualJump` (Space/touch straight jump **and** hop turn) and `autoJump`

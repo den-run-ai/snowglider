@@ -592,6 +592,76 @@ console.log('  PASS:', bunnySuppressionOk
   : 'a jump leaked onto Bunny ❌');
 if (!bunnySuppressionOk) hardFail = true;
 
+// 13) Scored obstacle clears: provenance + dedup + cap (JP-2, #245) [GATING].
+// A *deliberate* jump sailing over a would-have-hit tree banks exactly ONE clear
+// (many consecutive overlap frames dedup to one; CLEAR_SCORE banked once); the SAME
+// flight without playerJump provenance (an auto-jump's air) banks nothing and its
+// trajectory/velocity bytes are identical — clears must never touch physics. A pass
+// over a dense row of obstacles caps at CLEAR_MAX_PER_AIR scored clears.
+const PHYS = await import('../../src/snowman/physics.ts');
+function clearFlight(playerJump, treeXs) {
+  // A flat-terrain flight straight down -z THROUGH tree overlap columns, airborne
+  // high above them (tree y=0, pos.y ≈ 12 > y+5, rising) so the suppression branch
+  // fires on every overlap frame. Constant terrain isolates the collision layer.
+  const gH = () => 0, gG = () => ({ x: 0, z: 0 }), gD = () => ({ x: 0, z: -1 });
+  Math.random = makeRng(11);
+  const snowman = fakeSnowman();
+  snowman.userData.playerJump = playerJump;
+  snowman.userData.clearsThisAir = 0;
+  snowman.userData.clearedObstacles = {};
+  const trees = treeXs.map((z) => ({ x: 0, y: 0, z }));
+  const pos = { x: 0, z: 0, y: 12 };
+  const velocity = { x: 0, z: -20 };
+  // Launch rising hard (vv 20, airGravity 16 ⇒ rising for 1.25 s > the whole probe):
+  // the tree suppression branch requires verticalVelocity > 0, so every obstacle
+  // column must be crossed while still on the way up.
+  let st = { isInAir: true, verticalVelocity: 20, lastTerrainHeight: 0,
+             airTime: 0.2, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  let banked = 0, clearEvents = 0;
+  const traj = [];
+  for (let i = 0; i < 60; i++) {
+    st = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, NONE,
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      gH, gG, gD, trees, false, function () {},
+      [], (points) => { banked += points; });
+    if (st.obstacleCleared) clearEvents++;
+    traj.push({ x: pos.x, y: pos.y, z: pos.z, vx: velocity.x, vz: velocity.z });
+  }
+  return { banked, clearEvents, traj,
+           clearsThisAir: snowman.userData.clearsThisAir };
+}
+// One tree at z=-10: the flight overlaps its 2.5 u radius for several frames.
+const manualClear = clearFlight(true, [-10]);
+const autoClear = clearFlight(false, [-10]);
+let clearTrajDiff = 0;
+for (let i = 0; i < Math.min(manualClear.traj.length, autoClear.traj.length); i++) {
+  const a2 = manualClear.traj[i], b2 = autoClear.traj[i];
+  clearTrajDiff = Math.max(clearTrajDiff, Math.abs(a2.x - b2.x), Math.abs(a2.y - b2.y),
+    Math.abs(a2.z - b2.z), Math.abs(a2.vx - b2.vx), Math.abs(a2.vz - b2.vz));
+}
+// A dense row of 5 trees (all crossed while rising): dedup counts all 5, but only
+// CLEAR_MAX_PER_AIR of them bank.
+const denseClear = clearFlight(true, [-5, -7, -9, -11, -13]);
+const clearsOk =
+  manualClear.clearEvents === 1 && manualClear.banked === PHYS.CLEAR_SCORE &&
+  manualClear.clearsThisAir === 1 &&
+  autoClear.clearEvents === 0 && autoClear.banked === 0 &&
+  clearTrajDiff < 1e-12 &&
+  denseClear.banked === PHYS.CLEAR_MAX_PER_AIR * PHYS.CLEAR_SCORE &&
+  denseClear.clearsThisAir === 5;
+console.log('\n--- Scored obstacle clears: provenance, dedup, cap (JP-2) [GATING] ---');
+console.log('  manual jump over 1 tree: events', manualClear.clearEvents,
+  '| banked', manualClear.banked, '| clearsThisAir', manualClear.clearsThisAir);
+console.log('  auto-jump same flight  : events', autoClear.clearEvents, '| banked', autoClear.banked,
+  '| traj max abs diff vs manual:', clearTrajDiff.toExponential(3));
+console.log('  dense row of 5 trees   : banked', denseClear.banked,
+  `(cap ${PHYS.CLEAR_MAX_PER_AIR}×${PHYS.CLEAR_SCORE})`, '| clearsThisAir', denseClear.clearsThisAir);
+console.log('  PASS:', clearsOk
+  ? 'one scored clear per obstacle, provenance-gated, capped, physics untouched ✅'
+  : 'clear scoring leaked / duplicated / uncapped ❌');
+if (!clearsOk) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();

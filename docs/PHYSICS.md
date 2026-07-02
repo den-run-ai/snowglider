@@ -345,6 +345,28 @@ false at auto-jump/hop takeoffs, cleared on landing and in `resetSnowman`), so t
 auto-jump / hop / coasting landing path is byte-identical to before — see §6 and the
 new gating checks in the invariant harness.
 
+**Scored obstacle clears (JP-2, #245 item 1).** The collision layer (§5) already
+*suppresses* tree/rock hits while airborne-clear (`isJumpingHighAboveTrees` /
+`isJumpingOverRock`); those silent saves are now surfaced and rewarded. Detection
+lives in `collision.ts` (`ObstacleClear`: "the horizontal-overlap test would have
+collided, but the suppression branch fired"), reported through an
+`onObstaclesCleared` callback that runs **before** the finish check so a clear on
+the finish frame still banks (#186 rationale). The policy is applied in
+`snowman/index.ts`:
+
+- **Provenance:** only a *manual* jump's air scores (`playerJump` still true while
+  airborne) — an auto-jump / hop clear banks nothing, and its bytes are unchanged.
+- **Dedup:** one pass over an obstacle spans many overlap frames; the per-air-phase
+  `clearedObstacles` set (fresh at every manual takeoff) counts it once.
+- **Cap:** at most `CLEAR_MAX_PER_AIR = 3` scored clears per air phase.
+- **Banking:** `CLEAR_SCORE = 75` per clear, via the same `bankAirScore` path as the
+  landing score. `UpdateResult.obstacleCleared` (`'tree' | 'rock' | null`) surfaces
+  the cue; the loop toasts `✦ CLEARED!` (`CourseModule.flashClear`).
+
+Clears never touch `pos`/`velocity` — pinned by the harness's clear-provenance
+check (identical trajectories with and without provenance; exactly one scored clear
+per obstacle; cap honoured).
+
 ### 4.1 Freestyle tricks (#32 — Expert tier only)
 
 On the ◆◆ **Expert** tier (`ski.freestyleTricks` in `src/difficulty.ts` — the only
@@ -653,6 +675,7 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Jump landing grade (CLEAN / OK align) | `> 0.85` / `> 0.55` | `snowman/physics.ts` |
 | Clean-landing boost (per s / cap) | `airTime*0.04` / `0.06` | `snowman/physics.ts` |
 | Air score (per s / clean bonus) | `airTime*100` / `+50` | `snowman/physics.ts` |
+| Obstacle clear score / cap per air (JP-2) | 75 / 3 | `snowman/physics.ts` |
 | Freestyle spin / flip rate (Expert, #32) | 360 / 300 deg/s | `snowman/physics.ts` |
 | Freestyle score (per 180° spin / 360° flip / grab s) | 40 / 120 / 60 | `snowman/physics.ts` |
 | Freestyle landing tolerance (spin / flip residual) | 60° / 75° | `snowman/physics.ts` |
