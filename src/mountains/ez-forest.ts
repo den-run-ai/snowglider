@@ -1,0 +1,277 @@
+// mountains/ez-forest.ts — EZ-Tree conifer archetypes for the instanced forest (issue #282).
+//
+// PROTOTYPE, OPT-IN: this module generates a small set of low-poly evergreen
+// "archetypes" with @dgreenheck/ez-tree (MIT) — one merged branch geometry + one
+// needle-card geometry per archetype — that trees.ts renders through the existing
+// InstancedMesh / palette-tint / wind-sway pipeline. It is a geometry PROVIDER only:
+// materials, sway shaders, snow and placement all stay in trees.ts, and collision
+// still reads the unchanged treePositions. Enabled with the `?eztrees` URL flag (or
+// setEzForestEnabled in tests); the default path stays byte-identical when off.
+//
+// Why the loading looks the way it does:
+//   - The published ez-tree build eagerly loads its bark/needle textures (base64
+//     data URIs) with THREE.TextureLoader AT IMPORT TIME, which both crashes
+//     headless Node (`document is not defined`) and weighs ~4 MB. So the package is
+//     loaded via a LAZY dynamic import — the chunk is only ever fetched when the
+//     flag is on — and headless runs install a tiny document shim around the import
+//     (TextureLoader only needs createElementNS to mint <img> stubs; the textures
+//     simply never resolve, which geometry generation doesn't care about).
+//   - `Tree.generate()` mints THREE meshes/materials whose uuid draws consume
+//     Math.random (~16 draws). The verification harnesses baseline seeded
+//     Math.random streams, so generation runs with Math.random swapped to a private
+//     xorshift (same pattern as trees.ts getSwayDepthMaterial) — archetype
+//     generation is RNG-stream-neutral. The swap is held ONLY across the
+//     synchronous generate calls, never across the chunk-fetch await (concurrent
+//     game code must keep the real Math.random); the package's one-time
+//     import-eval uuid draws read the ambient RNG, which no seeded harness ever
+//     observes because the flag is off headless. Tree shape itself uses ez-tree's
+//     own seeded RNG, so archetypes are deterministic per seed.
+import * as THREE from 'three';
+
+/** One generated evergreen archetype, ready for InstancedMesh rendering. */
+export interface EzArchetype {
+  /** Merged trunk+branch tube geometry (local units, base at y=0). */
+  branches: THREE.BufferGeometry;
+  /** Needle-card quad geometry (billboard doubles baked at generation time). */
+  leaves: THREE.BufferGeometry;
+  /** ez-tree's pine needle sprite (alpha card); null when generated headless. */
+  leafMap: THREE.Texture | null;
+  /** Local-space height of the branch geometry (for scaling + sway rooting). */
+  height: number;
+  /** Local-space points on the canopy where snow shelves sit (top-biased). */
+  snowAnchors: Array<{ x: number; y: number; z: number }>;
+}
+
+// --- Enable flag (default OFF — the stylized forest stays the shipped default) ---
+let ezForestOverride: boolean | null = null;
+
+/** Force the flag on/off (tests, console experiments). `null` restores URL control. */
+export function setEzForestEnabled(on: boolean | null): void {
+  ezForestOverride = on;
+}
+
+/** Is the EZ-Tree forest prototype enabled? Override wins, else the `?eztrees` URL flag. */
+export function isEzForestEnabled(): boolean {
+  if (ezForestOverride !== null) return ezForestOverride;
+  if (typeof window === 'undefined' || !window.location) return false;
+  return /[?&]eztrees(?:[=&]|$)/.test(window.location.search);
+}
+
+// --- Private RNG (uuid-neutrality during generate; see header) --------------------
+let ezUuidRngState = 0x9e3779b9;
+function ezUuidRandom(): number {
+  ezUuidRngState ^= ezUuidRngState << 13;
+  ezUuidRngState ^= ezUuidRngState >>> 17;
+  ezUuidRngState ^= ezUuidRngState << 5;
+  return (ezUuidRngState >>> 0) / 0x100000000;
+}
+
+// --- Archetype recipes -------------------------------------------------------------
+// Three pine variants tuned WAY down from the ez-tree presets (~19k tris each at
+// stock settings) to an instancing-friendly budget: fewer child branches, coarser
+// tube segments/sections, fewer-but-larger needle cards. Kept under
+// EZ_ARCHETYPE_TRIANGLE_BUDGET (asserted by tests) so a few hundred instances stay
+// within the perf envelope of the stylized forest they replace.
+export const EZ_ARCHETYPE_TRIANGLE_BUDGET = 4500;
+
+interface EzRecipe {
+  preset: string;
+  seed: number;
+  children0: number;
+  leavesCount: number;
+  leavesSizeMul: number;
+}
+
+const EZ_RECIPES: EzRecipe[] = [
+  { preset: 'Pine Small', seed: 11, children0: 30, leavesCount: 14, leavesSizeMul: 1.7 },
+  { preset: 'Pine Medium', seed: 23, children0: 34, leavesCount: 14, leavesSizeMul: 1.6 },
+  { preset: 'Pine Large', seed: 37, children0: 32, leavesCount: 12, leavesSizeMul: 1.5 }
+];
+
+/** How many snow shelf anchors each archetype exposes (trees.ts samples from these). */
+const SNOW_ANCHORS_PER_ARCHETYPE = 12;
+
+// Memoized module + archetypes. The import promise is shared so concurrent callers
+// (re-inits racing the first build) never double-fetch the 4 MB chunk.
+let ezModulePromise: Promise<any> | null = null;
+let archetypesPromise: Promise<EzArchetype[]> | null = null;
+let archetypesCache: EzArchetype[] | null = null;
+
+// Test seam: the dynamic-import thunk, injectable so the Node suite can exercise a
+// failed chunk fetch (and the retry after it) without a network. Setting a new
+// importer clears the module memo so the next load actually goes through it.
+let ezModuleImporter: () => Promise<any> = () => import('@dgreenheck/ez-tree');
+export function __setEzModuleImporterForTests(importer: (() => Promise<any>) | null): void {
+  ezModuleImporter = importer ?? (() => import('@dgreenheck/ez-tree'));
+  ezModulePromise = null;
+}
+
+/** Lazy-import ez-tree; headless runs get a throwaway document shim (import-time
+ *  TextureLoader — see header). The shim is removed in `finally` so the game's own
+ *  `typeof document` guards (procedural canvas textures) keep seeing a bare Node.
+ *
+ *  Math.random is deliberately NOT swapped around this import: the package's
+ *  import-time texture table does mint ~20 THREE Texture uuids from the ambient
+ *  Math.random, but holding the private-stream swap across the await would hand
+ *  every concurrent caller (snowflake setup, snowman build — anything drawing
+ *  randomness while the ~4 MB chunk fetches) the same deterministic xorshift
+ *  sequence on every load. The seeded harnesses never reach this import (the flag
+ *  is off headless), so the one-time import draws never land on an instrumented
+ *  stream; per-archetype GENERATION, which re-runs after resets, stays
+ *  stream-neutral via the synchronous swap in ensureEzArchetypes. */
+function loadEzTreeModule(): Promise<any> {
+  if (!ezModulePromise) {
+    const loading = (async () => {
+      const g = globalThis as any;
+      let shimmed = false;
+      if (typeof g.document === 'undefined') {
+        const stubEl = (): any => ({ addEventListener() {}, removeEventListener() {}, setAttribute() {}, style: {} });
+        g.document = { createElementNS: stubEl, createElement: stubEl };
+        shimmed = true;
+      }
+      try {
+        const mod: any = await ezModuleImporter();
+        return mod && mod.Tree ? mod : mod.default;
+      } finally {
+        if (shimmed) delete g.document;
+      }
+    })();
+    ezModulePromise = loading;
+    // A failed chunk fetch must not wedge every later attempt behind a rejected
+    // memo — clear it so a re-init can retry the import. (ensureEzArchetypes
+    // clears its own memo the same way; callers still see this rejection.)
+    loading.catch(() => {
+      if (ezModulePromise === loading) ezModulePromise = null;
+    });
+  }
+  return ezModulePromise;
+}
+
+/** Quad centers of the needle-card geometry, top-N by height, stride-thinned to a
+ *  spread set — where trees.ts drapes snow shelves. Billboard-double cards are two
+ *  quads per needle cluster; sampling every quad is fine (we only keep a dozen). */
+function computeSnowAnchors(leaves: THREE.BufferGeometry): Array<{ x: number; y: number; z: number }> {
+  const pos = leaves.getAttribute('position');
+  if (!pos) return [];
+  const centers: Array<{ x: number; y: number; z: number }> = [];
+  for (let q = 0; q + 4 <= pos.count; q += 4) {
+    let cx = 0, cy = 0, cz = 0;
+    for (let v = q; v < q + 4; v++) {
+      cx += pos.getX(v); cy += pos.getY(v); cz += pos.getZ(v);
+    }
+    centers.push({ x: cx / 4, y: cy / 4, z: cz / 4 });
+  }
+  if (centers.length === 0) return [];
+  centers.sort((a, b) => b.y - a.y);
+  const top = centers.slice(0, Math.max(SNOW_ANCHORS_PER_ARCHETYPE, Math.floor(centers.length * 0.4)));
+  const stride = Math.max(1, Math.floor(top.length / SNOW_ANCHORS_PER_ARCHETYPE));
+  const anchors: Array<{ x: number; y: number; z: number }> = [];
+  for (let i = 0; i < top.length && anchors.length < SNOW_ANCHORS_PER_ARCHETYPE; i += stride) {
+    anchors.push(top[i]!);
+  }
+  return anchors;
+}
+
+function generateArchetype(EZ: any, recipe: EzRecipe): EzArchetype {
+  const tree = new EZ.Tree();
+  tree.loadPreset(recipe.preset);
+  tree.options.seed = recipe.seed;
+  // Low-poly tuning: single branching level, coarser tubes, fewer/larger needle cards.
+  tree.options.branch.levels = 1;
+  tree.options.branch.children[0] = recipe.children0;
+  tree.options.branch.children[1] = 0;
+  tree.options.branch.segments[0] = 6;
+  tree.options.branch.segments[1] = 3;
+  tree.options.branch.sections[0] = 8;
+  tree.options.branch.sections[1] = 3;
+  tree.options.leaves.count = recipe.leavesCount;
+  tree.options.leaves.size = tree.options.leaves.size * recipe.leavesSizeMul;
+  tree.generate();
+
+  const branches = tree.branchesMesh.geometry as THREE.BufferGeometry;
+  const leaves = tree.leavesMesh.geometry as THREE.BufferGeometry;
+  branches.computeBoundingBox();
+  const height = branches.boundingBox ? branches.boundingBox.max.y : 1;
+
+  // Keep ez-tree's needle sprite (module-cached in the package; a stub headless).
+  // The package flags it SRGBColorSpace, but this game renders the legacy linear
+  // pipeline (ColorManagement off, NoColorSpace canvas textures everywhere) — the
+  // sRGB decode would double-darken the needles, so re-flag it to match.
+  const leafMaterial = tree.leavesMesh.material as THREE.MeshPhongMaterial;
+  const leafMap = (leafMaterial && leafMaterial.map) || null;
+  if (leafMap) leafMap.colorSpace = THREE.NoColorSpace;
+
+  // The geometries are ours now; the generated Phong materials are not used
+  // (trees.ts builds tinted, swaying materials) — free them. Their maps are the
+  // package's shared texture cache, which material.dispose() correctly leaves alone.
+  (tree.branchesMesh.material as THREE.Material).dispose();
+  leafMaterial.dispose();
+
+  return { branches, leaves, leafMap, height, snowAnchors: computeSnowAnchors(leaves) };
+}
+
+// Bumped by resetEzForest so a generation that was already awaiting the chunk when
+// a teardown ran cannot repopulate the cache afterward (its geometries would be
+// orphaned — no live scene, nothing left to dispose them until another reset).
+let ezGenerationEpoch = 0;
+
+/** Generate (once) and return the evergreen archetypes. RNG-stream-neutral: the
+ *  Math.random swap covers every THREE uuid draw generation makes. Resolves to []
+ *  (nothing cached) when a reset cancelled this generation mid-load — callers
+ *  stale-check against their own teardown guards anyway. */
+export function ensureEzArchetypes(): Promise<EzArchetype[]> {
+  if (!archetypesPromise) {
+    const epoch = ezGenerationEpoch;
+    const generating = loadEzTreeModule().then((EZ) => {
+      const savedRandom = Math.random;
+      Math.random = ezUuidRandom;
+      let generated: EzArchetype[];
+      try {
+        generated = EZ_RECIPES.map((r) => generateArchetype(EZ, r));
+      } finally {
+        Math.random = savedRandom;
+      }
+      if (epoch !== ezGenerationEpoch) {
+        // resetEzForest ran while the chunk was loading: this generation belongs
+        // to a torn-down world — free it instead of caching orphaned geometries.
+        for (const a of generated) {
+          a.branches.dispose();
+          a.leaves.dispose();
+        }
+        return [];
+      }
+      archetypesCache = generated;
+      return generated;
+    });
+    archetypesPromise = generating;
+    // A failed load (offline chunk fetch, package missing) must not wedge every
+    // later attempt behind a rejected memo; log + clear so a re-init can retry.
+    // (Clear only if a reset hasn't already installed a newer attempt.)
+    generating.catch((err) => {
+      console.error('EzForest: archetype generation failed', err);
+      if (archetypesPromise === generating) archetypesPromise = null;
+    });
+  }
+  return archetypesPromise;
+}
+
+/** Already-generated archetypes, or null before the first ensureEzArchetypes resolves. */
+export function getEzArchetypesSync(): EzArchetype[] | null {
+  return archetypesCache;
+}
+
+/** Dispose the cached archetype geometries and clear the memo (teardown / dev-HMR).
+ *  The ez-tree module itself stays imported (its texture cache is package-global);
+ *  a later ensureEzArchetypes regenerates fresh geometries from the same module. */
+export function resetEzForest(): void {
+  // Cancel any generation still awaiting its chunk (see ezGenerationEpoch above).
+  ezGenerationEpoch++;
+  if (archetypesCache) {
+    for (const a of archetypesCache) {
+      a.branches.dispose();
+      a.leaves.dispose();
+    }
+  }
+  archetypesCache = null;
+  archetypesPromise = null;
+}
