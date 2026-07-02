@@ -30,16 +30,21 @@ import type { RockPosition } from './rocks.js';
 export type TerrainHeightFn = (x: number, z: number) => number;
 
 // --- Tunables ---
-const BLOB_OPACITY = 0.34;     // global strength of the contact darkening (kept soft)
-const TREE_RADIUS_K = 1.6;     // blob radius = tree.scale * this (foliage footprint, world units)
-const ROCK_RADIUS_K = 1.15;    // blob radius = rock.size * this
-const MIN_RADIUS = 0.8;        // floor so the smallest obstacles still read as grounded
+// Contact shadows should read as cool powder AO, not black/brown stains on the snow.
+// Keep the tree blobs tight: the real tree/canopy shadow already does the long-form
+// grounding, this decal only darkens the immediate base.
+const BLOB_OPACITY = 0.16;
+const BLOB_COLOR = 0x6f7f91;   // cool blue-grey, blended lightly over white snow
+const TREE_RADIUS_K = 1.15;    // blob radius = tree.scale * this
+const ROCK_RADIUS_K = 0.95;    // blob radius = rock.size * this
+const MIN_RADIUS = 0.65;       // floor so the smallest obstacles still read as grounded
 const SURFACE_LIFT = 0.05;     // sit just above the snow to avoid z-fighting
 
 /**
- * A radial alpha disc: opaque-black at the centre fading smoothly to transparent at the
- * rim, so the instanced quad reads as a soft round AO blob rather than a hard disc.
- * Guarded on `document` (returns null in Node) like the snow/rock/tree normal maps.
+ * A radial alpha disc with a soft, non-opaque centre fading quickly to transparent at
+ * the rim, so the instanced quad reads as subtle powder contact AO rather than a
+ * visible circular stain. Guarded on `document` (returns null in Node) like the
+ * snow/rock/tree normal maps.
  */
 function createContactShadowTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
@@ -54,10 +59,11 @@ function createContactShadowTexture(): THREE.CanvasTexture | null {
     for (let x = 0; x < SIZE; x++) {
       const dx = (x - c) / c, dy = (y - c) / c;
       const r = Math.min(1, Math.sqrt(dx * dx + dy * dy));
-      // Soft falloff: full in the core, easing to 0 at the rim (smootherstep-ish).
-      const a = 1 - r * r * (3 - 2 * r); // smoothstep(0,1,r) inverted -> dense centre
+      const a = Math.pow(1 - r, 2.2) * 0.75;
       const idx = (y * SIZE + x) * 4;
-      data[idx] = 0; data[idx + 1] = 0; data[idx + 2] = 0; // black AO
+      data[idx] = 255;
+      data[idx + 1] = 255;
+      data[idx + 2] = 255;
       data[idx + 3] = Math.max(0, Math.min(255, a * 255));
     }
   }
@@ -98,7 +104,7 @@ export function addContactShadows(
   geometry.rotateX(-Math.PI / 2);
   const texture = createContactShadowTexture();
   const material = new THREE.MeshBasicMaterial({
-    color: 0x000000,
+    color: BLOB_COLOR,
     map: texture,            // null in headless -> a plain soft disc isn't drawn anyway
     transparent: true,
     opacity: BLOB_OPACITY,
