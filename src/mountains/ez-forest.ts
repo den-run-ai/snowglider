@@ -210,25 +210,46 @@ function generateArchetype(EZ: any, recipe: EzRecipe): EzArchetype {
   return { branches, leaves, leafMap, height, snowAnchors: computeSnowAnchors(leaves) };
 }
 
+// Bumped by resetEzForest so a generation that was already awaiting the chunk when
+// a teardown ran cannot repopulate the cache afterward (its geometries would be
+// orphaned — no live scene, nothing left to dispose them until another reset).
+let ezGenerationEpoch = 0;
+
 /** Generate (once) and return the evergreen archetypes. RNG-stream-neutral: the
- *  Math.random swap covers every THREE uuid draw generation makes. */
+ *  Math.random swap covers every THREE uuid draw generation makes. Resolves to []
+ *  (nothing cached) when a reset cancelled this generation mid-load — callers
+ *  stale-check against their own teardown guards anyway. */
 export function ensureEzArchetypes(): Promise<EzArchetype[]> {
   if (!archetypesPromise) {
-    archetypesPromise = loadEzTreeModule().then((EZ) => {
+    const epoch = ezGenerationEpoch;
+    const generating = loadEzTreeModule().then((EZ) => {
       const savedRandom = Math.random;
       Math.random = ezUuidRandom;
+      let generated: EzArchetype[];
       try {
-        archetypesCache = EZ_RECIPES.map((r) => generateArchetype(EZ, r));
+        generated = EZ_RECIPES.map((r) => generateArchetype(EZ, r));
       } finally {
         Math.random = savedRandom;
       }
-      return archetypesCache;
+      if (epoch !== ezGenerationEpoch) {
+        // resetEzForest ran while the chunk was loading: this generation belongs
+        // to a torn-down world — free it instead of caching orphaned geometries.
+        for (const a of generated) {
+          a.branches.dispose();
+          a.leaves.dispose();
+        }
+        return [];
+      }
+      archetypesCache = generated;
+      return generated;
     });
+    archetypesPromise = generating;
     // A failed load (offline chunk fetch, package missing) must not wedge every
     // later attempt behind a rejected memo; log + clear so a re-init can retry.
-    archetypesPromise.catch((err) => {
+    // (Clear only if a reset hasn't already installed a newer attempt.)
+    generating.catch((err) => {
       console.error('EzForest: archetype generation failed', err);
-      archetypesPromise = null;
+      if (archetypesPromise === generating) archetypesPromise = null;
     });
   }
   return archetypesPromise;
@@ -243,6 +264,8 @@ export function getEzArchetypesSync(): EzArchetype[] | null {
  *  The ez-tree module itself stays imported (its texture cache is package-global);
  *  a later ensureEzArchetypes regenerates fresh geometries from the same module. */
 export function resetEzForest(): void {
+  // Cancel any generation still awaiting its chunk (see ezGenerationEpoch above).
+  ezGenerationEpoch++;
   if (archetypesCache) {
     for (const a of archetypesCache) {
       a.branches.dispose();
