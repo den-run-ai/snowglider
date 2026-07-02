@@ -21,7 +21,8 @@ const approx = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 async function main() {
   const Sfx = await import('../src/sfx.js');
   const { windGainForSpeed, windGainForField, carveGainForTechnique, avalancheGainForDistance,
-    landGainForForce, howlGainForWind, howlFreqForGust } = Sfx;
+    landGainForForce, howlGainForWind, howlFreqForGust,
+    rustleGainForForest, rustleFreqForGust, shedGainForDistance } = Sfx;
 
   // --- wind bed gain -----------------------------------------------------------
   check('wind: idle floor at speed 0 (slope never silent)', windGainForSpeed(0) > 0 && windGainForSpeed(0) < 0.1);
@@ -82,6 +83,35 @@ async function main() {
   check('howl: full-gust pitch is the high end', approx(howlFreqForGust(1), 1200));
   check('howl: gust clamped past 1', approx(howlFreqForGust(9), howlFreqForGust(1)));
   check('howl: NaN gust treated as a lull', howlFreqForGust(NaN) === howlFreqForGust(0));
+
+  // --- forest rustle bed (#253 Phase B) -----------------------------------------
+  // KEY invariant: the rustle is gated on BOTH the wind and the forest around the
+  // player — strength 0 OR proximity 0 is exactly silent, so an open bowl (or a calm
+  // glade, or any pre-existing scene with no proximity feed) keeps the old soundscape.
+  check('rustle: silent in a dead calm even deep in trees', rustleGainForForest(0, 1) === 0);
+  check('rustle: silent below the wind knee', rustleGainForForest(0.15, 1) === 0);
+  check('rustle: silent in the open at any wind', rustleGainForForest(1, 0) === 0);
+  check('rustle: audible with wind + forest', rustleGainForForest(0.8, 0.8) > 0);
+  check('rustle: rises with wind strength', rustleGainForForest(1, 0.5) > rustleGainForForest(0.5, 0.5));
+  check('rustle: rises with forest proximity', rustleGainForForest(0.8, 1) > rustleGainForForest(0.8, 0.3));
+  check('rustle: clamped inputs (a storm in a mega-forest cannot overdrive it)',
+    approx(rustleGainForForest(7, 9), rustleGainForForest(1, 1)));
+  check('rustle: stays under its own headroom (<= ~0.13)', rustleGainForForest(1, 1) <= 0.131);
+  check('rustle: NaN-safe (treated as calm/open)',
+    rustleGainForForest(NaN, 1) === 0 && rustleGainForForest(1, NaN) === 0);
+  // Brightness sweeps with the gust so the hiss breathes with the wind.
+  check('rustle: brighter on a gust', rustleFreqForGust(1) > rustleFreqForGust(0));
+  check('rustle: gust clamped past 1', approx(rustleFreqForGust(9), rustleFreqForGust(1)));
+  check('rustle: NaN gust treated as a lull', rustleFreqForGust(NaN) === rustleFreqForGust(0));
+
+  // --- snow-shed whump (#253 Phase B) ---------------------------------------------
+  check('shed: full whump when the tree is close', approx(shedGainForDistance(0), shedGainForDistance(6)));
+  check('shed: fades with distance', shedGainForDistance(10) > shedGainForDistance(30));
+  check('shed: silent beyond the audible band', shedGainForDistance(55) === 0 && shedGainForDistance(200) === 0);
+  check('shed: stays under its own headroom (<= ~0.42)', shedGainForDistance(0) <= 0.421);
+  check('shed: NaN distance treated as far (silent)', shedGainForDistance(NaN) === 0);
+  check('shed: negative distance treated as on top of the player (full)',
+    approx(shedGainForDistance(-5), shedGainForDistance(0)));
 
   // --- engine: inert + defensive in Node (no AudioContext) ---------------------
   const engine = Sfx.Sfx;

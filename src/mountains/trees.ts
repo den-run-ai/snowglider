@@ -202,6 +202,9 @@ interface SwayOptions {
   /** Alpha-card map for alpha-tested shadow silhouettes (needle cards). */
   map?: THREE.Texture | null;
   alphaTest?: number;
+  /** Per-instance snow-load response — the depth material must droop/damp in
+   *  lockstep with its visible material or laden shadows detach. */
+  loadMode?: 'flex' | 'shrink';
 }
 const swayDepthMaterials: Record<string, THREE.MeshDepthMaterial> = {};
 
@@ -341,7 +344,11 @@ function getSnowMaterial(): THREE.MeshStandardMaterial {
       color: new THREE.Color(0.97, 0.98, 1.0),
       roughness: 0.82
     });
-    applyTreeSway(snowMaterial, 'canopy');
+    // 'shrink': the instanced caps/shelves scale with their tree's remaining load
+    // (aSnowRatio) and follow the laden canopy's droop (aSnowLoad). The shrink code
+    // sits inside USE_INSTANCING, so the Group-shim Meshes that share this material
+    // render exactly as before.
+    applyTreeSway(snowMaterial, 'canopy', undefined, 'shrink');
   }
   return snowMaterial;
 }
@@ -403,12 +410,19 @@ function prefersReducedTreeMotion(): boolean {
 // are in scope by the time `<project_vertex>` runs. `TREE_TRUNK_HALF` is the trunk
 // geometry's local half-height (see getTrunkGeometry: CylinderGeometry height 4) — the
 // rooted weight normalises `position.y` (local, scale-independent) against it.
+// TREE_LOAD_* tune the per-instance snow-load response (see the aSnowLoad attribute):
+// a fully laden part sways at (1 - TREE_LOAD_DAMP) of the free amplitude (snow has
+// mass) and bows TREE_LOAD_DROOP world units at full sway weight, while snow parts
+// shrink toward TREE_SNOW_SHRINK_MIN of their placed size as their load sheds away.
 const TREE_SWAY_HEAD_BASE = `#include <common>
   uniform vec2 uWindDir;
   uniform float uWindAmp;
   uniform float uWindSwayTime;
   #define TREE_SWAY_RATE 1.1
-  #define TREE_TRUNK_HALF 2.0`;
+  #define TREE_TRUNK_HALF 2.0
+  #define TREE_LOAD_DAMP 0.55
+  #define TREE_LOAD_DROOP 0.6
+  #define TREE_SNOW_SHRINK_MIN 0.3`;
 
 // Expanded default three r0.184 `<project_vertex>` with the sway applied in model space —
 // after `instanceMatrix`, before `modelViewMatrix`. The forest InstancedMeshes have an
@@ -422,6 +436,14 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
   mvPosition = batchingMatrix * mvPosition;
 #endif
 #ifdef USE_INSTANCING
+  #ifdef TREE_SNOW_LOAD
+    float snowLoad = clamp( aSnowLoad, 0.0, 1.0 );
+  #else
+    float snowLoad = 0.0;
+  #endif
+  #ifdef TREE_SNOW_SHRINK
+    mvPosition.xyz *= mix( TREE_SNOW_SHRINK_MIN, 1.0, clamp( aSnowRatio, 0.0, 1.0 ) );
+  #endif
   mvPosition = instanceMatrix * mvPosition;
   {
     #if defined( TREE_SWAY_INSTANCE_WEIGHT )
@@ -437,11 +459,13 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
     float swayOsc = sin( uWindSwayTime * TREE_SWAY_RATE + swayPhase )
                   + 0.3 * sin( uWindSwayTime * TREE_SWAY_RATE * 2.1 + swayPhase * 1.7 );
     float ampVar = 0.82 + 0.18 * sin( swayPhase * 5.7 + 2.1 );
-    float lean = uWindAmp * ampVar * swayWeight * ( 0.75 + 0.25 * swayOsc );
+    float loadEase = 1.0 - TREE_LOAD_DAMP * snowLoad;
+    float lean = uWindAmp * ampVar * swayWeight * loadEase * ( 0.75 + 0.25 * swayOsc );
     mvPosition.x += uWindDir.x * lean;
     mvPosition.z += uWindDir.y * lean;
+    mvPosition.y -= TREE_LOAD_DROOP * snowLoad * swayWeight;
     #ifdef TREE_SWAY_FLUTTER
-      float flutter = uWindAmp * swayWeight
+      float flutter = uWindAmp * swayWeight * loadEase
                     * ( 0.10 * sin( uWindSwayTime * 5.3 + swayPhase * 3.9 + position.y * 2.0 )
                       + 0.06 * sin( uWindSwayTime * 8.9 + swayPhase * 7.1 + position.x * 3.0 ) );
       mvPosition.x -= uWindDir.y * flutter;
@@ -452,11 +476,20 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
 mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;`;
 
+/** Per-instance snow-load response a material opts into (issue #253, Phase B):
+ *  'flex' parts (foliage cones/branches, EZ needles) read `aSnowLoad` (the tree's
+ *  CURRENT load, 0..1) — a laden part sways damped and bows downward; 'shrink'
+ *  parts (snow caps/shelves) additionally read `aSnowRatio` (current/base load) and
+ *  scale with it, so a gust-shed visibly empties the branches. Both attributes are
+ *  live-updatable (see setTreeLoad), which is what makes the load DYNAMIC. */
+type LoadMode = 'flex' | 'shrink';
+
 /** Inject the wind vertex sway into a tree material's shader. An optional
  *  `rootHeight` roots the bend against a local-space height instead of the pooled
  *  trunk's half-height — the EZ archetype geometries sit base-at-0 with per-archetype
- *  heights, so each material carries its own height define. */
-function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeight?: number): void {
+ *  heights, so each material carries its own height define. An optional `loadMode`
+ *  adds the per-instance snow-load response (see {@link LoadMode}). */
+function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeight?: number, loadMode?: LoadMode): void {
   let head = TREE_SWAY_HEAD_BASE;
   if (profile === 'rooted') head += '\n  #define TREE_SWAY_ROOTED';
   if (profile === 'flutter') head += '\n  #define TREE_SWAY_FLUTTER';
@@ -467,6 +500,10 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeigh
   if (rootHeight !== undefined && rootHeight > 0) {
     head += `\n  #define TREE_SWAY_ROOT_HEIGHT ${rootHeight.toFixed(2)}`;
   }
+  if (loadMode) {
+    head += '\n  #define TREE_SNOW_LOAD\n  attribute float aSnowLoad;';
+    if (loadMode === 'shrink') head += '\n  #define TREE_SNOW_SHRINK\n  attribute float aSnowRatio;';
+  }
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uWindDir = treeWindUniforms.uWindDir;
     shader.uniforms.uWindAmp = treeWindUniforms.uWindAmp;
@@ -476,10 +513,11 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeigh
       .replace('#include <project_vertex>', TREE_SWAY_PROJECT_VERTEX);
   };
   // onBeforeCompile edits are not part of three's default program cache key; a stable key
-  // (varied by profile + root height) keeps the swayed program from colliding with an
-  // unswayed build or a differently-rooted variant.
+  // (varied by profile + root height + load mode) keeps the swayed program from colliding
+  // with an unswayed build or a differently-rooted/loaded variant.
   const heightTag = rootHeight !== undefined && rootHeight > 0 ? `-h${rootHeight.toFixed(2)}` : '';
-  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}-v2`;
+  const loadTag = loadMode ? `-${loadMode}` : '';
+  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}${loadTag}-v3`;
 }
 
 /** Advance the forest's wind sway one render frame. Reads the shared Wind field (downwind
@@ -507,6 +545,66 @@ function resetWind(): void {
   treeWindUniforms.uWindSwayTime.value = 0;
   treeWindUniforms.uWindAmp.value = 0;
   treeWindUniforms.uWindDir.value.set(1, 0);
+}
+
+// --- Per-tree snow load registry (issue #253, Phase B: flex + shed under load) -----
+// Each placed tree carries a CURRENT snow load (0..1). It rides the instanced forest
+// as two per-instance attributes — `aSnowLoad` (absolute: sway damping + droop) on the
+// flex + snow families and `aSnowRatio` (current/base: snow-shelf scale) on the snow
+// families — and this registry maps a tree index (treePositions order) to its
+// instances, so the shed system (src/tree-shed.ts) can retune ONE tree's load at
+// runtime for the cost of a few attribute writes.
+//
+// Base loads come from EXISTING randomness only: the stylized path reuses
+// collectTree's per-tree snowLoad draw (the placement Math.random() sequence the
+// verification harnesses baseline is untouched), and the EZ path derives its load from
+// the same deterministic placement hash that already sizes its snow shelves.
+interface TreeLoadBinding {
+  /** aSnowLoad (absolute) attribute; null when this family only shrinks. */
+  load: THREE.InstancedBufferAttribute | null;
+  /** aSnowRatio (current/base) attribute; null for flex-only families. */
+  ratio: THREE.InstancedBufferAttribute | null;
+  /** Per registered tree: [start, count] instance range, or null (no parts here). */
+  ranges: Array<[number, number] | null>;
+}
+/** Tree-index → instance-range map, one entry per load-carrying geometry family. */
+type LoadRangeMap = Partial<Record<GeomKey, Array<[number, number] | null>>>;
+let treeLoadBindings: TreeLoadBinding[] = [];
+let treeBaseLoads: number[] = [];
+let treeLoadVersion = 0;
+
+/** Snapshot of the load registry for consumers (tree-shed) and tests. `version` bumps
+ *  whenever a forest (re)build re-registers bindings, so consumers resync their state. */
+function getTreeLoadState(): { version: number; count: number; baseLoads: readonly number[] } {
+  return { version: treeLoadVersion, count: treeBaseLoads.length, baseLoads: treeBaseLoads };
+}
+
+/** Set tree `index`'s CURRENT load (0..1): writes every bound instance's aSnowLoad and
+ *  aSnowRatio (current/base, so a shelf placed at base load renders full-size) and
+ *  marks the touched attributes for re-upload. Cheap: a handful of floats per tree. */
+function setTreeLoad(index: number, value: number): void {
+  const base = treeBaseLoads[index];
+  if (base === undefined) return;
+  const v = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+  const ratio = base > 1e-3 ? Math.min(1, v / base) : 1;
+  for (const binding of treeLoadBindings) {
+    const range = binding.ranges[index];
+    if (!range || range[1] === 0) continue;
+    for (let k = range[0]; k < range[0] + range[1]; k++) {
+      if (binding.load) (binding.load.array as Float32Array)[k] = v;
+      if (binding.ratio) (binding.ratio.array as Float32Array)[k] = ratio;
+    }
+    if (binding.load) binding.load.needsUpdate = true;
+    if (binding.ratio) binding.ratio.needsUpdate = true;
+  }
+}
+
+/** Drop every load binding and start a fresh registration epoch (each addTrees
+ *  rebuild): stale bindings must never write into a disposed forest's buffers. */
+function resetTreeLoadRegistry(): void {
+  treeLoadBindings = [];
+  treeBaseLoads = [];
+  treeLoadVersion++;
 }
 
 // --- Instanced materials (one per family; white base, tinted per-instance) ---
@@ -542,7 +640,8 @@ function getFoliageInstancedMaterial(): THREE.MeshStandardMaterial {
       normalMap: getFoliageNormal(),
       normalScale: new THREE.Vector2(0.6, 0.6)
     });
-    applyTreeSway(foliageInstancedMaterial, 'flutter');
+    // 'flex': cones + branches damp their sway and bow under the tree's snow load.
+    applyTreeSway(foliageInstancedMaterial, 'flutter', undefined, 'flex');
   }
   return foliageInstancedMaterial;
 }
@@ -574,7 +673,7 @@ function depthUuidRandom(): number {
  *  stream; the verification harnesses baseline that, so only these NEW materials are stream-neutral. */
 function getSwayDepthMaterial(profile: SwayProfile, opts?: SwayOptions): THREE.MeshDepthMaterial {
   const key = `${profile}|${opts?.rootHeight !== undefined ? opts.rootHeight.toFixed(2) : ''}|` +
-    `${opts?.map ? 'map' : ''}${opts?.alphaTest !== undefined ? opts.alphaTest : ''}`;
+    `${opts?.map ? 'map' : ''}${opts?.alphaTest !== undefined ? opts.alphaTest : ''}|${opts?.loadMode ?? ''}`;
   const existing = swayDepthMaterials[key];
   if (existing) return existing;
   const savedRandom = Math.random;
@@ -586,7 +685,7 @@ function getSwayDepthMaterial(profile: SwayProfile, opts?: SwayOptions): THREE.M
     if (opts?.map) params.map = opts.map;
     if (opts?.alphaTest !== undefined) params.alphaTest = opts.alphaTest;
     material = new THREE.MeshDepthMaterial(params);
-    applyTreeSway(material, profile, opts?.rootHeight);
+    applyTreeSway(material, profile, opts?.rootHeight, opts?.loadMode);
   } finally {
     Math.random = savedRandom;
   }
@@ -627,19 +726,45 @@ function ezDetailForPlacement(x: number, z: number): EzDetail {
   return Math.abs(x - activeLaneX(z)) > EZ_LOD_FAR_DISTANCE ? 'far' : 'near';
 }
 
-/** One tree slot for the async EZ build: its placement matrix + palette-driving hash. */
+/** One tree slot for the async EZ build: its placement matrix + palette-driving hash.
+ *  `index` is the tree's position in the treePositions/collision order — the key the
+ *  tree-load registry (and the shed system reading it) addresses trees by. */
 interface EzPlacement {
   matrix: THREE.Matrix4;
   scale: number;
   x: number;
   z: number;
+  index: number;
 }
 
 /** One EZ snow instance: its world matrix + the host tree's height-rooted sway
- *  weight at the anchor (feeds the 'anchored' profile's aSwayWeight attribute). */
+ *  weight at the anchor (feeds the 'anchored' profile's aSwayWeight attribute), plus
+ *  the host's base snow load and registry index (feeds aSnowLoad/aSnowRatio). */
 interface EzSnowDesc {
   matrix: THREE.Matrix4;
   weight: number;
+  load: number;
+  treeIndex: number;
+}
+
+/** Deterministic EZ base load (0..1) from the SAME placement hash that already sizes
+ *  the tree's snow: more shelves (h % 3) reads as a heavier tree, plus fine per-tree
+ *  variation — so a visibly laden EZ tree also flexes (and sheds) like one. */
+function ezLoadFromHash(h: number): number {
+  return Math.min(1, 0.3 + 0.25 * (h % 3) + ((h >>> 10) % 128) / 400);
+}
+
+/** Build the per-binding tree-index → [start, count] map for a snow desc list. A
+ *  tree's descs are pushed contiguously (crown cap: one desc; shelves: one inner
+ *  loop), so extending the open range per desc is exact. */
+function ezRangesFromDescs(descs: EzSnowDesc[], treeCount: number): Array<[number, number] | null> {
+  const ranges = new Array<[number, number] | null>(treeCount).fill(null);
+  descs.forEach((d, j) => {
+    const r = ranges[d.treeIndex];
+    if (!r) ranges[d.treeIndex] = [j, 1];
+    else r[1] = j - r[0] + 1;
+  });
+  return ranges;
 }
 
 // Subtle needle tints (the needle sprite already carries the green; these vary
@@ -674,7 +799,8 @@ function getEzMaterialSets(archetypes: EzArchetype[]): EzMaterialSet[] {
       };
       if (a.leafMap) leavesParams.map = a.leafMap;
       const leaves = new THREE.MeshStandardMaterial(leavesParams);
-      applyTreeSway(leaves, 'flutter', a.height);
+      // 'flex' + height rooting: laden EZ crowns bow proportionally to needle height.
+      applyTreeSway(leaves, 'flutter', a.height, 'flex');
       return { bark, leaves };
     });
   }
@@ -692,7 +818,9 @@ function getEzSnowMaterial(): THREE.MeshStandardMaterial {
       color: new THREE.Color(0.97, 0.98, 1.0),
       roughness: 0.82
     });
-    applyTreeSway(ezSnowMaterial, 'anchored');
+    // 'shrink' on top of the anchored per-instance weight: EZ caps/shelves scale with
+    // their tree's remaining load and follow the laden crown's droop.
+    applyTreeSway(ezSnowMaterial, 'anchored', undefined, 'shrink');
   }
   return ezSnowMaterial;
 }
@@ -868,14 +996,32 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     branches.name = 'forestInstanced';
     branches.userData.forestPart = 'ezBranches';
     branches.userData.ezArchetype = i;
-    const leaves = new THREE.InstancedMesh(a.leaves, sets[i]!.leaves, list.length);
+    // The needle cards carry the per-instance snow load ('flex': damped sway + droop),
+    // and instanced attributes live on the geometry — clone the shared archetype
+    // buffer per build (ownsGeometry ⇒ the re-init sweep disposes it). RNG-neutral
+    // like the stylized clones: a clone's uuid must not advance a seeded stream.
+    const savedRandom = Math.random;
+    Math.random = depthUuidRandom;
+    let leavesGeometry: THREE.BufferGeometry;
+    let leafLoadAttr: THREE.InstancedBufferAttribute;
+    try {
+      leavesGeometry = a.leaves.clone();
+      leafLoadAttr = new THREE.InstancedBufferAttribute(new Float32Array(list.length), 1);
+      leafLoadAttr.setUsage(THREE.DynamicDrawUsage);
+      leavesGeometry.setAttribute('aSnowLoad', leafLoadAttr);
+    } finally {
+      Math.random = savedRandom;
+    }
+    const leaves = new THREE.InstancedMesh(leavesGeometry, sets[i]!.leaves, list.length);
     leaves.castShadow = true;
     leaves.customDepthMaterial = getSwayDepthMaterial('flutter', {
-      rootHeight: a.height, map: a.leafMap, alphaTest: 0.35
+      rootHeight: a.height, map: a.leafMap, alphaTest: 0.35, loadMode: 'flex'
     });
     leaves.name = 'forestInstanced';
     leaves.userData.forestPart = 'ezLeaves';
     leaves.userData.ezArchetype = i;
+    leaves.userData.ownsGeometry = true;
+    const leafRanges = new Array<[number, number] | null>(placements.length).fill(null);
 
     list.forEach((p, j) => {
       const s = (EZ_TREE_TARGET_HEIGHT * p.scale) / a.height;
@@ -886,6 +1032,12 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
       const h = hashPlacement(p.x, p.z, 2);
       branches.setColorAt(j, trunkPalette[h % TRUNK_WEATHERED_START]!);
       leaves.setColorAt(j, leafTints[(h >>> 4) % leafTints.length]!);
+      // Base snow load: deterministic from the same hash that sizes the snow below,
+      // registered so the shed system can retune this tree at runtime.
+      const load = ezLoadFromHash(h);
+      (leafLoadAttr.array as Float32Array)[j] = load;
+      leafRanges[p.index] = [j, 1];
+      treeBaseLoads[p.index] = load;
 
       // Snow: a cap on the crown tip plus, for NEAR trees only, settled shelves
       // draped on needle anchors — far trees keep just the cap (their shelves are
@@ -897,7 +1049,9 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
       snowCapDescs.push({
         matrix: new THREE.Matrix4().compose(
           anchorPos, snowQuat.identity(), snowScale.set(capR, capR * 0.5, capR)),
-        weight: 1 // crown tip: full canopy lean
+        weight: 1, // crown tip: full canopy lean
+        load,
+        treeIndex: p.index
       });
       if (a.detail === 'near') {
         const shelfCount = 4 + (h % 3);
@@ -915,7 +1069,9 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
           snowPatchDescs.push({
             matrix: new THREE.Matrix4().compose(
               anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)),
-            weight: Math.min(1, Math.max(0, anchor.y / a.height))
+            weight: Math.min(1, Math.max(0, anchor.y / a.height)),
+            load,
+            treeIndex: p.index
           });
           snowQuat.identity();
         }
@@ -923,10 +1079,12 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     });
     branches.instanceMatrix.needsUpdate = true;
     leaves.instanceMatrix.needsUpdate = true;
+    leafLoadAttr.needsUpdate = true;
     if (branches.instanceColor) branches.instanceColor.needsUpdate = true;
     if (leaves.instanceColor) leaves.instanceColor.needsUpdate = true;
     scene.add(branches);
     scene.add(leaves);
+    treeLoadBindings.push({ load: leafLoadAttr, ratio: null, ranges: leafRanges });
   });
 
   // Instanced snow on the EZ trees (like the stylized forest, snow-on-snow never
@@ -943,8 +1101,17 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     if (descs.length === 0) continue;
     const geometry = pooledGeometry.clone();
     const weights = new Float32Array(descs.length);
-    descs.forEach((d, j) => { weights[j] = d.weight; });
+    const loads = new Float32Array(descs.length);
+    descs.forEach((d, j) => { weights[j] = d.weight; loads[j] = d.load; });
     geometry.setAttribute('aSwayWeight', new THREE.InstancedBufferAttribute(weights, 1));
+    // The 'shrink' load pair: caps/shelves follow the laden crown's droop (aSnowLoad)
+    // and scale with the tree's remaining load (aSnowRatio; placed size = ratio 1).
+    const loadAttr = new THREE.InstancedBufferAttribute(loads, 1);
+    loadAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aSnowLoad', loadAttr);
+    const ratioAttr = new THREE.InstancedBufferAttribute(new Float32Array(descs.length).fill(1), 1);
+    ratioAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aSnowRatio', ratioAttr);
     const im = new THREE.InstancedMesh(geometry, getEzSnowMaterial(), descs.length);
     im.castShadow = false;
     im.name = 'forestInstanced';
@@ -953,7 +1120,10 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     descs.forEach((d, j) => im.setMatrixAt(j, d.matrix));
     im.instanceMatrix.needsUpdate = true;
     scene.add(im);
+    treeLoadBindings.push({ load: loadAttr, ratio: ratioAttr, ranges: ezRangesFromDescs(descs, placements.length) });
   }
+  // The EZ forest's bindings are now live — bump the epoch so consumers resync.
+  treeLoadVersion++;
 }
 
 // --- Instanced forest: collectors + builder (the draw-call win, issue #...) ---
@@ -975,10 +1145,12 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
 type GeomKey = 'trunk' | 'cone' | 'branch' | 'snowCap' | 'snowPatch';
 const GEOM_KEYS: GeomKey[] = ['trunk', 'cone', 'branch', 'snowCap', 'snowPatch'];
 
-/** One placed part: its world matrix and (for tinted families) a palette colour index. */
+/** One placed part: its world matrix, (for tinted families) a palette colour index,
+ *  and (for load-carrying families) the host tree's base snow load (0..1). */
 interface InstanceDesc {
   matrix: THREE.Matrix4;
   colorIndex?: number;
+  load?: number;
 }
 type Buckets = Record<GeomKey, InstanceDesc[]>;
 
@@ -1001,12 +1173,16 @@ function pushPart(
   pos: { x: number; y: number; z: number },
   rot: { x: number; y: number; z: number },
   scl: { x: number; y: number; z: number },
-  colorIndex?: number
+  colorIndex?: number,
+  load?: number
 ): void {
   _q.setFromEuler(_e.set(rot.x, rot.y, rot.z));
   _local.compose(_p.set(pos.x, pos.y, pos.z), _q, _s.set(scl.x, scl.y, scl.z));
   _world.multiplyMatrices(treeMatrix, _local);
-  buckets[key].push(colorIndex === undefined ? { matrix: _world.clone() } : { matrix: _world.clone(), colorIndex });
+  const desc: InstanceDesc = { matrix: _world.clone() };
+  if (colorIndex !== undefined) desc.colorIndex = colorIndex;
+  if (load !== undefined) desc.load = load;
+  buckets[key].push(desc);
 }
 
 type TreeSpecies = 'fir' | 'spruce';
@@ -1024,8 +1200,12 @@ function pickFoliageBaseIndex(species: TreeSpecies): number {
 
 // Collect one tree's parts into the buckets. Species variety lives here: classic
 // firs with broad lower boughs and narrow spruces with more stacked layers. This is
-// visual only; collision uses the unchanged treePositions.
-function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets): void {
+// visual only; collision uses the unchanged treePositions. Returns the tree's snow
+// load (0..1) — the SAME pre-existing Math.random() draw that already sizes its snow
+// shelf probability, now also threaded onto every load-carrying part (aSnowLoad) and
+// reported to the caller so addTrees can register it as the tree's base load. The
+// draw count and order are unchanged, so the seeded placement stream is untouched.
+function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets): number {
   const species = pickTreeSpecies();
   const heightScale = (0.8 + Math.random() * 0.4) * scale * (species === 'spruce' ? 1.15 : 1);
   const widthScale = (0.85 + Math.random() * 0.3) * scale * (species === 'spruce' ? 0.68 : 1);
@@ -1072,14 +1252,14 @@ function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets)
         y: coneScaleY,
         z: coneWidth
       },
-      coneColorIndex);
+      coneColorIndex, snowLoad);
 
     if (species === 'fir' && t < 0.7) {
-      collectBranchesAtLayer(buckets, treeMatrix, layerY, coneRadius, coneColorIndex);
+      collectBranchesAtLayer(buckets, treeMatrix, layerY, coneRadius, coneColorIndex, snowLoad);
     }
 
     if (Math.random() < 0.25 + snowLoad * 0.45) {
-      collectLayerSnow(buckets, treeMatrix, layerY, coneRadius, coneScaleY, widthScale);
+      collectLayerSnow(buckets, treeMatrix, layerY, coneRadius, coneScaleY, widthScale, snowLoad);
     }
 
     topLayerY = layerY;
@@ -1090,7 +1270,8 @@ function collectTree(scale: number, treeMatrix: THREE.Matrix4, buckets: Buckets)
   const capRadius = widthScale * (species === 'spruce' ? 0.5 : 0.75);
   pushPart(buckets, 'snowCap', treeMatrix,
     { x: 0, y: tipY - capRadius * 0.25, z: 0 }, { x: 0, y: 0, z: 0 },
-    { x: capRadius, y: capRadius * 0.5, z: capRadius });
+    { x: capRadius, y: capRadius * 0.5, z: capRadius }, undefined, snowLoad);
+  return snowLoad;
 }
 
 function collectLayerSnow(
@@ -1099,7 +1280,8 @@ function collectLayerSnow(
   layerY: number,
   coneRadius: number,
   coneScaleY: number,
-  widthScale: number
+  widthScale: number,
+  load?: number
 ): void {
   const shelfCount = 1 + Math.floor(Math.random() * 2);
   for (let i = 0; i < shelfCount; i++) {
@@ -1113,7 +1295,7 @@ function collectLayerSnow(
       y: ySurface - shelfRadius * 0.1,
       z: Math.sin(angle) * coneRadius * q
     }, { x: tilt * Math.sin(angle), y: 0, z: -tilt * Math.cos(angle) },
-      { x: shelfRadius, y: shelfRadius * 0.35, z: shelfRadius });
+      { x: shelfRadius, y: shelfRadius * 0.35, z: shelfRadius }, undefined, load);
   }
 }
 
@@ -1121,7 +1303,7 @@ function collectLayerSnow(
 // in tree space, so this matches the old addBranchesAtLayer math with conePosition.x/z
 // fixed at 0 (the cone only ever had its y set).
 function collectBranchesAtLayer(
-  buckets: Buckets, treeMatrix: THREE.Matrix4, coneY: number, radius: number, colorIndex: number
+  buckets: Buckets, treeMatrix: THREE.Matrix4, coneY: number, radius: number, colorIndex: number, load?: number
 ): void {
   // Number of branches depends on radius
   const branchCount = Math.floor(3 + Math.random() * 3); // 3-5 visible branches
@@ -1143,7 +1325,7 @@ function collectBranchesAtLayer(
       y: coneY + height,
       z: Math.sin(angle) * (radius * 0.5)
     }, { x: rotX, y: angle, z: rotZ },
-      { x: branchLength, y: branchThickness, z: branchThickness }, colorIndex);
+      { x: branchLength, y: branchThickness, z: branchThickness }, colorIndex, load);
   }
 }
 
@@ -1228,33 +1410,67 @@ function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: numbe
   for (const desc of buckets.snowPatch) tree.add(meshFromDesc('snowPatch', desc));
 }
 
-// Allocate the forest InstancedMeshes from the collected buckets and add them to the scene.
-function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[] {
+// Allocate the forest InstancedMeshes from the collected buckets and add them to the
+// scene. When `loadRanges` is passed (the live addTrees path), the load-carrying
+// attributes are registered in the tree-load registry so setTreeLoad can retune
+// individual trees at runtime; without it (EZ fallback rebuilds) the forest still
+// renders its per-instance loads but stays static.
+function buildForest(scene: THREE.Scene, buckets: Buckets, loadRanges?: LoadRangeMap): THREE.InstancedMesh[] {
   // The profile drives both visible sway and (when enabled) the matching depth
-  // material; the final boolean controls whether this part participates in the
-  // real shadow map.
-  const defs: Array<[GeomKey, THREE.Material, THREE.Color[] | null, SwayProfile, boolean]> = [
-    ['trunk', getBarkInstancedMaterial(), getTrunkColors(), 'rooted', true],
-    ['cone', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter', true],
-    ['branch', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter', true],
+  // material; the boolean controls whether this part participates in the real shadow
+  // map; the trailing LoadMode opts the family into the per-instance snow load.
+  const defs: Array<[GeomKey, THREE.Material, THREE.Color[] | null, SwayProfile, boolean, LoadMode | null]> = [
+    ['trunk', getBarkInstancedMaterial(), getTrunkColors(), 'rooted', true, null],
+    ['cone', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter', true, 'flex'],
+    ['branch', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter', true, 'flex'],
     // White snow sitting on white snow should not cast dark shadow-map pancakes:
     // trunks/canopy already carry the tree shadow, while these caps/collars remain
     // visible grounding detail and still sway with the canopy shader.
-    ['snowCap', getSnowMaterial(), null, 'canopy', false],
-    ['snowPatch', getSnowMaterial(), null, 'canopy', false]
+    ['snowCap', getSnowMaterial(), null, 'canopy', false, 'shrink'],
+    ['snowPatch', getSnowMaterial(), null, 'canopy', false, 'shrink']
   ];
   const built: THREE.InstancedMesh[] = [];
-  for (const [key, material, palette, profile, castsShadow] of defs) {
+  for (const [key, material, palette, profile, castsShadow, loadMode] of defs) {
     const list = buckets[key];
     if (list.length === 0) continue; // skip empty families (no zero-count draw)
-    const im = new THREE.InstancedMesh(geometryForKey(key), material, list.length);
+    let geometry = geometryForKey(key);
+    let loadAttr: THREE.InstancedBufferAttribute | null = null;
+    let ratioAttr: THREE.InstancedBufferAttribute | null = null;
+    if (loadMode) {
+      // Per-instance attributes live on the GEOMETRY, so load families draw a
+      // per-forest CLONE of the pooled geometry (the EZ snow pattern; ownsGeometry ⇒
+      // the re-init sweep disposes it). Cloning mints a uuid, which would advance a
+      // caller's seeded Math.random stream mid-placement — swap in the private RNG,
+      // exactly like the depth materials, so these NEW draws stay stream-neutral.
+      const savedRandom = Math.random;
+      Math.random = depthUuidRandom;
+      try {
+        geometry = geometry.clone();
+        const loads = new Float32Array(list.length);
+        for (let i = 0; i < list.length; i++) loads[i] = list[i]!.load ?? 0;
+        loadAttr = new THREE.InstancedBufferAttribute(loads, 1);
+        loadAttr.setUsage(THREE.DynamicDrawUsage);
+        geometry.setAttribute('aSnowLoad', loadAttr);
+        if (loadMode === 'shrink') {
+          // Placed size corresponds to the base load, so every shelf starts at ratio 1.
+          ratioAttr = new THREE.InstancedBufferAttribute(new Float32Array(list.length).fill(1), 1);
+          ratioAttr.setUsage(THREE.DynamicDrawUsage);
+          geometry.setAttribute('aSnowRatio', ratioAttr);
+        }
+      } finally {
+        Math.random = savedRandom;
+      }
+    }
+    const im = new THREE.InstancedMesh(geometry, material, list.length);
     im.castShadow = castsShadow;
     if (castsShadow) {
-      // Shadow caster sways in lockstep with the visible mesh (shared wind uniforms).
-      im.customDepthMaterial = getSwayDepthMaterial(profile);
+      // Shadow caster sways/droops in lockstep with the visible mesh (shared uniforms
+      // + the same per-instance load attributes on the shared geometry).
+      im.customDepthMaterial = getSwayDepthMaterial(profile, loadMode ? { loadMode } : undefined);
     }
     im.name = 'forestInstanced';        // scene-cleanup + test handle
     im.userData.forestPart = key;       // lets tests identify the trunk mesh (1 per tree)
+    if (loadMode) im.userData.ownsGeometry = true;
     for (let i = 0; i < list.length; i++) {
       im.setMatrixAt(i, list[i]!.matrix);
       if (palette && list[i]!.colorIndex !== undefined) im.setColorAt(i, palette[list[i]!.colorIndex!]!);
@@ -1263,7 +1479,12 @@ function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[
     if (im.instanceColor) im.instanceColor.needsUpdate = true;
     scene.add(im);
     built.push(im);
+    if (loadRanges && (loadAttr || ratioAttr)) {
+      const ranges = loadRanges[key];
+      if (ranges) treeLoadBindings.push({ load: loadAttr, ratio: ratioAttr, ranges });
+    }
   }
+  if (loadRanges) treeLoadVersion++;
   return built;
 }
 
@@ -1518,7 +1739,12 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   // draw sequence and buckets byte-identical to before.
   const ezOn = isEzForestEnabled();
   const ezPlacements: EzPlacement[] = [];
-  treePositions.forEach(pos => {
+  // Fresh load-registry epoch for the rebuilt forest. Stylized trees register here
+  // synchronously; the EZ build registers its own bindings when its chunk lands.
+  resetTreeLoadRegistry();
+  const loadKeys: GeomKey[] = ['cone', 'branch', 'snowCap', 'snowPatch'];
+  const loadRanges: LoadRangeMap = { cone: [], branch: [], snowCap: [], snowPatch: [] };
+  treePositions.forEach((pos, treeIndex) => {
     const terrainHeight = getTerrainHeight(pos.x, pos.z);
     const gradient = getTerrainGradient(pos.x, pos.z);
     const steepness = Math.hypot(gradient.x, gradient.z);
@@ -1532,11 +1758,18 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       .makeTranslation(pos.x, terrainHeight - sink, pos.z)
       .multiply(new THREE.Matrix4().makeRotationFromEuler(treeEuler.set(leanX, yaw, leanZ)));
     if (ezOn) {
-      ezPlacements.push({ matrix: treeMatrix.clone(), scale: treeScale, x: pos.x, z: pos.z });
+      ezPlacements.push({ matrix: treeMatrix.clone(), scale: treeScale, x: pos.x, z: pos.z, index: treeIndex });
     } else {
-      collectTree(treeScale, treeMatrix, buckets);
+      // Bracket the collector so this tree's instances land in the load registry:
+      // everything it pushes between the two length reads belongs to tree `treeIndex`.
+      const starts = loadKeys.map(k => buckets[k].length);
+      treeBaseLoads.push(collectTree(treeScale, treeMatrix, buckets));
+      loadKeys.forEach((k, ki) => loadRanges[k]!.push([starts[ki]!, buckets[k].length - starts[ki]!]));
     }
 
+    // The ground collar is pushed AFTER the ranges close, so it never binds to the
+    // tree: ground snow keeps aSnowLoad 0 (no droop) / aSnowRatio 1 (never shrinks)
+    // and a shed leaves it untouched.
     const collarRadius = treeScale * (1.0 + Math.random() * 0.5);
     collarMatrix.makeTranslation(pos.x, terrainHeight - 0.05, pos.z);
     pushPart(buckets, 'snowPatch', collarMatrix,
@@ -1544,7 +1777,7 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       { x: Math.atan(gradient.z) * 0.8, y: 0, z: -Math.atan(gradient.x) * 0.8 },
       { x: collarRadius, y: collarRadius * 0.25, z: collarRadius });
   });
-  buildForest(scene, buckets);
+  buildForest(scene, buckets, ezOn ? undefined : loadRanges);
   if (ezOn) scheduleEzForest(scene, ezPlacements);
 
   return treePositions;
@@ -1583,6 +1816,8 @@ export function resetTreePools(): void {
   // fresh setupScene never inherits a closed gate from the torn-down world.
   ezBuildEpoch++;
   settleStaleEzBuilds();
+  // Stale load bindings must not write into the disposed forest's buffers.
+  resetTreeLoadRegistry();
   const free = (r: { dispose?: () => void } | null | undefined): void => {
     if (r && typeof r.dispose === 'function') r.dispose();
   };
@@ -1630,6 +1865,10 @@ export const Trees = {
   updateWind,
   resetWind,
   treeSwayAmplitude,
+  // Per-tree snow load seams (issue #253, Phase B): the shed system (tree-shed.ts)
+  // reads the registry snapshot and retunes individual trees' loads at runtime.
+  getTreeLoadState,
+  setTreeLoad,
   // EZ evergreen prototype seams (issue #282): flag control + build-completion
   // promise (the archetype chunk loads lazily, so tests/tools await this) + the
   // collider gate the physics loop reads while that build is in flight.
