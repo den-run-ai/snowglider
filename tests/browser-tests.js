@@ -478,39 +478,32 @@ import { Snowman } from '../src/snowman.js';
         console.log('Heightmap not found or empty - will use calculated heights');
       }
       
-      // Find at least one tree in the scene to test
+      // Find at least one tree to test. Use the explicit collision/placement data
+      // instead of scanning generic THREE.Group nodes: the snowman and course can also
+      // contain internal groups, and those are not terrain-anchored scenery.
       let treeFound = false;
       let rockFound = false;
+      const positionedTrees = typeof treePositions !== 'undefined' && Array.isArray(treePositions)
+        ? treePositions
+        : [];
+
+      if (positionedTrees.length > 0) {
+        treeFound = true;
+        const treePos = positionedTrees[0];
+        const terrainHeight = Utils.getTerrainHeight(treePos.x, treePos.z);
+        const maxErrorAllowed = 5.0; // Allow more error for browser test
+        const isProperlyAnchored = Math.abs(treePos.y - terrainHeight) < maxErrorAllowed;
+
+        console.log(`Tree at [${treePos.x.toFixed(1)}, ${treePos.y.toFixed(1)}, ${treePos.z.toFixed(1)}]`);
+        console.log(`Terrain height: ${terrainHeight.toFixed(1)}, Recorded Y: ${treePos.y.toFixed(1)}`);
+
+        assert(isProperlyAnchored, 'Tree Positioning',
+          isProperlyAnchored ? 'Trees are properly anchored to terrain' :
+          `Tree at [${treePos.x.toFixed(1)}, ${treePos.y.toFixed(1)}, ${treePos.z.toFixed(1)}] is floating (terrain height: ${terrainHeight.toFixed(1)})`);
+      }
       
       for (let i = 0; i < scene.children.length; i++) {
         const object = scene.children[i];
-        
-        // Look for tree object (they're usually complex groups with many child elements)
-        if (!treeFound && object.type === 'Group' && object.children.length > 3) {
-          treeFound = true;
-          
-          // Get tree position
-          const treePos = {
-            x: object.position.x,
-            y: object.position.y,
-            z: object.position.z
-          };
-          
-          // Get terrain height using our improved getTerrainHeight function
-          const terrainHeight = Utils.getTerrainHeight(treePos.x, treePos.z);
-          
-          // Trees should be at terrain height minus about 0.5 units (slight sinking)
-          const maxErrorAllowed = 5.0; // Allow more error for browser test
-          const isProperlyAnchored = Math.abs(treePos.y - (terrainHeight - 0.5)) < maxErrorAllowed;
-          
-          // Output debug info
-          console.log(`Tree at [${treePos.x.toFixed(1)}, ${treePos.y.toFixed(1)}, ${treePos.z.toFixed(1)}]`);
-          console.log(`Terrain height: ${terrainHeight.toFixed(1)}, Expected Y: ${(terrainHeight - 0.5).toFixed(1)}`);
-          
-          assert(isProperlyAnchored, 'Tree Positioning', 
-            isProperlyAnchored ? 'Trees are properly anchored to terrain' :
-            `Tree at [${treePos.x.toFixed(1)}, ${treePos.y.toFixed(1)}, ${treePos.z.toFixed(1)}] is floating (terrain height: ${terrainHeight.toFixed(1)})`);
-        }
         
         // Look for rock object (usually a mesh with dodecahedron geometry)
         if (!rockFound && object.type === 'Mesh' && object.geometry && 

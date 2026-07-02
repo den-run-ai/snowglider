@@ -114,6 +114,73 @@ async function main() {
   engine.setMuted(false);
   check('engine: setMuted(false) reflected by isMuted()', engine.isMuted() === false);
 
+  // --- JP-5 landing grade cues: drive the real engine with a tiny fake AudioContext ---
+  {
+    const g = /** @type {any} */ (globalThis);
+    const originalWindow = g.window;
+    const originalLocalStorage = g.localStorage;
+    /** @type {{ oscillators: string[], filters: string[] }} */
+    const calls = { oscillators: [], filters: [] };
+
+    class FakeParam {
+      constructor() { this.value = 0; }
+      setTargetAtTime(value) { this.value = value; }
+      setValueAtTime(value) { this.value = value; }
+      linearRampToValueAtTime(value) { this.value = value; }
+      exponentialRampToValueAtTime(value) { this.value = value; }
+    }
+    class FakeNode {
+      connect() { return this; }
+    }
+    class FakeGain extends FakeNode {
+      constructor() { super(); this.gain = new FakeParam(); }
+    }
+    class FakeFilter extends FakeNode {
+      constructor() { super(); this.frequency = new FakeParam(); this.Q = new FakeParam(); this._type = 'lowpass'; }
+      get type() { return this._type; }
+      set type(value) { this._type = value; calls.filters.push(value); }
+    }
+    class FakeOscillator extends FakeNode {
+      constructor() { super(); this.frequency = new FakeParam(); this.type = 'sine'; }
+      start() { calls.oscillators.push(this.type); }
+      stop() {}
+    }
+    class FakeBufferSource extends FakeNode {
+      constructor() { super(); this.buffer = null; this.loop = false; }
+      start() {}
+      stop() {}
+    }
+    class FakeAudioContext {
+      constructor() { this.currentTime = 0; this.sampleRate = 32; this.state = 'running'; this.destination = new FakeNode(); }
+      createBuffer(_channels, len) { return { getChannelData: () => new Float32Array(len) }; }
+      createBufferSource() { return new FakeBufferSource(); }
+      createBiquadFilter() {
+        return new FakeFilter();
+      }
+      createGain() { return new FakeGain(); }
+      createOscillator() { return new FakeOscillator(); }
+      resume() { return Promise.resolve(); }
+      close() { return Promise.resolve(); }
+    }
+
+    g.window = { testHooks: { sfxEnabled: true }, AudioContext: FakeAudioContext };
+    g.localStorage = { getItem: () => null, setItem() {} };
+
+    engine.unlock();
+    engine.land(0.8, 'clean');
+    engine.land(0.8, 'sketchy');
+    check('engine: clean landing layers the triangle stomp cue',
+      calls.oscillators.includes('triangle'));
+    check('engine: sketchy landing layers the bandpass skid wash',
+      calls.filters.includes('bandpass'));
+    engine.teardown();
+
+    if (originalWindow === undefined) delete g.window;
+    else g.window = originalWindow;
+    if (originalLocalStorage === undefined) delete g.localStorage;
+    else g.localStorage = originalLocalStorage;
+  }
+
   console.log(`\nSFX TESTS: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
