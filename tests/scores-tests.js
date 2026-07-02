@@ -30,6 +30,7 @@ let reinitializeSucceeds = false;
 /** @type {any} */ let seed;
 /** @type {any} */ let read;
 /** @type {any} */ let setPendingWrite;
+/** @type {any} */ let setNextSetDocError;
 
 async function loadScoresModule() {
   // Wire window/document/localStorage/navigator.onLine before src/scores.ts loads.
@@ -52,7 +53,8 @@ async function loadScoresModule() {
   };
 
   fb = await import('./mocks/firebase.mjs');
-  ({ firestoreInstance, analyticsInstance, calls, doc, seed, read, setPendingWrite } = fb);
+  ({ firestoreInstance, analyticsInstance, calls, doc, seed, read, setPendingWrite,
+     setNextSetDocError } = fb);
   // AuthModule.reinitializeFirestore is mocked in this harness (not in the Firebase
   // mock), so track its call count alongside the Firestore call log.
   calls.reinitializeFirestore = 0;
@@ -147,6 +149,8 @@ async function main() {
     read('users', 'u1')?.bestTime === 19.43);
   check('slower authenticated finish backfills the leaderboard with the stored best',
     read('leaderboard', 'u1')?.time === 19.43);
+  check('leaderboard write denormalizes the signed-in display name onto the entry',
+    read('leaderboard', 'u1')?.displayName === 'Snow');
   check('score completion analytics are logged',
     calls.logEvent.some(event => event.name === 'complete_run' && event.params.time === 22));
   check('slower finish does not log a new-high-score event',
@@ -216,6 +220,53 @@ async function main() {
   await flushAll();
   check('leaderboard update accepts a faster time',
     read('leaderboard', 'u3')?.time === 22);
+  check('leaderboard write without a signed-in owner stores a null display name',
+    read('leaderboard', 'u3')?.displayName === null);
+
+  console.log('\n--- Leaderboard display-name denormalization limits ---');
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  const longName = 'x'.repeat(50);
+  currentAuthUser = { uid: 'long', displayName: longName };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  ScoresModule.updateLeaderboard('long', 20);
+  await flushAll();
+  check('display name is truncated to the rules\' 40-char cap before writing',
+    read('leaderboard', 'long')?.displayName === 'x'.repeat(40));
+  ScoresModule.updateLeaderboard('someone-else', 19);
+  await flushAll();
+  check('a write for a different uid never borrows the signed-in user\'s name',
+    read('leaderboard', 'someone-else')?.displayName === null);
+
+  console.log('\n--- Leaderboard rules-skew fallback: retry without displayName ---');
+  // CI deploys firestore.rules AFTER Pages, so a fresh client can briefly write
+  // displayName against the old rules and get permission-denied. The score must
+  // survive: one retry in the old-rules shape (no displayName field).
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'skew', displayName: 'Skewed' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  setNextSetDocError('leaderboard/skew', { code: 'permission-denied' });
+  ScoresModule.updateLeaderboard('skew', 20);
+  await flushAll();
+  check('permission-denied on the displayName write retries without the field',
+    calls.setDoc.filter(c => c.path === 'leaderboard/skew').length === 2 &&
+    !('displayName' in calls.setDoc.filter(c => c.path === 'leaderboard/skew')[1].data));
+  check('the retried write lands the score despite the rules skew',
+    read('leaderboard', 'skew')?.time === 20 &&
+    read('leaderboard', 'skew')?.displayName === undefined);
+
+  // Any other write error is NOT retried (offline etc. rides the SDK queue instead).
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'flaky', displayName: 'Flaky' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  setNextSetDocError('leaderboard/flaky', { code: 'unavailable' });
+  ScoresModule.updateLeaderboard('flaky', 21);
+  await flushAll();
+  check('non-permission write errors are not retried',
+    calls.setDoc.filter(c => c.path === 'leaderboard/flaky').length === 1 &&
+    read('leaderboard', 'flaky') == null);
 
   console.log('\n--- Leaderboard fetch filtering ---');
   resetState(ScoresModule);
@@ -310,7 +361,9 @@ async function main() {
   currentAuthUser = { uid: 'me', displayName: 'Me' };
   ScoresModule.setCurrentUser(currentAuthUser);
   seed('leaderboard', 'me', { user: doc(firestoreInstance, 'users', 'me'), time: 19.34 });
-  seed('leaderboard', 'other', { user: doc(firestoreInstance, 'users', 'other'), time: 20 });
+  seed('leaderboard', 'other',
+    { user: doc(firestoreInstance, 'users', 'other'), time: 20, displayName: 'Rival' });
+  seed('leaderboard', 'legacy', { user: doc(firestoreInstance, 'users', 'legacy'), time: 21 });
   ScoresModule.displayLeaderboard();
   await flushAll();
   let lbHtml = document.getElementById('leaderboard').innerHTML;
@@ -321,6 +374,10 @@ async function main() {
     lbHtml.indexOf('19.34s') < lbHtml.indexOf('20.00s'));
   check('displayLeaderboard highlights and names the current user row',
     lbHtml.includes('current-user-score') && lbHtml.includes('Me'));
+  check('other players render their denormalized display name',
+    lbHtml.includes('Rival'));
+  check('entries without a denormalized name fall back to Anonymous',
+    lbHtml.includes('Anonymous'));
 
   console.log('\n--- displayLeaderboard: user-controlled strings render as text (XSS regression) ---');
   resetState(ScoresModule);
@@ -329,12 +386,19 @@ async function main() {
   currentAuthUser = { uid: 'evil', displayName: '<img src=x onerror=window.__pwned=1>' };
   ScoresModule.setCurrentUser(currentAuthUser);
   seed('leaderboard', 'evil', { user: doc(firestoreInstance, 'users', 'evil'), time: 19.5 });
-  seed('leaderboard', 'bystander', { user: doc(firestoreInstance, 'users', 'bystander'), time: 21 });
+  // The stored-XSS vector: ANOTHER player's denormalized name reaching the viewer.
+  seed('leaderboard', 'bystander', {
+    user: doc(firestoreInstance, 'users', 'bystander'),
+    time: 21,
+    displayName: '<img src=y onerror=window.__pwned=2>'
+  });
   ScoresModule.displayLeaderboard();
   await flushAll();
   const lbEl = document.getElementById('leaderboard');
   check('malicious display name renders as literal text, not markup',
     lbEl.textContent.includes('<img src=x onerror=window.__pwned=1>'));
+  check('another player\'s malicious denormalized name renders as literal text',
+    lbEl.textContent.includes('<img src=y onerror=window.__pwned=2>'));
   check('malicious display name injects no element into the leaderboard',
     lbEl.querySelectorAll('img').length === 0);
   check('no injected handler ran',

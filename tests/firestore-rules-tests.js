@@ -47,11 +47,12 @@ function bestTime(time) {
   };
 }
 
-function leaderboardEntry(db, userId, time) {
+function leaderboardEntry(db, userId, time, extra = {}) {
   return {
     user: doc(db, 'users', userId),
     time,
-    achievedAt: serverTimestamp()
+    achievedAt: serverTimestamp(),
+    ...extra
   };
 }
 
@@ -274,6 +275,67 @@ async function main() {
     await assertSucceeds(setDoc(
       doc(alice, 'leaderboard', 'alice'),
       leaderboardEntry(alice, 'alice', 19.43)
+    ));
+  });
+
+  await runTest('leaderboard display names accept a capped string or null', async () => {
+    const alice = dbFor('alice');
+    await seed(async admin => {
+      await setDoc(doc(admin, 'users', 'alice'), profile());
+    });
+
+    await assertSucceeds(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 25, { displayName: 'Alice Snow' })
+    ));
+    await assertSucceeds(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 24, { displayName: null })
+    ));
+    // Exactly at the 40-char cap is accepted.
+    await assertSucceeds(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 23, { displayName: 'x'.repeat(40) })
+    ));
+  });
+
+  await runTest('over-long and non-string leaderboard display names are rejected', async () => {
+    const alice = dbFor('alice');
+    await seed(async admin => {
+      await setDoc(doc(admin, 'users', 'alice'), profile());
+    });
+
+    await assertFails(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 25, { displayName: 'x'.repeat(41) })
+    ));
+    await assertFails(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 25, { displayName: 12345 })
+    ));
+    await assertFails(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 25, { displayName: { nested: true } })
+    ));
+  });
+
+  await runTest('a name-only update cannot smuggle a slower time', async () => {
+    const alice = dbFor('alice');
+    await seed(async admin => {
+      await setDoc(doc(admin, 'users', 'alice'), profile());
+      await setDoc(doc(admin, 'leaderboard', 'alice'),
+        leaderboardEntry(admin, 'alice', 20, { displayName: 'Old Name' }));
+    });
+
+    // Renaming while keeping (or improving) the time is fine...
+    await assertSucceeds(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 20, { displayName: 'New Name' })
+    ));
+    // ...but a rename that rides along with a slower time is still rejected.
+    await assertFails(setDoc(
+      doc(alice, 'leaderboard', 'alice'),
+      leaderboardEntry(alice, 'alice', 25, { displayName: 'Sneaky' })
     ));
   });
 
