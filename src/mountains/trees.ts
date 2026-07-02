@@ -734,17 +734,40 @@ function treeCollidersReady(): boolean {
   return ezBuildsPending === 0;
 }
 
-// The latest scheduled build still awaiting its chunk, so a caller that cannot
-// wait any longer (the run-start timeout in snowglider.ts) can abandon it and get
-// the stylized forest NOW. Single-slot: the game has one live scene; a re-init
-// replaces the slot, and settling clears it.
+// Every scheduled build still awaiting its chunk, so a caller that cannot wait
+// any longer (the run-start timeout in snowglider.ts) can abandon them and get
+// the stylized forest NOW. A Set, not a single slot: a normal scene setup
+// schedules TWO builds for the same scene back-to-back (createTerrain's addTrees,
+// then the collision addTrees in scene-setup.ts), and the superseded one cannot
+// run its own finally until the shared chunk import settles — so staling must
+// settle its collider accounting eagerly (settleStaleEzBuilds) or the stale build
+// would hold treeCollidersReady() false past the run-start timeout.
 interface PendingEzBuild {
   scene: THREE.Scene;
   placements: EzPlacement[];
   token: number;
+  epoch: number;
   settle: () => void;
 }
-let pendingEzBuild: PendingEzBuild | null = null;
+const pendingEzBuilds = new Set<PendingEzBuild>();
+
+/** True once a re-init (scene token) or teardown (epoch) has superseded the build:
+ *  it will never append meshes, so it must not keep the collider gate closed. */
+function ezBuildSuperseded(build: PendingEzBuild): boolean {
+  return ezBuildTokens.get(build.scene) !== build.token || build.epoch !== ezBuildEpoch;
+}
+
+/** Settle the collider accounting of every superseded pending build NOW instead
+ *  of when its chunk import eventually settles (issue #282 PR 3 review): only
+ *  builds that can still append meshes may gate treeCollidersReady(). */
+function settleStaleEzBuilds(): void {
+  for (const build of pendingEzBuilds) {
+    if (ezBuildSuperseded(build)) {
+      pendingEzBuilds.delete(build);
+      build.settle();
+    }
+  }
+}
 
 function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
   // addTrees bumped this scene's token when it tore the previous forest down;
@@ -762,8 +785,8 @@ function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
     }
   };
   ezBuildsPending++;
-  const thisBuild: PendingEzBuild = { scene, placements, token, settle };
-  pendingEzBuild = thisBuild;
+  const thisBuild: PendingEzBuild = { scene, placements, token, epoch, settle };
+  pendingEzBuilds.add(thisBuild);
   ezForestBuildPromise = ensureEzArchetypes()
     .then((archetypes) => {
       if (stale()) return; // superseded by a re-init, torn down, or abandoned
@@ -781,27 +804,30 @@ function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
       buildForest(scene, buckets);
     })
     .finally(() => {
-      if (pendingEzBuild === thisBuild) pendingEzBuild = null;
+      pendingEzBuilds.delete(thisBuild);
       settle();
     });
 }
 
-/** Give up on an EZ build still awaiting its chunk (stalled fetch at run start):
- *  stale the async build and construct the stylized forest for its placements NOW,
- *  synchronously — the collision positions get visible trees and the collider gate
- *  re-arms before this returns. No-op when nothing is pending. */
+/** Give up on the EZ builds still awaiting their chunk (stalled fetch at run
+ *  start): settle the already-superseded ones, then stale each live build and
+ *  construct the stylized forest for its placements NOW, synchronously — the
+ *  collision positions get visible trees and the collider gate re-arms before
+ *  this returns. Returns false when no live build was pending. */
 function abandonPendingEzBuild(): boolean {
-  const pending = pendingEzBuild;
-  if (!pending) return false;
-  pendingEzBuild = null;
-  if (ezBuildTokens.get(pending.scene) !== pending.token) return false; // already superseded
-  ezBuildTokens.set(pending.scene, pending.token + 1); // stale the in-flight build
-  console.warn('EzForest: archetype chunk still loading at run start — building the stylized forest instead');
-  const buckets = createBuckets();
-  pending.placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
-  buildForest(pending.scene, buckets);
-  pending.settle(); // colliders re-arm now; the build's own finally won't double-count
-  return true;
+  settleStaleEzBuilds();
+  let abandoned = false;
+  for (const pending of pendingEzBuilds) {
+    pendingEzBuilds.delete(pending);
+    ezBuildTokens.set(pending.scene, pending.token + 1); // stale the in-flight build
+    console.warn('EzForest: archetype chunk still loading at run start — building the stylized forest instead');
+    const buckets = createBuckets();
+    pending.placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
+    buildForest(pending.scene, buckets);
+    pending.settle(); // colliders re-arm now; the build's own finally won't double-count
+    abandoned = true;
+  }
+  return abandoned;
 }
 
 /** Append the EZ forest InstancedMeshes for the collected placements. Synchronous
@@ -1289,6 +1315,10 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   // scheduled below, or a flag-off rebuild would get stale EZ meshes appended on
   // top of its fresh stylized forest when the old load settles.
   ezBuildTokens.set(scene, (ezBuildTokens.get(scene) ?? 0) + 1);
+  // ... and release the superseded build's collider gate right away: its own
+  // finally can't run until the shared chunk import settles, and only THIS call's
+  // forest (EZ pending below, or the synchronous stylized build) may gate the run.
+  settleStaleEzBuilds();
 
   const treePositions: TreePosition[] = [];
 
@@ -1548,8 +1578,11 @@ function getTerrainGradient(x: number, z: number): TerrainGradient {
 export function resetTreePools(): void {
   // Cancel any EZ build still awaiting its archetype chunk: after this teardown
   // it must NOT append meshes (nor rebuild the pools below) into the disposed
-  // scene when the load settles — see the epoch check in scheduleEzForest.
+  // scene when the load settles — see the epoch check in scheduleEzForest. Its
+  // collider accounting settles now, not when the in-flight import lands, so a
+  // fresh setupScene never inherits a closed gate from the torn-down world.
   ezBuildEpoch++;
+  settleStaleEzBuilds();
   const free = (r: { dispose?: () => void } | null | undefined): void => {
     if (r && typeof r.dispose === 'function') r.dispose();
   };

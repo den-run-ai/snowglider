@@ -370,6 +370,8 @@ async function main() {
     Trees.addTrees(scene);
     const meshesBefore = scene.children.filter(c => c.name === 'forestInstanced').length;
     Trees.resetTreePools(); // disposeGame/HMR while the chunk is still in flight
+    assert(Trees.treeCollidersReady() === true,
+      'a teardown mid-load re-opens the collider gate immediately (not when the import lands)');
 
     // Let the stale load settle with the REAL module (already in Node's cache).
     resolveImport(await import('@dgreenheck/ez-tree'));
@@ -400,6 +402,8 @@ async function main() {
     Trees.addTrees(scene); // schedules an EZ build that stays in flight
     Trees.setEzForestEnabled(false);
     Trees.addTrees(scene); // stylized rebuild — must stale the pending EZ build
+    assert(Trees.treeCollidersReady() === true,
+      'a stylized rebuild re-arms the colliders immediately (the staled EZ build settles eagerly)');
 
     resolveImport(await import('@dgreenheck/ez-tree'));
     await Trees.ezForestReady();
@@ -472,6 +476,50 @@ async function main() {
     assert(!after.some(m => m.userData.forestPart === 'ezBranches') &&
       Trees.treeCollidersReady() === true,
       'the abandoned build stays abandoned when its chunk finally lands');
+
+    EzForest.__setEzModuleImporterForTests(null);
+    EzForest.resetEzForest();
+    Trees.setEzForestEnabled(null);
+  }
+
+  // --- Double-schedule + stalled chunk: the superseded build must not hold the gate
+  // A normal scene setup schedules TWO EZ builds on the same scene back-to-back
+  // (createTerrain's addTrees, then the collision addTrees in scene-setup.ts). The
+  // first is staled by the second's re-init token bump, but its own finally can't
+  // run while the chunk import hangs — its collider accounting must settle eagerly,
+  // or abandonPendingEzBuild would re-arm only the latest build and the run-start
+  // timeout would begin the run with tree collision disabled (#282 PR 3 review, P1).
+  {
+    Trees.setEzForestEnabled(true);
+    /** @type {(mod: unknown) => void} */
+    let resolveImport = () => {};
+    EzForest.__setEzModuleImporterForTests(
+      () => new Promise((resolve) => { resolveImport = resolve; }));
+    EzForest.resetEzForest();
+
+    const scene = new THREE.Scene();
+    Trees.addTrees(scene); // build 1 (createTerrain's call in the real setup)
+    Trees.addTrees(scene); // build 2 supersedes it; build 1 must settle eagerly
+    assert(Trees.treeCollidersReady() === false,
+      'precondition: the live (second) build gates the colliders while the chunk hangs');
+
+    const abandoned = Trees.abandonPendingEzBuild();
+    assert(abandoned === true && Trees.treeCollidersReady() === true,
+      'abandoning after a double-schedule re-arms the colliders (a superseded build cannot hold the gate)');
+    const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    const parts = new Set(forest.map(m => m.userData.forestPart));
+    assert(parts.has('trunk') && parts.has('cone'),
+      'the stylized fallback forest is visible after the double-schedule abandon',
+      [...parts].sort().join(', '));
+
+    // The hung fetch finally lands: neither build may append EZ meshes over the
+    // fallback, and the collider accounting must not double-decrement.
+    resolveImport(await import('@dgreenheck/ez-tree'));
+    await Trees.ezForestReady();
+    const after = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    assert(!after.some(m => m.userData.forestPart === 'ezBranches') &&
+      Trees.treeCollidersReady() === true,
+      'both stalled builds stay abandoned when the chunk finally lands');
 
     EzForest.__setEzModuleImporterForTests(null);
     EzForest.resetEzForest();
