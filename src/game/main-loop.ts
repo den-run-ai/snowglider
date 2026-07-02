@@ -20,6 +20,7 @@
 import * as THREE from 'three';
 import { Controls } from '../controls.js';
 import { Snow } from '../snow.js';
+import { Trees } from '../trees.js';
 import { Sky } from '../sky.js';
 import { aimSunLight } from './sun-shadow.js';
 import { Wind } from '../wind.js';
@@ -51,6 +52,11 @@ export const MAX_SUBSTEPS = 8;
 // scarf stream without it ever exceeding its clamps.
 const WIND_LOCAL_REF = 16;
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
+
+// Stand-in collider list while the async EZ forest build is in flight (issue #282):
+// the tree meshes aren't visible yet, so the kernel must not collide against their
+// positions. One shared frozen instance — the swap allocates nothing per step.
+const NO_TREE_COLLIDERS: SceneContext['treePositions'] = [];
 
 /** Events that can fire on ANY substep within a render frame, reduced across the
  *  frame so a jump/land that completes mid-frame still drives its one-shot cosmetics
@@ -145,7 +151,12 @@ export function createMainLoop(deps: MainLoopDeps) {
       getTerrainHeight: Snow.getTerrainHeight,
       getTerrainGradient: Snow.getTerrainGradient,
       getDownhillDirection: Snow.getDownhillDirection,
-      treePositions,
+      // Trees collide only once they are visible: the EZ evergreen forest (issue
+      // #282) appends its meshes asynchronously after the archetype chunk loads,
+      // and until then (or after a failed load rebuilds the stylized fallback) a
+      // run must not crash into invisible obstacles. The stylized path builds
+      // synchronously, so this gate is always open outside the EZ flag.
+      treePositions: Trees.treeCollidersReady() ? treePositions : NO_TREE_COLLIDERS,
       rockPositions,
       gameActive: state.gameActive,
       showGameOver: activeShowGameOver,
