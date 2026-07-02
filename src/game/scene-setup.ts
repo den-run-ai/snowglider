@@ -71,6 +71,12 @@ export interface GameState {
  *   aborting it removes them. Omitted by callers that never tear down (e.g. tests).
  */
 export function setupScene(signal?: AbortSignal) {
+  // Publish the test-mode flag FIRST: subsystems built during scene construction
+  // gate on it (the EZ evergreen forest keeps the stylized trees for the `?test=`
+  // browser suites — issue #282 PR 3), so assigning it after tree creation (its
+  // old home further down) would hand those suites the player default instead.
+  window.isTestMode = window.location.search.includes('test');
+
   // Listener options that wire game-lifetime handlers to the teardown AbortSignal
   // when one is supplied (undefined => the listener simply lives for the page).
   const listenerOpts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
@@ -366,8 +372,8 @@ export function setupScene(signal?: AbortSignal) {
   window.rockPositions = rockPositions;
   console.log(`Rock positions array has ${rockPositions.length} large rocks for collision detection`);
 
-  // Create a global flag to control test behavior
-  window.isTestMode = window.location.search.includes('test');
+  // (window.isTestMode is published at the top of setupScene, before any
+  // subsystem that gates on it is built.)
 
   const snowman = Snowman.createSnowman(scene);
   Snow.createSnowflakes(scene);

@@ -82,7 +82,12 @@ export function isEzForestEnabled(): boolean {
     typeof document === 'undefined' || typeof navigator === 'undefined' ||
     /jsdom/i.test(navigator.userAgent || '');
   if (headless) return ezForestOverride ?? false;
-  const automated = !!window.isTestMode || !!navigator.webdriver;
+  // Besides the published flag and webdriver, read the `?test=` marker straight
+  // from the URL (the same predicate scene-setup.ts uses to SET window.isTestMode):
+  // the first addTrees of a page load runs during setupScene, and this gate must
+  // not depend on being called after that assignment.
+  const automated = !!window.isTestMode || !!navigator.webdriver ||
+    window.location.search.includes('test');
   return resolveEzForestEnabled(window.location.search, automated, ezForestOverride);
 }
 
