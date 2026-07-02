@@ -61,6 +61,15 @@ const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.m
 // stomped dodge can outrun the front after touchdown. Loop-side only — the kernel
 // never sees any of this (#245); provenance/once-per-slide guards live in
 // resolveBurialOutcome (avalanche.ts, headlessly pinned). Mirrored in PHYSICS.md §10.
+//
+// Timing note (Codex review on #289): burial resolves AFTER the frame's physics
+// substeps, so a jump pressed on the very frame the overlap begins is already
+// airborne (playerJump stamped) when it's resolved — a frame-perfect leap as the
+// front arrives counts as a dodge. That is DELIBERATE (the heroic last-instant
+// escape is the #47 fantasy) and it cannot be farmed: if the overlap began on any
+// EARLIER grounded frame, that frame's check already buried the player; a bunny-hop
+// spends ≥0.3 s grounded (the landing cooldown) inside the front between hops; and
+// the award pays once per slide.
 const DODGE_SCORE = 250;        // air-score points banked once per dodged slide
 const DODGE_ESCAPE_BOOST = 1.10; // one-shot horizontal velocity factor on the award frame
 

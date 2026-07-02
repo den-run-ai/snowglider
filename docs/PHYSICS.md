@@ -382,9 +382,15 @@ frame's burial overlap to `safe` / `buried` / `dodgedFirst` / `dodged`:
 - **exploit guards:** auto-jump / hop air (`playerJump` false) is buried like
   grounded (provenance); `dodgeAwarded` (GameState, re-armed when the slide resets
   or a new run starts) caps it at one award per slide; without overlap the outcome
-  is `safe` regardless of input, so holding Jump near the slide does nothing — a
-  grounded press spends its cooldown before the front arrives, and the award needs
-  airborne overlap.
+  is `safe` regardless of input, so holding Jump early does nothing — the award
+  needs airborne overlap.
+- **frame-perfect leap (deliberate):** burial resolves after the frame's physics
+  substeps, so a jump pressed on the very frame the overlap begins is already
+  airborne when it's resolved and counts as a dodge — the heroic last-instant
+  escape is the #47 fantasy. It can't be farmed: if the overlap began on any
+  *earlier* grounded frame that frame's check already buried the player, and a
+  bunny-hop spends ≥0.3 s grounded (the landing cooldown) inside the front between
+  hops.
 
 ### 4.1 Freestyle tricks (#32 — Expert tier only)
 
