@@ -272,6 +272,11 @@ export function setupScene(signal?: AbortSignal) {
   Snow.setTerrainCorridor(
     courseLine && runConfig.terrain ? { line: courseLine, params: runConfig.terrain } : null
   );
+  // Sculpted kickers on the line (JP-6): each ramp's lateral center resolves from the
+  // SAME courseLine instance the corridor banks onto, so kickers sit on the channel
+  // floor. Tiers without `features` clear them ⇒ byte-identical terrain (both calls
+  // reset the height cache; this runs before createTerrain like the corridor above).
+  Snow.setTerrainKickers(runConfig.features ?? null, courseLine);
 
   // --- Create main game objects ---
   // Store terrain in a global for precise object positioning

@@ -179,13 +179,14 @@ function maxTrajDiff(a, b) {
   // (workstream A), and wipeouts (workstream C). On Blue: tricks off, both jumps ON,
   // wipeouts OFF — exactly today's shipped mechanics, so the default tier's kernel
   // path is unchanged.
-  const flagKeys = ['freestyleTricks', 'manualJump', 'autoJump', 'wipeouts'];
+  const flagKeys = ['freestyleTricks', 'manualJump', 'autoJump', 'wipeouts', 'lipLaunch'];
   check('BLUE_PHYSICS_TUNING matches the frozen physics constants verbatim',
     frozenKeys.every((k) => D.BLUE_PHYSICS_TUNING[k] === FROZEN[k])
     && D.BLUE_PHYSICS_TUNING.freestyleTricks === false
     && D.BLUE_PHYSICS_TUNING.manualJump === true
     && D.BLUE_PHYSICS_TUNING.autoJump === true
     && D.BLUE_PHYSICS_TUNING.wipeouts === false
+    && D.BLUE_PHYSICS_TUNING.lipLaunch === false
     && Object.keys(D.BLUE_PHYSICS_TUNING).length === frozenKeys.length + flagKeys.length);
 
   // Every tier's ski tuning carries the full key set with finite numbers.
@@ -214,6 +215,25 @@ function maxTrajDiff(a, b) {
   check('wipeouts are Expert-only (ski.wipeouts)',
     D.getDifficultyConfig('expert').ski.wipeouts === true
     && D.DIFFICULTIES.every((c) => c.id === 'expert' || c.ski.wipeouts === false));
+
+  // Designed air (workstream E / JP-6): lip-geometry launches and sculpted kickers
+  // are Expert-exclusive for now (adopted plan decision §10.4) — every other tier
+  // keeps the frozen auto-jump constants and byte-identical terrain (no features).
+  check('lipLaunch is Expert-only (ski.lipLaunch)',
+    D.getDifficultyConfig('expert').ski.lipLaunch === true
+    && D.DIFFICULTIES.every((c) => c.id === 'expert' || c.ski.lipLaunch === false));
+  const expertFeatures = D.getDifficultyConfig('expert').features;
+  check('Expert ships 3–5 well-formed, in-run kickers on the channel floor',
+    Array.isArray(expertFeatures)
+    && expertFeatures.length >= 3 && expertFeatures.length <= 5
+    && expertFeatures.every((k) =>
+      k.z < -30 && k.z > -185 // lips inside the run, clear of the start and finish
+      && k.length > 0 && k.height > 0 && k.halfWidth > 0
+      // the ramp spans at most the corridor channel floor, so off-kicker on-line
+      // terrain stays the corridor's exact channel
+      && k.halfWidth <= (D.getDifficultyConfig('expert').terrain?.channelHalfWidth ?? Infinity)));
+  check('no other tier ships terrain features (byte-identical guardrail)',
+    D.DIFFICULTIES.every((c) => c.id === 'expert' || c.features === undefined));
 
   // Freestyle tricks (#32) are the Expert tier's differentiator — and Expert-ONLY:
   // every other tier's kernel keeps the flag off so its air phase is unchanged.

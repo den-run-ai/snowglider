@@ -55,6 +55,75 @@ export interface TerrainCorridor {
 
 let activeCorridor: TerrainCorridor | null = null;
 
+// --- Designed air: kickers on the course line (jump-system completion JP-6) -------
+//
+// A tier can ship sculpted kickers/tabletops sitting ON its descent centerline: a
+// ramp that rises smoothly (smootherstep — no gradient kink on the approach) to a
+// lip and then DROPS — the drop is what the kernel's auto-jump reads as a terrain
+// lip, and with `tuning.lipLaunch` the takeoff velocity derives from the ramp
+// geometry the player actually rode off. Same guardrail pattern as the corridor:
+// tiers without `features` never set kickers, the term is skipped entirely, and the
+// terrain is byte-identical.
+
+/** One sculpted kicker on the course line (the `features` block of a difficulty
+ *  config). Skiing runs in −z: the approach enters at `z + length` (uphill) and the
+ *  LIP sits at `z`; past the lip the added height drops to 0 (the tabletop face). */
+export interface KickerSpec {
+  z: number;          // lip position along the run (skiing −z reaches it last)
+  length: number;     // along-run length of the rising approach ramp
+  halfWidth: number;  // lateral half-extent (tapers smoothly to 0 at the edges)
+  height: number;     // lip height above the base terrain
+}
+
+/** An active kicker with its lateral center resolved from the course line ONCE at
+ *  set time (`laneX(z)` at the lip), so the sampler never re-walks the line. */
+interface ActiveKicker {
+  spec: KickerSpec;
+  xc: number;
+}
+
+let activeKickers: ActiveKicker[] | null = null;
+
+/**
+ * Set (or clear) the run's kickers. Mirrors setTerrainCorridor: resets the heightMap
+ * cache (its key has no tier dimension) and must be called BEFORE createTerrain so
+ * the mesh vertices bake the same ramps — scene-setup.ts does, once per scene.
+ * `line` resolves each kicker's lateral center (null/absent ⇒ centered at x = 0).
+ */
+export function setTerrainKickers(
+  kickers: KickerSpec[] | null,
+  line?: { laneX(z: number): number } | null
+): void {
+  activeKickers = kickers && kickers.length
+    ? kickers.map((spec) => ({ spec, xc: line ? line.laneX(spec.z) : 0 }))
+    : null;
+  resetHeightMap();
+}
+
+/** Whether kickers are active (lets the mesh builder skip the add entirely). */
+export function hasActiveKickers(): boolean {
+  return activeKickers !== null;
+}
+
+/**
+ * Extra terrain height from the kickers at (x, z): the ONE ramp formula — both
+ * getTerrainHeight and the mesh builder add it, so the two-formula terrain contract
+ * (§2.2) holds. 0 with no kickers, outside a kicker's footprint, and past the lip
+ * (the drop face the auto-jump launches off).
+ */
+export function kickerRampHeight(x: number, z: number): number {
+  if (!activeKickers) return 0;
+  let add = 0;
+  for (const { spec, xc } of activeKickers) {
+    if (z < spec.z || z > spec.z + spec.length) continue; // past the lip / before the ramp
+    const lat = 1 - Math.abs(x - xc) / spec.halfWidth;
+    if (lat <= 0) continue;
+    const u = (spec.z + spec.length - z) / spec.length;   // 0 at entry → 1 at the lip
+    add += spec.height * smootherstep01(u) * smootherstep01(lat);
+  }
+  return add;
+}
+
 /**
  * Set (or clear) the terrain corridor for the run. ALWAYS resets the heightMap cache:
  * its key is `${x},${z}` with no tier dimension, so a stale entry from a different
@@ -132,6 +201,12 @@ export function getTerrainHeight(x: number, z: number): number {
   // same way + same formula as the mesh builder, so the two stay in lockstep.
   if (activeCorridor) {
     y += corridorWallHeight(x, z);
+  }
+
+  // Sculpted kickers (JP-6). Same guardrail: tiers without `features` never set
+  // kickers and take the literal original path; the mesh adds the same formula.
+  if (activeKickers) {
+    y += kickerRampHeight(x, z);
   }
 
   // Store in height map for future lookups

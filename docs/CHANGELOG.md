@@ -13,6 +13,29 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Designed air — Expert kickers + lip-consistent launch (jump-system completion JP-6, #286)
+- **◆◆ Expert ships three sculpted kickers on its course line**
+  (`DifficultyConfig.features`): smootherstep ramps rising 2.2 u over an 8 u
+  approach to a lip that drops off (the tabletop face the auto-jump launches from),
+  centered at `laneX(z)` and spanning the corridor channel floor. The ramp term
+  lives in the **one canonical height source** (`mountains/terrain.ts`
+  `kickerRampHeight` / `setTerrainKickers`) consumed by both the mesh and the
+  physics sampler — the §2.2 two-formula contract — with the corridor's guardrail
+  pattern: tiers without `features` build byte-identical terrain.
+- **Lip-consistent launch** (`ski.lipLaunch`, Expert-only per adopted decision
+  §10.4): the terrain auto-jump's takeoff velocity now derives from the lip
+  geometry actually ridden off — `v_y = clamp(speed·Δslope, 4, 16)` where `Δslope`
+  is the terrain convexity along travel — so bigger ramps at speed give
+  proportionally bigger arcs. Every other tier keeps the frozen `6 + 0.3·speed`
+  constant, pinned by a new GATING harness check (legacy bytes off-flag; the exact
+  exported formula on-flag with cap + speed-scaling asserted; off-lip descents
+  byte-identical either way).
+- **Winnability holds with the designed air**: the follow-the-line gate now runs
+  Expert — the line rider goes straight off all three kickers with lipLaunch arcs
+  and still finishes, stays in the corridor, and out-skis the slide, every seed
+  (10/10). New `tests/kicker-tests.js` pins the ramp profile, lateral taper, drop,
+  line centering, cache reset, and the two-formula contract.
+
 ### Jump visual correctness — COM flip pivot + air polish (jump-system completion JP-5, #286)
 - **Flips now rotate about the body's center of mass, not the feet.** The snowman
   group's origin sits at the ski base, so the freestyle somersault used to orbit

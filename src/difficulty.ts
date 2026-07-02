@@ -20,7 +20,7 @@ import { MIN_VALID_SCORE_TIME } from './score-limits.js';
 // stays a runtime-dependency-free module.
 import type { CourseLineParams } from './course-line.js';
 // Type-only too: the corridor shape lives next to the terrain seam that reads it.
-import type { TerrainCorridorParams } from './mountains/terrain.js';
+import type { TerrainCorridorParams, KickerSpec } from './mountains/terrain.js';
 
 /** The four difficulty tiers, keyed by their ski-resort trail rating. */
 export type Difficulty = 'bunny' | 'blue' | 'black' | 'expert';
@@ -71,6 +71,15 @@ export interface SnowmanPhysicsTuning {
   // shatter, run over) instead of merely scrubbing. Expert-only: freestyle risk
   // gets real consequences; every other tier keeps the forgiving scrub.
   wipeouts: boolean;
+  // Designed air (workstream E / JP-6): when true, the terrain auto-jump's takeoff
+  // velocity derives from the LIP GEOMETRY the player actually rode off (convexity
+  // along travel × speed, clamped — see PHYSICS.md §4.3) instead of the legacy
+  // `6 + 0.3·speed` constant, so bigger ramps at higher speed give proportionally
+  // bigger, physically plausible arcs — what makes the sculpted kickers work.
+  // False everywhere but Expert (designed air is Expert-exclusive for now — adopted
+  // plan decision §10.4, revisit for Black), so the frozen no-input auto-jump
+  // constants never move.
+  lipLaunch: boolean;
 }
 
 /**
@@ -99,6 +108,7 @@ export const BLUE_PHYSICS_TUNING: SnowmanPhysicsTuning = {
   manualJump: true,
   autoJump: true,
   wipeouts: false,
+  lipLaunch: false,
 };
 
 // --- Per-tier ski tuning (playtest starting points; Blue is authoritative-current) ---
@@ -149,6 +159,9 @@ const EXPERT_PHYSICS_TUNING: SnowmanPhysicsTuning = {
   // Freestyle risk with real consequences (workstream C): an over-harsh or
   // mid-rotation landing on Expert is a crash (shatter), not just a scrub.
   wipeouts: true,
+  // Designed air (workstream E): Expert's lips launch from the geometry the player
+  // rode off — required for the sculpted kickers below to produce real arcs.
+  lipLaunch: true,
 };
 
 /**
@@ -218,6 +231,13 @@ export interface DifficultyConfig {
   // (Black); absent ⇒ straight tiers build today's exact terrain — the byte-identical
   // guardrail. Wired into the run by scene-setup.ts before the mesh is built (D3.2b).
   terrain?: TerrainCorridorParams;
+  // Sculpted kickers on the course line (JP-6, workstream E): ramps rising to a lip
+  // that drops off, centered laterally at `laneX(z)`. Absent ⇒ byte-identical terrain
+  // (the same guardrail pattern as `terrain` above). Expert-exclusive for now
+  // (adopted plan decision §10.4); wired by scene-setup.ts before the mesh is built,
+  // added in the ONE canonical height source (mountains/terrain.ts) that both the
+  // mesh and the physics sampler consume — the §2.2 two-formula contract.
+  features?: KickerSpec[];
   // The per-tier avalanche slide (scene-setup.ts builds the AvalancheSystem from it).
   // Blue is today's shipped slide (byte-identical); Bunny turns it off; Black fires
   // earlier, faster, and heavier. Required so every tier is explicit and scene-setup
@@ -302,6 +322,18 @@ const EXPERT: DifficultyConfig = {
   // Black's serpentine, re-seeded: the same difficulty of line, its own fixed course.
   line: { curviness: 1, amplitude: 18, controlPoints: 5 },
   terrain: { channelHalfWidth: 7, wallRamp: 9, wallHeight: 10 },
+  // Designed air (JP-6): three sculpted kickers spaced down the run, each centered
+  // on the course line (laneX at its lip) and spanning the channel floor
+  // (halfWidth == channelHalfWidth). An 8 u approach rising 2.2 u to the lip gives
+  // ~15° of ramp pitch — with lipLaunch, a committed straight run launches a real
+  // arc; a cautious line can brake or skirt the taper. PROVISIONAL — validated by
+  // the follow-the-line winnability gate (a line rider goes off every kicker and
+  // must still finish and out-ski the slide).
+  features: [
+    { z: -70, length: 8, halfWidth: 7, height: 2.2 },
+    { z: -110, length: 8, halfWidth: 7, height: 2.2 },
+    { z: -150, length: 8, halfWidth: 7, height: 2.2 },
+  ],
   avalanche: { enabled: true, triggerDistance: 60, boulderCount: 150, slideSpeedBase: 9, slideSpeedJitter: 3 },
 };
 

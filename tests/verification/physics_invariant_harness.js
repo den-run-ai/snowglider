@@ -725,6 +725,83 @@ console.log('  PASS:', wipeoutGateOk
   : 'wipeout leaked past its gate ❌');
 if (!wipeoutGateOk) hardFail = true;
 
+// 16) lipLaunch gate (JP-6) [GATING]. With the flag FALSE (the Blue/Bunny/Black
+// default) the terrain auto-jump keeps the frozen `6 + 0.3·speed` constant bytes;
+// with the flag TRUE the SAME lip launches at the geometry-derived
+// clamp(speed·Δslope·LIP_K, LIP_MIN, LIP_MAX) — and a non-lip (constant-slope)
+// descent is byte-identical under either flag (the branch never runs off-lip).
+const BLUE_SKI = (await import('../../src/difficulty.ts')).BLUE_PHYSICS_TUNING;
+const LIP_ON = { ...BLUE_SKI, lipLaunch: true };
+// A synthetic kicker lip at z=0 (travelling -z): the approach ramp climbs `rise`
+// h/u toward the lip and the face drops `drop` h/u past it. NOTE the step's
+// returned verticalVelocity includes the same-frame air-gravity tick
+// (launch − airGravity·dt), so expectations subtract 16/60.
+function kickerLipFrame(tuning, speed, rise, drop) {
+  const gH = (x, z) => (z >= 0 ? -rise * z : drop * z);
+  const gG = (x, z) => ({ x: 0, z: z >= 0 ? -rise : drop });
+  const gD = () => ({ x: 0, z: -1 });
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: 0, y: 0 };
+  const velocity = { x: 0, z: -speed };
+  const r = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, false, 0,
+    gH(0, 0) + 5, // fake last-frame terrain 5u higher => heightDifference < -0.8 fires
+    0, 0, NONE, 0, 0, 3, 3.0, gH, gG, gD, [], false, function () {},
+    [], undefined, tuning);
+  return { vv: r.verticalVelocity, inAir: r.isInAir };
+}
+const GRAV_TICK = 16 / 60; // same-frame airborne gravity applied after the launch
+const lipOff16 = kickerLipFrame(undefined, 16, 0.35, 1.2);
+const lipOn16 = kickerLipFrame(LIP_ON, 16, 0.35, 1.2);   // steep face: hits the cap
+const lipOnGentle = kickerLipFrame(LIP_ON, 13, 0.3, 0.45); // gentle lip: mid-range
+// Expected geometry-derived values from the exported constants (single source).
+const expOn16 = Math.min(PHYS.LIP_MAX, Math.max(PHYS.LIP_MIN, 16 * (0.35 + 1.2) * PHYS.LIP_K)) - GRAV_TICK;
+const expOnGentle = Math.min(PHYS.LIP_MAX, Math.max(PHYS.LIP_MIN, 13 * (0.3 + 0.45) * PHYS.LIP_K)) - GRAV_TICK;
+// Off-lip identity: a constant-slope no-input descent must be byte-identical
+// under either flag (the lipLaunch branch only runs on auto-jump frames).
+function slopeDescent(tuning) {
+  const gH = (x, z) => 0.4 * z, gG = () => ({ x: 0, z: 0.4 }), gD = () => ({ x: 0, z: -1 });
+  Math.random = makeRng(77);
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: 0, y: 0 };
+  const velocity = { x: 0, z: -14 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: 0,
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  const traj = [];
+  for (let i = 0; i < 120; i++) {
+    st = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, NONE,
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      gH, gG, gD, [], false, function () {}, [], undefined, tuning);
+    traj.push({ x: pos.x, z: pos.z, vx: velocity.x, vz: velocity.z });
+  }
+  return traj;
+}
+const offFlag = slopeDescent(undefined);
+const onFlag = slopeDescent(LIP_ON);
+let lipOffLipDiff = 0;
+for (let i = 0; i < offFlag.length; i++) {
+  lipOffLipDiff = Math.max(lipOffLipDiff,
+    Math.abs(offFlag[i].x - onFlag[i].x), Math.abs(offFlag[i].z - onFlag[i].z),
+    Math.abs(offFlag[i].vx - onFlag[i].vx), Math.abs(offFlag[i].vz - onFlag[i].vz));
+}
+const lipGateOk =
+  lipOff16.inAir && Math.abs(lipOff16.vv - (6 + 16 * 0.3 - GRAV_TICK)) < 1e-12 && // legacy bytes
+  lipOn16.inAir && Math.abs(lipOn16.vv - expOn16) < 1e-9 &&                       // capped launch
+  lipOnGentle.inAir && Math.abs(lipOnGentle.vv - expOnGentle) < 1e-9 &&           // mid-range launch
+  expOn16 === PHYS.LIP_MAX - GRAV_TICK &&                                          // cap live
+  expOnGentle < PHYS.LIP_MAX - GRAV_TICK && expOnGentle > PHYS.LIP_MIN &&          // scaling live
+  lipOffLipDiff === 0;                                                             // off-lip identity
+console.log('\n--- lipLaunch gate: legacy bytes off, geometry-derived on, off-lip identical (JP-6) [GATING] ---');
+console.log('  steep lip @16 m/s: flag off vv', lipOff16.vv.toFixed(2), '(legacy) | flag on vv',
+  lipOn16.vv.toFixed(2), `(expected ${expOn16.toFixed(2)} — capped at LIP_MAX)`);
+console.log('  gentle lip @13 m/s: flag on vv', lipOnGentle.vv.toFixed(2),
+  `(expected ${expOnGentle.toFixed(2)} — scales with speed × geometry)`);
+console.log('  off-lip constant-slope descent, flag on vs off: max abs diff', lipOffLipDiff.toExponential(3));
+console.log('  PASS:', lipGateOk
+  ? 'lipLaunch alters only lip frames, exactly per the exported formula ✅'
+  : 'lipLaunch leaked or mis-derived ❌');
+if (!lipGateOk) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();
