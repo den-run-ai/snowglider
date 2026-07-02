@@ -65,6 +65,12 @@ export interface SnowmanPhysicsTuning {
   // trajectory. No shipped tier uses it (see PHYSICS.md §4).
   manualJump: boolean;        // Space/touch straight jump + hop turn available
   autoJump: boolean;          // terrain-lip auto-pop fires
+  // Landing-physics upgrade (workstream C): when true, an extreme manual-jump
+  // landing — slamming the surface too hard (normal-impact speed past
+  // LAND_WIPEOUT_NORMAL) or coming down mid-somersault — CRASHES (the #171
+  // shatter, run over) instead of merely scrubbing. Expert-only: freestyle risk
+  // gets real consequences; every other tier keeps the forgiving scrub.
+  wipeouts: boolean;
 }
 
 /**
@@ -92,6 +98,7 @@ export const BLUE_PHYSICS_TUNING: SnowmanPhysicsTuning = {
   freestyleTricks: false,
   manualJump: true,
   autoJump: true,
+  wipeouts: false,
 };
 
 // --- Per-tier ski tuning (playtest starting points; Blue is authoritative-current) ---
@@ -139,6 +146,9 @@ const BLACK_PHYSICS_TUNING: SnowmanPhysicsTuning = {
 const EXPERT_PHYSICS_TUNING: SnowmanPhysicsTuning = {
   ...BLACK_PHYSICS_TUNING,
   freestyleTricks: true,
+  // Freestyle risk with real consequences (workstream C): an over-harsh or
+  // mid-rotation landing on Expert is a crash (shatter), not just a scrub.
+  wipeouts: true,
 };
 
 /**

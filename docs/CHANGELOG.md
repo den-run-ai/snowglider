@@ -13,6 +13,24 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Impact-consistent landing grading + Expert wipeouts (jump-system completion JP-4, #286)
+- **A manual jump's landing grade now reads the impact into the surface**, not just
+  aim (`MEANINGFUL_JUMPS.md` §8.3): `vImpact = |v³·n|` at the landing point. CLEAN
+  additionally requires a soft touchdown (`< 24 m/s`); past `30 m/s` the landing is
+  forced SKETCHY with a deeper (×1.5) scrub and heavier shake — landing on a
+  downslope transition is soft, flatting out from big air is harsh, even aligned.
+  Thresholds calibrated to measured touchdown impacts (plain jumps land at ≈15–28),
+  so ordinary stomps keep the #186 boost. Provenance-gated as ever: auto-jump /
+  hop / coasting landings and the frozen no-input baseline are byte-identical.
+- **Wipeouts on ◆◆ Expert** (`ski.wipeouts`, new tuning flag — false everywhere
+  else, pinned unreachable by a harness gate): slamming past `34 m/s` or landing
+  more than 120° into a somersault CRASHES — zero air score, run over via the
+  crash path with the #171 shatter. Freestyle risk now has real consequences.
+- New GATING harness checks: **landing monotonicity** (equal touchdown velocity —
+  a downslope landing never grades worse than flat) and the **wipeout gate**;
+  freestyle suite gains the wipeout residual/impact tables. Docs: new
+  `PHYSICS.md` §4.2 + §10 constants.
+
 ### Avalanche-dodge window (jump-system completion JP-3, #286 — the #47 headline)
 - **Jumping the slide front now saves you.** At the loop's burial-check site (never
   in the physics kernel, per #245), a frame where a boulder overlaps the player

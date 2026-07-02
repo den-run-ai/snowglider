@@ -87,8 +87,11 @@ export type ShowGameOverFn = (reason: string) => void;
 export type SkiTechnique = 'air' | 'glide' | 'snowplow' | 'skid' | 'carve' | 'parallel' | 'tuck' | 'hop';
 
 /** How a *manual* jump's landing was graded (meaningful jumps #47, §3.2). Null on
- *  any non-manual-jump landing (auto-jump / hop / no landing this frame). */
-export type LandingQuality = 'clean' | 'ok' | 'sketchy';
+ *  any non-manual-jump landing (auto-jump / hop / no landing this frame).
+ *  'wipeout' (JP-4, `tuning.wipeouts` tiers only) is an extreme landing — slammed
+ *  the surface or came down mid-somersault — routed to the CRASH path (run over,
+ *  #171 shatter) by updateSnowman below. */
+export type LandingQuality = 'clean' | 'ok' | 'sketchy' | 'wipeout';
 
 /** Per-frame physics output returned by updateSnowman. */
 export interface UpdateResult {
@@ -176,6 +179,15 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
   // Gated on airScoreDelta > 0 (a player-jump landing only), so the no-input path and
   // the physics-invariant harness — which passes no bankAirScore — are untouched.
   if (bankAirScore && result.airScoreDelta > 0) bankAirScore(result.airScoreDelta);
+
+  // Wipeout landing (JP-4, tuning.wipeouts tiers): an extreme manual-jump landing is
+  // a crash — end the run through the same showGameOver path a tree hit uses, which
+  // also fires the #171 shatter (result-overlay routes any non-finish reason to
+  // onCrash). Kernel-graded, loop-agnostic: unreachable unless the tier's tuning
+  // sets `wipeouts` (harness-pinned), so every other tier is byte-identical.
+  if (result.landingQuality === 'wipeout' && gameActive) {
+    showGameOver("WIPEOUT!!! Crashed on the landing!");
+  }
 
   detectCollisionsAndFinish({
     pos,

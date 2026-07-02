@@ -282,6 +282,59 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
       'auto-jump landing stays ungraded and unscored');
   });
 
+  // ---------------------------------------------------------------------------
+  // Wipeout residual table (JP-4, tuning.wipeouts — Expert only). Single landing
+  // frames with the trick state pre-stamped isolate the grade: the ONLY rotation
+  // that can trip the 120° wipeout residual is the flip (a spin's residual to the
+  // nearest 180 maxes at 90°), so mid-somersault = crash on Expert, while the same
+  // touchdown on a wipeouts-off tier keeps today's forced-SKETCHY scrub.
+  // ---------------------------------------------------------------------------
+  function landWithFlip(tuning, flipDeg, vv = -10) {
+    let s = 9 >>> 0;
+    Math.random = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const snowman = fakeSnowman();
+    snowman.userData.playerJump = true;
+    snowman.userData.trickFlip = flipDeg;
+    const ground = getTerrainHeight(0, -60);
+    const pos = { x: 0, z: -60, y: ground - 0.01 }; // just below terrain => lands now
+    const velocity = { x: 0, z: -16 };
+    return update(snowman, 1 / 60, pos, velocity, true, vv, ground,
+      1.5, 0, NONE, 0, 0, 3, 3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection,
+      [], false, function () {}, [], undefined, tuning);
+  }
+
+  runTest('Wipeout residual table: mid-somersault crashes on Expert, scrubs elsewhere (JP-4)', () => {
+    // 180° into a flip: residual 180 > WIPEOUT_FLIP_RESIDUAL_DEG (120).
+    const expertHead = landWithFlip(EXPERT_SKI, 180);
+    assert(expertHead.landingQuality === 'wipeout',
+      `Expert mid-somersault must wipeout, got ${expertHead.landingQuality}`);
+    assert(expertHead.airScoreDelta === 0, 'a wipeout banks nothing');
+    const blueHead = landWithFlip(D.BLUE_PHYSICS_TUNING, 180);
+    assert(blueHead.landingQuality === 'sketchy',
+      `wipeouts-off tier keeps the SKETCHY scrub, got ${blueHead.landingQuality}`);
+    // Within the wipeout residual but still under-rotated (residual 100°: > the 75°
+    // landing tolerance, < the 120° wipeout line): SKETCHY on Expert too.
+    const expertUgly = landWithFlip(EXPERT_SKI, 360 - 100);
+    assert(expertUgly.landingQuality === 'sketchy',
+      `under-rotated-but-not-headfirst stays sketchy, got ${expertUgly.landingQuality}`);
+    // A completed somersault (residual 0) rides away — graded by aim/impact alone.
+    const expertFlip = landWithFlip(EXPERT_SKI, 360);
+    assert(expertFlip.landingQuality !== 'wipeout' && expertFlip.landingQuality !== null,
+      `a completed flip must not wipeout, got ${expertFlip.landingQuality}`);
+    assert(expertFlip.trickName === 'FRONTFLIP', `completed flip named, got ${expertFlip.trickName}`);
+  });
+
+  runTest('Wipeout impact table: an extreme slam crashes only with tuning.wipeouts (JP-4)', () => {
+    // vv -45 into the moderate hill slope (~19°, which absorbs ~7 m/s of the fall):
+    // vImpact ≈ 37, past LAND_WIPEOUT_NORMAL (34).
+    const expertSlam = landWithFlip(EXPERT_SKI, 0, -45);
+    assert(expertSlam.landingQuality === 'wipeout',
+      `Expert extreme slam must wipeout, got ${expertSlam.landingQuality}`);
+    const blueSlam = landWithFlip(D.BLUE_PHYSICS_TUNING, 0, -45);
+    assert(blueSlam.landingQuality === 'sketchy',
+      `wipeouts-off slam is forced sketchy, got ${blueSlam.landingQuality}`);
+  });
+
   runTest('Tier gate: the same trick inputs on Blue leave the run byte-identical to no-trick-system', () => {
     // Blue's tuning has freestyleTricks: false — a jump+steer flight must produce the
     // exact same trajectory as it does today (the airControl drift is the only effect),
