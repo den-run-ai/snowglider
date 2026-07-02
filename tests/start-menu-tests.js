@@ -336,17 +336,43 @@ async function main() {
     !!lb.querySelector('tr.current-user-score'));
   check('current user shown by display name', lb.innerHTML.includes('Ada Lovelace'));
 
+  // Other players show their denormalized leaderboard-doc name; entries written
+  // before the field existed fall back to 'Anonymous' (never 'Player N').
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
+    getLeaderboard: () => [
+      { userId: 'rival', time: 11.1, displayName: 'Rival' },
+      { userId: 'legacy', time: 12.2 },
+      { userId: 'me', time: 13.3 }
+    ]
+  });
+  refresh();
+  await settle();
+  check('other players render their denormalized display name',
+    lb.innerHTML.includes('Rival'));
+  check('entries without a denormalized name fall back to Anonymous',
+    lb.innerHTML.includes('Anonymous') && !lb.innerHTML.includes('Player 2'));
+
   // XSS: a malicious display name is HTML-escaped (escapeHtml), not injected live.
+  // Covers BOTH the viewer's own auth-profile name and another player's
+  // denormalized leaderboard-doc name (the stored-XSS vector).
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: { uid: 'me', displayName: '<img src=x onerror=alert(1)>' }, isSignedIn: true },
-    getLeaderboard: () => [{ userId: 'me', time: 9.9 }]
+    getLeaderboard: () => [
+      { userId: 'me', time: 9.9 },
+      { userId: 'evil', time: 10.1, displayName: '<img src=y onerror=alert(2)>' }
+    ]
   });
   refresh();
   await settle();
   check('malicious display name is escaped (no live <img> injected)',
     lb.querySelector('img') === null && lb.innerHTML.includes('&lt;img'));
+  check('another player\'s malicious denormalized name is escaped too',
+    lb.innerHTML.includes('&lt;img src=y'));
 
   // getLeaderboard rejection is swallowed and hides the board.
   resetAccountDom();
