@@ -36,6 +36,10 @@ export interface EzArchetype {
   height: number;
   /** Local-space points on the canopy where snow shelves sit (top-biased). */
   snowAnchors: Array<{ x: number; y: number; z: number }>;
+  /** Which species recipe (0..EZ_SPECIES_COUNT-1) this build came from. */
+  species: number;
+  /** Detail level: 'near' full build or the cheaper 'far' off-piste build. */
+  detail: EzDetail;
 }
 
 // --- Enable flag (default OFF — the stylized forest stays the shipped default) ---
@@ -63,12 +67,21 @@ function ezUuidRandom(): number {
 }
 
 // --- Archetype recipes -------------------------------------------------------------
-// Three pine variants tuned WAY down from the ez-tree presets (~19k tris each at
+// Three pine species tuned WAY down from the ez-tree presets (~19k tris each at
 // stock settings) to an instancing-friendly budget: fewer child branches, coarser
 // tube segments/sections, fewer-but-larger needle cards. Kept under
 // EZ_ARCHETYPE_TRIANGLE_BUDGET (asserted by tests) so a few hundred instances stay
 // within the perf envelope of the stylized forest they replace.
+//
+// Each species is generated at TWO detail levels (issue #282, PR 2): a full "near"
+// build for trees around the run corridor and a cheaper "far" build (fewer branches,
+// coarser tubes, fewer-but-bigger cards from the SAME seed, so the species keeps its
+// silhouette) for the off-piste stands the chase camera only ever sees at distance.
+// The far build must stay under EZ_FAR_TRIANGLE_FRACTION of its near counterpart
+// (asserted by tests) so the forest-wide raster cost stays near the stylized budget.
 export const EZ_ARCHETYPE_TRIANGLE_BUDGET = 4500;
+export const EZ_FAR_TRIANGLE_FRACTION = 0.6;
+export type EzDetail = 'near' | 'far';
 
 interface EzRecipe {
   preset: string;
@@ -79,10 +92,24 @@ interface EzRecipe {
 }
 
 const EZ_RECIPES: EzRecipe[] = [
-  { preset: 'Pine Small', seed: 11, children0: 30, leavesCount: 14, leavesSizeMul: 1.7 },
-  { preset: 'Pine Medium', seed: 23, children0: 34, leavesCount: 14, leavesSizeMul: 1.6 },
-  { preset: 'Pine Large', seed: 37, children0: 32, leavesCount: 12, leavesSizeMul: 1.5 }
+  { preset: 'Pine Small', seed: 11, children0: 30, leavesCount: 17, leavesSizeMul: 1.8 },
+  { preset: 'Pine Medium', seed: 23, children0: 34, leavesCount: 17, leavesSizeMul: 1.7 },
+  { preset: 'Pine Large', seed: 37, children0: 32, leavesCount: 15, leavesSizeMul: 1.6 }
 ];
+
+/** Number of species recipes; archetype i+EZ_SPECIES_COUNT is species i's far build. */
+export const EZ_SPECIES_COUNT = EZ_RECIPES.length;
+
+/** Derive the cheap far-LOD recipe from a near recipe (same seed ⇒ same silhouette). */
+function farRecipe(r: EzRecipe): EzRecipe {
+  return {
+    preset: r.preset,
+    seed: r.seed,
+    children0: Math.round(r.children0 * 0.55),
+    leavesCount: Math.max(5, Math.round(r.leavesCount * 0.4)),
+    leavesSizeMul: r.leavesSizeMul * 1.45
+  };
+}
 
 /** How many snow shelf anchors each archetype exposes (trees.ts samples from these). */
 const SNOW_ANCHORS_PER_ARCHETYPE = 12;
@@ -150,17 +177,19 @@ function computeSnowAnchors(leaves: THREE.BufferGeometry): Array<{ x: number; y:
   return anchors;
 }
 
-function generateArchetype(EZ: any, recipe: EzRecipe): EzArchetype {
+function generateArchetype(EZ: any, recipe: EzRecipe, species: number, detail: EzDetail): EzArchetype {
   const tree = new EZ.Tree();
   tree.loadPreset(recipe.preset);
   tree.options.seed = recipe.seed;
-  // Low-poly tuning: single branching level, coarser tubes, fewer/larger needle cards.
+  // Low-poly tuning: single branching level, coarser tubes, fewer/larger needle
+  // cards. Far builds coarsen the tubes one more notch — at off-piste distance the
+  // silhouette is all that survives.
   tree.options.branch.levels = 1;
   tree.options.branch.children[0] = recipe.children0;
   tree.options.branch.children[1] = 0;
-  tree.options.branch.segments[0] = 6;
+  tree.options.branch.segments[0] = detail === 'far' ? 4 : 6;
   tree.options.branch.segments[1] = 3;
-  tree.options.branch.sections[0] = 8;
+  tree.options.branch.sections[0] = detail === 'far' ? 5 : 8;
   tree.options.branch.sections[1] = 3;
   tree.options.leaves.count = recipe.leavesCount;
   tree.options.leaves.size = tree.options.leaves.size * recipe.leavesSizeMul;
@@ -185,7 +214,7 @@ function generateArchetype(EZ: any, recipe: EzRecipe): EzArchetype {
   (tree.branchesMesh.material as THREE.Material).dispose();
   leafMaterial.dispose();
 
-  return { branches, leaves, leafMap, height, snowAnchors: computeSnowAnchors(leaves) };
+  return { branches, leaves, leafMap, height, snowAnchors: computeSnowAnchors(leaves), species, detail };
 }
 
 /** Generate (once) and return the evergreen archetypes. RNG-stream-neutral: the
@@ -196,7 +225,12 @@ export function ensureEzArchetypes(): Promise<EzArchetype[]> {
       const savedRandom = Math.random;
       Math.random = ezUuidRandom;
       try {
-        archetypesCache = EZ_RECIPES.map((r) => generateArchetype(EZ, r));
+        // Near builds first (species i at index i), far builds after (index i +
+        // EZ_SPECIES_COUNT) — trees.ts relies on this layout for LOD selection.
+        archetypesCache = [
+          ...EZ_RECIPES.map((r, i) => generateArchetype(EZ, r, i, 'near')),
+          ...EZ_RECIPES.map((r, i) => generateArchetype(EZ, farRecipe(r), i, 'far'))
+        ];
       } finally {
         Math.random = savedRandom;
       }

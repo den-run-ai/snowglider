@@ -24,8 +24,8 @@ import { Wind } from '../wind.js';
 // EZ-Tree evergreen prototype (issue #282, opt-in via ?eztrees): ez-forest.ts
 // provides low-poly conifer archetype geometry; this file renders it through the
 // same instanced/tint/sway/snow pipeline. Default path is byte-identical when off.
-import { isEzForestEnabled, setEzForestEnabled, ensureEzArchetypes, resetEzForest } from './ez-forest.js';
-import type { EzArchetype } from './ez-forest.js';
+import { isEzForestEnabled, setEzForestEnabled, ensureEzArchetypes, resetEzForest, EZ_SPECIES_COUNT } from './ez-forest.js';
+import type { EzArchetype, EzDetail } from './ez-forest.js';
 
 /** A placed tree's world position and size; addTrees returns these for collision. */
 export interface TreePosition {
@@ -601,6 +601,19 @@ function pickColorIndex(paletteLength: number): number {
  *  stylized conifers so collision radii and sightlines stay comparable). */
 const EZ_TREE_TARGET_HEIGHT = 10;
 
+/** Lateral distance from the run's centerline beyond which a tree renders as the
+ *  cheap far-LOD build (issue #282, PR 2). The chase camera hugs the corridor, so
+ *  every tree past this band is only ever seen at distance — a whole-forest
+ *  InstancedMesh never frustum-culls (documented tradeoff, see buildForest), which
+ *  makes rasterized triangles the cost that matters; the static near/far split
+ *  roughly halves it without any per-frame LOD work. */
+const EZ_LOD_FAR_DISTANCE = 32;
+
+/** Which detail build a tree at (x, z) uses. Pure + exported for the headless test. */
+function ezDetailForPlacement(x: number, z: number): EzDetail {
+  return Math.abs(x - activeLaneX(z)) > EZ_LOD_FAR_DISTANCE ? 'far' : 'near';
+}
+
 /** One tree slot for the async EZ build: its placement matrix + palette-driving hash. */
 interface EzPlacement {
   matrix: THREE.Matrix4;
@@ -689,10 +702,16 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
   const trunkPalette = getTrunkColors();
   const leafTints = getEzLeafTints();
 
-  // Bucket placements per archetype by spatial hash (stable species stands).
+  // Bucket placements per archetype: the species comes from a spatial hash (stable
+  // stands), the detail level from the corridor-distance LOD split. When the
+  // archetype list carries no far builds (defensive: an older/partial provider),
+  // everything falls back to the near build of its species.
+  const hasFarBuilds = archetypes.length >= EZ_SPECIES_COUNT * 2;
   const perArchetype: EzPlacement[][] = archetypes.map(() => []);
   placements.forEach((p) => {
-    perArchetype[hashPlacement(p.x, p.z, 1) % archetypes.length]!.push(p);
+    const species = hashPlacement(p.x, p.z, 1) % EZ_SPECIES_COUNT;
+    const far = hasFarBuilds && ezDetailForPlacement(p.x, p.z) === 'far';
+    perArchetype[species + (far ? EZ_SPECIES_COUNT : 0)]!.push(p);
   });
 
   const snowCapDescs: THREE.Matrix4[] = [];
@@ -732,24 +751,30 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
       branches.setColorAt(j, trunkPalette[h % TRUNK_WEATHERED_START]!);
       leaves.setColorAt(j, leafTints[(h >>> 4) % leafTints.length]!);
 
-      // Snow: a cap on the crown tip plus a few shelves draped on needle anchors.
+      // Snow: a cap on the crown tip plus, for NEAR trees only, settled shelves
+      // draped on needle anchors — far trees keep just the cap (their shelves are
+      // sub-pixel at corridor distance, so the instances would be pure cost).
       anchorPos.set(0, a.height, 0).applyMatrix4(fullMat);
       const capR = 0.45 * p.scale;
       snowCapDescs.push(new THREE.Matrix4().compose(
         anchorPos, snowQuat.identity(), snowScale.set(capR, capR * 0.5, capR)));
-      const shelfCount = 3 + (h % 3);
-      const stride = Math.max(1, Math.floor(a.snowAnchors.length / shelfCount));
-      for (let k = (h >>> 6) % Math.max(1, stride), c = 0;
-        k < a.snowAnchors.length && c < shelfCount; k += stride, c++) {
-        const anchor = a.snowAnchors[k]!;
-        anchorPos.set(anchor.x, anchor.y, anchor.z).applyMatrix4(fullMat);
-        const outward = Math.atan2(anchor.x, anchor.z);
-        const tilt = 0.35 + ((h >>> (8 + c)) % 16) / 40;
-        snowQuat.setFromEuler(snowEuler.set(tilt * Math.sin(outward), 0, -tilt * Math.cos(outward)));
-        const shelfR = (0.22 + ((h >>> (4 + c)) % 8) / 40) * p.scale;
-        snowPatchDescs.push(new THREE.Matrix4().compose(
-          anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)));
-        snowQuat.identity();
+      if (a.detail === 'near') {
+        const shelfCount = 4 + (h % 3);
+        const stride = Math.max(1, Math.floor(a.snowAnchors.length / shelfCount));
+        for (let k = (h >>> 6) % Math.max(1, stride), c = 0;
+          k < a.snowAnchors.length && c < shelfCount; k += stride, c++) {
+          const anchor = a.snowAnchors[k]!;
+          anchorPos.set(anchor.x, anchor.y, anchor.z).applyMatrix4(fullMat);
+          const outward = Math.atan2(anchor.x, anchor.z);
+          // Flatter tilt band than the first cut: reads as settled load, not
+          // wind-plastered daubs.
+          const tilt = 0.24 + ((h >>> (8 + c)) % 16) / 55;
+          snowQuat.setFromEuler(snowEuler.set(tilt * Math.sin(outward), 0, -tilt * Math.cos(outward)));
+          const shelfR = (0.26 + ((h >>> (4 + c)) % 8) / 36) * p.scale;
+          snowPatchDescs.push(new THREE.Matrix4().compose(
+            anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)));
+          snowQuat.identity();
+        }
       }
     });
     branches.instanceMatrix.needsUpdate = true;
@@ -1433,7 +1458,8 @@ export const Trees = {
   // promise (the archetype chunk loads lazily, so tests/tools await this).
   setEzForestEnabled,
   isEzForestEnabled,
-  ezForestReady
+  ezForestReady,
+  ezDetailForPlacement
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).
