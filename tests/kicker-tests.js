@@ -104,19 +104,34 @@ function near(a, b, eps, msg) {
     });
   });
 
-  runTest('kickers center on laneX(lip z) of the line they were set with', () => {
+  runTest('kickers follow laneX(z) through the WHOLE approach, not just the lip', () => {
     setTerrainKickers([kicker], line);
     const xc = line.laneX(kicker.z);
-    near(kickerRampHeight(xc, kicker.z), kicker.height, 1e-9, 'full height on the line');
+    near(kickerRampHeight(xc, kicker.z), kicker.height, 1e-9, 'full height on the line at the lip');
     near(kickerRampHeight(xc + kicker.halfWidth, kicker.z), 0, 1e-9, 'taper edge follows the line');
-    // The Expert line winds (amplitude 18), so the center is genuinely off x=0
-    // somewhere; assert the wiring is line-aware at a lip where laneX ≠ 0.
-    const winding = expert.features.find((k) => Math.abs(line.laneX(k.z)) > 1);
-    if (winding) {
-      setTerrainKickers([winding], line);
-      const wxc = line.laneX(winding.z);
-      near(kickerRampHeight(wxc, winding.z), winding.height, 1e-9, 'winding lip centered on laneX');
-      assert(kickerRampHeight(0, winding.z) < winding.height, 'x=0 is off-center there');
+    // The Expert line winds (amplitude 18) and can drift ~a halfWidth over one 7 u
+    // approach (Codex on #292) — the ramp's lateral center must track laneX at EVERY
+    // sample z, so a line-following skier rides the crest of the whole approach.
+    const winding = expert.features.find((k) =>
+      Math.abs(line.laneX(k.z) - line.laneX(k.z + k.length)) > 2);
+    assert(winding, 'test setup: at least one Expert kicker sits on a moving stretch of line');
+    setTerrainKickers([winding], line);
+    for (const frac of [0.25, 0.5, 0.75, 1.0]) {
+      const zs = winding.z + winding.length * (1 - frac); // frac of the way to the lip
+      const cx = line.laneX(zs);
+      const u = frac;
+      const expected = winding.height * u * u;
+      near(kickerRampHeight(cx, zs), expected, 1e-9,
+        `crest at ${(frac * 100).toFixed(0)}% of the approach sits on laneX(z)`);
+      near(kickerRampHeight(cx + winding.halfWidth, zs), 0, 1e-9,
+        `taper edge at ${(frac * 100).toFixed(0)}% follows laneX(z)`);
+      // A lip-frozen center would put LESS than crest height here wherever the line
+      // has drifted; assert the crest genuinely moved off the lip's center line.
+      const lipX = line.laneX(winding.z);
+      if (Math.abs(cx - lipX) > 1) {
+        assert(kickerRampHeight(lipX, zs) < expected - 1e-9,
+          'the lip-frozen x is off-crest where the line has drifted');
+      }
     }
   });
 
