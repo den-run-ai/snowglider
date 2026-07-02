@@ -64,6 +64,8 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
   const P = await import('../src/snowman/physics.ts');
   const { Snowman } = await import('../src/snowman.ts');
   const D = await import('../src/difficulty.ts');
+  const THREE = await import('three');
+  const { createSnowman } = await import('../src/snowman/model.ts');
   const update = Snowman.updateSnowman;
   const EXPERT_SKI = D.getDifficultyConfig('expert').ski;
 
@@ -419,6 +421,76 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     assert(snowman.userData.trickSpin === 0 && snowman.userData.trickFlip === 0
       && snowman.userData.trickGrabTime === 0 && snowman.userData.trickGrabArmed === false
       && snowman.userData.trickGrabbing === false, 'reset must clear all trick state');
+  });
+
+  // ---------------------------------------------------------------------------
+  // COM flip pivot (JP-5, plan §6.1): flips rotate about the body's mass-weighted
+  // center (userData.flipPivot at y ≈ 3.1), not the feet — and the restructure is
+  // POSE-ONLY: the physics trajectory of a flip flight is identical whether the
+  // model carries the pivot (real snowman) or not (the plain test fake).
+  // ---------------------------------------------------------------------------
+  runTest('flip pivot: the model exposes flipPivot at the COM with world layout unchanged (JP-5)', () => {
+    const scene = new THREE.Scene();
+    const snowman = createSnowman(scene);
+    const pivot = snowman.userData.flipPivot;
+    assert(pivot && Math.abs(pivot.position.y - 3.1) < 1e-9, 'flipPivot sits at COM y=3.1');
+    // Re-basing must keep world placement identical: head sphere center stays at
+    // world y=7 (model.ts spheres at 2 / 4.5 / 7) and the ski roots at y≈0.1.
+    snowman.updateMatrixWorld(true);
+    const headWorld = new THREE.Vector3();
+    snowman.userData.parts.head.getWorldPosition(headWorld);
+    assert(Math.abs(headWorld.y - 7) < 1e-6, `head world y must stay 7, got ${headWorld.y}`);
+    const skiWorld = new THREE.Vector3();
+    snowman.userData.leftSki.getWorldPosition(skiWorld);
+    assert(Math.abs(skiWorld.y - 0.1) < 1e-6, `ski root world y must stay 0.1, got ${skiWorld.y}`);
+  });
+
+  runTest('flip pivot: a flip flight rotates the pivot, keeps the root pitch clamped, and is pose-only (JP-5)', () => {
+    // Drive the REAL model through a flip flight and the plain fake through the same
+    // flight; compare mid-air pose state and the physics trajectories.
+    function flipFlight(snowman) {
+      let s = 7 >>> 0;
+      Math.random = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+      const pos = { x: 0, z: -60, y: getTerrainHeight(0, -60) };
+      const velocity = { x: 0, z: -16 };
+      let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, -60),
+                 airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+      const step = (c) => {
+        st = update(snowman, 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity, st.lastTerrainHeight,
+          st.airTime, st.jumpCooldown, c, st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown,
+          3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
+          [], undefined, EXPERT_SKI);
+      };
+      step(ctrl({ jump: true }));
+      let frames = 0, maxPivotX = 0, maxRootPitch = 0;
+      const traj = [];
+      const pivot = snowman.userData.flipPivot;
+      while (st.isInAir && frames < 600) {
+        step(ctrl({ up: true })); // hold a frontflip the whole flight
+        frames++;
+        if (pivot) maxPivotX = Math.max(maxPivotX, Math.abs(pivot.rotation.x));
+        maxRootPitch = Math.max(maxRootPitch, Math.abs(snowman.rotation.x));
+        traj.push({ x: pos.x, y: pos.y, z: pos.z, vx: velocity.x, vz: velocity.z });
+      }
+      return { traj, maxPivotX, maxRootPitch, pivot };
+    }
+    const real = flipFlight(createSnowman(new THREE.Scene()));
+    const fake = flipFlight(fakeSnowman());
+    // The pivot carries the somersault (well past the 0.5 rad root pitch clamp)...
+    assert(real.maxPivotX > 1.0, `pivot must carry the flip, got ${real.maxPivotX.toFixed(2)} rad`);
+    // ...while the root's pitch stays inside the tilt clamp (the camera reads the root).
+    assert(real.maxRootPitch <= 0.5 + 1e-6,
+      `root pitch must stay clamped, got ${real.maxRootPitch.toFixed(2)} rad`);
+    assert(real.pivot.rotation.x === 0, 'pivot rights itself on landing (trickFlip consumed)');
+    // Pose-only: identical physics with and without the pivot (harness gate 7).
+    assert(real.traj.length === fake.traj.length, 'flights must run the same frames');
+    let maxDiff = 0;
+    for (let i = 0; i < real.traj.length; i++) {
+      const a = real.traj[i], b = fake.traj[i];
+      maxDiff = Math.max(maxDiff, Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.z - b.z),
+        Math.abs(a.vx - b.vx), Math.abs(a.vz - b.vz));
+    }
+    assert(maxDiff === 0, `COM pivot must be pose-only (traj max abs diff ${maxDiff})`);
   });
 
   console.log('\n================================================');

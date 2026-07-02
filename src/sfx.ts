@@ -363,12 +363,21 @@ export const Sfx = (function() {
 
     // One-shot: snowman touches down. A low thump + snow-compression puff scaled by
     // how long it was airborne (force). Trivial touchdowns are silent.
-    land: function(force: number) {
+    // `quality` (JP-5, optional — absent/null keeps the legacy thump byte-identical,
+    // which is what auto-jump/hop landings pass): a graded manual-jump landing layers
+    // a grade cue on top — CLEAN gets a crisp rising stomp ping, SKETCHY a longer
+    // skidding wash. 'wipeout' plays nothing extra here (endRun('crash') owns it).
+    land: function(force: number, quality?: 'clean' | 'ok' | 'sketchy' | 'wipeout' | null) {
       if (!running || !ctx || muted) return;
       const peak = landGainForForce(force);
       if (peak <= 0) return;
       tone('sine', 120, 55, peak, 0.005, 0.18);
       noiseBurst('lowpass', 900, 400, peak * 0.6, 0.005, 0.14, 0.7);
+      if (quality === 'clean') {
+        tone('triangle', 880, 1318, peak * 0.22, 0.005, 0.12);
+      } else if (quality === 'sketchy') {
+        noiseBurst('bandpass', 520, 240, peak * 0.5, 0.01, 0.32, 0.9);
+      }
     },
 
     // End of a run: silence the continuous beds and play the outcome cue. 'finish' is

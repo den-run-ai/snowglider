@@ -13,6 +13,26 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Jump visual correctness — COM flip pivot + air polish (jump-system completion JP-5, #286)
+- **Flips now rotate about the body's center of mass, not the feet.** The snowman
+  group's origin sits at the ski base, so the freestyle somersault used to orbit
+  the feet. `model.ts` interposes a `flipPivot` child group at the mass-weighted
+  center (y ≈ 3.1; every part re-based so world layout is identical at rest) and
+  `pose.ts` applies `trickFlip` there — the root keeps position/yaw/terrain tilt,
+  so the follow camera stays steady through a flip. Pose-only, pinned by a
+  trajectory-identity test (flip flight with vs without the pivot: max-abs diff 0);
+  debris/flex/registry layers are unaffected (world-space APIs, bases recorded
+  post-restructure).
+- **Air-phase polish, all provenance-gated / additive:** a deliberate takeoff dips
+  the flex settle spring (1–2 frame anticipation crouch whose overshoot reads as
+  stretch toward apex); the landing SFX is grade-keyed (CLEAN = crisp stomp ping,
+  SKETCHY = skidding wash; auto-jumps keep the plain thump); touchdown kicks a
+  one-shot radial snow burst scaled by grade (CLEAN a crisp puff, SKETCHY a wide
+  wash; a wipeout leaves it to the #171 debris). Ski spray was already suppressed
+  while airborne. Deferred from the plan's §6.2: the arm-reach grab pose (the flex
+  layer owns the arm transforms) and the player contact-shadow fade (the player
+  uses the real shadow map, which already fades with height).
+
 ### Impact-consistent landing grading + Expert wipeouts (jump-system completion JP-4, #286)
 - **A manual jump's landing grade now reads the impact into the surface**, not just
   aim (`MEANINGFUL_JUMPS.md` §8.3): `vImpact = |v³·n|` at the landing point. CLEAN

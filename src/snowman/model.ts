@@ -289,6 +289,28 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
     button1, button2, button3,
     scarf, scarfTail
   ];
+  // --- Freestyle flip pivot (jump-system completion JP-5, plan §6.1) ----------
+  // The group root's origin sits at the SKI BASE (spheres at y = 2 / 4.5 / 7), so a
+  // flip applied to the root orbits the feet — visually wrong (a somersault rotates
+  // about the body's center of mass). Interpose one child group at the mass-weighted
+  // center (radii 2 / 1.5 / 1 ⇒ masses ∝ 8 / 3.375 / 1 ⇒ COM ≈ y 3.1) holding EVERY
+  // part (skis included — the whole snowman flips), each child re-based by −COM_Y so
+  // world placement is identical at rest. pose.ts applies `trickFlip` to THIS pivot
+  // while the root keeps position / yaw / terrain tilt — so the follow camera (which
+  // reads the root) stays steady through a flip. Purely structural: the userData
+  // part/shatter registries keep their references (debris resolves world transforms
+  // via getWorldPosition), and partBaseTransforms below is recorded AFTER the
+  // restructure so the flex layer's neutral bases match the new locals.
+  const COM_Y = 3.1;
+  const flipPivot = new THREE.Group();
+  flipPivot.position.y = COM_Y;
+  for (const child of [...group.children]) {
+    child.position.y -= COM_Y;
+    flipPivot.add(child); // Object3D.add() reparents from `group`
+  }
+  group.add(flipPivot);
+  group.userData.flipPivot = flipPivot;
+
   // Neutral local transforms, kept OFF the registries so a generic loop over .parts
   // / .shatterRoots only ever sees renderable Object3Ds. Keyed by the same names so
   // the flex layer can pair part <-> base and restore exactly on reset.

@@ -243,8 +243,21 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   // to 0) a stomped flip snaps seamlessly and only an under-rotated one visibly
   // rights itself (the landing the grade just charged for). Zero-trick frames add
   // nothing and are byte-identical to the clamped assignment above.
+  //
+  // JP-5 (§6.1): the rotation is applied at the model's COM pivot (userData.flipPivot,
+  // a child group at the mass-weighted center, y ≈ 3.1) so a somersault orbits the
+  // body's center of mass instead of the feet — and the ROOT keeps position/yaw/tilt,
+  // so the follow camera (which reads the root) stays steady through the flip. The
+  // legacy root-pitch fallback covers snowmen without the pivot (the headless test
+  // fakes and any externally-built model); yaw spins are unaffected either way (the
+  // body is stacked on the vertical axis, so base-yaw is already correct).
   const trickFlip = (snowman.userData.trickFlip as number) || 0;
-  if (isInAir && trickFlip !== 0) {
+  const flipPivot = snowman.userData.flipPivot as THREE.Object3D | undefined;
+  if (flipPivot) {
+    // Assign (not accumulate): trickFlip is the absolute somersault angle, and it is
+    // zeroed by the physics on landing, which also rights the pivot instantly.
+    flipPivot.rotation.x = isInAir && trickFlip !== 0 ? trickFlip * (Math.PI / 180) : 0;
+  } else if (isInAir && trickFlip !== 0) {
     snowman.rotation.x += trickFlip * (Math.PI / 180);
   }
 }
