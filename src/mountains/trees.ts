@@ -21,6 +21,11 @@ import { forestDensityField } from './noise.js';
 // and the placement (and its Math.random() sequence) stays byte-identical for Bunny/Blue.
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 import { Wind } from '../wind.js';
+// EZ-Tree evergreen prototype (issue #282, opt-in via ?eztrees): ez-forest.ts
+// provides low-poly conifer archetype geometry; this file renders it through the
+// same instanced/tint/sway/snow pipeline. Default path is byte-identical when off.
+import { isEzForestEnabled, setEzForestEnabled, ensureEzArchetypes, resetEzForest } from './ez-forest.js';
+import type { EzArchetype } from './ez-forest.js';
 
 /** A placed tree's world position and size; addTrees returns these for collision. */
 export interface TreePosition {
@@ -180,10 +185,20 @@ let foliageMaterials: THREE.MeshStandardMaterial[] | null = null;
 let snowMaterial: THREE.MeshStandardMaterial | null = null;
 let barkInstancedMaterial: THREE.MeshStandardMaterial | null = null;
 let foliageInstancedMaterial: THREE.MeshStandardMaterial | null = null;
-// Shadow-caster (depth) materials carrying the SAME sway, one per profile (see
-// getSwayDepthMaterial). Kept beside the visible ones so resetTreePools frees them too.
+// Shadow-caster (depth) materials carrying the SAME sway, one per profile variant
+// (see getSwayDepthMaterial; ez archetypes add root-height/alpha-mapped variants,
+// so the memo is keyed by a composed string). Kept beside the visible ones so
+// resetTreePools frees them too.
 type SwayProfile = 'rooted' | 'canopy' | 'flutter';
-const swayDepthMaterials: Partial<Record<SwayProfile, THREE.MeshDepthMaterial>> = {};
+/** Optional sway/depth variations used by the EZ archetype materials. */
+interface SwayOptions {
+  /** Local-space height the bend is rooted against (weight 0 at y=0 → 1 at height). */
+  rootHeight?: number;
+  /** Alpha-card map for alpha-tested shadow silhouettes (needle cards). */
+  map?: THREE.Texture | null;
+  alphaTest?: number;
+}
+const swayDepthMaterials: Record<string, THREE.MeshDepthMaterial> = {};
 
 /** Canonical trunk: height 4 with a root flare at the base. */
 function getTrunkGeometry(): THREE.CylinderGeometry {
@@ -404,7 +419,9 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
 #ifdef USE_INSTANCING
   mvPosition = instanceMatrix * mvPosition;
   {
-    #ifdef TREE_SWAY_ROOTED
+    #if defined( TREE_SWAY_ROOT_HEIGHT )
+      float swayWeight = clamp( position.y / TREE_SWAY_ROOT_HEIGHT, 0.0, 1.0 );
+    #elif defined( TREE_SWAY_ROOTED )
       float swayWeight = clamp( ( position.y + TREE_TRUNK_HALF ) / ( 2.0 * TREE_TRUNK_HALF ), 0.0, 1.0 );
     #else
       float swayWeight = 1.0;
@@ -428,11 +445,17 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
 mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;`;
 
-/** Inject the wind vertex sway into a tree material's shader. */
-function applyTreeSway(material: THREE.Material, profile: SwayProfile): void {
+/** Inject the wind vertex sway into a tree material's shader. An optional
+ *  `rootHeight` roots the bend against a local-space height instead of the pooled
+ *  trunk's half-height — the EZ archetype geometries sit base-at-0 with per-archetype
+ *  heights, so each material carries its own height define. */
+function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeight?: number): void {
   let head = TREE_SWAY_HEAD_BASE;
   if (profile === 'rooted') head += '\n  #define TREE_SWAY_ROOTED';
   if (profile === 'flutter') head += '\n  #define TREE_SWAY_FLUTTER';
+  if (rootHeight !== undefined && rootHeight > 0) {
+    head += `\n  #define TREE_SWAY_ROOT_HEIGHT ${rootHeight.toFixed(2)}`;
+  }
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uWindDir = treeWindUniforms.uWindDir;
     shader.uniforms.uWindAmp = treeWindUniforms.uWindAmp;
@@ -442,8 +465,10 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile): void {
       .replace('#include <project_vertex>', TREE_SWAY_PROJECT_VERTEX);
   };
   // onBeforeCompile edits are not part of three's default program cache key; a stable key
-  // (varied by profile) keeps the swayed program from colliding with an unswayed build.
-  material.customProgramCacheKey = () => `tree-wind-sway-${profile}-v2`;
+  // (varied by profile + root height) keeps the swayed program from colliding with an
+  // unswayed build or a differently-rooted variant.
+  const heightTag = rootHeight !== undefined && rootHeight > 0 ? `-h${rootHeight.toFixed(2)}` : '';
+  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}-v2`;
 }
 
 /** Advance the forest's wind sway one render frame. Reads the shared Wind field (downwind
@@ -536,25 +561,221 @@ function depthUuidRandom(): number {
  *  is swapped in a try/finally and restored) so it never touches — and never shifts — a caller's
  *  seeded RNG stream. The pre-existing visible materials deliberately keep drawing from the live
  *  stream; the verification harnesses baseline that, so only these NEW materials are stream-neutral. */
-function getSwayDepthMaterial(profile: SwayProfile): THREE.MeshDepthMaterial {
-  const existing = swayDepthMaterials[profile];
+function getSwayDepthMaterial(profile: SwayProfile, opts?: SwayOptions): THREE.MeshDepthMaterial {
+  const key = `${profile}|${opts?.rootHeight !== undefined ? opts.rootHeight.toFixed(2) : ''}|` +
+    `${opts?.map ? 'map' : ''}${opts?.alphaTest !== undefined ? opts.alphaTest : ''}`;
+  const existing = swayDepthMaterials[key];
   if (existing) return existing;
   const savedRandom = Math.random;
   Math.random = depthUuidRandom;
   let material: THREE.MeshDepthMaterial;
   try {
-    material = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-    applyTreeSway(material, profile);
+    const params: THREE.MeshDepthMaterialParameters = { depthPacking: THREE.RGBADepthPacking };
+    // Needle cards need their alpha silhouette in the shadow map, not the full quad.
+    if (opts?.map) params.map = opts.map;
+    if (opts?.alphaTest !== undefined) params.alphaTest = opts.alphaTest;
+    material = new THREE.MeshDepthMaterial(params);
+    applyTreeSway(material, profile, opts?.rootHeight);
   } finally {
     Math.random = savedRandom;
   }
-  swayDepthMaterials[profile] = material;
+  swayDepthMaterials[key] = material;
   return material;
 }
 
 /** Pick a random palette index (forest colour variety); one RNG draw, as before. */
 function pickColorIndex(paletteLength: number): number {
   return Math.floor(Math.random() * paletteLength);
+}
+
+// --- EZ-Tree evergreen prototype (issue #282, opt-in via ?eztrees) -----------------
+// ez-forest.ts generates a few low-poly conifer archetypes (merged branch tubes +
+// needle cards); this section renders them with the SAME pipeline as the stylized
+// forest: InstancedMesh per archetype part, per-instance palette tint, procedural
+// bark maps, wind sway with matching shadow-depth materials, and instanced snow.
+// The archetype chunk loads lazily (it is ~4 MB of embedded textures), so the
+// visual forest is appended asynchronously a moment after addTrees returns —
+// collision (`treePositions`) is computed synchronously either way and never waits.
+
+/** World-space height an archetype is scaled to at treeScale 1 (matches the ~8-13u
+ *  stylized conifers so collision radii and sightlines stay comparable). */
+const EZ_TREE_TARGET_HEIGHT = 10;
+
+/** One tree slot for the async EZ build: its placement matrix + palette-driving hash. */
+interface EzPlacement {
+  matrix: THREE.Matrix4;
+  scale: number;
+  x: number;
+  z: number;
+}
+
+// Subtle needle tints (the needle sprite already carries the green; these vary
+// brightness/frost per instance rather than re-colourising the card).
+let ezLeafTints: THREE.Color[] | null = null;
+function getEzLeafTints(): THREE.Color[] {
+  if (!ezLeafTints) {
+    ezLeafTints = ['#ffffff', '#edf5ed', '#e0eee4', '#f2efe2', '#e3ebf3'].map(c => new THREE.Color(c));
+  }
+  return ezLeafTints;
+}
+
+/** Per-archetype visible materials (bark tube + needle cards), memoized. */
+interface EzMaterialSet { bark: THREE.MeshStandardMaterial; leaves: THREE.MeshStandardMaterial; }
+let ezMaterialSets: EzMaterialSet[] | null = null;
+function getEzMaterialSets(archetypes: EzArchetype[]): EzMaterialSet[] {
+  if (!ezMaterialSets) {
+    ezMaterialSets = archetypes.map((a) => {
+      const bark = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.95,
+        map: getBarkAlbedo(),
+        normalMap: getBarkNormal(),
+        normalScale: new THREE.Vector2(0.8, 0.8)
+      });
+      applyTreeSway(bark, 'rooted', a.height);
+      const leavesParams: THREE.MeshStandardMaterialParameters = {
+        color: 0xffffff,
+        roughness: 0.85,
+        side: THREE.DoubleSide,
+        alphaTest: 0.35
+      };
+      if (a.leafMap) leavesParams.map = a.leafMap;
+      const leaves = new THREE.MeshStandardMaterial(leavesParams);
+      applyTreeSway(leaves, 'flutter', a.height);
+      return { bark, leaves };
+    });
+  }
+  return ezMaterialSets;
+}
+
+/** Deterministic per-slot hash (archetype pick, tints, snow variation) — no RNG
+ *  draws after the async gap, so the visual build never perturbs seeded streams
+ *  and re-builds are reproducible for the same placements. */
+function hashPlacement(x: number, z: number, salt: number): number {
+  let h = ((Math.round(x * 8) * 73856093) ^ (Math.round(z * 8) * 19349663) ^ (salt * 83492791)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 0x5bd1e995);
+  return (h ^ (h >>> 15)) >>> 0;
+}
+
+// Re-init guard: addTrees on the same scene supersedes any EZ build still awaiting
+// the archetype chunk (scene-local, mirroring the scene-local forest teardown).
+const ezBuildTokens = new WeakMap<THREE.Scene, number>();
+// The most recent scheduled build; tests/tools await this to see the full forest.
+let ezForestBuildPromise: Promise<void> = Promise.resolve();
+
+/** Resolves when the last scheduled EZ forest build has been appended (or skipped). */
+function ezForestReady(): Promise<void> {
+  return ezForestBuildPromise;
+}
+
+function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
+  const token = (ezBuildTokens.get(scene) ?? 0) + 1;
+  ezBuildTokens.set(scene, token);
+  ezForestBuildPromise = ensureEzArchetypes()
+    .then((archetypes) => {
+      if (ezBuildTokens.get(scene) !== token) return; // superseded by a re-init
+      buildEzForest(scene, placements, archetypes);
+    })
+    .catch((err) => {
+      console.error('EzForest: falling back to no EZ forest for this init', err);
+    });
+}
+
+/** Append the EZ forest InstancedMeshes for the collected placements. Synchronous
+ *  and deterministic given (placements, archetypes); all randomness is hash-based. */
+function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes: EzArchetype[]): void {
+  if (archetypes.length === 0 || placements.length === 0) return;
+  const sets = getEzMaterialSets(archetypes);
+  const trunkPalette = getTrunkColors();
+  const leafTints = getEzLeafTints();
+
+  // Bucket placements per archetype by spatial hash (stable species stands).
+  const perArchetype: EzPlacement[][] = archetypes.map(() => []);
+  placements.forEach((p) => {
+    perArchetype[hashPlacement(p.x, p.z, 1) % archetypes.length]!.push(p);
+  });
+
+  const snowCapDescs: THREE.Matrix4[] = [];
+  const snowPatchDescs: THREE.Matrix4[] = [];
+  const scaleMat = new THREE.Matrix4();
+  const fullMat = new THREE.Matrix4();
+  const anchorPos = new THREE.Vector3();
+  const snowQuat = new THREE.Quaternion();
+  const snowEuler = new THREE.Euler();
+  const snowScale = new THREE.Vector3();
+
+  archetypes.forEach((a, i) => {
+    const list = perArchetype[i]!;
+    if (list.length === 0) return;
+    const branches = new THREE.InstancedMesh(a.branches, sets[i]!.bark, list.length);
+    branches.castShadow = true;
+    branches.customDepthMaterial = getSwayDepthMaterial('rooted', { rootHeight: a.height });
+    branches.name = 'forestInstanced';
+    branches.userData.forestPart = 'ezBranches';
+    branches.userData.ezArchetype = i;
+    const leaves = new THREE.InstancedMesh(a.leaves, sets[i]!.leaves, list.length);
+    leaves.castShadow = true;
+    leaves.customDepthMaterial = getSwayDepthMaterial('flutter', {
+      rootHeight: a.height, map: a.leafMap, alphaTest: 0.35
+    });
+    leaves.name = 'forestInstanced';
+    leaves.userData.forestPart = 'ezLeaves';
+    leaves.userData.ezArchetype = i;
+
+    list.forEach((p, j) => {
+      const s = (EZ_TREE_TARGET_HEIGHT * p.scale) / a.height;
+      scaleMat.makeScale(s, s, s);
+      fullMat.multiplyMatrices(p.matrix, scaleMat);
+      branches.setMatrixAt(j, fullMat);
+      leaves.setMatrixAt(j, fullMat);
+      const h = hashPlacement(p.x, p.z, 2);
+      branches.setColorAt(j, trunkPalette[h % TRUNK_WEATHERED_START]!);
+      leaves.setColorAt(j, leafTints[(h >>> 4) % leafTints.length]!);
+
+      // Snow: a cap on the crown tip plus a few shelves draped on needle anchors.
+      anchorPos.set(0, a.height, 0).applyMatrix4(fullMat);
+      const capR = 0.45 * p.scale;
+      snowCapDescs.push(new THREE.Matrix4().compose(
+        anchorPos, snowQuat.identity(), snowScale.set(capR, capR * 0.5, capR)));
+      const shelfCount = 3 + (h % 3);
+      const stride = Math.max(1, Math.floor(a.snowAnchors.length / shelfCount));
+      for (let k = (h >>> 6) % Math.max(1, stride), c = 0;
+        k < a.snowAnchors.length && c < shelfCount; k += stride, c++) {
+        const anchor = a.snowAnchors[k]!;
+        anchorPos.set(anchor.x, anchor.y, anchor.z).applyMatrix4(fullMat);
+        const outward = Math.atan2(anchor.x, anchor.z);
+        const tilt = 0.35 + ((h >>> (8 + c)) % 16) / 40;
+        snowQuat.setFromEuler(snowEuler.set(tilt * Math.sin(outward), 0, -tilt * Math.cos(outward)));
+        const shelfR = (0.22 + ((h >>> (4 + c)) % 8) / 40) * p.scale;
+        snowPatchDescs.push(new THREE.Matrix4().compose(
+          anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)));
+        snowQuat.identity();
+      }
+    });
+    branches.instanceMatrix.needsUpdate = true;
+    leaves.instanceMatrix.needsUpdate = true;
+    if (branches.instanceColor) branches.instanceColor.needsUpdate = true;
+    if (leaves.instanceColor) leaves.instanceColor.needsUpdate = true;
+    scene.add(branches);
+    scene.add(leaves);
+  });
+
+  // Instanced snow reuses the pooled snow geometry + shared white material (and,
+  // like the stylized forest, snow-on-snow never enters the real shadow map).
+  const snowDefs: Array<[THREE.BufferGeometry, THREE.Matrix4[], string]> = [
+    [getSnowCapGeometry(), snowCapDescs, 'ezSnowCap'],
+    [getSnowPatchGeometry(), snowPatchDescs, 'ezSnowPatch']
+  ];
+  for (const [geometry, descs, part] of snowDefs) {
+    if (descs.length === 0) continue;
+    const im = new THREE.InstancedMesh(geometry, getSnowMaterial(), descs.length);
+    im.castShadow = false;
+    im.name = 'forestInstanced';
+    im.userData.forestPart = part;
+    descs.forEach((m, j) => im.setMatrixAt(j, m));
+    im.instanceMatrix.needsUpdate = true;
+    scene.add(im);
+  }
 }
 
 // --- Instanced forest: collectors + builder (the draw-call win, issue #...) ---
@@ -1099,6 +1320,12 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   const treeEuler = new THREE.Euler();
   const collarMatrix = new THREE.Matrix4();
   const treeMatrix = new THREE.Matrix4();
+  // EZ evergreen prototype (issue #282): when the flag is on, the per-tree placement
+  // matrix feeds the async archetype build instead of the stylized collector; snow
+  // collars still ground every tree either way. Flag OFF leaves this loop's RNG
+  // draw sequence and buckets byte-identical to before.
+  const ezOn = isEzForestEnabled();
+  const ezPlacements: EzPlacement[] = [];
   treePositions.forEach(pos => {
     const terrainHeight = getTerrainHeight(pos.x, pos.z);
     const gradient = getTerrainGradient(pos.x, pos.z);
@@ -1112,7 +1339,11 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
     treeMatrix
       .makeTranslation(pos.x, terrainHeight - sink, pos.z)
       .multiply(new THREE.Matrix4().makeRotationFromEuler(treeEuler.set(leanX, yaw, leanZ)));
-    collectTree(treeScale, treeMatrix, buckets);
+    if (ezOn) {
+      ezPlacements.push({ matrix: treeMatrix.clone(), scale: treeScale, x: pos.x, z: pos.z });
+    } else {
+      collectTree(treeScale, treeMatrix, buckets);
+    }
 
     const collarRadius = treeScale * (1.0 + Math.random() * 0.5);
     collarMatrix.makeTranslation(pos.x, terrainHeight - 0.05, pos.z);
@@ -1122,6 +1353,7 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       { x: collarRadius, y: collarRadius * 0.25, z: collarRadius });
   });
   buildForest(scene, buckets);
+  if (ezOn) scheduleEzForest(scene, ezPlacements);
 
   return treePositions;
 }
@@ -1163,10 +1395,14 @@ export function resetTreePools(): void {
   free(snowMaterial);
   free(barkInstancedMaterial);
   free(foliageInstancedMaterial);
-  (Object.keys(swayDepthMaterials) as SwayProfile[]).forEach(k => {
+  Object.keys(swayDepthMaterials).forEach(k => {
     free(swayDepthMaterials[k]);
     delete swayDepthMaterials[k];
   });
+  (ezMaterialSets || []).forEach(set => { free(set.bark); free(set.leaves); });
+  ezMaterialSets = null;
+  ezLeafTints = null;
+  resetEzForest();
   (trunkMaterials || []).forEach(free);
   (foliageMaterials || []).forEach(free);
   free(barkNormalTexture);
@@ -1192,7 +1428,12 @@ export const Trees = {
   treeInCorridorLane,
   updateWind,
   resetWind,
-  treeSwayAmplitude
+  treeSwayAmplitude,
+  // EZ evergreen prototype seams (issue #282): flag control + build-completion
+  // promise (the archetype chunk loads lazily, so tests/tools await this).
+  setEzForestEnabled,
+  isEzForestEnabled,
+  ezForestReady
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).
