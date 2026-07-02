@@ -106,12 +106,21 @@ test.describe('disposeGame teardown', () => {
     await page.goto('/index.html?intro=force', { waitUntil: 'domcontentloaded' });
     await waitForOrchestrator(page);
 
+    // Register the intro watcher BEFORE clicking: on a loaded CI runner the click
+    // call itself can take seconds to RESOLVE (slow input acks + the scheduled-
+    // navigation wait), by which time the 4 s fly-over may already be over — the
+    // class would be added and removed entirely inside the click call and the
+    // post-click wait would hang forever. Polling from before the click means the
+    // `intro-active` window cannot be missed.
+    const introStarted = page.waitForFunction(() => document.body.classList.contains('intro-active'));
     await page.click('#startGameButton');
     // The intro is running once the body gets the `intro-active` class.
-    await page.waitForFunction(() => document.body.classList.contains('intro-active'));
+    await introStarted;
 
     // Dispose mid-fly-over: this exercises the activeIntro.skip() cancellation path
     // (its private rAF is cancelled, so no further renderer.render on a dead context).
+    // (On a very slow runner the intro may have completed inside the click call, in
+    // which case skip() is a no-op on a finished intro — still a valid teardown.)
     await page.evaluate(() => (window as DisposeWindow).disposeGame!());
 
     await page.waitForTimeout(300);
