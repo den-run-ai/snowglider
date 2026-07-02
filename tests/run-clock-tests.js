@@ -51,22 +51,27 @@ const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 8;
 
 /**
- * Mirror of animate()'s clock handling: rAF-schedules are the `frames` timestamps,
- * the guard check sits before the accumulator drain and resets lastTime, exactly as
- * in main-loop.ts. Returns the fixed steps run per frame timestamp.
- * @param {{isPaused(): boolean} | undefined} guard
- * @param {number[]} frames - rAF timestamps in ms
+ * Persistent mirror of animate()'s clock handling: `lastTime`/`accumulator` live
+ * across calls (like the live loop's module-scoped state), the guard check sits
+ * before the accumulator drain and resets lastTime — on paused frames AND (via
+ * consumeResumed) on the first frame after a resume — exactly as in main-loop.ts.
+ * Call the returned function once per rAF timestamp; it returns that frame's steps.
+ * @param {{isPaused(): boolean, consumeResumed(): boolean} | undefined} guard
+ * @param {number} firstFrame - the startLoop() seed timestamp in ms
  */
-function driveLoop(guard, frames) {
-  let lastTime = frames.length ? frames[0] : 0;
+function makeLoop(guard, firstFrame) {
+  let lastTime = firstFrame;
   let accumulator = 0;
-  /** @type {Array<{time: number, steps: number}>} */
-  const perFrame = [];
-  for (const time of frames) {
-    if (guard && guard.isPaused()) {
-      lastTime = time; // don't accumulate the hidden span as frameDelta
-      perFrame.push({ time, steps: 0 });
-      continue;
+  /** @param {number} time */
+  return function frame(time) {
+    if (guard) {
+      if (guard.isPaused()) {
+        lastTime = time; // don't accumulate the hidden span as frameDelta
+        return 0;
+      }
+      // First frame after a resume: reseed the frame clock. Covers the stopped-rAF
+      // case where no paused frame ever ran (codex review, PR #278).
+      if (guard.consumeResumed()) lastTime = time;
     }
     const frameDelta = Math.min((time - lastTime) / 1000, MAX_SUBSTEPS * FIXED_DT);
     lastTime = time;
@@ -77,9 +82,18 @@ function driveLoop(guard, frames) {
       substeps++;
     }
     if (substeps >= MAX_SUBSTEPS && accumulator >= FIXED_DT) accumulator = 0;
-    perFrame.push({ time, steps: substeps });
-  }
-  return perFrame;
+    return substeps;
+  };
+}
+
+/**
+ * Drive one frame per timestamp through a fresh persistent loop.
+ * @param {{isPaused(): boolean, consumeResumed(): boolean} | undefined} guard
+ * @param {number[]} frames - rAF timestamps in ms
+ */
+function driveLoop(guard, frames) {
+  const loop = makeLoop(guard, frames.length ? frames[0] : 0);
+  return frames.map(time => ({ time, steps: loop(time) }));
 }
 
 async function main() {
@@ -96,6 +110,7 @@ async function main() {
     });
 
     check('guard starts unpaused', guard.isPaused() === false);
+    check('no resume is pending before any hide', guard.consumeResumed() === false);
 
     t = 5000;
     doc.setVisibility('hidden');
@@ -107,6 +122,8 @@ async function main() {
     check('resume shifts startTime by exactly the hidden span (4000 ms)',
       state.startTime === 5000);
     check('resume unpauses the guard', guard.isPaused() === false);
+    check('consumeResumed reports the resume exactly once, then self-clears',
+      guard.consumeResumed() === true && guard.consumeResumed() === false);
 
     // Elapsed parity with a never-hidden control run: at wall time 12000 the run has
     // been VISIBLE for (5000-1000) + (12000-9000) = 7000 ms; the shifted clock must
@@ -194,6 +211,7 @@ async function main() {
       }
       // mirror of animate()'s gate + accumulator (see driveLoop)
       if (guard.isPaused()) { lastTime = time; continue; }
+      if (guard.consumeResumed()) lastTime = time;
       const frameDelta = Math.min((time - lastTime) / 1000, MAX_SUBSTEPS * FIXED_DT);
       lastTime = time;
       accumulator += frameDelta;
@@ -218,6 +236,61 @@ async function main() {
     const firstResumedSteps = steps[steps.length - Math.round((5000 - resumeAt) / 16.67) - 1];
     check('resume does not flush the hidden span into the accumulator',
       firstResumedSteps <= 1);
+  }
+
+  console.log('\n--- Stopped-rAF resume: no free physics backlog (codex, PR #278) ---');
+  {
+    // The common background-tab behavior: the browser STOPS rAF entirely while
+    // hidden, so no paused frame ever runs and the visibilitychange resume handler
+    // clears the pause before the next animate() call. Without the consumeResumed
+    // reseed, that resumed frame would compute frameDelta from the pre-hide lastTime
+    // (capped at MAX_SUBSTEPS * FIXED_DT ≈ 133 ms) against a clock whose hidden span
+    // was just removed — free distance on every hide/resume toggle.
+    const doc = fakeDoc();
+    let t = 0;
+    const state = { gameActive: true, startTime: 0 };
+    const guard = createRunClockGuard(state, {
+      doc: /** @type {any} */ (doc),
+      now: () => t
+    });
+
+    // ONE persistent loop across the whole scenario (lastTime survives the hide,
+    // exactly like the live loop's module state). 60 Hz until 1000 ms, then NO
+    // frames at all while hidden, then 60 Hz again from 4000.
+    const loop = makeLoop(guard, 0);
+    let beforeTotal = 0;
+    for (let ms = 0; ms <= 1000; ms += 16.67) beforeTotal += loop(ms);
+
+    t = 1000; doc.setVisibility('hidden');   // rAF stops: no frames until resume
+    t = 4000; doc.setVisibility('visible');  // resume fires BEFORE the next frame
+
+    check('stopped-rAF hide still shifts the clock by the hidden span',
+      state.startTime === 3000);
+    // The first resumed frame's lastTime still points at the pre-hide frame
+    // (~1000 ms ago). Without the consumeResumed reseed it would run the capped
+    // ~133 ms backlog (8 steps) against the already-shifted clock; with it, zero.
+    const firstResumedSteps = loop(4000);
+    check('first frame after a stopped-rAF resume runs zero backlog steps',
+      firstResumedSteps === 0);
+    let afterTotal = 0;
+    for (let ms = 4016.67; ms <= 5000; ms += 16.67) afterTotal += loop(ms);
+    check('physics resumes at the normal rate after the reseed',
+      afterTotal >= 56 && afterTotal <= 62);
+    check('pre-hide frames were unaffected', beforeTotal >= 58 && beforeTotal <= 62);
+
+    // Farm attempt: repeated hide/resume toggles with stopped rAF between them must
+    // grant zero physics in total — each resumed frame reseeds instead of stepping
+    // the pre-hide backlog. (Same persistent loop throughout.)
+    let farmedSteps = 0;
+    let wall = 5000;
+    for (let i = 0; i < 10; i++) {
+      t = wall; doc.setVisibility('hidden');
+      wall += 3000; // hidden for 3 s, no frames
+      t = wall; doc.setVisibility('visible');
+      farmedSteps += loop(wall + 1); // the single resumed frame
+      wall += 10;
+    }
+    check('rapid hide/resume toggling farms zero physics steps', farmedSteps === 0);
   }
 
   console.log('\n--- driveLoop sanity (mirrors the live gate) ---');

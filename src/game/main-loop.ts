@@ -363,13 +363,23 @@ export function createMainLoop(deps: MainLoopDeps) {
       // hidden, so physics must not advance either — a background tab whose rAF is
       // throttled (~1 fps) rather than stopped would otherwise bank up to
       // MAX_SUBSTEPS * FIXED_DT of physics per wall-second against a stopped timer.
-      // Reset lastTime so the hidden span never enters the accumulator as frameDelta
-      // (the frameDelta ceiling would cap it anyway; this keeps the accumulator
-      // exactly honest). Boulders, wind, snow, and rendering all sit below this
-      // gate, so the whole frame pauses coherently.
-      if (runClockGuard && runClockGuard.isPaused()) {
-        lastTime = time;
-        return;
+      // Reset lastTime so the hidden span never enters the accumulator as frameDelta.
+      // Boulders, wind, snow, and rendering all sit below this gate, so the whole
+      // frame pauses coherently.
+      if (runClockGuard) {
+        if (runClockGuard.isPaused()) {
+          lastTime = time;
+          return;
+        }
+        // First frame after a resume: reseed the frame clock. On browsers that STOP
+        // rAF while hidden (the common case) the paused branch above never ran, so
+        // lastTime still points at the last PRE-HIDE frame — without this reseed the
+        // resumed frame would run the ~133 ms capped backlog of physics against a
+        // clock whose hidden interval was just shifted out, and repeated hide/resume
+        // could farm that into free distance (codex review, PR #278).
+        if (runClockGuard.consumeResumed()) {
+          lastTime = time;
+        }
       }
       try {
       // Ceiling the frame delta at the spiral guard (MAX_SUBSTEPS * FIXED_DT) so a long

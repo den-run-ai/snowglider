@@ -27,9 +27,13 @@
 // This is also most of the machinery for an explicit pause (issue #39): an Esc/P key
 // can drive the same "freeze clock + skip stepping" contract.
 
-/** The main loop reads this each frame: while true, skip stepping AND rendering. */
+/** The main loop reads this each frame: while isPaused(), skip stepping AND
+ *  rendering; on the first frame after a resume, consumeResumed() tells the loop to
+ *  reseed its frame clock (the stopped-rAF case has no paused frame — see below). */
 export interface RunClockGuard {
   isPaused(): boolean;
+  /** True exactly once after each hidden->visible resume, then self-clears. */
+  consumeResumed(): boolean;
 }
 
 export interface RunClockGuardOptions {
@@ -57,6 +61,15 @@ export function createRunClockGuard(
   // we are not paused. Captured only while a run is active, so hiding on the start
   // menu / game-over screen never shifts the next run's clock.
   let hiddenAt: number | null = null;
+  // Set on each hidden->visible resume, consumed by the loop's next frame. On
+  // browsers that STOP rAF for hidden tabs (the common case) no paused frame ever
+  // runs, so the loop's `lastTime = time` reset in its isPaused() branch never
+  // executes — the resumed frame would then compute frameDelta from the PRE-HIDE
+  // lastTime (capped at the ~133 ms spiral guard) against a clock whose hidden
+  // interval was just removed. Repeated hide/resume could farm that into free
+  // distance (codex review, PR #278). consumeResumed() lets the loop reseed its
+  // frame clock on the first visible frame whether or not rAF fired while hidden.
+  let resumed = false;
 
   doc.addEventListener('visibilitychange', () => {
     if (doc.visibilityState === 'hidden') {
@@ -66,8 +79,16 @@ export function createRunClockGuard(
       // startTime, so this one shift keeps HUD/splits/ghost/finish coherent.
       state.startTime += now() - hiddenAt;
       hiddenAt = null;
+      resumed = true;
     }
   }, opts.signal ? { signal: opts.signal } : undefined);
 
-  return { isPaused: () => hiddenAt !== null };
+  return {
+    isPaused: () => hiddenAt !== null,
+    consumeResumed: () => {
+      const wasResumed = resumed;
+      resumed = false;
+      return wasResumed;
+    }
+  };
 }
