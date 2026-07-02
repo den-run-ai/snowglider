@@ -567,7 +567,7 @@ function bunnyLipFrame(controls) {
   const pos = { x: 0, z: -50, y: getTerrainHeight(0, -50) };
   const velocity = { x: 0, z: -16 }; // above the movingFast (>12) gate
   const lastTerrainHeight = getTerrainHeight(0, -50) + 5; // heightDifference < -0.8
-  const r = mod(snowman, 1 / 60, pos, velocity, false, 0, lastTerrainHeight,
+  const r = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, false, 0, lastTerrainHeight,
     0, 0, controls, 0, 0, 3, 3.0,
     getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
     [], undefined, BUNNY_SKI);
