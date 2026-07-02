@@ -273,10 +273,17 @@ async function fetchGa4(sa) {
       }
       // GA4 omits days with zero events, which would compress quiet stretches out of the
       // baseline and make a post-lull spike compare against too few / only-active days.
-      // Rebuild the full calendar range between the first and last returned day and
-      // zero-fill the gaps (detectAnomalies reads missing days as 0).
+      // Rebuild the FULL requested window (90daysAgo → today, not just the span of returned
+      // rows) and zero-fill it — otherwise an early spike after a quiet start would sit on
+      // day 0 with no preceding zero-day baseline and never get evaluated. detectAnomalies
+      // reads missing days as 0. Anchor on the request window, widened to cover any observed
+      // date that falls outside it (property-timezone drift vs the runner's UTC clock).
       const observed = [...days].sort();
-      const sortedDays = observed.length ? allDaysBetween(observed[0], observed[observed.length - 1]) : [];
+      const startYmd = ymd(Date.now() - 90 * 86400e3);
+      const endYmd = ymd(Date.now());
+      const lo = observed.length && observed[0] < startYmd ? observed[0] : startYmd;
+      const hi = observed.length && observed[observed.length - 1] > endYmd ? observed[observed.length - 1] : endYmd;
+      const sortedDays = allDaysBetween(lo, hi);
       series.set('(all events)', dayTotals);
       anomalies = {
         available: true, window: '90daysAgo → today',
@@ -341,16 +348,18 @@ function histogram(values, binCount = 10) {
 // itself). Flag days that are both a large multiple of the baseline AND far above it in
 // robust-z terms — that combination is what a real "anomaly spike" looks like and avoids
 // firing on tiny-count noise. Returns spikes sorted most-recent first.
+// Format a millisecond timestamp as a GA4 'YYYYMMDD' date (UTC).
+function ymd(ms) {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
 // Every calendar day (inclusive) between two GA4 'YYYYMMDD' dates, so zero-event days GA4
 // omits are restored into the anomaly baseline.
 function allDaysBetween(minYmd, maxYmd) {
   const toUTC = (s) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
-  const fmt = (ms) => {
-    const d = new Date(ms);
-    return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
-  };
   const out = [];
-  for (let ms = toUTC(minYmd), end = toUTC(maxYmd); ms <= end; ms += 86400e3) out.push(fmt(ms));
+  for (let ms = toUTC(minYmd), end = toUTC(maxYmd); ms <= end; ms += 86400e3) out.push(ymd(ms));
   return out;
 }
 
