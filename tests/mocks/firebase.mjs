@@ -100,6 +100,10 @@ export const analyticsInstance = { __analytics: true };
 let pendingWritePath = null;
 /** @type {{ promise: Promise<unknown>, resolve: (value?: unknown) => void, reject: (reason?: unknown) => void } | null} */
 let pendingWrite = null;
+/** When set, the next setDoc() to this exact path rejects with the error (one-shot);
+ *  nothing is written. Drives write-failure paths like the rules-skew fallback.
+ *  @type {{ path: string, error: unknown } | null} */
+let nextSetDocError = null;
 let timestampCounter = 0;
 
 /**
@@ -166,6 +170,7 @@ export function reset() {
   calls.setPersistence = 0;
   pendingWritePath = null;
   pendingWrite = null;
+  nextSetDocError = null;
   timestampCounter = 0;
   authStateCallback = null;
   nextPopupResult = null;
@@ -298,6 +303,13 @@ export function getDoc(ref) {
  */
 export function setDoc(ref, data, options) {
   calls.setDoc.push({ path: ref.path, data: clone(data), options: clone(options) });
+
+  if (nextSetDocError && nextSetDocError.path === ref.path) {
+    const { error } = nextSetDocError;
+    nextSetDocError = null; // one-shot
+    return Promise.reject(error);
+  }
+
   const commit = () => writeDoc(ref, data, options);
 
   if (pendingWritePath === ref.path && pendingWrite) {
@@ -531,6 +543,17 @@ export function setNextLinkResult(result) {
  */
 export function setNextSignOutError(error) {
   nextSignOutError = error;
+}
+
+/**
+ * Make the next setDoc() to `path` reject with `error` (one-shot; nothing written),
+ * so write-failure paths — e.g. the leaderboard displayName rules-skew retry — can
+ * be exercised.
+ * @param {string} path
+ * @param {unknown} error
+ */
+export function setNextSetDocError(path, error) {
+  nextSetDocError = { path, error };
 }
 
 /**
