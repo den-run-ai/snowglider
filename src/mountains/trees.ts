@@ -831,23 +831,29 @@ function addSnowCaps(tree: THREE.Object3D, treeHeight: number, widthScale: numbe
 
 // Allocate the forest InstancedMeshes from the collected buckets and add them to the scene.
 function buildForest(scene: THREE.Scene, buckets: Buckets): THREE.InstancedMesh[] {
-  // The 4th field is the sway profile. It drives BOTH the visible material and the
-  // matching shadow-caster depth material.
-  const defs: Array<[GeomKey, THREE.Material, THREE.Color[] | null, SwayProfile]> = [
-    ['trunk', getBarkInstancedMaterial(), getTrunkColors(), 'rooted'],
-    ['cone', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter'],
-    ['branch', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter'],
-    ['snowCap', getSnowMaterial(), null, 'canopy'],
-    ['snowPatch', getSnowMaterial(), null, 'canopy']
+  // The profile drives both visible sway and (when enabled) the matching depth
+  // material; the final boolean controls whether this part participates in the
+  // real shadow map.
+  const defs: Array<[GeomKey, THREE.Material, THREE.Color[] | null, SwayProfile, boolean]> = [
+    ['trunk', getBarkInstancedMaterial(), getTrunkColors(), 'rooted', true],
+    ['cone', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter', true],
+    ['branch', getFoliageInstancedMaterial(), getFoliageColors(), 'flutter', true],
+    // White snow sitting on white snow should not cast dark shadow-map pancakes:
+    // trunks/canopy already carry the tree shadow, while these caps/collars remain
+    // visible grounding detail and still sway with the canopy shader.
+    ['snowCap', getSnowMaterial(), null, 'canopy', false],
+    ['snowPatch', getSnowMaterial(), null, 'canopy', false]
   ];
   const built: THREE.InstancedMesh[] = [];
-  for (const [key, material, palette, profile] of defs) {
+  for (const [key, material, palette, profile, castsShadow] of defs) {
     const list = buckets[key];
     if (list.length === 0) continue; // skip empty families (no zero-count draw)
     const im = new THREE.InstancedMesh(geometryForKey(key), material, list.length);
-    im.castShadow = true;
-    // Shadow caster sways in lockstep with the visible mesh (shared wind uniforms).
-    im.customDepthMaterial = getSwayDepthMaterial(profile);
+    im.castShadow = castsShadow;
+    if (castsShadow) {
+      // Shadow caster sways in lockstep with the visible mesh (shared wind uniforms).
+      im.customDepthMaterial = getSwayDepthMaterial(profile);
+    }
     im.name = 'forestInstanced';        // scene-cleanup + test handle
     im.userData.forestPart = key;       // lets tests identify the trunk mesh (1 per tree)
     for (let i = 0; i < list.length; i++) {

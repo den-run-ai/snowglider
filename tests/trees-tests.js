@@ -52,6 +52,20 @@ async function main() {
     assert(trunk && trunk.material && trunk.material.isMeshStandardMaterial,
       'createTree trunk uses a shared MeshStandardMaterial');
     assert(trunk.castShadow === true, 'createTree parts cast shadows');
+    const foliageColors = new Set();
+    tree.children.forEach((c) => {
+      const mesh = /** @type {any} */ (c);
+      const color = mesh.material && mesh.material.color;
+      if (!color || typeof color.getHSL !== 'function') return;
+      const hsl = { h: 0, s: 0, l: 0 };
+      color.getHSL(hsl);
+      if (hsl.h > 0.32 && hsl.h < 0.50 && hsl.s > 0.25) {
+        foliageColors.add(color.getHexString());
+      }
+    });
+    assert(foliageColors.size === 1,
+      'createTree keeps one coherent foliage shade per tree',
+      `${foliageColors.size} foliage shade(s)`);
 
     // Scale variation is applied (canonical geometry resized, not duplicated).
     const small = Trees.createTree(0.5);
@@ -98,6 +112,11 @@ async function main() {
     assert(forest.length >= 1 && forest.length <= 5,
       'forest renders as a handful of InstancedMeshes', `${forest.length} meshes`);
     assert(forest.every(m => m.isInstancedMesh), 'forest meshes are InstancedMeshes');
+    const forestParts = new Set(forest.map(m => m.userData.forestPart));
+    const expectedParts = ['branch', 'cone', 'snowCap', 'snowPatch', 'trunk'];
+    assert(expectedParts.every(p => forestParts.has(p)) && [...forestParts].every(p => expectedParts.includes(p)),
+      'forest uses only complete live-tree part families (no broken bare-branch family)',
+      [...forestParts].sort().join(', '));
 
     const trunk = forest.find(m => m.userData.forestPart === 'trunk');
     assert(!!trunk, 'a trunk InstancedMesh is tagged via userData.forestPart');
@@ -112,6 +131,9 @@ async function main() {
     const snowCap = forest.find(m => m.userData.forestPart === 'snowCap');
     assert(!snowCap || snowCap.instanceColor == null,
       'snow caps use a shared white material (no instanceColor)');
+    const snowPatch = forest.find(m => m.userData.forestPart === 'snowPatch');
+    assert((!snowCap || snowCap.castShadow === false) && (!snowPatch || snowPatch.castShadow === false),
+      'tree snow caps/patches do not cast dark snow-on-snow shadow blobs');
 
     // Re-init: a second addTrees must dispose the old forest and rebuild without
     // accumulating duplicate InstancedMeshes in the scene (covers the teardown loop).
