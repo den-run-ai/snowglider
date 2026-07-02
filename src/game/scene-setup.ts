@@ -52,6 +52,7 @@ export interface GameState {
   debris: SnowmanDebris | null;      // crash-shatter wipeout system (#53)
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
   lastAvalancheZ: number;            // z the trigger distance is measured from
+  dodgeAwarded: boolean;             // this slide's once-only dodge bonus already paid (JP-3)
   startTime: number;                 // performance.now() at run start (timer origin)
   bestTime: number;                  // best finish time in seconds (Infinity = none yet)
   gameActive: boolean;               // true while a run is live (drives the loop + input)
@@ -290,6 +291,7 @@ export function setupScene(signal?: AbortSignal) {
     debris: null,
     avalancheTriggered: false,
     lastAvalancheZ: 0,
+    dodgeAwarded: false,
     startTime: 0,
     bestTime: Infinity, // overwritten by readStoredBestTime() in the coordinator, before any read
     gameActive: false,       // start inactive until the user clicks the start button

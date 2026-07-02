@@ -67,6 +67,7 @@ export function createLifecycle(deps: LifecycleDeps) {
       avalanche.reset();
       state.avalancheTriggered = false;
       state.lastAvalancheZ = pos.z; // Reset to starting position
+      state.dodgeAwarded = false;   // a new run's slide re-arms the dodge bonus (JP-3)
     }
 
     // Reset keyboard controls

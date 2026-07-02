@@ -399,7 +399,9 @@ export class AvalancheSystem {
     }
   }
 
-  // Check if player is buried by avalanche (collision = burial)
+  // Check if player is buried by avalanche (collision = burial). NOTE: whether an
+  // overlap actually ENDS the run is decided by resolveBurialOutcome (below) at the
+  // loop's burial-check site — a deliberate jump can dodge the slide (JP-3, #47).
   checkBurial(playerPos: Vec3Like, hitRadius: number = 2): boolean {
     if (!this.active) return false;
 
@@ -490,6 +492,39 @@ export class AvalancheSystem {
       this.powderTexture = null;
     }
   }
+}
+
+// --- Avalanche-dodge window (jump-system completion JP-3 — the #47 headline) ----
+// The pure decision core for one frame's burial overlap, applied at the loop's
+// checkBurial() site in game/main-loop.ts (NEVER in the physics kernel — #245).
+// A player who is airborne on a DELIBERATE jump (playerJump provenance) while the
+// front overlaps them dodges the slide instead of being buried; the first dodging
+// frame of a slide additionally awards the once-per-slide bonus. Exploit guards,
+// pinned headlessly in tests/avalanche-tests.js:
+//   - provenance: auto-jump / hop air (playerJump false) is buried like grounded;
+//   - once per slide: `dodgeAwarded` (GameState, reset when the slide resets)
+//     collapses later dodging frames to 'dodged' (immune, no second award);
+//   - no grounded farming: without overlap the outcome is 'safe' regardless of
+//     input, and a grounded press during overlap is simply 'buried' — holding Jump
+//     near the slide does nothing (a grounded press spends its cooldown before the
+//     front arrives; the award needs airborne overlap).
+
+/** Outcome of one frame's burial check.
+ *  'safe'        — no boulder overlaps the player; nothing happens.
+ *  'buried'      — overlap without a deliberate-jump air phase: run over.
+ *  'dodgedFirst' — overlap dodged mid-jump, first time this slide: award + immune.
+ *  'dodged'      — overlap dodged mid-jump, already awarded: immune only. */
+export type BurialOutcome = 'safe' | 'buried' | 'dodgedFirst' | 'dodged';
+
+export function resolveBurialOutcome(
+  overlapping: boolean,
+  isInAir: boolean,
+  playerJump: boolean,
+  dodgeAwarded: boolean
+): BurialOutcome {
+  if (!overlapping) return 'safe';
+  if (isInAir && playerJump) return dodgeAwarded ? 'dodged' : 'dodgedFirst';
+  return 'buried';
 }
 
 // The window.Avalanche bridge was removed (issue #84): snowglider.js imports

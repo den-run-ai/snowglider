@@ -237,6 +237,12 @@ export const CourseModule = (function () {
     showFlash(`✦ CLEARED! ${kind === 'tree' ? '🌲' : '🪨'}`, '#ffeaa7');
   }
 
+  // Avalanche-dodge toast (JP-3, #47 headline): the once-per-slide reward for
+  // jumping the front. Warm orange — between the gold clear and the red slide UI.
+  function flashDodge() {
+    showFlash('🏔 DODGED THE AVALANCHE!', '#fdcb6e');
+  }
+
   // Bank air-score points earned this run (from a graded manual-jump landing in the
   // physics kernel). Reset to 0 each run in reset(); surfaced on the result screen.
   function addAirScore(points: number) {
@@ -822,6 +828,7 @@ export const CourseModule = (function () {
     update,
     flashAir,
     flashClear,
+    flashDodge,
     addAirScore,
     hideHud,
     onFinish,

@@ -32,6 +32,7 @@ import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
+import { resolveBurialOutcome } from '../avalanche.js';
 import { getDifficultyConfig } from '../difficulty.js';
 import { updateStatsHud, updateTimerDisplay, updateLevelHud } from '../ui/hud.js';
 import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
@@ -52,6 +53,16 @@ export const MAX_SUBSTEPS = 8;
 // scarf stream without it ever exceeding its clamps.
 const WIND_LOCAL_REF = 16;
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
+
+// Avalanche-dodge window (JP-3 — the #47 headline). A deliberate jump carrying the
+// player over the slide front survives it: the burial overlap is immune while the
+// playerJump air phase lasts, and the FIRST dodging frame of a slide banks the bonus
+// and kicks a small forward escape impulse (adopted §10.2: immunity + impulse) so a
+// stomped dodge can outrun the front after touchdown. Loop-side only — the kernel
+// never sees any of this (#245); provenance/once-per-slide guards live in
+// resolveBurialOutcome (avalanche.ts, headlessly pinned). Mirrored in PHYSICS.md §10.
+const DODGE_SCORE = 250;        // air-score points banked once per dodged slide
+const DODGE_ESCAPE_BOOST = 1.10; // one-shot horizontal velocity factor on the award frame
 
 // Stand-in collider list while the async EZ forest build is in flight (issue #282):
 // the tree meshes aren't visible yet, so the kernel must not collide against their
@@ -510,11 +521,32 @@ export function createMainLoop(deps: MainLoopDeps) {
       // traverse a boulder between frames, so the final-position check can't miss one.
       // checkBurial() self-guards when inactive.
       if (avalanche) {
-        if (avalanche.checkBurial(snowman.position)) {
+        // Avalanche-dodge window (JP-3, #47): an overlap only buries the player when
+        // they are NOT airborne on a deliberate jump. resolveBurialOutcome holds the
+        // provenance / once-per-slide guards; the kernel is never involved (#245).
+        const burialOutcome = resolveBurialOutcome(
+          avalanche.checkBurial(snowman.position),
+          player.isInAir,
+          !!(snowman.userData && snowman.userData.playerJump),
+          state.dodgeAwarded
+        );
+        if (burialOutcome === 'buried') {
           const activeShowGameOver = typeof window.showGameOver === 'function'
             ? window.showGameOver
             : showGameOver;
           activeShowGameOver("Buried by avalanche!");
+        } else if (burialOutcome === 'dodgedFirst') {
+          // First dodging frame of this slide: bank the bonus (same air-score channel
+          // the result screen reads), toast it, and kick the escape impulse so a
+          // stomped landing can outrun the front. Later overlap frames of the same
+          // jump resolve to 'dodged' (immune, no re-award).
+          state.dodgeAwarded = true;
+          if (CourseModule) {
+            CourseModule.addAirScore(DODGE_SCORE);
+            CourseModule.flashDodge();
+          }
+          velocity.x *= DODGE_ESCAPE_BOOST;
+          velocity.z *= DODGE_ESCAPE_BOOST;
         }
 
         // Reset avalanche if it has passed the player (survived!)
@@ -523,6 +555,7 @@ export function createMainLoop(deps: MainLoopDeps) {
           avalanche.reset();
           state.avalancheTriggered = false;
           state.lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
+          state.dodgeAwarded = false;   // the next slide re-arms the once-per-slide bonus
         }
 
         // Telegraph the threat: banner, "distance behind you" meter, vignette, shake.
