@@ -13,6 +13,22 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Avalanche-dodge window (jump-system completion JP-3, #286 — the #47 headline)
+- **Jumping the slide front now saves you.** At the loop's burial-check site (never
+  in the physics kernel, per #245), a frame where a boulder overlaps the player
+  resolves through the pure `resolveBurialOutcome` (`avalanche.ts`): airborne on a
+  *deliberate* jump (`playerJump` provenance) ⇒ immune for the air phase; the first
+  dodging frame of a slide banks `DODGE_SCORE = 250` into the air score, toasts
+  `🏔 DODGED THE AVALANCHE!`, and kicks a one-shot ×1.10 forward escape impulse
+  (adopted plan decision: immunity + impulse) so a stomped landing can outrun the
+  front. Anything else — grounded, or auto-jump/hop air — is buried exactly as
+  before.
+- **Exploit-guarded:** provenance-gated (auto-jump air never dodges), once per
+  slide (`dodgeAwarded` on GameState, re-armed when the slide resets or a run
+  restarts), and inert without airborne overlap (holding Jump near the slide does
+  nothing). The decision core is pinned headlessly in `tests/avalanche-tests.js`;
+  `MEANINGFUL_JUMPS.md` Phase 2 is now shipped.
+
 ### Scored obstacle clears (jump-system completion JP-2, #286 / #245)
 - **Sailing a deliberate jump over a tree or rock the run would otherwise have hit
   now scores.** The collision layer's existing airborne suppression branches are

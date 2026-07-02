@@ -86,7 +86,7 @@ async function main() {
   // Phase 3.0 (issue #84): avalanche is now `.ts`. Transpile it to temporary ESM
   // for Node tests so this suite does not depend on Node's native type-stripping
   // support. The browser/dev/build paths still exercise Vite's TypeScript loader.
-  const { AvalancheSystem } = await importTranspiledTypeScriptModule(
+  const { AvalancheSystem, resolveBurialOutcome } = await importTranspiledTypeScriptModule(
     path.join(__dirname, '..', 'src', 'avalanche.ts')
   );
 
@@ -291,6 +291,51 @@ async function main() {
     avalanche.dispose();
     assert(!scene.children.includes(avalanche.mesh),
       'dispose() should remove the mesh from the scene');
+  });
+
+  // Test 13: Avalanche-dodge decision core (jump-system completion JP-3, #47).
+  // The pure resolver the loop applies at its checkBurial() site. Pins the plan's
+  // exploit guards headlessly (harness gate 4): provenance (auto-jump air never
+  // dodges), once-per-slide award, and grounded presses changing nothing.
+  runTest('Dodge window: provenance + once-per-slide + grounded-press guards', () => {
+    // No overlap => safe, regardless of any input/air state (holding Jump near the
+    // slide does nothing).
+    assertEquals(resolveBurialOutcome(false, false, false, false), 'safe',
+      'no overlap, grounded: safe');
+    assertEquals(resolveBurialOutcome(false, true, true, false), 'safe',
+      'no overlap, deliberate air: safe (nothing to dodge)');
+    // Overlap while grounded => buried — a grounded jump-press is irrelevant.
+    assertEquals(resolveBurialOutcome(true, false, false, false), 'buried',
+      'overlap, grounded: buried');
+    assertEquals(resolveBurialOutcome(true, false, true, false), 'buried',
+      'overlap, grounded with a stale playerJump flag: still buried (must be airborne)');
+    // Overlap during NON-deliberate air (auto-jump / hop: playerJump false) => buried.
+    assertEquals(resolveBurialOutcome(true, true, false, false), 'buried',
+      'overlap, auto-jump air: buried (provenance gate)');
+    // Overlap during a deliberate jump => dodge; first frame of the slide awards.
+    assertEquals(resolveBurialOutcome(true, true, true, false), 'dodgedFirst',
+      'overlap, deliberate air, unawarded slide: dodge + award');
+    assertEquals(resolveBurialOutcome(true, true, true, true), 'dodged',
+      'overlap, deliberate air, already awarded: immune, no second award');
+  });
+
+  // Test 14: One award per slide, end to end over a simulated overlap window —
+  // the loop's usage pattern: award on 'dodgedFirst', flag sticks for the slide.
+  runTest('Dodge window: a multi-frame overlap pays exactly one award', () => {
+    let dodgeAwarded = false;
+    let awards = 0;
+    let buried = 0;
+    for (let frame = 0; frame < 10; frame++) {
+      const outcome = resolveBurialOutcome(true, true, true, dodgeAwarded);
+      if (outcome === 'dodgedFirst') { dodgeAwarded = true; awards++; }
+      else if (outcome === 'buried') buried++;
+    }
+    assertEquals(awards, 1, 'exactly one award across a 10-frame overlap');
+    assertEquals(buried, 0, 'never buried while the deliberate-jump air phase lasts');
+    // The slide resets (hasPassed) => the flag re-arms for the NEXT slide.
+    dodgeAwarded = false;
+    assertEquals(resolveBurialOutcome(true, true, true, dodgeAwarded), 'dodgedFirst',
+      'a fresh slide can be dodged (and awarded) again');
   });
 
   // Print test summary

@@ -367,6 +367,31 @@ Clears never touch `pos`/`velocity` — pinned by the harness's clear-provenance
 check (identical trajectories with and without provenance; exactly one scored clear
 per obstacle; cap honoured).
 
+**Avalanche-dodge window (JP-3 — the #47 headline).** A *deliberate* jump carrying
+the player over the slide front survives it. Implemented **at the loop's
+`checkBurial()` site in `game/main-loop.ts`, never in the kernel** (#245): the pure
+`resolveBurialOutcome(overlapping, isInAir, playerJump, dodgeAwarded)`
+(`src/avalanche.ts`, pinned headlessly in `tests/avalanche-tests.js`) maps each
+frame's burial overlap to `safe` / `buried` / `dodgedFirst` / `dodged`:
+
+- immune while the `playerJump` air phase lasts; the **first** dodging frame of a
+  slide banks `DODGE_SCORE = 250` (same air-score channel), toasts
+  `🏔 DODGED THE AVALANCHE!`, and applies a one-shot `×1.10` horizontal escape
+  impulse (adopted decision §10.2: immunity + impulse) so a stomped landing can
+  outrun the front;
+- **exploit guards:** auto-jump / hop air (`playerJump` false) is buried like
+  grounded (provenance); `dodgeAwarded` (GameState, re-armed when the slide resets
+  or a new run starts) caps it at one award per slide; without overlap the outcome
+  is `safe` regardless of input, so holding Jump early does nothing — the award
+  needs airborne overlap.
+- **frame-perfect leap (deliberate):** burial resolves after the frame's physics
+  substeps, so a jump pressed on the very frame the overlap begins is already
+  airborne when it's resolved and counts as a dodge — the heroic last-instant
+  escape is the #47 fantasy. It can't be farmed: if the overlap began on any
+  *earlier* grounded frame that frame's check already buried the player, and a
+  bunny-hop spends ≥0.3 s grounded (the landing cooldown) inside the front between
+  hops.
+
 ### 4.1 Freestyle tricks (#32 — Expert tier only)
 
 On the ◆◆ **Expert** tier (`ski.freestyleTricks` in `src/difficulty.ts` — the only
@@ -676,6 +701,7 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Clean-landing boost (per s / cap) | `airTime*0.04` / `0.06` | `snowman/physics.ts` |
 | Air score (per s / clean bonus) | `airTime*100` / `+50` | `snowman/physics.ts` |
 | Obstacle clear score / cap per air (JP-2) | 75 / 3 | `snowman/physics.ts` |
+| Avalanche dodge score / escape impulse (JP-3) | 250 / ×1.10 (once per slide) | `game/main-loop.ts` |
 | Freestyle spin / flip rate (Expert, #32) | 360 / 300 deg/s | `snowman/physics.ts` |
 | Freestyle score (per 180° spin / 360° flip / grab s) | 40 / 120 / 60 | `snowman/physics.ts` |
 | Freestyle landing tolerance (spin / flip residual) | 60° / 75° | `snowman/physics.ts` |

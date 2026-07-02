@@ -1,8 +1,10 @@
 # Meaningful Jumps — Implementation Proposal (#47)
 
-> **Status:** **Phase 1 implemented in this PR** (provenance flag → landing-quality
+> **Status:** **Phases 1 AND 2 shipped** — Phase 1 (provenance flag → landing-quality
 > grading → clean-landing speed boost → on-slope flash → per-run air score on the
-> result screen). Phases 2–3 below remain proposal/design. The kernel changes live in
+> result screen), then Phase 2 with the jump-system completion stack (#286): scored
+> obstacle clears (JP-2) and the avalanche-dodge window (JP-3, the #47 headline).
+> Phase 3 has a first pass (#32 Expert freestyle); combos/physical spins remain. The kernel changes live in
 > [`src/snowman/physics.ts`](../src/snowman/physics.ts) and are documented in
 > [`PHYSICS.md` §4/§6/§10](PHYSICS.md); the new gating checks are in
 > `tests/verification/physics_invariant_harness.js`.
@@ -199,8 +201,14 @@ snowplow, parallel, and hop checks. **Auto-jumps fire on the no-input path**, so
   grading → clean-landing speed boost → on-slope flash → per-run air score on the
   result screen. Kernel-additive, input-gated, self-contained. The coasting baseline
   was **not** regenerated; new manual-jump gating checks were added instead.
-- **Phase 2:** obstacle-clear scoring + the avalanche-dodge window (the #47
-  headline) — needs the avalanche proximity/burial seam.
+- **Phase 2 — ✅ shipped (jump-system completion #286, JP-2/JP-3):** obstacle-clear
+  scoring (`CLEAR_SCORE = 75`, capped 3/air, provenance-gated + deduped — detection
+  in `collision.ts`, policy in `snowman/index.ts`, `✦ CLEARED!` toast) and the
+  avalanche-dodge window (the #47 headline): a deliberate jump over the slide front
+  is immune while its air phase lasts, banks `DODGE_SCORE = 250` once per slide,
+  and kicks a small forward escape impulse — decided by the pure
+  `resolveBurialOutcome` at the loop's burial-check site, never in the kernel.
+  See [`PHYSICS.md` §4](PHYSICS.md).
 - **Phase 3 (#32):** spins/grabs/style combos using the existing air control;
   also produces richer per-run telemetry an AI coach (P3) can use.
   **First pass shipped:** the ◆◆ Expert difficulty tier unlocks in-air spins
