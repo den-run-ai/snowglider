@@ -190,7 +190,11 @@ let foliageInstancedMaterial: THREE.MeshStandardMaterial | null = null;
 // (see getSwayDepthMaterial; ez archetypes add root-height/alpha-mapped variants,
 // so the memo is keyed by a composed string). Kept beside the visible ones so
 // resetTreePools frees them too.
-type SwayProfile = 'rooted' | 'canopy' | 'flutter';
+// 'anchored' (issue #282 PR 3): weight comes from a per-instance `aSwayWeight`
+// attribute instead of the vertex's local height — used by the EZ tree snow, whose
+// unit-sphere geometry carries no height information but whose INSTANCES sit at a
+// known height on their host archetype. Lean-only (no flutter): snow has mass.
+type SwayProfile = 'rooted' | 'canopy' | 'flutter' | 'anchored';
 /** Optional sway/depth variations used by the EZ archetype materials. */
 interface SwayOptions {
   /** Local-space height the bend is rooted against (weight 0 at y=0 → 1 at height). */
@@ -420,7 +424,9 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
 #ifdef USE_INSTANCING
   mvPosition = instanceMatrix * mvPosition;
   {
-    #if defined( TREE_SWAY_ROOT_HEIGHT )
+    #if defined( TREE_SWAY_INSTANCE_WEIGHT )
+      float swayWeight = aSwayWeight;
+    #elif defined( TREE_SWAY_ROOT_HEIGHT )
       float swayWeight = clamp( position.y / TREE_SWAY_ROOT_HEIGHT, 0.0, 1.0 );
     #elif defined( TREE_SWAY_ROOTED )
       float swayWeight = clamp( ( position.y + TREE_TRUNK_HALF ) / ( 2.0 * TREE_TRUNK_HALF ), 0.0, 1.0 );
@@ -454,6 +460,10 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeigh
   let head = TREE_SWAY_HEAD_BASE;
   if (profile === 'rooted') head += '\n  #define TREE_SWAY_ROOTED';
   if (profile === 'flutter') head += '\n  #define TREE_SWAY_FLUTTER';
+  if (profile === 'anchored') {
+    // Per-instance weight (three transpiles `attribute` -> `in` under WebGL2).
+    head += '\n  #define TREE_SWAY_INSTANCE_WEIGHT\n  attribute float aSwayWeight;';
+  }
   if (rootHeight !== undefined && rootHeight > 0) {
     head += `\n  #define TREE_SWAY_ROOT_HEIGHT ${rootHeight.toFixed(2)}`;
   }
@@ -623,6 +633,13 @@ interface EzPlacement {
   z: number;
 }
 
+/** One EZ snow instance: its world matrix + the host tree's height-rooted sway
+ *  weight at the anchor (feeds the 'anchored' profile's aSwayWeight attribute). */
+interface EzSnowDesc {
+  matrix: THREE.Matrix4;
+  weight: number;
+}
+
 // Subtle needle tints (the needle sprite already carries the green; these vary
 // brightness/frost per instance rather than re-colourising the card).
 let ezLeafTints: THREE.Color[] | null = null;
@@ -660,6 +677,22 @@ function getEzMaterialSets(archetypes: EzArchetype[]): EzMaterialSet[] {
     });
   }
   return ezMaterialSets;
+}
+
+/** The EZ snow material: same cool white as the shared snow material, but swaying
+ *  on the 'anchored' profile — each instance leans by its host tree's height-rooted
+ *  weight (per-instance aSwayWeight) instead of the uniform canopy lean, so a shelf
+ *  low on a trunk stays as still as the needles it sits on. */
+let ezSnowMaterial: THREE.MeshStandardMaterial | null = null;
+function getEzSnowMaterial(): THREE.MeshStandardMaterial {
+  if (!ezSnowMaterial) {
+    ezSnowMaterial = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(0.97, 0.98, 1.0),
+      roughness: 0.82
+    });
+    applyTreeSway(ezSnowMaterial, 'anchored');
+  }
+  return ezSnowMaterial;
 }
 
 /** Deterministic per-slot hash (archetype pick, tints, snow variation) — no RNG
@@ -715,8 +748,8 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     perArchetype[species + (far ? EZ_SPECIES_COUNT : 0)]!.push(p);
   });
 
-  const snowCapDescs: THREE.Matrix4[] = [];
-  const snowPatchDescs: THREE.Matrix4[] = [];
+  const snowCapDescs: EzSnowDesc[] = [];
+  const snowPatchDescs: EzSnowDesc[] = [];
   const scaleMat = new THREE.Matrix4();
   const fullMat = new THREE.Matrix4();
   const anchorPos = new THREE.Vector3();
@@ -755,10 +788,15 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
       // Snow: a cap on the crown tip plus, for NEAR trees only, settled shelves
       // draped on needle anchors — far trees keep just the cap (their shelves are
       // sub-pixel at corridor distance, so the instances would be pure cost).
+      // Each instance records its height-rooted sway weight (anchor y / tree
+      // height) so the snow leans exactly as far as the needles under it.
       anchorPos.set(0, a.height, 0).applyMatrix4(fullMat);
       const capR = 0.45 * p.scale;
-      snowCapDescs.push(new THREE.Matrix4().compose(
-        anchorPos, snowQuat.identity(), snowScale.set(capR, capR * 0.5, capR)));
+      snowCapDescs.push({
+        matrix: new THREE.Matrix4().compose(
+          anchorPos, snowQuat.identity(), snowScale.set(capR, capR * 0.5, capR)),
+        weight: 1 // crown tip: full canopy lean
+      });
       if (a.detail === 'near') {
         const shelfCount = 4 + (h % 3);
         const stride = Math.max(1, Math.floor(a.snowAnchors.length / shelfCount));
@@ -772,8 +810,11 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
           const tilt = 0.24 + ((h >>> (8 + c)) % 16) / 55;
           snowQuat.setFromEuler(snowEuler.set(tilt * Math.sin(outward), 0, -tilt * Math.cos(outward)));
           const shelfR = (0.26 + ((h >>> (4 + c)) % 8) / 36) * p.scale;
-          snowPatchDescs.push(new THREE.Matrix4().compose(
-            anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)));
+          snowPatchDescs.push({
+            matrix: new THREE.Matrix4().compose(
+              anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)),
+            weight: Math.min(1, Math.max(0, anchor.y / a.height))
+          });
           snowQuat.identity();
         }
       }
@@ -786,19 +827,28 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     scene.add(leaves);
   });
 
-  // Instanced snow reuses the pooled snow geometry + shared white material (and,
-  // like the stylized forest, snow-on-snow never enters the real shadow map).
-  const snowDefs: Array<[THREE.BufferGeometry, THREE.Matrix4[], string]> = [
+  // Instanced snow on the EZ trees (like the stylized forest, snow-on-snow never
+  // enters the real shadow map). The 'anchored' sway needs a per-instance
+  // aSwayWeight attribute, and instanced attributes live on the GEOMETRY — so each
+  // build clones the pooled snow geometry rather than mutating the shared buffer
+  // the stylized forest also draws from. The clone is owned by its mesh
+  // (userData.ownsGeometry) and disposed by the re-init sweep in addTrees.
+  const snowDefs: Array<[THREE.BufferGeometry, EzSnowDesc[], string]> = [
     [getSnowCapGeometry(), snowCapDescs, 'ezSnowCap'],
     [getSnowPatchGeometry(), snowPatchDescs, 'ezSnowPatch']
   ];
-  for (const [geometry, descs, part] of snowDefs) {
+  for (const [pooledGeometry, descs, part] of snowDefs) {
     if (descs.length === 0) continue;
-    const im = new THREE.InstancedMesh(geometry, getSnowMaterial(), descs.length);
+    const geometry = pooledGeometry.clone();
+    const weights = new Float32Array(descs.length);
+    descs.forEach((d, j) => { weights[j] = d.weight; });
+    geometry.setAttribute('aSwayWeight', new THREE.InstancedBufferAttribute(weights, 1));
+    const im = new THREE.InstancedMesh(geometry, getEzSnowMaterial(), descs.length);
     im.castShadow = false;
     im.name = 'forestInstanced';
     im.userData.forestPart = part;
-    descs.forEach((m, j) => im.setMatrixAt(j, m));
+    im.userData.ownsGeometry = true;
+    descs.forEach((d, j) => im.setMatrixAt(j, d.matrix));
     im.instanceMatrix.needsUpdate = true;
     scene.add(im);
   }
@@ -1150,7 +1200,12 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
     const child = scene.children[i]!;
     if (child.name === 'forestInstanced') {
       scene.remove(child);
-      (child as THREE.InstancedMesh).dispose();
+      const im = child as THREE.InstancedMesh;
+      // EZ snow meshes own a per-build geometry clone (it carries their
+      // per-instance aSwayWeight attribute); everything else draws the shared
+      // pooled geometry, which must NOT be disposed here.
+      if (im.userData.ownsGeometry && im.geometry) im.geometry.dispose();
+      im.dispose();
     }
   }
 
@@ -1428,6 +1483,8 @@ export function resetTreePools(): void {
   (ezMaterialSets || []).forEach(set => { free(set.bark); free(set.leaves); });
   ezMaterialSets = null;
   ezLeafTints = null;
+  free(ezSnowMaterial);
+  ezSnowMaterial = null;
   resetEzForest();
   (trunkMaterials || []).forEach(free);
   (foliageMaterials || []).forEach(free);

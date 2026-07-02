@@ -22,7 +22,10 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   palette tints, procedural canvas bark maps, shared-`Wind` vertex sway with
   per-archetype base rooting (`TREE_SWAY_ROOT_HEIGHT`) and matching alpha-tested
   shadow-depth materials, instanced crown snow caps + settled needle shelves, and
-  ground collars. Collision (`treePositions`) is untouched.
+  ground collars. Tree snow sways on its host tree's height-rooted weight (a
+  per-instance `aSwayWeight` attribute on an owned geometry clone — the 'anchored'
+  profile), so a low shelf stays as still as the needles under it. Collision
+  (`treePositions`) is untouched.
 - **Static far LOD:** trees beyond 32u lateral of the run centerline use a ~40%-cost
   far build (same seed ⇒ same silhouette). Perf, measured on the seeded Chromium
   layout: draw calls 233 (parity with the stylized 227), triangles ~463k (~2× the

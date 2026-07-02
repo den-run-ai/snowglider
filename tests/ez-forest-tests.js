@@ -184,6 +184,41 @@ async function main() {
     assert(ezSnow.every(m => m.castShadow === false),
       'EZ snow never enters the real shadow map (no snow-on-snow pancakes)');
 
+    // Anchored snow sway (PR 3 follow-up): each snow instance leans by its host
+    // tree's height-rooted weight via a per-instance attribute on an OWNED
+    // geometry clone (the pooled snow geometry the stylized forest shares must
+    // never grow instanced attributes).
+    assert(ezSnow.length >= 2 && ezSnow.every(m => m.userData.ownsGeometry === true),
+      'EZ snow meshes own their geometry clones (pooled snow buffer untouched)');
+    assert(ezSnow.every(m => {
+      const attr = m.geometry.getAttribute('aSwayWeight');
+      return attr && attr.count === m.count;
+    }), 'every EZ snow instance carries an aSwayWeight (one per instance)');
+    const capMesh = ezSnow.find(m => m.userData.forestPart === 'ezSnowCap');
+    const patchMesh = ezSnow.find(m => m.userData.forestPart === 'ezSnowPatch');
+    const capWeights = Array.from(capMesh.geometry.getAttribute('aSwayWeight').array);
+    const patchWeights = Array.from(patchMesh.geometry.getAttribute('aSwayWeight').array);
+    assert(capWeights.every(w => w === 1),
+      'crown snow caps lean with the full canopy weight');
+    assert(patchWeights.every(w => w > 0 && w <= 1) && patchWeights.some(w => w < 1),
+      'needle shelves lean by their height on the host tree (0 < w <= 1, varied)');
+    assert(new Set([capMesh.geometry.uuid, patchMesh.geometry.uuid]).size === 2 &&
+      capMesh.geometry !== patchMesh.geometry,
+      'cap and shelf clones are distinct geometries');
+    const snowMat = capMesh.material;
+    assert(/^tree-wind-sway-anchored/.test(snowMat.customProgramCacheKey()),
+      'EZ snow material uses the anchored sway profile', snowMat.customProgramCacheKey());
+    const snowShaderStub = {
+      uniforms: {},
+      vertexShader: 'void main() {\n#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n}'
+    };
+    snowMat.onBeforeCompile(snowShaderStub);
+    assert(/TREE_SWAY_INSTANCE_WEIGHT/.test(snowShaderStub.vertexShader) &&
+      /attribute float aSwayWeight/.test(snowShaderStub.vertexShader),
+      'anchored profile reads the per-instance weight attribute in the shader');
+    assert(!/#define TREE_SWAY_FLUTTER/.test(snowShaderStub.vertexShader),
+      'snow does not flutter (lean only — snow has mass)');
+
     // Sway: base-rooted per-archetype height on the visible AND depth materials,
     // sharing the forest's single uniform set.
     const stubVS = 'void main() {\n#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n}';
@@ -225,6 +260,16 @@ async function main() {
     assert(branchTotal3 === positions3.length,
       'racing re-inits keep exactly one EZ forest (stale async builds dropped)',
       `${branchTotal3} === ${positions3.length}`);
+
+    // Owned snow geometry clones must be freed by the re-init sweep (the pooled
+    // families deliberately are not — this pins the ownsGeometry distinction).
+    const oldCap = forest3.find(m => m.userData.forestPart === 'ezSnowCap');
+    let capGeometryDisposed = false;
+    oldCap.geometry.addEventListener('dispose', () => { capGeometryDisposed = true; });
+    Trees.addTrees(scene);
+    await Trees.ezForestReady();
+    assert(capGeometryDisposed,
+      're-init disposes the owned EZ snow geometry clone (no leak per rebuild)');
 
     Trees.setEzForestEnabled(null);
   }
