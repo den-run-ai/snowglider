@@ -338,6 +338,36 @@ async function main() {
       'ensureEzArchetypes regenerates fresh archetypes after a reset');
   }
 
+  // --- Teardown cancels an in-flight EZ build (disposeGame / dev-HMR) -----------
+  {
+    Trees.setEzForestEnabled(true);
+    /** @type {(mod: unknown) => void} */
+    let resolveImport = () => {};
+    EzForest.__setEzModuleImporterForTests(
+      () => new Promise((resolve) => { resolveImport = resolve; }));
+    EzForest.resetEzForest();
+
+    const scene = new THREE.Scene();
+    Trees.addTrees(scene);
+    const meshesBefore = scene.children.filter(c => c.name === 'forestInstanced').length;
+    Trees.resetTreePools(); // disposeGame/HMR while the chunk is still in flight
+
+    // Let the stale load settle with the REAL module (already in Node's cache).
+    resolveImport(await import('@dgreenheck/ez-tree'));
+    await Trees.ezForestReady();
+    const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    assert(forest.length === meshesBefore &&
+      !forest.some(m => m.userData.forestPart === 'ezBranches'),
+      'a teardown mid-load cancels the EZ build (nothing appended to the disposed scene)',
+      `${forest.length} meshes, unchanged`);
+    assert(Trees.treeCollidersReady() === true,
+      'the collider gate re-opens after a cancelled build settles');
+
+    EzForest.__setEzModuleImporterForTests(null);
+    EzForest.resetEzForest();
+    Trees.setEzForestEnabled(null);
+  }
+
   console.log(`\n=================================`);
   console.log(`EZ forest tests completed: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
