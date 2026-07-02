@@ -46,6 +46,7 @@ import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { buildDifficultyPicker } from './ui/difficulty-picker.js';
 import { setupScene } from './game/scene-setup.js';
 import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
+import { createRunClockGuard } from './game/run-clock.js';
 import { createLifecycle } from './game/lifecycle.js';
 import { disposeGame } from './game/teardown.js';
 
@@ -188,6 +189,19 @@ const showGameOver = createShowGameOver({
   setPickerTier: (tier) => finishPickerHandle.setSelected(tier),
 });
 
+// --- Run-clock guard (see game/run-clock.ts) ---
+// Freezes the wall-clock run timer AND the physics stepper together while the tab is
+// hidden (phone lock, tab switch), so an interruption is a clean pause instead of an
+// inflated run time + teleported ghost. Gated OFF under automation — the ?test=
+// browser suites and Playwright/Puppeteer runs must keep their loop byte-identical,
+// and a headless page's visibility flips must never pause a live test run — mirroring
+// the debris/intro/sfx convention. Real players always get the guard.
+const automatedRun = Boolean(window.isTestMode) ||
+  (typeof navigator !== 'undefined' && navigator.webdriver === true);
+const runClockGuard = automatedRun
+  ? undefined
+  : createRunClockGuard(state, { signal: listenerAbort.signal });
+
 // --- Per-frame run loop (see game/main-loop.ts) ---
 // Built after showGameOver (a loop dependency) exists. The loop owns `lastTime`;
 // lifecycle code calls startLoop() to seed it and kick requestAnimationFrame.
@@ -205,6 +219,7 @@ const { updateSnowman, updateCamera, startLoop, resetLoopState, handleResize } =
   treePositions,
   rockPositions,
   showGameOver,
+  runClockGuard,
 });
 window.addEventListener('resize', handleResize, { signal: listenerAbort.signal });
 

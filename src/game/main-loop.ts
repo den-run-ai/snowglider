@@ -35,6 +35,7 @@ import { getDifficultyConfig } from '../difficulty.js';
 import { updateStatsHud, updateTimerDisplay, updateLevelHud } from '../ui/hud.js';
 import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
 import { type SceneContext } from './scene-setup.js';
+import { type RunClockGuard } from './run-clock.js';
 
 // The physics grid. FIXED_DT is the rate the invariant harness pins (1/60 s), so the
 // kernel is byte-identical here to the headless suites. MAX_SUBSTEPS caps how many
@@ -68,13 +69,18 @@ export interface MainLoopDeps extends
     'directionalLight' | 'snowman' | 'snowSplash' | 'treePositions' | 'rockPositions'> {
   player: PlayerState;
   showGameOver: (reason: string) => void;
+  // Paused-by-hide guard (run-clock.ts): while it reports paused, animate() skips
+  // stepping and rendering so the frozen run clock can't be outrun by a throttled
+  // background rAF. Optional (explicitly undefined under automation and in the unit
+  // harnesses, which keeps their loop byte-identical).
+  runClockGuard?: RunClockGuard | undefined;
 }
 
 export function createMainLoop(deps: MainLoopDeps) {
   const {
     state, scene, camera, renderer, cameraManager, directionalLight,
     snowman, snowSplash, treePositions, rockPositions,
-    player, showGameOver,
+    player, showGameOver, runClockGuard,
   } = deps;
   const pos = player.pos;
   const velocity = player.velocity;
@@ -353,6 +359,28 @@ export function createMainLoop(deps: MainLoopDeps) {
     if (loopFailed) return; // a prior frame failed fatally; stay stopped until reload
     if (state.gameActive) {
       requestAnimationFrame(animate);
+      // Paused-by-hide (run-clock.ts): the run clock is frozen while the document is
+      // hidden, so physics must not advance either — a background tab whose rAF is
+      // throttled (~1 fps) rather than stopped would otherwise bank up to
+      // MAX_SUBSTEPS * FIXED_DT of physics per wall-second against a stopped timer.
+      // Reset lastTime so the hidden span never enters the accumulator as frameDelta.
+      // Boulders, wind, snow, and rendering all sit below this gate, so the whole
+      // frame pauses coherently.
+      if (runClockGuard) {
+        if (runClockGuard.isPaused()) {
+          lastTime = time;
+          return;
+        }
+        // First frame after a resume: reseed the frame clock. On browsers that STOP
+        // rAF while hidden (the common case) the paused branch above never ran, so
+        // lastTime still points at the last PRE-HIDE frame — without this reseed the
+        // resumed frame would run the ~133 ms capped backlog of physics against a
+        // clock whose hidden interval was just shifted out, and repeated hide/resume
+        // could farm that into free distance (codex review, PR #278).
+        if (runClockGuard.consumeResumed()) {
+          lastTime = time;
+        }
+      }
       try {
       // Ceiling the frame delta at the spiral guard (MAX_SUBSTEPS * FIXED_DT) so a long
       // stall (tab restore, GC pause) can't pour an unbounded backlog into the accumulator.
