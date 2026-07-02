@@ -28,6 +28,7 @@
 
 import * as THREE from 'three';
 import { resetTreePools } from '../trees.js';
+import { TreeShed } from '../tree-shed.js';
 import type { SceneContext } from './scene-setup.js';
 
 // Idempotence guard, keyed on the context object (not a shared module bool) so each
@@ -126,6 +127,9 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   //    instead of holding freed-but-still-referenced handles (the scene sweep already
   //    disposed the scene-attached ones; this frees the rest and clears the caches).
   resetTreePools();
+  // ... and the shed system's pooled puff sprites/texture + its stale load state
+  //    (its bindings point into the buffers the sweep above just freed).
+  TreeShed.teardown();
 
   // 5. Renderer + WebGL context. Wrapped because forceContextLoss touches the live GL
   //    context, which can throw in a headless / already-lost environment.

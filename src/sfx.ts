@@ -10,6 +10,9 @@
 //                              = idle on a calm slope; coupled to the shared Wind field),
 //                              plus a resonant gust "howl" that whistles when the wind
 //                              blows hard and sweeps its pitch with the gusts
+//   - forest ............. a needle-rustle bed that rises when the wind blows through
+//                          trees NEAR the player (issue #253 Phase B), and a soft
+//                          "whump" when a gust dumps a laden tree's snow close by
 //   - crashes / finish ... a wipeout whoomph and a success chime
 //
 // Why procedural (and not THREE.Audio / Howler / recorded clips)? The project's
@@ -29,8 +32,9 @@
 //     test keeps its current (music-only) audio path and stays byte-identical.
 //   - **Headless-testable.** The gain-mapping math lives in exported pure functions
 //     (windGainForSpeed, windGainForField, carveGainForTechnique, avalancheGainForDistance,
-//     landGainForForce, howlGainForWind, howlFreqForGust) that need no AudioContext, so
-//     they unit-test in Node.
+//     landGainForForce, howlGainForWind, howlFreqForGust, rustleGainForForest,
+//     rustleFreqForGust, shedGainForDistance) that need no AudioContext, so they
+//     unit-test in Node.
 //   - **Defensive.** Without a Web Audio implementation (jsdom/Node) every method is
 //     an inert no-op; node creation is wrapped so a hostile environment can't throw
 //     into the game loop.
@@ -63,6 +67,18 @@ const HOWL_MAX_GAIN = 0.11;      // loudest the whistle gets (sits under the win
 const HOWL_Q = 8;                // bandpass resonance: narrow = tonal, whistling
 const HOWL_FREQ_LO = 600;        // whistle pitch in a lull (Hz)
 const HOWL_FREQ_HI = 1200;       // whistle pitch at a full gust (Hz)
+
+// Forest (#253 Phase B): the broadband needle rustle you hear when wind moves through
+// conifers — distinct from the low wind bed (this sits high, ~3 kHz) and the tonal
+// howl. Gated on BOTH the wind and how much forest actually surrounds the player
+// (forestProximityAt in tree-shed.ts), so an open bowl stays quiet at any wind.
+const RUSTLE_KNEE = 0.2;         // Wind.strength() at/below this = needles stay quiet
+const RUSTLE_MAX_GAIN = 0.13;    // loudest the rustle gets (full wind, deep in trees)
+const RUSTLE_FREQ_LO = 2600;     // rustle brightness in a lull (Hz)
+const RUSTLE_FREQ_HI = 3600;     // rustle brightness at a full gust (Hz)
+const SHED_NEAR = 6;             // distance (world units) at which a snow-shed whump is full
+const SHED_FAR = 55;             // distance beyond which a shed is inaudible
+const SHED_MAX_GAIN = 0.42;      // loudest whump (a soft snow flump, not an impact)
 
 /** Per-technique base loudness of the ski-edge swish (before the speed taper).
  *  A skidded parallel turn scrubs hardest; a committed carve hisses quieter; gliding
@@ -146,6 +162,33 @@ export function howlFreqForGust(gust: number): number {
   return HOWL_FREQ_LO + g * (HOWL_FREQ_HI - HOWL_FREQ_LO);
 }
 
+/** Needle-rustle gain (0..RUSTLE_MAX_GAIN) from the shared field's normalized strength
+ *  (Wind.strength(), 0..1) AND the forest proximity around the player (0..1, see
+ *  forestProximityAt). The product gating means BOTH must be present: a windless glade
+ *  and a windy open bowl are equally silent, so strength 0 or proximity 0 reduces
+ *  exactly to the pre-existing soundscape. Keyed on strength (not the raw gust) for
+ *  the same dead-calm-field reason as the howl. NaN/negative-safe. */
+export function rustleGainForForest(windStrength: number, proximity: number): number {
+  const st = clamp01(Number.isFinite(windStrength) ? windStrength : 0);
+  const prox = clamp01(Number.isFinite(proximity) ? proximity : 0);
+  if (st <= RUSTLE_KNEE || prox <= 0) return 0;
+  return ((st - RUSTLE_KNEE) / (1 - RUSTLE_KNEE)) * prox * RUSTLE_MAX_GAIN;
+}
+
+/** Rustle brightness (bandpass centre, Hz) from the instantaneous gust factor: a gust
+ *  pushing through the needles hisses brighter, easing back in the lull. NaN-safe. */
+export function rustleFreqForGust(gust: number): number {
+  const g = clamp01(Number.isFinite(gust) ? gust : 0);
+  return RUSTLE_FREQ_LO + g * (RUSTLE_FREQ_HI - RUSTLE_FREQ_LO);
+}
+
+/** Snow-shed "whump" peak gain (0..SHED_MAX_GAIN) from the shedding tree's distance:
+ *  full within SHED_NEAR, silent beyond SHED_FAR. NaN is treated as far (silent). */
+export function shedGainForDistance(distance: number): number {
+  const d = Number.isFinite(distance) ? Math.max(0, distance) : SHED_FAR;
+  return clamp01((SHED_FAR - d) / (SHED_FAR - SHED_NEAR)) * SHED_MAX_GAIN;
+}
+
 // --- Web Audio engine ----------------------------------------------------------
 // Everything below is the live engine; it is entirely inert without an AudioContext.
 
@@ -164,6 +207,7 @@ export const Sfx = (function() {
   let carve: NoiseBed | null = null;
   let avalanche: NoiseBed | null = null;
   let howl: NoiseBed | null = null;
+  let rustle: NoiseBed | null = null;
   let running = false;     // true between startRun/unlock and endRun (continuous bed live)
   let muted = false;
   let prefsLoaded = false;
@@ -238,6 +282,9 @@ export const Sfx = (function() {
     // The howl: a narrow, high-Q bandpass on the same noise → a tonal whistle whose gain
     // and pitch are driven per frame from the shared Wind field (see updateWindHowl).
     howl = makeBed(context, noiseBuffer, master, 'bandpass', HOWL_FREQ_LO, HOWL_Q);
+    // The forest rustle: a broad, bright bandpass → the needle hiss of wind through
+    // conifers, gained by wind × forest proximity per frame (see updateForest).
+    rustle = makeBed(context, noiseBuffer, master, 'bandpass', RUSTLE_FREQ_LO, 0.9);
   }
 
   function rampTo(param: AudioParam, value: number) {
@@ -355,6 +402,29 @@ export const Sfx = (function() {
       rampTo(howl.filter.frequency, howlFreqForGust(gust));
     },
 
+    // Per-frame forest rustle (#253 Phase B): the needle hiss of wind moving through
+    // the trees AROUND the player. `strength`/`gust` are the shared Wind field's
+    // normalized samples; `proximity` is forestProximityAt(treePositions, x, z) — the
+    // product gating keeps an open bowl silent at any wind and a glade silent in a
+    // calm. Reads the field + positions only (never pos/velocity); no-op until
+    // unlocked, like every bed.
+    updateForest: function(strength: number, gust: number, proximity: number) {
+      if (!running || !ctx || muted || !rustle) return;
+      rampTo(rustle.gain.gain, rustleGainForForest(strength, proximity));
+      rampTo(rustle.filter.frequency, rustleFreqForGust(gust));
+    },
+
+    // One-shot: a gust just dumped a laden tree's snow nearby (tree-shed.ts). A soft
+    // low "whump" — snow flumping onto snow — scaled by distance, with a small powdery
+    // wash on top. Out-of-range sheds are silent (gain 0 skips the nodes entirely).
+    treeShed: function(distance: number) {
+      if (!running || !ctx || muted) return;
+      const peak = shedGainForDistance(distance);
+      if (peak <= 0) return;
+      tone('sine', 95, 42, peak * 0.6, 0.01, 0.28);
+      noiseBurst('lowpass', 650, 220, peak, 0.02, 0.4, 0.6);
+    },
+
     // One-shot: snowman leaves the ground. A short upward-sweeping whoosh.
     jump: function() {
       if (!running || !ctx || muted) return;
@@ -390,6 +460,7 @@ export const Sfx = (function() {
       if (carve) rampTo(carve.gain.gain, 0);
       if (avalanche) rampTo(avalanche.gain.gain, 0);
       if (howl) rampTo(howl.gain.gain, 0);
+      if (rustle) rampTo(rustle.gain.gain, 0);
       if (muted) return;
       if (outcome === 'finish') {
         // C5 – E5 – G5 arpeggio.
@@ -424,7 +495,7 @@ export const Sfx = (function() {
         ctx = null;
       }
       master = null;
-      wind = carve = avalanche = howl = null;
+      wind = carve = avalanche = howl = rustle = null;
     },
 
     // For tests / diagnostics. `active` reflects whether the context is live.

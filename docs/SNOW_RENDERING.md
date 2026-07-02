@@ -153,6 +153,7 @@ regressions from creeping back when one piece is retuned:
 | Terrain (`mountains.ts` height field) | the slope geometry; replacing the periodic ridge that bands under low sun | lighting rebalance |
 | Cavity / AO readability (`mountains/snow-surface.ts`, #17) | per-vertex concavity darken + cool-shift baked into the slope tint | terrain physics changes / height field |
 | Obstacle contact shadows (`mountains/contact-shadows.ts`, #17) | baked AO blobs under trees/rocks (one InstancedMesh) | casting real shadows / physics |
+| Tree snow load + shedding (`mountains/trees.ts` registry, `src/tree-shed.ts`, #253) | per-tree load attributes (foliage droop/damping, snow-shelf scale), gust-shed puffs, slow re-laden | terrain snow depth, collision positions, physics |
 | Sun cycle (`src/sky.ts`, #163) | directional sun position/color/intensity, Preetham `sunPosition`/`exposure`, bounded fog/background tint | snow albedo, vertex tint, smoothed normals, terrain, **hemisphere fill** |
 
 ## The sun cycle is an atmospheric layer, not a readability fix

@@ -24,6 +24,7 @@ import { Trees } from '../trees.js';
 import { Sky } from '../sky.js';
 import { aimSunLight } from './sun-shadow.js';
 import { Wind } from '../wind.js';
+import { TreeShed, forestProximityAt } from '../tree-shed.js';
 import { Snowman, type UpdateResult, type LandingQuality } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
 import { CourseModule } from '../course.js';
@@ -551,6 +552,17 @@ export function createMainLoop(deps: MainLoopDeps) {
       // (audio can lag a frame imperceptibly, unlike the scarf which reads the pre-update
       // sample); a no-op until the SFX context is unlocked and silent on a calm slope.
       Sfx.updateWindHowl(Wind.strength(), Wind.gust());
+      // Dynamic snow load (#253 Phase B): a strong gust dumps the snow off the most
+      // laden trees near the player — a powder puff bursts, the shelves shrink, the
+      // branches spring back — and each shed is voiced by its distance. The collider-
+      // gated tree list keeps an in-flight EZ forest build (invisible trees) from
+      // shedding. Cosmetic-only: loads drive shader attributes + sprites, never physics.
+      const shedTrees = Trees.treeCollidersReady() ? treePositions : NO_TREE_COLLIDERS;
+      for (const shed of TreeShed.update(frameDelta, snowman.position, shedTrees, scene)) {
+        Sfx.treeShed(shed.distance);
+      }
+      // The needle-rustle bed: wind moving through the trees AROUND the player.
+      Sfx.updateForest(Wind.strength(), Wind.gust(), forestProximityAt(shedTrees, pos.x, pos.z));
 
       Snow.updateSnowflakes(frameDelta, pos, scene);
 
@@ -714,6 +726,9 @@ export function createMainLoop(deps: MainLoopDeps) {
     // Restart each run from the same deterministic point in the gust cycle (#253).
     Wind.reset();
     Snow.resetTreeWind();
+    // Re-laden every shed tree and clear in-flight puffs so each run starts from the
+    // same forest state the deterministic gust cycle expects.
+    TreeShed.reset();
   }
 
   // Seed the frame clock and kick the loop. Replaces the lifecycle sites' previous
