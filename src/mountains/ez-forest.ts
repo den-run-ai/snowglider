@@ -21,8 +21,12 @@
 //     Math.random (~16 draws). The verification harnesses baseline seeded
 //     Math.random streams, so generation runs with Math.random swapped to a private
 //     xorshift (same pattern as trees.ts getSwayDepthMaterial) — archetype
-//     generation is RNG-stream-neutral. Tree shape itself uses ez-tree's own
-//     seeded RNG, so archetypes are deterministic per seed.
+//     generation is RNG-stream-neutral. The swap is held ONLY across the
+//     synchronous generate calls, never across the chunk-fetch await (concurrent
+//     game code must keep the real Math.random); the package's one-time
+//     import-eval uuid draws read the ambient RNG, which no seeded harness ever
+//     observes because the flag is off headless. Tree shape itself uses ez-tree's
+//     own seeded RNG, so archetypes are deterministic per seed.
 import * as THREE from 'three';
 
 /** One generated evergreen archetype, ready for InstancedMesh rendering. */
@@ -145,12 +149,31 @@ let ezModulePromise: Promise<any> | null = null;
 let archetypesPromise: Promise<EzArchetype[]> | null = null;
 let archetypesCache: EzArchetype[] | null = null;
 
+// Test seam: the dynamic-import thunk, injectable so the Node suite can exercise a
+// failed chunk fetch (and the retry after it) without a network. Setting a new
+// importer clears the module memo so the next load actually goes through it.
+let ezModuleImporter: () => Promise<any> = () => import('@dgreenheck/ez-tree');
+export function __setEzModuleImporterForTests(importer: (() => Promise<any>) | null): void {
+  ezModuleImporter = importer ?? (() => import('@dgreenheck/ez-tree'));
+  ezModulePromise = null;
+}
+
 /** Lazy-import ez-tree; headless runs get a throwaway document shim (import-time
  *  TextureLoader — see header). The shim is removed in `finally` so the game's own
- *  `typeof document` guards (procedural canvas textures) keep seeing a bare Node. */
+ *  `typeof document` guards (procedural canvas textures) keep seeing a bare Node.
+ *
+ *  Math.random is deliberately NOT swapped around this import: the package's
+ *  import-time texture table does mint ~20 THREE Texture uuids from the ambient
+ *  Math.random, but holding the private-stream swap across the await would hand
+ *  every concurrent caller (snowflake setup, snowman build — anything drawing
+ *  randomness while the ~4 MB chunk fetches) the same deterministic xorshift
+ *  sequence on every load. The seeded harnesses never reach this import (the flag
+ *  is off headless), so the one-time import draws never land on an instrumented
+ *  stream; per-archetype GENERATION, which re-runs after resets, stays
+ *  stream-neutral via the synchronous swap in ensureEzArchetypes. */
 function loadEzTreeModule(): Promise<any> {
   if (!ezModulePromise) {
-    ezModulePromise = (async () => {
+    const loading = (async () => {
       const g = globalThis as any;
       let shimmed = false;
       if (typeof g.document === 'undefined') {
@@ -158,21 +181,20 @@ function loadEzTreeModule(): Promise<any> {
         g.document = { createElementNS: stubEl, createElement: stubEl };
         shimmed = true;
       }
-      // Import-time texture table mints ~20 THREE Texture uuids (~160 Math.random
-      // draws), so the swap must span module EVALUATION too, not just generate().
-      // Caveat: concurrent code drawing Math.random inside this one await window
-      // would read the private stream; the import happens once, only when the flag
-      // is on, and never inside the seeded harnesses' synchronous seeding windows.
-      const savedRandom = Math.random;
-      Math.random = ezUuidRandom;
       try {
-        const mod: any = await import('@dgreenheck/ez-tree');
+        const mod: any = await ezModuleImporter();
         return mod && mod.Tree ? mod : mod.default;
       } finally {
-        Math.random = savedRandom;
         if (shimmed) delete g.document;
       }
     })();
+    ezModulePromise = loading;
+    // A failed chunk fetch must not wedge every later attempt behind a rejected
+    // memo — clear it so a re-init can retry the import. (ensureEzArchetypes
+    // clears its own memo the same way; callers still see this rejection.)
+    loading.catch(() => {
+      if (ezModulePromise === loading) ezModulePromise = null;
+    });
   }
   return ezModulePromise;
 }
