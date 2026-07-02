@@ -21,9 +21,10 @@ import { forestDensityField } from './noise.js';
 // and the placement (and its Math.random() sequence) stays byte-identical for Bunny/Blue.
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 import { Wind } from '../wind.js';
-// EZ-Tree evergreen prototype (issue #282, opt-in via ?eztrees): ez-forest.ts
-// provides low-poly conifer archetype geometry; this file renders it through the
-// same instanced/tint/sway/snow pipeline. Default path is byte-identical when off.
+// EZ-Tree evergreens (issue #282; default for players, stylized under automation/
+// headless — see ez-forest.ts flag section): ez-forest.ts provides low-poly conifer
+// archetype geometry; this file renders it through the same instanced/tint/sway/
+// snow pipeline. The stylized path is byte-identical whenever the flag is off.
 import { isEzForestEnabled, setEzForestEnabled, ensureEzArchetypes, resetEzForest, EZ_SPECIES_COUNT } from './ez-forest.js';
 import type { EzArchetype, EzDetail } from './ez-forest.js';
 
@@ -189,7 +190,11 @@ let foliageInstancedMaterial: THREE.MeshStandardMaterial | null = null;
 // (see getSwayDepthMaterial; ez archetypes add root-height/alpha-mapped variants,
 // so the memo is keyed by a composed string). Kept beside the visible ones so
 // resetTreePools frees them too.
-type SwayProfile = 'rooted' | 'canopy' | 'flutter';
+// 'anchored' (issue #282 PR 3): weight comes from a per-instance `aSwayWeight`
+// attribute instead of the vertex's local height — used by the EZ tree snow, whose
+// unit-sphere geometry carries no height information but whose INSTANCES sit at a
+// known height on their host archetype. Lean-only (no flutter): snow has mass.
+type SwayProfile = 'rooted' | 'canopy' | 'flutter' | 'anchored';
 /** Optional sway/depth variations used by the EZ archetype materials. */
 interface SwayOptions {
   /** Local-space height the bend is rooted against (weight 0 at y=0 → 1 at height). */
@@ -419,7 +424,9 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
 #ifdef USE_INSTANCING
   mvPosition = instanceMatrix * mvPosition;
   {
-    #if defined( TREE_SWAY_ROOT_HEIGHT )
+    #if defined( TREE_SWAY_INSTANCE_WEIGHT )
+      float swayWeight = aSwayWeight;
+    #elif defined( TREE_SWAY_ROOT_HEIGHT )
       float swayWeight = clamp( position.y / TREE_SWAY_ROOT_HEIGHT, 0.0, 1.0 );
     #elif defined( TREE_SWAY_ROOTED )
       float swayWeight = clamp( ( position.y + TREE_TRUNK_HALF ) / ( 2.0 * TREE_TRUNK_HALF ), 0.0, 1.0 );
@@ -453,6 +460,10 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeigh
   let head = TREE_SWAY_HEAD_BASE;
   if (profile === 'rooted') head += '\n  #define TREE_SWAY_ROOTED';
   if (profile === 'flutter') head += '\n  #define TREE_SWAY_FLUTTER';
+  if (profile === 'anchored') {
+    // Per-instance weight (three transpiles `attribute` -> `in` under WebGL2).
+    head += '\n  #define TREE_SWAY_INSTANCE_WEIGHT\n  attribute float aSwayWeight;';
+  }
   if (rootHeight !== undefined && rootHeight > 0) {
     head += `\n  #define TREE_SWAY_ROOT_HEIGHT ${rootHeight.toFixed(2)}`;
   }
@@ -624,6 +635,13 @@ interface EzPlacement {
   z: number;
 }
 
+/** One EZ snow instance: its world matrix + the host tree's height-rooted sway
+ *  weight at the anchor (feeds the 'anchored' profile's aSwayWeight attribute). */
+interface EzSnowDesc {
+  matrix: THREE.Matrix4;
+  weight: number;
+}
+
 // Subtle needle tints (the needle sprite already carries the green; these vary
 // brightness/frost per instance rather than re-colourising the card).
 let ezLeafTints: THREE.Color[] | null = null;
@@ -663,6 +681,22 @@ function getEzMaterialSets(archetypes: EzArchetype[]): EzMaterialSet[] {
   return ezMaterialSets;
 }
 
+/** The EZ snow material: same cool white as the shared snow material, but swaying
+ *  on the 'anchored' profile — each instance leans by its host tree's height-rooted
+ *  weight (per-instance aSwayWeight) instead of the uniform canopy lean, so a shelf
+ *  low on a trunk stays as still as the needles it sits on. */
+let ezSnowMaterial: THREE.MeshStandardMaterial | null = null;
+function getEzSnowMaterial(): THREE.MeshStandardMaterial {
+  if (!ezSnowMaterial) {
+    ezSnowMaterial = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(0.97, 0.98, 1.0),
+      roughness: 0.82
+    });
+    applyTreeSway(ezSnowMaterial, 'anchored');
+  }
+  return ezSnowMaterial;
+}
+
 /** Deterministic per-slot hash (archetype pick, tints, snow variation) — no RNG
  *  draws after the async gap, so the visual build never perturbs seeded streams
  *  and re-builds are reproducible for the same placements. */
@@ -700,16 +734,62 @@ function treeCollidersReady(): boolean {
   return ezBuildsPending === 0;
 }
 
+// Every scheduled build still awaiting its chunk, so a caller that cannot wait
+// any longer (the run-start timeout in snowglider.ts) can abandon them and get
+// the stylized forest NOW. A Set, not a single slot: a normal scene setup
+// schedules TWO builds for the same scene back-to-back (createTerrain's addTrees,
+// then the collision addTrees in scene-setup.ts), and the superseded one cannot
+// run its own finally until the shared chunk import settles — so staling must
+// settle its collider accounting eagerly (settleStaleEzBuilds) or the stale build
+// would hold treeCollidersReady() false past the run-start timeout.
+interface PendingEzBuild {
+  scene: THREE.Scene;
+  placements: EzPlacement[];
+  token: number;
+  epoch: number;
+  settle: () => void;
+}
+const pendingEzBuilds = new Set<PendingEzBuild>();
+
+/** True once a re-init (scene token) or teardown (epoch) has superseded the build:
+ *  it will never append meshes, so it must not keep the collider gate closed. */
+function ezBuildSuperseded(build: PendingEzBuild): boolean {
+  return ezBuildTokens.get(build.scene) !== build.token || build.epoch !== ezBuildEpoch;
+}
+
+/** Settle the collider accounting of every superseded pending build NOW instead
+ *  of when its chunk import eventually settles (issue #282 PR 3 review): only
+ *  builds that can still append meshes may gate treeCollidersReady(). */
+function settleStaleEzBuilds(): void {
+  for (const build of pendingEzBuilds) {
+    if (ezBuildSuperseded(build)) {
+      pendingEzBuilds.delete(build);
+      build.settle();
+    }
+  }
+}
+
 function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
   // addTrees bumped this scene's token when it tore the previous forest down;
   // adopt it — a LATER rebuild (EZ or stylized) bumps it again, staling this build.
   const token = ezBuildTokens.get(scene) ?? 0;
   const epoch = ezBuildEpoch;
   const stale = (): boolean => ezBuildTokens.get(scene) !== token || epoch !== ezBuildEpoch;
+  // Collider accounting: exactly-once per build, whether the build settles on its
+  // own or a caller abandons it early (the eventual finally must not double-count).
+  let accounted = false;
+  const settle = (): void => {
+    if (!accounted) {
+      accounted = true;
+      ezBuildsPending--;
+    }
+  };
   ezBuildsPending++;
+  const thisBuild: PendingEzBuild = { scene, placements, token, epoch, settle };
+  pendingEzBuilds.add(thisBuild);
   ezForestBuildPromise = ensureEzArchetypes()
     .then((archetypes) => {
-      if (stale()) return; // superseded by a re-init, or torn down
+      if (stale()) return; // superseded by a re-init, torn down, or abandoned
       buildEzForest(scene, placements, archetypes);
     })
     .catch((err) => {
@@ -718,12 +798,36 @@ function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
       // the stylized trees for the same placements rather than leaving the run
       // littered with invisible obstacles once colliders re-arm.
       console.error('EzForest: archetype load failed — building the stylized fallback forest', err);
-      if (stale()) return; // superseded by a re-init, or torn down
+      if (stale()) return; // superseded by a re-init, torn down, or abandoned
       const buckets = createBuckets();
       placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
       buildForest(scene, buckets);
     })
-    .finally(() => { ezBuildsPending--; });
+    .finally(() => {
+      pendingEzBuilds.delete(thisBuild);
+      settle();
+    });
+}
+
+/** Give up on the EZ builds still awaiting their chunk (stalled fetch at run
+ *  start): settle the already-superseded ones, then stale each live build and
+ *  construct the stylized forest for its placements NOW, synchronously — the
+ *  collision positions get visible trees and the collider gate re-arms before
+ *  this returns. Returns false when no live build was pending. */
+function abandonPendingEzBuild(): boolean {
+  settleStaleEzBuilds();
+  let abandoned = false;
+  for (const pending of pendingEzBuilds) {
+    pendingEzBuilds.delete(pending);
+    ezBuildTokens.set(pending.scene, pending.token + 1); // stale the in-flight build
+    console.warn('EzForest: archetype chunk still loading at run start — building the stylized forest instead');
+    const buckets = createBuckets();
+    pending.placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
+    buildForest(pending.scene, buckets);
+    pending.settle(); // colliders re-arm now; the build's own finally won't double-count
+    abandoned = true;
+  }
+  return abandoned;
 }
 
 /** Append the EZ forest InstancedMeshes for the collected placements. Synchronous
@@ -746,8 +850,8 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     perArchetype[species + (far ? EZ_SPECIES_COUNT : 0)]!.push(p);
   });
 
-  const snowCapDescs: THREE.Matrix4[] = [];
-  const snowPatchDescs: THREE.Matrix4[] = [];
+  const snowCapDescs: EzSnowDesc[] = [];
+  const snowPatchDescs: EzSnowDesc[] = [];
   const scaleMat = new THREE.Matrix4();
   const fullMat = new THREE.Matrix4();
   const anchorPos = new THREE.Vector3();
@@ -786,10 +890,15 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
       // Snow: a cap on the crown tip plus, for NEAR trees only, settled shelves
       // draped on needle anchors — far trees keep just the cap (their shelves are
       // sub-pixel at corridor distance, so the instances would be pure cost).
+      // Each instance records its height-rooted sway weight (anchor y / tree
+      // height) so the snow leans exactly as far as the needles under it.
       anchorPos.set(0, a.height, 0).applyMatrix4(fullMat);
       const capR = 0.45 * p.scale;
-      snowCapDescs.push(new THREE.Matrix4().compose(
-        anchorPos, snowQuat.identity(), snowScale.set(capR, capR * 0.5, capR)));
+      snowCapDescs.push({
+        matrix: new THREE.Matrix4().compose(
+          anchorPos, snowQuat.identity(), snowScale.set(capR, capR * 0.5, capR)),
+        weight: 1 // crown tip: full canopy lean
+      });
       if (a.detail === 'near') {
         const shelfCount = 4 + (h % 3);
         const stride = Math.max(1, Math.floor(a.snowAnchors.length / shelfCount));
@@ -803,8 +912,11 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
           const tilt = 0.24 + ((h >>> (8 + c)) % 16) / 55;
           snowQuat.setFromEuler(snowEuler.set(tilt * Math.sin(outward), 0, -tilt * Math.cos(outward)));
           const shelfR = (0.26 + ((h >>> (4 + c)) % 8) / 36) * p.scale;
-          snowPatchDescs.push(new THREE.Matrix4().compose(
-            anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)));
+          snowPatchDescs.push({
+            matrix: new THREE.Matrix4().compose(
+              anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)),
+            weight: Math.min(1, Math.max(0, anchor.y / a.height))
+          });
           snowQuat.identity();
         }
       }
@@ -817,19 +929,28 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     scene.add(leaves);
   });
 
-  // Instanced snow reuses the pooled snow geometry + shared white material (and,
-  // like the stylized forest, snow-on-snow never enters the real shadow map).
-  const snowDefs: Array<[THREE.BufferGeometry, THREE.Matrix4[], string]> = [
+  // Instanced snow on the EZ trees (like the stylized forest, snow-on-snow never
+  // enters the real shadow map). The 'anchored' sway needs a per-instance
+  // aSwayWeight attribute, and instanced attributes live on the GEOMETRY — so each
+  // build clones the pooled snow geometry rather than mutating the shared buffer
+  // the stylized forest also draws from. The clone is owned by its mesh
+  // (userData.ownsGeometry) and disposed by the re-init sweep in addTrees.
+  const snowDefs: Array<[THREE.BufferGeometry, EzSnowDesc[], string]> = [
     [getSnowCapGeometry(), snowCapDescs, 'ezSnowCap'],
     [getSnowPatchGeometry(), snowPatchDescs, 'ezSnowPatch']
   ];
-  for (const [geometry, descs, part] of snowDefs) {
+  for (const [pooledGeometry, descs, part] of snowDefs) {
     if (descs.length === 0) continue;
-    const im = new THREE.InstancedMesh(geometry, getSnowMaterial(), descs.length);
+    const geometry = pooledGeometry.clone();
+    const weights = new Float32Array(descs.length);
+    descs.forEach((d, j) => { weights[j] = d.weight; });
+    geometry.setAttribute('aSwayWeight', new THREE.InstancedBufferAttribute(weights, 1));
+    const im = new THREE.InstancedMesh(geometry, getEzSnowMaterial(), descs.length);
     im.castShadow = false;
     im.name = 'forestInstanced';
     im.userData.forestPart = part;
-    descs.forEach((m, j) => im.setMatrixAt(j, m));
+    im.userData.ownsGeometry = true;
+    descs.forEach((d, j) => im.setMatrixAt(j, d.matrix));
     im.instanceMatrix.needsUpdate = true;
     scene.add(im);
   }
@@ -1181,7 +1302,12 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
     const child = scene.children[i]!;
     if (child.name === 'forestInstanced') {
       scene.remove(child);
-      (child as THREE.InstancedMesh).dispose();
+      const im = child as THREE.InstancedMesh;
+      // EZ snow meshes own a per-build geometry clone (it carries their
+      // per-instance aSwayWeight attribute); everything else draws the shared
+      // pooled geometry, which must NOT be disposed here.
+      if (im.userData.ownsGeometry && im.geometry) im.geometry.dispose();
+      im.dispose();
     }
   }
   // Any EZ build still awaiting its chunk for THIS scene belongs to the forest just
@@ -1189,6 +1315,10 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
   // scheduled below, or a flag-off rebuild would get stale EZ meshes appended on
   // top of its fresh stylized forest when the old load settles.
   ezBuildTokens.set(scene, (ezBuildTokens.get(scene) ?? 0) + 1);
+  // ... and release the superseded build's collider gate right away: its own
+  // finally can't run until the shared chunk import settles, and only THIS call's
+  // forest (EZ pending below, or the synchronous stylized build) may gate the run.
+  settleStaleEzBuilds();
 
   const treePositions: TreePosition[] = [];
 
@@ -1448,8 +1578,11 @@ function getTerrainGradient(x: number, z: number): TerrainGradient {
 export function resetTreePools(): void {
   // Cancel any EZ build still awaiting its archetype chunk: after this teardown
   // it must NOT append meshes (nor rebuild the pools below) into the disposed
-  // scene when the load settles — see the epoch check in scheduleEzForest.
+  // scene when the load settles — see the epoch check in scheduleEzForest. Its
+  // collider accounting settles now, not when the in-flight import lands, so a
+  // fresh setupScene never inherits a closed gate from the torn-down world.
   ezBuildEpoch++;
+  settleStaleEzBuilds();
   const free = (r: { dispose?: () => void } | null | undefined): void => {
     if (r && typeof r.dispose === 'function') r.dispose();
   };
@@ -1468,6 +1601,8 @@ export function resetTreePools(): void {
   (ezMaterialSets || []).forEach(set => { free(set.bark); free(set.leaves); });
   ezMaterialSets = null;
   ezLeafTints = null;
+  free(ezSnowMaterial);
+  ezSnowMaterial = null;
   resetEzForest();
   (trunkMaterials || []).forEach(free);
   (foliageMaterials || []).forEach(free);
@@ -1502,7 +1637,8 @@ export const Trees = {
   isEzForestEnabled,
   ezForestReady,
   ezDetailForPlacement,
-  treeCollidersReady
+  treeCollidersReady,
+  abandonPendingEzBuild
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).

@@ -12,7 +12,8 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/player-state.ts` - Typed per-frame `PlayerState` layer over the `snowman.ts` kernel
 - `src/snow.ts` - Utility functions and snow effects
 - `src/mountains.ts` - Natural backcountry terrain generation code
-- `src/trees.ts` - Tree creation and placement throughout the mountain
+- `src/trees.ts` - Tree creation and placement throughout the mountain (facade over `src/mountains/trees.ts`)
+- `src/mountains/ez-forest.ts` - EZ-Tree evergreen archetype provider (issue #282): seeded low-poly pine geometry from `@dgreenheck/ez-tree` (lazy ~4 MB chunk), rendered by `trees.ts` through the shared instanced/tint/sway/snow pipeline with a static near/far LOD split. Default for players; automation/headless keep the stylized cones (`?eztrees=1` opts in, `?classictrees` opts out) so seeded RNG streams and existing suites stay byte-identical. Headless-safe (scoped `document` shim) and RNG-stream-neutral (private xorshift for THREE uuid draws); perf pinned by the `?eztrees=1` budget in `tests/e2e/perf-budget.spec.ts` (`npm run test:ez-forest` for the unit suite)
 - `src/avalanche.ts` - Avalanche system with snow boulder physics and burial detection
 - `src/snowtracks.ts` - Temporary ski tracks (cosmetic fading grooves, terrain-aware, never touches physics; not a snow-accumulation model)
 - `src/course.ts` - Checkpoint gates, split timing, ghost racing, and result screen

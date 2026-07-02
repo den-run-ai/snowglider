@@ -29,6 +29,7 @@
 import * as THREE from 'three';
 import { Controls } from './controls.js';
 import { Snow } from './snow.js';
+import { Trees } from './trees.js';
 import { Snowman } from './snowman.js';
 import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
@@ -354,11 +355,36 @@ let installedWindowKeys: string[] = [];
 // Activate the live run: flip the run-loop flags and kick off the animation loop.
 // Factored out so the start button, the cinematic intro's completion, and the
 // reduced-motion/automation fallback all hand off to the game loop identically.
-function startGameplayLoop(showGetReady: boolean) {
+function startGameplayLoop(showGetReady: boolean, waitedForForest = false) {
   // After teardown, every deferred path (the intro's onComplete, the loading setTimeout)
   // that lands here must be inert — the renderer/canvas are gone. This is the single
   // choke point all loop-start paths funnel through, so one guard covers them all.
   if (disposed) return;
+  // Leaderboard-fair start (issue #282 PR 3 review): with the EZ evergreens on by
+  // default, a cold cache can still be fetching the archetype chunk here, and tree
+  // collision is gated off while the forest is invisible — starting now would let a
+  // run ski straight through the tree lines. Hold the hand-off until the forest
+  // build settles (appended, or failed → stylized fallback; both re-arm the
+  // colliders), raced against a short timeout so a hung fetch can never wedge the
+  // start button. When the timeout wins (chunk still in flight), the pending EZ
+  // build is ABANDONED and the stylized forest is built synchronously for the same
+  // placements — the run never starts without visible, collidable trees. The run
+  // clock is re-seated when gameplay actually begins so the wait is never billed
+  // to the player's time. Automation/`?test=` runs keep the stylized synchronous
+  // forest, so treeCollidersReady() is already true there and this path is inert.
+  if (!waitedForForest && !Trees.treeCollidersReady()) {
+    AudioModule.showMessage("Loading forest...", 1200);
+    void Promise.race([
+      Trees.ezForestReady(),
+      new Promise((resolve) => { setTimeout(resolve, 6000); })
+    ]).then(() => {
+      if (disposed) return;
+      if (!Trees.treeCollidersReady()) Trees.abandonPendingEzBuild();
+      state.startTime = performance.now();
+      startGameplayLoop(showGetReady, true);
+    });
+    return;
+  }
   state.gameActive = true;
   state.animationRunning = true;
 

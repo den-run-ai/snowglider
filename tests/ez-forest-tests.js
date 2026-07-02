@@ -30,14 +30,55 @@ async function main() {
   const { Trees } = await import('../src/trees.js');
   const EzForest = await import('../src/mountains/ez-forest.js');
 
-  // --- Flag: default OFF, override wins ---------------------------------------
+  // --- Flag: headless default OFF, override wins --------------------------------
   {
     assert(Trees.isEzForestEnabled() === false,
-      'EZ forest is OFF by default (no window/?eztrees)');
+      'EZ forest is OFF by default headless (seeded harness streams must not shift)');
     Trees.setEzForestEnabled(true);
     assert(Trees.isEzForestEnabled() === true, 'setEzForestEnabled(true) turns the flag on');
     Trees.setEzForestEnabled(null);
     assert(Trees.isEzForestEnabled() === false, 'setEzForestEnabled(null) restores the default');
+  }
+
+  // --- Flag precedence (pure resolveEzForestEnabled; issue #282 PR 3) ------------
+  // override > URL opt-out > URL opt-in > automation gate > player default ON.
+  {
+    const resolve = EzForest.resolveEzForestEnabled;
+    assert(resolve('', false, null) === true,
+      'a real player with no URL flags gets the EZ evergreens (default flipped ON)');
+    assert(resolve('', true, null) === false,
+      'automation (isTestMode/webdriver) keeps the stylized forest by default');
+    assert(resolve('?eztrees=1', true, null) === true &&
+      resolve('?foo=1&eztrees', true, null) === true,
+      'an explicit ?eztrees opt-in beats the automation gate');
+    assert(resolve('?classictrees', false, null) === false &&
+      resolve('?eztrees=0', false, null) === false &&
+      resolve('?eztrees=off', false, null) === false,
+      'players can opt back to the stylized forest (?classictrees / ?eztrees=0)');
+    assert(resolve('?eztrees=0', true, true) === true &&
+      resolve('?eztrees=1', false, false) === false,
+      'a setEzForestEnabled override beats every URL flag');
+    assert(resolve('?eztreesfoo=1', true, null) === false,
+      'unrelated params that merely share the prefix do not opt in');
+  }
+
+  // --- Headless gate: a jsdom-ish window with Node's own navigator stays stylized
+  // (Node 21+ exposes a global `navigator` with a "Node.js/..." userAgent; a DOM
+  // harness that wires window/document but not navigator must NOT read as a real
+  // browser and fall through to the player default).
+  {
+    const g = /** @type {any} */ (globalThis);
+    const hadWindow = 'window' in g, savedWindow = g.window;
+    const hadDocument = 'document' in g, savedDocument = g.document;
+    try {
+      g.window = { location: { search: '' } }; // no window.navigator — Node's global leaks through
+      g.document = {};
+      assert(Trees.isEzForestEnabled() === false,
+        'window+document without a browser navigator stays stylized (Node navigator treated as headless)');
+    } finally {
+      if (hadWindow) g.window = savedWindow; else delete g.window;
+      if (hadDocument) g.document = savedDocument; else delete g.document;
+    }
   }
 
   // --- Default path untouched when the flag is off ------------------------------
@@ -170,6 +211,41 @@ async function main() {
     assert(ezSnow.every(m => m.castShadow === false),
       'EZ snow never enters the real shadow map (no snow-on-snow pancakes)');
 
+    // Anchored snow sway (PR 3 follow-up): each snow instance leans by its host
+    // tree's height-rooted weight via a per-instance attribute on an OWNED
+    // geometry clone (the pooled snow geometry the stylized forest shares must
+    // never grow instanced attributes).
+    assert(ezSnow.length >= 2 && ezSnow.every(m => m.userData.ownsGeometry === true),
+      'EZ snow meshes own their geometry clones (pooled snow buffer untouched)');
+    assert(ezSnow.every(m => {
+      const attr = m.geometry.getAttribute('aSwayWeight');
+      return attr && attr.count === m.count;
+    }), 'every EZ snow instance carries an aSwayWeight (one per instance)');
+    const capMesh = ezSnow.find(m => m.userData.forestPart === 'ezSnowCap');
+    const patchMesh = ezSnow.find(m => m.userData.forestPart === 'ezSnowPatch');
+    const capWeights = Array.from(capMesh.geometry.getAttribute('aSwayWeight').array);
+    const patchWeights = Array.from(patchMesh.geometry.getAttribute('aSwayWeight').array);
+    assert(capWeights.every(w => w === 1),
+      'crown snow caps lean with the full canopy weight');
+    assert(patchWeights.every(w => w > 0 && w <= 1) && patchWeights.some(w => w < 1),
+      'needle shelves lean by their height on the host tree (0 < w <= 1, varied)');
+    assert(new Set([capMesh.geometry.uuid, patchMesh.geometry.uuid]).size === 2 &&
+      capMesh.geometry !== patchMesh.geometry,
+      'cap and shelf clones are distinct geometries');
+    const snowMat = capMesh.material;
+    assert(/^tree-wind-sway-anchored/.test(snowMat.customProgramCacheKey()),
+      'EZ snow material uses the anchored sway profile', snowMat.customProgramCacheKey());
+    const snowShaderStub = {
+      uniforms: {},
+      vertexShader: 'void main() {\n#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n}'
+    };
+    snowMat.onBeforeCompile(snowShaderStub);
+    assert(/TREE_SWAY_INSTANCE_WEIGHT/.test(snowShaderStub.vertexShader) &&
+      /attribute float aSwayWeight/.test(snowShaderStub.vertexShader),
+      'anchored profile reads the per-instance weight attribute in the shader');
+    assert(!/#define TREE_SWAY_FLUTTER/.test(snowShaderStub.vertexShader),
+      'snow does not flutter (lean only — snow has mass)');
+
     // Sway: base-rooted per-archetype height on the visible AND depth materials,
     // sharing the forest's single uniform set.
     const stubVS = 'void main() {\n#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n}';
@@ -211,6 +287,16 @@ async function main() {
     assert(branchTotal3 === positions3.length,
       'racing re-inits keep exactly one EZ forest (stale async builds dropped)',
       `${branchTotal3} === ${positions3.length}`);
+
+    // Owned snow geometry clones must be freed by the re-init sweep (the pooled
+    // families deliberately are not — this pins the ownsGeometry distinction).
+    const oldCap = forest3.find(m => m.userData.forestPart === 'ezSnowCap');
+    let capGeometryDisposed = false;
+    oldCap.geometry.addEventListener('dispose', () => { capGeometryDisposed = true; });
+    Trees.addTrees(scene);
+    await Trees.ezForestReady();
+    assert(capGeometryDisposed,
+      're-init disposes the owned EZ snow geometry clone (no leak per rebuild)');
 
     Trees.setEzForestEnabled(null);
   }
@@ -284,6 +370,8 @@ async function main() {
     Trees.addTrees(scene);
     const meshesBefore = scene.children.filter(c => c.name === 'forestInstanced').length;
     Trees.resetTreePools(); // disposeGame/HMR while the chunk is still in flight
+    assert(Trees.treeCollidersReady() === true,
+      'a teardown mid-load re-opens the collider gate immediately (not when the import lands)');
 
     // Let the stale load settle with the REAL module (already in Node's cache).
     resolveImport(await import('@dgreenheck/ez-tree'));
@@ -314,6 +402,8 @@ async function main() {
     Trees.addTrees(scene); // schedules an EZ build that stays in flight
     Trees.setEzForestEnabled(false);
     Trees.addTrees(scene); // stylized rebuild — must stale the pending EZ build
+    assert(Trees.treeCollidersReady() === true,
+      'a stylized rebuild re-arms the colliders immediately (the staled EZ build settles eagerly)');
 
     resolveImport(await import('@dgreenheck/ez-tree'));
     await Trees.ezForestReady();
@@ -349,6 +439,91 @@ async function main() {
 
     EzForest.__setEzModuleImporterForTests(null);
     EzForest.resetEzForest();
+  }
+
+  // --- Abandoning a stalled build arms colliders with a stylized forest, NOW ----
+  // (the run-start timeout path: the run must never begin without visible,
+  // collidable trees, even when the chunk fetch hangs without rejecting)
+  {
+    Trees.setEzForestEnabled(true);
+    /** @type {(mod: unknown) => void} */
+    let resolveImport = () => {};
+    EzForest.__setEzModuleImporterForTests(
+      () => new Promise((resolve) => { resolveImport = resolve; }));
+    EzForest.resetEzForest();
+
+    const scene = new THREE.Scene();
+    Trees.addTrees(scene); // EZ build pending, colliders gated
+    assert(Trees.treeCollidersReady() === false,
+      'precondition: colliders are gated while the chunk hangs');
+
+    const abandoned = Trees.abandonPendingEzBuild();
+    const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    const parts = new Set(forest.map(m => m.userData.forestPart));
+    assert(abandoned === true && parts.has('trunk') && parts.has('cone'),
+      'abandoning a stalled build constructs the stylized forest synchronously',
+      [...parts].sort().join(', '));
+    assert(Trees.treeCollidersReady() === true,
+      'colliders re-arm the moment the stalled build is abandoned');
+    assert(Trees.abandonPendingEzBuild() === false,
+      'abandoning twice is a no-op');
+
+    // The hung fetch finally settles: the abandoned build must NOT append EZ
+    // meshes on top, and the collider count must not double-decrement.
+    resolveImport(await import('@dgreenheck/ez-tree'));
+    await Trees.ezForestReady();
+    const after = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    assert(!after.some(m => m.userData.forestPart === 'ezBranches') &&
+      Trees.treeCollidersReady() === true,
+      'the abandoned build stays abandoned when its chunk finally lands');
+
+    EzForest.__setEzModuleImporterForTests(null);
+    EzForest.resetEzForest();
+    Trees.setEzForestEnabled(null);
+  }
+
+  // --- Double-schedule + stalled chunk: the superseded build must not hold the gate
+  // A normal scene setup schedules TWO EZ builds on the same scene back-to-back
+  // (createTerrain's addTrees, then the collision addTrees in scene-setup.ts). The
+  // first is staled by the second's re-init token bump, but its own finally can't
+  // run while the chunk import hangs — its collider accounting must settle eagerly,
+  // or abandonPendingEzBuild would re-arm only the latest build and the run-start
+  // timeout would begin the run with tree collision disabled (#282 PR 3 review, P1).
+  {
+    Trees.setEzForestEnabled(true);
+    /** @type {(mod: unknown) => void} */
+    let resolveImport = () => {};
+    EzForest.__setEzModuleImporterForTests(
+      () => new Promise((resolve) => { resolveImport = resolve; }));
+    EzForest.resetEzForest();
+
+    const scene = new THREE.Scene();
+    Trees.addTrees(scene); // build 1 (createTerrain's call in the real setup)
+    Trees.addTrees(scene); // build 2 supersedes it; build 1 must settle eagerly
+    assert(Trees.treeCollidersReady() === false,
+      'precondition: the live (second) build gates the colliders while the chunk hangs');
+
+    const abandoned = Trees.abandonPendingEzBuild();
+    assert(abandoned === true && Trees.treeCollidersReady() === true,
+      'abandoning after a double-schedule re-arms the colliders (a superseded build cannot hold the gate)');
+    const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    const parts = new Set(forest.map(m => m.userData.forestPart));
+    assert(parts.has('trunk') && parts.has('cone'),
+      'the stylized fallback forest is visible after the double-schedule abandon',
+      [...parts].sort().join(', '));
+
+    // The hung fetch finally lands: neither build may append EZ meshes over the
+    // fallback, and the collider accounting must not double-decrement.
+    resolveImport(await import('@dgreenheck/ez-tree'));
+    await Trees.ezForestReady();
+    const after = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    assert(!after.some(m => m.userData.forestPart === 'ezBranches') &&
+      Trees.treeCollidersReady() === true,
+      'both stalled builds stay abandoned when the chunk finally lands');
+
+    EzForest.__setEzModuleImporterForTests(null);
+    EzForest.resetEzForest();
+    Trees.setEzForestEnabled(null);
   }
 
   console.log(`\n=================================`);

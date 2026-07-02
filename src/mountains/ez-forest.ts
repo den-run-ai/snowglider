@@ -1,12 +1,13 @@
 // mountains/ez-forest.ts — EZ-Tree conifer archetypes for the instanced forest (issue #282).
 //
-// PROTOTYPE, OPT-IN: this module generates a small set of low-poly evergreen
-// "archetypes" with @dgreenheck/ez-tree (MIT) — one merged branch geometry + one
-// needle-card geometry per archetype — that trees.ts renders through the existing
-// InstancedMesh / palette-tint / wind-sway pipeline. It is a geometry PROVIDER only:
-// materials, sway shaders, snow and placement all stay in trees.ts, and collision
-// still reads the unchanged treePositions. Enabled with the `?eztrees` URL flag (or
-// setEzForestEnabled in tests); the default path stays byte-identical when off.
+// This module generates a small set of low-poly evergreen "archetypes" with
+// @dgreenheck/ez-tree (MIT) — one merged branch geometry + one needle-card geometry
+// per species and LOD — that trees.ts renders through the existing InstancedMesh /
+// palette-tint / wind-sway pipeline. It is a geometry PROVIDER only: materials,
+// sway shaders, snow and placement all stay in trees.ts, and collision still reads
+// the unchanged treePositions. DEFAULT ON for players (PR 3); automation and
+// headless runs keep the stylized forest unless they opt in — see the flag section
+// below. `?classictrees` restores the stylized look.
 //
 // Why the loading looks the way it does:
 //   - The published ez-tree build eagerly loads its bark/needle textures (base64
@@ -46,7 +47,14 @@ export interface EzArchetype {
   detail: EzDetail;
 }
 
-// --- Enable flag (default OFF — the stylized forest stays the shipped default) ---
+// --- Enable flag (issue #282, PR 3: ON by default for players) --------------------
+// The EZ evergreens are now the shipped default, but ONLY for a real player:
+// automation (`window.isTestMode` / `navigator.webdriver`) and headless Node keep
+// the stylized forest, mirroring the debris/intro/sfx gating precedent, so every
+// existing test surface — browser suites, e2e specs, seeded physics harnesses whose
+// Math.random streams the stylized collectTree draws are part of — stays
+// byte-identical unless a test opts in explicitly (setEzForestEnabled / ?eztrees=1).
+// Players can opt back to the stylized forest with `?classictrees` (or ?eztrees=0).
 let ezForestOverride: boolean | null = null;
 
 /** Force the flag on/off (tests, console experiments). `null` restores URL control. */
@@ -54,11 +62,40 @@ export function setEzForestEnabled(on: boolean | null): void {
   ezForestOverride = on;
 }
 
-/** Is the EZ-Tree forest prototype enabled? Override wins, else the `?eztrees` URL flag. */
+/** Pure precedence resolution (exported for the headless test):
+ *  override > URL opt-out > URL opt-in > automation gate > player default ON. */
+export function resolveEzForestEnabled(search: string, automated: boolean, override: boolean | null): boolean {
+  if (override !== null) return override;
+  if (/[?&]eztrees=(?:0|off|false)(?:[&]|$)/.test(search) || /[?&]classictrees(?:[=&]|$)/.test(search)) return false;
+  if (/[?&]eztrees(?:[=&]|$)/.test(search)) return true;
+  return !automated;
+}
+
+/** Is the EZ-Tree evergreen forest enabled for this run? */
 export function isEzForestEnabled(): boolean {
-  if (ezForestOverride !== null) return ezForestOverride;
-  if (typeof window === 'undefined' || !window.location) return false;
-  return /[?&]eztrees(?:[=&]|$)/.test(window.location.search);
+  // Headless/stubbed runs stay stylized unless a test opts in via
+  // setEzForestEnabled — the seeded verification harnesses' RNG streams must not
+  // shift. "Headless" means anything short of a real browser: no window, a
+  // window-stub without location or a DOM (the physics harnesses stub `window`
+  // but not `document`), a jsdom document (the DOM smoke test), or Node's own
+  // built-in navigator (Node 21+ exposes a global `navigator` whose userAgent is
+  // "Node.js/..." — a jsdom harness that wires window/document but not navigator
+  // would otherwise read as a real browser). Prefer window.navigator so a
+  // harness-supplied navigator wins over Node's global.
+  const nav: Navigator | undefined =
+    (typeof window !== 'undefined' && window.navigator) ||
+    (typeof navigator !== 'undefined' ? navigator : undefined) || undefined;
+  const headless = typeof window === 'undefined' || !window.location ||
+    typeof document === 'undefined' || !nav ||
+    !nav.userAgent || /jsdom|node\.js/i.test(nav.userAgent);
+  if (headless) return ezForestOverride ?? false;
+  // Besides the published flag and webdriver, read the `?test=` marker straight
+  // from the URL (the same predicate scene-setup.ts uses to SET window.isTestMode):
+  // the first addTrees of a page load runs during setupScene, and this gate must
+  // not depend on being called after that assignment.
+  const automated = !!window.isTestMode || !!nav.webdriver ||
+    window.location.search.includes('test');
+  return resolveEzForestEnabled(window.location.search, automated, ezForestOverride);
 }
 
 // --- Private RNG (uuid-neutrality during generate; see header) --------------------

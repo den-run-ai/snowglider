@@ -13,6 +13,36 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### EZ-Tree evergreen forest (#282, PRs #283/#284 + default flip)
+- **The forest's tree geometry is now generated with [EZ-Tree](https://github.com/dgreenheck/ez-tree)**
+  (`@dgreenheck/ez-tree`, MIT): `src/mountains/ez-forest.ts` builds three pine
+  species at two detail levels each (seeded, deterministic, ~1-3k triangles per
+  build) and `trees.ts` renders them through the SAME instanced pipeline as the
+  stylized cones — InstancedMesh per archetype part, per-instance bark/needle
+  palette tints, procedural canvas bark maps, shared-`Wind` vertex sway with
+  per-archetype base rooting (`TREE_SWAY_ROOT_HEIGHT`) and matching alpha-tested
+  shadow-depth materials, instanced crown snow caps + settled needle shelves, and
+  ground collars. Tree snow sways on its host tree's height-rooted weight (a
+  per-instance `aSwayWeight` attribute on an owned geometry clone — the 'anchored'
+  profile), so a low shelf stays as still as the needles under it. Collision
+  (`treePositions`) is untouched.
+- **Static far LOD:** trees beyond 32u lateral of the run centerline use a ~40%-cost
+  far build (same seed ⇒ same silhouette). Perf, measured on the seeded Chromium
+  layout: draw calls 233 (parity with the stylized 227), triangles ~463k (~2× the
+  stylized forest; whole-forest InstancedMeshes never frustum-cull), pinned by a
+  dedicated `?eztrees=1` budget test in `tests/e2e/perf-budget.spec.ts`.
+- **Default ON for players; stylized under automation/headless.** Mirroring the
+  debris/intro/sfx gating: `window.isTestMode` / `navigator.webdriver` / no-DOM runs
+  keep the stylized forest (and its exact seeded `Math.random` stream) unless a test
+  opts in via `?eztrees=1` or `Trees.setEzForestEnabled(true)`. Players can opt back
+  with `?classictrees`. Precedence lives in the pure `resolveEzForestEnabled`
+  (tested headless in `tests/ez-forest-tests.js`).
+- **Loading:** the published package eagerly embeds/loads its textures at import
+  (~4 MB), so it is a lazy dynamic import — code-split by Vite, fetched only when
+  the flag resolves on; headless Node gets a scoped `document` shim around the
+  import. Archetype generation swaps `Math.random` to a private xorshift for the
+  THREE uuid draws, so seeded harness streams never shift.
+
 ### Freestyle jumps on a new ◆◆ Expert tier (#32 first pass)
 - **A fourth difficulty tier, after Hard.** `difficulty.ts` gains **◆◆ Expert** —
   Black's exact handling numbers, winding corridor, and heavy slide (its own seed, so
