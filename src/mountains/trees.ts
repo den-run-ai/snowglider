@@ -662,6 +662,12 @@ function hashPlacement(x: number, z: number, salt: number): number {
 // Re-init guard: addTrees on the same scene supersedes any EZ build still awaiting
 // the archetype chunk (scene-local, mirroring the scene-local forest teardown).
 const ezBuildTokens = new WeakMap<THREE.Scene, number>();
+// Teardown guard: resetTreePools (disposeGame / dev-HMR) bumps this epoch so any
+// EZ build still awaiting its chunk is cancelled outright — the scene token only
+// supersedes a LATER addTrees, and without the epoch an in-flight load would
+// append fresh InstancedMeshes (recreating the just-freed material pools) to a
+// scene whose renderer was already disposed.
+let ezBuildEpoch = 0;
 // The most recent scheduled build; tests/tools await this to see the full forest.
 let ezForestBuildPromise: Promise<void> = Promise.resolve();
 // EZ builds still awaiting their archetype chunk. While non-zero the forest has
@@ -684,10 +690,12 @@ function treeCollidersReady(): boolean {
 function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
   const token = (ezBuildTokens.get(scene) ?? 0) + 1;
   ezBuildTokens.set(scene, token);
+  const epoch = ezBuildEpoch;
+  const stale = (): boolean => ezBuildTokens.get(scene) !== token || epoch !== ezBuildEpoch;
   ezBuildsPending++;
   ezForestBuildPromise = ensureEzArchetypes()
     .then((archetypes) => {
-      if (ezBuildTokens.get(scene) !== token) return; // superseded by a re-init
+      if (stale()) return; // superseded by a re-init, or torn down
       buildEzForest(scene, placements, archetypes);
     })
     .catch((err) => {
@@ -696,7 +704,7 @@ function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
       // the stylized trees for the same placements rather than leaving the run
       // littered with invisible obstacles once colliders re-arm.
       console.error('EzForest: archetype load failed — building the stylized fallback forest', err);
-      if (ezBuildTokens.get(scene) !== token) return; // superseded by a re-init
+      if (stale()) return; // superseded by a re-init, or torn down
       const buckets = createBuckets();
       placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
       buildForest(scene, buckets);
@@ -1407,6 +1415,10 @@ function getTerrainGradient(x: number, z: number): TerrainGradient {
 // `foliageMaterials`, kept only for the Group-returning `createTree` shim) are NOT
 // attached to the scene, so disposing them here is the only place they're freed.
 export function resetTreePools(): void {
+  // Cancel any EZ build still awaiting its archetype chunk: after this teardown
+  // it must NOT append meshes (nor rebuild the pools below) into the disposed
+  // scene when the load settles — see the epoch check in scheduleEzForest.
+  ezBuildEpoch++;
   const free = (r: { dispose?: () => void } | null | undefined): void => {
     if (r && typeof r.dispose === 'function') r.dispose();
   };
