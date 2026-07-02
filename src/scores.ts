@@ -371,6 +371,41 @@ function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<Leaderbo
 }
 
 /**
+ * Build one leaderboard table row with DOM APIs — never string-concatenated markup.
+ * Player names and avatar URLs are user-controlled data (today the viewer's own auth
+ * profile; other players' strings once display names are denormalized onto the
+ * leaderboard docs), so the name is set via textContent and the avatar via property
+ * assignment, which cannot inject markup. The avatar scheme is allowlisted to https:
+ * so a javascript:/data: URL never reaches an attribute.
+ * @param {number} rank - 1-based leaderboard position
+ * @param {string} name - Player display name (untrusted)
+ * @param {string|null} photoURL - Avatar URL (untrusted)
+ * @param {number} time - Run time in seconds
+ * @param {boolean} isCurrentUser - Highlight the signed-in viewer's own row
+ */
+function leaderboardRow(rank: number, name: string, photoURL: string | null,
+                        time: number, isCurrentUser: boolean): HTMLTableRowElement {
+  const tr = document.createElement('tr');
+  if (isCurrentUser) tr.className = 'current-user-score';
+
+  tr.insertCell().textContent = String(rank);
+
+  const playerTd = tr.insertCell();
+  if (photoURL && /^https:\/\//.test(photoURL)) {
+    const img = document.createElement('img');
+    img.className = 'mini-avatar';
+    img.alt = '';
+    img.referrerPolicy = 'no-referrer';
+    img.src = photoURL;
+    playerTd.appendChild(img);
+  }
+  playerTd.appendChild(document.createTextNode(name));
+
+  tr.insertCell().textContent = `${time.toFixed(2)}s`;
+  return tr;
+}
+
+/**
  * Display leaderboard in game over overlay
  */
 function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
@@ -467,29 +502,31 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
 
         const { scores, users } = result;
         const activeUser = getActiveUser();
-        let html = '<h3>Top 10 Times</h3><table>';
-        html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
+        // Build the table with DOM APIs (leaderboardRow) rather than an innerHTML
+        // string, so user-controlled names/avatars render as text, never as markup.
+        const heading = document.createElement('h3');
+        heading.textContent = 'Top 10 Times';
+        const table = document.createElement('table');
+        const headerRow = document.createElement('tr');
+        table.appendChild(headerRow);
+        for (const label of ['Rank', 'Player', 'Time']) {
+          const th = document.createElement('th');
+          th.textContent = label;
+          headerRow.appendChild(th);
+        }
 
         scores.forEach((score, index) => {
           const user = users[index]!;
           // Show current user differently (match by userId)
-          const isCurrentUser = activeUser && score.userId === activeUser.uid;
-          const displayName = isCurrentUser ? 
-            (activeUser.displayName || 'You') : 
+          const isCurrentUser = !!(activeUser && score.userId === activeUser.uid);
+          const displayName = isCurrentUser ?
+            (activeUser.displayName || 'You') :
             `${user.displayName} ${index + 1}`;
-            
-          html += `<tr class="${isCurrentUser ? 'current-user-score' : ''}">
-            <td>${index + 1}</td>
-            <td>
-              ${user.photoURL ? `<img src="${user.photoURL}" alt="" class="mini-avatar">` : ''}
-              ${displayName}
-            </td>
-            <td>${score.time.toFixed(2)}s</td>
-          </tr>`;
+          table.appendChild(
+            leaderboardRow(index + 1, displayName, user.photoURL, score.time, isCurrentUser));
         });
 
-        html += '</table>';
-        leaderboardElement.innerHTML = html;
+        leaderboardElement.replaceChildren(heading, table);
         console.log("Leaderboard display updated successfully.");
       })
       .catch(error => {
@@ -655,7 +692,11 @@ const ScoresModule = {
   updateUserBestTime,
   updateLeaderboard,
   isFirestoreAvailable,
-  isValidScoreTime
+  isValidScoreTime,
+  // Deliberate test seam (not a game API): lets the headless suite exercise the
+  // row builder's avatar scheme-allowlist branch directly — no leaderboard data
+  // path supplies a photoURL yet, so the guard is unreachable from the public API.
+  leaderboardRow
 };
 
 // Export as both a module and a global for flexibility
