@@ -324,15 +324,16 @@ const EXPERT: DifficultyConfig = {
   terrain: { channelHalfWidth: 7, wallRamp: 9, wallHeight: 10 },
   // Designed air (JP-6): three sculpted kickers spaced down the run, each centered
   // on the course line (laneX at its lip) and spanning the channel floor
-  // (halfWidth == channelHalfWidth). An 8 u approach rising 2.2 u to the lip gives
-  // ~15° of ramp pitch — with lipLaunch, a committed straight run launches a real
-  // arc; a cautious line can brake or skirt the taper. PROVISIONAL — validated by
-  // the follow-the-line winnability gate (a line rider goes off every kicker and
-  // must still finish and out-ski the slide).
+  // (halfWidth == channelHalfWidth). The u² ramp profile is steepest AT the lip
+  // (~0.86 rise/run for 3 u over 7 u ≈ 40° lip pitch), which is what the
+  // lip-consistent launch converts to air — a committed straight run launches a
+  // real arc; a cautious line can brake or skirt the taper. PROVISIONAL —
+  // validated by the follow-the-line winnability gate (a line rider goes off
+  // every kicker and must still finish and out-ski the slide).
   features: [
-    { z: -70, length: 8, halfWidth: 7, height: 2.2 },
-    { z: -110, length: 8, halfWidth: 7, height: 2.2 },
-    { z: -150, length: 8, halfWidth: 7, height: 2.2 },
+    { z: -70, length: 7, halfWidth: 7, height: 3.0 },
+    { z: -110, length: 7, halfWidth: 7, height: 3.0 },
+    { z: -150, length: 7, halfWidth: 7, height: 3.0 },
   ],
   avalanche: { enabled: true, triggerDistance: 60, boulderCount: 150, slideSpeedBase: 9, slideSpeedJitter: 3 },
 };

@@ -425,15 +425,23 @@ export function stepSnowmanPhysics(
   if (!isInAir && tuning.autoJump && !controls.jump && heightDifference < -0.8 && movingFast && jumpCooldown <= 0) {
     if (tuning.lipLaunch && currentSpeed > 1e-3) {
       // Lip-consistent launch (JP-6): derive v_y from the convexity of the lip the
-      // player actually rode off — terrain slope along the travel direction just
-      // behind minus just ahead, clamped. Entirely behind the flag (Expert), so the
-      // legacy constant below is byte-identical for every other tier.
+      // player actually rode off — the approach-ramp pitch minus the slope ahead,
+      // clamped. Entirely behind the flag (Expert), so the legacy constant below is
+      // byte-identical for every other tier.
+      //
+      // IMPORTANT (Codex review on #292): by the time heightDifference < -0.8 has
+      // fired, `pos` has already crossed PAST the drop — terrainHeightAtPosition is
+      // the low post-lip surface. The ramp pitch must therefore be measured
+      // entirely from samples BEHIND the current position (two points still on the
+      // approach), never against the dropped current height, or slopeBehind reads
+      // negative and every kicker collapses to the LIP_MIN floor.
       const ux = velocity.x / currentSpeed;
       const uz = velocity.z / currentSpeed;
-      const hBehind = getTerrainHeight(pos.x - ux * LIP_SAMPLE_DIST, pos.z - uz * LIP_SAMPLE_DIST);
+      const hBehind1 = getTerrainHeight(pos.x - ux * LIP_SAMPLE_DIST, pos.z - uz * LIP_SAMPLE_DIST);
+      const hBehind2 = getTerrainHeight(pos.x - ux * 2 * LIP_SAMPLE_DIST, pos.z - uz * 2 * LIP_SAMPLE_DIST);
       const hAhead = getTerrainHeight(pos.x + ux * LIP_SAMPLE_DIST, pos.z + uz * LIP_SAMPLE_DIST);
-      const slopeBehind = (terrainHeightAtPosition - hBehind) / LIP_SAMPLE_DIST; // + = was climbing (a ramp)
-      const slopeAhead = (hAhead - terrainHeightAtPosition) / LIP_SAMPLE_DIST;   // − = drops away past the lip
+      const slopeBehind = (hBehind1 - hBehind2) / LIP_SAMPLE_DIST;               // + = the approach was climbing (a ramp)
+      const slopeAhead = (hAhead - terrainHeightAtPosition) / LIP_SAMPLE_DIST;   // − = keeps dropping away ahead
       const dSlope = Math.max(0, slopeBehind - slopeAhead);                      // convexity along travel
       verticalVelocity = Math.min(LIP_MAX, Math.max(LIP_MIN, currentSpeed * dSlope * LIP_K));
     } else {

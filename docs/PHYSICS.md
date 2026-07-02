@@ -476,9 +476,12 @@ false); the freestyle suite pins the wipeout residual/impact tables.
 **Kickers** (`DifficultyConfig.features?: KickerSpec[]` — Expert ships three;
 absent ⇒ byte-identical terrain, the `terrain`-corridor guardrail pattern): sculpted
 ramps sitting ON the course line, each `{ z, length, halfWidth, height }` — the
-approach rises by smootherstep to the lip at `z` and then **drops** (the tabletop
-face the auto-jump launches off), tapering smoothly to 0 at `±halfWidth` around
-`laneX(z)`. The ramp term is added in the **one canonical height source**
+approach rises by a **quadratic ease (u²)** to the lip at `z` and then **drops**
+(the tabletop face the auto-jump launches off), tapering smoothly (smootherstep) to
+0 at `±halfWidth` around `laneX(z)`. u² is deliberate: flat at the entry (no kink
+riding on) and **steepest at the lip** — how a real kicker is shaped, and what the
+launch below converts to air; a smoothstep profile would flatten at the lip and
+launch nothing on a steep base slope. The ramp term is added in the **one canonical height source**
 (`mountains/terrain.ts` `kickerRampHeight`), consumed by both the mesh builder and
 the physics sampler — the §2.2 two-formula contract — and `setTerrainKickers`
 resets the height cache like the corridor. Pinned by `tests/kicker-tests.js`.
@@ -487,10 +490,14 @@ resets the height cache like the corridor. Pinned by `tests/kicker-tests.js`.
 the frozen constant):
 
 ```
-// In the auto-jump branch, when tuning.lipLaunch:
+// In the auto-jump branch, when tuning.lipLaunch. NOTE: by the time the auto-jump
+// condition (heightDifference < -0.8) has fired, pos is already PAST the drop, so
+// the approach pitch is measured entirely from samples BEHIND pos — never against
+// the dropped current height (which would read the ramp as negative slope and
+// collapse every kicker to the LIP_MIN floor — Codex on #292).
 u          = velocity / |velocity|                       // travel direction
-slopeBehind = (h(pos) − h(pos − u·2)) / 2                // + = was climbing (a ramp)
-slopeAhead  = (h(pos + u·2) − h(pos)) / 2                // − = drops away past the lip
+slopeBehind = (h(pos − u·2) − h(pos − u·4)) / 2          // approach-ramp pitch (behind-only)
+slopeAhead  = (h(pos + u·2) − h(pos)) / 2                // − = keeps dropping away ahead
 Δslope      = max(0, slopeBehind − slopeAhead)           // convexity along travel
 v_y         = clamp(speed · Δslope · LIP_K(1), LIP_MIN(4), LIP_MAX(16))
 ```
@@ -777,7 +784,7 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Obstacle clear score / cap per air (JP-2) | 75 / 3 | `snowman/physics.ts` |
 | Avalanche dodge score / escape impulse (JP-3) | 250 / ×1.10 (once per slide) | `game/main-loop.ts` |
 | Lip launch (JP-6): K / min / max / sample dist | 1.0 / 4 / 16 m/s / 2 u | `snowman/physics.ts` |
-| Expert kickers (JP-6) | 3 × `{length 8, halfWidth 7, height 2.2}` | `difficulty.ts` `features` |
+| Expert kickers (JP-6) | 3 × `{length 7, halfWidth 7, height 3.0}` (u² ramp) | `difficulty.ts` `features` |
 | Freestyle spin / flip rate (Expert, #32) | 360 / 300 deg/s | `snowman/physics.ts` |
 | Freestyle score (per 180° spin / 360° flip / grab s) | 40 / 120 / 60 | `snowman/physics.ts` |
 | Freestyle landing tolerance (spin / flip residual) | 60° / 75° | `snowman/physics.ts` |

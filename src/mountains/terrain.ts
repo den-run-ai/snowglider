@@ -110,6 +110,12 @@ export function hasActiveKickers(): boolean {
  * getTerrainHeight and the mesh builder add it, so the two-formula terrain contract
  * (§2.2) holds. 0 with no kickers, outside a kicker's footprint, and past the lip
  * (the drop face the auto-jump launches off).
+ *
+ * Along-run profile: QUADRATIC ease (u²) — flat at the entry (C1, no kink riding
+ * on) and STEEPEST at the lip, which is how a real kicker is shaped and what the
+ * lip-consistent launch (physics.ts, tuning.lipLaunch) derives its arc from. A
+ * smoothstep-style profile would flatten at the lip and launch nothing on a steep
+ * base slope. Lateral taper stays smootherstep (soft shoulders both sides).
  */
 export function kickerRampHeight(x: number, z: number): number {
   if (!activeKickers) return 0;
@@ -119,7 +125,7 @@ export function kickerRampHeight(x: number, z: number): number {
     const lat = 1 - Math.abs(x - xc) / spec.halfWidth;
     if (lat <= 0) continue;
     const u = (spec.z + spec.length - z) / spec.length;   // 0 at entry → 1 at the lip
-    add += spec.height * smootherstep01(u) * smootherstep01(lat);
+    add += spec.height * u * u * smootherstep01(lat);
   }
   return add;
 }
