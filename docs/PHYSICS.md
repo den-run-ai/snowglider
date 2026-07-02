@@ -847,8 +847,9 @@ of each faking its own (issue #253).
   uniform set the main loop refreshes once per frame from `Wind.dir()`/`strength()`. The
   trunk material is "rooted" so the bend is planted at the base while the canopy above it
   sways as a unit; a spatial phase from each vertex's world x/z desyncs neighbouring trees.
-  No per-instance data and no position/collision change, so it is invariant-safe and the
-  shared pooled geometry is untouched).
+  No position/collision change, so it is invariant-safe; the load-carrying families draw a
+  per-forest geometry clone for their per-instance attributes — see snow load below — while
+  the trunk still draws the shared pooled geometry).
   Audio bed (`sfx.ts`: the procedural ambient wind noise adds `Wind.strength() ×
   WIND_FIELD_GAIN` on top of its speed-scaled whoosh via the pure `windGainForField`, so a
   gusty slope hisses at a standstill and swells with gusts; the main loop passes
@@ -866,6 +867,28 @@ of each faking its own (issue #253).
   Keyed on `strength`, which is 0 in a dead-calm field, so the howl is exactly silent with
   no wind (a windless run is unchanged). Reads the field only — no `pos`/`velocity` — so it
   is invariant-safe like the visual consumers.
+- **Snow load & shedding (Phase B, cosmetic).** Every placed tree carries a CURRENT snow
+  load (0..1) in a registry inside `mountains/trees.ts`, exposed as two live-updatable
+  per-instance attributes: `aSnowLoad` (absolute — a laden part sways at
+  `1 − TREE_LOAD_DAMP·load` of the free amplitude and bows `TREE_LOAD_DROOP·load` world
+  units, matched in the shadow-depth materials) and `aSnowRatio` (current/base — the snow
+  caps/shelves scale toward `TREE_SNOW_SHRINK_MIN` as the load sheds). Base loads reuse
+  **existing** randomness only: the stylized path threads `collectTree`'s pre-existing
+  per-tree `snowLoad` draw (the seeded placement `Math.random()` sequence the harnesses
+  baseline is untouched — the new geometry clones mint their uuids under the same private
+  RNG swap as the depth materials), and the EZ path derives load from the placement hash
+  that already sizes its shelves. `src/tree-shed.ts` makes the load DYNAMIC: a gust front
+  (rising edge of `Wind.gust()`, cooldown-limited) picks the most laden trees within a
+  radius of the player, dumps them fast (`keep` fraction survives; puff sprites burst off
+  the crown, document-guarded like the avalanche powder), then re-ladens them slowly.
+  `TreeShed.update()` returns the frame's shed events; the main loop voices each via
+  `Sfx.treeShed(distance)` (a soft low "whump", `shedGainForDistance`), and feeds
+  `Sfx.updateForest(strength, gust, proximity)` — a bright needle-rustle noise bed gated on
+  wind × `forestProximityAt(treePositions, x, z)`, so an open bowl at any wind and a calm
+  glade are both exactly silent. Ground snow collars sit outside every tree's attribute
+  ranges (load 0 / ratio 1), so they never droop, shrink, or shed. Reduced motion keeps the
+  whole shed system inert (static base loads); `TreeShed.reset()` re-ladens the forest on
+  every run reset so the deterministic gust cycle replays identically.
 - **Why this is invariant-safe.** Because no consumer writes `pos`/`velocity`, the
   no-input coasting path stays byte-identical to the frozen baseline (§6) — adding wind
   needed **no** baseline regeneration. A wind *force* on the skier would be the opposite: a

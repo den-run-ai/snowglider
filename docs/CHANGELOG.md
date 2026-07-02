@@ -13,6 +13,26 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Trees flex under snow load, shed it in gusts, and the forest sounds like one (#253 Phase B)
+- **Per-tree snow load.** Every placed tree now carries a live load (0..1) riding the
+  instanced forest as two per-instance attributes: `aSnowLoad` (laden foliage sways
+  damped and bows downward — shadows bow in lockstep) and `aSnowRatio` (snow caps and
+  shelves scale with what the tree is still holding). Base loads reuse existing
+  randomness only (the stylized path's pre-existing per-tree `snowLoad` draw; the EZ
+  path's placement hash), so the seeded placement stream and the physics baseline are
+  untouched. Ground collars never droop, shrink, or shed.
+- **Gust shedding (`src/tree-shed.ts`).** When a gust front arrives (rising edge on
+  the shared deterministic `Wind` field), the most laden trees near the player dump
+  their snow — powder puffs burst off the crown, the shelves visibly shrink, the
+  branches spring back — then re-laden slowly under the falling snow. Cosmetic-only,
+  no global `Math.random` draws, reduced-motion inert, reset per run.
+- **Forest audio (`src/sfx.ts`).** A needle-rustle noise bed gated on wind strength ×
+  forest proximity around the player (an open bowl or a dead calm stays exactly
+  silent), and a distance-scaled soft "whump" one-shot when a nearby tree sheds.
+- Covered by `tests/tree-shed-tests.js` (`npm run test:tree-shed`) + new sfx gain-map
+  asserts; the invariant, stress (seeded stream), browser, and e2e suites all pass
+  unchanged.
+
 ### Style/combo chain + physical-spin seam (jump-system completion JP-7, #286)
 - **Consecutive rewarded air events now compound.** CLEAN landings, scored
   obstacle clears, and avalanche dodges build a multiplier — ×1.25 per step,

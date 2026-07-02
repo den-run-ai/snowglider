@@ -107,12 +107,13 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `Snow` | `snow.ts` | object + fns | Snowflakes + ski snow-splash particles (drift downwind, issue #253) |
 | `Sky` | `sky.ts` | object + fns | Preetham atmospheric sky + sun & horizon distance fog (gradient-dome fallback), issue #2 |
 | `Wind` | `wind.ts` | object + fns | Shared deterministic horizontal wind field (a pure clock-advanced sample read by snow drift, the scarf, the tree sway, and the audio bed); cosmetic-only, no `THREE`/DOM import, issue #253 |
+| `TreeShed` | `tree-shed.ts` | IIFE + pure fns | Dynamic per-tree snow load: gust fronts (Wind rising-edge) dump the most laden trees near the player — powder puffs, shelves shrink, branches spring back — then slow re-laden; drives the `trees.ts` load registry, never physics/collision; deterministic (no global `Math.random`), reduced-motion inert (#253 Phase B) |
 | `Camera` | `camera.ts` | `class Camera` | Chase/orbit camera positioning & look-ahead |
 | `Snowman` | `snowman.ts` | object + fns | Snowman model, `updateSnowman` physics, test hooks |
 | `Flex` | `snowman-flex.ts` | object + fns | Cosmetic snowman flex (squash/jiggle, head-cluster bob/lean, landing settle); runs after physics, never touches the kernel (#53) |
 | `Physics` | `player-state.ts` | object + fns | Typed per-frame `PlayerState` container over the snowman kernel |
 | `AudioModule` | `audio.ts` | IIFE | Native HTML5 background music (gated by `AUDIO_ENABLED`) |
-| `Sfx` | `sfx.ts` | IIFE | Procedural Web Audio sound effects (wind/carve/jump/land/avalanche/crash/finish, gated by `SFX_ENABLED`); synthesised at runtime (no assets), unlocked on the start gesture, off under automation, reads the physics result + the shared `Wind` field for the ambient bed (#158, #253) |
+| `Sfx` | `sfx.ts` | IIFE | Procedural Web Audio sound effects (wind/carve/jump/land/avalanche/crash/finish, plus the forest needle-rustle bed and snow-shed whump, gated by `SFX_ENABLED`); synthesised at runtime (no assets), unlocked on the start gesture, off under automation, reads the physics result + the shared `Wind` field for the ambient bed (#158, #253) |
 | `Controls` | `controls.ts` | object + fns | Keyboard + touch input → shared `controls` state |
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
 | `SnowTrails` | `snowtracks.ts` | `class` | Cosmetic **temporary** ski tracks: instanced grooves carved behind the skis that fade after a few seconds (transient feedback, not a snow-accumulation model); terrain-aware, reduced-motion-aware, never touches physics (#17) |
@@ -222,6 +223,8 @@ alpha = accumulator / FIXED_DT                    // 0..1 leftover for render in
 renderObservers(frameDelta, latestResult, events)   // HUD stats, Flex.update, Sfx jump/land/skiing
 Diag.record(frameDelta, …, step=maxSubstepStep)  // telemetry: REAL frame dt (FPS/clamped) + substep step (tunnelRisk)
 Wind.update(frameDelta)                          // advance the shared wind field (deterministic, cosmetic)
+TreeShed.update(frameDelta, pos, trees, scene)   // gust fronts shed laden trees (puffs + load writes) → Sfx.treeShed per event
+Sfx.updateForest(strength, gust, proximity)      // needle-rustle bed: wind × forest around the player
 Snow.updateSnowflakes(...)                        // flakes drift downwind by Wind.vector()
 snowTrails.update(frameDelta, snowman, isInAir)  // carve/fade ski grooves (cosmetic, reads pos only)
 Sky.update(frameDelta)                           // golden-hour↔midday sun cycle
