@@ -14,9 +14,10 @@ type GameWindow = Window & {
   getControls?: () => Record<string, boolean>;
 };
 
-/** Load the game page and wait until the deferred orchestrator has wired up start. */
-export async function gotoGame(page: Page): Promise<void> {
-  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+/** Load the game page and wait until the deferred orchestrator has wired up start.
+ *  `query` lets a spec opt into URL-flagged variants (e.g. '?eztrees=1'). */
+export async function gotoGame(page: Page, query = ''): Promise<void> {
+  await page.goto(`/index.html${query}`, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#startGameButton')).toBeVisible();
   // The orchestrator (snowglider.ts) is a deferred dynamic import; the Start button
   // only does something once it has published initializeGameWithAudio.

@@ -78,16 +78,21 @@ async function main() {
       Math.random = savedRandom;
     }
 
-    assert(Array.isArray(archetypes) && archetypes.length >= 3,
-      'at least three evergreen archetypes are generated', `${archetypes.length}`);
-    for (const a of archetypes) {
+    const speciesCount = EzForest.EZ_SPECIES_COUNT;
+    assert(Array.isArray(archetypes) && archetypes.length === speciesCount * 2,
+      'every species is generated at near AND far detail',
+      `${archetypes.length} = ${speciesCount} species x 2 LODs`);
+    const triCount = (a) => {
       const idx = a.branches.index;
       const leafIdx = a.leaves.index;
-      const tris = ((idx ? idx.count : a.branches.getAttribute('position').count) +
+      return ((idx ? idx.count : a.branches.getAttribute('position').count) +
         (leafIdx ? leafIdx.count : a.leaves.getAttribute('position').count)) / 3;
+    };
+    for (const a of archetypes) {
+      const tris = triCount(a);
       assert(tris > 0 && tris <= EzForest.EZ_ARCHETYPE_TRIANGLE_BUDGET,
         'archetype stays within the instancing triangle budget',
-        `${Math.round(tris)} <= ${EzForest.EZ_ARCHETYPE_TRIANGLE_BUDGET}`);
+        `${a.detail}: ${Math.round(tris)} <= ${EzForest.EZ_ARCHETYPE_TRIANGLE_BUDGET}`);
       assert(a.height > 10, 'archetype reports a usable local height', a.height.toFixed(1));
       assert(a.snowAnchors.length >= 8, 'archetype exposes snow shelf anchors',
         `${a.snowAnchors.length}`);
@@ -95,8 +100,33 @@ async function main() {
       assert(a.snowAnchors.every(p => p.y > midY * 0.5),
         'snow anchors sit in the upper canopy (top-biased sampling)');
     }
+    // Layout contract trees.ts relies on: near builds at [0, speciesCount), each
+    // species' far build exactly speciesCount later — and meaningfully cheaper.
+    for (let i = 0; i < speciesCount; i++) {
+      const near = archetypes[i];
+      const far = archetypes[i + speciesCount];
+      assert(near.detail === 'near' && far.detail === 'far' &&
+        near.species === i && far.species === i,
+        'archetype layout is [near x species..., far x species...]',
+        `species ${i}`);
+      assert(triCount(far) <= triCount(near) * EzForest.EZ_FAR_TRIANGLE_FRACTION,
+        'far build costs at most the far-fraction of its near counterpart',
+        `${Math.round(triCount(far))} <= ${EzForest.EZ_FAR_TRIANGLE_FRACTION} * ${Math.round(triCount(near))}`);
+      assert(Math.abs(far.height - near.height) < near.height * 0.25,
+        'far build keeps roughly the species silhouette height',
+        `${far.height.toFixed(1)} vs ${near.height.toFixed(1)}`);
+    }
     assert(EzForest.getEzArchetypesSync() === archetypes,
       'getEzArchetypesSync returns the cached archetypes after generation');
+
+    // LOD split (pure): corridor-adjacent trees render near, off-piste far. On
+    // straight tiers the centerline is x=0, so the band is a plain |x| check.
+    assert(Trees.ezDetailForPlacement(0, -50) === 'near' &&
+      Trees.ezDetailForPlacement(30, -50) === 'near',
+      'trees inside the corridor band use the near build');
+    assert(Trees.ezDetailForPlacement(40, -50) === 'far' &&
+      Trees.ezDetailForPlacement(-80, -50) === 'far',
+      'off-piste trees use the far build');
   }
 
   // --- Flag ON: addTrees appends the EZ families with matching counts -----------
@@ -117,6 +147,13 @@ async function main() {
 
     const ezBranchMeshes = forest.filter(m => m.userData.forestPart === 'ezBranches');
     const ezLeafMeshes = forest.filter(m => m.userData.forestPart === 'ezLeaves');
+    // The placement grid spans x -100..100 around a ±32 corridor band, so both
+    // LOD tiers must be represented in the live build.
+    const archetypeIdxs = new Set(ezBranchMeshes.map(m => m.userData.ezArchetype));
+    assert([...archetypeIdxs].some(i => i < EzForest.EZ_SPECIES_COUNT) &&
+      [...archetypeIdxs].some(i => i >= EzForest.EZ_SPECIES_COUNT),
+      'the forest mixes near (corridor) and far (off-piste) LOD builds',
+      [...archetypeIdxs].sort((a, b) => a - b).join(', '));
     const branchTotal = ezBranchMeshes.reduce((n, m) => n + m.count, 0);
     const leafTotal = ezLeafMeshes.reduce((n, m) => n + m.count, 0);
     assert(branchTotal === positions.length,

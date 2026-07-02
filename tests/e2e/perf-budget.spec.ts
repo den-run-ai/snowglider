@@ -74,78 +74,123 @@ type RendererWindow = Window & {
   };
 };
 
+// --- EZ evergreen variant budget (issue #282, ?eztrees=1 prototype) ---------
+// The opt-in EZ-Tree forest swaps the stylized cones for archetype geometry:
+// up to 6 archetype InstancedMesh pairs (3 species x near/far LOD) + instanced
+// snow instead of the 5 stylized families, per-archetype sway program variants,
+// and the package's needle sprite. Measured on Chromium with the same seeded
+// layout: calls ~233, triangles ~463k, geometries ~137, textures 13, programs 34.
+// Triangles run ~2x the stylized forest (needle cards + no instance culling —
+// same documented tradeoff); the far-LOD split is what keeps it at ~2x instead
+// of ~4x, and this guard pins that it STAYS there. Draw calls hold parity with
+// the stylized budget — instancing is the invariant that matters most.
+const EZ_BUDGET = {
+  calls: 800, // parity with the stylized budget — instancing must hold here too
+  triangles: 600_000, // loose ceiling over the measured ~410k (forest never culls)
+  geometries: 210, // + up to 12 archetype geometries over the stylized ~155 peak
+  textures: 30, // + needle sprite & co. over the stylized measured ~11
+  programs: 40, // + per-archetype sway variants (visible + depth) over ~16
+};
+
+/** Seed Math.random BEFORE any game script runs so the forest layout (tree count,
+ *  placement, snow patches) is identical on every CI run. Without this the random
+ *  layout varies the mesh/triangle count run to run, so ceilings calibrated from
+ *  one measured scene could red-bar an unrelated PR on a denser draw. addInitScript
+ *  runs in the page realm before the bundle's first Math.random call. */
+function seedDeterministicLayout(page: import('@playwright/test').Page): Promise<void> {
+  return page.addInitScript(() => {
+    // mulberry32 — small, fast, well-distributed seeded PRNG.
+    let s = 0x9e3779b9 >>> 0;
+    Math.random = () => {
+      s = (s + 0x6d2b79f5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  });
+}
+
+/** Sample renderer.info across several warm frames and return the per-metric MAX.
+ *  renderer.info reflects the LAST rendered frame, and frustum culling makes
+ *  draw-calls/triangles vary frame to frame as the snowman moves, so a single
+ *  arbitrary frame is flaky — the max over a window is the representative worst
+ *  case and is what the budgets guard. */
+async function sampleRendererPeak(page: import('@playwright/test').Page): Promise<PerfInfo> {
+  await page.waitForFunction(() => !!(window as RendererWindow).renderer);
+  const samples: PerfInfo[] = [];
+  for (let i = 0; i < 12; i++) {
+    const s: PerfInfo | null = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() => {
+            const r = (window as RendererWindow).renderer;
+            resolve(
+              r
+                ? {
+                    calls: r.info.render.calls,
+                    triangles: r.info.render.triangles,
+                    geometries: r.info.memory.geometries,
+                    textures: r.info.memory.textures,
+                    programs: r.info.programs?.length ?? 0,
+                  }
+                : null,
+            );
+          });
+        }),
+    );
+    if (s) samples.push(s);
+  }
+  expect(samples.length, 'renderer seam did not publish renderer.info').toBeGreaterThan(0);
+  return {
+    calls: Math.max(...samples.map((s) => s.calls)),
+    triangles: Math.max(...samples.map((s) => s.triangles)),
+    geometries: Math.max(...samples.map((s) => s.geometries)),
+    textures: Math.max(...samples.map((s) => s.textures)),
+    programs: Math.max(...samples.map((s) => s.programs)),
+  };
+}
+
+function expectWithinBudget(peak: PerfInfo, budget: typeof BUDGET): void {
+  expect(peak.calls, 'draw calls per frame').toBeGreaterThan(0);
+  expect(peak.calls, 'draw calls per frame').toBeLessThanOrEqual(budget.calls);
+  expect(peak.triangles, 'triangles per frame').toBeLessThanOrEqual(budget.triangles);
+  // Tight pin: the shared geometry cache means this must not grow per object.
+  expect(peak.geometries, 'live BufferGeometry count').toBeLessThanOrEqual(budget.geometries);
+  expect(peak.textures, 'live texture count').toBeLessThanOrEqual(budget.textures);
+  expect(peak.programs, 'compiled shader programs').toBeLessThanOrEqual(budget.programs);
+}
+
 test.describe('rendering perf / draw-call budget @chromium', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'perf numbers are Chromium-only');
 
   test('renderer.info stays within the draw-call / geometry budget', async ({ page }) => {
-    // Seed Math.random BEFORE any game script runs so the forest produced by
-    // Trees.addTrees/createTree (tree count, branch count, placement, snow patches)
-    // is identical on every CI run. Without this the production random layout varies
-    // the mesh/triangle count run to run, so the calls/triangles ceilings — calibrated
-    // from one measured scene — could red-bar an unrelated PR on a denser draw. A
-    // deterministic layout makes the budget a real regression guard. addInitScript runs
-    // in the page realm before the bundle's first Math.random call.
-    await page.addInitScript(() => {
-      // mulberry32 — small, fast, well-distributed seeded PRNG.
-      let s = 0x9e3779b9 >>> 0;
-      Math.random = () => {
-        s = (s + 0x6d2b79f5) | 0;
-        let t = Math.imul(s ^ (s >>> 15), 1 | s);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-      };
-    });
+    await seedDeterministicLayout(page);
     await page.setViewportSize({ width: 1280, height: 720 });
     await gotoGame(page);
     await startGame(page);
 
-    // Let the running loop render warm frames, then sample renderer.info across
-    // several of them and take the per-metric MAX. renderer.info reflects the LAST
-    // rendered frame, and frustum culling makes draw-calls/triangles vary frame to
-    // frame as the snowman moves, so a single arbitrary frame is flaky — the max
-    // over a window is the representative worst case and is what the budget guards.
-    await page.waitForFunction(() => !!(window as RendererWindow).renderer);
-    const samples: PerfInfo[] = [];
-    for (let i = 0; i < 12; i++) {
-      const s: PerfInfo | null = await page.evaluate(
-        () =>
-          new Promise((resolve) => {
-            requestAnimationFrame(() => {
-              const r = (window as RendererWindow).renderer;
-              resolve(
-                r
-                  ? {
-                      calls: r.info.render.calls,
-                      triangles: r.info.render.triangles,
-                      geometries: r.info.memory.geometries,
-                      textures: r.info.memory.textures,
-                      programs: r.info.programs?.length ?? 0,
-                    }
-                  : null,
-              );
-            });
-          }),
-      );
-      if (s) samples.push(s);
-    }
-
-    expect(samples.length, 'renderer seam did not publish renderer.info').toBeGreaterThan(0);
-    const peak: PerfInfo = {
-      calls: Math.max(...samples.map((s) => s.calls)),
-      triangles: Math.max(...samples.map((s) => s.triangles)),
-      geometries: Math.max(...samples.map((s) => s.geometries)),
-      textures: Math.max(...samples.map((s) => s.textures)),
-      programs: Math.max(...samples.map((s) => s.programs)),
-    };
+    const peak = await sampleRendererPeak(page);
     // Surface the live peak in the test output so threshold drift is auditable.
-    console.log('[perf-budget] renderer.info peak over', samples.length, 'frames:', JSON.stringify(peak));
+    console.log('[perf-budget] renderer.info peak over warm frames:', JSON.stringify(peak));
+    expectWithinBudget(peak, BUDGET);
+  });
 
-    expect(peak.calls, 'draw calls per frame').toBeGreaterThan(0);
-    expect(peak.calls, 'draw calls per frame').toBeLessThanOrEqual(BUDGET.calls);
-    expect(peak.triangles, 'triangles per frame').toBeLessThanOrEqual(BUDGET.triangles);
-    // Tight pin: the shared geometry cache means this must not grow per object.
-    expect(peak.geometries, 'live BufferGeometry count').toBeLessThanOrEqual(BUDGET.geometries);
-    expect(peak.textures, 'live texture count').toBeLessThanOrEqual(BUDGET.textures);
-    expect(peak.programs, 'compiled shader programs').toBeLessThanOrEqual(BUDGET.programs);
+  test('EZ evergreen forest (?eztrees=1) stays within its perf budget', async ({ page }) => {
+    await seedDeterministicLayout(page);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await gotoGame(page, '?eztrees=1');
+    await startGame(page);
+
+    // The EZ forest is appended asynchronously once the archetype chunk loads;
+    // sampling before it lands would measure the collars-only scene.
+    await page.waitForFunction(() => {
+      const t = (window as Window & { terrainMesh?: { parent?: { children: Array<{ name: string; userData: Record<string, unknown> }> } } }).terrainMesh;
+      return !!(t && t.parent && t.parent.children.some(
+        (c) => c.name === 'forestInstanced' && c.userData.forestPart === 'ezBranches'));
+    }, undefined, { timeout: 30_000 });
+
+    const peak = await sampleRendererPeak(page);
+    console.log('[perf-budget:eztrees] renderer.info peak over warm frames:', JSON.stringify(peak));
+    expectWithinBudget(peak, EZ_BUDGET);
   });
 });
