@@ -366,7 +366,9 @@ function startGameplayLoop(showGetReady: boolean, waitedForForest = false) {
   // run ski straight through the tree lines. Hold the hand-off until the forest
   // build settles (appended, or failed → stylized fallback; both re-arm the
   // colliders), raced against a short timeout so a hung fetch can never wedge the
-  // start button (the collider gate still covers that rare remainder). The run
+  // start button. When the timeout wins (chunk still in flight), the pending EZ
+  // build is ABANDONED and the stylized forest is built synchronously for the same
+  // placements — the run never starts without visible, collidable trees. The run
   // clock is re-seated when gameplay actually begins so the wait is never billed
   // to the player's time. Automation/`?test=` runs keep the stylized synchronous
   // forest, so treeCollidersReady() is already true there and this path is inert.
@@ -377,6 +379,7 @@ function startGameplayLoop(showGetReady: boolean, waitedForForest = false) {
       new Promise((resolve) => { setTimeout(resolve, 6000); })
     ]).then(() => {
       if (disposed) return;
+      if (!Trees.treeCollidersReady()) Trees.abandonPendingEzBuild();
       state.startTime = performance.now();
       startGameplayLoop(showGetReady, true);
     });

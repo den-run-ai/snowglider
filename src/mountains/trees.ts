@@ -734,16 +734,39 @@ function treeCollidersReady(): boolean {
   return ezBuildsPending === 0;
 }
 
+// The latest scheduled build still awaiting its chunk, so a caller that cannot
+// wait any longer (the run-start timeout in snowglider.ts) can abandon it and get
+// the stylized forest NOW. Single-slot: the game has one live scene; a re-init
+// replaces the slot, and settling clears it.
+interface PendingEzBuild {
+  scene: THREE.Scene;
+  placements: EzPlacement[];
+  token: number;
+  settle: () => void;
+}
+let pendingEzBuild: PendingEzBuild | null = null;
+
 function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
   // addTrees bumped this scene's token when it tore the previous forest down;
   // adopt it — a LATER rebuild (EZ or stylized) bumps it again, staling this build.
   const token = ezBuildTokens.get(scene) ?? 0;
   const epoch = ezBuildEpoch;
   const stale = (): boolean => ezBuildTokens.get(scene) !== token || epoch !== ezBuildEpoch;
+  // Collider accounting: exactly-once per build, whether the build settles on its
+  // own or a caller abandons it early (the eventual finally must not double-count).
+  let accounted = false;
+  const settle = (): void => {
+    if (!accounted) {
+      accounted = true;
+      ezBuildsPending--;
+    }
+  };
   ezBuildsPending++;
+  const thisBuild: PendingEzBuild = { scene, placements, token, settle };
+  pendingEzBuild = thisBuild;
   ezForestBuildPromise = ensureEzArchetypes()
     .then((archetypes) => {
-      if (stale()) return; // superseded by a re-init, or torn down
+      if (stale()) return; // superseded by a re-init, torn down, or abandoned
       buildEzForest(scene, placements, archetypes);
     })
     .catch((err) => {
@@ -752,12 +775,33 @@ function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
       // the stylized trees for the same placements rather than leaving the run
       // littered with invisible obstacles once colliders re-arm.
       console.error('EzForest: archetype load failed — building the stylized fallback forest', err);
-      if (stale()) return; // superseded by a re-init, or torn down
+      if (stale()) return; // superseded by a re-init, torn down, or abandoned
       const buckets = createBuckets();
       placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
       buildForest(scene, buckets);
     })
-    .finally(() => { ezBuildsPending--; });
+    .finally(() => {
+      if (pendingEzBuild === thisBuild) pendingEzBuild = null;
+      settle();
+    });
+}
+
+/** Give up on an EZ build still awaiting its chunk (stalled fetch at run start):
+ *  stale the async build and construct the stylized forest for its placements NOW,
+ *  synchronously — the collision positions get visible trees and the collider gate
+ *  re-arms before this returns. No-op when nothing is pending. */
+function abandonPendingEzBuild(): boolean {
+  const pending = pendingEzBuild;
+  if (!pending) return false;
+  pendingEzBuild = null;
+  if (ezBuildTokens.get(pending.scene) !== pending.token) return false; // already superseded
+  ezBuildTokens.set(pending.scene, pending.token + 1); // stale the in-flight build
+  console.warn('EzForest: archetype chunk still loading at run start — building the stylized forest instead');
+  const buckets = createBuckets();
+  pending.placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
+  buildForest(pending.scene, buckets);
+  pending.settle(); // colliders re-arm now; the build's own finally won't double-count
+  return true;
 }
 
 /** Append the EZ forest InstancedMeshes for the collected placements. Synchronous
@@ -1560,7 +1604,8 @@ export const Trees = {
   isEzForestEnabled,
   ezForestReady,
   ezDetailForPlacement,
-  treeCollidersReady
+  treeCollidersReady,
+  abandonPendingEzBuild
 };
 
 // Trees is imported directly by snow.js and mountains.js (issue #84).

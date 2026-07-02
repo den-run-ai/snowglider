@@ -437,6 +437,47 @@ async function main() {
     EzForest.resetEzForest();
   }
 
+  // --- Abandoning a stalled build arms colliders with a stylized forest, NOW ----
+  // (the run-start timeout path: the run must never begin without visible,
+  // collidable trees, even when the chunk fetch hangs without rejecting)
+  {
+    Trees.setEzForestEnabled(true);
+    /** @type {(mod: unknown) => void} */
+    let resolveImport = () => {};
+    EzForest.__setEzModuleImporterForTests(
+      () => new Promise((resolve) => { resolveImport = resolve; }));
+    EzForest.resetEzForest();
+
+    const scene = new THREE.Scene();
+    Trees.addTrees(scene); // EZ build pending, colliders gated
+    assert(Trees.treeCollidersReady() === false,
+      'precondition: colliders are gated while the chunk hangs');
+
+    const abandoned = Trees.abandonPendingEzBuild();
+    const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    const parts = new Set(forest.map(m => m.userData.forestPart));
+    assert(abandoned === true && parts.has('trunk') && parts.has('cone'),
+      'abandoning a stalled build constructs the stylized forest synchronously',
+      [...parts].sort().join(', '));
+    assert(Trees.treeCollidersReady() === true,
+      'colliders re-arm the moment the stalled build is abandoned');
+    assert(Trees.abandonPendingEzBuild() === false,
+      'abandoning twice is a no-op');
+
+    // The hung fetch finally settles: the abandoned build must NOT append EZ
+    // meshes on top, and the collider count must not double-decrement.
+    resolveImport(await import('@dgreenheck/ez-tree'));
+    await Trees.ezForestReady();
+    const after = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    assert(!after.some(m => m.userData.forestPart === 'ezBranches') &&
+      Trees.treeCollidersReady() === true,
+      'the abandoned build stays abandoned when its chunk finally lands');
+
+    EzForest.__setEzModuleImporterForTests(null);
+    EzForest.resetEzForest();
+    Trees.setEzForestEnabled(null);
+  }
+
   console.log(`\n=================================`);
   console.log(`EZ forest tests completed: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
