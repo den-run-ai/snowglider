@@ -56,6 +56,15 @@ const touchState: TouchState = {
   showVisualControls: false // Flag to enable visual touch controls (optional)
 };
 
+// Per-tier jump availability (jump-system completion, workstream A). When false —
+// set at run start from the tier's `ski.manualJump` via setJumpEnabled — the CENTER
+// touch region is excluded from hit-testing and the `touch-jump` indicator is hidden,
+// so a Bunny run's touch surface doesn't advertise a dead verb. Keyboard deliberately
+// keeps writing `controls.jump`: the physics kernel's `tuning.manualJump` gate is the
+// single source of truth, and a held Space on a no-jump tier is provably ≡ no-input
+// (invariant harness), so no keyboard suppression is needed here.
+let jumpEnabled = true;
+
 // Setup controls (keyboard + touch).
 //
 // `signal` (optional): an AbortSignal tying EVERY listener registered here — keyboard,
@@ -361,7 +370,7 @@ function setupTouchControls(signal?: AbortSignal) {
     else if (isPointInRegion(x, y, touchState.controlRegions.down)) {
       gameControls.down = isActive;
     }
-    else if (isPointInRegion(x, y, touchState.controlRegions.jump)) {
+    else if (jumpEnabled && isPointInRegion(x, y, touchState.controlRegions.jump)) {
       gameControls.jump = isActive;
     }
     
@@ -459,6 +468,10 @@ function setupTouchControls(signal?: AbortSignal) {
     // Create all control elements
     Object.entries(touchState.controlRegions).forEach(([name, region]) => {
       const element = createControlElement(region, name);
+      // The jump indicator respects the per-tier availability seam: created either
+      // way (so a later setJumpEnabled(true) can just un-hide it) but hidden while
+      // the tier has no jump verb.
+      if (name === 'jump' && !jumpEnabled) element.style.display = 'none';
       document.body.appendChild(element);
     });
   }
@@ -483,6 +496,21 @@ export const Controls = {
   setupControls,
   resetControls,
   getControls: () => gameControls,
+  // Per-tier jump availability seam (workstream A): called at run start with the
+  // tier's `ski.manualJump`. Gates the CENTER touch region out of hit-testing and
+  // hides/shows the visual jump indicator; clears any latched jump state when
+  // disabling so a held press can't carry across the toggle.
+  setJumpEnabled: (enabled: boolean): void => {
+    jumpEnabled = enabled;
+    if (!enabled) gameControls.jump = false;
+    // Typed query rather than `instanceof HTMLElement`: the headless (jsdom) harness
+    // only exposes window/document globals, and '.touch-jump' can only match the
+    // HTMLElement the visual-controls builder created.
+    const indicator = document.querySelector<HTMLElement>('.touch-jump');
+    if (indicator) {
+      indicator.style.display = enabled ? '' : 'none';
+    }
+  },
   isTouchDevice: () => {
     return (
       typeof window.orientation !== 'undefined' ||

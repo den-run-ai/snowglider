@@ -268,17 +268,32 @@ velocity.x += sin(turnPhase*0.3) * (turnAmplitude*0.7) * delta * turnIntensity *
 
 ## 4. Jumps & air
 
+**Per-tier availability (jump-system completion, workstream A).** The jump verbs are
+gated by two boolean fields on `SnowmanPhysicsTuning` (`src/difficulty.ts`):
+`manualJump` (Space/touch straight jump **and** hop turn) and `autoJump` (terrain-lip
+auto-pop). Both are `true` on the Blue default — so the frozen baseline, every
+existing caller, and the invariant harness (which passes no tuning) are
+byte-identical — and both are `false` on **● Bunny**, whose grounded path's
+`pos.y = terrain` keeps the snowman glued over lips (a calm, groomed learning run;
+held-Space is provably ≡ no-input, pinned by the harness's Bunny-suppression check).
+⚠️ `manualJump: false` + `autoJump: true` is **unsupported**: the auto-jump gate keeps
+its `!jump` takeoff-precedence term, so holding Jump on such a tier would suppress
+auto-pops and diverge from the no-input trajectory. No shipped tier uses it.
+
 ```
 // Auto-jump over terrain lips / moguls. Skipped while Jump is held so a deliberate
 // jump input wins on a combined lip+jump frame (meaningful jumps #47, §3.1); the
 // `!jump` term is a no-op on every no-input/coasting frame, so the baseline is
 // unchanged. A terrain auto-jump is never player-initiated: playerJump := false.
-if (!isInAir && !jump && heightDifference < -0.8 && currentSpeed > 12 && jumpCooldown <= 0):
+// `tuning.autoJump` (true on Blue == default) gates the whole branch per tier.
+if (!isInAir && tuning.autoJump && !jump && heightDifference < -0.8 && currentSpeed > 12 && jumpCooldown <= 0):
     verticalVelocity = 6 + currentSpeed * 0.3 ; isInAir = true ; playerJump = false
 
 // Manual jump (Space / touch) — straight pop when NOT steering. Marks this air
 // phase player-initiated so the landing can grade it and award a boost (#47, §3.1).
-if (jump && !isInAir && jumpCooldown <= 0 && steering == 0):
+// `tuning.manualJump` (true on Blue == default) gates the jump VERB per tier — this
+// branch AND the hop turn below (a hop is bound to the jump input).
+if (tuning.manualJump && jump && !isInAir && jumpCooldown <= 0 && steering == 0):
     verticalVelocity = 10 + currentSpeed * 0.5 ; isInAir = true ; jumpCooldown = 0.5
     playerJump = true
 
@@ -286,7 +301,7 @@ if (jump && !isInAir && jumpCooldown <= 0 && steering == 0):
 // rotate the horizontal velocity toward the steer direction and scrub speed, with
 // a small pop; land on a fresh edge committed to the new direction. Gated entirely
 // behind jump+steer input, so it touches no coasting/plain-steer path.
-if (jump && !isInAir && jumpCooldown <= 0 && steering != 0):
+if (tuning.manualJump && jump && !isInAir && jumpCooldown <= 0 && steering != 0):
     theta = steering * 0.4                          // HOP_PIVOT_ANGLE (~23°), right => +x
     (velocity.x, velocity.z) = rotate(velocity, theta) * 0.82   // HOP_SPEED_KEEP (scrub ~18%)
     verticalVelocity = 5.0                          // HOP_POP (small, < a full jump)

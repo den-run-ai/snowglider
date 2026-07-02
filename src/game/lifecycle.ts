@@ -5,6 +5,7 @@
 // reset/restart/toggle on `window`. Mechanical move — behavior is unchanged.
 
 import { Controls } from '../controls.js';
+import { getDifficultyConfig } from '../difficulty.js';
 import { Snow } from '../snow.js';
 import { Flex } from '../snowman-flex.js';
 import { AudioModule } from '../audio.js';
@@ -70,6 +71,15 @@ export function createLifecycle(deps: LifecycleDeps) {
 
     // Reset keyboard controls
     Controls.resetControls();
+
+    // Per-tier jump availability (workstream A): sync the touch surface to the run's
+    // tier. `state.difficulty` is locked before every reset — the coordinator sets it
+    // from the start-screen pick before its initial resetSnowman(), and the finish
+    // "Play again on" picker updates it before restartGame() reaches here — so this
+    // single call site covers first start, restart, and the in-game Reset button.
+    // The kernel's `tuning.manualJump` gate stays the physics source of truth; this
+    // only stops the touch UI advertising a dead verb (e.g. on Bunny).
+    Controls.setJumpEnabled(getDifficultyConfig(state.difficulty).ski.manualJump);
 
     // Reseed the loop's per-run carry-over to the spawn position resetPlayer() just set.
     // The in-game Reset button keeps the loop running (no startLoop), so without this the

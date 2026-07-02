@@ -518,6 +518,80 @@ console.log('  PASS:', frameRateIndependent
   : `cruise speed scales with frame rate (spread ${(cruiseSpread * 100).toFixed(0)}%) ❌`);
 if (!frameRateIndependent) hardFail = true;
 
+// 12) Bunny jump suppression (jump-system completion, workstream A) [GATING].
+// The easy tier has NO jump verb: `manualJump: false` disables Space (straight jump
+// AND hop turn) and `autoJump: false` keeps terrain lips from lofting. Two halves:
+//   a) held-jump ≡ no-input — a Bunny run with Jump held EVERY frame must be
+//      byte-identical to the same run with no input (the press is provably inert);
+//   b) a lip frame that auto-jumps on default (Blue) tuning stays GROUNDED on Bunny
+//      (isInAir false, pos.y glued to the terrain), with or without Jump held.
+// Uses the real Bunny tuning from src/difficulty.ts so the shipped config is what's
+// pinned, not a hand-rolled copy.
+const BUNNY_SKI = (await import('../../src/difficulty.ts')).getDifficultyConfig('bunny').ski;
+function simulateTuned(updateFn, controls, seed, tuning, steps = 220, dt = 1 / 60) {
+  const rng = makeRng(seed);
+  Math.random = rng;
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: -15, y: getTerrainHeight(0, -15) };
+  const velocity = { x: 0, z: -3 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, -15),
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  const traj = [];
+  for (let i = 0; i < steps; i++) {
+    st = updateFn(snowman, dt, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, controls,
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
+      [], undefined, tuning);
+    traj.push({ x: pos.x, y: pos.y, z: pos.z, vx: velocity.x, vz: velocity.z, inAir: st.isInAir });
+    if (pos.z < -195) break;
+  }
+  return traj;
+}
+const bunnyNone = simulateTuned(mod, NONE, 2026, BUNNY_SKI);
+const bunnyHeld = simulateTuned(mod, JUMP, 2026, BUNNY_SKI);
+let bunnyMaxDiff = 0;
+let bunnyEverAir = false;
+const bn = Math.min(bunnyNone.length, bunnyHeld.length);
+for (let i = 0; i < bn; i++) {
+  bunnyMaxDiff = Math.max(bunnyMaxDiff,
+    Math.abs(bunnyNone[i].x - bunnyHeld[i].x), Math.abs(bunnyNone[i].z - bunnyHeld[i].z),
+    Math.abs(bunnyNone[i].vx - bunnyHeld[i].vx), Math.abs(bunnyNone[i].vz - bunnyHeld[i].vz));
+  bunnyEverAir = bunnyEverAir || bunnyNone[i].inAir || bunnyHeld[i].inAir;
+}
+const bunnyHeldIdentical = bunnyMaxDiff < 1e-9 && bunnyNone.length === bunnyHeld.length;
+// b) the same fabricated lip frame that auto-jumps on default tuning (check 8's
+// autoLip) must stay grounded on Bunny — no loft, pos.y snapped to the terrain.
+function bunnyLipFrame(controls) {
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: -50, y: getTerrainHeight(0, -50) };
+  const velocity = { x: 0, z: -16 }; // above the movingFast (>12) gate
+  const lastTerrainHeight = getTerrainHeight(0, -50) + 5; // heightDifference < -0.8
+  const r = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, false, 0, lastTerrainHeight,
+    0, 0, controls, 0, 0, 3, 3.0,
+    getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
+    [], undefined, BUNNY_SKI);
+  // The grounded path snaps pos.y to the terrain sampled at the PRE-step position
+  // (x/z advance after the snap), so compare against that sample, not the new x/z.
+  return { inAir: r.isInAir, groundedY: Math.abs(pos.y - getTerrainHeight(0, -50)) < 1e-9,
+           playerJump: !!snowman.userData.playerJump };
+}
+const bunnyLipCoast = bunnyLipFrame(NONE);
+const bunnyLipJump = bunnyLipFrame(JUMP);
+const bunnySuppressionOk = bunnyHeldIdentical && !bunnyEverAir
+  && !bunnyLipCoast.inAir && bunnyLipCoast.groundedY
+  && !bunnyLipJump.inAir && bunnyLipJump.groundedY && !bunnyLipJump.playerJump;
+console.log('\n--- Bunny jump suppression: held Jump ≡ no-input; lips never loft [GATING] ---');
+console.log('  held-vs-none max abs diff:', bunnyMaxDiff.toExponential(3),
+  '| steps:', bunnyNone.length, bunnyHeld.length, '| ever airborne:', bunnyEverAir);
+console.log('  lip (no input): inAir', bunnyLipCoast.inAir, '| glued to terrain', bunnyLipCoast.groundedY);
+console.log('  lip (Jump held): inAir', bunnyLipJump.inAir, '| glued to terrain', bunnyLipJump.groundedY,
+  '| playerJump', bunnyLipJump.playerJump);
+console.log('  PASS:', bunnySuppressionOk
+  ? 'Bunny has no jump verb: press inert, lips grounded ✅'
+  : 'a jump leaked onto Bunny ❌');
+if (!bunnySuppressionOk) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();

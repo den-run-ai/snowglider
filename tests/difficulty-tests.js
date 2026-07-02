@@ -174,19 +174,38 @@ function maxTrajDiff(a, b) {
     plowDecelLight: 3.14, plowDecelFull: 5.68, skidScrubMax: 0.10, airControl: 5.0,
   };
   const frozenKeys = Object.keys(FROZEN);
-  // The ski tuning is the frozen numeric constants plus the freestyleTricks flag
-  // (#32): a boolean, false on Blue so the default tier's kernel path is unchanged.
+  // The ski tuning is the frozen numeric constants plus the boolean feature flags:
+  // freestyleTricks (#32) and the per-tier jump availability pair manualJump/autoJump
+  // (jump-system completion, workstream A). On Blue: tricks off, both jumps ON —
+  // exactly today's shipped mechanics, so the default tier's kernel path is unchanged.
+  const flagKeys = ['freestyleTricks', 'manualJump', 'autoJump'];
   check('BLUE_PHYSICS_TUNING matches the frozen physics constants verbatim',
     frozenKeys.every((k) => D.BLUE_PHYSICS_TUNING[k] === FROZEN[k])
     && D.BLUE_PHYSICS_TUNING.freestyleTricks === false
-    && Object.keys(D.BLUE_PHYSICS_TUNING).length === frozenKeys.length + 1);
+    && D.BLUE_PHYSICS_TUNING.manualJump === true
+    && D.BLUE_PHYSICS_TUNING.autoJump === true
+    && Object.keys(D.BLUE_PHYSICS_TUNING).length === frozenKeys.length + flagKeys.length);
 
   // Every tier's ski tuning carries the full key set with finite numbers.
   check('every tier ski tuning has the full key set with finite numbers',
     D.DIFFICULTIES.every((c) =>
       frozenKeys.every((k) => typeof c.ski[k] === 'number' && Number.isFinite(c.ski[k]))
-      && typeof c.ski.freestyleTricks === 'boolean'
-      && Object.keys(c.ski).length === frozenKeys.length + 1));
+      && flagKeys.every((k) => typeof c.ski[k] === 'boolean')
+      && Object.keys(c.ski).length === frozenKeys.length + flagKeys.length));
+
+  // Per-tier jump availability (workstream A): Bunny has NO jump verb — Space/touch
+  // does nothing and lips never auto-pop — while every other tier keeps today's full
+  // jump mechanics. The unsupported manualJump:false + autoJump:true combination
+  // (held Jump would suppress auto-pops and diverge from no-input) must never ship.
+  check('Bunny has no jumps (manualJump and autoJump both false)',
+    D.getDifficultyConfig('bunny').ski.manualJump === false
+    && D.getDifficultyConfig('bunny').ski.autoJump === false);
+  check('Blue/Black/Expert keep the full jump verbs (manualJump and autoJump true)',
+    ['blue', 'black', 'expert'].every((t) =>
+      D.getDifficultyConfig(t).ski.manualJump === true
+      && D.getDifficultyConfig(t).ski.autoJump === true));
+  check('no tier ships the unsupported manualJump:false + autoJump:true combination',
+    D.DIFFICULTIES.every((c) => c.ski.manualJump || !c.ski.autoJump));
 
   // Freestyle tricks (#32) are the Expert tier's differentiator — and Expert-ONLY:
   // every other tier's kernel keeps the flag off so its air phase is unchanged.

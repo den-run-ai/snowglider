@@ -13,6 +13,25 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Per-tier jump availability — no jumps on ● Bunny (jump-system completion JP-1, #286)
+- **The jump verb is now per-tier.** `SnowmanPhysicsTuning` gains two boolean gates,
+  `manualJump` (Space/touch straight jump **and** hop turn) and `autoJump`
+  (terrain-lip auto-pop). Blue/Black/Expert keep both `true` — byte-identical to
+  today, the defaults baked into `BLUE_PHYSICS_TUNING` so the frozen no-input
+  baseline and every existing caller are unchanged. **Bunny sets both `false`**:
+  Space does nothing, lips never loft, and the grounded `pos.y = terrain` keeps the
+  snowman glued over lips — a calm, grounded learning run (carve + wedge only).
+- **The UI stops advertising a dead verb.** `Controls.setJumpEnabled(...)` (called
+  at run start from the tier's `ski.manualJump`) excludes the center touch region
+  from hit-testing and hides the jump indicator; the start screen's controls-guide
+  jump/hop rows and the touch-note's "center to jump" clause hide when a no-jump
+  tier is selected; the Bunny picker blurb says so ("No jumps, just carving.").
+- **Pinned by new gates:** the invariant harness's Bunny-suppression check (held
+  Jump ≡ no-input byte-identical; a lip that auto-jumps on Blue stays grounded on
+  Bunny), plus difficulty/controls suite coverage. The unsupported
+  `manualJump:false + autoJump:true` combination is documented (PHYSICS.md §4) and
+  asserted never to ship.
+
 ### EZ-Tree evergreen forest (#282, PRs #283/#284 + default flip)
 - **The forest's tree geometry is now generated with [EZ-Tree](https://github.com/dgreenheck/ez-tree)**
   (`@dgreenheck/ez-tree`, MIT): `src/mountains/ez-forest.ts` builds three pine

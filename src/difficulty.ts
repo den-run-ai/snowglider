@@ -54,6 +54,17 @@ export interface SnowmanPhysicsTuning {
   // BLUE default — the tuning the physics-invariant harness runs with — is
   // byte-identical to the pre-freestyle kernel even under airborne steering input.
   freestyleTricks: boolean;
+  // Per-tier jump availability (#47 round 2 / jump-system completion, workstream A).
+  // Both default TRUE on Blue — the tuning the physics-invariant harness runs with —
+  // so every existing caller and the frozen no-input baseline are byte-identical.
+  // Bunny sets both false: Space/touch does nothing (no straight jump, no hop turn)
+  // and terrain lips never loft — the easy tier is a calm, grounded learning run.
+  // NOTE: `manualJump: false` + `autoJump: true` is an UNSUPPORTED combination — the
+  // auto-jump gate keeps its `!controls.jump` takeoff-precedence term, so holding
+  // Jump on such a tier would suppress auto-pops and diverge from the no-input
+  // trajectory. No shipped tier uses it (see PHYSICS.md §4).
+  manualJump: boolean;        // Space/touch straight jump + hop turn available
+  autoJump: boolean;          // terrain-lip auto-pop fires
 }
 
 /**
@@ -79,6 +90,8 @@ export const BLUE_PHYSICS_TUNING: SnowmanPhysicsTuning = {
   skidScrubMax: 0.10,
   airControl: 5.0,
   freestyleTricks: false,
+  manualJump: true,
+  autoJump: true,
 };
 
 // --- Per-tier ski tuning (playtest starting points; Blue is authoritative-current) ---
@@ -95,6 +108,12 @@ const BUNNY_PHYSICS_TUNING: SnowmanPhysicsTuning = {
   carveBuild: 2.0,
   tuckAccel: 7,
   skidScrubMax: 0.06,
+  // No jumps on Bunny (jump-system completion, workstream A): the jump verb —
+  // straight pop AND hop turn — is off, and terrain lips never auto-pop, so the
+  // grounded path's `pos.y = terrain` keeps the snowman glued over lips (reads as
+  // a groomed run). Held-jump on Bunny is provably ≡ no-input (invariant harness).
+  manualJump: false,
+  autoJump: false,
 };
 
 // Black: the carve is hard to lock, panic-steering bleeds speed fast, less friction so
@@ -207,7 +226,9 @@ const BUNNY: DifficultyConfig = {
   // Picker copy is intentionally tier-identity only (Easy/Medium/Hard) for now: it
   // must not promise mechanics that aren't wired yet (no avalanche / gentler terrain).
   // The richer flavour copy lands with the per-tier tuning PR, where it becomes true.
-  blurb: 'Easy — the gentlest way down.',
+  // Honest about the tier's control surface: Bunny has no jump verb at all
+  // (ski.manualJump/autoJump false), so the picker says so up front.
+  blurb: 'Easy — the gentlest way down. No jumps, just carving.',
   seed: 1001,
   ski: BUNNY_PHYSICS_TUNING,
   ranked: false, // unranked until its floor is measured (D3 follow-up)

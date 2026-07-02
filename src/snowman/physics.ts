@@ -328,7 +328,10 @@ export function stepSnowmanPhysics(
   // fired here first would otherwise swallow the press and stamp it as a non-player
   // jump. The extra `!controls.jump` term is a no-op on every no-input / coasting
   // frame, so the frozen baseline and all plain auto-jumps stay byte-identical.
-  if (!isInAir && !controls.jump && heightDifference < -0.8 && movingFast && jumpCooldown <= 0) {
+  // Per-tier availability (workstream A): `tuning.autoJump` is TRUE on the Blue
+  // default, so this extra term is also a no-op for the frozen baseline; Bunny sets
+  // it false so lips never loft and the grounded `pos.y = terrain` glues the run.
+  if (!isInAir && tuning.autoJump && !controls.jump && heightDifference < -0.8 && movingFast && jumpCooldown <= 0) {
     verticalVelocity = 6 + (currentSpeed * 0.3);
     isInAir = true;
     // Terrain auto-jump is never player-initiated — stamp provenance false so its
@@ -345,7 +348,10 @@ export function stepSnowmanPhysics(
   // edge committed to the new direction (carveCharge reset, lastSteerDir set). It
   // is fully gated behind explicit jump+steer input, so the no-input invariant and
   // every plain-steering harness check are untouched.
-  if (controls.jump && !isInAir && jumpCooldown <= 0) {
+  // Per-tier availability (workstream A): the whole jump VERB — straight pop and
+  // hop turn alike — rides `tuning.manualJump` (true on the Blue default, so every
+  // existing caller is unchanged; false on Bunny, where Space/touch does nothing).
+  if (tuning.manualJump && controls.jump && !isInAir && jumpCooldown <= 0) {
     const hopSteer = (controls.left ? -1 : 0) + (controls.right ? 1 : 0);
     if (hopSteer !== 0) {
       const HOP_PIVOT_ANGLE = 0.4; // rad (~23°) the velocity heading snaps per hop
