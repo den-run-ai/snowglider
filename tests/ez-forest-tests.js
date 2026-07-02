@@ -62,6 +62,25 @@ async function main() {
       'unrelated params that merely share the prefix do not opt in');
   }
 
+  // --- Headless gate: a jsdom-ish window with Node's own navigator stays stylized
+  // (Node 21+ exposes a global `navigator` with a "Node.js/..." userAgent; a DOM
+  // harness that wires window/document but not navigator must NOT read as a real
+  // browser and fall through to the player default).
+  {
+    const g = /** @type {any} */ (globalThis);
+    const hadWindow = 'window' in g, savedWindow = g.window;
+    const hadDocument = 'document' in g, savedDocument = g.document;
+    try {
+      g.window = { location: { search: '' } }; // no window.navigator — Node's global leaks through
+      g.document = {};
+      assert(Trees.isEzForestEnabled() === false,
+        'window+document without a browser navigator stays stylized (Node navigator treated as headless)');
+    } finally {
+      if (hadWindow) g.window = savedWindow; else delete g.window;
+      if (hadDocument) g.document = savedDocument; else delete g.document;
+    }
+  }
+
   // --- Default path untouched when the flag is off ------------------------------
   {
     const scene = new THREE.Scene();

@@ -77,16 +77,23 @@ export function isEzForestEnabled(): boolean {
   // setEzForestEnabled — the seeded verification harnesses' RNG streams must not
   // shift. "Headless" means anything short of a real browser: no window, a
   // window-stub without location or a DOM (the physics harnesses stub `window`
-  // but not `document`), or a jsdom document (the DOM smoke test).
+  // but not `document`), a jsdom document (the DOM smoke test), or Node's own
+  // built-in navigator (Node 21+ exposes a global `navigator` whose userAgent is
+  // "Node.js/..." — a jsdom harness that wires window/document but not navigator
+  // would otherwise read as a real browser). Prefer window.navigator so a
+  // harness-supplied navigator wins over Node's global.
+  const nav: Navigator | undefined =
+    (typeof window !== 'undefined' && window.navigator) ||
+    (typeof navigator !== 'undefined' ? navigator : undefined) || undefined;
   const headless = typeof window === 'undefined' || !window.location ||
-    typeof document === 'undefined' || typeof navigator === 'undefined' ||
-    /jsdom/i.test(navigator.userAgent || '');
+    typeof document === 'undefined' || !nav ||
+    !nav.userAgent || /jsdom|node\.js/i.test(nav.userAgent);
   if (headless) return ezForestOverride ?? false;
   // Besides the published flag and webdriver, read the `?test=` marker straight
   // from the URL (the same predicate scene-setup.ts uses to SET window.isTestMode):
   // the first addTrees of a page load runs during setupScene, and this gate must
   // not depend on being called after that assignment.
-  const automated = !!window.isTestMode || !!navigator.webdriver ||
+  const automated = !!window.isTestMode || !!nav.webdriver ||
     window.location.search.includes('test');
   return resolveEzForestEnabled(window.location.search, automated, ezForestOverride);
 }
