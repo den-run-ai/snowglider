@@ -290,7 +290,27 @@ function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFA
           achievedAt: serverTimestamp() // Record when this score was achieved/updated
         })
           .then(() => console.log("Leaderboard updated successfully for user:", userId))
-          .catch(error => console.warn("Leaderboard write did not complete:", error));
+          .catch(error => {
+            // Rules-skew fallback (codex #277): CI deploys firestore.rules AFTER
+            // GitHub Pages, so a freshly-deployed client can briefly write against
+            // the previous rules, whose key allowlist rejects the displayName field
+            // (permission-denied) — and would keep rejecting it if that rules deploy
+            // failed outright. Retry once in the old-rules shape (no displayName) so
+            // the SCORE is never lost to the skew; the name backfills on a later
+            // finish once the new rules are live (a same-time rewrite is allowed).
+            if ((error as { code?: string })?.code === 'permission-denied') {
+              console.warn("Leaderboard write with displayName rejected; retrying without it (rules skew?).");
+              setDoc(leaderboardDocRef, {
+                user: userDocRef,
+                time: time,
+                achievedAt: serverTimestamp()
+              })
+                .then(() => console.log("Leaderboard updated (no displayName) for user:", userId))
+                .catch(retryError => console.warn("Leaderboard write did not complete:", retryError));
+              return;
+            }
+            console.warn("Leaderboard write did not complete:", error);
+          });
       })
       .catch(error => {
         // Read failed (offline with nothing cached, permissions, etc.); skip this

@@ -30,6 +30,7 @@ let reinitializeSucceeds = false;
 /** @type {any} */ let seed;
 /** @type {any} */ let read;
 /** @type {any} */ let setPendingWrite;
+/** @type {any} */ let setNextSetDocError;
 
 async function loadScoresModule() {
   // Wire window/document/localStorage/navigator.onLine before src/scores.ts loads.
@@ -52,7 +53,8 @@ async function loadScoresModule() {
   };
 
   fb = await import('./mocks/firebase.mjs');
-  ({ firestoreInstance, analyticsInstance, calls, doc, seed, read, setPendingWrite } = fb);
+  ({ firestoreInstance, analyticsInstance, calls, doc, seed, read, setPendingWrite,
+     setNextSetDocError } = fb);
   // AuthModule.reinitializeFirestore is mocked in this harness (not in the Firebase
   // mock), so track its call count alongside the Firestore call log.
   calls.reinitializeFirestore = 0;
@@ -235,6 +237,36 @@ async function main() {
   await flushAll();
   check('a write for a different uid never borrows the signed-in user\'s name',
     read('leaderboard', 'someone-else')?.displayName === null);
+
+  console.log('\n--- Leaderboard rules-skew fallback: retry without displayName ---');
+  // CI deploys firestore.rules AFTER Pages, so a fresh client can briefly write
+  // displayName against the old rules and get permission-denied. The score must
+  // survive: one retry in the old-rules shape (no displayName field).
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'skew', displayName: 'Skewed' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  setNextSetDocError('leaderboard/skew', { code: 'permission-denied' });
+  ScoresModule.updateLeaderboard('skew', 20);
+  await flushAll();
+  check('permission-denied on the displayName write retries without the field',
+    calls.setDoc.filter(c => c.path === 'leaderboard/skew').length === 2 &&
+    !('displayName' in calls.setDoc.filter(c => c.path === 'leaderboard/skew')[1].data));
+  check('the retried write lands the score despite the rules skew',
+    read('leaderboard', 'skew')?.time === 20 &&
+    read('leaderboard', 'skew')?.displayName === undefined);
+
+  // Any other write error is NOT retried (offline etc. rides the SDK queue instead).
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'flaky', displayName: 'Flaky' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  setNextSetDocError('leaderboard/flaky', { code: 'unavailable' });
+  ScoresModule.updateLeaderboard('flaky', 21);
+  await flushAll();
+  check('non-permission write errors are not retried',
+    calls.setDoc.filter(c => c.path === 'leaderboard/flaky').length === 1 &&
+    read('leaderboard', 'flaky') == null);
 
   console.log('\n--- Leaderboard fetch filtering ---');
   resetState(ScoresModule);
