@@ -735,8 +735,9 @@ function treeCollidersReady(): boolean {
 }
 
 function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
-  const token = (ezBuildTokens.get(scene) ?? 0) + 1;
-  ezBuildTokens.set(scene, token);
+  // addTrees bumped this scene's token when it tore the previous forest down;
+  // adopt it — a LATER rebuild (EZ or stylized) bumps it again, staling this build.
+  const token = ezBuildTokens.get(scene) ?? 0;
   const epoch = ezBuildEpoch;
   const stale = (): boolean => ezBuildTokens.get(scene) !== token || epoch !== ezBuildEpoch;
   ezBuildsPending++;
@@ -1239,6 +1240,11 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
       im.dispose();
     }
   }
+  // Any EZ build still awaiting its chunk for THIS scene belongs to the forest just
+  // torn down — invalidate it on EVERY rebuild, not only when another EZ build is
+  // scheduled below, or a flag-off rebuild would get stale EZ meshes appended on
+  // top of its fresh stylized forest when the old load settles.
+  ezBuildTokens.set(scene, (ezBuildTokens.get(scene) ?? 0) + 1);
 
   const treePositions: TreePosition[] = [];
 

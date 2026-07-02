@@ -368,6 +368,56 @@ async function main() {
     Trees.setEzForestEnabled(null);
   }
 
+  // --- A flag-off rebuild invalidates a still-pending EZ build ------------------
+  {
+    Trees.setEzForestEnabled(true);
+    /** @type {(mod: unknown) => void} */
+    let resolveImport = () => {};
+    EzForest.__setEzModuleImporterForTests(
+      () => new Promise((resolve) => { resolveImport = resolve; }));
+    EzForest.resetEzForest();
+
+    const scene = new THREE.Scene();
+    Trees.addTrees(scene); // schedules an EZ build that stays in flight
+    Trees.setEzForestEnabled(false);
+    Trees.addTrees(scene); // stylized rebuild — must stale the pending EZ build
+
+    resolveImport(await import('@dgreenheck/ez-tree'));
+    await Trees.ezForestReady();
+    const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    const parts = new Set(forest.map(m => m.userData.forestPart));
+    assert(parts.has('trunk') && parts.has('cone') && !parts.has('ezBranches'),
+      'a flag-off rebuild stales the pending EZ build (no EZ meshes over the stylized forest)',
+      [...parts].sort().join(', '));
+    assert(Trees.treeCollidersReady() === true,
+      'the collider gate is open after the staled build settles');
+
+    EzForest.__setEzModuleImporterForTests(null);
+    EzForest.resetEzForest();
+    Trees.setEzForestEnabled(null);
+  }
+
+  // --- A mid-load reset cancels the generation, not just the append -------------
+  {
+    /** @type {(mod: unknown) => void} */
+    let resolveImport = () => {};
+    EzForest.__setEzModuleImporterForTests(
+      () => new Promise((resolve) => { resolveImport = resolve; }));
+    EzForest.resetEzForest();
+
+    const pending = EzForest.ensureEzArchetypes();
+    EzForest.resetEzForest(); // teardown while the chunk is still loading
+    resolveImport(await import('@dgreenheck/ez-tree'));
+    const result = await pending;
+    assert(Array.isArray(result) && result.length === 0,
+      'a generation cancelled by a mid-load reset resolves empty');
+    assert(EzForest.getEzArchetypesSync() === null,
+      'a cancelled generation does not repopulate the archetype cache (no orphaned geometries)');
+
+    EzForest.__setEzModuleImporterForTests(null);
+    EzForest.resetEzForest();
+  }
+
   console.log(`\n=================================`);
   console.log(`EZ forest tests completed: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
