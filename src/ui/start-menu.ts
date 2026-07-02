@@ -121,7 +121,10 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
         let html = `<h3>🏆 ${tierLabel} Top Times</h3><table><tr><th>#</th><th>Player</th><th>Time</th></tr>`;
         list.slice(0, 5).forEach((entry, index) => {
           const isMe = me && entry.userId === me.uid;
-          const name = isMe ? (me.displayName || 'You') : `Player ${index + 1}`;
+          // Other players show their denormalized leaderboard-doc name (written by
+          // ScoresModule.updateLeaderboard); entries from before the field existed
+          // fall back to 'Anonymous'. Untrusted — escapeHtml below is mandatory.
+          const name = isMe ? (me.displayName || 'You') : (entry.displayName ?? 'Anonymous');
           html += `<tr class="${isMe ? 'current-user-score' : ''}"><td>${index + 1}</td><td>${escapeHtml(name)}</td><td>${Number(entry.time).toFixed(2)}s</td></tr>`;
         });
         html += '</table>';
