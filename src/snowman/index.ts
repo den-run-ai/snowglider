@@ -185,7 +185,8 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
   // also fires the #171 shatter (result-overlay routes any non-finish reason to
   // onCrash). Kernel-graded, loop-agnostic: unreachable unless the tier's tuning
   // sets `wipeouts` (harness-pinned), so every other tier is byte-identical.
-  if (result.landingQuality === 'wipeout' && gameActive) {
+  const wipedOut = result.landingQuality === 'wipeout' && gameActive;
+  if (wipedOut) {
     showGameOver("WIPEOUT!!! Crashed on the landing!");
   }
 
@@ -196,7 +197,12 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     terrainHeightAtPosition,
     treePositions,
     rockPositions,
-    gameActive,
+    // A wipeout above just ended the run, so the outcome check must see it as
+    // INACTIVE: showGameOver has no re-entry guard, and a wipeout landing that also
+    // crosses FINISH_Z this frame would otherwise fire a second, finish-reason call
+    // that replaces the crash overlay and records a successful score for a crashed
+    // landing (Codex review on #290).
+    gameActive: gameActive && !wipedOut,
     showGameOver,
     // Scored obstacle clears (JP-2, #245): collision.ts reports every airborne
     // "would-have-hit but sailed over" observation; the POLICY lives here —
