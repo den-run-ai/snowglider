@@ -535,11 +535,19 @@ export function createMainLoop(deps: MainLoopDeps) {
             ? window.showGameOver
             : showGameOver;
           activeShowGameOver("Buried by avalanche!");
-        } else if (burialOutcome === 'dodgedFirst') {
+        } else if (burialOutcome === 'dodgedFirst' && state.gameActive) {
           // First dodging frame of this slide: bank the bonus (same air-score channel
           // the result screen reads), toast it, and kick the escape impulse so a
           // stomped landing can outrun the front. Later overlap frames of the same
           // jump resolve to 'dodged' (immune, no re-award).
+          //
+          // Gated on state.gameActive: this block runs AFTER the frame's physics
+          // substeps, so if one of them already ended the run — crossing FINISH_Z
+          // builds the result screen synchronously inside the kernel step — the run
+          // total has been read and rendered. Banking here would mutate it after the
+          // fact (and impulse a finished run), so a dodge coinciding with the finish
+          // frame simply doesn't award: the run is over, the slide no longer matters.
+          // (Codex review on #289.)
           state.dodgeAwarded = true;
           if (CourseModule) {
             CourseModule.addAirScore(DODGE_SCORE);
