@@ -33,6 +33,7 @@ import { Diag } from '../diagnostics.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { resolveBurialOutcome } from '../avalanche.js';
+import { comboMultiplier, comboLabel, nextComboStep } from './combo.js';
 import { getDifficultyConfig } from '../difficulty.js';
 import { updateStatsHud, updateTimerDisplay, updateLevelHud } from '../ui/hud.js';
 import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
@@ -119,6 +120,13 @@ export function createMainLoop(deps: MainLoopDeps) {
   // transition (the kernel's UpdateResult exposes justLanded but no justJumped).
   // Tracked across substeps so a takeoff in any substep is seen.
   let prevInAir = false;
+  // Style/combo chain (JP-7): consecutive CLEAN landings / clears / dodges build a
+  // multiplier on every point banked into the air score. Loop-side only (no kernel
+  // state, per #245): the bankAirScore callback below multiplies by the CURRENT
+  // step, and aggregateEvents advances the step from each substep's result AFTER
+  // its banking ran — so an event's points ride the chain built BEFORE it. Reset
+  // per run in resetLoopState; a SKETCHY/wipeout landing breaks it (combo.ts).
+  let comboStep = 0;
   // The latest per-step physics result, retained so a render frame that ran ZERO
   // substeps (a >60 Hz panel) can still repaint the HUD / advance cosmetics from the
   // last known state instead of going blank.
@@ -151,6 +159,23 @@ export function createMainLoop(deps: MainLoopDeps) {
     // Scored clear (JP-2): a one-shot cue like the landing — reduce across substeps
     // so a clear on substep 1 of 3 still toasts. (The points bank in-kernel.)
     if (result.obstacleCleared) ev.obstacleCleared = result.obstacleCleared;
+    // Style/combo chain (JP-7): advance AFTER this substep's banking already ran —
+    // a clear/CLEAN builds the chain for the NEXT banked points; an OK landing
+    // holds it; SKETCHY/wipeout breaks it. Order matters within the substep: the
+    // clear (mid-air) advances before the landing verdict settles the chain.
+    // Advance once per BANKED clear (obstaclesClearedCount) — a dense row can score
+    // several clears in one step, each banking CLEAR_SCORE, and the chain must
+    // reflect every one of them for the next award (Codex on #293). All clears
+    // within the step bank at the step's entry multiplier; the chain catches up here.
+    for (let i = 0; i < result.obstaclesClearedCount; i++) {
+      comboStep = nextComboStep(comboStep, 'clear');
+    }
+    if (result.justLanded && result.landingQuality) {
+      comboStep = nextComboStep(comboStep,
+        result.landingQuality === 'clean' ? 'clean'
+          : result.landingQuality === 'ok' ? 'ok'
+          : result.landingQuality); // 'sketchy' | 'wipeout' both break
+    }
     prevInAir = result.isInAir;
   }
 
@@ -187,7 +212,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       // Meaningful jumps (#47): bank a manual jump's air score from inside the step,
       // before its synchronous finish check can build the result screen — so a jump
       // landed on the finish frame still counts (see Snowman.updateSnowman).
-      bankAirScore: (points: number) => { if (CourseModule) CourseModule.addAirScore(points); },
+      // JP-7: the combo chain multiplies every banked point (landing deltas AND
+      // scored clears both route through here). Rounded so the score stays integral.
+      bankAirScore: (points: number) => {
+        if (CourseModule) CourseModule.addAirScore(Math.round(points * comboMultiplier(comboStep)));
+      },
       // Felt per-tier difficulty (D3): the run's ski tuning. Blue's ski === BLUE_PHYSICS_TUNING,
       // so a Blue run is byte-identical to the frozen baseline; Bunny/Black vary the handling.
       tuning: getDifficultyConfig(state.difficulty).ski
@@ -250,9 +279,12 @@ export function createMainLoop(deps: MainLoopDeps) {
 
     // 'wipeout' (JP-4) is excluded: that landing ended the run through the crash
     // path (showGameOver + shatter) — the game-over overlay is the feedback, and
-    // flashAir only speaks the ride-away grades.
+    // flashAir only speaks the ride-away grades. JP-7: the toast carries the live
+    // combo label ("✈ AIR 1.2s · 360 · CLEAN ×1.56") — comboStep has already been
+    // advanced by this landing (aggregateEvents), so the label shows the chain the
+    // landing just built (empty at ×1).
     if (ev.justLanded && ev.landingQuality && ev.landingQuality !== 'wipeout' && CourseModule) {
-      CourseModule.flashAir(ev.landingQuality, ev.landingForce, ev.trickName);
+      CourseModule.flashAir(ev.landingQuality, ev.landingForce, ev.trickName, comboLabel(comboStep));
     }
 
     // Apparent wind for the scarf (#253): the wind a moving snowman feels is
@@ -568,9 +600,12 @@ export function createMainLoop(deps: MainLoopDeps) {
           // (Codex review on #289.)
           state.dodgeAwarded = true;
           if (CourseModule) {
-            CourseModule.addAirScore(DODGE_SCORE);
+            // JP-7: the dodge banks through the chain like everything else (its own
+            // points ride the multiplier built before it), then builds the chain.
+            CourseModule.addAirScore(Math.round(DODGE_SCORE * comboMultiplier(comboStep)));
             CourseModule.flashDodge();
           }
+          comboStep = nextComboStep(comboStep, 'dodge');
           velocity.x *= DODGE_ESCAPE_BOOST;
           velocity.z *= DODGE_ESCAPE_BOOST;
         }
@@ -672,6 +707,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     accumulator = 0;
     lastResult = null;
     prevInAir = false;
+    comboStep = 0; // a new run starts its style chain from ×1 (JP-7)
     interpPrev.x = interpCur.x = pos.x;
     interpPrev.y = interpCur.y = pos.y;
     interpPrev.z = interpCur.z = pos.z;

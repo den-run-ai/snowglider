@@ -438,6 +438,20 @@ velocity, #244), a spun landing is still graded by velocity-vs-fall-line alignme
 Tunables + grading live in `src/snowman/physics.ts` (exported constants +
 `gradeFreestyleTrick`), pinned by `tests/freestyle-tests.js`.
 
+**Style/combo chain (JP-7 — loop-side, no kernel state).** Consecutive rewarded air
+events — CLEAN landings, scored clears (JP-2), avalanche dodges (JP-3) — build a
+multiplier on every point banked into the air score: ×1.25 per step, capped ×3
+(`src/game/combo.ts`, the pure decision core). An OK landing holds the chain;
+SKETCHY/wipeout breaks it; a run reset clears it. Order contract: an event's own
+points ride the multiplier built by the events *before* it (the loop's
+`bankAirScore` callback multiplies at the current step, then `aggregateEvents`
+advances the chain from the substep result). The air toast carries the live label
+(`✈ AIR 1.2s · 360 · CLEAN ×1.56`), and the result screen's air score total
+reflects the multiplied points. **Physical spins (#244) — reserved seam:** once
+heading is real kernel state, a landed 180 rides switch and the grade reads
+heading-vs-velocity; combo.ts's event stream is where a switch-landing event slots
+in without touching the multiplier math.
+
 ### 4.2 Impact-consistent grading & wipeouts (JP-4 — MEANINGFUL_JUMPS §8.3)
 
 Landing harshness is **physical, not just aim**: the grade also reads the velocity
@@ -784,6 +798,7 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Obstacle clear score / cap per air (JP-2) | 75 / 3 | `snowman/physics.ts` |
 | Avalanche dodge score / escape impulse (JP-3) | 250 / ×1.10 (once per slide) | `game/main-loop.ts` |
 | Lip launch (JP-6): K / min / max / sample dist | 1.0 / 4 / 16 m/s / 2 u | `snowman/physics.ts` |
+| Combo chain (JP-7): step factor / cap | ×1.25 / ×3 | `game/combo.ts` |
 | Expert kickers (JP-6) | 3 × `{length 7, halfWidth 7, height 3.0}` (u² ramp) | `difficulty.ts` `features` |
 | Freestyle spin / flip rate (Expert, #32) | 360 / 300 deg/s | `snowman/physics.ts` |
 | Freestyle score (per 180° spin / 360° flip / grab s) | 40 / 120 / 60 | `snowman/physics.ts` |

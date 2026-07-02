@@ -13,6 +13,23 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Style/combo chain + physical-spin seam (jump-system completion JP-7, #286)
+- **Consecutive rewarded air events now compound.** CLEAN landings, scored
+  obstacle clears, and avalanche dodges build a multiplier — ×1.25 per step,
+  capped ×3 — applied to every point banked into the air score; an OK landing
+  holds the chain, a SKETCHY or wipeout landing breaks it, and a new run resets
+  it. Loop-side only (no kernel state, the #245 discipline): the pure decision
+  core lives in `src/game/combo.ts` (THREE/DOM-free, pinned headlessly), the
+  loop's `bankAirScore` callback multiplies at the current step, and the chain
+  advances after each substep's banking — so an event's points ride the chain
+  built *before* it (100 → 125 → 156 for three straight CLEANs).
+- The air toast carries the live chain (`✈ AIR 1.2s · 360 · CLEAN ×1.56`) and
+  the result screen's air score reflects the multiplied total.
+- **Physical spins (#244) — seam reserved, not implemented:** combo.ts's event
+  stream is where a switch-landing event slots in once heading becomes real
+  kernel state; documented in `PHYSICS.md` §4.1. This closes the jump-system
+  completion stack (JP-1…JP-7).
+
 ### Designed air — Expert kickers + lip-consistent launch (jump-system completion JP-6, #286)
 - **◆◆ Expert ships three sculpted kickers on its course line**
   (`DifficultyConfig.features`): smootherstep ramps rising 2.2 u over an 8 u

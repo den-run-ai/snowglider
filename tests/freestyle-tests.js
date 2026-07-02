@@ -493,6 +493,70 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     assert(maxDiff === 0, `COM pivot must be pose-only (traj max abs diff ${maxDiff})`);
   });
 
+  // ---------------------------------------------------------------------------
+  // Style/combo chain (JP-7): the loop-side multiplier's pure decision core
+  // (src/game/combo.ts — THREE/DOM-free). Pins the plan's ×1.25-per-step / ×3-cap
+  // math and the event transition table (builders / holder / breakers).
+  // ---------------------------------------------------------------------------
+  const C = await import('../src/game/combo.ts');
+
+  runTest('combo multiplier: ×1.25 per step, capped at ×3 (JP-7)', () => {
+    assert(C.comboMultiplier(0) === 1, 'step 0 is ×1');
+    assert(Math.abs(C.comboMultiplier(1) - 1.25) < 1e-12, 'step 1 is ×1.25');
+    assert(Math.abs(C.comboMultiplier(2) - 1.5625) < 1e-12, 'step 2 compounds');
+    // 1.25^5 ≈ 3.05 crosses the cap; every step past it stays exactly ×3.
+    assert(C.comboMultiplier(5) === C.COMBO_MAX_MULTIPLIER, 'step 5 hits the ×3 cap');
+    assert(C.comboMultiplier(50) === C.COMBO_MAX_MULTIPLIER, 'the cap holds forever');
+    assert(C.comboMultiplier(-3) === 1, 'negative steps are clamped to ×1');
+  });
+
+  runTest('combo events: clean/clear/dodge build, ok holds, sketchy/wipeout/reset break (JP-7)', () => {
+    let step = 0;
+    step = C.nextComboStep(step, 'clean');  assert(step === 1, 'clean builds');
+    step = C.nextComboStep(step, 'clear');  assert(step === 2, 'clear builds');
+    step = C.nextComboStep(step, 'dodge');  assert(step === 3, 'dodge builds');
+    step = C.nextComboStep(step, 'ok');     assert(step === 3, 'ok holds the chain');
+    step = C.nextComboStep(step, 'sketchy'); assert(step === 0, 'sketchy breaks it');
+    step = C.nextComboStep(2, 'wipeout');   assert(step === 0, 'wipeout breaks it');
+    step = C.nextComboStep(4, 'reset');     assert(step === 0, 'run reset clears it');
+  });
+
+  runTest('combo label: empty at ×1, trimmed multiplier when a chain runs (JP-7)', () => {
+    assert(C.comboLabel(0) === '', 'no chain, no label');
+    assert(C.comboLabel(1) === '×1.25', `step 1 label, got ${C.comboLabel(1)}`);
+    assert(C.comboLabel(2) === '×1.56', `step 2 label rounds, got ${C.comboLabel(2)}`);
+    assert(C.comboLabel(5) === '×3', `cap label trims zeros, got ${C.comboLabel(5)}`);
+  });
+
+  runTest('combo banking order: an event\'s own points ride the chain built BEFORE it (JP-7)', () => {
+    // Simulate the loop's contract: bank(points) uses the current step, THEN the
+    // event advances the chain — three consecutive CLEAN 100-point landings bank
+    // 100, 125, 156 (not 125, 156, 195).
+    let step = 0;
+    const banked = [];
+    for (let i = 0; i < 3; i++) {
+      banked.push(Math.round(100 * C.comboMultiplier(step)));
+      step = C.nextComboStep(step, 'clean');
+    }
+    assert(banked[0] === 100 && banked[1] === 125 && banked[2] === 156,
+      `expected 100/125/156, got ${banked.join('/')}`);
+  });
+
+  runTest('combo multi-clear step: the chain advances once per BANKED clear (JP-7, Codex on #293)', () => {
+    // A dense row can score several clears in ONE physics step (the kernel banks
+    // each via bankAirScore); the loop advances the chain by the step's
+    // obstaclesClearedCount, not by the single toast flag — so the NEXT award
+    // reflects every scored clear. Simulate a 3-clear step followed by a CLEAN
+    // landing: the landing banks at ×(1.25³ ≈ 1.95), not ×1.25.
+    let step = 0;
+    const clearedThisStep = 3;
+    for (let i = 0; i < clearedThisStep; i++) step = C.nextComboStep(step, 'clear');
+    assert(step === 3, `three banked clears must build three steps, got ${step}`);
+    const landingBank = Math.round(100 * C.comboMultiplier(step));
+    assert(landingBank === Math.round(100 * Math.pow(1.25, 3)),
+      `next award must ride all three clears, got ${landingBank}`);
+  });
+
   console.log('\n================================================');
   console.log(`Tests completed: ${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);

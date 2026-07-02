@@ -122,6 +122,11 @@ export interface UpdateResult {
   // obstacle, capped per air phase; the points bank via bankAirScore). Null on every
   // other frame — auto-jump / hop air never scores a clear (playerJump provenance).
   obstacleCleared: 'tree' | 'rock' | null;
+  // How many clears actually SCORED (banked) this frame — a dense row can score
+  // several in one step, each banking CLEAR_SCORE, while `obstacleCleared` above is
+  // a single toast cue. The combo chain (JP-7) advances by THIS count so a
+  // multi-clear step builds the chain once per banked award (Codex on #293).
+  obstaclesClearedCount: number;
 }
 
 // Update snowman physics and movement
@@ -229,6 +234,7 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
         ud.clearsThisAir = count;
         if (count > CLEAR_MAX_PER_AIR) continue;
         result.obstacleCleared = clear.type;
+        result.obstaclesClearedCount += 1; // one combo-chain step per BANKED clear (JP-7)
         if (bankAirScore) bankAirScore(CLEAR_SCORE);
       }
     }

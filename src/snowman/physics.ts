@@ -817,9 +817,10 @@ export function stepSnowmanPhysics(
       airScoreDelta,
       trickName,
       // Scored clears (JP-2) are observed by the collision walk AFTER this step, so
-      // the kernel step always reports null; updateSnowman (index.ts) stamps the
-      // type when a provenance-gated, deduped, in-cap clear is scored this frame.
-      obstacleCleared: null
+      // the kernel step always reports null/0; updateSnowman (index.ts) stamps the
+      // type + count when provenance-gated, deduped, in-cap clears score this frame.
+      obstacleCleared: null,
+      obstaclesClearedCount: 0
     }
   };
 }
