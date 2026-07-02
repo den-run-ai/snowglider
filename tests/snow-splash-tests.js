@@ -51,7 +51,15 @@ async function main() {
     const snowman = { position: { x: 3, y: 12, z: -40 }, rotation: { y: 0 } };
     const velocity = { x: 4, z: -6 };
 
-    Snow.updateSnowSplash(splash, 1 / 60, snowman, velocity, true, scene, 0.5);
+    Snow.updateSnowSplash(
+      /** @type {any} */ (splash),
+      1 / 60,
+      /** @type {any} */ (snowman),
+      velocity,
+      true,
+      /** @type {any} */ (scene),
+      0.5
+    );
 
     const active = splash.particles.filter((p) => p.userData.active);
     check('landing burst activates the expected number of particles', active.length === 14);
@@ -72,7 +80,15 @@ async function main() {
     const snowman = { position: { x: 0, y: 10, z: 0 }, rotation: { y: 0 } };
     const velocity = { x: 0, z: 0 };
 
-    Snow.updateSnowSplash(splash, 1 / 60, snowman, velocity, true, scene, 1);
+    Snow.updateSnowSplash(
+      /** @type {any} */ (splash),
+      1 / 60,
+      /** @type {any} */ (snowman),
+      velocity,
+      true,
+      /** @type {any} */ (scene),
+      1
+    );
 
     check('landing burst stops cleanly when the particle pool is full', added === 0);
     check('full-pool landing burst leaves the pool cursor wrapped', splash.nextParticle === 1);

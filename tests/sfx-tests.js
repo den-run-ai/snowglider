@@ -116,8 +116,9 @@ async function main() {
 
   // --- JP-5 landing grade cues: drive the real engine with a tiny fake AudioContext ---
   {
-    const originalWindow = globalThis.window;
-    const originalLocalStorage = globalThis.localStorage;
+    const g = /** @type {any} */ (globalThis);
+    const originalWindow = g.window;
+    const originalLocalStorage = g.localStorage;
     /** @type {{ oscillators: string[], filters: string[] }} */
     const calls = { oscillators: [], filters: [] };
 
@@ -135,7 +136,9 @@ async function main() {
       constructor() { super(); this.gain = new FakeParam(); }
     }
     class FakeFilter extends FakeNode {
-      constructor() { super(); this.frequency = new FakeParam(); this.Q = new FakeParam(); this.type = 'lowpass'; }
+      constructor() { super(); this.frequency = new FakeParam(); this.Q = new FakeParam(); this._type = 'lowpass'; }
+      get type() { return this._type; }
+      set type(value) { this._type = value; calls.filters.push(value); }
     }
     class FakeOscillator extends FakeNode {
       constructor() { super(); this.frequency = new FakeParam(); this.type = 'sine'; }
@@ -152,13 +155,7 @@ async function main() {
       createBuffer(_channels, len) { return { getChannelData: () => new Float32Array(len) }; }
       createBufferSource() { return new FakeBufferSource(); }
       createBiquadFilter() {
-        const filter = new FakeFilter();
-        const desc = Object.getOwnPropertyDescriptor(filter, 'type');
-        Object.defineProperty(filter, 'type', {
-          get() { return desc && desc.get ? desc.get.call(filter) : filter._type; },
-          set(value) { filter._type = value; calls.filters.push(value); }
-        });
-        return filter;
+        return new FakeFilter();
       }
       createGain() { return new FakeGain(); }
       createOscillator() { return new FakeOscillator(); }
@@ -166,8 +163,8 @@ async function main() {
       close() { return Promise.resolve(); }
     }
 
-    globalThis.window = { testHooks: { sfxEnabled: true }, AudioContext: FakeAudioContext };
-    globalThis.localStorage = { getItem: () => null, setItem() {} };
+    g.window = { testHooks: { sfxEnabled: true }, AudioContext: FakeAudioContext };
+    g.localStorage = { getItem: () => null, setItem() {} };
 
     engine.unlock();
     engine.land(0.8, 'clean');
@@ -178,10 +175,10 @@ async function main() {
       calls.filters.includes('bandpass'));
     engine.teardown();
 
-    if (originalWindow === undefined) delete globalThis.window;
-    else globalThis.window = originalWindow;
-    if (originalLocalStorage === undefined) delete globalThis.localStorage;
-    else globalThis.localStorage = originalLocalStorage;
+    if (originalWindow === undefined) delete g.window;
+    else g.window = originalWindow;
+    if (originalLocalStorage === undefined) delete g.localStorage;
+    else g.localStorage = originalLocalStorage;
   }
 
   console.log(`\nSFX TESTS: ${pass} passed, ${fail} failed`);
