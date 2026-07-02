@@ -163,7 +163,13 @@ export function createMainLoop(deps: MainLoopDeps) {
     // a clear/CLEAN builds the chain for the NEXT banked points; an OK landing
     // holds it; SKETCHY/wipeout breaks it. Order matters within the substep: the
     // clear (mid-air) advances before the landing verdict settles the chain.
-    if (result.obstacleCleared) comboStep = nextComboStep(comboStep, 'clear');
+    // Advance once per BANKED clear (obstaclesClearedCount) — a dense row can score
+    // several clears in one step, each banking CLEAR_SCORE, and the chain must
+    // reflect every one of them for the next award (Codex on #293). All clears
+    // within the step bank at the step's entry multiplier; the chain catches up here.
+    for (let i = 0; i < result.obstaclesClearedCount; i++) {
+      comboStep = nextComboStep(comboStep, 'clear');
+    }
     if (result.justLanded && result.landingQuality) {
       comboStep = nextComboStep(comboStep,
         result.landingQuality === 'clean' ? 'clean'

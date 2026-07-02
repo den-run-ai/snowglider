@@ -542,6 +542,21 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
       `expected 100/125/156, got ${banked.join('/')}`);
   });
 
+  runTest('combo multi-clear step: the chain advances once per BANKED clear (JP-7, Codex on #293)', () => {
+    // A dense row can score several clears in ONE physics step (the kernel banks
+    // each via bankAirScore); the loop advances the chain by the step's
+    // obstaclesClearedCount, not by the single toast flag — so the NEXT award
+    // reflects every scored clear. Simulate a 3-clear step followed by a CLEAN
+    // landing: the landing banks at ×(1.25³ ≈ 1.95), not ×1.25.
+    let step = 0;
+    const clearedThisStep = 3;
+    for (let i = 0; i < clearedThisStep; i++) step = C.nextComboStep(step, 'clear');
+    assert(step === 3, `three banked clears must build three steps, got ${step}`);
+    const landingBank = Math.round(100 * C.comboMultiplier(step));
+    assert(landingBank === Math.round(100 * Math.pow(1.25, 3)),
+      `next award must ride all three clears, got ${landingBank}`);
+  });
+
   console.log('\n================================================');
   console.log(`Tests completed: ${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);

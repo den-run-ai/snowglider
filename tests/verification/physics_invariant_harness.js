@@ -617,7 +617,7 @@ function clearFlight(playerJump, treeXs) {
   // column must be crossed while still on the way up.
   let st = { isInAir: true, verticalVelocity: 20, lastTerrainHeight: 0,
              airTime: 0.2, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
-  let banked = 0, clearEvents = 0;
+  let banked = 0, clearEvents = 0, clearCount = 0;
   const traj = [];
   for (let i = 0; i < 60; i++) {
     st = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity,
@@ -626,9 +626,10 @@ function clearFlight(playerJump, treeXs) {
       gH, gG, gD, trees, false, function () {},
       [], (points) => { banked += points; });
     if (st.obstacleCleared) clearEvents++;
+    clearCount += st.obstaclesClearedCount || 0;
     traj.push({ x: pos.x, y: pos.y, z: pos.z, vx: velocity.x, vz: velocity.z });
   }
-  return { banked, clearEvents, traj,
+  return { banked, clearEvents, clearCount, traj,
            clearsThisAir: snowman.userData.clearsThisAir };
 }
 // One tree at z=-10: the flight overlaps its 2.5 u radius for several frames.
@@ -644,6 +645,12 @@ for (let i = 0; i < Math.min(manualClear.traj.length, autoClear.traj.length); i+
 // CLEAR_MAX_PER_AIR of them bank.
 const denseClear = clearFlight(true, [-5, -7, -9, -11, -13]);
 const clearsOk =
+  // The SCORED-clear count must match the banked awards one-for-one — it is what
+  // the combo chain (JP-7) advances by, so a dense multi-clear step can't
+  // undercount the chain (Codex on #293).
+  manualClear.clearCount === 1 &&
+  autoClear.clearCount === 0 &&
+  denseClear.clearCount === PHYS.CLEAR_MAX_PER_AIR &&
   manualClear.clearEvents === 1 && manualClear.banked === PHYS.CLEAR_SCORE &&
   manualClear.clearsThisAir === 1 &&
   autoClear.clearEvents === 0 && autoClear.banked === 0 &&
