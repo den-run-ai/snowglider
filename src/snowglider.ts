@@ -379,21 +379,28 @@ function startGameplayLoop(showGetReady: boolean) {
   }
 }
 
-// Function to initialize the game with audio - called from the start button
-// TODO: AUDIO DISABLED - Function name kept for compatibility, audio calls will be no-ops
+// Function to initialize the game with audio - called from the start button.
+// Audio is ENABLED (AUDIO_ENABLED = true in audio.ts — the simplified native HTML5
+// <audio> implementation); the music calls below are real. Several Howler-era API
+// names are kept as compat stubs in audio.ts, noted per call site.
 window.initializeGameWithAudio = function() {
   console.log("Initializing game...");
-  
-  // TODO: AUDIO DISABLED - Audio context resume (will be no-op if disabled)
-  // When re-enabling, verify this resume happens in user gesture context on mobile
+
+  // Howler-era compat stub: on the native HTML5 implementation there is no
+  // AudioContext to resume for the music, so this resolves immediately. Kept in the
+  // start button's user-gesture context because that's where a resume must live if
+  // an AudioContext ever returns (mobile autoplay policy). The SFX engine's real
+  // context unlock is Sfx.unlock() below.
   AudioModule.resumeAudioContext().then(() => {
     console.log("Audio context resume attempted");
   }).catch(err => {
     console.warn("Audio context resume attempt failed:", err);
   });
-  
-  // TODO: AUDIO DISABLED - Audio status monitoring
-  // When re-enabling, this was meant to show retry UI if audio fails to start
+
+  // Legacy Howler-era status probe: on the native implementation getStatus() never
+  // populates bufferLoaded/contextReady/contextState (they read undefined) and
+  // showAudioRetryPrompt() is a no-op stub, so this check is inert — kept only so
+  // the old retry flow can be revived if a context-based backend ever returns.
   const checkAudioStatus = () => {
     const status = AudioModule.getStatus();
     
@@ -416,7 +423,8 @@ window.initializeGameWithAudio = function() {
   // Check audio status 2 seconds after game starts
   setTimeout(checkAudioStatus, 2000);
   
-  // TODO: AUDIO DISABLED - Start audio (will show welcome message but skip music)
+  // Start the background music (audio is enabled — this loads and plays the track
+  // on first call, inside the start button's user gesture as mobile requires).
   AudioModule.startAudio();
 
   // Unlock the procedural sound-effects engine (#158). This runs in the start

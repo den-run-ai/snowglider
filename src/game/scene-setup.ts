@@ -191,15 +191,15 @@ export function setupScene(signal?: AbortSignal) {
   document.body.appendChild(gameOverOverlay);
 
   // --- Initialize audio early, but don't start playing until user interaction ---
-  // TODO: AUDIO DISABLED - These calls will be no-ops when AUDIO_ENABLED = false in audio.js
-  // When re-enabling audio, verify:
-  // 1. init() is called before any other audio operations
-  // 2. setupUI() creates the mute button and track selector
-  // 3. Audio context is properly managed on mobile devices
+  // Audio is ENABLED (AUDIO_ENABLED = true in audio.ts — the simplified native HTML5
+  // <audio> implementation; docs/CHANGELOG.md has the Three.js → Howler → native
+  // history). init() must run before any other audio operation and setupUI() creates
+  // the mute button; both early-exit if AUDIO_ENABLED is ever set false.
   AudioModule.init(scene);
-  // Make sure to attach audio listener to the camera
+  // Howler-era compat stub (a no-op on the native implementation), kept so this
+  // call-order-sensitive block reads the same as the old flow.
   AudioModule.addAudioListener(camera);
-  // Set up the audio UI (will be skipped if audio disabled)
+  // Set up the audio UI (the mute button; skipped if audio is disabled)
   AudioModule.setupUI();
 
   // --- Lighting ---

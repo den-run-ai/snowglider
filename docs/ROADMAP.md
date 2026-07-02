@@ -374,10 +374,43 @@ several landed after this roadmap was first written):
 | Frame-rate-independent physics (fixed-timestep, no tunneling) + runtime diagnostics | #209 | ✅ shipped — fixed-timestep accumulator in `main-loop.ts` (physics on a 1/60 grid, render interpolation), avalanche friction made FPS-independent, and a read-only telemetry layer (`src/diagnostics.ts`, [`DIAGNOSTICS.md`](DIAGNOSTICS.md)) that watches the tunneling/runaway-speed bug class live |
 | Rendering test tiers (perf/draw-call budget + visual regression) | #248 | ◐ perf-budget spec landed (#220); Playwright visual-regression tier is an opt-in draft (#219) |
 | Leaderboard floor: production deploy + purge + deferred global-ghost | #235 | ○ open — prerequisite for flipping Bunny/Black to ranked (per-tier floors) |
+| Ghost-attested score submissions (anti-cheat ceiling) | — | ○ design sketch — see [Anti-cheat ceiling](#anti-cheat-ceiling-ghost-attested-submissions) below |
 | Leaderboard unavailable / sign-in dropout + testing | #28 | ◐ scores/auth hardening + tests (#67, #73, #128/#129); Firestore-rules deploy now automated via the Rules REST API (#250/#264) |
 | Performance monitoring via Firebase | #30 | ○ open |
 | CI: per-PR preview deployments for branches/forks (Cloudflare Pages) | #190 | ○ open |
 | Simplify physics-invariant baseline regeneration (ESM/automated) | #137 | ○ open |
 | Engine/framework explorations (not committed direction) | #40 (3D map), #36 (React Three Fiber), #38 (rapier physics), #41 (Needle tools) | ○ exploratory |
+
+#### Anti-cheat ceiling: ghost-attested submissions
+
+The current server-side defenses are strong for a static-hosted game — the empirically
+measured 18 s plausibility floor and 600 s cap enforced in `firestore.rules` (kept in
+lockstep with `src/score-limits.ts` by `tests/score-limits-sync-tests.js`), monotonic
+best-time updates, key allowlists, and client-write-locked unranked boards. But the
+ceiling is inherent: scoring is **client-authoritative**, so a patched client can forge
+any time ≥ 18 s. No rules change can close this — rules cannot validate a trajectory.
+
+When the leaderboard has enough players to attract cheating, the destination is
+**ghost-attested submissions**. The infrastructure mostly exists: every best run is
+already recorded as timestamped position samples for ghost racing (`recordSamples` /
+`SAMPLE_INTERVAL` in `src/course.ts`). Move ranked writes behind a callable Cloud
+Function `submitScore({ time, tier, samples })` that validates before writing with the
+Admin SDK:
+
+- sample cadence and monotonic `t`; final `t` matches the claimed time;
+- per-segment speed ≤ the tier's physics maximum + margin (the winnability harness
+  already measures these per tier);
+- checkpoint gates crossed in order at plausible split times;
+- start/finish positions match the course (`z = -15` → `FINISH_Z`).
+
+Then lock client writes on the ranked boards with `allow write: if false` — the exact
+pattern `leaderboard_bunny`/`leaderboard_black` already use, so the rules shape is
+proven in this repo.
+
+Costs and limits, stated honestly: this is the project's first backend (Blaze plan,
+cold starts, a deploy surface beyond GitHub Pages), and a replay validator can still be
+fooled by a bot that *plays* superhumanly within physics limits — attestation bounds
+forgery, it does not prove a human. Prerequisites first: per-tier measured floors
+(#235) and the D3.3 ranked flip reusing the same leaderboard validators.
 
 *The higher-level structural gaps — a finish line and objective feedback, scoring depth, progression/replay hooks, and the AI features — were the items the tracker was quieter on; #56 delivered the first of these (course + result + ghost), and the **difficulty-tier stack (#247)** is now delivering per-tier leaderboards/ghosts and a seeded procedural course line. The remaining biggest open wins are a daily/seeded challenge, a cross-player ghost leaderboard (#235), and the AI coach.*

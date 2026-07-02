@@ -166,7 +166,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     gameOverDetail.textContent = reason;
     removeLoginPrompt();
 
-    // TODO: AUDIO DISABLED - Pause audio on game over (will be no-op if disabled)
+    // Pause the background music on game over (audio is ENABLED — see audio.ts;
+    // this is a no-op only if AUDIO_ENABLED is ever set false there).
     if (AudioModule) {
       AudioModule.enableSound(false);
     }

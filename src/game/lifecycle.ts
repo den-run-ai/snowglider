@@ -133,7 +133,8 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Initialize camera with the snowman's position and rotation
     cameraManager.initialize(snowman.position, snowman.rotation);
 
-    // TODO: AUDIO DISABLED - Resume audio (will be no-op if disabled)
+    // Resume the background music for the new run (audio is ENABLED — see audio.ts;
+    // this is a no-op only if AUDIO_ENABLED is ever set false there).
     if (AudioModule) {
       AudioModule.enableSound(true);
     }
