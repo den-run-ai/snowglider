@@ -294,8 +294,13 @@ function createSnowSplash(): SnowSplash {
   };
 }
 
-// Update snow splash particles each frame
-function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THREE.Object3D, velocity: PlanarVelocity, isInAir: boolean, scene: THREE.Scene) {
+// Update snow splash particles each frame.
+// `landingBurst` (JP-5, optional — absent keeps every existing caller byte-identical):
+// a one-shot 0..1 intensity for the frame a graded manual jump touches down. Emits a
+// wide skidding ring of spray at the skis scaled by the intensity (the loop maps
+// CLEAN → a crisp small puff, SKETCHY → a wide wash), independent of the grounded
+// speed-gated emission below.
+function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THREE.Object3D, velocity: PlanarVelocity, isInAir: boolean, scene: THREE.Scene, landingBurst?: number) {
   // Early return if not initialized
   if (!splash || !splash.particles) return;
   
@@ -461,6 +466,44 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
           scene.add(particle);
         }
       }
+    }
+  }
+
+  // Touchdown burst (JP-5): a one-shot radial puff on a graded manual-jump landing,
+  // scaled by the loop-supplied intensity. Reuses the same pooled particles; skipped
+  // entirely when the param is absent/zero, so legacy callers are untouched.
+  if (landingBurst && landingBurst > 0) {
+    const burstCount = Math.floor(6 + landingBurst * 16);
+    for (let i = 0; i < burstCount; i++) {
+      let nextIdx = splash.nextParticle;
+      let tries = 0;
+      while (splash.particles[nextIdx]!.userData.active && tries < splash.particleCount) {
+        nextIdx = (nextIdx + 1) % splash.particleCount;
+        tries++;
+      }
+      splash.nextParticle = (nextIdx + 1) % splash.particleCount;
+      if (tries >= splash.particleCount) break;
+      const particle = splash.particles[nextIdx]!;
+
+      // A ring around the skis: spray kicked outward + up on impact.
+      const ang = (i / burstCount) * Math.PI * 2 + Math.random() * 0.5;
+      const ringR = 0.6 + Math.random() * 0.9;
+      particle.position.x = snowman.position.x + Math.cos(ang) * ringR;
+      particle.position.y = snowman.position.y + 0.15 + Math.random() * 0.2;
+      particle.position.z = snowman.position.z + Math.sin(ang) * ringR;
+
+      const kick = 2.5 + landingBurst * 5;
+      particle.userData.xSpeed = Math.cos(ang) * kick * (0.6 + Math.random() * 0.6) + velocity.x * 0.25;
+      particle.userData.ySpeed = 2 + landingBurst * 3 * Math.random();
+      particle.userData.zSpeed = Math.sin(ang) * kick * (0.6 + Math.random() * 0.6) + velocity.z * 0.25;
+
+      particle.userData.size = 1.1 + landingBurst * 1.2 * Math.random();
+      particle.scale.set(particle.userData.size, particle.userData.size, particle.userData.size);
+      particle.material.opacity = 0.85 + Math.random() * 0.15;
+      particle.userData.maxLifetime = 0.5 + landingBurst * 0.6 + Math.random() * 0.3;
+      particle.userData.lifetime = particle.userData.maxLifetime;
+      particle.userData.active = true;
+      if (!particle.parent) scene.add(particle);
     }
   }
 }

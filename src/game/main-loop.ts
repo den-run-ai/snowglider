@@ -278,6 +278,10 @@ export function createMainLoop(deps: MainLoopDeps) {
       justLanded: ev.justLanded,
       landingForce: ev.landingForce,
       isInAir: player.isInAir,
+      // Takeoff anticipation (JP-5): only a DELIBERATE jump's launch frame dips the
+      // body (playerJump provenance, still true while its air phase lasts) — an
+      // auto-jump lip pop keeps today's un-anticipated launch.
+      tookOff: ev.tookOff && !!(snowman.userData && snowman.userData.playerJump),
       windSway,
       windStream
     });
@@ -292,7 +296,9 @@ export function createMainLoop(deps: MainLoopDeps) {
     // result/events + wind only — never pos/velocity — so the harness is unaffected, and
     // every call is a no-op until the SFX context is unlocked.
     if (ev.tookOff) Sfx.jump();
-    if (ev.justLanded) Sfx.land(ev.landingForce);
+    // Grade-keyed touchdown (JP-5): a graded manual-jump landing colors the thump
+    // (CLEAN ping / SKETCHY skid-wash); null (auto-jump/hop) keeps the plain thump.
+    if (ev.justLanded) Sfx.land(ev.landingForce, ev.landingQuality);
     Sfx.updateSkiing(result.currentSpeed, result.technique, result.isInAir, Wind.strength());
   }
 
@@ -595,8 +601,15 @@ export function createMainLoop(deps: MainLoopDeps) {
         z: snowman.position.z
       };
 
-      // Update snow splash particles - pass all required parameters
-      Snow.updateSnowSplash(snowSplash, frameDelta, snowman, velocity, player.isInAir, scene);
+      // Update snow splash particles - pass all required parameters.
+      // Touchdown burst by grade (JP-5): a graded manual-jump landing kicks a one-shot
+      // radial puff — CLEAN a crisp small one, SKETCHY a wide skidding wash (a wipeout
+      // gets nothing here; the #171 shatter debris owns that crash). 0 on every other
+      // frame, so the splash call is byte-identical outside a graded landing.
+      const landingBurst = ev.justLanded && ev.landingQuality && ev.landingQuality !== 'wipeout'
+        ? (ev.landingQuality === 'sketchy' ? 1.0 : ev.landingQuality === 'ok' ? 0.55 : 0.35)
+        : 0;
+      Snow.updateSnowSplash(snowSplash, frameDelta, snowman, velocity, player.isInAir, scene, landingBurst);
 
       // Ensure snowman position wasn't affected by particles
       snowman.position.set(playerPosBefore.x, playerPosBefore.y, playerPosBefore.z);

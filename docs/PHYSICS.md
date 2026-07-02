@@ -421,9 +421,13 @@ trickName = "540 + BACKFLIP + GRAB"-style label (null when nothing completed)
 
 The rotation itself is **cosmetic** — applied in `pose.ts` from the `userData`
 accumulators (`trickSpin` drives `rotation.y` directly while spinning, pausing the
-velocity-facing smoothing; `trickFlip` rides on top of the clamped tilt; a held grab
-tucks `scale.y`) — so the trajectory of a trick flight is identical to the same
-flight without the trick system. The **only** physics consequence is at touchdown:
+velocity-facing smoothing; `trickFlip` rotates the model's **COM pivot** —
+`userData.flipPivot`, a child group at the mass-weighted center y ≈ 3.1 (JP-5,
+radii 2/1.5/1 ⇒ masses ∝ 8/3.375/1) — so a somersault orbits the body's center of
+mass instead of the feet while the root keeps position/yaw/tilt and the follow
+camera stays steady; a held grab tucks `scale.y`) — so the trajectory of a trick
+flight is identical to the same flight without the trick system (pinned pose-only
+by the freestyle suite's pivot trajectory-identity check). The **only** physics consequence is at touchdown:
 landing mid-rotation (under-rotated) forces the SKETCHY scrub, which is the
 freestyle risk/reward. Trick points ride inside `airScoreDelta` (same banking path),
 and `trickName` is returned for the toast (`✈ AIR <t>s · <trick> · <grade>`).

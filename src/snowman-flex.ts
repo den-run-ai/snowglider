@@ -25,6 +25,11 @@ export interface FlexMotion {
   justLanded: boolean;
   landingForce: number;
   isInAir: boolean;
+  /** Deliberate-takeoff anticipation (JP-5): true only on the frame a MANUAL jump
+   *  leaves the ground (the loop gates it on playerJump provenance). Kicks the
+   *  settle spring down for a 1–2 frame crouch whose overshoot reads as the stretch
+   *  toward apex. DEFAULTS to absent, so every existing caller/test is byte-identical. */
+  tookOff?: boolean;
   /** Apparent wind (wind − player velocity) resolved into the snowman's LOCAL frame and
    *  normalized to ~[-1,1] by the caller, so the scarf streams downwind (issue #253).
    *  `windSway` = sideways component (swings the tail left/right); `windStream` = forward
@@ -145,6 +150,12 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
   // Landing settle: a downward squash impulse that springs back to neutral.
   if (m.justLanded && finite(m.landingForce) > 0.25) {
     fs.settleVel -= clamp(finite(m.landingForce) * 1.4, 0, 1.8);
+  }
+  // Takeoff anticipation (JP-5): a deliberate jump's launch frame dips the body — the
+  // same spring then overshoots past neutral, which reads as the stretch toward apex.
+  // Smaller than a real landing hit; absent (default) on every non-takeoff frame.
+  if (m.tookOff) {
+    fs.settleVel -= 0.9;
   }
   fs.settleVel += (-SETTLE_K * fs.settle - SETTLE_C * fs.settleVel) * dt;
   fs.settle += fs.settleVel * dt;
