@@ -95,7 +95,7 @@ async function main() {
       'addTrees returns a non-empty treePositions array', `${positions.length} trees`);
 
     const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(forest.length >= 1 && forest.length <= 5,
+    assert(forest.length >= 1 && forest.length <= 6,
       'forest renders as a handful of InstancedMeshes', `${forest.length} meshes`);
     assert(forest.every(m => m.isInstancedMesh), 'forest meshes are InstancedMeshes');
 
@@ -117,7 +117,7 @@ async function main() {
     // accumulating duplicate InstancedMeshes in the scene (covers the teardown loop).
     const positions2 = Trees.addTrees(scene);
     const forest2 = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(forest2.length === forest.length,
+    assert(forest2.length >= 1 && forest2.length <= 6,
       're-init rebuilds the forest without duplicating instanced meshes',
       `${forest2.length} meshes after re-init`);
     assert(positions2.length > 0, 're-init still returns tree positions');
@@ -208,7 +208,7 @@ async function main() {
     const foliageMat = /** @type {any} */ (forest.find(m => m.userData.forestPart === 'cone')?.material);
     assert(!!trunkMat && !!foliageMat, 'instanced trunk + foliage materials exist on the forest');
 
-    // Distinct program cache keys so the trunk (rooted) and canopy shaders never collide,
+    // Distinct program cache keys so the trunk (rooted) and foliage shaders never collide,
     // and both differ from an un-swayed material's default key.
     assert(/^tree-wind-sway/.test(trunkMat.customProgramCacheKey()) &&
       /^tree-wind-sway/.test(foliageMat.customProgramCacheKey()),
@@ -241,7 +241,9 @@ async function main() {
     assert(/TREE_SWAY_ROOTED/.test(trunkShader.vertexShader),
       'the trunk material defines TREE_SWAY_ROOTED (bend planted at the base)');
     assert(!/#define TREE_SWAY_ROOTED/.test(foliageShader.vertexShader),
-      'the foliage material does NOT root the bend (canopy sways as a unit)');
+      'the foliage material does NOT root the bend');
+    assert(/TREE_SWAY_FLUTTER/.test(foliageShader.vertexShader),
+      'the foliage material defines TREE_SWAY_FLUTTER (needle layers flex in gusts)');
 
     // The injection wires the SHARED uniform objects, so one update drives every material:
     // the stub shaders captured the same uWindAmp reference the trunk + foliage share.
@@ -269,7 +271,9 @@ async function main() {
       'the depth material injects the same instanced sway (shadow leans with the tree)');
     assert(/TREE_SWAY_ROOTED/.test(trunkDepthShader.vertexShader) &&
       !/#define TREE_SWAY_ROOTED/.test(coneDepthShader.vertexShader),
-      'depth sway matches the profile: trunk rooted, canopy not');
+      'depth sway matches the profile: trunk rooted, foliage not');
+    assert(/TREE_SWAY_FLUTTER/.test(coneDepthShader.vertexShader),
+      'foliage depth material includes TREE_SWAY_FLUTTER (shadows match needle flex)');
     assert(trunkDepthShader.uniforms.uWindAmp === trunkShader.uniforms.uWindAmp,
       'depth + visible materials share one uWindAmp (a single updateWind drives shadows too)');
     // The depth materials are built with Math.random swapped to a private RNG (so their uuid

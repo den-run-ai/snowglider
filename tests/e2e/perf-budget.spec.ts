@@ -15,13 +15,13 @@ import { gotoGame, startGame } from './helpers';
 
 // --- Budget ceilings -------------------------------------------------------
 // Measured on Chromium (warm frame, 1280x720 viewport, deterministic forest seed):
-// calls ~273, triangles ~183k, geometries ~155, textures 11, programs 16. These are
+// calls ~236, triangles ~187k, geometries ~150, textures 13, programs 23. These are
 // scene-dependent (the same geometry the production bundle builds), not
 // GPU/driver-dependent, so they hold across Chromium builds. Ceilings are padded
 // above those actuals as a REGRESSION GUARD, not an aspirational target.
 //
 // The forest is now InstancedMesh (src/mountains/trees.ts): the whole forest draws
-// as 5 InstancedMeshes (~5 colour + ~5 shadow draws) instead of a Group-of-~20-meshes
+// as up to 6 InstancedMeshes (~6 colour + ~6 shadow draws) instead of a Group-of-~20-meshes
 // PER tree, which collapsed draw calls from ~2700 peak to ~252. So `calls` is now a
 // TIGHT regression guard: a revert to per-tree meshes would push it back into the
 // thousands, which the 800 ceiling flags immediately (was a loose 3500 when trees
@@ -44,7 +44,8 @@ import { gotoGame, startGame } from './helpers';
 // frustum follows the player (game/sun-shadow.ts), so the shadow pass renders the
 // surrounding casters — trees/rocks/snow-patches that already set `castShadow` — making
 // their geometry resident immediately and adding one shadow draw per caster batch. That
-// moved `geometries` from ~86 to ~155 (peak) and `calls` from ~252 to ~273. `geometries`
+// moved `geometries` from ~86 to ~155 (peak) and `calls` from ~252 to ~273. The richer
+// tree pass now measures ~150 geometries and ~236 calls with the same guard. `geometries`
 // stays a TIGHT guard at 185: the forest geometry is still pooled, so a per-tree-mesh
 // regression would blow it into the hundreds and red-bar well under 185.
 const BUDGET = {
