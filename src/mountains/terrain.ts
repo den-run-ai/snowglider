@@ -75,27 +75,32 @@ export interface KickerSpec {
   height: number;     // lip height above the base terrain
 }
 
-/** An active kicker with its lateral center resolved from the course line ONCE at
- *  set time (`laneX(z)` at the lip), so the sampler never re-walks the line. */
-interface ActiveKicker {
-  spec: KickerSpec;
-  xc: number;
+/** The active kickers + the course line their lateral centers follow. The line is
+ *  kept (not baked at set time) because it is evaluated PER SAMPLE z: over a 7 u
+ *  approach the winding Expert line can drift almost a full halfWidth (Codex on
+ *  #292 — laneX(-150) ≈ 3.2 vs laneX(-143) ≈ 11.0), so a lip-frozen center would
+ *  park much of the ramp on the corridor shoulder and off the skier's actual line.
+ *  laneX-per-sample is exactly what corridorWallHeight already does. */
+interface ActiveKickers {
+  specs: KickerSpec[];
+  line: { laneX(z: number): number } | null;
 }
 
-let activeKickers: ActiveKicker[] | null = null;
+let activeKickers: ActiveKickers | null = null;
 
 /**
  * Set (or clear) the run's kickers. Mirrors setTerrainCorridor: resets the heightMap
  * cache (its key has no tier dimension) and must be called BEFORE createTerrain so
  * the mesh vertices bake the same ramps — scene-setup.ts does, once per scene.
- * `line` resolves each kicker's lateral center (null/absent ⇒ centered at x = 0).
+ * `line` centers the ramp laterally at laneX(z) for every sample, so the kicker
+ * follows the course line through its whole approach (null/absent ⇒ centered x = 0).
  */
 export function setTerrainKickers(
   kickers: KickerSpec[] | null,
   line?: { laneX(z: number): number } | null
 ): void {
   activeKickers = kickers && kickers.length
-    ? kickers.map((spec) => ({ spec, xc: line ? line.laneX(spec.z) : 0 }))
+    ? { specs: kickers, line: line ?? null }
     : null;
   resetHeightMap();
 }
@@ -119,9 +124,13 @@ export function hasActiveKickers(): boolean {
  */
 export function kickerRampHeight(x: number, z: number): number {
   if (!activeKickers) return 0;
+  const { specs, line } = activeKickers;
   let add = 0;
-  for (const { spec, xc } of activeKickers) {
+  for (const spec of specs) {
     if (z < spec.z || z > spec.z + spec.length) continue; // past the lip / before the ramp
+    // Lateral center follows the course line AT THIS z (not frozen at the lip), so
+    // the whole approach sits under a line-following skier on a winding course.
+    const xc = line ? line.laneX(z) : 0;
     const lat = 1 - Math.abs(x - xc) / spec.halfWidth;
     if (lat <= 0) continue;
     const u = (spec.z + spec.length - z) / spec.length;   // 0 at entry → 1 at the lip
