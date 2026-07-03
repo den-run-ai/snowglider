@@ -452,6 +452,24 @@ export class Camera {
     return new THREE.Vector3(Math.sin(a) * horiz, height, Math.cos(a) * horiz);
   }
 
+  /**
+   * The entry/snap offset shared by `initialize()` and `update()`'s first-frame branch. For
+   * the cinematic modes this seats the camera DIRECTLY at the cinematic pose on entry, so
+   * switching to Cam/Drone (via `V` or a tray chip) frames the advertised low-side / aerial
+   * view immediately instead of rendering one frame at the classic Follow pose and then easing
+   * from it — which read as a visible snap/lag (codex review, PR #319). Non-cinematic modes
+   * keep the exact `followOffset()` behaviour. `velocity`/`context` are optional (initialize has
+   * neither): without them speed is 0, so the motion-gated slope/air terms fall to their base
+   * pose, which is the right neutral framing for a mode switch.
+   */
+  entryOffset(distance: number, yaw: number, playerPosition: THREE.Vector3, velocity?: PlanarVelocity, context: AutoFrameContext = {}): THREE.Vector3 {
+    if (!isCinematic(this.mode)) return this.followOffset(distance, yaw);
+    const speed = velocity ? Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) : 0;
+    const grad = Mountains.getTerrainGradient(playerPosition.x, playerPosition.z);
+    const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
+    return this.cinematicOffset(this.mode, distance, yaw, this.frameCount, slope, speed, context.isInAir === true);
+  }
+
   // Position camera initially behind the player
   initialize(playerPosition: THREE.Vector3, playerRotation: THREE.Euler) {
     // Spawn framing is driven by the persisted manual `zoom` only; clear the transient
@@ -460,6 +478,9 @@ export class Camera {
     this.autoZoom = 1;
     this.autoPitch = 0;
     this.lastTravelHeading = null;
+    // Reset the frame clock up front so entryOffset() reads phase 0 for the cinematic
+    // modes (matching update()'s first-frame snap); also reset at the end for parity.
+    this.frameCount = 0;
     if (this.mode === "firstPerson") {
       // First-person camera initialization
       const angle = playerRotation.y;
@@ -491,8 +512,10 @@ export class Camera {
     } else {
       // Original third-person camera initialization
       // Start with the base distance of minDistance - will adjust dynamically during
-      // gameplay. followOffset() folds in the current orbit/zoom (neutral by default).
-      const camOffset = this.followOffset(this.minDistance, playerRotation.y);
+      // gameplay. entryOffset() folds in the current orbit/zoom (neutral by default) for
+      // auto/follow/orbit, and the cinematic pose directly for cameraman/drone so a mode
+      // switch seats at the advertised framing rather than the Follow pose (codex, PR #319).
+      const camOffset = this.entryOffset(this.minDistance, playerRotation.y, playerPosition);
 
       // Place camera exactly where it should be in its final position
       const initialPos = new THREE.Vector3(playerPosition.x, playerPosition.y, playerPosition.z).add(camOffset);
@@ -532,8 +555,11 @@ export class Camera {
       this.frameCount = 0;
       
       // Calculate the exact position where the camera should be based on the player's
-      // rotation and the current orbit/zoom (neutral by default -> classic offset).
-      const camOffset = this.followOffset(this.minDistance, playerRotation.y);
+      // rotation and the current framing: the orbit/zoom (neutral by default -> classic
+      // offset) for auto/follow/orbit, or the cinematic pose directly for cameraman/drone so
+      // the first rendered frame is already the advertised view, not the Follow pose then an
+      // ease from it (codex review, PR #319).
+      const camOffset = this.entryOffset(this.minDistance, playerRotation.y, playerPosition, velocity, context);
 
       // Set camera directly to its final position
       const camPos = new THREE.Vector3().copy(playerPosition).add(camOffset);

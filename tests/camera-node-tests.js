@@ -501,6 +501,50 @@ async function main() {
     check('cameraman camera is still clamped above terrain', low.camera.position.y >= terrain + 5 - 0.001);
   }
 
+  console.log('\n--- cinematic modes: entry seats directly at the cinematic pose (issue #315, PR #319) ---');
+  {
+    // Switching to Cam/Drone must frame the advertised view on the FIRST rendered frame,
+    // not render one frame at the classic Follow pose (player + (0,8,15)) and then ease from
+    // it — that read as a visible snap. Both initialize() and update()'s first-frame snap
+    // must use the cinematic entry offset (via entryOffset).
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+
+    // Baseline: a follow camera entry seats at the classic pose (y = player+8).
+    const follow = newCamera();
+    follow.setMode('follow');
+    follow.initialize(player, rot);
+    check('follow entry is the classic behind pose (y ~ player+8)', approx(follow.camera.position.y, 58));
+
+    // Drone entry seats HIGH overhead immediately (well above the follow height), both after
+    // initialize() and after the first-frame snap — no Follow-pose intermediate frame.
+    const drone = newCamera();
+    drone.setMode('drone');
+    drone.initialize(player, rot);
+    const droneInitY = drone.camera.position.y;
+    check('drone initialize() seats high overhead, not the follow pose', droneInitY > player.y + 14);
+    drone.update(player, rot, { x: 0, z: 0 }, () => 0); // first-frame snap
+    check('drone first-frame snap stays at the high aerial pose (no snap to follow)',
+      drone.camera.position.y > player.y + 14 && approx(drone.camera.position.y, droneInitY, 0.001));
+
+    // Cameraman entry seats off to the side immediately (nonzero x from the side trail),
+    // where the classic follow pose would be x ~ 0 at yaw 0.
+    const man = newCamera();
+    man.setMode('cameraman');
+    man.initialize(player, rot);
+    check('cameraman initialize() seats off to the side (x != 0), not directly behind',
+      Math.abs(man.camera.position.x) > 3);
+    man.update(player, rot, { x: 0, z: 0 }, () => 0);
+    check('cameraman first-frame snap keeps the side-trailing pose', Math.abs(man.camera.position.x) > 3);
+
+    // The entry offset for a non-cinematic mode is byte-identical to followOffset (no regression).
+    const auto = newCamera(); // auto
+    const entry = auto.entryOffset(auto.minDistance, 0, player);
+    const classic = auto.followOffset(auto.minDistance, 0);
+    check('entryOffset falls back to followOffset for non-cinematic modes',
+      approx(entry.x, classic.x) && approx(entry.y, classic.y) && approx(entry.z, classic.z));
+  }
+
   console.log('\n--- handleResize ---');
   {
     const cam = newCamera();
