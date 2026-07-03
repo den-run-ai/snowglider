@@ -467,7 +467,7 @@ canvas { display: block; }
   user-select: none;
 }
 
-/* Camera control tray (issue: camera viewpoint options): mode chips + 360° orbit
+/* Camera control tray (issue #305): mode chips + 360° orbit
    slider + zoom, stacked just above the Reset / Camera-mode buttons at bottom-left.
    Appended to <body> by lifecycle.ts initCameraControls(). */
 #cameraControls {

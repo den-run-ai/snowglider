@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { Mountains } from './mountains.js';
 
 /**
- * Camera viewpoint modes (issue: camera viewpoint options). Three third-person
+ * Camera viewpoint modes (issue #305). Three third-person
  * variants plus a head cam:
  *  - `auto`        — smart default: orbit auto-centers behind travel, distance/zoom
  *                    adapt to speed. Best hands-off view for casual play.
@@ -32,7 +32,7 @@ export function isThirdPerson(mode: CameraMode): boolean {
   return mode !== 'firstPerson';
 }
 
-// --- View-control tuning (issue: camera viewpoint options) ---
+// --- View-control tuning (issue #305) ---
 // Per-frame easing factor the auto-frame recenter/zoom uses. Matches the gentle,
 // frame-rate-independent-enough feel of the existing `smoothing` lerp (0.08); the
 // game runs a fixed-timestep loop, so a constant factor is safe here (same pattern
@@ -90,7 +90,7 @@ export class Camera {
   isFirstFrame: boolean;
   mode: CameraMode;
 
-  // --- Orbit / zoom view controls (issue: camera viewpoint options) ---
+  // --- Orbit / zoom view controls (issue #305) ---
   // These layer on top of the third-person follow and are all neutral at their
   // defaults, so the framing at spawn is identical to the classic camera.
   orbitYaw: number;        // horizontal orbit offset added to the follow angle (radians, full 360°)
