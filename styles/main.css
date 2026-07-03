@@ -51,7 +51,13 @@ canvas { display: block; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 70vh; /* Height when expanded; tall enough for the Ski Techniques rows */
+  /* Cap the panel so its bottom edge always stays ABOVE the bottom-left camera
+     tray (#cameraControls, bottom:80px) and the Reset / Camera-mode row
+     (#resetBtn, bottom:20px) — all three share the left column. The ~280px
+     reserve keeps the expanded panel from colliding with (and covering the
+     clicks of) the camera controls at any viewport height (issue #305 follow-up).
+     overflow-y still scrolls on very short screens so every row stays reachable. */
+  max-height: calc(100vh - 280px);
   transition: all 0.3s ease;
   overflow-x: hidden;
   overflow-y: auto; /* Scroll if the techniques don't fit, so every row stays reachable */
@@ -126,8 +132,8 @@ canvas { display: block; }
 .control-item {
   display: flex;
   align-items: center;
-  margin: 6px 0;
-  line-height: 1.5;
+  margin: 4px 0; /* compact rows so the full legend + Ski Techniques fit without scrolling */
+  line-height: 1.35;
 }
 
 .key-badge {
@@ -145,12 +151,12 @@ canvas { display: block; }
 /* Section divider used in both the start-menu guide and the in-game controls
    widget to set the emergent "Ski Techniques" apart from the raw key bindings. */
 .control-subhead {
-  margin: 10px 0 4px;
+  margin: 6px 0 3px;
   font-size: 13px;
   font-weight: bold;
   opacity: 0.85;
   border-top: 1px solid rgba(255, 255, 255, 0.18);
-  padding-top: 8px;
+  padding-top: 6px;
 }
 
 #toggleControls {
