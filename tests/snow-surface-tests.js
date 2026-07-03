@@ -79,6 +79,67 @@ async function main() {
   check('SLOPE_MODERATE / SLOPE_STEEP are the documented edges', SLOPE_MODERATE === 0.32 && SLOPE_STEEP === 0.58);
   check('moderate edge is below the steep edge', SLOPE_MODERATE < SLOPE_STEEP);
 
+  // --- Wind-drift streaks / sastrugi (PR 2 of the visual-materials plan) ---------
+  // sastrugiDriftAmount is the pure per-vertex band function applySnowVertexColors
+  // folds in on open, gentle ground. Deterministic, capped, gated, and directional.
+  console.log('\n--- snow-surface: sastrugi wind-drift streaks ---');
+  const { sastrugiDriftAmount } = await import('../src/mountains/snow-surface.ts');
+  const { DEFAULT_WIND_CONFIG } = await import('../src/wind.ts');
+
+  let deterministic = true, capped = true, someDrift = false;
+  for (let x = -60; x <= 60; x += 3.7) {
+    for (let z = -120; z <= 20; z += 5.3) {
+      const d = sastrugiDriftAmount(x, z, 0, 0);
+      if (d !== sastrugiDriftAmount(x, z, 0, 0)) deterministic = false;
+      if (d < 0 || d > 0.10 + 1e-9) capped = false;
+      if (d > 0.05) someDrift = true;
+    }
+  }
+  check('drift is deterministic (pure function of x, z)', deterministic);
+  check('drift amplitude is capped at 0.10 (powder stays bright)', capped);
+  check('open flat ground shows real streak crests (> half amplitude somewhere)', someDrift);
+
+  check('dense forest stands fully fade the streaks (stand gate)',
+    sastrugiDriftAmount(10, -40, 0, 0.7) === 0 && sastrugiDriftAmount(3, -80, 0, 1) === 0);
+  check('steep pitches fully fade the streaks (tilt gate)',
+    sastrugiDriftAmount(10, -40, 0.9, 0) === 0 && sastrugiDriftAmount(3, -80, 1, 0) === 0);
+
+  // Directionality: crest lines run ALONG the prevailing wind, so the drift changes
+  // much faster across the wind than along it. Compare the mean absolute finite
+  // difference on the two axes over a broad 2D sample (the phase gradient is
+  // SASTRUGI_CROSS_FREQ across vs only the slow wobble along).
+  const wx = Math.cos(DEFAULT_WIND_CONFIG.prevailingAngle);
+  const wz = Math.sin(DEFAULT_WIND_CONFIG.prevailingAngle);
+  const meanDelta = (dirX, dirZ) => {
+    const h = 0.25;
+    let sum = 0, n = 0;
+    for (let x = -50; x <= 50; x += 7.3) {
+      for (let z = -110; z <= 10; z += 9.1) {
+        sum += Math.abs(sastrugiDriftAmount(x + h * dirX, z + h * dirZ, 0, 0) -
+                        sastrugiDriftAmount(x, z, 0, 0));
+        n++;
+      }
+    }
+    return sum / n;
+  };
+  check('drift varies far more across the wind than along it (bands align with the wind)',
+    meanDelta(-wz, wx) > meanDelta(wx, wz) * 2);
+
+  // The baked vertex colours fold the drift in: an open flat grid must show the
+  // band variation while every channel stays bright (>= 0.9 — a tint, never dirt).
+  const flat = new THREE.PlaneGeometry(60, 60, 20, 20);
+  flat.rotateX(-Math.PI / 2);
+  flat.computeVertexNormals();
+  applySnowVertexColors(flat);
+  const fc = flat.attributes.color.array;
+  let minC = 1, maxSpread = 0;
+  for (let i = 0; i < fc.length; i += 3) {
+    minC = Math.min(minC, fc[i], fc[i + 1], fc[i + 2]);
+  }
+  for (let i = 3; i < fc.length; i += 3) maxSpread = Math.max(maxSpread, Math.abs(fc[i] - fc[0]));
+  check('flat-grid vertex colours vary (streaks/tints engage in the baked pass)', maxSpread > 1e-4);
+  check('flat-grid vertex colours all stay bright (every channel >= 0.9)', minC >= 0.9);
+
   console.log(`\nsnow-surface: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

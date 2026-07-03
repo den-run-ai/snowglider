@@ -22,6 +22,7 @@ import {
 } from './snow-surface.js';
 import { addRocks, type RockPosition } from './rocks.js';
 import { addContactShadows } from './contact-shadows.js';
+import { SNOW_ROUGHNESS_SURFACE } from './snow-palette.js';
 import { getTerrainHeight as sampleTerrainHeight } from './terrain.js';
 
 // Create Terrain (Natural Mountain)
@@ -121,7 +122,7 @@ export function createTerrain(scene: THREE.Scene) {
 
   const material = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.92,
+    roughness: SNOW_ROUGHNESS_SURFACE,
     map: albedo,
     normalMap: normalMap,
     normalScale: new THREE.Vector2(0.12, 0.12),

@@ -1,6 +1,24 @@
 // Snowman geometry/model construction.
 import * as THREE from 'three';
+import type { Difficulty } from '../difficulty.js';
 import { getSnowmanSnowMaterial } from './snow-material.js';
+
+// --- Difficulty-themed ski top sheets (PR 2 of the visual-materials plan) ----
+// One accent colour per tier, echoing real trail-marker colours where they exist.
+// Blue keeps the shipped red so the default tier's snowman is byte-identical to
+// before; black goes near-black (the steel edges + bindings carry the contrast).
+export const SKI_TOP_SHEET: Record<Difficulty, number> = {
+  bunny: 0x3CA657,  // trail-marker green
+  blue: 0xD42B2B,   // the original red — default tier's look is a visual no-op
+  black: 0x23232A,  // near-black stealth
+  expert: 0xE0A32E, // amber/gold
+};
+
+/** Cosmetic options for createSnowman. Everything defaults to the shipped look. */
+export interface SnowmanModelOptions {
+  /** Ski top-sheet colour (default: the blue-tier red, SKI_TOP_SHEET.blue). */
+  skiTopSheet?: number;
+}
 
 // --- Junction-crease shading (completion-plan PR-V4, the last #17 item) -----
 // The ring where two snowballs meet is the snowman's "cavity" (cf. the terrain
@@ -43,7 +61,7 @@ function bakeJunctionTint(
 }
 
 // Create Snowman (Three Spheres)
-export function createSnowman(scene: THREE.Scene): THREE.Group {
+export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}): THREE.Group {
   const group = new THREE.Group();
   // Shared snowman/debris snow material (PR-V4): the same albedo/normal generators as
   // the terrain snow, so the player stops reading as plastic against the slope. One
@@ -210,7 +228,7 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
   // owns the root transform (snowplow wedge / parallel edge+draw). See buildSkiArm().
   // DoubleSide keeps the hand-wound loft solid from every angle (no reliance on a
   // single correct triangle winding across the lofted tube + caps).
-  const topSheetMat = new THREE.MeshStandardMaterial({ color: 0xD42B2B, roughness: 0.5, side: THREE.DoubleSide }); // red top-sheet
+  const topSheetMat = new THREE.MeshStandardMaterial({ color: opts.skiTopSheet ?? SKI_TOP_SHEET.blue, roughness: 0.5, side: THREE.DoubleSide }); // per-tier top-sheet (default: the original red)
   const baseMat = new THREE.MeshStandardMaterial({ color: 0x1A1A20, roughness: 0.7, side: THREE.DoubleSide });     // dark sintered base
   const steelMat = new THREE.MeshStandardMaterial({ color: 0xB8BCC4, roughness: 0.35, metalness: 0.6, side: THREE.DoubleSide }); // steel edge
   const bootMat = new THREE.MeshStandardMaterial({ color: 0x202024, roughness: 0.6 });     // binding boot

@@ -22,9 +22,10 @@
 
 import * as THREE from 'three';
 import { createSnowAlbedoTexture, createSnowNormalTexture } from '../mountains/snow-surface.js';
+import { SNOW_ROUGHNESS_SURFACE } from '../mountains/snow-palette.js';
 
-/** Matches the terrain snow material (mountains/terrain-mesh.ts). */
-export const SNOWMAN_SNOW_ROUGHNESS = 0.92;
+/** Matches the terrain snow material — single-sourced from the shared snow palette. */
+export const SNOWMAN_SNOW_ROUGHNESS = SNOW_ROUGHNESS_SURFACE;
 /** Faint granulation only — the balls are hand-packed snow, softer than the slope. */
 export const SNOWMAN_SNOW_NORMAL_SCALE = 0.1;
 

@@ -21,6 +21,7 @@ import { forestDensityField } from './noise.js';
 // and the placement (and its Math.random() sequence) stays byte-identical for Bunny/Blue.
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 import { Wind } from '../wind.js';
+import { SNOW_WHITE, SNOW_ROUGHNESS_CAPS } from './snow-palette.js';
 // EZ-Tree evergreens (issue #282; default for players, stylized under automation/
 // headless — see ez-forest.ts flag section): ez-forest.ts provides low-poly conifer
 // archetype geometry; this file renders it through the same instanced/tint/sway/
@@ -341,8 +342,8 @@ function getFoliageMaterials(): THREE.MeshStandardMaterial[] {
 function getSnowMaterial(): THREE.MeshStandardMaterial {
   if (!snowMaterial) {
     snowMaterial = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(0.97, 0.98, 1.0),
-      roughness: 0.82
+      color: new THREE.Color(SNOW_WHITE.r, SNOW_WHITE.g, SNOW_WHITE.b),
+      roughness: SNOW_ROUGHNESS_CAPS
     });
     // 'shrink': the instanced caps/shelves scale with their tree's remaining load
     // (aSnowRatio) and follow the laden canopy's droop (aSnowLoad). The shrink code
@@ -815,8 +816,8 @@ let ezSnowMaterial: THREE.MeshStandardMaterial | null = null;
 function getEzSnowMaterial(): THREE.MeshStandardMaterial {
   if (!ezSnowMaterial) {
     ezSnowMaterial = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(0.97, 0.98, 1.0),
-      roughness: 0.82
+      color: new THREE.Color(SNOW_WHITE.r, SNOW_WHITE.g, SNOW_WHITE.b),
+      roughness: SNOW_ROUGHNESS_CAPS
     });
     // 'shrink' on top of the anchored per-instance weight: EZ caps/shelves scale with
     // their tree's remaining load and follow the laden crown's droop.

@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { Camera } from '../camera.js';
 import { Snow } from '../snow.js';
-import { Snowman } from '../snowman.js';
+import { Snowman, SKI_TOP_SHEET } from '../snowman.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { AvalancheSystem } from '../avalanche.js';
@@ -390,7 +390,10 @@ export function setupScene(signal?: AbortSignal) {
   // (window.isTestMode is published at the top of setupScene, before any
   // subsystem that gates on it is built.)
 
-  const snowman = Snowman.createSnowman(scene);
+  // Ski top sheets are themed per tier (cosmetic; the default keeps the shipped red).
+  // Keyed off `builtDifficulty` like everything else setupScene builds — a run locked
+  // on a different tier reloads via maybeReloadForRunTier, so this never goes stale.
+  const snowman = Snowman.createSnowman(scene, { skiTopSheet: SKI_TOP_SHEET[builtDifficulty] });
   Snow.createSnowflakes(scene);
 
   // Create snow splash particle system for ski effects using sprites

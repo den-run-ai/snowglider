@@ -252,5 +252,9 @@ export const Snowman = {
   addTestHooks
 };
 
+// Difficulty-themed ski top sheets (cosmetic): re-exported through the facade so
+// scene-setup can theme the skis per tier without importing model.ts directly.
+export { SKI_TOP_SHEET, type SnowmanModelOptions } from './model.js';
+
 // Snowman is imported directly by snowglider.js and the gameplay browser tests
 // (issue #84).

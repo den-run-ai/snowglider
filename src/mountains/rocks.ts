@@ -13,6 +13,7 @@ import { getTerrainHeight, getTerrainGradient } from './terrain.js';
 // a Black run adds deterministic rock-gate pinches along it. activeLaneX is exactly 0
 // for straight tiers, so `x - lane` collapses to `x` and Bunny/Blue stay byte-identical.
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
+import { SNOW_WHITE } from './snow-palette.js';
 
 /** A placed rock's world position and size. */
 export interface RockPosition {
@@ -134,11 +135,12 @@ function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Co
   const normals = geometry.attributes.normal!.array as Float32Array;
   const count = geometry.attributes.position!.count;
   const colors = new Float32Array(count * 3);
-  // Snow blanket toward a faintly cool white so the cap reads as snow, not blown
-  // highlight. The band starts lower and saturates sooner than before so up-facing
-  // faces are convincingly *covered* (the previous 0.25..0.70 band left rocks
-  // reading as bare grey crystals with only a faint dusting).
-  const snowCol = { r: 0.97, g: 0.98, b: 1.0 };
+  // Snow blanket toward the shared snow-cap white (snow-palette.ts) so the cap reads
+  // as snow, not blown highlight — and matches the tree caps/shelves exactly. The
+  // band starts lower and saturates sooner than before so up-facing faces are
+  // convincingly *covered* (the previous 0.25..0.70 band left rocks reading as bare
+  // grey crystals with only a faint dusting).
+  const snowCol = SNOW_WHITE;
   for (let i = 0; i < count; i++) {
     const ny = normals[i * 3 + 1]!;
     const t = Math.min(1, Math.max(0, (ny - 0.05) / (0.55 - 0.05)));
@@ -183,8 +185,81 @@ function makeRockColor(darken = 0): THREE.Color {
   return new THREE.Color().setHSL(h, s, l);
 }
 
+// --- Seeded scrape pass ------------------------------------------------------
+// gl-rock-style plane scrapes give the dodecahedron flat facets and shear faces.
+// RNG-stream-neutral: a private mulberry32 stream (seeded per rock) does every
+// draw, so the global Math.random() sequence — which tier determinism and the
+// downstream tree/rock placement order depend on — is completely untouched.
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Fallback seed when the caller doesn't pass one: a stepped counter, not
+// Math.random(), so createRock stays stream-neutral even seedless (mirrors
+// ez-forest's private xorshift precedent for THREE uuid draws).
+let rockSeedCounter = 0x2F6E2B1;
+
+// Scrape geometry bounds. Vertices are never pulled inside KEEP_HULL_RADIUS of the
+// rock's core: placement sinks boulders by size*0.3 and cliffs by size*0.28, so a
+// hull floor at 0.45*size keeps every rock grounded with no floating or open base.
+const SCRAPE_KEEP_HULL_RADIUS = 0.45;
+const SCRAPE_OFFSET_MIN = 0.55; // plane offset r ∈ [0.55, 0.9]·size
+const SCRAPE_OFFSET_SPAN = 0.35;
+
 /** Options for createRock. `cliff` builds a larger, more angular, darker outcrop. */
-interface RockOptions { cliff?: boolean; }
+export interface RockOptions {
+  cliff?: boolean;
+  /** Deterministic scrape-shape seed; same seed + size + cliff ⇒ identical scrape
+   *  planes (the pre-existing radial jitter still rides the global Math.random()). */
+  seed?: number;
+  /** Disable the plane-scrape pass (default on). */
+  scrape?: boolean;
+  /** Override the number of scrape planes (default: boulders 3–5, cliffs 6–9). */
+  scrapeCount?: number;
+  /** 0..1 plane hardness — how fully vertices flatten onto each plane (default 1). */
+  scrapeStrength?: number;
+}
+
+/**
+ * Flatten `count` random planes into the (already jittered) rock hull. Each pass
+ * picks a direction d and an offset r ∈ [0.55, 0.9]·size, then pulls every vertex
+ * with dot(v,d) > r back toward the plane. Cliffs bias d toward the horizon so the
+ * cuts read as sheer faces (plus an occasional top shelf); boulders stay isotropic.
+ * The 0.45·size hull floor keeps the shape convex enough that the existing
+ * sink-depth grounding in addRocks still works.
+ */
+function scrapeRock(
+  positions: Float32Array, size: number, rng: () => number,
+  count: number, strength: number, cliff: boolean
+): void {
+  const d = new THREE.Vector3();
+  const keepSq = (SCRAPE_KEEP_HULL_RADIUS * size) ** 2;
+  for (let s = 0; s < count; s++) {
+    const az = rng() * Math.PI * 2;
+    // Cliffs: mostly horizontal cut normals (sheer faces) + occasional top shelf.
+    const el = cliff
+      ? (rng() < 0.25 ? 0.9 + rng() * 0.5 : (rng() - 0.5) * 0.6)
+      : Math.acos(2 * rng() - 1) - Math.PI / 2; // uniform over the sphere
+    d.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+    const r = size * (SCRAPE_OFFSET_MIN + rng() * SCRAPE_OFFSET_SPAN);
+    for (let i = 0; i < positions.length; i += 3) {
+      const p = positions[i]! * d.x + positions[i + 1]! * d.y + positions[i + 2]! * d.z;
+      if (p <= r) continue;
+      const pull = (p - r) * strength;
+      const nx = positions[i]! - d.x * pull;
+      const ny = positions[i + 1]! - d.y * pull;
+      const nz = positions[i + 2]! - d.z * pull;
+      if (nx * nx + ny * ny + nz * nz < keepSq) continue; // keep the core hull
+      positions[i] = nx; positions[i + 1] = ny; positions[i + 2] = nz;
+    }
+  }
+}
 
 // Create a rock with variable size
 export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
@@ -207,6 +282,16 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
       positions[i + 1]! *= (1 + noise);
       positions[i + 2]! *= (1 + noise);
     }
+  }
+
+  // Seeded scrape pass: flatten a few random planes into the jittered hull so
+  // boulders read as faceted rock and cliffs as sheared crag faces instead of
+  // inflated dodecahedra. Runs BEFORE computeVertexNormals/applyRockSnowColors,
+  // so up-facing scrape planes pick up coherent snow shelves for free.
+  if (opts.scrape !== false) {
+    const rng = mulberry32(opts.seed ?? (rockSeedCounter = (rockSeedCounter + 0x9E3779B9) | 0));
+    const count = opts.scrapeCount ?? (cliff ? 6 + Math.floor(rng() * 4) : 3 + Math.floor(rng() * 3));
+    scrapeRock(positions, size, rng, count, opts.scrapeStrength ?? 1, cliff);
   }
   geometry.computeVertexNormals();
 
@@ -280,12 +365,18 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
 
   const collisionRockPositions: RockPosition[] = [];
 
+  // Deterministic per-placement scrape seed: derived from the (already
+  // stream-stable) placement coordinates, so a given run re-creates identical
+  // rock shapes without consuming any global Math.random() draws.
+  const shapeSeed = (x: number, z: number): number =>
+    (Math.imul(Math.round(x * 100), 73856093) ^ Math.imul(Math.round(z * 100), 19349663)) >>> 0;
+
   // Create rock instances
   rockPositions.forEach(pos => {
     // Get the exact terrain height from our height map or calculation
     const terrainHeight = getTerrainHeight(pos.x, pos.z);
 
-    const rock = createRock(pos.size);
+    const rock = createRock(pos.size, { seed: shapeSeed(pos.x, pos.z) });
 
     // Sink the rock deeper into the terrain for better anchoring
     rock.position.set(pos.x, terrainHeight - pos.size * 0.3, pos.z);
@@ -339,7 +430,7 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
         const bSize = b === 0 ? baseSize : baseSize * (0.55 + Math.random() * 0.4);
         const bHeight = getTerrainHeight(bx, bz);
 
-        const rock = createRock(bSize, { cliff: true });
+        const rock = createRock(bSize, { cliff: true, seed: shapeSeed(bx, bz) });
         rock.position.set(bx, bHeight - bSize * 0.28, bz);
         rock.rotation.y = Math.random() * Math.PI * 2;
         const g = getTerrainGradient(bx, bz);
@@ -372,7 +463,7 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
       for (const sideSign of [-1, 1]) {
         const rx = lx + sideSign * PINCH_EDGE;
         const ry = getTerrainHeight(rx, pz);
-        const rock = createRock(PINCH_SIZE, { cliff: true });
+        const rock = createRock(PINCH_SIZE, { cliff: true, seed: shapeSeed(rx, pz) });
         rock.position.set(rx, ry - PINCH_SIZE * 0.28, pz);
         rock.rotation.y = Math.random() * Math.PI * 2;
         const g = getTerrainGradient(rx, pz);

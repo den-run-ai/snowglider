@@ -32,6 +32,7 @@ snow form.](snow-lighting-model.svg)
 | **Whiteout** | Too much flat/soft light or ambient — terrain form disappears | Keep ambient low; let the hemisphere fill shade *by orientation*, not a uniform wash |
 | **Grey corduroy** | Hard low sun raking periodic terrain ridges into repeated grey bands | Soften the key light, smooth the *shading* normals, and remove the periodic ridge as a banding source (the ridge is now aperiodic — see below) |
 | **Muddy snow** | Neutral grey shadows instead of cool blue ones | Shadows are filled by a cool-blue hemisphere sky color, never neutral grey |
+| **Striped snow** | Directional drift bands turned up until they read as painted stripes | The sastrugi wind-drift streaks (`sastrugiDriftAmount`, `mountains/snow-surface.ts`) are hard-capped at a **0.10 lerp toward `SNOW_SHADE`** — a tint, never dirt — and gated off forest stands and steep pitches. Raise the cap and powder stops reading bright; add directionality to the *albedo texture* instead and it tiles into visible banding (that's why the mottle is isotropic and the directional cue lives in the per-vertex pass) |
 
 The "grey lines" that survived the snow *texture* fix (#17) were terrain **shadows**,
 not a texture: every mogul lit on one side and greyed on the other, made periodic by
@@ -165,7 +166,8 @@ regressions from creeping back when one piece is retuned:
 |---|---|---|
 | Static snow-lighting (`scene-setup.ts`, `mountains.ts`) | albedo, normal-map de-striping, smoothed render normals, static light balance, near-white slope tint | sun-cycle animation |
 | Terrain (`mountains.ts` height field) | the slope geometry; replacing the periodic ridge that bands under low sun | lighting rebalance |
-| Cavity / AO readability (`mountains/snow-surface.ts`, #17) | per-vertex concavity darken + cool-shift baked into the slope tint | terrain physics changes / height field |
+| Cavity / AO readability (`mountains/snow-surface.ts`, #17) | per-vertex concavity darken + cool-shift baked into the slope tint; the capped sastrugi wind-drift streaks (aligned with the shared `wind.ts` prevailing direction) | terrain physics changes / height field |
+| Snow palette (`mountains/snow-palette.ts`) | the ONE set of shared snow colour/roughness constants (`SNOW_WHITE` caps/shelves, `SNOW_SHADE`, `CAVITY_COLOR`, surface/cap roughness) consumed by the terrain surface, rock caps, tree caps/shelves, and the snowman body | any behaviour — it is constants only, so it can be imported from anywhere (including headless tests) without cycles |
 | Obstacle contact shadows (`mountains/contact-shadows.ts`, #17) | baked AO blobs under trees/rocks (one InstancedMesh) | casting real shadows / physics |
 | Tree snow load + shedding (`mountains/trees.ts` registry, `src/tree-shed.ts`, #253) | per-tree load attributes (foliage droop/damping, snow-shelf scale), gust-shed puffs, slow re-laden | terrain snow depth, collision positions, physics |
 | Sun cycle (`src/sky.ts`, #163) | directional sun position/color/intensity, Preetham `sunPosition`/`exposure`, bounded fog/background tint | snow albedo, vertex tint, smoothed normals, terrain, **hemisphere fill** |
