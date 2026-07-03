@@ -497,6 +497,11 @@ canvas { display: block; }
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Wrap chips onto a second line rather than clipping them: the mode row now holds six
+     chips (Auto/Follow/Orbit/FP/Cam/Drone, issue #315), which overflow a 360–375px phone
+     in a single no-wrap row while body{overflow:hidden} hides the clipped Cam/Drone chips
+     and makes them untappable (codex review, PR #319). Wrapping keeps every chip on-screen. */
+  flex-wrap: wrap;
 }
 #cameraControls button {
   min-width: 34px;
