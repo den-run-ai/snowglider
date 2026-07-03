@@ -13,6 +13,7 @@ import { getTerrainHeight, getTerrainGradient } from './terrain.js';
 // a Black run adds deterministic rock-gate pinches along it. activeLaneX is exactly 0
 // for straight tiers, so `x - lane` collapses to `x` and Bunny/Blue stay byte-identical.
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
+import { SNOW_WHITE } from './snow-palette.js';
 
 /** A placed rock's world position and size. */
 export interface RockPosition {
@@ -134,11 +135,12 @@ function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Co
   const normals = geometry.attributes.normal!.array as Float32Array;
   const count = geometry.attributes.position!.count;
   const colors = new Float32Array(count * 3);
-  // Snow blanket toward a faintly cool white so the cap reads as snow, not blown
-  // highlight. The band starts lower and saturates sooner than before so up-facing
-  // faces are convincingly *covered* (the previous 0.25..0.70 band left rocks
-  // reading as bare grey crystals with only a faint dusting).
-  const snowCol = { r: 0.97, g: 0.98, b: 1.0 };
+  // Snow blanket toward the shared snow-cap white (snow-palette.ts) so the cap reads
+  // as snow, not blown highlight — and matches the tree caps/shelves exactly. The
+  // band starts lower and saturates sooner than before so up-facing faces are
+  // convincingly *covered* (the previous 0.25..0.70 band left rocks reading as bare
+  // grey crystals with only a faint dusting).
+  const snowCol = SNOW_WHITE;
   for (let i = 0; i < count; i++) {
     const ny = normals[i * 3 + 1]!;
     const t = Math.min(1, Math.max(0, (ny - 0.05) / (0.55 - 0.05)));

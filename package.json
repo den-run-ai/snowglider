@@ -54,6 +54,7 @@
     "test:sky-preetham": "node --import ./tests/loaders/register-ts-resolve.mjs tests/sky-preetham-eval-tests.js",
     "test:sun-shadow": "node --import ./tests/loaders/register-ts-resolve.mjs tests/sun-shadow-tests.js",
     "test:snow-surface": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snow-surface-tests.js",
+    "test:snow-palette": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snow-palette-tests.js",
     "test:contact-shadows": "node --import ./tests/loaders/register-ts-resolve.mjs tests/contact-shadows-tests.js",
     "test:wind": "node --import ./tests/loaders/register-ts-resolve.mjs tests/wind-tests.js",
     "test:tree-shed": "node --import ./tests/loaders/register-ts-resolve.mjs tests/tree-shed-tests.js",

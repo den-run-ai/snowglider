@@ -9,6 +9,8 @@
 import * as THREE from 'three';
 import { forestDensityField } from './noise.js';
 import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
+import { CAVITY_COLOR, SNOW_SHADE } from './snow-palette.js';
+import { DEFAULT_WIND_CONFIG } from '../wind.js';
 
 // Cavity / ambient-occlusion shading (issue #17 follow-up). The shipped slope tint
 // keys off slope *magnitude* (normal tilt), so it darkens steep faces but leaves
@@ -18,7 +20,42 @@ import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
 // added on top of the slope tint. Build-time and deterministic, so zero per-frame cost.
 const CAVITY_SCALE = 1.2;        // metres of concavity (neighbour-mean minus vertex) that reaches full occlusion
 const CAVITY_MAX_AMT = 0.30;     // max lerp toward the occluded colour (kept subtle — powder must stay bright)
-const CAVITY_COLOR = { r: 0.80, g: 0.84, b: 0.93 }; // cool, slightly-dark occluded-pocket tint (palette #93A9CC, softened)
+// The occluded-pocket tint itself lives in the shared snow palette (CAVITY_COLOR).
+
+// --- Wind-drift streaks / sastrugi (PR 2 of the visual-materials plan) -------------
+// Faint, elongated cool bands aligned with the prevailing wind, only on open
+// (non-forested) gentle-to-moderate ground — a sastrugi read, not stripes. The albedo
+// mottle above is *deliberately* isotropic (directional texture waves tiled into
+// visible banding — see the normal-map history), so the directional cue lives here in
+// the per-vertex pass instead: a pure function of (x, z) — deterministic, zero RNG,
+// render-only. Amplitude is capped low so powder stays bright (docs/SNOW_RENDERING.md).
+const SASTRUGI_MAX_AMT = 0.10;      // max lerp toward SNOW_SHADE — a tint, never dirt
+const SASTRUGI_CROSS_FREQ = 0.54;   // rad per metre across the wind => crests ~12 m apart
+const SASTRUGI_WOBBLE_FREQ = 0.05;  // slow crest-line wander along the wind…
+const SASTRUGI_WOBBLE_AMP = 2.0;    // …so bands read wind-blown, not ruler-straight
+// Unit prevailing-wind direction, derived from the SHARED wind field config so the
+// ground streaks agree with the snowfall drift, the scarf, and the tree sway.
+const WIND_DIR_X = Math.cos(DEFAULT_WIND_CONFIG.prevailingAngle);
+const WIND_DIR_Z = Math.sin(DEFAULT_WIND_CONFIG.prevailingAngle);
+
+/**
+ * Sastrugi drift amount (0..SASTRUGI_MAX_AMT) at a terrain point: how far this
+ * vertex's snow colour leans toward SNOW_SHADE. Crest lines run ALONG the prevailing
+ * wind (phase varies on the cross-wind axis, wobbling slowly along-wind); `tilt`
+ * (0..1 normal tilt, as computed by applySnowVertexColors) fades the bands off steep
+ * pitches and `stand` (0..1 forest-stand density) fades them out under the trees.
+ * Exported for the headless snow-surface suite; render-only, never touches heights.
+ */
+export function sastrugiDriftAmount(x: number, z: number, tilt: number, stand: number): number {
+  const open = Math.max(0, 1 - stand * 1.6);
+  const flat = Math.max(0, 1 - tilt * 1.2);
+  if (open === 0 || flat === 0) return 0;
+  const cross = z * WIND_DIR_X - x * WIND_DIR_Z; // cross-wind coordinate
+  const along = x * WIND_DIR_X + z * WIND_DIR_Z; // along-wind coordinate
+  const phase = cross * SASTRUGI_CROSS_FREQ + Math.sin(along * SASTRUGI_WOBBLE_FREQ) * SASTRUGI_WOBBLE_AMP;
+  const streak = Math.max(0, Math.sin(phase)) ** 3; // sparse crests
+  return open * flat * streak * SASTRUGI_MAX_AMT;
+}
 
 
 // --- Procedural snow surface textures (issue #17) ---
@@ -178,7 +215,7 @@ export function applySnowVertexColors(
   // pure slope tint (keeps the function usable from tests / other callers unchanged).
   const cavity = !!cols && !!rows && cols * rows === count;
   const snow = { r: 1.0, g: 1.0, b: 1.0 };
-  const shade = { r: 0.93, g: 0.95, b: 0.99 }; // barely-cool powder shadow (almost white)
+  const shade = SNOW_SHADE; // barely-cool powder shadow (almost white) — shared palette
   // Where conifer stands grow — gentle slopes inside the forest-density bands — the
   // snow picks up a faint warm/green treeline cast from the canopy and needle litter
   // showing through. It is deliberately low-amplitude (a tint, never dirt) and gated
@@ -196,12 +233,22 @@ export function applySnowVertexColors(
     let b = snow.b + (shade.b - snow.b) * t;
     // Forest treeline tint: strongest on gentle, densely-forested ground; fades out
     // on steep pitches and in the open clearings.
+    const px = positions[i * 3]!;
+    const pz = positions[i * 3 + 2]!;
     const gentle = Math.max(0, 1 - tilt * 1.4);
-    const stand = Math.max(0, (forestDensityField(positions[i * 3]!, positions[i * 3 + 2]!) - 0.45) / 0.55);
+    const stand = Math.max(0, (forestDensityField(px, pz) - 0.45) / 0.55);
     const amt = gentle * stand * 0.26;
     r += (forestTint.r - r) * amt;
     g += (forestTint.g - g) * amt;
     b += (forestTint.b - b) * amt;
+    // Wind-drift streaks (sastrugi): a faint cool band toward the powder-shadow
+    // shade on open, gentle ground — see sastrugiDriftAmount above.
+    const drift = sastrugiDriftAmount(px, pz, tilt, stand);
+    if (drift > 0) {
+      r += (shade.r - r) * drift;
+      g += (shade.g - g) * drift;
+      b += (shade.b - b) * drift;
+    }
     // Cavity / AO: darken + cool-shift vertices that dip below their neighbours.
     if (cavity) {
       const c = i % cols;
