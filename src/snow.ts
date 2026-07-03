@@ -75,33 +75,53 @@ function windDrift(): { x: number; z: number } {
 
 // Snowman code moved to snowman.js
 
-function createSnowflakes(scene: THREE.Scene) {
-  // Create a simple white circle texture for snowflakes
+// Per-frame wobble rate multiplier: the sideways wobble was tuned as a per-FRAME
+// displacement at 60 fps; ×60 converts that tuned look into a per-SECOND rate so
+// `* delta` makes it frame-rate independent (the #209 bug class, still alive in the
+// visuals until this fix: at 120 Hz flakes drifted sideways twice as fast as at 60 Hz).
+const WOBBLE_RATE = 60;
+
+// Shared flake materials, bucketed by opacity. Snow is a diffuse scatterer, not an
+// emitter: NormalBlending keeps flakes readable *against* the bright sky/snow (slightly
+// darker, correctly occluding) instead of additive-glowing cyan over dark trees — the
+// same reasoning as the avalanche powder cloud (avalanche.ts). A radially symmetric
+// sprite needs no per-flake rotation, and opacity variance only needs a few discrete
+// levels, so ALL flakes share these few materials instead of cloning one each (1000
+// clones -> FLAKE_OPACITY_BUCKETS.length). depthWrite stays off so the transparent
+// sprites never punch holes in each other.
+const FLAKE_OPACITY_BUCKETS: readonly number[] = [0.7, 0.85, 1.0];
+
+/** Soft, near-white radial puff with a faint cool edge (SNOW_RENDERING.md palette):
+ *  alpha carries visibility; the colour stays in "snow" range. */
+function createFlakeTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 16;
   canvas.height = 16;
   const ctx = canvas.getContext('2d')!;
-  
-  // Draw a soft, more prominent blueish circle
   const gradient = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
-  // Enhanced blue tint for better visibility against white snow
-  gradient.addColorStop(0, 'rgba(180, 210, 255, 0.95)'); // More saturated blueish center
-  gradient.addColorStop(0.4, 'rgba(200, 225, 255, 0.8)'); // Mid-tone with blue
-  gradient.addColorStop(1, 'rgba(220, 240, 255, 0)'); // Fade to transparent with slight blue
+  gradient.addColorStop(0, 'rgba(250, 252, 255, 0.95)'); // near-white core
+  gradient.addColorStop(0.4, 'rgba(242, 247, 253, 0.75)');
+  gradient.addColorStop(1, 'rgba(228, 238, 250, 0)');    // faint cool edge -> transparent
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 16, 16);
-  
-  const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({ 
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createSnowflakes(scene: THREE.Scene) {
+  const texture = createFlakeTexture();
+  // One material per opacity bucket, all sharing the one texture.
+  const materials = FLAKE_OPACITY_BUCKETS.map((opacity) => new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    blending: THREE.AdditiveBlending // Add blending for more visible particles
-  });
-  
+    opacity,
+    blending: THREE.NormalBlending, // diffuse snow: never additive (see bucket note)
+    depthWrite: false
+  }));
+
   // Create individual snowflakes
   for (let i = 0; i < snowflakeCount; i++) {
-    const snowflake = new THREE.Sprite(material.clone()); // Clone material for individual properties
-    
+    const snowflake = new THREE.Sprite(materials[i % materials.length]);
+
     // More varied size range for realistic snow
     const size = 0.1 + Math.random() * 0.4; // Wider range for more varied flakes
     snowflake.scale.set(size, size, size);
@@ -111,20 +131,16 @@ function createSnowflakes(scene: THREE.Scene) {
     // (smallest) => 0.40, sizeNorm 1 (largest) => 0.12.
     const sizeNorm = (size - 0.1) / 0.4; // 0..1 across the size range
     snowflake.userData.windFactor = 0.12 + 0.28 * (1 - sizeNorm);
-    
+
     // Random positions in a box above the player
     resetSnowflakePosition(snowflake, { x: 0, y: 0, z: -40 });
-    
+
     // Enhanced movement properties for more realistic snow behavior
     snowflake.userData.speed = (0.5 + Math.random() * 1.0) * snowflakeFallSpeed;
     snowflake.userData.wobble = 0.05 + Math.random() * 0.15; // More natural wobble
     snowflake.userData.wobbleSpeed = 0.3 + Math.random() * 2.0; // Varied wobble speeds
     snowflake.userData.wobblePos = Math.random() * Math.PI * 2;
-    // Add rotation for some flakes
-    snowflake.userData.rotationSpeed = (Math.random() - 0.5) * 0.5;
-    // Randomize opacity slightly
-    snowflake.material.opacity = 0.7 + Math.random() * 0.3;
-    
+
     scene.add(snowflake);
     snowflakes.push(snowflake);
   }
@@ -133,17 +149,22 @@ function createSnowflakes(scene: THREE.Scene) {
 // Clear the module-level snowflake pool (dispose-audit teardown / dev-HMR). The pool is
 // a module-level array, so on an embed/remount path that reuses this module instance,
 // createSnowflakes() would append another snowfall on top of the previous (detached)
-// sprites while updateSnowflakes() kept iterating the stale ones. Detach + dispose each
-// sprite's (cloned) material and its shared texture here — self-contained so it does not
-// depend on disposeGame's scene sweep order — then empty the array so a later
-// createSnowflakes() starts clean. Idempotent.
+// sprites while updateSnowflakes() kept iterating the stale ones. Detach every sprite,
+// then dispose each UNIQUE material/texture exactly once — the flakes share the few
+// opacity-bucket materials (and one texture), so a per-sprite dispose would free the
+// same resource hundreds of times. Self-contained so it does not depend on disposeGame's
+// scene sweep order; the array is emptied so a later createSnowflakes() starts clean.
+// Idempotent.
 function teardownSnowflakes(): void {
+  const mats = new Set<THREE.SpriteMaterial>();
+  const texes = new Set<THREE.Texture>();
   for (const flake of snowflakes) {
     flake.parent?.remove(flake);
-    const mat = flake.material;
-    mat.map?.dispose();   // shared across clones — dispose is idempotent
-    mat.dispose();
+    mats.add(flake.material);
+    if (flake.material.map) texes.add(flake.material.map);
   }
+  for (const mat of mats) mat.dispose();
+  for (const tex of texes) tex.dispose();
   snowflakes.length = 0;
 }
 
@@ -162,23 +183,22 @@ function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scen
     // Apply falling movement
     snowflake.position.y -= snowflake.userData.speed * delta;
 
-    // Add some gentle sideways wobble for realism
+    // Add some gentle sideways wobble for realism. Delta-scaled (× WOBBLE_RATE to keep
+    // the tuned 60 fps amplitude) so the drift rate is frame-rate independent — the
+    // fall/wind/phase terms already were, but the displacement itself accumulated per
+    // FRAME, doubling the sideways speed at 120 Hz (#209 bug class).
     snowflake.userData.wobblePos += snowflake.userData.wobbleSpeed * delta;
-    snowflake.position.x += Math.sin(snowflake.userData.wobblePos) * snowflake.userData.wobble;
+    snowflake.position.x += Math.sin(snowflake.userData.wobblePos) * snowflake.userData.wobble * delta * WOBBLE_RATE;
     // Add slight z-axis wobble too for more 3D movement
-    snowflake.position.z += Math.cos(snowflake.userData.wobblePos * 0.7) * snowflake.userData.wobble * 0.5;
+    snowflake.position.z += Math.cos(snowflake.userData.wobblePos * 0.7) * snowflake.userData.wobble * 0.5 * delta * WOBBLE_RATE;
 
     // Wind drift: blow the flake downwind, lighter flakes further (windFactor). Falls back
     // to 1 for any flake created before this field existed (defensive).
     const windFactor = snowflake.userData.windFactor ?? 1;
     snowflake.position.x += wind.x * windFactor * delta;
     snowflake.position.z += wind.z * windFactor * delta;
-    
-    // Add rotation if this flake has rotation speed
-    if (snowflake.userData.rotationSpeed) {
-      snowflake.material.rotation += snowflake.userData.rotationSpeed * delta;
-    }
-    
+
+
     // Check if snowflake has fallen below the terrain or is too far from player
     const terrainHeight = Mountains.getTerrainHeight(snowflake.position.x, snowflake.position.z);
     const distanceToPlayer = Math.sqrt(
@@ -192,75 +212,80 @@ function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scen
   });
 }
 
-// Create a snow splash particle system for ski effects
-function createSnowSplash(): SnowSplash {
-  // Create a simple white circle texture for snow splash
+/** Soft near-white radial puff — the base ski-spray mist. */
+function createSplashPuffTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 32;
   canvas.height = 32;
   const ctx = canvas.getContext('2d')!;
-  
-  // Draw a bright, more prominent blueish circle with soft edges
   const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-  // Enhanced blue tint for the splash
-  gradient.addColorStop(0, 'rgba(160, 200, 255, 1.0)'); // Stronger blueish center
-  gradient.addColorStop(0.3, 'rgba(190, 215, 255, 0.9)'); // Mid-blue tone
-  gradient.addColorStop(0.7, 'rgba(210, 230, 255, 0.6)'); // Light blue
-  gradient.addColorStop(1, 'rgba(230, 240, 255, 0)'); // Fade to transparent with blue hint
+  gradient.addColorStop(0, 'rgba(250, 252, 255, 0.95)'); // near-white core
+  gradient.addColorStop(0.3, 'rgba(244, 249, 254, 0.8)');
+  gradient.addColorStop(0.7, 'rgba(236, 244, 252, 0.5)');
+  gradient.addColorStop(1, 'rgba(226, 237, 249, 0)');    // faint cool edge
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 32, 32);
-  
-  // Create a second texture variation for more diversity
-  const canvas2 = document.createElement('canvas');
-  canvas2.width = 32;
-  canvas2.height = 32;
-  const ctx2 = canvas2.getContext('2d')!;
-  
-  // Create a more irregular, crystalline shape
-  ctx2.fillStyle = 'rgba(180, 210, 255, 0)';
-  ctx2.fillRect(0, 0, 32, 32);
-  
-  // Draw a star-like shape
-  ctx2.beginPath();
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2;
-    const radius = i % 2 === 0 ? 14 : 6;
-    const x = 16 + Math.cos(angle) * radius;
-    const y = 16 + Math.sin(angle) * radius;
-    if (i === 0) ctx2.moveTo(x, y);
-    else ctx2.lineTo(x, y);
+  return new THREE.CanvasTexture(canvas);
+}
+
+/** A second, irregular puff (a few overlapping soft blobs). Ski spray is an aggregate
+ *  powder mist, so this replaces the old star/crystal texture that read as one giant
+ *  snow crystal. */
+function createSplashClumpTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext('2d')!;
+  // Overlapping off-centre blobs -> an uneven, clumpy mist silhouette.
+  const blobs: Array<[number, number, number, number]> = [
+    [14, 15, 11, 0.85], // [cx, cy, radius, core alpha]
+    [21, 12, 7, 0.6],
+    [11, 21, 6, 0.55],
+    [20, 21, 5, 0.5]
+  ];
+  for (const [cx, cy, r, a] of blobs) {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, `rgba(248, 251, 255, ${a})`);
+    g.addColorStop(0.6, `rgba(240, 246, 253, ${a * 0.55})`);
+    g.addColorStop(1, 'rgba(230, 240, 250, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 32, 32);
   }
-  ctx2.closePath();
-  
-  // Fill with blue gradient
-  const gradient2 = ctx2.createRadialGradient(16, 16, 0, 16, 16, 16);
-  gradient2.addColorStop(0, 'rgba(150, 190, 255, 1.0)');
-  gradient2.addColorStop(0.5, 'rgba(180, 205, 255, 0.8)');
-  gradient2.addColorStop(1, 'rgba(200, 225, 255, 0)');
-  ctx2.fillStyle = gradient2;
-  ctx2.fill();
-  
-  const texture = new THREE.CanvasTexture(canvas);
-  const texture2 = new THREE.CanvasTexture(canvas2);
+  return new THREE.CanvasTexture(canvas);
+}
+
+// Create a snow splash particle system for ski effects
+function createSnowSplash(): SnowSplash {
+  const texture = createSplashPuffTexture();
+  const texture2 = createSplashClumpTexture();
 
   // Follow the same approach as snowflakes - use individual sprites
   const splashParticles: THREE.Sprite[] = [];
   const particleCount = 250; // Increased for more dramatic effect
-  
-  // Create the base materials that particles will use
+
+  // Base materials the pool clones from. NormalBlending like the flakes and the
+  // avalanche powder — additive spray washed out to invisible over bright snow and
+  // glowed cyan against dark trees. The pool DOES keep one material per sprite
+  // (cloned once here, never per frame): unlike the flakes' static opacity buckets,
+  // the splash animates `material.opacity`/`rotation` per particle over its lifetime,
+  // and THREE.Sprite has no per-instance opacity — the two textures above are the
+  // shared resources. Migrating the pool to Points/InstancedMesh is the separate V1b
+  // follow-up, only if perf data demands it.
   const materials = [
-    new THREE.SpriteMaterial({ 
+    new THREE.SpriteMaterial({
       map: texture,
       transparent: true,
-      blending: THREE.AdditiveBlending
+      blending: THREE.NormalBlending,
+      depthWrite: false
     }),
     new THREE.SpriteMaterial({
       map: texture2,
       transparent: true,
-      blending: THREE.AdditiveBlending
+      blending: THREE.NormalBlending,
+      depthWrite: false
     })
   ];
-  
+
   // Create individual particles
   for (let i = 0; i < particleCount; i++) {
     // Randomly choose between the two texture types

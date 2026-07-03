@@ -94,8 +94,11 @@ async function testSnowflakePoolTeardown(THREE) {
     return el;
   };
 
-  // Count SpriteMaterial disposals so we can prove the pool was emptied (a stale pool
-  // would re-dispose its old sprites on the next teardown -> double the count).
+  // Count SpriteMaterial disposals so we can prove the pool was emptied. Since the
+  // snow-particle correctness pass (completion-plan PR-V1) the flakes SHARE a few
+  // opacity-bucket materials instead of cloning one per sprite, so a clean teardown
+  // disposes each unique bucket exactly once — a small count far below the sprite
+  // count (the dedup contract is pinned in detail by snow-particles-tests.js).
   let matDisposed = 0;
   const realMatDispose = THREE.SpriteMaterial.prototype.dispose;
   THREE.SpriteMaterial.prototype.dispose = function (...a) { matDisposed++; return realMatDispose.apply(this, a); };
@@ -107,21 +110,28 @@ async function testSnowflakePoolTeardown(THREE) {
     Snow.createSnowflakes(scene);
     const added = scene.children.length - before;
     check('createSnowflakes adds the snowflake sprites to the scene', added > 0);
+    const uniqueMats = new Set(
+      scene.children.filter((c) => c.isSprite).map((s) => s.material)
+    ).size;
+    check('the flake pool shares bucket materials (uniques far below sprite count)',
+      uniqueMats >= 2 && uniqueMats < added / 10);
 
     matDisposed = 0;
     Snow.teardownSnowflakes();
     check('teardownSnowflakes detaches every snowflake from the scene', scene.children.length === before);
-    check('teardownSnowflakes disposes the snowflake sprite materials', matDisposed >= added);
+    check('teardownSnowflakes disposes each unique bucket material exactly once',
+      matDisposed === uniqueMats);
 
-    // Second cycle: if teardown cleared the pool, this disposes the SAME count again; a
-    // stale pool would re-dispose the old sprites too (~2x).
+    // Second cycle: if teardown cleared the pool, this disposes the SAME unique count
+    // again; a stale pool would sweep the old sprites' materials into the teardown
+    // too and inflate the count.
     Snow.createSnowflakes(scene);
     check('a second createSnowflakes adds the same count (pool was cleared, not stacked)',
       scene.children.length - before === added);
     matDisposed = 0;
     Snow.teardownSnowflakes();
-    check('the second teardown disposes only the fresh sprites (no stale-pool re-dispose)',
-      matDisposed >= added && matDisposed < added * 2);
+    check('the second teardown disposes only the fresh unique buckets (no stale-pool re-dispose)',
+      matDisposed === uniqueMats);
   } finally {
     THREE.SpriteMaterial.prototype.dispose = realMatDispose;
     g.document = prevDoc;
