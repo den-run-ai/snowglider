@@ -28,7 +28,7 @@ async function main() {
   testLodgePlacement(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testMaterials(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testDeterminism(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
-  testTerrainReadOnly(buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
+  testGrounding(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testStreamNeutrality(buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
 
   console.log(`\nSCENERY-VALLEY TOTAL: ${pass} passed, ${fail} failed`);
@@ -46,8 +46,8 @@ function testStructure(THREE, build, makeSceneryRng, budget, ctx) {
   const g = build(makeSceneryRng(5), budget, ctx);
   check('returns a Group named "valley-backdrop"', g.isGroup === true && g.name === 'valley-backdrop');
 
-  const names = g.children.map((c) => c.name);
-  check('has a frozen lake, lodges, and forest patches', names.includes('valley-backdrop') === false && g.children.length === 3);
+  check('has a rendered floor, frozen lake, forest patches, and lodges', g.children.length === 4);
+  check('carries its own rendered valley floor', !!g.getObjectByName('valley-floor'));
 
   const lake = g.getObjectByName('frozen-lake');
   check('lake is a Mesh with indexed geometry', !!lake && lake.isMesh && !!lake.geometry.index);
@@ -129,16 +129,36 @@ function testDeterminism(THREE, build, makeSceneryRng, budget, ctx) {
   check('different seed => different lake geometry', pa.some((v, i) => v !== pc[i]));
 }
 
-function testTerrainReadOnly(build, makeSceneryRng, budget) {
-  console.log('--- buildValleyBackdrop: terrain is read-only ---');
-  let writes = 0, reads = 0;
-  // A sampler that would flag any attempt to treat it as mutable (it is a pure fn — the
-  // point is that scenery only ever CALLS it, never assigns terrain state).
-  const sampler = (x, z) => { reads++; return Number.isFinite(x) && Number.isFinite(z) ? -20 : 0; };
-  const ctx = { terrain: null, getTerrainHeight: sampler, courseLine: null, difficulty: 'black', seed: 3 };
-  build(makeSceneryRng(3), budget, ctx);
-  check('terrain height sampler is read (for lodge grounding)', reads > 0);
-  check('no terrain writes occurred', writes === 0);
+// Grounding (Codex review on #323): the valley is past the rendered terrain mesh, so props
+// must sit on the valley's OWN rendered snowfield floor — not on analytic getTerrainHeight()
+// samples that would float them above the only visible floor. Assert the floor exists and
+// every prop is grounded to it (lodge bases at the lake/floor level, floor just below the ice).
+function testGrounding(THREE, build, makeSceneryRng, budget) {
+  console.log('--- buildValleyBackdrop: props grounded on a rendered valley floor ---');
+  const g = build(makeSceneryRng(3), budget);
+  g.updateMatrixWorld(true);
+
+  const floor = g.getObjectByName('valley-floor');
+  check('a rendered valley floor mesh exists', !!floor && floor.isMesh === true);
+
+  // The lake's vertices all sit at the basin floor Y; derive it to compare against.
+  const lakePos = g.getObjectByName('frozen-lake').geometry.getAttribute('position');
+  const lakeY = lakePos.getY(0);
+  const floorY = floor.geometry.getAttribute('position').getY(0);
+  check('the rendered floor sits just below the lake (no coplanar z-fight)', floorY < lakeY && (lakeY - floorY) < 3);
+
+  // Every lodge is grounded to the basin floor (base at lakeY), not raised above it.
+  const wp = new THREE.Vector3();
+  let allGrounded = true;
+  g.traverse((o) => {
+    if (o.name === 'lodge') { o.getWorldPosition(wp); if (Math.abs(wp.y - lakeY) > 1e-3) allGrounded = false; }
+  });
+  check('every lodge base is grounded to the valley floor (not floating)', allGrounded);
+
+  // The valley composes without any terrain sampler at all — it is self-grounded.
+  let threw = false;
+  try { build(makeSceneryRng(3), budget); } catch { threw = true; }
+  check('builds with no terrain context (self-grounded, samples no terrain)', !threw);
 }
 
 function testStreamNeutrality(build, makeSceneryRng, budget, ctx) {

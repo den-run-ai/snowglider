@@ -103,9 +103,10 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   group.add(buildDistantRidges(rng, budget));
 
   // --- Layer: valley backdrop (PR 3) ---
-  // Mid-distance frozen lake + far lodges + forest patches in a side valley, between the
-  // play area and the ridges. Render-only (no reflective shader), reads terrain height only.
-  group.add(buildValleyBackdrop(rng, budget, ctx));
+  // Mid-distance frozen lake + far lodges + forest patches on their own rendered snowfield
+  // floor, in a side valley between the play area and the ridges. Render-only (no reflective
+  // shader); self-grounded (the valley is past the rendered terrain, so it samples no terrain).
+  group.add(buildValleyBackdrop(rng, budget));
 
   let disposed = false;
 
