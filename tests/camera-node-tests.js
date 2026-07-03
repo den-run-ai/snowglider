@@ -264,6 +264,85 @@ async function main() {
     check('switching Auto -> Orbit clears the transient autoZoom', approx(cam.autoZoom, 1));
   }
 
+  console.log('\n--- situational Auto framing: autoFrameTargets profile (issue #305 P3+) ---');
+  {
+    // Pure profile function: (speed, slope, turnRate, aspect, isInAir, avalancheDistance)
+    // -> { zoom, pitch }. Landscape aspect (1.6) + everything calm is the neutral baseline.
+    const cam = newCamera();
+    const neutral = cam.autoFrameTargets(0, 0, 0, 1.6, false, Infinity);
+    check('calm terrain frames neutrally (zoom ~1, pitch 0)',
+      approx(neutral.zoom, 1) && approx(neutral.pitch, 0));
+
+    // Expert/steep terrain (big gradient) pulls the camera back AND lifts it overhead so
+    // the drop below the rider stays in shot.
+    const steep = cam.autoFrameTargets(0, 0.8, 0, 1.6, false, Infinity);
+    check('steep/expert terrain pulls the camera back', steep.zoom > neutral.zoom + 0.2);
+    check('steep/expert terrain lifts the camera overhead (pitch up)', steep.pitch > 0.2);
+
+    // A jump pulls back AND lifts even harder so the landing zone is framed.
+    const air = cam.autoFrameTargets(0, 0, 0, 1.6, true, Infinity);
+    check('airborne (jump) pulls the camera back', air.zoom > neutral.zoom + 0.3);
+    check('airborne (jump) lifts the camera overhead', air.pitch > 0.3);
+
+    // A hard, twisty carve pulls the camera IN for tight tree-line framing.
+    const turn = cam.autoFrameTargets(0, 0, 0.06, 1.6, false, Infinity);
+    check('a hard carve pulls the camera IN (zoom < neutral)', turn.zoom < neutral.zoom);
+
+    // Tall/portrait screens pull back for vertical context; a near avalanche widens out.
+    const portrait = cam.autoFrameTargets(0, 0, 0, 0.5, false, Infinity);
+    check('portrait aspect pulls the camera back', portrait.zoom > neutral.zoom);
+    const danger = cam.autoFrameTargets(0, 0, 0, 1.6, false, 0);
+    check('a near avalanche widens the shot', danger.zoom > neutral.zoom + 0.3);
+    const safe = cam.autoFrameTargets(0, 0, 0, 1.6, false, 1000);
+    check('a distant avalanche does not widen the shot', approx(safe.zoom, neutral.zoom));
+
+    // Stacking every signal stays bounded (can't fling the camera to the horizon).
+    const maxed = cam.autoFrameTargets(999, 5, 5, 0.4, true, 0);
+    check('the combined situational zoom is clamped (< 2)', maxed.zoom < 2);
+    check('the combined situational pitch is clamped (< ~0.7)', maxed.pitch < 0.7);
+  }
+
+  console.log('\n--- situational Auto framing: airborne context eases autoPitch/autoZoom, stays transient ---');
+  {
+    // Driving update() with an airborne context must ease the TRANSIENT autoPitch/autoZoom
+    // up (lift + pull-back for the landing) without touching the persisted manual state,
+    // and both must drop the moment Auto is left or the run restarts.
+    const cam = newCamera(); // auto
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 15 }, () => 0); // snap
+    for (let i = 0; i < 80; i++) {
+      cam.update(player, rot, { x: 0, z: 15 }, () => 0, { isInAir: true });
+    }
+    check('airborne Auto run lifts the transient autoPitch', cam.autoPitch > 0.1);
+    check('airborne Auto run raises the transient autoZoom', cam.autoZoom > 1.1);
+    check('airborne Auto framing never writes the manual orbit pitch', approx(cam.orbitPitch, 0));
+
+    // Leaving Auto drops BOTH transients so Follow/Orbit/FP don't inherit the reframe.
+    cam.setMode('orbit');
+    check('switching Auto -> Orbit clears the transient autoPitch', approx(cam.autoPitch, 0));
+
+    // Re-initialize (restart) also clears the transient pitch and the turn-rate memory.
+    cam.setMode('auto');
+    cam.autoPitch = 0.4;
+    cam.initialize(player, rot);
+    check('re-initialize clears the transient autoPitch', approx(cam.autoPitch, 0));
+    check('re-initialize clears the turn-rate memory', cam.lastTravelHeading === null);
+  }
+
+  console.log('\n--- situational Auto framing: autoPitch lifts the follow offset overhead ---');
+  {
+    // autoPitch feeds followOffset() the same way manual orbitPitch does: + raises the
+    // camera height and shortens the horizontal reach (looking further down the slope).
+    const cam = newCamera();
+    const flat = cam.followOffset(15, 0);
+    cam.autoPitch = 0.5;
+    const lifted = cam.followOffset(15, 0);
+    check('autoPitch raises the camera height', lifted.y > flat.y + 1);
+    check('autoPitch shortens the horizontal follow reach', Math.abs(lifted.z) < Math.abs(flat.z));
+  }
+
   console.log('\n--- manual nudge suppresses auto easing briefly ---');
   {
     const cam = newCamera(); // auto

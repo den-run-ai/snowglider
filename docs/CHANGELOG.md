@@ -38,12 +38,29 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   full control set without gesture conflicts (one-finger steering is untouched; the
   tray's buttons/slider ride the existing interactive-UI touch escape). First-person
   disables the orbit/zoom widgets since they only affect the third-person rig.
+- **Situational Auto framing (P3+).** Auto no longer just eases zoom with speed — each
+  frame it builds a target follow profile from cosmetic-only signals and eases a transient
+  distance (`autoZoom`) **and** overhead pitch (`autoPitch`) toward it, so the camera
+  re-frames the run as it unfolds:
+  - **Expert / steep terrain** — the terrain gradient magnitude under the rider pulls the
+    camera back and lifts it overhead so the fall line and the drop below stay in shot
+    (the emphasis for difficult runs).
+  - **Jumps** — while airborne the camera pulls back and lifts hard so the landing zone
+    stays framed through the whole arc.
+  - Plus: a near avalanche widens the shot, tight/twisty carves pull the camera *in* for
+    tree-line framing, and tall/portrait screens pull back for vertical context.
+  - The situational transients are eased (never snapped), are **never** written into the
+    persisted manual `zoom`/`orbitPitch`, and are dropped on any mode-change or restart —
+    so Follow/Orbit/First-Person and the next run's spawn framing stay neutral. The game
+    loop feeds the jump/avalanche signals through an optional `AutoFrameContext` on
+    `cameraManager.update`; slope, turn rate, and screen aspect the camera derives itself.
+    The framing math is factored into a pure `autoFrameTargets(...)` profile function.
 - Physics is untouched — the camera reads the per-frame result only, never `pos`/
   `velocity` — so the invariant/stress suites are unaffected. Covered by an expanded
-  `tests/camera-node-tests.js` (42 asserts) and `tests/lifecycle-tests.js`; the tray
-  node + its listeners are removed on `disposeGame`. Follow-ups tracked in the issue:
-  two-finger/pinch gestures, cinematic mode, a saved camera preference, and
-  reduced-motion damping.
+  `tests/camera-node-tests.js` (69 asserts, incl. the situational profile + transient-reset
+  cases) and `tests/lifecycle-tests.js`; the tray node + its listeners are removed on
+  `disposeGame`. Remaining follow-ups tracked in the issue: two-finger/pinch gestures,
+  cinematic mode, a saved camera preference, and reduced-motion damping.
 
 ### Trees flex under snow load, shed it in gusts, and the forest sounds like one (#253 Phase B)
 - **Per-tree snow load.** Every placed tree now carries a live load (0..1) riding the

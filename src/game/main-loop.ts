@@ -380,6 +380,16 @@ export function createMainLoop(deps: MainLoopDeps) {
 
   // --- Update Camera: Follow the Snowman ---
   function updateCamera() {
+    // Cosmetic-only situational signals for Auto framing (issue #305, P3+): a jump and
+    // how close an avalanche is. Reads the loop's air flag + the avalanche system only
+    // (never pos/velocity), so the deterministic sim is untouched. Terrain steepness,
+    // turn rate and screen aspect the camera derives itself.
+    const avalanche = state.avalanche;
+    let avalancheDistance = Infinity;
+    if (avalanche && state.avalancheTriggered && avalanche.active) {
+      avalancheDistance = avalanche.getClosestDistance(snowman.position);
+    }
+    const cameraContext = { isInAir: player.isInAir, avalancheDistance };
     // Freestyle (#32): the trick spin is written onto the snowman's root rotation.y
     // (pose.ts) — the transform the follow camera also derives its orbit angle from,
     // so left alone the camera would whirl around the rider at the spin rate
@@ -395,7 +405,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     if (trickCameraYaw !== 0) {
       cameraRotScratch.copy(snowman.rotation);
       cameraRotScratch.y = snowman.rotation.y + trickCameraYaw;
-      cameraManager.update(snowman.position, cameraRotScratch, velocity, Snow.getTerrainHeight);
+      cameraManager.update(snowman.position, cameraRotScratch, velocity, Snow.getTerrainHeight, cameraContext);
       return;
     }
     // Simply delegate to the camera manager
@@ -403,7 +413,8 @@ export function createMainLoop(deps: MainLoopDeps) {
       snowman.position,
       snowman.rotation,
       velocity,
-      Snow.getTerrainHeight
+      Snow.getTerrainHeight,
+      cameraContext
     );
   }
 
