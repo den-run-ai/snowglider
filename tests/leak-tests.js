@@ -79,9 +79,15 @@ async function testDebrisCycles(THREE, disposedGeo, disposedMat) {
   const baselineChildren = scene.children.length;
   const baselineGeoms = liveSceneGeometries(scene);
   const snowmanGeomUuids = new Set([...baselineGeoms].map(g => g.uuid));
+  // Since completion-plan PR-V4 the fragments render with the SAME shared snow
+  // material as the snowman body (snowman/snow-material.ts): debris owns its
+  // geometry, never its material. reset() must NOT dispose the shared material —
+  // the snowman still renders with it.
+  const sharedSnowMat = snowman.userData.parts.bottom.material;
 
   const createdGeoUuids = new Set();
   const createdMatUuids = new Set();
+  let fragmentsAllShareSnowMat = true;
   const CYCLES = 20;
   let childCountDrifted = false;
   let maxLiveExtraAfterReset = 0;
@@ -89,15 +95,19 @@ async function testDebrisCycles(THREE, disposedGeo, disposedMat) {
   for (let i = 0; i < CYCLES; i++) {
     debris.shatter(scene, snowman, { x: (i % 5) - 2, z: -8 - i });
 
-    // Record every debris-owned geometry/material the burst attached this cycle. Skip
-    // the snowman's own meshes (their geometry is in the baseline set) — debris must
-    // never dispose those, so collecting their materials would wrongly fail the guard.
+    // Record every debris-owned geometry (and any debris-created material — there
+    // should be none) the burst attached this cycle. Skip the snowman's own meshes
+    // (their geometry is in the baseline set) — debris must never dispose those.
     scene.traverse(o => {
       if (!o.isMesh || o === snowman) return;
       if (!o.geometry || baselineGeoms.has(o.geometry)) return; // snowman's own mesh
       createdGeoUuids.add(o.geometry.uuid);
       const mat = o.material;
-      if (mat) (Array.isArray(mat) ? mat : [mat]).forEach(m => createdMatUuids.add(m.uuid));
+      if (mat) (Array.isArray(mat) ? mat : [mat]).forEach(m => {
+        if (m === sharedSnowMat) return; // shared with the snowman — not debris-created
+        fragmentsAllShareSnowMat = false;
+        createdMatUuids.add(m.uuid);
+      });
     });
 
     // Settle the burst (manual stepping; converges well within the budget).
@@ -115,11 +125,12 @@ async function testDebrisCycles(THREE, disposedGeo, disposedMat) {
   check('no debris geometry remains attached to the scene after reset (no leak)', maxLiveExtraAfterReset === 0);
 
   const undisposedGeo = [...createdGeoUuids].filter(u => !disposedGeo.has(u));
-  const undisposedMat = [...createdMatUuids].filter(u => !disposedMat.has(u));
   check('every debris-owned geometry created across cycles had dispose() called',
     createdGeoUuids.size > 0 && undisposedGeo.length === 0);
-  check('every debris-owned material created across cycles had dispose() called',
-    createdMatUuids.size > 0 && undisposedMat.length === 0);
+  check('fragments share the snowman\'s snow material (debris creates no per-cycle materials)',
+    fragmentsAllShareSnowMat && createdMatUuids.size === 0);
+  check('the shared snow material was never disposed by the debris cycles',
+    !disposedMat.has(sharedSnowMat.uuid));
 
   const snowmanDisposed = [...snowmanGeomUuids].filter(u => disposedGeo.has(u));
   check('the snowman\'s own geometry was never disposed by the debris cycles',
