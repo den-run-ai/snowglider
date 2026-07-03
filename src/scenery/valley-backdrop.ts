@@ -79,22 +79,27 @@ function buildLodge(rng: () => number, x: number, z: number, groundY: number): T
   return withPrivateThreeRandom(() => {
     const g = new THREE.Group();
     g.name = 'lodge';
+    // Position the GROUP at the sampled shore point and give the children LOCAL offsets,
+    // so g.rotation.y spins the lodge about its own vertical axis. (Positioning the
+    // children in world space and rotating the origin-anchored group would swing the
+    // whole lodge around world origin — off the shore and away from the sampled groundY.)
+    g.position.set(x, groundY, z);
+    g.rotation.y = rot;
     const wall = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d),
       new THREE.MeshBasicMaterial({ color: LODGE_WALL, fog: true }),
     );
-    wall.position.set(x, groundY + h / 2, z);
+    wall.position.set(0, h / 2, 0);
     wall.castShadow = false; wall.receiveShadow = false;
     // 4-sided pyramid roof (ConeGeometry with 4 radial segments), aligned to the box.
     const roof = new THREE.Mesh(
       new THREE.ConeGeometry(Math.max(w, d) * 0.78, roofH, 4),
       new THREE.MeshBasicMaterial({ color: LODGE_ROOF, fog: true }),
     );
-    roof.position.set(x, groundY + h + roofH / 2, z);
+    roof.position.set(0, h + roofH / 2, 0);
     roof.rotation.y = Math.PI / 4;
     roof.castShadow = false; roof.receiveShadow = false;
     g.add(wall, roof);
-    g.rotation.y = rot;
     return g;
   });
 }

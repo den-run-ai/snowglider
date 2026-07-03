@@ -25,6 +25,7 @@ async function main() {
   const ctx = { terrain: null, getTerrainHeight: flatTerrain, courseLine: null, difficulty: 'blue', seed: 1 };
 
   testStructure(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
+  testLodgePlacement(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testMaterials(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testDeterminism(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testTerrainReadOnly(buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
@@ -67,6 +68,35 @@ function testStructure(THREE, build, makeSceneryRng, budget, ctx) {
   });
   check('all geometry + positions finite', allFinite);
   check('at least one lodge silhouette built', !!g.getObjectByName('lodge'));
+}
+
+// Regression (Codex review on #323): a lodge is a Group positioned at its shore point with
+// LOCAL child offsets, so a nonzero rotation spins it about its own axis. The earlier bug
+// positioned the children in WORLD space and rotated an origin-anchored group, swinging the
+// whole lodge around world origin — off the lakeside cluster. Assert every lodge's rendered
+// (world) position stays down in the valley, never near world origin.
+function testLodgePlacement(THREE, build, makeSceneryRng, budget, ctx) {
+  console.log('--- buildValleyBackdrop: lodges rotate about their own origin ---');
+  const g = build(makeSceneryRng(9), budget, ctx);
+  g.updateMatrixWorld(true);
+  const lodges = [];
+  g.traverse((o) => { if (o.name === 'lodge') lodges.push(o); });
+  check('lodge cluster built', lodges.length >= 3);
+  const wp = new THREE.Vector3();
+  let allInValley = true, anyAtOrigin = false;
+  for (const lodge of lodges) {
+    // Check a child's WORLD position — the location actually rendered.
+    const child = lodge.children[0];
+    child.getWorldPosition(wp);
+    const distXZ = Math.hypot(wp.x, wp.z);
+    // The shore arc keeps every lodge deep in -z (z < -330) around the valley center; the
+    // fix makes the child's world XZ equal the shore point exactly (local offset is purely
+    // vertical). The rotation-about-origin bug would swing z out of this band.
+    if (!(wp.z < -330 && wp.x > -320 && wp.x < 160 && distXZ > 300 && distXZ < 900)) allInValley = false;
+    if (distXZ < 100) anyAtOrigin = true;
+  }
+  check('every lodge renders down in the valley (z<-330, near shore, off world origin)', allInValley);
+  check('no lodge swung to world origin (the rotation-about-origin bug)', !anyAtOrigin);
 }
 
 function testMaterials(THREE, build, makeSceneryRng, budget, ctx) {
