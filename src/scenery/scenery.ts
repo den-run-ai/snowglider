@@ -27,6 +27,7 @@ import type { Difficulty } from '../difficulty.js';
 import type { CourseLine } from '../course-line.js';
 import { makeSceneryRng, withPrivateThreeRandom } from './scenery-rng.js';
 import { DEFAULT_SCENERY_BUDGET, type SceneryBudget } from './scenery-budget.js';
+import { buildDistantRidges } from './distant-ridges.js';
 
 /** Read-only context handed to scenery construction. Everything here is either a pure
  *  sampler or immutable layout data — scenery may READ it but must never mutate it. */
@@ -82,11 +83,9 @@ export interface ScenerySystem {
  */
 export function createScenery(scene: THREE.Scene, ctx: SceneryContext): ScenerySystem {
   // Placement randomness: seeded, self-contained, never touches global Math.random.
-  // Held for the layer builders later PRs will add; referenced here so the seam is real.
+  // Every scenery layer draws its placement from this one tier-keyed stream.
   const rng = makeSceneryRng(ctx.seed);
   const budget = ctx.budget ?? DEFAULT_SCENERY_BUDGET;
-  void rng;
-  void budget;
 
   // The one owned scene node. Constructed under the private-RNG guard so its UUID draw
   // can't perturb a caller's seeded global stream (invariant #4).
@@ -96,6 +95,11 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
     return g;
   });
   scene.add(group);
+
+  // --- Layer: distant alpine panorama (PR 2) ---
+  // Static jagged ridge silhouettes fog-hazed into the horizon. Render-only and
+  // collision/physics/stream-neutral (all THREE construction guarded, placement seeded).
+  group.add(buildDistantRidges(rng, budget));
 
   let disposed = false;
 
