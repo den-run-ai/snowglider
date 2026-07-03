@@ -28,6 +28,7 @@ import type { CourseLine } from '../course-line.js';
 import { makeSceneryRng, withPrivateThreeRandom } from './scenery-rng.js';
 import { DEFAULT_SCENERY_BUDGET, type SceneryBudget } from './scenery-budget.js';
 import { buildDistantRidges } from './distant-ridges.js';
+import { buildValleyBackdrop } from './valley-backdrop.js';
 
 /** Read-only context handed to scenery construction. Everything here is either a pure
  *  sampler or immutable layout data — scenery may READ it but must never mutate it. */
@@ -100,6 +101,11 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   // Static jagged ridge silhouettes fog-hazed into the horizon. Render-only and
   // collision/physics/stream-neutral (all THREE construction guarded, placement seeded).
   group.add(buildDistantRidges(rng, budget));
+
+  // --- Layer: valley backdrop (PR 3) ---
+  // Mid-distance frozen lake + far lodges + forest patches in a side valley, between the
+  // play area and the ridges. Render-only (no reflective shader), reads terrain height only.
+  group.add(buildValleyBackdrop(rng, budget, ctx));
 
   let disposed = false;
 
