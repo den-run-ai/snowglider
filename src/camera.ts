@@ -95,7 +95,8 @@ export class Camera {
   // defaults, so the framing at spawn is identical to the classic camera.
   orbitYaw: number;        // horizontal orbit offset added to the follow angle (radians, full 360°)
   orbitPitch: number;      // vertical orbit offset (radians); 0 = default framing, + = more overhead
-  zoom: number;            // multiplier on the follow distance (>1 pulls back, <1 moves in)
+  zoom: number;            // MANUAL follow-distance multiplier (>1 pulls back, <1 moves in). Persisted.
+  autoZoom: number;        // TRANSIENT speed-adaptive multiplier Auto eases; never persisted into `zoom`
   manualHoldFrames: number;// frames left before auto/follow centering resumes after a manual nudge
   minZoom: number;
   maxZoom: number;
@@ -132,6 +133,7 @@ export class Camera {
     this.orbitYaw = 0;
     this.orbitPitch = 0;
     this.zoom = 1;
+    this.autoZoom = 1;
     this.manualHoldFrames = 0;
     this.minZoom = 0.5;
     this.maxZoom = 2.5;
@@ -144,7 +146,7 @@ export class Camera {
   // zoom. At the defaults (orbitYaw 0, orbitPitch 0, zoom 1) this reduces exactly to
   // the classic offset (sin·d, 8, cos·d), so re-init and the follow snap are unchanged.
   followOffset(distance: number, yaw: number): THREE.Vector3 {
-    const d = distance * this.zoom;
+    const d = distance * this.zoom * this.autoZoom;
     const angle = yaw + this.orbitYaw;
     const horiz = d * Math.cos(this.orbitPitch);
     const height = 8 + d * Math.sin(this.orbitPitch);
@@ -194,6 +196,9 @@ export class Camera {
     // the manual-hold window before easing back (codex review, PR #306).
     if (mode === 'auto') this.manualHoldFrames = 0;
     else if (mode === 'follow') this.recenter();
+    // Only Auto applies the speed-adaptive zoom; drop it when leaving Auto so
+    // Follow/Orbit/FP don't inherit a transient speed zoom as if it were manual.
+    if (mode !== 'auto') this.autoZoom = 1;
     return this.mode;
   }
 
@@ -218,23 +223,29 @@ export class Camera {
     this.orbitYaw = 0;
     this.orbitPitch = 0;
     this.zoom = 1;
+    this.autoZoom = 1;
     this.manualHoldFrames = 0;
   }
 
-  // Ease the orbit back behind the direction of travel and the zoom toward a
-  // speed-aware target, so the camera dynamically re-frames the action when the
-  // player isn't actively steering the view. Called once per third-person frame while
-  // auto-frame is on and no recent manual nudge is holding.
+  // Ease the orbit back behind the direction of travel and the TRANSIENT autoZoom
+  // toward a speed-aware target, so the camera dynamically re-frames the action when
+  // the player isn't actively steering the view. Writes `autoZoom`, never the persisted
+  // manual `zoom`, so a fast Auto run can't leak a zoom into the next run's spawn framing
+  // or into Follow/Orbit (codex review, PR #306). Called once per third-person frame
+  // while Auto is on and no recent manual nudge is holding.
   applyAutoFrame(currentSpeed: number): void {
     this.orbitYaw += (0 - this.orbitYaw) * AUTO_FRAME_EASE;
     this.orbitPitch += (0 - this.orbitPitch) * AUTO_FRAME_EASE;
     const speedFactor = Math.min(1.0, currentSpeed / this.speedThreshold);
-    const targetZoom = 1 + speedFactor * AUTO_SPEED_ZOOM;
-    this.zoom += (targetZoom - this.zoom) * AUTO_FRAME_EASE;
+    const targetAutoZoom = 1 + speedFactor * AUTO_SPEED_ZOOM;
+    this.autoZoom += (targetAutoZoom - this.autoZoom) * AUTO_FRAME_EASE;
   }
 
   // Position camera initially behind the player
   initialize(playerPosition: THREE.Vector3, playerRotation: THREE.Euler) {
+    // Spawn framing is driven by the persisted manual `zoom` only; clear the transient
+    // speed autoZoom so a restart after a fast Auto run re-seats at the neutral view.
+    this.autoZoom = 1;
     if (this.mode === "firstPerson") {
       // First-person camera initialization
       const angle = playerRotation.y;

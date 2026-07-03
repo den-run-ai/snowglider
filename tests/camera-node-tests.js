@@ -237,6 +237,33 @@ async function main() {
     check('auto-frame decays a nudged orbit back toward 0', Math.abs(cam.orbitYaw) < 0.1);
   }
 
+  console.log('\n--- auto speed-zoom is transient, never leaks into manual zoom ---');
+  {
+    // Auto eases a TRANSIENT autoZoom with speed; it must NOT write the persisted
+    // manual `zoom`, or a fast Auto run would leak a zoom into the next run's spawn
+    // framing / into Follow/Orbit (codex review, PR #306).
+    const cam = newCamera(); // auto
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 30 }, () => 0); // snap
+    for (let i = 0; i < 80; i++) cam.update(player, rot, { x: 0, z: 30 }, () => 0); // fast Auto run
+    check('auto speed zoom raises the transient autoZoom', cam.autoZoom > 1.1);
+    check('auto speed zoom leaves the persisted manual zoom at 1', approx(cam.zoom, 1));
+
+    // Restart (re-initialize) after the fast run must re-seat at the neutral view: the
+    // transient autoZoom is cleared so spawn distance is the classic 15 (z at yaw 0).
+    cam.initialize(player, rot);
+    check('re-initialize clears the transient autoZoom', approx(cam.autoZoom, 1));
+    check('spawn framing is neutral after a fast Auto run (z ~15)',
+      approx(cam.camera.position.z, 15));
+
+    // Leaving Auto drops the transient zoom so Follow/Orbit don't inherit it.
+    cam.autoZoom = 1.2;
+    cam.setMode('orbit');
+    check('switching Auto -> Orbit clears the transient autoZoom', approx(cam.autoZoom, 1));
+  }
+
   console.log('\n--- manual nudge suppresses auto easing briefly ---');
   {
     const cam = newCamera(); // auto
