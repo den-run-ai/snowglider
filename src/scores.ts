@@ -36,7 +36,8 @@ import {
   limit,
   getDocs,
   serverTimestamp,
-  type Firestore
+  type Firestore,
+  type DocumentReference
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
@@ -111,18 +112,25 @@ function setCurrentUser(user: User | null) {
   currentUser = user;
 }
 
-function getActiveUser() {
+function getActiveUser(): User | null {
   if (currentUser) {
     return currentUser;
   }
 
-  const authModule = window.AuthModule;
+  // window.AuthModule is the untyped (any) boot bridge; narrow it to the two accessors
+  // used here so callers get a typed User back instead of any — otherwise type-checking
+  // is silently disabled on every .uid/.displayName access at this function's call sites.
+  const authModule = window.AuthModule as {
+    getAuthState?: () => { user?: User | null } | null;
+    getCurrentUser?: () => User | null;
+  } | null | undefined;
   if (!authModule) {
     return null;
   }
 
   try {
-    const authStateUser = authModule.getAuthState?.()?.user || authModule.getCurrentUser?.();
+    const authStateUser: User | null =
+      authModule.getAuthState?.()?.user || authModule.getCurrentUser?.() || null;
     // Anonymous "guest" users have no leaderboard identity: AuthModule still
     // reports them as signed in (so the UI shows logged-in chrome), but their best
     // time must stay local until they upgrade to a real provider (which reuses the
@@ -274,13 +282,43 @@ function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFA
           return;
         }
         console.log(`Updating leaderboard entry for user ${userId} with time ${time}`);
+        // Denormalize the player's display name onto the board entry: the rules
+        // (deliberately) deny cross-user /users profile reads, so the name must
+        // travel on the leaderboard doc itself for other players to see it.
+        // Nullable, truncated to the rules' 40-char cap, and only taken from the
+        // signed-in user whose entry this is. Escaped on output (leaderboardRow).
+        const activeUser = getActiveUser();
+        const displayName = (activeUser && activeUser.uid === userId && activeUser.displayName)
+          ? String(activeUser.displayName).slice(0, 40)
+          : null;
         setDoc(leaderboardDocRef, {
           user: userDocRef, // Store a reference to the user document
           time: time,
+          displayName: displayName,
           achievedAt: serverTimestamp() // Record when this score was achieved/updated
         })
           .then(() => console.log("Leaderboard updated successfully for user:", userId))
-          .catch(error => console.warn("Leaderboard write did not complete:", error));
+          .catch(error => {
+            // Rules-skew fallback (codex #277): CI deploys firestore.rules AFTER
+            // GitHub Pages, so a freshly-deployed client can briefly write against
+            // the previous rules, whose key allowlist rejects the displayName field
+            // (permission-denied) — and would keep rejecting it if that rules deploy
+            // failed outright. Retry once in the old-rules shape (no displayName) so
+            // the SCORE is never lost to the skew; the name backfills on a later
+            // finish once the new rules are live (a same-time rewrite is allowed).
+            if ((error as { code?: string })?.code === 'permission-denied') {
+              console.warn("Leaderboard write with displayName rejected; retrying without it (rules skew?).");
+              setDoc(leaderboardDocRef, {
+                user: userDocRef,
+                time: time,
+                achievedAt: serverTimestamp()
+              })
+                .then(() => console.log("Leaderboard updated (no displayName) for user:", userId))
+                .catch(retryError => console.warn("Leaderboard write did not complete:", retryError));
+              return;
+            }
+            console.warn("Leaderboard write did not complete:", error);
+          });
       })
       .catch(error => {
         // Read failed (offline with nothing cached, permissions, etc.); skip this
@@ -302,6 +340,7 @@ interface LeaderboardScore {
   userId: string;     // the leaderboard document id (== the user's uid)
   time: number;       // best run time in seconds
   userRef: any;       // Firestore DocumentReference to the user doc (untyped DocumentData)
+  displayName: string | null; // denormalized at write time; null on legacy/guestless entries
 }
 
 function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<LeaderboardScore[]> {
@@ -342,7 +381,10 @@ function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<Leaderbo
             scores.push({
               userId: docSnap.id, // The user ID is the document ID
               time: data.time,
-              userRef: data.user // Store the DocumentReference to the user
+              userRef: data.user as DocumentReference, // Store the DocumentReference to the user
+              // Denormalized name (may be absent on entries written before the
+              // field existed — the renderer falls back to 'Anonymous').
+              displayName: typeof data.displayName === 'string' ? data.displayName : null
             });
           } else {
             console.warn("Skipping invalid leaderboard entry:", docSnap.id, data);
@@ -447,60 +489,11 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
           return;
         }
 
-        // Fetch user data only if firestore is still available
-        const userPromises = scores.map(score => {
-          if (!firestore) { // Check before each user fetch
-              console.warn("displayLeaderboard: Firestore became unavailable before fetching user data for", score.userId);
-              return Promise.resolve({ displayName: 'Anonymous Player', photoURL: null });
-          }
-          if (!score.userRef || typeof score.userRef.path !== 'string') {
-            console.warn("Invalid user reference in leaderboard score for:", score.userId);
-            return Promise.resolve({ displayName: 'Anonymous Player', photoURL: null });
-          }
-
-          // Don't try to fetch user data for leaderboard entries - this appears to be causing permission issues
-          // Instead, just use a generic player name with their position
-          return Promise.resolve({ 
-            displayName: 'Player',
-            photoURL: null,
-            userId: score.userId
-          });
-          
-          /* Previous implementation with permissions issues:
-          return getDoc(score.userRef)
-            .then(docSnap => {
-              if (docSnap.exists()) {
-                const userData = docSnap.data();
-                return {
-                  displayName: userData.displayName || 'Anonymous',
-                  photoURL: userData.photoURL || null
-                };
-              } else {
-                console.warn("User document not found for leaderboard entry:", score.userId);
-                return { displayName: 'Unknown User', photoURL: null };
-              }
-            })
-            .catch(error => {
-              console.error("Error fetching user data for leaderboard entry:", score.userId, error);
-              if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-                console.warn("Firestore became unavailable fetching user data. Clearing local instance.");
-                firestore = null; // Set local instance to null
-              }
-              return { displayName: 'Error Loading', photoURL: null };
-            });
-          */
-        });
-
-        return Promise.all(userPromises).then(users => ({ scores, users })); // Pass both scores and users
-      })
-      .then(result => {
-        // Handle the case where getLeaderboard resolved but Firestore became unavailable during user fetches
-        if (!result) return; // Exit if previous step returned nothing (e.g., Firestore became unavailable)
-        
-        // Continue showing leaderboard even if there were some user data issues
-        // This ensures the leaderboard is displayed even with permissions problems
-
-        const { scores, users } = result;
+        // Names come denormalized on the leaderboard docs themselves (written by
+        // updateLeaderboard): the rules deny cross-user /users profile reads, so a
+        // per-entry getDoc can never work — the doc's own displayName is the only
+        // name other players can see. Entries written before the field existed
+        // fall back to 'Anonymous'.
         const activeUser = getActiveUser();
         // Build the table with DOM APIs (leaderboardRow) rather than an innerHTML
         // string, so user-controlled names/avatars render as text, never as markup.
@@ -516,21 +509,20 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
         }
 
         scores.forEach((score, index) => {
-          const user = users[index]!;
-          // Show current user differently (match by userId)
+          // Show current user differently (match by userId): their row prefers the
+          // live auth profile name, which is fresher than the denormalized copy.
           const isCurrentUser = !!(activeUser && score.userId === activeUser.uid);
           const displayName = isCurrentUser ?
-            (activeUser.displayName || 'You') :
-            `${user.displayName} ${index + 1}`;
+            (activeUser?.displayName || 'You') :
+            (score.displayName ?? 'Anonymous');
           table.appendChild(
-            leaderboardRow(index + 1, displayName, user.photoURL, score.time, isCurrentUser));
+            leaderboardRow(index + 1, displayName, null, score.time, isCurrentUser));
         });
 
         leaderboardElement.replaceChildren(heading, table);
         console.log("Leaderboard display updated successfully.");
       })
       .catch(error => {
-        // Catch errors from getLeaderboard() OR Promise.all()
         console.error("Failed during leaderboard display process:", error);
         // Check local firestore status after the error
         if (!firestore) {
