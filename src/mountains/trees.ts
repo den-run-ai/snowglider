@@ -1778,12 +1778,22 @@ function addTrees(scene: THREE.Scene): TreePosition[] {
     // The ground collar is pushed AFTER the ranges close, so it never binds to the
     // tree: ground snow keeps aSnowLoad 0 (no droop) / aSnowRatio 1 (never shrinks)
     // and a shed leaves it untouched.
-    const collarRadius = treeScale * (1.0 + Math.random() * 0.5);
-    collarMatrix.makeTranslation(pos.x, terrainHeight - 0.05, pos.z);
+    //
+    // Keep it a low mound that sits IN the snow at the trunk base, not a flat plate
+    // that hovers in the air. The old collar was a wide (1.0-1.5r) near-flat disc
+    // placed right at the surface and tilted only 0.8x the slope, so on the falling
+    // terrain its downhill rim lifted clear of the snow (issue: "circular plates
+    // suspended around tree trunks"). Now it is smaller, rounder, sunk so its rim
+    // buries below the surface (only the crown crests the snow), and tilted the FULL
+    // slope so the disc plane tracks the terrain instead of floating off the fall line.
+    // Exactly one Math.random() draw as before — the seeded forward-stress harness
+    // pins this loop's RNG stream, so the draw count must not change.
+    const collarRadius = treeScale * (0.55 + Math.random() * 0.3);
+    collarMatrix.makeTranslation(pos.x, terrainHeight - collarRadius * 0.28, pos.z);
     pushPart(buckets, 'snowPatch', collarMatrix,
       { x: 0, y: 0, z: 0 },
-      { x: Math.atan(gradient.z) * 0.8, y: 0, z: -Math.atan(gradient.x) * 0.8 },
-      { x: collarRadius, y: collarRadius * 0.25, z: collarRadius });
+      { x: Math.atan(gradient.z), y: 0, z: -Math.atan(gradient.x) },
+      { x: collarRadius, y: collarRadius * 0.42, z: collarRadius });
   });
   buildForest(scene, buckets, ezOn ? undefined : loadRanges);
   if (ezOn) scheduleEzForest(scene, ezPlacements);

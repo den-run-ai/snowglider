@@ -13,6 +13,19 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fix: tree-base snow collars no longer float as suspended plates
+- The per-tree ground "collar" (`addTrees` in `mountains/trees.ts`) rendered as a wide
+  (1.0–1.5r), near-flat disc placed right at the surface and tilted only 0.8× the local
+  slope. On the falling terrain its downhill rim lifted clear of the snow, so the snow
+  read as **circular plates hovering around the bottom of each trunk** rather than snow
+  settled at the base.
+- The collar is now a smaller, rounder mound (0.55–0.85r) **sunk** so its rim buries
+  below the surface — only the crown crests the snow — and tilted the **full** slope so
+  the disc plane tracks the terrain. It grounds the trunk without floating on slopes.
+- Purely cosmetic and RNG-neutral: still exactly one collar per tree with one
+  `Math.random()` draw, so the seeded physics/forward-stress harnesses and the
+  ground-collar invariant (`tree-shed-tests`) stay byte-identical. 68/68 Node suites pass.
+
 ### Camera viewpoint options: modes, 360° orbit, zoom, and a smart Auto camera
 - **Four camera modes replace the two-way toggle.** `V` (and the on-screen button)
   now cycle **Auto → Follow → Orbit → First Person → Auto** instead of flipping
