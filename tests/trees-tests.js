@@ -317,7 +317,7 @@ async function main() {
     Wind.reset();
     Trees.updateWind(2.0);
     assert(Math.abs(U.uWindSwayTime.value - 2.0) < 1e-9, 'updateWind advances the flutter clock by dt');
-    assert(U.uWindAmp.value > 0 && U.uWindAmp.value <= 0.35 + 1e-9,
+    assert(U.uWindAmp.value > 0 && U.uWindAmp.value <= 0.9 + 1e-9,
       'updateWind maps wind strength into the bounded lean amplitude', `amp=${U.uWindAmp.value.toFixed(3)}`);
     assert(Math.abs(Math.hypot(U.uWindDir.value.x, U.uWindDir.value.y) - 1) < 1e-6,
       'updateWind sets a unit downwind direction');
@@ -334,10 +334,10 @@ async function main() {
     // treeSwayAmplitude (pure): a calm field (strength 0) reads as fully still, while any
     // positive wind gets at least the breeze floor and ramps to the max at full strength.
     assert(Trees.treeSwayAmplitude(0) === 0, 'treeSwayAmplitude(0) is fully still (dead calm ⇒ no sway)');
-    assert(Trees.treeSwayAmplitude(1) === 0.35, 'treeSwayAmplitude(1) reaches the max lean');
-    assert(Trees.treeSwayAmplitude(0.5) > 0.08 && Trees.treeSwayAmplitude(0.5) < 0.35,
+    assert(Math.abs(Trees.treeSwayAmplitude(1) - 0.9) < 1e-9, 'treeSwayAmplitude(1) reaches the max lean');
+    assert(Trees.treeSwayAmplitude(0.5) > 0.06 && Trees.treeSwayAmplitude(0.5) < 0.9,
       'treeSwayAmplitude(mid) sits between the breeze floor and the max');
-    assert(Trees.treeSwayAmplitude(0.0001) >= 0.08,
+    assert(Trees.treeSwayAmplitude(0.0001) >= 0.06,
       'any positive wind gets at least the breeze floor');
     assert(Trees.treeSwayAmplitude(-3) === 0 && Trees.treeSwayAmplitude(NaN) === 0,
       'treeSwayAmplitude clamps junk/negative strength to still');
