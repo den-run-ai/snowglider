@@ -466,6 +466,65 @@ canvas { display: block; }
   touch-action: manipulation; /* Removes delay on mobile devices */
   user-select: none;
 }
+
+/* Camera control tray (issue: camera viewpoint options): mode chips + 360° orbit
+   slider + zoom, stacked just above the Reset / Camera-mode buttons at bottom-left.
+   Appended to <body> by lifecycle.ts initCameraControls(). */
+#cameraControls {
+  position: absolute;
+  bottom: 80px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  user-select: none;
+  touch-action: manipulation;
+}
+#cameraControls .cam-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#cameraControls button {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background-color: #4a69bd;
+  color: white;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.5);
+}
+#cameraControls button:hover { background-color: #5a79cd; }
+#cameraControls button[aria-pressed="true"] {
+  background-color: #f6b93b; /* active mode chip */
+  color: #1a1a1a;
+  font-weight: bold;
+}
+#cameraControls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+#cameraControls .cam-zoom-label {
+  color: white;
+  font-size: 13px;
+  min-width: 40px;
+  text-align: center;
+}
+#cameraControls input[type="range"] {
+  width: 120px;
+  accent-color: #4a69bd;
+  cursor: pointer;
+}
+#cameraControls input[type="range"]:disabled { opacity: 0.4; cursor: default; }
+
 /* TODO: AUDIO DISABLED - Audio control button CSS commented out
    Re-enable when audio is re-enabled (AUDIO_ENABLED = true in audio.js)
 #audioControlBtn {
@@ -1141,6 +1200,7 @@ body.intro-active #gameStatsContainer,
 body.intro-active #courseHud,
 body.intro-active #resetBtn,
 body.intro-active #cameraToggleBtn,
+body.intro-active #cameraControls,
 body.intro-active .touch-control {
   display: none !important;
 }

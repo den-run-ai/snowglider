@@ -32,7 +32,7 @@ function buildControlsDom() {
     <div id="controlsContent">
       <div class="control-item" id="cameraViewControl">
         <span class="key-badge">V</span>
-        <span>Toggle Camera View</span>
+        <span>Camera: Auto</span>
       </div>
       <div class="control-item">
         <span class="key-badge">↓/S</span>
@@ -43,7 +43,7 @@ function buildControlsDom() {
         <span>Hop turn — quick pivot on steeps</span>
       </div>
     </div>
-    <button id="cameraToggleBtn">Toggle Chase View</button>`;
+    <button id="cameraToggleBtn">Camera: Auto</button>`;
 }
 
 function makeDeps(toggleModes) {
@@ -77,27 +77,29 @@ async function main() {
 
   buildControlsDom();
   const hopBefore = lastRowText();
-  // First toggle => first-person ('thirdPerson' is the OTHER mode), so label = "Chase".
-  const { toggleCameraView } = createLifecycle(makeDeps(['firstPerson', 'thirdPerson']));
+  // Cycle order out of the camera manager: follow -> orbit -> firstPerson -> auto.
+  const { toggleCameraView } = createLifecycle(makeDeps(['follow', 'orbit', 'firstPerson', 'auto']));
 
   const mode1 = toggleCameraView();
-  check('toggle returns the new camera mode', mode1 === 'firstPerson');
+  check('toggle returns the new camera mode', mode1 === 'follow');
   check('camera (V) row badge stays "V"',
     document.querySelector('#cameraViewControl .key-badge').textContent === 'V');
-  check('camera row label updates (firstPerson => "Toggle Chase View")',
-    rowText('#cameraViewControl') === 'V Toggle Chase View');
+  check('camera row label updates (follow => "Camera: Follow")',
+    rowText('#cameraViewControl') === 'V Camera: Follow');
   check('camera-toggle button text updates too',
-    document.getElementById('cameraToggleBtn').textContent === 'Toggle Chase View');
+    document.getElementById('cameraToggleBtn').textContent === 'Camera: Follow');
   check('Hop turn (last) row is NOT rewritten by the camera toggle',
     lastRowText() === hopBefore &&
     lastRowText() === 'Space+←/→ Hop turn — quick pivot on steeps');
 
-  // Second toggle => thirdPerson, exercising the other ternary branch ("Normal").
-  const mode2 = toggleCameraView();
-  check('second toggle flips the mode', mode2 === 'thirdPerson');
-  check('camera row label updates (thirdPerson => "Toggle Normal View")',
-    rowText('#cameraViewControl') === 'V Toggle Normal View');
-  check('Hop turn row still untouched after the second toggle',
+  // Cycle through the remaining modes and confirm each friendly label renders.
+  check('second toggle => Orbit 360°',
+    toggleCameraView() === 'orbit' && rowText('#cameraViewControl') === 'V Camera: Orbit 360°');
+  check('third toggle => First Person',
+    toggleCameraView() === 'firstPerson' && rowText('#cameraViewControl') === 'V Camera: First Person');
+  check('fourth toggle wraps back to Auto',
+    toggleCameraView() === 'auto' && rowText('#cameraViewControl') === 'V Camera: Auto');
+  check('Hop turn row still untouched after cycling all modes',
     lastRowText() === 'Space+←/→ Hop turn — quick pivot on steeps');
 
   // Missing-DOM branch: toggleCameraView must not throw when the rows/button are gone.

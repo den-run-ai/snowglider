@@ -19,7 +19,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/course.ts` - Checkpoint gates, split timing, ghost racing, and result screen
 - `src/effects.ts` - Avalanche warning UI and camera juice (speed FOV, shake)
 - `src/intro.ts` - Cinematic "fly over the mountain" intro at game start (issue #51; skippable, skipped under test/automation/reduced-motion)
-- `src/camera.ts` - Camera management system
+- `src/camera.ts` - Camera management system. Four viewpoint modes cycled by `V` (auto/follow/orbit/firstPerson; `toggleCameraMode()` is a back-compat wrapper that advances the cycle). Layers a full-360° orbit yaw + clamped pitch and a distance/height `zoom` multiplier on the classic follow rig — all neutral at their defaults, so spawn framing is unchanged. **Auto** recenters the orbit behind travel and eases zoom with speed; **orbit** holds the player's manual yaw/pitch/zoom. Input (Q/E orbit, C recenter, +/−/wheel zoom, mouse-drag orbit, and the `#cameraControls` tray) is wired in `src/game/lifecycle.ts`; camera math is headless-tested (`npm run test:camera`).
 - `src/snowman.ts` - Snowman model and physics
 - `src/controls.ts` - Keyboard and touch controls implementation
 - `src/audio.ts` - Background music and audio controls

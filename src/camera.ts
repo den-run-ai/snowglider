@@ -13,8 +13,51 @@
 import * as THREE from 'three';
 import { Mountains } from './mountains.js';
 
-/** Third- or first-person follow camera. */
-export type CameraMode = 'thirdPerson' | 'firstPerson';
+/**
+ * Camera viewpoint modes (issue: camera viewpoint options). Three third-person
+ * variants plus a head cam:
+ *  - `auto`        — smart default: orbit auto-centers behind travel, distance/zoom
+ *                    adapt to speed. Best hands-off view for casual play.
+ *  - `follow`      — classic chase: always behind the player, honoring manual zoom.
+ *  - `orbit`       — free 360° orbit: player fully controls yaw/pitch/zoom, held put.
+ *  - `firstPerson` — over-the-head cam.
+ * `V` cycles them in this order; the legacy toggle (controls.ts / lifecycle) maps to
+ * the same cycle via the `toggleCameraMode()` compatibility wrapper.
+ */
+export const CAMERA_MODES = ['auto', 'follow', 'orbit', 'firstPerson'] as const;
+export type CameraMode = typeof CAMERA_MODES[number];
+
+/** Third-person modes share the follow/orbit rig; only `firstPerson` is the head cam. */
+export function isThirdPerson(mode: CameraMode): boolean {
+  return mode !== 'firstPerson';
+}
+
+// --- View-control tuning (issue: camera viewpoint options) ---
+// Per-frame easing factor the auto-frame recenter/zoom uses. Matches the gentle,
+// frame-rate-independent-enough feel of the existing `smoothing` lerp (0.08); the
+// game runs a fixed-timestep loop, so a constant factor is safe here (same pattern
+// the follow smoothing already relies on).
+const AUTO_FRAME_EASE = 0.06;
+// Frames a manual orbit/zoom nudge suppresses auto-frame easing for, so the chosen
+// framing holds briefly before the smart camera eases back (~1.5s @ 60fps).
+const MANUAL_HOLD_FRAMES = 90;
+// Extra pull-back the auto-frame applies at top speed (multiplier on the follow
+// distance) so more of the run ahead stays in shot when bombing the fall line.
+const AUTO_SPEED_ZOOM = 0.2;
+
+/** Clamp `v` to [lo, hi]. */
+function clampNum(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** Wrap an angle to (-π, π] so easing toward 0 always takes the short way round. */
+function wrapAngle(a: number): number {
+  const twoPi = Math.PI * 2;
+  let r = a % twoPi;
+  if (r > Math.PI) r -= twoPi;
+  if (r <= -Math.PI) r += twoPi;
+  return r;
+}
 
 /** Terrain sampler signature (the live game injects `Snow.getTerrainHeight`). */
 export type TerrainHeightFn = (x: number, z: number) => number;
@@ -47,6 +90,18 @@ export class Camera {
   isFirstFrame: boolean;
   mode: CameraMode;
 
+  // --- Orbit / zoom view controls (issue: camera viewpoint options) ---
+  // These layer on top of the third-person follow and are all neutral at their
+  // defaults, so the framing at spawn is identical to the classic camera.
+  orbitYaw: number;        // horizontal orbit offset added to the follow angle (radians, full 360°)
+  orbitPitch: number;      // vertical orbit offset (radians); 0 = default framing, + = more overhead
+  zoom: number;            // multiplier on the follow distance (>1 pulls back, <1 moves in)
+  manualHoldFrames: number;// frames left before auto/follow centering resumes after a manual nudge
+  minZoom: number;
+  maxZoom: number;
+  minPitch: number;
+  maxPitch: number;
+
   // `_scene` is accepted to match the call site (`new Camera(scene)`) and kept for
   // parity with the other managers, though the camera reads terrain via the
   // imported `Mountains` sampler rather than the scene graph (hence the
@@ -70,8 +125,107 @@ export class Camera {
     this.frameCount = 0;
     this.isFirstFrame = true;
     
-    // Camera mode - "thirdPerson" (default) or "firstPerson"
-    this.mode = "thirdPerson";
+    // Camera mode - "auto" is the smart default (see CAMERA_MODES).
+    this.mode = "auto";
+
+    // View controls: neutral defaults (behind the player, default distance).
+    this.orbitYaw = 0;
+    this.orbitPitch = 0;
+    this.zoom = 1;
+    this.manualHoldFrames = 0;
+    this.minZoom = 0.5;
+    this.maxZoom = 2.5;
+    this.minPitch = -0.35; // a little below level
+    this.maxPitch = 1.15;  // near top-down
+  }
+
+  // Compute the third-person camera offset from the player for a given base follow
+  // `distance` and player-heading `yaw`, applying the current orbit (yaw + pitch) and
+  // zoom. At the defaults (orbitYaw 0, orbitPitch 0, zoom 1) this reduces exactly to
+  // the classic offset (sin·d, 8, cos·d), so re-init and the follow snap are unchanged.
+  followOffset(distance: number, yaw: number): THREE.Vector3 {
+    const d = distance * this.zoom;
+    const angle = yaw + this.orbitYaw;
+    const horiz = d * Math.cos(this.orbitPitch);
+    const height = 8 + d * Math.sin(this.orbitPitch);
+    return new THREE.Vector3(Math.sin(angle) * horiz, height, Math.cos(angle) * horiz);
+  }
+
+  /**
+   * Orbit the third-person camera around the player. `dYaw`/`dPitch` are radian
+   * deltas; yaw wraps a full 360°, pitch is clamped to a sane range. Registers manual
+   * input so auto-frame easing pauses briefly and the chosen angle holds.
+   */
+  orbit(dYaw: number, dPitch: number = 0): void {
+    this.orbitYaw = wrapAngle(this.orbitYaw + dYaw);
+    this.orbitPitch = clampNum(this.orbitPitch + dPitch, this.minPitch, this.maxPitch);
+    this.manualHoldFrames = MANUAL_HOLD_FRAMES;
+  }
+
+  /** Set the orbit yaw to an absolute angle (radians, wrapped). Used by the 360° slider. */
+  setOrbitYaw(angle: number): void {
+    this.orbitYaw = wrapAngle(angle);
+    this.manualHoldFrames = MANUAL_HOLD_FRAMES;
+  }
+
+  /** Recenter the orbit behind the player (yaw + pitch to 0), keeping the current zoom. */
+  recenter(): void {
+    this.orbitYaw = 0;
+    this.orbitPitch = 0;
+    this.manualHoldFrames = 0;
+  }
+
+  /**
+   * Zoom by multiplying the follow distance. `factor` < 1 moves the camera in, > 1
+   * pulls it back; the result is clamped to [minZoom, maxZoom]. Returns the new zoom.
+   */
+  adjustZoom(factor: number): number {
+    this.zoom = clampNum(this.zoom * factor, this.minZoom, this.maxZoom);
+    this.manualHoldFrames = MANUAL_HOLD_FRAMES;
+    return this.zoom;
+  }
+
+  /** Jump straight to a mode (used by the on-screen camera tray). Returns it. */
+  setMode(mode: CameraMode): CameraMode {
+    this.mode = mode;
+    if (mode === 'auto') this.manualHoldFrames = 0; // let the smart framing ease in
+    return this.mode;
+  }
+
+  /** Advance to the next mode in the cycle (auto → follow → orbit → firstPerson → auto). */
+  cycleMode(): CameraMode {
+    const i = CAMERA_MODES.indexOf(this.mode);
+    return this.setMode(CAMERA_MODES[(i + 1) % CAMERA_MODES.length]!);
+  }
+
+  /**
+   * Backward-compatible view toggle. controls.ts (the `V` key) and lifecycle call
+   * this by name; it now advances the mode cycle instead of flipping two modes.
+   */
+  toggleCameraMode(): CameraMode {
+    const mode = this.cycleMode();
+    console.log(`Camera mode switched to: ${mode}`);
+    return mode;
+  }
+
+  /** Recenter the orbit behind the player and reset zoom to the default framing. */
+  resetView(): void {
+    this.orbitYaw = 0;
+    this.orbitPitch = 0;
+    this.zoom = 1;
+    this.manualHoldFrames = 0;
+  }
+
+  // Ease the orbit back behind the direction of travel and the zoom toward a
+  // speed-aware target, so the camera dynamically re-frames the action when the
+  // player isn't actively steering the view. Called once per third-person frame while
+  // auto-frame is on and no recent manual nudge is holding.
+  applyAutoFrame(currentSpeed: number): void {
+    this.orbitYaw += (0 - this.orbitYaw) * AUTO_FRAME_EASE;
+    this.orbitPitch += (0 - this.orbitPitch) * AUTO_FRAME_EASE;
+    const speedFactor = Math.min(1.0, currentSpeed / this.speedThreshold);
+    const targetZoom = 1 + speedFactor * AUTO_SPEED_ZOOM;
+    this.zoom += (targetZoom - this.zoom) * AUTO_FRAME_EASE;
   }
 
   // Position camera initially behind the player
@@ -106,16 +260,10 @@ export class Camera {
       this.camera.lookAt(lookTarget);
     } else {
       // Original third-person camera initialization
-      // Calculate the exact position where the camera should be
-      const angle = playerRotation.y;
-      // Start with the base distance of 15 - will adjust dynamically during gameplay
-      const offset = new THREE.Vector3(0, 8, 15);
-      const camOffset = new THREE.Vector3(
-        Math.sin(angle) * offset.z,
-        offset.y,
-        Math.cos(angle) * offset.z
-      );
-      
+      // Start with the base distance of minDistance - will adjust dynamically during
+      // gameplay. followOffset() folds in the current orbit/zoom (neutral by default).
+      const camOffset = this.followOffset(this.minDistance, playerRotation.y);
+
       // Place camera exactly where it should be in its final position
       const initialPos = new THREE.Vector3(playerPosition.x, playerPosition.y, playerPosition.z).add(camOffset);
       this.camera.position.copy(initialPos);
@@ -132,13 +280,6 @@ export class Camera {
     this.isFirstFrame = true;
   }
 
-  // Toggle between first-person and third-person views
-  toggleCameraMode(): CameraMode {
-    this.mode = this.mode === "thirdPerson" ? "firstPerson" : "thirdPerson";
-    console.log(`Camera mode switched to: ${this.mode}`);
-    return this.mode;
-  }
-  
   // Update camera position based on player position, rotation, and velocity.
   // `_getTerrainHeight` is accepted for call-site parity but unused: the camera
   // samples terrain via the imported `Mountains.getTerrainHeight` directly.
@@ -158,15 +299,10 @@ export class Camera {
       this.isFirstFrame = false;
       this.frameCount = 0;
       
-      // Calculate the exact position where the camera should be based on the player's rotation
-      const angle = playerRotation.y;
-      const offset = new THREE.Vector3(0, 8, 15);
-      const camOffset = new THREE.Vector3(
-        Math.sin(angle) * offset.z,
-        offset.y,
-        Math.cos(angle) * offset.z
-      );
-      
+      // Calculate the exact position where the camera should be based on the player's
+      // rotation and the current orbit/zoom (neutral by default -> classic offset).
+      const camOffset = this.followOffset(this.minDistance, playerRotation.y);
+
       // Set camera directly to its final position
       const camPos = new THREE.Vector3().copy(playerPosition).add(camOffset);
       this.camera.position.copy(camPos);
@@ -183,20 +319,24 @@ export class Camera {
     
     // Calculate current speed for dynamic camera positioning
     const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
-    
-    // Calculate dynamic distance based on speed
+
+    // Per-mode view easing (runs once a recent manual nudge has expired):
+    //  - auto:   recenter the orbit behind travel AND ease zoom toward a speed target.
+    //  - follow: recenter the orbit behind travel, but leave the player's zoom alone.
+    //  - orbit:  no easing — the player's yaw/pitch/zoom are held exactly as set.
+    if (this.manualHoldFrames > 0) {
+      this.manualHoldFrames--;
+    } else if (this.mode === 'auto') {
+      this.applyAutoFrame(currentSpeed);
+    } else if (this.mode === 'follow') {
+      this.orbitYaw += (0 - this.orbitYaw) * AUTO_FRAME_EASE;
+      this.orbitPitch += (0 - this.orbitPitch) * AUTO_FRAME_EASE;
+    }
+
+    // Calculate dynamic distance based on speed, then apply the current orbit + zoom.
     const dynamicDistance = this.minDistance + Math.min(1.0, currentSpeed / this.speedThreshold) * (this.maxDistance - this.minDistance);
-    
-    // Position camera above and behind the player with dynamic distance
-    const offset = new THREE.Vector3(0, 8, dynamicDistance);
-    const angle = playerRotation.y;
-    
-    const camOffset = new THREE.Vector3(
-      Math.sin(angle) * offset.z,
-      offset.y,
-      Math.cos(angle) * offset.z
-    );
-    
+    const camOffset = this.followOffset(dynamicDistance, playerRotation.y);
+
     // Calculate target position
     this.smoothingVectors.targetPosition.copy(playerPosition).add(camOffset);
     

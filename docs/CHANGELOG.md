@@ -13,6 +13,38 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Camera viewpoint options: modes, 360° orbit, zoom, and a smart Auto camera
+- **Four camera modes replace the two-way toggle.** `V` (and the on-screen button)
+  now cycle **Auto → Follow → Orbit → First Person → Auto** instead of flipping
+  chase/normal. `Camera.toggleCameraMode()` is kept as a compatibility wrapper that
+  advances the cycle, so `controls.ts` (the `V` key), the touch handler, and the
+  lifecycle keep working by name.
+  - **Auto** (new default) — orbit auto-centers behind the direction of travel and the
+    follow distance eases out a touch with speed, so casual players get a good hands-off
+    view. **Follow** — classic chase, always behind the player, honoring manual zoom.
+    **Orbit** — free 360°: the player's yaw/pitch/zoom are held exactly as set.
+    **First Person** — the over-the-head head cam.
+- **360° orbit scroller.** A persistent orbit yaw (full 360°, wrapped) plus a clamped
+  pitch layer on top of the follow rig. Drive it with `Q`/`E`, a left-mouse drag on the
+  slope, or the tray's `0–360°` slider; `C` (or the ⊙ button) recenters behind the
+  snowman. All orbit/zoom offsets are neutral at their defaults, so the spawn framing is
+  byte-identical to the classic camera.
+- **Distance/height zoom** (not FOV — the speed-FOV juice in `effects.ts` is untouched):
+  mouse wheel, `+`/`−`, or the tray's zoom buttons multiply the follow distance
+  (clamped 0.5×–2.5×). The terrain floor clamp still keeps the camera above ground for
+  side/front orbits.
+- **On-screen camera tray** (`#cameraControls`): mode chips (active one highlighted),
+  the 360° orbit slider with recenter, and a zoom row — so mobile/touch players get the
+  full control set without gesture conflicts (one-finger steering is untouched; the
+  tray's buttons/slider ride the existing interactive-UI touch escape). First-person
+  disables the orbit/zoom widgets since they only affect the third-person rig.
+- Physics is untouched — the camera reads the per-frame result only, never `pos`/
+  `velocity` — so the invariant/stress suites are unaffected. Covered by an expanded
+  `tests/camera-node-tests.js` (42 asserts) and `tests/lifecycle-tests.js`; the tray
+  node + its listeners are removed on `disposeGame`. Follow-ups tracked in the issue:
+  two-finger/pinch gestures, cinematic mode, a saved camera preference, and
+  reduced-motion damping.
+
 ### Trees flex under snow load, shed it in gusts, and the forest sounds like one (#253 Phase B)
 - **Per-tree snow load.** Every placed tree now carries a live load (0..1) riding the
   instanced forest as two per-instance attributes: `aSnowLoad` (laden foliage sways
