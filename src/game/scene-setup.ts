@@ -229,7 +229,15 @@ export function setupScene(signal?: AbortSignal) {
   // shadows go gentle instead of grey. Peak white stays roughly the same.
   scene.add(new THREE.AmbientLight(0xffffff, 0.26 * Math.PI));
   scene.add(new THREE.HemisphereLight(0xdcebfb, 0xbcc7d4, 0.62 * Math.PI));
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5 * Math.PI);
+  // Warm midday key (issue #17 palette / completion-plan PR-V3): the SNOW_RENDERING.md
+  // core principle is warm sun + cool skylight (sunlit snow ≈ #FFF6E6). With near-white
+  // snow albedo the sunlit warmth can only come from the LIGHT, so the directional key
+  // is a slightly-desaturated warm white (#FFF4E6) instead of pure 0xffffff. Peak white
+  // on flats is unaffected — the hemisphere+ambient fill already saturates flats to
+  // white, so the warm key only tints the midtones/shadowed pitches (the sun cycle
+  // captures this as its midday dirColor endpoint). The cool fill (hemisphere/ambient)
+  // is untouched, keeping the warm-sun/cool-shadow relationship true at every phase.
+  const directionalLight = new THREE.DirectionalLight(0xfff4e6, 0.5 * Math.PI);
   directionalLight.position.set(50, 100, 50);
   directionalLight.castShadow = true;
   scene.add(directionalLight);

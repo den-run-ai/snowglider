@@ -50,6 +50,7 @@
     "test:share-menu": "node --import ./tests/loaders/register-ts-resolve.mjs tests/share-menu-tests.js",
     "test:audio-asset": "node tests/audio-asset-tests.js",
     "test:sky": "node --import ./tests/loaders/register-ts-resolve.mjs tests/sky-cycle-tests.js",
+    "test:sky-preetham": "node --import ./tests/loaders/register-ts-resolve.mjs tests/sky-preetham-eval-tests.js",
     "test:sun-shadow": "node --import ./tests/loaders/register-ts-resolve.mjs tests/sun-shadow-tests.js",
     "test:snow-surface": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snow-surface-tests.js",
     "test:contact-shadows": "node --import ./tests/loaders/register-ts-resolve.mjs tests/contact-shadows-tests.js",

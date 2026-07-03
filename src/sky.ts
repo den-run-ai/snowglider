@@ -32,6 +32,7 @@
 //   horizon colour so terrain and sky meet seamlessly.
 
 import * as THREE from 'three';
+import { evalPreethamColor, VIEW_FORWARD_HORIZON } from './sky-preetham-eval.js';
 
 // Gradient endpoints. Colours are consumed under the project's legacy colour
 // pipeline (`ColorManagement.enabled = false`, linear output), matching how the
@@ -335,7 +336,9 @@ const SUN_ELEV_MIN_DEG = 8;
 const GOLDEN_DIR_COLOR_HEX = 0xffbd8c;                  // warm low sun (deeper at 8°)
 const GOLDEN_DIR_INTENSITY_FACTOR = 0.75;               // × captured midday intensity (dimmer)
 const GOLDEN_EXPOSURE = 0.36;                           // < captured midday exposure
-const GOLDEN_FOG_COLOR_HEX = 0xe8dabd;                  // warm pale haze, still soft
+// (PR-V3: the golden FOG constant is gone — fog is now the Preetham dome colour at the
+// view-forward horizon, evaluated per cycle phase, so it can never seam against the
+// sky. See preethamHorizonColor below.)
 
 interface SunCycle {
   material: THREE.ShaderMaterial;
@@ -345,10 +348,11 @@ interface SunCycle {
   enabled: boolean;
   reducedMotion: boolean;
   elapsed: number;
-  // Golden-hour colour endpoints, built under the same colour-management regime as
-  // the captured midday colours below so lerpColors stays in one colour space.
+  // Golden-hour directional-sun colour endpoint, built under the same colour-management
+  // regime as the captured midday colours below so lerpColors stays in one colour space.
+  // (The golden FOG endpoint is gone in PR-V3 — fog is the Preetham horizon colour,
+  // evaluated per phase, not a lerped constant.)
   goldenDirColor: THREE.Color;
-  goldenFogColor: THREE.Color;
   // Captured static-midday snapshot (the cycle's bright endpoint).
   midday: {
     sunDir: THREE.Vector3;   // unit
@@ -375,6 +379,26 @@ interface SkyUniforms {
 }
 function skyUniforms(material: THREE.ShaderMaterial): SkyUniforms {
   return material.uniforms as unknown as SkyUniforms;
+}
+
+/**
+ * The distance-fog / background colour for a given sun direction + exposure (PR-V3):
+ * the Preetham dome's own colour at the VIEW-FORWARD HORIZON (-z, y≈0), so the fog
+ * terrain fades into is exactly what the sky paints where they meet — no seam, at any
+ * cycle phase. Replaces the old hand-tuned `ATMOSPHERE_FOG_COLOR` → warm-constant lerp,
+ * whose warm golden fog clashed with the cool anti-solar sky the player actually faces.
+ * Writes into `target` when given (no per-frame allocation). Built with the SAME scattering
+ * constants as `SKY_SHADER`, so the fog tracks the dome exactly.
+ */
+function preethamHorizonColor(sunDir: THREE.Vector3, exposure: number, target?: THREE.Color): THREE.Color {
+  const c = evalPreethamColor(sunDir, VIEW_FORWARD_HORIZON, {
+    turbidity: SKY_TURBIDITY,
+    rayleigh: SKY_RAYLEIGH,
+    mieCoefficient: SKY_MIE_COEFFICIENT,
+    mieDirectionalG: SKY_MIE_DIRECTIONAL_G,
+    exposure
+  });
+  return (target ?? new THREE.Color()).setRGB(c.r, c.g, c.b);
 }
 
 let cycle: SunCycle | null = null;
@@ -433,9 +457,13 @@ function applyProgress(c: SunCycle, p: number): void {
     p
   );
   c.directionalLight.color.lerpColors(c.goldenDirColor, m.dirColor, p);
-  c.fog.color.lerpColors(c.goldenFogColor, m.fogColor, p);
+  // Fog/background = the Preetham dome colour at the view-forward horizon for THIS
+  // phase's sun + exposure (PR-V3), so the fog tracks the sky the player faces at every
+  // phase instead of lerping to a warm constant that seamed against the cool anti-solar
+  // horizon at golden hour.
+  preethamHorizonColor(sunDir, u.exposure.value, c.fog.color);
   if (c.scene.background instanceof THREE.Color) {
-    c.scene.background.lerpColors(c.goldenFogColor, m.bgColor, p);
+    c.scene.background.copy(c.fog.color);
   }
 }
 
@@ -477,6 +505,12 @@ function applyAtmosphericSky(
   // Capture the merged static state as the bright midday endpoint.
   const pos = directionalLight.position.clone();
   const horiz = Math.hypot(pos.x, pos.z);
+  const middaySunDir = pos.clone().normalize();
+  const middayExposure = skyUniforms(material).exposure.value;
+  // Midday fog/background = the Preetham dome colour at the view-forward horizon for the
+  // midday sun (PR-V3), captured (not the old hand-tuned ATMOSPHERE_FOG_COLOR) so the
+  // frozen/reduced-motion state reproduces the seam-free horizon exactly.
+  const middayFog = preethamHorizonColor(middaySunDir, middayExposure);
   cycle = {
     material,
     fog,
@@ -485,20 +519,19 @@ function applyAtmosphericSky(
     enabled: options.enabled ?? SUN_CYCLE_ENABLED,
     reducedMotion: options.reducedMotion ?? detectReducedMotion(),
     elapsed: 0,
-    // Built here (after scene-setup's ColorManagement opt-out) so they share the
-    // captured midday colours' regime — see GOLDEN_*_HEX.
+    // Built here (after scene-setup's ColorManagement opt-out) so it shares the
+    // captured midday colours' regime — see GOLDEN_DIR_COLOR_HEX.
     goldenDirColor: new THREE.Color(GOLDEN_DIR_COLOR_HEX),
-    goldenFogColor: new THREE.Color(GOLDEN_FOG_COLOR_HEX),
     midday: {
-      sunDir: pos.clone().normalize(),
+      sunDir: middaySunDir,
       distance: pos.length(),
       azimuth: Math.atan2(pos.x, pos.z),
       elevation: Math.atan2(pos.y, horiz),
       dirColor: directionalLight.color.clone(),
       dirIntensity: directionalLight.intensity,
-      exposure: skyUniforms(material).exposure.value,
-      fogColor: fog.color.clone(),
-      bgColor: scene.background.clone()
+      exposure: middayExposure,
+      fogColor: middayFog.clone(),
+      bgColor: middayFog.clone()
     }
   };
 
