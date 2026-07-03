@@ -174,15 +174,16 @@ async function main() {
     check('Q key orbits during gameplay', calls.some(c => c[0] === 'orbit'));
 
     // Tray chips: clicking a mode chip selects it; the orbit slider drives setOrbitYaw.
-    document.querySelector('#cameraControls [data-cam-mode="orbit"]').click();
+    const chip = (mode) => /** @type {HTMLButtonElement} */ (document.querySelector(`#cameraControls [data-cam-mode="${mode}"]`));
+    chip('orbit').click();
     check('mode chip click selects the mode', calls.some(c => c[0] === 'setMode' && c[1] === 'orbit'));
-    const slider = document.getElementById('cameraOrbitSlider');
+    const slider = /** @type {HTMLInputElement} */ (document.getElementById('cameraOrbitSlider'));
     slider.value = '90';
     slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     check('orbit slider drives setOrbitYaw', calls.some(c => c[0] === 'setOrbitYaw'));
 
     // First person disables the orbit/zoom widgets (they only affect third-person).
-    document.querySelector('#cameraControls [data-cam-mode="firstPerson"]').click();
+    chip('firstPerson').click();
     check('first-person disables the orbit slider', slider.disabled === true);
 
     controller.abort(); // remove the window listeners this section installed
