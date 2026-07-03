@@ -847,9 +847,13 @@ of each faking its own (issue #253).
   uniform set the main loop refreshes once per frame from `Wind.dir()`/`strength()`. The
   trunk material is "rooted" so the bend is planted at the base while the canopy above it
   sways as a unit; a spatial phase from each vertex's world x/z desyncs neighbouring trees.
-  No position/collision change, so it is invariant-safe; the load-carrying families draw a
-  per-forest geometry clone for their per-instance attributes — see snow load below — while
-  the trunk still draws the shared pooled geometry).
+  The amplitude band (`TREE_SWAY_MIN_AMP`..`TREE_SWAY_MAX_AMP` = 0.06..0.9 world units at
+  full canopy weight) and the 0.6-static / 0.4-oscillating split are tuned so a gust visibly
+  whips the ~8-14u trees (~5° treetop swing) and a lull relaxes them — the first cut capped
+  at 0.35u (~1.5°), imperceptible at chase distance. No position/collision change, so it is
+  invariant-safe; the load-carrying families draw a per-forest geometry clone for their
+  per-instance attributes — see snow load below — while the trunk still draws the shared
+  pooled geometry).
   Audio bed (`sfx.ts`: the procedural ambient wind noise adds `Wind.strength() ×
   WIND_FIELD_GAIN` on top of its speed-scaled whoosh via the pure `windGainForField`, so a
   gusty slope hisses at a standstill and swells with gusts; the main loop passes

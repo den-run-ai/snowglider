@@ -380,11 +380,15 @@ const treeWindUniforms = {
 };
 let treeSwayClock = 0;
 
-// Amplitude band mapped from Wind.strength() (0..1): even the steady breeze nudges the
-// canopy, a full gust leans it a bit more, and it never exceeds ~a third of a unit — a
-// gentle sway on the ~8-14 unit-tall trees, not a storm.
-const TREE_SWAY_MIN_AMP = 0.08;
-const TREE_SWAY_MAX_AMP = 0.35;
+// Amplitude band mapped from Wind.strength() (0..1): a light breeze barely nudges the
+// canopy while a full gust bends it several degrees. The first cut (#265) capped this at
+// 0.35u — a ~1.5° treetop swing that was imperceptible at chase-camera distance and, since
+// the field's normalized strength saturates the same for a stiff breeze as a gale, barely
+// tracked wind speed at all. Widened here so a gust visibly whips the ~8-14 unit trees and
+// a lull relaxes them (issue #253 sway-visibility follow-up). The lull floor is low so the
+// gust↔lull contrast reads as motion, not a fixed tilt.
+const TREE_SWAY_MIN_AMP = 0.06;
+const TREE_SWAY_MAX_AMP = 0.9;
 
 /** Map a normalized wind strength (0..1) to the canopy sway amplitude. The MIN_AMP floor
  *  is a *breeze* minimum, so a genuinely calm field (strength 0 — e.g. a
@@ -460,7 +464,10 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
                   + 0.3 * sin( uWindSwayTime * TREE_SWAY_RATE * 2.1 + swayPhase * 1.7 );
     float ampVar = 0.82 + 0.18 * sin( swayPhase * 5.7 + 2.1 );
     float loadEase = 1.0 - TREE_LOAD_DAMP * snowLoad;
-    float lean = uWindAmp * ampVar * swayWeight * loadEase * ( 0.75 + 0.25 * swayOsc );
+    // 0.6 static downwind lean + 0.4 oscillation: more of the bend is animated swing than
+    // the old 0.75/0.25 split (which read as a near-fixed tilt), so the canopy visibly
+    // pulses with the gust cycle while always leaning downwind (the factor stays > 0).
+    float lean = uWindAmp * ampVar * swayWeight * loadEase * ( 0.6 + 0.4 * swayOsc );
     mvPosition.x += uWindDir.x * lean;
     mvPosition.z += uWindDir.y * lean;
     mvPosition.y -= TREE_LOAD_DROOP * snowLoad * swayWeight;
@@ -517,7 +524,7 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeigh
   // with an unswayed build or a differently-rooted/loaded variant.
   const heightTag = rootHeight !== undefined && rootHeight > 0 ? `-h${rootHeight.toFixed(2)}` : '';
   const loadTag = loadMode ? `-${loadMode}` : '';
-  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}${loadTag}-v3`;
+  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}${loadTag}-v4`;
 }
 
 /** Advance the forest's wind sway one render frame. Reads the shared Wind field (downwind

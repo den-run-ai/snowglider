@@ -13,6 +13,14 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Tree wind sway made visible (#253 sway-visibility follow-up)
+- The forest's GPU wind sway (#265) was capped so low (0.35u ≈ a 1.5° treetop swing,
+  mostly a fixed downwind tilt) that it was imperceptible at chase-camera distance.
+  Retuned in `mountains/trees.ts`: the amplitude band widens to 0.06..0.9 world units
+  and the lean is 60% static / 40% oscillating (was 75/25), so a gust now visibly whips
+  the trees (~5° treetop swing) and a lull relaxes them. Cosmetic-only (shader vertex
+  displacement, no `pos`/collision change) — the physics baseline is untouched.
+
 ### Trees flex under snow load, shed it in gusts, and the forest sounds like one (#253 Phase B)
 - **Per-tree snow load.** Every placed tree now carries a live load (0..1) riding the
   instanced forest as two per-instance attributes: `aSnowLoad` (laden foliage sways
