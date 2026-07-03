@@ -81,7 +81,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "start": "vite --host 0.0.0.0 --port 8080",
-    "analytics": "node scripts/analytics-report.mjs"
+    "analytics": "node scripts/analytics-report.mjs",
+    "audit:missed-main": "node scripts/audit-missed-main.mjs"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",

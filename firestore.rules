@@ -127,15 +127,24 @@ service cloud.firestore {
       );
     }
 
+    // `displayName` is denormalized onto the leaderboard doc at write time because
+    // cross-user /users profile reads are (deliberately) denied above — the client
+    // cannot resolve other players' names any other way. A free, length-capped
+    // string (nullable for providerless sessions) rather than the token's real name:
+    // the site offers guest play, so forcing verified full names public would be the
+    // worse privacy default. The renderer escapes it on output (src/scores.ts).
     function validLeaderboardKeys(data) {
-      return data.keys().hasOnly(['user', 'time', 'achievedAt']);
+      return data.keys().hasOnly(['user', 'time', 'achievedAt', 'displayName']);
     }
 
     function validLeaderboardDoc(userId, data) {
       return validLeaderboardKeys(data)
         && data.user == userDocPath(userId)
         && isValidScoreTime(data.time)
-        && (!('achievedAt' in data) || data.achievedAt is timestamp);
+        && (!('achievedAt' in data) || data.achievedAt is timestamp)
+        && (!('displayName' in data)
+          || data.displayName == null
+          || (data.displayName is string && data.displayName.size() <= 40));
     }
 
     function validLeaderboardUpdate(userId) {
