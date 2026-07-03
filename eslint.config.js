@@ -15,6 +15,7 @@ const warningRules = Object.fromEntries(
 module.exports = [
   {
     ignores: [
+      ".claude/skills/**",
       "coverage/**",
       "dist/**",
       "node_modules/**",
