@@ -119,7 +119,13 @@ async function main() {
       cameraManager: { update() {}, handleResize() {} },
       directionalLight: {
         position: { set() {}, copy() {} },
-        target: { position: { set() {} }, updateMatrixWorld() {} }
+        target: { position: { set() {} }, updateMatrixWorld() {} },
+        // NS2 (PR-V2): the loop writes shadow.normalBias each frame (elevation-aware
+        // bias compensation). Without this a real DirectionalLight's `.shadow` object
+        // is absent on the mock, the write throws into onFatalLoopError, and the loop
+        // silently no-ops every later frame — so multi-frame assertions would pass
+        // without a second frame ever running.
+        shadow: { normalBias: 0 }
       },
       snowman,
       snowSplash: null,
