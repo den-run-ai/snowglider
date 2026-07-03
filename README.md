@@ -38,6 +38,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - [`PHYSICS.md`](docs/PHYSICS.md) — terrain, skiing, jumps, collisions, and the avalanche model, with a constants reference
 - [`CHANGELOG.md`](docs/CHANGELOG.md) — notable changes, including the skill/structure layer (#56) and the full audio history
 - [`tests/README.md`](tests/README.md) — test types, commands, and the verification harness
+- [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — diagnostics, debug overlays, and logging for local/production issues
 - [`ROADMAP.md`](docs/ROADMAP.md) — feature roadmap and gap analysis (incl. the now-shipped R2/R3 refactor stages)
 
 > The TypeScript/ES-module migration and the three.js r134→0.184 upgrade are
@@ -53,7 +54,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - `src/boot/` - Classic-script auth fallback + Firebase bootstrap + startup driver
 - `assets/` - Media (audio, video) tracked with Git LFS
 - `tests/`, `tests/verification/` - Node/browser/e2e suites and headless harnesses
-- `docs/` - `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md` (see [Documentation](#documentation))
+- `docs/` - `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md`, `TROUBLESHOOTING.md` (see [Documentation](#documentation))
 
 ## Controls
 
@@ -172,30 +173,6 @@ Firestore Security Rules are tracked in `firestore.rules`. Run
 5. Your game will be accessible at `https://[your-username].github.io/[repo-name]/`
 
 ## Troubleshooting
-
-### Firebase Connection Issues
-- If you see 400 errors when connecting to Firestore, ensure you're not running on `localhost` or `file://` protocol
-- For local development, the app will automatically disable Firestore
-- For production deployment, ensure your domain is authorized in Firebase console
-- Check the browser console for specific error messages and Firebase status
-
-### Mobile Authentication Issues
-- If you're experiencing issues with the sign-in button on mobile, try the following:
-  - Ensure cookies and local storage are enabled in your mobile browser
-  - Try using the "Retry Login" button if it appears after a failed authentication attempt
-  - Clear browser cache and cookies, then try again
-  - Ensure you have a stable internet connection
-- For detailed debugging:
-  - Add `?debug=auth` to the URL to enable the authentication debug overlay
-  - Check the debug overlay for specific error messages and authentication status
-  - Console logs will provide additional details about the authentication process
-- Mobile devices now use popup-based authentication for better compatibility with Chrome and other mobile browsers
-
-### CORS Errors When Opening Directly
-- Direct `file://` opens are no longer a supported run mode.
-- Use `npm run dev`, `npm start`, or serve the `dist/` output from `npm run build`.
-
-### GitHub Pages Deployment
-- The GitHub Pages deployment will continue to work normally with the full set of features
-- Authentication and leaderboard functionality will work properly on GitHub Pages as it uses HTTPS
-- No special configuration is needed for GitHub Pages beyond the existing Firebase domain authorization
+Diagnostics, debug overlays (e.g. `?debug=auth`), and logging guidance for
+Firebase connection issues, mobile authentication, CORS, and GitHub Pages
+deployment now live in [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
