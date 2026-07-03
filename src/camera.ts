@@ -14,23 +14,42 @@ import * as THREE from 'three';
 import { Mountains } from './mountains.js';
 
 /**
- * Camera viewpoint modes (issue #305). Three third-person
- * variants plus a head cam:
+ * Camera viewpoint modes (issue #305, cinematic modes #315). Manual/auto third-person
+ * variants, a head cam, then two cinematic follow cameras:
  *  - `auto`        — smart default: orbit auto-centers behind travel, and the follow
  *                    distance/pitch adapt situationally to speed, terrain steepness, jumps,
  *                    avalanche danger and screen aspect. Best hands-off view for casual play.
  *  - `follow`      — classic chase: always behind the player, honoring manual zoom.
  *  - `orbit`       — free 360° orbit: player fully controls yaw/pitch/zoom, held put.
  *  - `firstPerson` — over-the-head cam.
+ *  - `cameraman`   — cinematic ski-film chase: low, close, side-trailing, with a gentle
+ *                    handheld weave. Pulls back + lifts on steep/expert lines and jumps.
+ *  - `drone`       — cinematic aerial chase: high, far, slowly circling overhead. Also
+ *                    pulls back + lifts harder on steep/expert terrain and jumps.
  * `V` cycles them in this order; the legacy toggle (controls.ts / lifecycle) maps to
  * the same cycle via the `toggleCameraMode()` compatibility wrapper.
  */
-export const CAMERA_MODES = ['auto', 'follow', 'orbit', 'firstPerson'] as const;
+export const CAMERA_MODES = ['auto', 'follow', 'orbit', 'firstPerson', 'cameraman', 'drone'] as const;
 export type CameraMode = typeof CAMERA_MODES[number];
 
-/** Third-person modes share the follow/orbit rig; only `firstPerson` is the head cam. */
+/** The two cinematic follow cameras (issue #315) drive their own framing every frame. */
+export function isCinematic(mode: CameraMode): boolean {
+  return mode === 'cameraman' || mode === 'drone';
+}
+
+/** Every mode except the head cam shares the follow/orbit smoothing + terrain-clamp rig. */
 export function isThirdPerson(mode: CameraMode): boolean {
   return mode !== 'firstPerson';
+}
+
+/**
+ * Modes whose MANUAL orbit/zoom view controls apply (issue #315). Auto/Follow/Orbit honor
+ * the player's orbit yaw/pitch/zoom (Auto eases back after a manual-hold window); First
+ * Person and the cinematic follows drive their own framing, so the tray orbit/zoom widgets
+ * and the Q/E/±/wheel/drag hotkeys are inert there.
+ */
+export function usesOrbitControls(mode: CameraMode): boolean {
+  return mode === 'auto' || mode === 'follow' || mode === 'orbit';
 }
 
 // --- View-control tuning (issue #305) ---
@@ -78,6 +97,34 @@ const AUTO_MOTION_REF = 6;
 const AUTO_MIN_AUTOZOOM = 0.75;
 const AUTO_MAX_AUTOZOOM = 1.9;
 const AUTO_MAX_AUTOPITCH = AUTO_SLOPE_PITCH + AUTO_AIR_PITCH;
+
+// --- Cinematic follow modes (cameraman + drone, issue #315) ---
+// Both frame the run like a ski film and lean into steep/expert terrain and jumps — the
+// tracking issue's emphasis. The oscillation/circle CLOCK is the camera's own `frameCount`
+// (never a wall-clock), and slope/air are read from the per-frame physics result, so these
+// stay deterministic and leave the fixed-timestep sim byte-identical. Shared references:
+const CINE_SLOPE_REF = 0.8;   // gradient (rise/run ≈ tan θ) counted as fully expert (matches Auto)
+const CINE_MOTION_REF = 6;    // fade the slope/air pull-back in with real downhill motion (matches Auto)
+
+// Drone: a high, far, slowly-circling aerial chase.
+const DRONE_BASE_PITCH = 0.72;    // radians overhead at rest (well above the classic follow)
+const DRONE_SLOPE_PITCH = 0.22;   // extra overhead lift on the steepest (expert) fall lines
+const DRONE_AIR_PITCH = 0.28;     // extra overhead lift over a jump so the landing stays framed
+const DRONE_BASE_DIST = 1.7;      // follow-distance multiplier — sits well back
+const DRONE_SLOPE_DIST = 0.5;     // extra pull-back on expert terrain
+const DRONE_AIR_DIST = 0.5;       // extra pull-back over a jump
+const DRONE_ORBIT_SPEED = 0.004;  // radians/frame — a slow continuous circle (~24s/rev @ 60fps)
+
+// Cameraman: a low, close, side-trailing handheld chase (fellow-skier-with-a-camera feel).
+const CAMERAMAN_BASE_PITCH = 0.14;   // radians — low, near the rider's level
+const CAMERAMAN_SLOPE_PITCH = 0.22;  // lift on expert terrain so the drop below stays in shot
+const CAMERAMAN_AIR_PITCH = 0.30;    // lift over a jump to keep the landing framed
+const CAMERAMAN_SIDE = 0.5;          // radians — trails off to one side of the line of travel
+const CAMERAMAN_WEAVE_AMOUNT = 0.22; // radians — gentle side-to-side "handheld" life
+const CAMERAMAN_WEAVE_SPEED = 0.03;  // radians/frame — weave clock
+const CAMERAMAN_BASE_DIST = 0.9;     // follow-distance multiplier — closer than the classic follow
+const CAMERAMAN_SLOPE_DIST = 0.6;    // pull back on expert terrain
+const CAMERAMAN_AIR_DIST = 0.55;     // pull back over a jump
 
 /** Clamp `v` to [lo, hi]. */
 function clampNum(v: number, lo: number, hi: number): number {
@@ -348,6 +395,63 @@ export class Camera {
     this.autoPitch += (pitch - this.autoPitch) * AUTO_FRAME_EASE;
   }
 
+  /**
+   * Pure cinematic-framing profile for the `cameraman`/`drone` modes (issue #315). Given the
+   * deterministic frame clock and the cosmetic-only slope/speed/air signals, returns the
+   * angle offset (radians, added to the player yaw), the camera pitch, and the follow-distance
+   * multiplier the mode should sit at this frame. No side effects and no `this` state mutated,
+   * so it unit-tests directly.
+   *
+   *  - Drone circles slowly overhead; cameraman trails off to one side with a handheld weave.
+   *  - Steep/expert terrain and airtime add pull-back AND overhead lift for BOTH modes so the
+   *    drop below the rider and the landing zone stay in shot — the tracking issue's emphasis.
+   *  - The slope/air pull-back is gated on real downhill motion, so a parked snowman on the
+   *    steep spawn keeps a neutral cinematic pose (mirrors Auto's spawn-neutrality).
+   */
+  cinematicTargets(
+    mode: CameraMode, phase: number, slope: number, speed: number, isInAir: boolean,
+  ): { angle: number; pitch: number; distMult: number } {
+    const motionFactor = clampNum(speed / CINE_MOTION_REF, 0, 1);
+    const slopeFactor = clampNum(slope / CINE_SLOPE_REF, 0, 1) * motionFactor;
+    const airFactor = isInAir ? motionFactor : 0;
+    if (mode === 'drone') {
+      const angle = phase * DRONE_ORBIT_SPEED; // slow continuous circle around the rider
+      const pitch = clampNum(
+        DRONE_BASE_PITCH + slopeFactor * DRONE_SLOPE_PITCH + airFactor * DRONE_AIR_PITCH,
+        this.minPitch, this.maxPitch,
+      );
+      const distMult = DRONE_BASE_DIST + slopeFactor * DRONE_SLOPE_DIST + airFactor * DRONE_AIR_DIST;
+      return { angle, pitch, distMult };
+    }
+    // cameraman: fixed side trail + a gentle handheld weave.
+    const weave = Math.sin(phase * CAMERAMAN_WEAVE_SPEED) * CAMERAMAN_WEAVE_AMOUNT;
+    const angle = CAMERAMAN_SIDE + weave;
+    const pitch = clampNum(
+      CAMERAMAN_BASE_PITCH + slopeFactor * CAMERAMAN_SLOPE_PITCH + airFactor * CAMERAMAN_AIR_PITCH,
+      this.minPitch, this.maxPitch,
+    );
+    const distMult = CAMERAMAN_BASE_DIST + slopeFactor * CAMERAMAN_SLOPE_DIST + airFactor * CAMERAMAN_AIR_DIST;
+    return { angle, pitch, distMult };
+  }
+
+  /**
+   * Cinematic follow offset from the player for the `cameraman`/`drone` modes (issue #315).
+   * Mirrors `followOffset()`'s math (same `8 + d·sin(pitch)` base height) so the terrain-floor
+   * clamp and look-ahead in `update()` behave identically; only the angle/pitch/distance come
+   * from `cinematicTargets()` instead of the manual orbit/zoom state (which is inert here).
+   */
+  cinematicOffset(
+    mode: CameraMode, distance: number, yaw: number, phase: number,
+    slope: number, speed: number, isInAir: boolean,
+  ): THREE.Vector3 {
+    const { angle, pitch, distMult } = this.cinematicTargets(mode, phase, slope, speed, isInAir);
+    const d = distance * distMult;
+    const a = yaw + angle;
+    const horiz = d * Math.cos(pitch);
+    const height = 8 + d * Math.sin(pitch);
+    return new THREE.Vector3(Math.sin(a) * horiz, height, Math.cos(a) * horiz);
+  }
+
   // Position camera initially behind the player
   initialize(playerPosition: THREE.Vector3, playerRotation: THREE.Euler) {
     // Spawn framing is driven by the persisted manual `zoom` only; clear the transient
@@ -465,10 +569,14 @@ export class Camera {
     }
 
     // Per-mode view easing (runs once a recent manual nudge has expired):
-    //  - auto:   recenter the orbit behind travel AND ease the situational zoom/pitch profile.
-    //  - follow: recenter the orbit behind travel, but leave the player's zoom alone.
-    //  - orbit:  no easing — the player's yaw/pitch/zoom are held exactly as set.
-    if (this.manualHoldFrames > 0) {
+    //  - auto:      recenter the orbit behind travel AND ease the situational zoom/pitch profile.
+    //  - follow:    recenter the orbit behind travel, but leave the player's zoom alone.
+    //  - orbit:     no easing — the player's yaw/pitch/zoom are held exactly as set.
+    //  - cinematic: no orbit/zoom easing — cameraman/drone compute their own framing below.
+    const cinematic = isCinematic(this.mode);
+    if (cinematic) {
+      // Nothing to ease: the manual orbit/zoom state is inert; framing comes from cinematicOffset.
+    } else if (this.manualHoldFrames > 0) {
       this.manualHoldFrames--;
     } else if (this.mode === 'auto') {
       // Terrain steepness under the player (gradient magnitude, rise/run ≈ tan θ) drives the
@@ -481,9 +589,22 @@ export class Camera {
       this.orbitPitch += (0 - this.orbitPitch) * AUTO_FRAME_EASE;
     }
 
-    // Calculate dynamic distance based on speed, then apply the current orbit + zoom.
+    // Calculate dynamic distance based on speed, then apply the current framing.
     const dynamicDistance = this.minDistance + Math.min(1.0, currentSpeed / this.speedThreshold) * (this.maxDistance - this.minDistance);
-    const camOffset = this.followOffset(dynamicDistance, playerRotation.y);
+    let camOffset: THREE.Vector3;
+    if (cinematic) {
+      // Cinematic modes (issue #315): terrain steepness under the player drives the expert-terrain
+      // pull-back + overhead lift, the loop's context adds the jump framing, and the camera's own
+      // frameCount is the deterministic oscillation/circle clock.
+      const grad = Mountains.getTerrainGradient(playerPosition.x, playerPosition.z);
+      const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
+      camOffset = this.cinematicOffset(
+        this.mode, dynamicDistance, playerRotation.y, this.frameCount,
+        slope, currentSpeed, context.isInAir === true,
+      );
+    } else {
+      camOffset = this.followOffset(dynamicDistance, playerRotation.y);
+    }
 
     // Calculate target position
     this.smoothingVectors.targetPosition.copy(playerPosition).add(camOffset);

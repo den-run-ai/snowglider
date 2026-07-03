@@ -13,6 +13,32 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Cinematic follow cameras: "Cameraman" ski-film chase + aerial "Drone" mode (issue #315)
+- **Two cinematic modes join the `V` cycle** after First Person, so the full order is
+  **Auto → Follow → Orbit → First Person → Cameraman → Drone → Auto**. Defaults (Auto/Follow)
+  are unchanged; the new modes are opt-in via the cycle or the camera tray's `Cam` / `Drone` chips.
+  - **Cameraman** — a low, close, side-trailing handheld chase (fellow-skier-with-a-camera
+    feel) with a gentle side-to-side weave.
+  - **Drone** — a high, far, slowly-circling aerial chase (an orbiting overhead view).
+- **Expert/steep + jump emphasis.** Both modes lean into the drama where it matters: a
+  motion-gated terrain-steepness term and the `isInAir` jump context add extra pull-back
+  **and** overhead lift so the drop below the rider and the landing zone stay in shot on
+  steep/expert lines — the same ethos as Auto's situational profile.
+- **Deterministic + physics-safe.** The framing math (`cinematicTargets`/`cinematicOffset`)
+  mirrors `followOffset` (same `8 + d·sin(pitch)` base height, so the terrain-floor clamp and
+  look-ahead are identical), reads only cosmetic slope/air signals (never `pos`/`velocity`),
+  and drives its oscillation/circle off the camera's own `frameCount` (no wall-clock) — so the
+  fixed-timestep sim and seeded RNG streams stay byte-identical.
+- **Manual view controls are inert** in the cinematic modes (they drive their own framing).
+  A shared `usesOrbitControls(mode)` helper (true only for auto/follow/orbit) now gates the tray
+  orbit/zoom widgets and the Q/E/±/wheel/drag hotkeys, replacing the ad-hoc first-person checks.
+- **Tests.** `tests/camera-node-tests.js` gains a pure `cinematicTargets` profile section
+  (drone more overhead/farther than cameraman; steep terrain + airtime pull back and lift;
+  slope gated on motion; circle/weave advance with the clock) plus `cinematicOffset` /
+  `usesOrbitControls` / six-mode-cycle coverage; `tests/lifecycle-tests.js` covers the six mode
+  chips + new friendly labels. `npm run test:camera`, `test:lifecycle`, full `npm test`, lint,
+  and build are green.
+
 ### Camera viewpoint options: modes, 360° orbit, zoom, and a smart Auto camera
 - **Four camera modes replace the two-way toggle.** `V` (and the on-screen button)
   now cycle **Auto → Follow → Orbit → First Person → Auto** instead of flipping
