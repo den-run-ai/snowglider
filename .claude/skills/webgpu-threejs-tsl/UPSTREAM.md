@@ -1,7 +1,8 @@
 # Provenance
 
 Vendored from [dgreenheck/webgpu-claude-skill](https://github.com/dgreenheck/webgpu-claude-skill)
-(`skills/webgpu-threejs-tsl/`), MIT License (per the upstream README; code examples derived from
+(`skills/webgpu-threejs-tsl/`), MIT License — see [`LICENSE`](LICENSE) in this directory
+(upstream declares MIT in its README but ships no LICENSE file; code examples derived from
 [three.js](https://github.com/mrdoob/three.js), also MIT).
 
 - Upstream base commit: `af2319bd01bb7cc881267a9ef42cafdaf5e9029d` (2026-04-10)
