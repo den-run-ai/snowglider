@@ -480,7 +480,10 @@ canvas { display: block; }
   padding: 8px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.45);
-  z-index: 1000;
+  /* Above the canvas, but BELOW the game-over/result overlay (z-index 1000) so the
+     tray never paints over — or stays clickable through — the finish modal, matching
+     the reset/camera buttons that sit behind it (codex review, PR #306). */
+  z-index: 100;
   user-select: none;
   touch-action: manipulation;
 }

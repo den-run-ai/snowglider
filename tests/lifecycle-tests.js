@@ -109,6 +109,85 @@ async function main() {
   catch { threw = true; }
   check('toggleCameraView is a no-op (no throw) when the controls DOM is absent', !threw);
 
+  // --- Camera control tray + global input handlers (initCameraControls) ---
+  // Drives the real tray build + the window-level wheel / keyboard / drag listeners,
+  // covering the codex-review gate: those only steer the camera while state.gameActive.
+  console.log('\n--- initCameraControls: tray + gated input ---');
+  {
+    // A recording camera stub with every method the tray/input calls.
+    const calls = [];
+    const cam = /** @type {any} */ ({
+      mode: 'auto',
+      orbitYaw: 0,
+      toggleCameraMode() { this.mode = 'follow'; return this.mode; },
+      setMode(m) { this.mode = m; calls.push(['setMode', m]); return m; },
+      cycleMode() { return this.mode; },
+      initialize() {},
+      orbit(dy) { calls.push(['orbit', dy]); },
+      adjustZoom(f) { calls.push(['adjustZoom', f]); return 1; },
+      setOrbitYaw(a) { calls.push(['setOrbitYaw', a]); },
+      recenter() { calls.push(['recenter']); },
+    });
+    const state = { gameActive: false };
+    const controller = new dom.window.AbortController();
+    document.body.innerHTML = `
+      <div id="controlsContent"><div class="control-item" id="cameraViewControl"><span class="key-badge">V</span><span>Camera: Auto</span></div></div>
+      <button id="resetBtn">Reset</button>`;
+    const deps = /** @type {any} */ ({
+      state, cameraManager: cam,
+      snowman: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } },
+      gameOverOverlay: document.createElement('div'),
+      restartButton: document.createElement('button'),
+      player: { pos: { x: 0, y: 0, z: 0 } },
+      startLoop() {}, resetLoopState() {}, signal: controller.signal,
+    });
+    createLifecycle(deps).initLifecycleUI();
+
+    check('tray is built with the four mode chips',
+      document.querySelectorAll('#cameraControls [data-cam-mode]').length === 4);
+    check('orbit slider is present (0–360)',
+      !!document.getElementById('cameraOrbitSlider'));
+
+    // Helper to dispatch a window event with extra props (jsdom lacks WheelEvent).
+    // `target` is read-only and set to `window` by dispatch; the handlers treat a
+    // window target as "not over a UI panel", which is what we want here.
+    const fireWindow = (type, props) => {
+      const ev = new dom.window.Event(type, { bubbles: true, cancelable: true });
+      for (const [k, v] of Object.entries(props)) Object.defineProperty(ev, k, { value: v, configurable: true });
+      window.dispatchEvent(ev);
+      return ev;
+    };
+
+    // gameActive === false: the global wheel/key handlers must stay INERT.
+    const wheelOff = fireWindow('wheel', { deltaY: 100 });
+    fireWindow('keydown', { key: 'q' });
+    check('wheel does not zoom while the run is inactive', !calls.some(c => c[0] === 'adjustZoom'));
+    check('wheel does not preventDefault while inactive (menu scroll preserved)', wheelOff.defaultPrevented === false);
+    check('Q key does not orbit while the run is inactive', !calls.some(c => c[0] === 'orbit'));
+
+    // Now activate the run: the same inputs steer the camera.
+    state.gameActive = true;
+    const wheelOn = fireWindow('wheel', { deltaY: 100 });
+    fireWindow('keydown', { key: 'q' });
+    check('wheel zooms once the run is active', calls.some(c => c[0] === 'adjustZoom'));
+    check('wheel preventDefault fires during gameplay', wheelOn.defaultPrevented === true);
+    check('Q key orbits during gameplay', calls.some(c => c[0] === 'orbit'));
+
+    // Tray chips: clicking a mode chip selects it; the orbit slider drives setOrbitYaw.
+    document.querySelector('#cameraControls [data-cam-mode="orbit"]').click();
+    check('mode chip click selects the mode', calls.some(c => c[0] === 'setMode' && c[1] === 'orbit'));
+    const slider = document.getElementById('cameraOrbitSlider');
+    slider.value = '90';
+    slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    check('orbit slider drives setOrbitYaw', calls.some(c => c[0] === 'setOrbitYaw'));
+
+    // First person disables the orbit/zoom widgets (they only affect third-person).
+    document.querySelector('#cameraControls [data-cam-mode="firstPerson"]').click();
+    check('first-person disables the orbit slider', slider.disabled === true);
+
+    controller.abort(); // remove the window listeners this section installed
+  }
+
   console.log(`\nLIFECYCLE TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

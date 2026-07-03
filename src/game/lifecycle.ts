@@ -348,8 +348,14 @@ export function createLifecycle(deps: LifecycleDeps) {
 
     document.body.appendChild(tray);
 
+    // These window-level listeners only steer the camera during a LIVE run. Gating on
+    // state.gameActive keeps them inert on the start / about / leaderboard menu, the
+    // loading window, and the game-over overlay — so, e.g., the wheel handler never
+    // preventDefault()s a scroll on a tall start screen (codex review, PR #306).
+
     // --- Keyboard: Q/E orbit, C recenter, +/- zoom (movement + V live in controls.ts) ---
     const handleCameraKey = (event: KeyboardEvent) => {
+      if (!state.gameActive) return;
       // Don't hijack typing in form fields (e.g. the orbit slider has focus).
       const target = event.target as Element | null;
       if (target && typeof (target as HTMLElement).closest === 'function' &&
@@ -369,6 +375,7 @@ export function createLifecycle(deps: LifecycleDeps) {
 
     // --- Mouse wheel: zoom the third-person rig (ignored over scrollable UI / FP) ---
     const handleWheel = (event: WheelEvent) => {
+      if (!state.gameActive) return; // never swallow scroll on the menus / game-over screen
       if (cameraManager.mode === 'firstPerson') return;
       const target = event.target as Element | null;
       if (target && typeof (target as HTMLElement).closest === 'function' &&
@@ -383,6 +390,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     let lastX = 0;
     let lastY = 0;
     const handlePointerDown = (event: PointerEvent) => {
+      if (!state.gameActive) return; // only orbit during a live run
       if (event.pointerType !== 'mouse' || event.button !== 0) return; // mouse-drag only; touch = steering
       if (cameraManager.mode === 'firstPerson') return;
       const target = event.target as Element | null;
