@@ -22,6 +22,8 @@ import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
 import { readStoredDifficulty, getDifficultyConfig, BLUE_AVALANCHE, type Difficulty } from '../difficulty.js';
 import { courseLineFor, setActiveCourseLine } from '../course-line.js';
+import { createScenery, type ScenerySystem } from '../scenery/scenery.js';
+import { scenerySeedFor } from '../scenery/scenery-budget.js';
 
 // The shipped Blue avalanche numbers, re-exported from the difficulty spine so there is
 // ONE source of truth (difficulty.ts BLUE_AVALANCHE). The winnability harness reads these
@@ -50,6 +52,7 @@ export interface GameState {
   avalanche: AvalancheSystem | null; // live avalanche system (null if module absent)
   snowTrails: SnowTrails | null;     // dynamic ski-trail / snow-accumulation visuals (#17)
   debris: SnowmanDebris | null;      // crash-shatter wipeout system (#53)
+  scenery: ScenerySystem | null;     // background scenery: distant, non-interactive world (#320)
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
   lastAvalancheZ: number;            // z the trigger distance is measured from
   dodgeAwarded: boolean;             // this slide's once-only dodge bonus already paid (JP-3)
@@ -302,6 +305,7 @@ export function setupScene(signal?: AbortSignal) {
     avalanche: null,
     snowTrails: null,
     debris: null,
+    scenery: null,
     avalancheTriggered: false,
     lastAvalancheZ: 0,
     dodgeAwarded: false,
@@ -386,6 +390,22 @@ export function setupScene(signal?: AbortSignal) {
   window.treePositions = treePositions;
   window.rockPositions = rockPositions;
   console.log(`Rock positions array has ${rockPositions.length} large rocks for collision detection`);
+
+  // --- Background scenery (#320) ---
+  // Built AFTER the gameplay-critical collision arrays (treePositions/rockPositions)
+  // above, so scenery can never be mistaken for an obstacle source. It composes the
+  // distant, non-interactive alpine world (ridges, valley, decorative belts, cliffs,
+  // props, ambient life) and is render-only / collision-neutral / physics-neutral /
+  // Math.random-stream-neutral / teardown-safe. Keyed off `builtDifficulty` like the
+  // rest of the one-shot scene build (a run locked on a different tier reloads via
+  // maybeReloadForRunTier). PR 1 wires the empty seam; later PRs push visual layers in.
+  state.scenery = createScenery(scene, {
+    terrain,
+    getTerrainHeight: Snow.getTerrainHeight,
+    courseLine,
+    difficulty: builtDifficulty,
+    seed: scenerySeedFor(builtDifficulty),
+  });
 
   // (window.isTestMode is published at the top of setupScene, before any
   // subsystem that gates on it is built.)
