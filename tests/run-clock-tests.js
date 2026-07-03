@@ -413,7 +413,9 @@ async function main() {
       renderer: { render() {}, setSize() {} },
       cameraManager: { update() {}, handleResize() {} },
       directionalLight: { position: { set() {}, copy() {} },
-        target: { position: { set() {} }, updateMatrixWorld() {} } },
+        target: { position: { set() {} }, updateMatrixWorld() {} },
+        // NS2: the loop compensates shadow.normalBias for sun elevation each frame.
+        shadow: { normalBias: 0 } },
       snowman,
       snowSplash: null,
       treePositions: [],

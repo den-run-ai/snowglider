@@ -46,8 +46,22 @@ regular lattice and a low sun has no periodicity left to rake into corduroy. The
 is fixed-seed (an integer hash, not the `Math.random`-seeded SimplexNoise) so terrain
 is stable across loads and the Node terrain/regression tests pin its shape, and it is
 damped toward the peak like the existing perlin layer (smooth summit, relief growing
-down-slope). This is what lets the sun cycle's low-sun guard drop from 14° toward 8°
-(the guard change + golden-hour retune is the separate NS2 follow-up).
+down-slope). This is what let the sun cycle's low-sun guard drop from 14° to **8°**
+(NS2, completion-plan PR-V2 — the guard change + golden-hour retune shipped, with a
+fresh `test:sky` capture).
+
+The remaining cost of the lower sun is **shadow quality, not banding**: the ±60 ortho
+shadow frustum's ground footprint stretches by ~1/sin(elevation) along the sun axis —
+≈4.1× at 14°, ≈**7.2× at 8°** — so effective shadow-texel density on the slope drops
+exactly when shadows are longest. `game/sun-shadow.ts` compensates the shadow
+**normal bias** on an elevation-aware curve (`shadowNormalBiasForElevation`:
+`SHADOW_NORMAL_BIAS × clamp(sin(elevMidday)/sin(elev), 1, 3)`), driven per-frame from
+the live sun elevation. **This is a stability compensation only** — it mitigates
+acne / peter-panning; it does **not** restore texel density. If low-sun blockiness
+ever fails the visual gate, the density lever is fitting the ortho box
+anisotropically along the sun's ground-projected axis, *not* raising the bias or the
+2048² map size. If 8° still artefacts on low-end mobile GPUs, fall back to 10° and
+note the residual here rather than growing the map.
 
 ## The merged static lighting (source of truth: `scene-setup.ts`)
 
