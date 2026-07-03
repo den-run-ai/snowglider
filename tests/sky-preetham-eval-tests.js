@@ -59,7 +59,9 @@ async function main() {
       const sunDir = Sky.getSunDirection();
       const expected = evalPreethamColor(sunDir, VIEW_FORWARD_HORIZON, { ...PARAMS, exposure: liveExposure(scene) });
       const fog = scene.fog.color;
-      const bg = scene.background;
+      // scene.background is typed Color | Texture | null; the atmospheric sky always
+      // sets a Color, so narrow it for the .r/.g/.b reads below.
+      const bg = /** @type {import('three').Color} */ (scene.background);
       const close = Math.abs(fog.r - expected.r) < 1e-6 && Math.abs(fog.g - expected.g) < 1e-6 && Math.abs(fog.b - expected.b) < 1e-6;
       check(`fog.color matches the horizon eval at elapsed=${target.toFixed(1)} (p=${Sky.cycleProgress(target).toFixed(3)})`, close);
       check(`background tracks fog at elapsed=${target.toFixed(1)}`,
