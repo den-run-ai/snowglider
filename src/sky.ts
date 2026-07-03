@@ -292,7 +292,7 @@ function createAtmosphericSky(sunDirection: THREE.Vector3): THREE.Mesh {
 // pass: it only sweeps the sun between the captured static midday and a low,
 // warm golden hour and back, so the light feels alive without re-balancing how
 // snow reads. Full night is intentionally skipped (it needs stars/moon + a dark
-// path, tracked under #2).
+// path, tracked under #300).
 //
 // What it drives, in lockstep: the directional light (position so shadows track
 // the sun, plus a warm→white colour and a dimmer-at-golden-hour intensity), the
@@ -307,14 +307,16 @@ function createAtmosphericSky(sunDirection: THREE.Vector3): THREE.Mesh {
 const SUN_CYCLE_ENABLED = true;
 const CYCLE_DURATION_S = 90;          // one full midday → golden → midday loop
 
-// Low-sun guard. The periodic `sin(x*0.2)*cos(z*0.3)` terrain ridge that used to
-// band under a hard low sun has been replaced by an aperiodic domain-warped fBm
-// (issue #188 step 3 / mountains.ts `terrainRidgeField`), so the banding source is
-// gone. The guard is still held at 14° here on purpose: lowering it toward 8° and
-// retuning the golden-hour endpoints (with a fresh `test:sky` capture) is the
-// separate NS2 follow-up, kept out of the terrain-only change so the sun-cycle
-// tests stay untouched.
-const SUN_ELEV_MIN_DEG = 14;
+// Low-sun guard (NS2, completion-plan PR-V2). The periodic `sin(x*0.2)*cos(z*0.3)`
+// terrain ridge that used to band under a hard low sun was replaced by an aperiodic
+// domain-warped fBm (issue #188 step 3 / mountains.ts `terrainRidgeField`), which is
+// what allowed this guard to drop from the deliberately-held 14° to 8° — a longer,
+// warmer golden hour. The remaining low-sun cost is SHADOW quality, not banding: the
+// ortho shadow frustum's ground footprint stretches by ~1/sin(elevation) along the
+// sun axis (≈7.2x at 8°), so game/sun-shadow.ts compensates the normal bias on an
+// elevation-aware curve (stability — acne/peter-panning — only; it cannot restore
+// shadow-texel density, whose lever is an anisotropic frustum fit if ever needed).
+const SUN_ELEV_MIN_DEG = 8;
 
 // Golden-hour endpoints (the midday endpoints are captured at setup). All stay
 // bounded under the static guide so golden hour is warmer/dimmer than midday and
@@ -328,10 +330,12 @@ const SUN_ELEV_MIN_DEG = 14;
 // after the opt-out and stay raw; lerpColors would then mix two colour spaces and
 // render golden hour muddy/dark. Constructing both under the same opted-out regime
 // keeps the authored hues. (codex review, #163.)
-const GOLDEN_DIR_COLOR_HEX = 0xffc89e;                  // warm low sun
-const GOLDEN_DIR_INTENSITY_FACTOR = 0.8;                // × captured midday intensity (dimmer)
-const GOLDEN_EXPOSURE = 0.38;                           // < captured midday exposure
-const GOLDEN_FOG_COLOR_HEX = 0xe6dcc8;                  // warm pale haze, still soft
+// Retuned for the 8° NS2 guard (the sun now sinks lower, so golden hour reads
+// warmer and dimmer than the 14°-era values, still bounded below midday).
+const GOLDEN_DIR_COLOR_HEX = 0xffbd8c;                  // warm low sun (deeper at 8°)
+const GOLDEN_DIR_INTENSITY_FACTOR = 0.75;               // × captured midday intensity (dimmer)
+const GOLDEN_EXPOSURE = 0.36;                           // < captured midday exposure
+const GOLDEN_FOG_COLOR_HEX = 0xe8dabd;                  // warm pale haze, still soft
 
 interface SunCycle {
   material: THREE.ShaderMaterial;
@@ -532,6 +536,16 @@ function getSunDistance(): number {
   return cycle ? cycle.midday.distance : 1;
 }
 
+/**
+ * sin(elevation) of the CAPTURED MIDDAY sun (the y of its unit direction) — the
+ * reference the elevation-aware shadow-bias compensation (game/sun-shadow.ts, NS2)
+ * normalises against, so the bias is exactly the tuned constant at midday and only
+ * grows as the live sun drops. Returns 1 (overhead) before the sky is built.
+ */
+function getMiddaySunElevationSin(): number {
+  return cycle ? cycle.midday.sunDir.y : 1;
+}
+
 /** Drop the sun-cycle singleton (dispose-audit teardown / dev-HMR). The `cycle` captures
  *  the live scene + directionalLight + sky material/fog, so on an embed/HMR unmount it
  *  would keep the disposed scene graph reachable. applyAtmosphericSky rebuilds it on the
@@ -547,6 +561,7 @@ export const Sky = {
   teardown,
   getSunDirection,
   getSunDistance,
+  getMiddaySunElevationSin,
   cycleProgress,
   ZENITH_COLOR,
   HORIZON_COLOR,

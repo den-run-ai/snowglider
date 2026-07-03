@@ -28,6 +28,9 @@ async function main() {
     SHADOW_MAP_SIZE,
     SHADOW_BIAS,
     SHADOW_NORMAL_BIAS,
+    SHADOW_NORMAL_BIAS_MAX_FACTOR,
+    shadowNormalBiasForElevation,
+    compensateShadowBiasForElevation,
   } = await import('../src/game/sun-shadow.ts');
   const { Sky } = await import('../src/sky.ts');
 
@@ -85,6 +88,50 @@ async function main() {
     aimSunLight(light, sunDir, distance, -7, 2, -150);
     check('re-aim follows to the new player position without drift',
       light.target.position.z === -150 && approx(light.position.z, -150 + sunDir.z * distance, 1e-4));
+  }
+
+  console.log('\n--- sun-shadow: elevation-aware normal-bias compensation (NS2) ---');
+  {
+    // Reference = the captured midday sun elevation (unit y of the (50,100,50) dir).
+    const midElevSin = new THREE.Vector3(50, 100, 50).normalize().y;
+
+    // p == 1 (midday): the live sun IS the midday reference ⇒ factor exactly 1 ⇒ the
+    // tuned constant, byte-for-byte.
+    check('normalBias at midday equals SHADOW_NORMAL_BIAS exactly',
+      shadowNormalBiasForElevation(midElevSin, midElevSin) === SHADOW_NORMAL_BIAS);
+
+    // p == 0 (golden, 8° guard): compensated value = tuned * sin(mid)/sin(8°), clamped.
+    const sin8 = Math.sin(THREE.MathUtils.degToRad(8));
+    const expected8 = SHADOW_NORMAL_BIAS * Math.min(midElevSin / sin8, SHADOW_NORMAL_BIAS_MAX_FACTOR);
+    check('normalBias at the 8° guard equals the clamped compensated value',
+      approx(shadowNormalBiasForElevation(sin8, midElevSin), expected8, 1e-9));
+
+    // Monotonic non-decreasing as the sun drops (elevation shrinks).
+    let prev = shadowNormalBiasForElevation(midElevSin, midElevSin);
+    let monotonic = true;
+    for (let deg = Math.round(THREE.MathUtils.radToDeg(Math.asin(midElevSin))); deg >= 8; deg--) {
+      const cur = shadowNormalBiasForElevation(Math.sin(THREE.MathUtils.degToRad(deg)), midElevSin);
+      if (cur < prev - 1e-12) monotonic = false;
+      prev = cur;
+    }
+    check('normalBias is monotonic non-decreasing as the sun drops midday->8°', monotonic);
+
+    // Never scales past the clamp, even at an absurdly low sun.
+    check('normalBias is clamped to SHADOW_NORMAL_BIAS_MAX_FACTOR at extreme low sun',
+      approx(shadowNormalBiasForElevation(1e-6, midElevSin), SHADOW_NORMAL_BIAS * SHADOW_NORMAL_BIAS_MAX_FACTOR, 1e-9));
+
+    // Never dips below the tuned constant if the sun is somehow above midday (factor >= 1).
+    check('normalBias never drops below SHADOW_NORMAL_BIAS (factor floored at 1)',
+      shadowNormalBiasForElevation(0.999, midElevSin) === SHADOW_NORMAL_BIAS);
+
+    // The live-light applier writes the same value onto light.shadow.normalBias.
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    compensateShadowBiasForElevation(light, sin8, midElevSin);
+    check('compensateShadowBiasForElevation writes the compensated bias onto the light',
+      approx(light.shadow.normalBias, expected8, 1e-9));
+    compensateShadowBiasForElevation(light, midElevSin, midElevSin);
+    check('applier restores the tuned constant at midday',
+      light.shadow.normalBias === SHADOW_NORMAL_BIAS);
   }
 
   console.log('\n--- sun-shadow: Sky sun getters ---');

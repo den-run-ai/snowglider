@@ -22,7 +22,7 @@ import { Controls } from '../controls.js';
 import { Snow } from '../snow.js';
 import { Trees } from '../trees.js';
 import { Sky } from '../sky.js';
-import { aimSunLight } from './sun-shadow.js';
+import { aimSunLight, compensateShadowBiasForElevation } from './sun-shadow.js';
 import { Wind } from '../wind.js';
 import { TreeShed, forestProximityAt } from '../tree-shed.js';
 import { Snowman, type UpdateResult, type LandingQuality } from '../snowman.js';
@@ -679,6 +679,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       // direction (sky.ts) is preserved — only the light→target pair is offset to the player.
       Sky.getSunDirection(sunDirScratch);
       aimSunLight(directionalLight, sunDirScratch, Sky.getSunDistance(), renderX, renderY, renderZ);
+      // Low-sun shadow stability (NS2): the ortho frustum's ground footprint stretches
+      // ~1/sin(elev) along the sun axis as the cycle drops the sun toward the 8° guard,
+      // so scale the shadow normal bias on that curve (clamped) to keep acne off the
+      // mogul field. Exactly the tuned constant at midday. See game/sun-shadow.ts.
+      compensateShadowBiasForElevation(directionalLight, sunDirScratch.y, Sky.getMiddaySunElevationSin());
 
       updateCamera();
       updateTimerDisplay(state.gameActive, state.startTime); // Update the timer display

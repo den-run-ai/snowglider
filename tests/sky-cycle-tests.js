@@ -142,6 +142,13 @@ function test(name, fn) {
   });
 
   // -------------------------------------------------------------------------
+  test('low-sun guard is the NS2 8° (dropped from the 14° terrain-only era)', () => {
+    // NS2 (completion-plan PR-V2): the aperiodic fBm ridge (#188 step 3) removed the
+    // banding source, so the guard drops 14° -> 8° for a longer, warmer golden hour.
+    assert.strictEqual(Sky.SUN_ELEV_MIN_DEG, 8, 'guard lowered to 8°');
+  });
+
+  // -------------------------------------------------------------------------
   test('sun stays above the horizon (no night)', () => {
     const { scene, directional } = makeScene();
     Sky.applyAtmosphericSky(scene, directional);
@@ -187,8 +194,8 @@ function test(name, fn) {
       const close = (a, b, label) =>
         assert.ok(Math.abs(a.r - b.r) < 1e-6 && Math.abs(a.g - b.g) < 1e-6 && Math.abs(a.b - b.b) < 1e-6,
           `${label}: got (${a.r},${a.g},${a.b}) vs raw (${b.r},${b.g},${b.b}) — colour spaces mixed`);
-      close(scene.fog.color, new THREE.Color(0xe6dcc8), 'golden fog raw-sRGB');
-      close(directional.color, new THREE.Color(0xffc89e), 'golden sun raw-sRGB');
+      close(scene.fog.color, new THREE.Color(0xe8dabd), 'golden fog raw-sRGB');
+      close(directional.color, new THREE.Color(0xffbd8c), 'golden sun raw-sRGB');
     } finally {
       THREE.ColorManagement.enabled = prevCM;
     }

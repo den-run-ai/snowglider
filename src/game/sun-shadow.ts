@@ -38,6 +38,9 @@ export const SHADOW_MAP_SIZE = 2048;
 // Depth biases that kill shadow acne / peter-panning on the low-relief snow surface.
 export const SHADOW_BIAS = -0.0004;
 export const SHADOW_NORMAL_BIAS = 0.02;
+// Cap for the elevation-aware normal-bias compensation below (NS2): never scale the
+// tuned bias past 3x, so a very low sun can't push shadows visibly off their casters.
+export const SHADOW_NORMAL_BIAS_MAX_FACTOR = 3;
 
 /**
  * Configure the directional (sun) light's shadow camera once at setup: widen the
@@ -89,4 +92,42 @@ export function aimSunLight(
   light.position.set(x + sunDir.x * distance, y + sunDir.y * distance, z + sunDir.z * distance);
   light.target.position.set(x, y, z);
   light.target.updateMatrixWorld();
+}
+
+/**
+ * Elevation-compensated shadow normal bias (NS2, completion-plan PR-V2).
+ *
+ * The ±{@link SHADOW_HALF_EXTENT} ortho frustum's ground footprint stretches by
+ * ~1/sin(elevation) along the sun's ground-projected axis — ≈4.1x at the old 14°
+ * guard, ≈7.2x at the 8° one — so effective shadow-texel density on the slope drops
+ * exactly when shadows are longest, and the constant bias tuned at midday starts to
+ * acne on the mogul field. Scaling the normal bias by sin(elevMidday)/sin(elev)
+ * (clamped to [1, {@link SHADOW_NORMAL_BIAS_MAX_FACTOR}]) keeps the bias proportional
+ * to the worst-case texel footprint growth.
+ *
+ * BE CLEAR ABOUT SCOPE: this is a STABILITY compensation (acne / peter-panning
+ * mitigation) only — it does NOT restore shadow-texel density. If low-sun shadow
+ * blockiness ever fails the visual gate, the density lever is fitting the ortho box
+ * anisotropically along the sun's ground axis, not raising this bias or the map size.
+ *
+ * Pure: `sinElev` is the live unit sun direction's y (`Sky.getSunDirection().y`),
+ * `sinElevMidday` the captured midday reference (`Sky.getMiddaySunElevationSin()`).
+ * At midday the factor is exactly 1 ⇒ the tuned {@link SHADOW_NORMAL_BIAS}.
+ */
+export function shadowNormalBiasForElevation(sinElev: number, sinElevMidday: number): number {
+  const ratio = sinElevMidday / Math.max(sinElev, 1e-4);
+  return SHADOW_NORMAL_BIAS * THREE.MathUtils.clamp(ratio, 1, SHADOW_NORMAL_BIAS_MAX_FACTOR);
+}
+
+/**
+ * Apply {@link shadowNormalBiasForElevation} to the live light. Called each render
+ * frame next to {@link aimSunLight} (the sun elevation only changes when the cycle
+ * moves it, but the write is a plain float store — cheaper than change detection).
+ */
+export function compensateShadowBiasForElevation(
+  light: THREE.DirectionalLight,
+  sinElev: number,
+  sinElevMidday: number
+): void {
+  light.shadow.normalBias = shadowNormalBiasForElevation(sinElev, sinElevMidday);
 }
