@@ -183,8 +183,18 @@ async function main() {
     check('orbit slider drives setOrbitYaw', calls.some(c => c[0] === 'setOrbitYaw'));
 
     // First person disables the orbit/zoom widgets (they only affect third-person).
-    chip('firstPerson').click();
+    chip('firstPerson').click(); // sets the stub's mode to 'firstPerson'
     check('first-person disables the orbit slider', slider.disabled === true);
+
+    // ...and the keyboard orbit/zoom hotkeys must be ignored in first person too, so
+    // they can't silently mutate the hidden third-person rig (codex review, PR #306).
+    const orbitsBefore = calls.filter(c => c[0] === 'orbit').length;
+    const zoomsBefore = calls.filter(c => c[0] === 'adjustZoom').length;
+    fireWindow('keydown', { key: 'q' });
+    fireWindow('keydown', { key: '+' });
+    check('Q / + hotkeys are ignored while in first person',
+      calls.filter(c => c[0] === 'orbit').length === orbitsBefore &&
+      calls.filter(c => c[0] === 'adjustZoom').length === zoomsBefore);
 
     controller.abort(); // remove the window listeners this section installed
   }

@@ -356,6 +356,9 @@ export function createLifecycle(deps: LifecycleDeps) {
     // --- Keyboard: Q/E orbit, C recenter, +/- zoom (movement + V live in controls.ts) ---
     const handleCameraKey = (event: KeyboardEvent) => {
       if (!state.gameActive) return;
+      // Orbit/zoom only affect the third-person rig; ignore these keys in first person
+      // (the wheel/drag paths and the tray widgets already do — codex review, PR #306).
+      if (cameraManager.mode === 'firstPerson') return;
       // Don't hijack typing in form fields (e.g. the orbit slider has focus).
       const target = event.target as Element | null;
       if (target && typeof (target as HTMLElement).closest === 'function' &&

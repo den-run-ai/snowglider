@@ -72,6 +72,21 @@ async function main() {
     check('setMode("firstPerson") switches to head cam', cam.setMode('firstPerson') === 'firstPerson');
   }
 
+  console.log('\n--- setMode("follow") recenters the orbit, keeps the zoom ---');
+  {
+    // Follow is the classic behind-the-player chase: entering it must clear any manual
+    // orbit + hold from Orbit mode (else the camera stays at the old side/front angle
+    // for the hold window), while preserving the player's manual zoom (codex review).
+    const cam = newCamera();
+    cam.setMode('orbit');
+    cam.orbit(1.2, 0.4);   // manual side/front angle + pitch, arms the hold window
+    cam.adjustZoom(1.5);   // manual zoom out
+    cam.setMode('follow');
+    check('entering follow zeroes orbit yaw/pitch', cam.orbitYaw === 0 && cam.orbitPitch === 0);
+    check('entering follow clears the manual-hold window', cam.manualHoldFrames === 0);
+    check('entering follow preserves the manual zoom', approx(cam.zoom, 1.5));
+  }
+
   console.log('\n--- initialize: third-person ---');
   {
     const cam = newCamera();

@@ -188,7 +188,12 @@ export class Camera {
   /** Jump straight to a mode (used by the on-screen camera tray). Returns it. */
   setMode(mode: CameraMode): CameraMode {
     this.mode = mode;
-    if (mode === 'auto') this.manualHoldFrames = 0; // let the smart framing ease in
+    // Auto re-frames from the live state, so just release any manual hold. Follow is
+    // the classic behind-the-player chase, so entering it recenters the orbit (keeping
+    // the player's manual zoom) rather than holding the previous side/front angle for
+    // the manual-hold window before easing back (codex review, PR #306).
+    if (mode === 'auto') this.manualHoldFrames = 0;
+    else if (mode === 'follow') this.recenter();
     return this.mode;
   }
 
