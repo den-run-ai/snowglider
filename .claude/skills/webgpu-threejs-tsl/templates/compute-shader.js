@@ -27,6 +27,7 @@ import {
   uniform,
   instancedArray,
   instanceIndex,
+  positionLocal,
   hash,
   time,
   deltaTime,
@@ -200,18 +201,22 @@ function createPointsVisualization(scene) {
 
   const material = new THREE.PointsNodeMaterial();
 
-  // Position from compute buffer
-  material.positionNode = positions.element(instanceIndex);
+  // Position from compute buffer. THREE.Points draws are NOT instanced
+  // (instanceIndex would read element 0 for every point) — convert the
+  // storage buffer to a per-vertex attribute instead.
+  material.positionNode = positions.toAttribute();
 
   // ========================================
   // CUSTOMIZE POINT APPEARANCE HERE
   // ========================================
 
+  // Note: WebGPU point primitives are always 1px — sizeNode only has an
+  // effect with THREE.Sprite (see PointsNodeMaterial docs) or WebGL fallback.
   material.sizeNode = float(3.0);
 
   material.colorNode = Fn(() => {
     // Example: Color based on velocity
-    const velocity = velocities.element(instanceIndex);
+    const velocity = velocities.toAttribute();
     const speed = velocity.length();
     return mix(color(0x0066ff), color(0xff6600), speed.div(5).saturate());
   })();
@@ -229,8 +234,10 @@ function createInstancedVisualization(scene) {
 
   const material = new THREE.MeshStandardNodeMaterial();
 
-  // Position from compute buffer
-  material.positionNode = positions.element(instanceIndex);
+  // Offset each instance's local vertices by its computed center.
+  // (Assigning positions.element(instanceIndex) directly would replace every
+  // vertex of the sphere with the same point and collapse the geometry.)
+  material.positionNode = positionLocal.add(positions.element(instanceIndex));
 
   // ========================================
   // CUSTOMIZE MESH APPEARANCE HERE

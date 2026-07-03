@@ -430,10 +430,12 @@ const computeShader = Fn(() => {
 const geometry = new THREE.SphereGeometry(0.1, 16, 16);
 const material = new THREE.MeshStandardNodeMaterial();
 
-// Use computed positions
-material.positionNode = positions.element(instanceIndex);
+// Offset each instance's local vertices by its computed center.
+// Assigning positions.element(instanceIndex) directly would replace every
+// vertex of the sphere with the same point and collapse the geometry.
+material.positionNode = positionLocal.add(positions.element(instanceIndex));
 
-// Optionally use computed colors
+// Optionally use computed colors (per-instance values are fine here)
 material.colorNode = colors.element(instanceIndex);
 
 const mesh = new THREE.InstancedMesh(geometry, material, count);
@@ -447,8 +449,12 @@ const geometry = new THREE.BufferGeometry();
 geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(count * 3), 3));
 
 const material = new THREE.PointsNodeMaterial();
-material.positionNode = positions.element(instanceIndex);
-material.colorNode = colors.element(instanceIndex);
+// THREE.Points draws are NOT instanced — instanceIndex would read element 0
+// for every point. Convert the storage buffers to per-vertex attributes.
+material.positionNode = positions.toAttribute();
+material.colorNode = colors.toAttribute();
+// Note: WebGPU point primitives are always 1px; sizeNode only takes effect
+// with THREE.Sprite or the WebGL fallback.
 material.sizeNode = float(5.0);
 
 const points = new THREE.Points(geometry, material);
@@ -553,9 +559,9 @@ const computeUpdate = Fn(() => {
   });
 })().compute(count);
 
-// Material
+// Material (Points are not instanced — use a per-vertex attribute)
 const material = new THREE.PointsNodeMaterial();
-material.positionNode = positions.element(instanceIndex);
+material.positionNode = positions.toAttribute();
 material.sizeNode = float(3.0);
 material.colorNode = vec3(1, 0.5, 0.2);
 

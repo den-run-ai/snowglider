@@ -20,6 +20,7 @@ import {
   color,
   instancedArray,
   instanceIndex,
+  positionLocal,
   hash,
   time
 } from 'three/tsl';
@@ -191,8 +192,10 @@ function createParticleMesh() {
   // Material using computed positions
   const material = new THREE.MeshStandardNodeMaterial();
 
-  // Position from compute buffer
-  material.positionNode = positions.element(instanceIndex);
+  // Offset each instance's local vertices by its computed center.
+  // (Assigning positions.element(instanceIndex) directly would replace every
+  // vertex of the sphere with the same point and collapse the geometry.)
+  material.positionNode = positionLocal.add(positions.element(instanceIndex));
 
   // Color based on velocity
   material.colorNode = Fn(() => {
