@@ -67,6 +67,12 @@ const AUTO_AIR_PITCH = 0.35;      // lift overhead in the air to keep the landin
 const AUTO_SLOPE_REF = 0.8;       // terrain gradient (rise/run ≈ tan θ) counted as fully expert
 const AUTO_TURN_REF = 0.06;       // per-frame travel-heading change (rad) counted as a hard carve
 const AUTO_DANGER_REF = 60;       // distance (world units) to the nearest avalanche boulder = max danger
+// Slope framing is gated on ACTUAL downhill motion: the spawn/parked spot sits on a steep
+// gradient (~0.7), so an ungated slope term would pull back + lift the camera before the
+// player is even skiing, drifting Auto off the neutral spawn/slow framing the transient
+// reset is meant to preserve. Below this speed slope framing fades to nothing; a gentle
+// cruise (well under the top-speed `speedThreshold`) already re-engages it fully.
+const AUTO_MOTION_REF = 6;
 // Bounds on the combined transient multipliers so a stack of signals can't crash the
 // camera into the player or fling it to the horizon:
 const AUTO_MIN_AUTOZOOM = 0.75;
@@ -285,7 +291,9 @@ export class Camera {
    * toward. No side effects and no `this` state mutated, so it unit-tests directly.
    *
    *  - `speed`      — base speed pull-back (bomb the fall line → see more ahead).
-   *  - `slope`      — terrain gradient magnitude (rise/run); steep/expert lines pull back AND lift.
+   *  - `slope`      — terrain gradient magnitude (rise/run); steep/expert lines pull back AND lift,
+   *                   but only once actually skiing (gated on motion so a parked/slow snowman on the
+   *                   steep spawn keeps the neutral framing).
    *  - `turnRate`   — |travel-heading change| per frame; hard, twisty carves pull IN for tight framing.
    *  - `aspect`     — camera aspect; tall/portrait screens pull back for vertical context.
    *  - `isInAir`    — a jump pulls back AND lifts so the landing zone stays framed.
@@ -296,7 +304,10 @@ export class Camera {
     isInAir: boolean, avalancheDistance: number,
   ): { zoom: number; pitch: number } {
     const speedFactor = clampNum(speed / this.speedThreshold, 0, 1);
-    const slopeFactor = clampNum(slope / AUTO_SLOPE_REF, 0, 1);
+    // Fade slope framing in with motion so a parked/slow snowman on the steep spawn keeps
+    // the neutral framing (the base speed term still handles the "you're moving" pull-back).
+    const motionFactor = clampNum(speed / AUTO_MOTION_REF, 0, 1);
+    const slopeFactor = clampNum(slope / AUTO_SLOPE_REF, 0, 1) * motionFactor;
     const turnFactor = clampNum(turnRate / AUTO_TURN_REF, 0, 1);
     const portraitFactor = aspect < 1 ? clampNum(1 - aspect, 0, 1) : 0;
     const dangerFactor = clampNum(1 - avalancheDistance / AUTO_DANGER_REF, 0, 1);

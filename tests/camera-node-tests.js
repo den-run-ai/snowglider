@@ -273,10 +273,17 @@ async function main() {
     check('calm terrain frames neutrally (zoom ~1, pitch 0)',
       approx(neutral.zoom, 1) && approx(neutral.pitch, 0));
 
-    // Expert/steep terrain (big gradient) pulls the camera back AND lifts it overhead so
-    // the drop below the rider stays in shot.
-    const steep = cam.autoFrameTargets(0, 0.8, 0, 1.6, false, Infinity);
-    check('steep/expert terrain pulls the camera back', steep.zoom > neutral.zoom + 0.2);
+    // Slope framing is gated on motion: a parked/slow snowman on a steep gradient keeps the
+    // neutral framing (no pull-back, no lift) — this is the spawn-neutrality fix (codex P2).
+    const stoppedSteep = cam.autoFrameTargets(0, 0.8, 0, 1.6, false, Infinity);
+    check('steep terrain does NOT pull back while stopped (slope gated on motion)',
+      approx(stoppedSteep.zoom, 1) && approx(stoppedSteep.pitch, 0));
+
+    // Once actually skiing, expert/steep terrain (big gradient) pulls the camera back AND
+    // lifts it overhead so the drop below the rider stays in shot.
+    const steep = cam.autoFrameTargets(10, 0.8, 0, 1.6, false, Infinity);
+    const cruise = cam.autoFrameTargets(10, 0, 0, 1.6, false, Infinity); // same speed, flat ground
+    check('steep/expert terrain pulls the camera back (vs same-speed flat)', steep.zoom > cruise.zoom + 0.2);
     check('steep/expert terrain lifts the camera overhead (pitch up)', steep.pitch > 0.2);
 
     // A jump pulls back AND lifts even harder so the landing zone is framed.

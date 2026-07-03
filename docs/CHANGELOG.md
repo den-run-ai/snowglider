@@ -44,7 +44,8 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   re-frames the run as it unfolds:
   - **Expert / steep terrain** — the terrain gradient magnitude under the rider pulls the
     camera back and lifts it overhead so the fall line and the drop below stay in shot
-    (the emphasis for difficult runs).
+    (the emphasis for difficult runs). Gated on actual downhill motion, so a parked/slow
+    snowman on the steep spawn keeps the neutral framing.
   - **Jumps** — while airborne the camera pulls back and lifts hard so the landing zone
     stays framed through the whole arc.
   - Plus: a near avalanche widens the shot, tight/twisty carves pull the camera *in* for

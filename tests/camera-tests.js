@@ -351,7 +351,16 @@ import * as THREE from 'three';
       // Save original values
       const originalPos = {x: pos.x, y: pos.y, z: pos.z};
       const originalVelocity = {x: velocity.x, z: velocity.z};
-      
+
+      // Auto now layers situational framing (slope/jump pull-back + overhead lift, issue
+      // #305 P3+) on top of the base follow rig, so the pure speed->distance ramp this test
+      // pins (15/20/25) is only exact in a non-situational mode. Measure it in Orbit — which
+      // holds orbit/zoom fixed with no easing — exactly as the headless camera suite does,
+      // then restore the original mode. (Auto's situational framing is covered by
+      // camera-node-tests.js.)
+      const originalMode = cameraManager.mode;
+      cameraManager.setMode('orbit');
+
       // Reset to a clean state
       resetSnowman();
       
@@ -391,14 +400,15 @@ import * as THREE from 'three';
         allTestsPassed ? 'Camera correctly adjusts distance based on speed' : 
         'Camera does not properly adjust distance based on speed');
       
-      // Restore original values
+      // Restore original camera mode and values
+      cameraManager.setMode(originalMode);
       pos.x = originalPos.x;
       pos.y = originalPos.y;
       pos.z = originalPos.z;
       velocity.x = originalVelocity.x;
       velocity.z = originalVelocity.z;
     }
-    
+
     // Test 4: Camera Above Terrain
     function testCameraAboveTerrain() {
       // Save original position and terrain height check function
