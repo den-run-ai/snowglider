@@ -34,6 +34,19 @@ interface PlanarVelocity {
   z: number;
 }
 
+/** Per-flake animation state kept on `sprite.userData` (typed view — `userData` is
+ *  `any` in three's types, and the wobble math below would otherwise pass `any` into
+ *  `Math.sin`/arithmetic). */
+interface FlakeState {
+  speed: number;
+  wobble: number;
+  wobbleSpeed: number;
+  wobblePos: number;
+  /** Wind susceptibility (#253); optional so flakes created before the field existed
+   *  fall back to 1 (defensive). */
+  windFactor?: number;
+}
+
 /** Pooled snow-splash particle system returned by {@link createSnowSplash}. */
 interface SnowSplash {
   particles: THREE.Sprite[];
@@ -130,16 +143,19 @@ function createSnowflakes(scene: THREE.Scene) {
     // the wind, so the snowfall slants instead of falling rigidly straight. sizeNorm 0
     // (smallest) => 0.40, sizeNorm 1 (largest) => 0.12.
     const sizeNorm = (size - 0.1) / 0.4; // 0..1 across the size range
-    snowflake.userData.windFactor = 0.12 + 0.28 * (1 - sizeNorm);
 
     // Random positions in a box above the player
     resetSnowflakePosition(snowflake, { x: 0, y: 0, z: -40 });
 
-    // Enhanced movement properties for more realistic snow behavior
-    snowflake.userData.speed = (0.5 + Math.random() * 1.0) * snowflakeFallSpeed;
-    snowflake.userData.wobble = 0.05 + Math.random() * 0.15; // More natural wobble
-    snowflake.userData.wobbleSpeed = 0.3 + Math.random() * 2.0; // Varied wobble speeds
-    snowflake.userData.wobblePos = Math.random() * Math.PI * 2;
+    // Movement state (typed — see FlakeState) for realistic snow behaviour.
+    const flake: FlakeState = {
+      speed: (0.5 + Math.random() * 1.0) * snowflakeFallSpeed,
+      wobble: 0.05 + Math.random() * 0.15,      // More natural wobble
+      wobbleSpeed: 0.3 + Math.random() * 2.0,   // Varied wobble speeds
+      wobblePos: Math.random() * Math.PI * 2,
+      windFactor: 0.12 + 0.28 * (1 - sizeNorm)
+    };
+    snowflake.userData = flake;
 
     scene.add(snowflake);
     snowflakes.push(snowflake);
@@ -180,21 +196,21 @@ function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scen
   // by it scaled by its own wind factor, so the whole snowfall leans the same way (#253).
   const wind = windDrift();
   snowflakes.forEach(snowflake => {
+    const flake = snowflake.userData as FlakeState;
     // Apply falling movement
-    snowflake.position.y -= snowflake.userData.speed * delta;
+    snowflake.position.y -= flake.speed * delta;
 
     // Add some gentle sideways wobble for realism. Delta-scaled (× WOBBLE_RATE to keep
     // the tuned 60 fps amplitude) so the drift rate is frame-rate independent — the
     // fall/wind/phase terms already were, but the displacement itself accumulated per
     // FRAME, doubling the sideways speed at 120 Hz (#209 bug class).
-    snowflake.userData.wobblePos += snowflake.userData.wobbleSpeed * delta;
-    snowflake.position.x += Math.sin(snowflake.userData.wobblePos) * snowflake.userData.wobble * delta * WOBBLE_RATE;
+    flake.wobblePos += flake.wobbleSpeed * delta;
+    snowflake.position.x += Math.sin(flake.wobblePos) * flake.wobble * delta * WOBBLE_RATE;
     // Add slight z-axis wobble too for more 3D movement
-    snowflake.position.z += Math.cos(snowflake.userData.wobblePos * 0.7) * snowflake.userData.wobble * 0.5 * delta * WOBBLE_RATE;
+    snowflake.position.z += Math.cos(flake.wobblePos * 0.7) * flake.wobble * 0.5 * delta * WOBBLE_RATE;
 
-    // Wind drift: blow the flake downwind, lighter flakes further (windFactor). Falls back
-    // to 1 for any flake created before this field existed (defensive).
-    const windFactor = snowflake.userData.windFactor ?? 1;
+    // Wind drift: blow the flake downwind, lighter flakes further (windFactor).
+    const windFactor = flake.windFactor ?? 1;
     snowflake.position.x += wind.x * windFactor * delta;
     snowflake.position.z += wind.z * windFactor * delta;
 
