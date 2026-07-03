@@ -1,29 +1,84 @@
 // Snowman geometry/model construction.
 import * as THREE from 'three';
+import { getSnowmanSnowMaterial } from './snow-material.js';
+
+// --- Junction-crease shading (completion-plan PR-V4, the last #17 item) -----
+// The ring where two snowballs meet is the snowman's "cavity" (cf. the terrain
+// cavity/AO vertex term in mountains/snow-surface.ts): real stacked snow reads a
+// faint cool shadow in that crease, while a bare white-on-white seam reads plastic.
+// Bake the tint into each sphere's vertex colours (the shared snow material has
+// `vertexColors` on) — full strength at/beyond the crease latitude (most of that cap
+// is hidden inside the neighbouring ball anyway; the visible fringe gets the fade),
+// feathering back to plain white over CREASE_FEATHER of latitude.
+const CREASE_TINT = { r: 0.86, g: 0.9, b: 0.95 }; // faint cool powder-shadow hue
+const CREASE_FEATHER = 0.25;                       // latitude span of the fade
+
+const clamp01 = (t: number): number => Math.max(0, Math.min(1, t));
+const smooth01 = (t: number): number => { const c = clamp01(t); return c * c * (3 - 2 * c); };
+
+/** Bake the crease tint into a body sphere's vertex colours. `top`/`bottom` are the
+ *  normalized crease latitudes (localY / radius, -1..1) where this ball meets its
+ *  neighbour — derived from the sphere-sphere intersection of the shipped layout. */
+function bakeJunctionTint(
+  geo: THREE.SphereGeometry,
+  radius: number,
+  creases: { top?: number; bottom?: number }
+): void {
+  const pos = geo.attributes.position!;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const ny = pos.getY(i) / radius; // -1 (bottom pole) .. 1 (top pole)
+    let k = 0;
+    if (creases.top !== undefined) {
+      k = Math.max(k, smooth01((ny - (creases.top - CREASE_FEATHER)) / CREASE_FEATHER));
+    }
+    if (creases.bottom !== undefined) {
+      k = Math.max(k, smooth01(((creases.bottom + CREASE_FEATHER) - ny) / CREASE_FEATHER));
+    }
+    colors[i * 3] = 1 - k * (1 - CREASE_TINT.r);
+    colors[i * 3 + 1] = 1 - k * (1 - CREASE_TINT.g);
+    colors[i * 3 + 2] = 1 - k * (1 - CREASE_TINT.b);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
 
 // Create Snowman (Three Spheres)
 export function createSnowman(scene: THREE.Scene): THREE.Group {
   const group = new THREE.Group();
-  const snowMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
+  // Shared snowman/debris snow material (PR-V4): the same albedo/normal generators as
+  // the terrain snow, so the player stops reading as plastic against the slope. One
+  // module-level instance shared with the crash debris — see snow-material.ts for the
+  // ownership/teardown contract.
+  const snowMaterial = getSnowmanSnowMaterial();
   const blackMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
   const carrotMaterial = new THREE.MeshStandardMaterial({ color: 0xFF6600 });
   const stickMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 }); // Brown for sticks
   const hatMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 }); // Dark grey/black for hat
-  
+
+  // Crease latitudes from the shipped layout (centres y=2/4.5/7, radii 2/1.5/1):
+  // bottom↔middle intersect at world y=3.6 (bottom ny=0.8, middle ny=-0.6);
+  // middle↔head are tangent at world y=6.0 (middle ny=1.0, head ny=-1.0).
+
   // Bottom sphere
-  const bottom = new THREE.Mesh(new THREE.SphereGeometry(2, 24, 24), snowMaterial);
+  const bottomGeo = new THREE.SphereGeometry(2, 24, 24);
+  bakeJunctionTint(bottomGeo, 2, { top: 0.8 });
+  const bottom = new THREE.Mesh(bottomGeo, snowMaterial);
   bottom.position.y = 2;
   bottom.castShadow = true;
   group.add(bottom);
-  
+
   // Middle sphere
-  const middle = new THREE.Mesh(new THREE.SphereGeometry(1.5, 24, 24), snowMaterial);
+  const middleGeo = new THREE.SphereGeometry(1.5, 24, 24);
+  bakeJunctionTint(middleGeo, 1.5, { top: 1.0, bottom: -0.6 });
+  const middle = new THREE.Mesh(middleGeo, snowMaterial);
   middle.position.y = 4.5;
   middle.castShadow = true;
   group.add(middle);
-  
+
   // Head sphere
-  const head = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 24), snowMaterial);
+  const headGeo = new THREE.SphereGeometry(1, 24, 24);
+  bakeJunctionTint(headGeo, 1, { bottom: -1.0 });
+  const head = new THREE.Mesh(headGeo, snowMaterial);
   head.position.y = 7.0; // Lowered head to sit on middle sphere (4.5 + 1.5 + 1.0)
   head.castShadow = true;
   group.add(head);

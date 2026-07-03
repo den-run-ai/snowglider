@@ -9,14 +9,21 @@
 //
 // Resource ownership is load-bearing: the snowman is only HIDDEN (visible=false), so
 // its geometry/material must survive a crash->restart cycle. Every fragment therefore
-// uses geometry/material the debris system *owns* and creates itself (generic snow
-// chunks — never a clone that shares the snowman's buffers), tracked so reset() can
-// dispose exactly what it made and nothing of the snowman's.
+// uses GEOMETRY the debris system *owns* and creates itself (generic snow chunks —
+// never a clone that shares the snowman's buffers), tracked so reset() can dispose
+// exactly what it made and nothing of the snowman's. The fragment MATERIAL is the
+// exception, by design (completion-plan PR-V4): fragments render with the SAME shared
+// snowman snow material as the body spheres (snowman/snow-material.ts), so broken
+// snow matches the snowman and the slope. That shared material is deliberately NOT
+// added to ownedMaterials — reset() must never dispose it (the snowman still renders
+// with it); disposeGame's dedup scene sweep frees it exactly once at unmount.
 //
-// Imports only three (bare), so it loads headless under Node for the unit tests (like
-// avalanche.ts); the settle loop self-guards on requestAnimationFrame so headless
-// callers drive update(dt) directly.
+// Imports only three (bare) + the snowman snow-material module (also DOM-guarded), so
+// it loads headless under Node for the unit tests (like avalanche.ts); the settle
+// loop self-guards on requestAnimationFrame so headless callers drive update(dt)
+// directly.
 import * as THREE from 'three';
+import { getSnowmanSnowMaterial } from './snowman/snow-material.js';
 
 type TerrainFn = (x: number, z: number) => number;
 interface PlanarVelocityLike { x: number; z: number; }
@@ -40,6 +47,15 @@ const MAX_DT = 0.05;          // clamp per-tick dt for stability
 
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
+
+/** Give an owned fragment geometry the plain-white `color` attribute the shared
+ *  snow material's `vertexColors` requires (the snowman body bakes a junction tint
+ *  into its own; fragments are uniform snow). */
+function withWhiteVertexColors<T extends THREE.BufferGeometry>(geo: T): T {
+  const count = geo.attributes.position!.count;
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3).fill(1), 3));
+  return geo;
+}
 
 /** A random horizontal burst with an upward pop. */
 function radialBurst(horiz: number, up: number): THREE.Vector3 {
@@ -69,8 +85,10 @@ export class SnowmanDebris {
   /** Inject the terrain sampler so fragments rest on the slope (not at y=0). */
   setTerrainFunction(fn: TerrainFn): void { this.getTerrainHeight = fn; }
 
+  // (No ownMat counterpart since PR-V4: fragments render with the shared snowman snow
+  // material, which debris must never own/dispose. ownedMaterials stays so reset()
+  // keeps a single disposal shape if a debris-owned material ever returns.)
   private ownGeo<T extends THREE.BufferGeometry>(g: T): T { this.ownedGeometries.add(g); return g; }
-  private ownMat<T extends THREE.Material>(m: T): T { this.ownedMaterials.add(m); return m; }
 
   /** Burst the snowman apart. Hides `snowman`, spawns owned fragments at the snowman's
    *  world location, and (in a browser) starts a private rAF settle loop that repaints
@@ -90,8 +108,12 @@ export class SnowmanDebris {
     const inheritedZ = finite(velocity && velocity.z) * 0.6;
     const impact = Math.min(1, Math.hypot(inheritedX, inheritedZ) / 14);
 
-    // One owned white-snow material shared by every fragment (disposed on reset).
-    const snowMat = this.ownMat(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }));
+    // Every fragment renders with the SAME shared snow material as the snowman body
+    // (snowman/snow-material.ts) so broken snow matches the snowman and the slope.
+    // NOT this.ownMat(...) — reset() must never dispose it (see the header contract).
+    // The material has vertexColors on (the body bakes a junction tint), so every
+    // owned fragment geometry gets plain white colours via ownGeo -> whiteColors.
+    const snowMat = getSnowmanSnowMaterial();
 
     // --- Body fragments: one generic owned chunk per shatter root, big balls cracked
     // into a few sub-chunks so it reads as "the balls breaking". The head cluster /
@@ -105,7 +127,7 @@ export class SnowmanDebris {
       const chunks = reduced ? 1 : (size > 1.0 ? 3 : 1);
       for (let c = 0; c < chunks; c++) {
         const r = Math.max(0.2, size * (chunks > 1 ? 0.55 : 0.85) * (0.8 + Math.random() * 0.4));
-        const mesh = new THREE.Mesh(this.ownGeo(new THREE.IcosahedronGeometry(r, 0)), snowMat);
+        const mesh = new THREE.Mesh(this.ownGeo(withWhiteVertexColors(new THREE.IcosahedronGeometry(r, 0))), snowMat);
         mesh.castShadow = true;
         mesh.position.copy(worldPos);
         if (!reduced) mesh.position.add(jitter(0.4));
@@ -124,7 +146,7 @@ export class SnowmanDebris {
     snowman.getWorldPosition(center);
     center.y += 3;
     const puffCount = reduced ? 4 : 16;
-    const puffGeo = this.ownGeo(new THREE.IcosahedronGeometry(0.35, 0));
+    const puffGeo = this.ownGeo(withWhiteVertexColors(new THREE.IcosahedronGeometry(0.35, 0)));
     for (let i = 0; i < puffCount; i++) {
       const mesh = new THREE.Mesh(puffGeo, snowMat);
       mesh.position.copy(center).add(jitter(0.6));
