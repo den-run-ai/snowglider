@@ -146,8 +146,9 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
 
   // 6. Instance-owned DOM nodes. setupScene() appends the `#gameCanvas` wrapper (which
   //    holds renderer.domElement) and `#gameOverOverlay`; initLifecycleUI() appends
-  //    `#cameraToggleBtn`. Removing only the canvas would leave the wrapper + overlay +
-  //    toggle button in the document, so a remount creates duplicate IDs and stale UI,
+  //    `#cameraToggleBtn` and the `#cameraControls` tray. Removing only the canvas would
+  //    leave the wrapper + overlay + camera UI in the document, so a remount creates
+  //    duplicate IDs and stale UI,
   //    and getElementById('gameCanvas') / overlay queries hit the old empty node. Remove
   //    every owner node. (The wrapper is the canvas's parent, so detaching it takes the
   //    canvas with it.) Reset/start buttons authored in index.html are NOT ours to remove.
@@ -156,6 +157,8 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   removeNode(ctx.gameOverOverlay);
   if (typeof document !== 'undefined') {
     removeNode(document.getElementById('cameraToggleBtn'));
+    // Camera control tray (lifecycle.ts initCameraControls appends #cameraControls).
+    removeNode(document.getElementById('cameraControls'));
     // Mobile visual controls (controls.ts appends these lazily on touch devices); they
     // have no module state to null, so remove them by class here.
     document.querySelectorAll('.touch-control').forEach((el) => el.remove());

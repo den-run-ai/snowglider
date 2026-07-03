@@ -15,7 +15,17 @@ import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { updateTimerDisplay } from '../ui/hud.js';
+import type { CameraMode } from '../camera.js';
 import type { SceneContext } from './scene-setup.js';
+
+// Radians the Q/E keys and tray arrows rotate the orbit per press.
+const ORBIT_KEY_STEP = Math.PI / 12; // 15°
+// Zoom multipliers for a single key/button/wheel step (in = closer, out = farther).
+const ZOOM_IN_STEP = 0.88;
+const ZOOM_OUT_STEP = 1.14;
+// Mouse-drag orbit sensitivity (radians per pixel) for yaw and pitch.
+const DRAG_YAW_SENS = 0.006;
+const DRAG_PITCH_SENS = 0.004;
 
 export interface LifecycleDeps extends
   Pick<SceneContext, 'state' | 'cameraManager' | 'snowman' | 'gameOverOverlay' | 'restartButton'> {
@@ -161,13 +171,21 @@ export function createLifecycle(deps: LifecycleDeps) {
     }
   }
 
-  // Toggle between first-person and third-person camera views
-  function toggleCameraView() {
-    // Call the camera manager's toggle method
-    const newMode = cameraManager.toggleCameraMode();
+  // Friendly label for each camera mode, shown on the controls row + toggle button.
+  function cameraModeLabel(mode: CameraMode): string {
+    switch (mode) {
+      case 'auto': return 'Auto';
+      case 'follow': return 'Follow';
+      case 'orbit': return 'Orbit 360°';
+      case 'firstPerson': return 'First Person';
+      default: return String(mode);
+    }
+  }
 
-    // Reset camera initialization with current snowman position and rotation
-    cameraManager.initialize(snowman.position, snowman.rotation);
+  // Reflect the active camera mode across the controls-guide row, the toggle button,
+  // and the camera tray's pressed state. Safe to call when any of those are absent.
+  function syncCameraModeUi(mode: CameraMode) {
+    const label = cameraModeLabel(mode);
 
     // Update the camera mode text in the controls info. Target the camera row by a
     // stable id (not :last-child) so appending more control items after it — e.g. the
@@ -176,20 +194,43 @@ export function createLifecycle(deps: LifecycleDeps) {
     if (viewControlItem) {
       const keyBadge = viewControlItem.querySelector('.key-badge');
       const textSpan = viewControlItem.querySelector('span:last-child');
-
       if (keyBadge && textSpan) {
         keyBadge.textContent = 'V';
-        textSpan.textContent = `Toggle ${newMode === 'thirdPerson' ? 'Normal' : 'Chase'} View`;
+        textSpan.textContent = `Camera: ${label}`;
       }
     }
 
     // Update the toggle button text
     const cameraToggleBtn = document.getElementById('cameraToggleBtn');
     if (cameraToggleBtn) {
-      cameraToggleBtn.textContent = `Toggle ${newMode === 'thirdPerson' ? 'Normal' : 'Chase'} View`;
+      cameraToggleBtn.textContent = `Camera: ${label}`;
     }
 
-    // Return the new mode (useful for tests)
+    // Highlight the active mode chip in the camera tray, and disable the orbit/zoom
+    // widgets in first-person (they only affect the third-person rig).
+    const thirdPerson = mode !== 'firstPerson';
+    document.querySelectorAll<HTMLElement>('#cameraControls [data-cam-mode]').forEach((btn) => {
+      btn.setAttribute('aria-pressed', btn.getAttribute('data-cam-mode') === mode ? 'true' : 'false');
+    });
+    document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('#cameraControls [data-cam-orbit], #cameraControls [data-cam-zoom]')
+      .forEach((el) => { el.disabled = !thirdPerson; });
+  }
+
+  // Cycle the camera mode (V key / toggle button): advance the mode, re-seat the
+  // camera for it, and refresh the UI. Returns the new mode (useful for tests).
+  function toggleCameraView() {
+    const newMode = cameraManager.toggleCameraMode();
+    // Reset camera initialization with current snowman position and rotation
+    cameraManager.initialize(snowman.position, snowman.rotation);
+    syncCameraModeUi(newMode);
+    return newMode;
+  }
+
+  // Jump straight to a named mode (camera tray chips).
+  function selectCameraMode(mode: CameraMode) {
+    const newMode = cameraManager.setMode(mode);
+    cameraManager.initialize(snowman.position, snowman.rotation);
+    syncCameraModeUi(newMode);
     return newMode;
   }
 
@@ -202,7 +243,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Add camera toggle button
     const cameraToggleBtn = document.createElement('button');
     cameraToggleBtn.id = 'cameraToggleBtn';
-    cameraToggleBtn.textContent = 'Toggle Chase View';
+    cameraToggleBtn.textContent = 'Camera: Auto';
     cameraToggleBtn.style.position = 'absolute';
     cameraToggleBtn.style.bottom = '20px';
     cameraToggleBtn.style.left = '170px'; // Position it next to reset button
@@ -226,9 +267,182 @@ export function createLifecycle(deps: LifecycleDeps) {
 
     document.body.appendChild(cameraToggleBtn);
 
+    // Build the camera tray (mode chips + 360° orbit slider + zoom) and wire the
+    // keyboard / mouse-wheel / mouse-drag view controls.
+    initCameraControls();
+
+    // Reflect the camera's starting mode (Auto) on the freshly-built widgets.
+    syncCameraModeUi(cameraManager.mode);
+
     // Add event listener to restart button
     restartButton.addEventListener('click', restartGame, listenerOpts);
   }
 
-  return { resetSnowman, restartGame, toggleCameraView, initLifecycleUI };
+  // Build the on-screen camera tray and wire desktop keyboard / wheel / drag controls.
+  // Everything registered here threads the teardown `signal` (via listenerOpts /
+  // touchOpts) so disposeGame removes it; the tray node is removed by teardown.ts.
+  function initCameraControls() {
+    if (typeof document === 'undefined' || !document.body) return;
+
+    const tray = document.createElement('div');
+    tray.id = 'cameraControls';
+
+    // Mode chips: Auto / Follow / Orbit / FP.
+    const modes: Array<{ mode: CameraMode; label: string; title: string }> = [
+      { mode: 'auto', label: 'Auto', title: 'Auto — smart camera that adapts to speed and turns' },
+      { mode: 'follow', label: 'Follow', title: 'Follow — classic chase view behind the snowman' },
+      { mode: 'orbit', label: 'Orbit', title: 'Orbit — free 360° camera you control' },
+      { mode: 'firstPerson', label: 'FP', title: 'First person — over-the-head view' },
+    ];
+    const modeRow = document.createElement('div');
+    modeRow.className = 'cam-row';
+    for (const { mode, label, title } of modes) {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.title = title;
+      btn.setAttribute('data-cam-mode', mode);
+      btn.setAttribute('aria-pressed', 'false');
+      btn.addEventListener('click', () => selectCameraMode(mode), listenerOpts);
+      btn.addEventListener('touchend', (e) => { e.preventDefault(); selectCameraMode(mode); }, touchOpts);
+      modeRow.appendChild(btn);
+    }
+    tray.appendChild(modeRow);
+
+    // Orbit row: ⟲  [0–360° slider]  ⟳  ⊙(recenter).
+    const orbitRow = document.createElement('div');
+    orbitRow.className = 'cam-row';
+    const orbitLeft = makeIconButton('⟲', 'Orbit left (Q)', () => nudgeOrbit(-ORBIT_KEY_STEP));
+    orbitLeft.setAttribute('data-cam-orbit', 'left');
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '0';
+    slider.max = '360';
+    slider.value = '0';
+    slider.step = '1';
+    slider.id = 'cameraOrbitSlider';
+    slider.title = 'Orbit angle (0–360°)';
+    slider.setAttribute('data-cam-orbit', 'slider');
+    slider.addEventListener('input', () => {
+      const deg = Number(slider.value);
+      cameraManager.setOrbitYaw((deg * Math.PI) / 180);
+    }, listenerOpts);
+    const orbitRight = makeIconButton('⟳', 'Orbit right (E)', () => nudgeOrbit(ORBIT_KEY_STEP));
+    orbitRight.setAttribute('data-cam-orbit', 'right');
+    const recenterBtn = makeIconButton('⊙', 'Recenter behind snowman (C)', () => { cameraManager.recenter(); syncOrbitSlider(); });
+    recenterBtn.setAttribute('data-cam-orbit', 'recenter');
+    orbitRow.append(orbitLeft, slider, orbitRight, recenterBtn);
+    tray.appendChild(orbitRow);
+
+    // Zoom row: −  Zoom  +.
+    const zoomRow = document.createElement('div');
+    zoomRow.className = 'cam-row';
+    const zoomOut = makeIconButton('−', 'Zoom out (− / wheel)', () => cameraManager.adjustZoom(ZOOM_OUT_STEP));
+    zoomOut.setAttribute('data-cam-zoom', 'out');
+    const zoomLabel = document.createElement('span');
+    zoomLabel.className = 'cam-zoom-label';
+    zoomLabel.textContent = 'Zoom';
+    const zoomIn = makeIconButton('+', 'Zoom in (+ / wheel)', () => cameraManager.adjustZoom(ZOOM_IN_STEP));
+    zoomIn.setAttribute('data-cam-zoom', 'in');
+    zoomRow.append(zoomOut, zoomLabel, zoomIn);
+    tray.appendChild(zoomRow);
+
+    document.body.appendChild(tray);
+
+    // These window-level listeners only steer the camera during a LIVE run. Gating on
+    // state.gameActive keeps them inert on the start / about / leaderboard menu, the
+    // loading window, and the game-over overlay — so, e.g., the wheel handler never
+    // preventDefault()s a scroll on a tall start screen (codex review, PR #306).
+
+    // --- Keyboard: Q/E orbit, C recenter, +/- zoom (movement + V live in controls.ts) ---
+    const handleCameraKey = (event: KeyboardEvent) => {
+      if (!state.gameActive) return;
+      // Orbit/zoom only affect the third-person rig; ignore these keys in first person
+      // (the wheel/drag paths and the tray widgets already do — codex review, PR #306).
+      if (cameraManager.mode === 'firstPerson') return;
+      // Don't hijack typing in form fields (e.g. the orbit slider has focus).
+      const target = event.target as Element | null;
+      if (target && typeof (target as HTMLElement).closest === 'function' &&
+          target.closest('input, textarea, select')) return;
+      switch (event.key) {
+        case 'q': case 'Q': nudgeOrbit(-ORBIT_KEY_STEP); break;
+        case 'e': case 'E': nudgeOrbit(ORBIT_KEY_STEP); break;
+        case 'c': case 'C':
+          if (!event.repeat) { cameraManager.recenter(); syncOrbitSlider(); }
+          break;
+        case '+': case '=': cameraManager.adjustZoom(ZOOM_IN_STEP); break;
+        case '-': case '_': cameraManager.adjustZoom(ZOOM_OUT_STEP); break;
+        default: return;
+      }
+    };
+    window.addEventListener('keydown', handleCameraKey, listenerOpts);
+
+    // --- Mouse wheel: zoom the third-person rig (ignored over scrollable UI / FP) ---
+    const handleWheel = (event: WheelEvent) => {
+      if (!state.gameActive) return; // never swallow scroll on the menus / game-over screen
+      if (cameraManager.mode === 'firstPerson') return;
+      const target = event.target as Element | null;
+      if (target && typeof (target as HTMLElement).closest === 'function' &&
+          target.closest('#controlsGuide, #controlsContainer, #gameOverOverlay, #cameraControls')) return;
+      event.preventDefault();
+      cameraManager.adjustZoom(event.deltaY > 0 ? ZOOM_OUT_STEP : ZOOM_IN_STEP);
+    };
+    window.addEventListener('wheel', handleWheel, signal ? { passive: false, signal } : { passive: false });
+
+    // --- Mouse drag: orbit the third-person rig (left-drag on the canvas only) ---
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!state.gameActive) return; // only orbit during a live run
+      if (event.pointerType !== 'mouse' || event.button !== 0) return; // mouse-drag only; touch = steering
+      if (cameraManager.mode === 'firstPerson') return;
+      const target = event.target as Element | null;
+      if (target && typeof (target as HTMLElement).closest === 'function' &&
+          target.closest('button, a, input, select, textarea, label, [role="button"], #controlsGuide, #controlsContainer, #gameOverOverlay, #cameraControls, #gameStatsContainer, #authContainer')) return;
+      dragging = true;
+      lastX = event.clientX;
+      lastY = event.clientY;
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!dragging) return;
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      cameraManager.orbit(-dx * DRAG_YAW_SENS, -dy * DRAG_PITCH_SENS);
+      syncOrbitSlider();
+    };
+    const endDrag = () => { dragging = false; };
+    window.addEventListener('pointerdown', handlePointerDown, listenerOpts);
+    window.addEventListener('pointermove', handlePointerMove, listenerOpts);
+    window.addEventListener('pointerup', endDrag, listenerOpts);
+    window.addEventListener('pointercancel', endDrag, listenerOpts);
+  }
+
+  // Nudge the orbit yaw by a keyboard/button step and keep the slider in sync.
+  function nudgeOrbit(dYaw: number) {
+    cameraManager.orbit(dYaw);
+    syncOrbitSlider();
+  }
+
+  // Push the camera's current orbit yaw back onto the 0–360° slider (wraps to 0..360).
+  function syncOrbitSlider() {
+    const slider = document.getElementById('cameraOrbitSlider') as HTMLInputElement | null;
+    if (!slider) return;
+    let deg = (cameraManager.orbitYaw * 180) / Math.PI;
+    deg = ((deg % 360) + 360) % 360;
+    slider.value = String(Math.round(deg));
+  }
+
+  // Small square icon button for the camera tray, sharing the tray's CSS styling.
+  function makeIconButton(glyph: string, title: string, onClick: () => void): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.textContent = glyph;
+    btn.title = title;
+    btn.addEventListener('click', onClick, listenerOpts);
+    btn.addEventListener('touchend', (e) => { e.preventDefault(); onClick(); }, touchOpts);
+    return btn;
+  }
+
+  return { resetSnowman, restartGame, toggleCameraView, selectCameraMode, initLifecycleUI };
 }

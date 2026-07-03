@@ -32,7 +32,7 @@ function buildControlsDom() {
     <div id="controlsContent">
       <div class="control-item" id="cameraViewControl">
         <span class="key-badge">V</span>
-        <span>Toggle Camera View</span>
+        <span>Camera: Auto</span>
       </div>
       <div class="control-item">
         <span class="key-badge">↓/S</span>
@@ -43,7 +43,7 @@ function buildControlsDom() {
         <span>Hop turn — quick pivot on steeps</span>
       </div>
     </div>
-    <button id="cameraToggleBtn">Toggle Chase View</button>`;
+    <button id="cameraToggleBtn">Camera: Auto</button>`;
 }
 
 function makeDeps(toggleModes) {
@@ -77,27 +77,29 @@ async function main() {
 
   buildControlsDom();
   const hopBefore = lastRowText();
-  // First toggle => first-person ('thirdPerson' is the OTHER mode), so label = "Chase".
-  const { toggleCameraView } = createLifecycle(makeDeps(['firstPerson', 'thirdPerson']));
+  // Cycle order out of the camera manager: follow -> orbit -> firstPerson -> auto.
+  const { toggleCameraView } = createLifecycle(makeDeps(['follow', 'orbit', 'firstPerson', 'auto']));
 
   const mode1 = toggleCameraView();
-  check('toggle returns the new camera mode', mode1 === 'firstPerson');
+  check('toggle returns the new camera mode', mode1 === 'follow');
   check('camera (V) row badge stays "V"',
     document.querySelector('#cameraViewControl .key-badge').textContent === 'V');
-  check('camera row label updates (firstPerson => "Toggle Chase View")',
-    rowText('#cameraViewControl') === 'V Toggle Chase View');
+  check('camera row label updates (follow => "Camera: Follow")',
+    rowText('#cameraViewControl') === 'V Camera: Follow');
   check('camera-toggle button text updates too',
-    document.getElementById('cameraToggleBtn').textContent === 'Toggle Chase View');
+    document.getElementById('cameraToggleBtn').textContent === 'Camera: Follow');
   check('Hop turn (last) row is NOT rewritten by the camera toggle',
     lastRowText() === hopBefore &&
     lastRowText() === 'Space+←/→ Hop turn — quick pivot on steeps');
 
-  // Second toggle => thirdPerson, exercising the other ternary branch ("Normal").
-  const mode2 = toggleCameraView();
-  check('second toggle flips the mode', mode2 === 'thirdPerson');
-  check('camera row label updates (thirdPerson => "Toggle Normal View")',
-    rowText('#cameraViewControl') === 'V Toggle Normal View');
-  check('Hop turn row still untouched after the second toggle',
+  // Cycle through the remaining modes and confirm each friendly label renders.
+  check('second toggle => Orbit 360°',
+    toggleCameraView() === 'orbit' && rowText('#cameraViewControl') === 'V Camera: Orbit 360°');
+  check('third toggle => First Person',
+    toggleCameraView() === 'firstPerson' && rowText('#cameraViewControl') === 'V Camera: First Person');
+  check('fourth toggle wraps back to Auto',
+    toggleCameraView() === 'auto' && rowText('#cameraViewControl') === 'V Camera: Auto');
+  check('Hop turn row still untouched after cycling all modes',
     lastRowText() === 'Space+←/→ Hop turn — quick pivot on steeps');
 
   // Missing-DOM branch: toggleCameraView must not throw when the rows/button are gone.
@@ -106,6 +108,114 @@ async function main() {
   try { createLifecycle(makeDeps(['firstPerson'])).toggleCameraView(); }
   catch { threw = true; }
   check('toggleCameraView is a no-op (no throw) when the controls DOM is absent', !threw);
+
+  // --- Camera control tray + global input handlers (initCameraControls) ---
+  // Drives the real tray build + the window-level wheel / keyboard / drag listeners,
+  // covering the codex-review gate: those only steer the camera while state.gameActive.
+  console.log('\n--- initCameraControls: tray + gated input ---');
+  {
+    // A recording camera stub with every method the tray/input calls.
+    const calls = [];
+    const cam = /** @type {any} */ ({
+      mode: 'auto',
+      orbitYaw: 0,
+      toggleCameraMode() { this.mode = 'follow'; return this.mode; },
+      setMode(m) { this.mode = m; calls.push(['setMode', m]); return m; },
+      cycleMode() { return this.mode; },
+      initialize() {},
+      orbit(dy) { calls.push(['orbit', dy]); },
+      adjustZoom(f) { calls.push(['adjustZoom', f]); return 1; },
+      setOrbitYaw(a) { calls.push(['setOrbitYaw', a]); },
+      recenter() { calls.push(['recenter']); },
+    });
+    const state = { gameActive: false };
+    const controller = new dom.window.AbortController();
+    document.body.innerHTML = `
+      <div id="controlsContent"><div class="control-item" id="cameraViewControl"><span class="key-badge">V</span><span>Camera: Auto</span></div></div>
+      <button id="resetBtn">Reset</button>`;
+    const deps = /** @type {any} */ ({
+      state, cameraManager: cam,
+      snowman: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } },
+      gameOverOverlay: document.createElement('div'),
+      restartButton: document.createElement('button'),
+      player: { pos: { x: 0, y: 0, z: 0 } },
+      startLoop() {}, resetLoopState() {}, signal: controller.signal,
+    });
+    createLifecycle(deps).initLifecycleUI();
+
+    check('tray is built with the four mode chips',
+      document.querySelectorAll('#cameraControls [data-cam-mode]').length === 4);
+    check('orbit slider is present (0–360)',
+      !!document.getElementById('cameraOrbitSlider'));
+
+    // Helper to dispatch a window event with extra props (jsdom lacks WheelEvent).
+    // `target` is read-only and set to `window` by dispatch; the handlers treat a
+    // window target as "not over a UI panel", which is what we want here.
+    const fireWindow = (type, props) => {
+      const ev = new dom.window.Event(type, { bubbles: true, cancelable: true });
+      for (const [k, v] of Object.entries(props)) Object.defineProperty(ev, k, { value: v, configurable: true });
+      window.dispatchEvent(ev);
+      return ev;
+    };
+
+    // gameActive === false: the global wheel/key handlers must stay INERT.
+    const wheelOff = fireWindow('wheel', { deltaY: 100 });
+    fireWindow('keydown', { key: 'q' });
+    check('wheel does not zoom while the run is inactive', !calls.some(c => c[0] === 'adjustZoom'));
+    check('wheel does not preventDefault while inactive (menu scroll preserved)', wheelOff.defaultPrevented === false);
+    check('Q key does not orbit while the run is inactive', !calls.some(c => c[0] === 'orbit'));
+
+    // Now activate the run: the same inputs steer the camera.
+    state.gameActive = true;
+    const wheelOn = fireWindow('wheel', { deltaY: 100 });
+    fireWindow('keydown', { key: 'q' });
+    check('wheel zooms once the run is active', calls.some(c => c[0] === 'adjustZoom'));
+    check('wheel preventDefault fires during gameplay', wheelOn.defaultPrevented === true);
+    check('Q key orbits during gameplay', calls.some(c => c[0] === 'orbit'));
+
+    // Tray chips: clicking a mode chip selects it; the orbit slider drives setOrbitYaw.
+    const chip = (mode) => /** @type {HTMLButtonElement} */ (document.querySelector(`#cameraControls [data-cam-mode="${mode}"]`));
+    chip('orbit').click();
+    check('mode chip click selects the mode', calls.some(c => c[0] === 'setMode' && c[1] === 'orbit'));
+    const slider = /** @type {HTMLInputElement} */ (document.getElementById('cameraOrbitSlider'));
+    slider.value = '90';
+    slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    check('orbit slider drives setOrbitYaw', calls.some(c => c[0] === 'setOrbitYaw'));
+
+    // First person disables the orbit/zoom widgets (they only affect third-person).
+    chip('firstPerson').click(); // sets the stub's mode to 'firstPerson'
+    check('first-person disables the orbit slider', slider.disabled === true);
+
+    // ...and the keyboard orbit/zoom hotkeys must be ignored in first person too, so
+    // they can't silently mutate the hidden third-person rig (codex review, PR #306).
+    const orbitsBefore = calls.filter(c => c[0] === 'orbit').length;
+    const zoomsBefore = calls.filter(c => c[0] === 'adjustZoom').length;
+    fireWindow('keydown', { key: 'q' });
+    fireWindow('keydown', { key: '+' });
+    check('Q / + hotkeys are ignored while in first person',
+      calls.filter(c => c[0] === 'orbit').length === orbitsBefore &&
+      calls.filter(c => c[0] === 'adjustZoom').length === zoomsBefore);
+
+    controller.abort(); // remove the window listeners this section installed
+  }
+
+  // --- Regression (codex review, PR #306): tray stacks BELOW the game-over overlay ---
+  // The tray must never paint over — or stay clickable above — the finish/game-over
+  // modal. Its z-index (styles/main.css) has to stay below the overlay's, which
+  // scene-setup.ts sets inline. Parse both from source so a future bump to either
+  // value that breaks the ordering fails here.
+  console.log('\n--- camera tray z-index stays below the game-over overlay ---');
+  {
+    const fs = require('fs');
+    const path = require('path');
+    const css = fs.readFileSync(path.join(__dirname, '../styles/main.css'), 'utf8');
+    const sceneSrc = fs.readFileSync(path.join(__dirname, '../src/game/scene-setup.ts'), 'utf8');
+    const trayZ = Number((css.match(/#cameraControls\s*\{[^}]*?z-index:\s*(\d+)/) || [])[1]);
+    const overlayZ = Number((sceneSrc.match(/gameOverOverlay\.style\.zIndex\s*=\s*['"](\d+)['"]/) || [])[1]);
+    check('parsed #cameraControls z-index from main.css', Number.isFinite(trayZ));
+    check('parsed #gameOverOverlay z-index from scene-setup.ts', Number.isFinite(overlayZ));
+    check('camera tray z-index is below the game-over overlay', trayZ < overlayZ);
+  }
 
   console.log(`\nLIFECYCLE TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
