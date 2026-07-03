@@ -435,7 +435,11 @@ const SKI_WIDTH: ReadonlyArray<ProfilePt> = [
 ];
 const SKI_CENTER_Y: ReadonlyArray<ProfilePt> = [
   [-2.9, 0.17], [-2.4, 0.05], [-1.8, 0.0], [-0.1, 0.04],
-  [1.6, 0.0], [2.4, 0.13], [3.0, 0.31], [3.3, 0.47]
+  // Shovel/tip rise kept to a gentle, realistic alpine curve: the old peak (0.47 at
+  // the tip, climbing 0.13->0.31->0.47) curled up like a water-ski/sled and read
+  // physically wrong on the snowman. Halving it to ~0.24 keeps a visible shovel
+  // upturn without the "tips flipping up" look (issue: unrealistic ski tips).
+  [1.6, 0.0], [2.4, 0.07], [3.0, 0.16], [3.3, 0.24]
 ];
 
 const smoothstep = (t: number): number => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
