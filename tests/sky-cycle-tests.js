@@ -34,13 +34,18 @@ function test(name, fn) {
   const STATIC_HEMI_INTENSITY = 0.62 * Math.PI;
   const STATIC_DIR_INTENSITY = 0.5 * Math.PI;
   const OLD_WHITEOUT_AMBIENT = 0.5 * Math.PI; // the value the cycle must never approach
+  // Warm midday key (completion-plan PR-V3): scene-setup's directional light is a
+  // slightly-desaturated warm white (#FFF4E6), not pure 0xffffff — sunlit warmth on
+  // near-white snow can only come from the light. The cycle captures this as its midday
+  // dirColor endpoint.
+  const STATIC_DIR_COLOR = 0xfff4e6;
 
   /** Build a scene with the exact static lights scene-setup creates. */
   function makeScene() {
     const scene = new THREE.Scene();
     const ambient = new THREE.AmbientLight(0xffffff, STATIC_AMB_INTENSITY);
     const hemisphere = new THREE.HemisphereLight(0xdcebfb, 0xbcc7d4, STATIC_HEMI_INTENSITY);
-    const directional = new THREE.DirectionalLight(0xffffff, STATIC_DIR_INTENSITY);
+    const directional = new THREE.DirectionalLight(STATIC_DIR_COLOR, STATIC_DIR_INTENSITY);
     directional.position.set(50, 100, 50);
     scene.add(ambient);
     scene.add(hemisphere);
@@ -84,7 +89,7 @@ function test(name, fn) {
     // It captured the STATIC scene values, not the old #163 hardcoded 0.8π/0.5π.
     assert.strictEqual(captured.dirIntensity, STATIC_DIR_INTENSITY, 'captured the static 0.5π directional');
     assert.notStrictEqual(captured.dirIntensity, 0.8 * Math.PI, 'did not revert to the old 0.8π');
-    assert.strictEqual(captured.dirColor, 0xffffff, 'midday sun is white');
+    assert.strictEqual(captured.dirColor, STATIC_DIR_COLOR, 'midday sun is warm white (#FFF4E6, PR-V3)');
     // Midday sun direction is the normalized static (50,100,50).
     const expected = new THREE.Vector3(50, 100, 50).normalize();
     assert.ok(captured.sunPos.distanceTo(expected) < 1e-9, 'sun direction == static light');
@@ -178,13 +183,15 @@ function test(name, fn) {
   });
 
   // -------------------------------------------------------------------------
-  test('golden colour endpoints honour the scene colour-management opt-out (codex #163)', () => {
+  test('golden sun endpoint honours the scene colour-management opt-out (codex #163)', () => {
     // Production builds the scene with three colour management OFF (scene-setup opts
     // out before lights/fog are created). sky.ts is imported earlier, while CM is
     // still ON — so a module-scope golden Color endpoint would be linearised at
     // import and, lerped against the raw captured midday colours, render golden hour
-    // muddy/dark. The endpoints must be built inside applyAtmosphericSky, under the
-    // same opted-out regime, so their raw RGB matches the authored hex.
+    // muddy/dark. The remaining hardcoded endpoint (the golden SUN colour) must be
+    // built inside applyAtmosphericSky, under the same opted-out regime, so its raw
+    // RGB matches the authored hex. (The golden FOG endpoint is gone since PR-V3 —
+    // fog is now the Preetham horizon colour, covered by sky-preetham-eval-tests.)
     const prevCM = THREE.ColorManagement.enabled;
     try {
       THREE.ColorManagement.enabled = false;
@@ -194,7 +201,6 @@ function test(name, fn) {
       const close = (a, b, label) =>
         assert.ok(Math.abs(a.r - b.r) < 1e-6 && Math.abs(a.g - b.g) < 1e-6 && Math.abs(a.b - b.b) < 1e-6,
           `${label}: got (${a.r},${a.g},${a.b}) vs raw (${b.r},${b.g},${b.b}) — colour spaces mixed`);
-      close(scene.fog.color, new THREE.Color(0xe8dabd), 'golden fog raw-sRGB');
       close(directional.color, new THREE.Color(0xffbd8c), 'golden sun raw-sRGB');
     } finally {
       THREE.ColorManagement.enabled = prevCM;

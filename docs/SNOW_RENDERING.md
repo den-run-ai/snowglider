@@ -186,3 +186,29 @@ readability. Specifically the cycle must:
 
 See the `#163 implementation contract` in issue #188 for the full set of invariants
 and the `test:sky` coverage that enforces them.
+
+### Fog ↔ horizon coupling + warm midday key (completion-plan PR-V3)
+
+Two colour-truth fixes on top of the cycle:
+
+- **Fog is the sky.** The distance fog / background is no longer a hand-tuned constant
+  (`ATMOSPHERE_FOG_COLOR`) lerping to a warm golden constant. It is now the Preetham
+  dome's *own* colour at the **view-forward horizon** (−z, y≈0 — the run heads downhill,
+  so the player mostly faces the anti-solar horizon), evaluated per cycle phase by a
+  pure port of the dome fragment math (`src/sky-preetham-eval.ts`,
+  `evalPreethamColor`). Terrain therefore fades into exactly the colour the sky paints
+  where they meet, at every phase — killing the golden-hour seam where warm terrain fog
+  used to meet the cool anti-solar sky band. The midday fog endpoint is still *captured*
+  (from the eval), not hardcoded, so the frozen/reduced-motion state reproduces it
+  exactly. `sky-preetham-eval.ts` and the dome `SKY_SHADER` share the same scattering
+  constants and must stay in lockstep.
+- **Warm midday key.** The palette core is *warm sun, cool skylight* (sunlit snow
+  `#FFF6E6`), but the directional key was pure white `0xffffff` — with near-white snow
+  albedo, sunlit warmth can only come from the light. The midday key is now
+  `#FFF4E6` (slightly desaturated). Peak white on flats is unaffected: the
+  hemisphere+ambient fill already saturates an up-facing white surface to `(255,255,255)`,
+  so the warm key only tints midtones/shadowed pitches — the warm-sun / cool-shadow
+  relationship now holds at *every* phase, not only golden hour. The cool fill
+  (hemisphere/ambient) is untouched. `test:sky-preetham` pins the fog↔eval identity, the
+  anti-solar-cooler-than-solar seam guard, and the peak-white-within-2/255 bound; the
+  re-pinned `test:sky` midday `dirColor` records the warm key.
