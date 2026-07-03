@@ -36,7 +36,8 @@ import {
   limit,
   getDocs,
   serverTimestamp,
-  type Firestore
+  type Firestore,
+  type DocumentReference
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
@@ -111,18 +112,25 @@ function setCurrentUser(user: User | null) {
   currentUser = user;
 }
 
-function getActiveUser() {
+function getActiveUser(): User | null {
   if (currentUser) {
     return currentUser;
   }
 
-  const authModule = window.AuthModule;
+  // window.AuthModule is the untyped (any) boot bridge; narrow it to the two accessors
+  // used here so callers get a typed User back instead of any — otherwise type-checking
+  // is silently disabled on every .uid/.displayName access at this function's call sites.
+  const authModule = window.AuthModule as {
+    getAuthState?: () => { user?: User | null } | null;
+    getCurrentUser?: () => User | null;
+  } | null | undefined;
   if (!authModule) {
     return null;
   }
 
   try {
-    const authStateUser = authModule.getAuthState?.()?.user || authModule.getCurrentUser?.();
+    const authStateUser: User | null =
+      authModule.getAuthState?.()?.user || authModule.getCurrentUser?.() || null;
     // Anonymous "guest" users have no leaderboard identity: AuthModule still
     // reports them as signed in (so the UI shows logged-in chrome), but their best
     // time must stay local until they upgrade to a real provider (which reuses the
@@ -373,7 +381,7 @@ function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<Leaderbo
             scores.push({
               userId: docSnap.id, // The user ID is the document ID
               time: data.time,
-              userRef: data.user, // Store the DocumentReference to the user
+              userRef: data.user as DocumentReference, // Store the DocumentReference to the user
               // Denormalized name (may be absent on entries written before the
               // field existed — the renderer falls back to 'Anonymous').
               displayName: typeof data.displayName === 'string' ? data.displayName : null
@@ -505,7 +513,7 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
           // live auth profile name, which is fresher than the denormalized copy.
           const isCurrentUser = !!(activeUser && score.userId === activeUser.uid);
           const displayName = isCurrentUser ?
-            (activeUser.displayName || 'You') :
+            (activeUser?.displayName || 'You') :
             (score.displayName ?? 'Anonymous');
           table.appendChild(
             leaderboardRow(index + 1, displayName, null, score.time, isCurrentUser));
