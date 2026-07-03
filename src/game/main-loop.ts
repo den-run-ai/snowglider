@@ -585,6 +585,15 @@ export function createMainLoop(deps: MainLoopDeps) {
       // fog). Purely atmospheric; a no-op under reduced motion. (#163)
       Sky.update(frameDelta);
 
+      // Background scenery (#320): cosmetic-only tick in the render-frame zone (NOT the
+      // fixed physics substep). Reads the render delta, the player position, and the
+      // shared wind signals; never writes pos/velocity/treePositions/rockPositions/
+      // terrain/course state. A no-op until later PRs add animated layers.
+      state.scenery?.update(frameDelta, snowman.position, {
+        windStrength: Wind.strength(),
+        windGust: Wind.gust(),
+      });
+
       // --- Avalanche burial + survival check + warning UI -----------------------
       // Burial is checked ONCE PER RENDER FRAME here — after the player's substeps and
       // after this frame's avalanche.update (above) — and BEFORE hasPassed()/reset. So a

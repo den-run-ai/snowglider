@@ -58,6 +58,8 @@
     "test:contact-shadows": "node --import ./tests/loaders/register-ts-resolve.mjs tests/contact-shadows-tests.js",
     "test:wind": "node --import ./tests/loaders/register-ts-resolve.mjs tests/wind-tests.js",
     "test:tree-shed": "node --import ./tests/loaders/register-ts-resolve.mjs tests/tree-shed-tests.js",
+    "test:scenery-rng": "node --import ./tests/loaders/register-ts-resolve.mjs tests/scenery-rng-tests.js",
+    "test:scenery": "node --import ./tests/loaders/register-ts-resolve.mjs tests/scenery-tests.js",
     "test:coverage-merge": "node tests/coverage-merge-tests.js",
     "test:verify": "node tests/verification/physics_invariant_harness.js && node --import ./tests/loaders/register-ts-resolve.mjs tests/verification/dom_smoke_test.js",
     "test:turn-styles": "node tests/verification/turn_styles_compare.js",

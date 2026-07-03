@@ -123,6 +123,10 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   ctx.state.debris?.reset();
   ctx.state.snowTrails?.dispose();
   ctx.state.avalanche?.dispose();
+  // Background scenery (#320): dispose() frees the scenery group's GPU buffers plus any
+  // off-scene caches/loaders/listeners a later PR adds (the scene sweep above already
+  // caught its attached meshes; dispose() is idempotent, so the overlap is safe).
+  ctx.state.scenery?.dispose();
 
   // 4. Null the pooled tree singletons so a later rebuild re-creates them cleanly
   //    instead of holding freed-but-still-referenced handles (the scene sweep already
