@@ -32,7 +32,7 @@ function approx(a, b, tol = 0.001) {
 
 async function main() {
   const THREE = await import('three');
-  const { Camera, CAMERA_MODES, isThirdPerson } = await import('../src/camera.ts');
+  const { Camera, CAMERA_MODES, isThirdPerson, isCinematic, usesOrbitControls } = await import('../src/camera.ts');
   const { Mountains } = await import('../src/mountains.js');
 
   const newCamera = () => new Camera(new THREE.Scene());
@@ -49,20 +49,28 @@ async function main() {
       cam.minDistance === 15 && cam.maxDistance === 25 && cam.speedThreshold === 20);
     check('view controls start neutral (orbit 0, pitch 0, zoom 1)',
       cam.orbitYaw === 0 && cam.orbitPitch === 0 && cam.zoom === 1);
-    check('CAMERA_MODES lists the four modes in cycle order',
-      CAMERA_MODES.join(',') === 'auto,follow,orbit,firstPerson');
-    check('isThirdPerson() is true for auto/follow/orbit, false for firstPerson',
+    check('CAMERA_MODES lists the six modes in cycle order',
+      CAMERA_MODES.join(',') === 'auto,follow,orbit,firstPerson,cameraman,drone');
+    check('isThirdPerson() is true for every mode except the head cam',
       isThirdPerson('auto') && isThirdPerson('follow') && isThirdPerson('orbit') &&
-      !isThirdPerson('firstPerson'));
+      isThirdPerson('cameraman') && isThirdPerson('drone') && !isThirdPerson('firstPerson'));
+    check('isCinematic() is true only for cameraman/drone',
+      isCinematic('cameraman') && isCinematic('drone') &&
+      !isCinematic('auto') && !isCinematic('follow') && !isCinematic('orbit') && !isCinematic('firstPerson'));
+    check('usesOrbitControls() is true for auto/follow/orbit, false for FP + cinematic',
+      usesOrbitControls('auto') && usesOrbitControls('follow') && usesOrbitControls('orbit') &&
+      !usesOrbitControls('firstPerson') && !usesOrbitControls('cameraman') && !usesOrbitControls('drone'));
   }
 
-  console.log('\n--- toggleCameraMode cycles all four modes ---');
+  console.log('\n--- toggleCameraMode cycles all six modes ---');
   {
     const cam = newCamera();
     check('auto -> follow', cam.toggleCameraMode() === 'follow' && cam.mode === 'follow');
     check('follow -> orbit', cam.toggleCameraMode() === 'orbit' && cam.mode === 'orbit');
     check('orbit -> firstPerson', cam.toggleCameraMode() === 'firstPerson' && cam.mode === 'firstPerson');
-    check('firstPerson -> auto (wraps)', cam.toggleCameraMode() === 'auto' && cam.mode === 'auto');
+    check('firstPerson -> cameraman', cam.toggleCameraMode() === 'cameraman' && cam.mode === 'cameraman');
+    check('cameraman -> drone', cam.toggleCameraMode() === 'drone' && cam.mode === 'drone');
+    check('drone -> auto (wraps)', cam.toggleCameraMode() === 'auto' && cam.mode === 'auto');
   }
 
   console.log('\n--- setMode jumps directly ---');
@@ -412,6 +420,129 @@ async function main() {
     // offset (-sin0*2.5+0.2, 10, -cos0*2.5) = (0.2, 10, -2.5)
     check('first-person update keeps the camera at head height + offset',
       approx(p.x, 5.2) && approx(p.y, 30) && approx(p.z, 2.5));
+  }
+
+  console.log('\n--- cinematic modes: cinematicTargets profile (issue #315) ---');
+  {
+    const cam = newCamera();
+    // Profile: (mode, phase, slope, speed, isInAir) -> { angle, pitch, distMult }.
+    // At rest the drone sits high + far and the cameraman low + close; neither has slope/air
+    // lift yet (slope/air are gated on real downhill motion, like Auto's spawn-neutrality).
+    const droneRest = cam.cinematicTargets('drone', 0, 0, 0, false);
+    const camRest = cam.cinematicTargets('cameraman', 0, 0, 0, false);
+    check('drone sits more overhead than the cameraman (bigger pitch)', droneRest.pitch > camRest.pitch);
+    check('drone sits farther back than the cameraman (bigger distance mult)', droneRest.distMult > camRest.distMult);
+    check('cameraman trails off to one side at rest (nonzero angle)', Math.abs(camRest.angle) > 0.3);
+
+    // Steep/expert terrain WHILE SKIING pulls both modes back AND lifts them overhead.
+    for (const mode of ['drone', 'cameraman']) {
+      const flat = cam.cinematicTargets(mode, 0, 0, 12, false);
+      const steep = cam.cinematicTargets(mode, 0, 0.8, 12, false);
+      check(`${mode}: expert terrain pulls the camera back (vs same-speed flat)`, steep.distMult > flat.distMult + 0.1);
+      check(`${mode}: expert terrain lifts the camera overhead`, steep.pitch > flat.pitch + 0.05);
+      // Slope framing is gated on motion: a parked snowman on the steep spawn keeps the rest pose.
+      const parkedSteep = cam.cinematicTargets(mode, 0, 0.8, 0, false);
+      const rest = mode === 'drone' ? droneRest : camRest;
+      check(`${mode}: steep terrain does NOT pull back while stopped (gated on motion)`,
+        approx(parkedSteep.distMult, rest.distMult) && approx(parkedSteep.pitch, rest.pitch));
+      // A jump pulls back AND lifts even harder so the landing zone stays framed.
+      const air = cam.cinematicTargets(mode, 0, 0, 12, true);
+      check(`${mode}: airborne (jump) pulls the camera back`, air.distMult > flat.distMult + 0.1);
+      check(`${mode}: airborne (jump) lifts the camera overhead`, air.pitch > flat.pitch + 0.05);
+    }
+
+    // The drone's circle advances with the frame clock; the cameraman weaves side to side.
+    const droneA = cam.cinematicTargets('drone', 0, 0, 12, false).angle;
+    const droneB = cam.cinematicTargets('drone', 30, 0, 12, false).angle;
+    check('drone circle angle advances with the frame clock', droneB > droneA);
+    const weaveA = cam.cinematicTargets('cameraman', 0, 0, 12, false).angle;
+    const weaveB = cam.cinematicTargets('cameraman', 30, 0, 12, false).angle;
+    check('cameraman weave angle oscillates with the frame clock', weaveA !== weaveB);
+  }
+
+  console.log('\n--- cinematic modes: cinematicOffset mirrors followOffset math ---');
+  {
+    const cam = newCamera();
+    // At the same base distance the drone sits higher and farther out than the cameraman.
+    const drone = cam.cinematicOffset('drone', 15, 0, 0, 0, 0, false);
+    const man = cam.cinematicOffset('cameraman', 15, 0, 0, 0, 0, false);
+    check('drone offset sits higher than the cameraman offset', drone.y > man.y);
+    const droneDist = Math.hypot(drone.x, drone.z);
+    const manDist = Math.hypot(man.x, man.z);
+    check('drone offset sits farther out (horizontally) than the cameraman', droneDist > manDist);
+    check('cinematicOffset returns a THREE.Vector3', drone.isVector3 === true);
+  }
+
+  console.log('\n--- cinematic modes: update() drives framing, stays above terrain, no manual leak ---');
+  {
+    const cam = newCamera();
+    cam.setMode('drone');
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+    cam.initialize(player, rot);
+    // Drive a fast run so the situational terms engage; capture the orbit angle over frames.
+    cam.update(player, rot, { x: 0, z: 20 }, () => 0); // first-frame snap
+    const z0 = cam.camera.position.z;
+    for (let i = 0; i < 60; i++) cam.update(player, rot, { x: 0, z: 20 }, () => 0);
+    const z1 = cam.camera.position.z;
+    check('drone circle moves the camera around the rider over time', Math.abs(z1 - z0) > 0.5);
+    check('drone mode never writes the persisted manual zoom', approx(cam.zoom, 1));
+    check('drone mode never writes the persisted manual orbit yaw/pitch',
+      approx(cam.orbitYaw, 0) && approx(cam.orbitPitch, 0));
+
+    // Terrain floor clamp still holds for the low cameraman cam over buried terrain.
+    const low = newCamera();
+    low.setMode('cameraman');
+    const buried = new THREE.Vector3(0, -100, 0);
+    low.initialize(buried, rot);
+    low.update(buried, rot, { x: 0, z: 10 }, () => 0);
+    low.update(buried, rot, { x: 0, z: 10 }, () => 0);
+    const terrain = Mountains.getTerrainHeight(low.camera.position.x, low.camera.position.z);
+    check('cameraman camera is still clamped above terrain', low.camera.position.y >= terrain + 5 - 0.001);
+  }
+
+  console.log('\n--- cinematic modes: entry seats directly at the cinematic pose (issue #315, PR #319) ---');
+  {
+    // Switching to Cam/Drone must frame the advertised view on the FIRST rendered frame,
+    // not render one frame at the classic Follow pose (player + (0,8,15)) and then ease from
+    // it — that read as a visible snap. Both initialize() and update()'s first-frame snap
+    // must use the cinematic entry offset (via entryOffset).
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+
+    // Baseline: a follow camera entry seats at the classic pose (y = player+8).
+    const follow = newCamera();
+    follow.setMode('follow');
+    follow.initialize(player, rot);
+    check('follow entry is the classic behind pose (y ~ player+8)', approx(follow.camera.position.y, 58));
+
+    // Drone entry seats HIGH overhead immediately (well above the follow height), both after
+    // initialize() and after the first-frame snap — no Follow-pose intermediate frame.
+    const drone = newCamera();
+    drone.setMode('drone');
+    drone.initialize(player, rot);
+    const droneInitY = drone.camera.position.y;
+    check('drone initialize() seats high overhead, not the follow pose', droneInitY > player.y + 14);
+    drone.update(player, rot, { x: 0, z: 0 }, () => 0); // first-frame snap
+    check('drone first-frame snap stays at the high aerial pose (no snap to follow)',
+      drone.camera.position.y > player.y + 14 && approx(drone.camera.position.y, droneInitY, 0.001));
+
+    // Cameraman entry seats off to the side immediately (nonzero x from the side trail),
+    // where the classic follow pose would be x ~ 0 at yaw 0.
+    const man = newCamera();
+    man.setMode('cameraman');
+    man.initialize(player, rot);
+    check('cameraman initialize() seats off to the side (x != 0), not directly behind',
+      Math.abs(man.camera.position.x) > 3);
+    man.update(player, rot, { x: 0, z: 0 }, () => 0);
+    check('cameraman first-frame snap keeps the side-trailing pose', Math.abs(man.camera.position.x) > 3);
+
+    // The entry offset for a non-cinematic mode is byte-identical to followOffset (no regression).
+    const auto = newCamera(); // auto
+    const entry = auto.entryOffset(auto.minDistance, 0, player);
+    const classic = auto.followOffset(auto.minDistance, 0);
+    check('entryOffset falls back to followOffset for non-cinematic modes',
+      approx(entry.x, classic.x) && approx(entry.y, classic.y) && approx(entry.z, classic.z));
   }
 
   console.log('\n--- handleResize ---');

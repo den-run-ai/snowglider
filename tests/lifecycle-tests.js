@@ -77,8 +77,8 @@ async function main() {
 
   buildControlsDom();
   const hopBefore = lastRowText();
-  // Cycle order out of the camera manager: follow -> orbit -> firstPerson -> auto.
-  const { toggleCameraView } = createLifecycle(makeDeps(['follow', 'orbit', 'firstPerson', 'auto']));
+  // Cycle order out of the camera manager: follow -> orbit -> firstPerson -> cameraman -> drone -> auto.
+  const { toggleCameraView } = createLifecycle(makeDeps(['follow', 'orbit', 'firstPerson', 'cameraman', 'drone', 'auto']));
 
   const mode1 = toggleCameraView();
   check('toggle returns the new camera mode', mode1 === 'follow');
@@ -97,7 +97,11 @@ async function main() {
     toggleCameraView() === 'orbit' && rowText('#cameraViewControl') === 'V Camera: Orbit 360°');
   check('third toggle => First Person',
     toggleCameraView() === 'firstPerson' && rowText('#cameraViewControl') === 'V Camera: First Person');
-  check('fourth toggle wraps back to Auto',
+  check('fourth toggle => Cameraman',
+    toggleCameraView() === 'cameraman' && rowText('#cameraViewControl') === 'V Camera: Cameraman');
+  check('fifth toggle => Drone',
+    toggleCameraView() === 'drone' && rowText('#cameraViewControl') === 'V Camera: Drone');
+  check('sixth toggle wraps back to Auto',
     toggleCameraView() === 'auto' && rowText('#cameraViewControl') === 'V Camera: Auto');
   check('Hop turn row still untouched after cycling all modes',
     lastRowText() === 'Space+←/→ Hop turn — quick pivot on steeps');
@@ -143,8 +147,8 @@ async function main() {
     });
     createLifecycle(deps).initLifecycleUI();
 
-    check('tray is built with the four mode chips',
-      document.querySelectorAll('#cameraControls [data-cam-mode]').length === 4);
+    check('tray is built with the six mode chips',
+      document.querySelectorAll('#cameraControls [data-cam-mode]').length === 6);
     check('orbit slider is present (0–360)',
       !!document.getElementById('cameraOrbitSlider'));
 

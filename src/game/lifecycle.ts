@@ -15,7 +15,7 @@ import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { updateTimerDisplay } from '../ui/hud.js';
-import type { CameraMode } from '../camera.js';
+import { usesOrbitControls, type CameraMode } from '../camera.js';
 import type { SceneContext } from './scene-setup.js';
 
 // Radians the Q/E keys and tray arrows rotate the orbit per press.
@@ -178,6 +178,8 @@ export function createLifecycle(deps: LifecycleDeps) {
       case 'follow': return 'Follow';
       case 'orbit': return 'Orbit 360°';
       case 'firstPerson': return 'First Person';
+      case 'cameraman': return 'Cameraman';
+      case 'drone': return 'Drone';
       default: return String(mode);
     }
   }
@@ -206,14 +208,14 @@ export function createLifecycle(deps: LifecycleDeps) {
       cameraToggleBtn.textContent = `Camera: ${label}`;
     }
 
-    // Highlight the active mode chip in the camera tray, and disable the orbit/zoom
-    // widgets in first-person (they only affect the third-person rig).
-    const thirdPerson = mode !== 'firstPerson';
+    // Highlight the active mode chip in the camera tray, and disable the orbit/zoom widgets
+    // in the modes that ignore manual view controls (first person + the cinematic follows).
+    const orbitControls = usesOrbitControls(mode);
     document.querySelectorAll<HTMLElement>('#cameraControls [data-cam-mode]').forEach((btn) => {
       btn.setAttribute('aria-pressed', btn.getAttribute('data-cam-mode') === mode ? 'true' : 'false');
     });
     document.querySelectorAll<HTMLInputElement | HTMLButtonElement>('#cameraControls [data-cam-orbit], #cameraControls [data-cam-zoom]')
-      .forEach((el) => { el.disabled = !thirdPerson; });
+      .forEach((el) => { el.disabled = !orbitControls; });
   }
 
   // Cycle the camera mode (V key / toggle button): advance the mode, re-seat the
@@ -287,12 +289,14 @@ export function createLifecycle(deps: LifecycleDeps) {
     const tray = document.createElement('div');
     tray.id = 'cameraControls';
 
-    // Mode chips: Auto / Follow / Orbit / FP.
+    // Mode chips: Auto / Follow / Orbit / FP / Cameraman / Drone.
     const modes: Array<{ mode: CameraMode; label: string; title: string }> = [
       { mode: 'auto', label: 'Auto', title: 'Auto — smart camera that adapts to speed and turns' },
       { mode: 'follow', label: 'Follow', title: 'Follow — classic chase view behind the snowman' },
       { mode: 'orbit', label: 'Orbit', title: 'Orbit — free 360° camera you control' },
       { mode: 'firstPerson', label: 'FP', title: 'First person — over-the-head view' },
+      { mode: 'cameraman', label: 'Cam', title: 'Cameraman — cinematic ski-film chase; low, close, side-trailing' },
+      { mode: 'drone', label: 'Drone', title: 'Drone — cinematic aerial chase; high, far, slowly circling' },
     ];
     const modeRow = document.createElement('div');
     modeRow.className = 'cam-row';
@@ -356,9 +360,10 @@ export function createLifecycle(deps: LifecycleDeps) {
     // --- Keyboard: Q/E orbit, C recenter, +/- zoom (movement + V live in controls.ts) ---
     const handleCameraKey = (event: KeyboardEvent) => {
       if (!state.gameActive) return;
-      // Orbit/zoom only affect the third-person rig; ignore these keys in first person
-      // (the wheel/drag paths and the tray widgets already do — codex review, PR #306).
-      if (cameraManager.mode === 'firstPerson') return;
+      // Orbit/zoom apply only in the modes that honor manual view controls; ignore these
+      // keys in first person and the cinematic follows (the wheel/drag paths and the tray
+      // widgets do too — codex review, PR #306; cinematic modes issue #315).
+      if (!usesOrbitControls(cameraManager.mode)) return;
       // Don't hijack typing in form fields (e.g. the orbit slider has focus).
       const target = event.target as Element | null;
       if (target && typeof (target as HTMLElement).closest === 'function' &&
@@ -379,7 +384,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     // --- Mouse wheel: zoom the third-person rig (ignored over scrollable UI / FP) ---
     const handleWheel = (event: WheelEvent) => {
       if (!state.gameActive) return; // never swallow scroll on the menus / game-over screen
-      if (cameraManager.mode === 'firstPerson') return;
+      if (!usesOrbitControls(cameraManager.mode)) return;
       const target = event.target as Element | null;
       if (target && typeof (target as HTMLElement).closest === 'function' &&
           target.closest('#controlsGuide, #controlsContainer, #gameOverOverlay, #cameraControls')) return;
@@ -395,7 +400,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     const handlePointerDown = (event: PointerEvent) => {
       if (!state.gameActive) return; // only orbit during a live run
       if (event.pointerType !== 'mouse' || event.button !== 0) return; // mouse-drag only; touch = steering
-      if (cameraManager.mode === 'firstPerson') return;
+      if (!usesOrbitControls(cameraManager.mode)) return;
       const target = event.target as Element | null;
       if (target && typeof (target as HTMLElement).closest === 'function' &&
           target.closest('button, a, input, select, textarea, label, [role="button"], #controlsGuide, #controlsContainer, #gameOverOverlay, #cameraControls, #gameStatsContainer, #authContainer')) return;
