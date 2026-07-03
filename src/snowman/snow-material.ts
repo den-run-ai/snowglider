@@ -37,8 +37,7 @@ let shared: THREE.MeshStandardMaterial | null = null;
 function canvas2dAvailable(): boolean {
   if (typeof document === 'undefined') return false;
   try {
-    const ctx = document.createElement('canvas').getContext('2d') as
-      CanvasRenderingContext2D | null;
+    const ctx = document.createElement('canvas').getContext('2d');
     return !!ctx &&
       typeof ctx.createImageData === 'function' &&
       typeof ctx.putImageData === 'function';
