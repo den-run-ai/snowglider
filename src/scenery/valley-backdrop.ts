@@ -14,8 +14,9 @@
 // shader on the lake, no shadows, no per-frame update), collision-neutral & physics-neutral
 // (pure geometry in the scenery group; never touches treePositions/rockPositions/pos/
 // velocity), and Math.random-stream-neutral (placement from the seeded `rng`; every THREE
-// construction wrapped in withPrivateThreeRandom). `getTerrainHeight` is READ ONLY and only
-// used to keep the lakeside props from floating; terrain is never mutated.
+// construction wrapped in withPrivateThreeRandom). The valley is SELF-GROUNDED on its own
+// rendered floor and samples no terrain (see the GROUNDING note below), so it reads nothing
+// from the scene context.
 
 import * as THREE from 'three';
 import { withPrivateThreeRandom } from './scenery-rng.js';
