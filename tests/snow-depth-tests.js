@@ -31,6 +31,7 @@ async function main() {
   testBounds(SnowDepthField);
   testNonFiniteHardening(SnowDepthField);
   testDeterminism(SnowDepthField);
+  testUpdateGating(SnowDepthField);
   testResetAndDispose(SnowDepthField);
 
   console.log(`\nSNOW-DEPTH TOTAL: ${pass} passed, ${fail} failed`);
@@ -166,6 +167,66 @@ function testDeterminism(SnowDepthField) {
     if (a.depth[i] !== b.depth[i]) identical = false;
   }
   check('two fields driven with the same sequence are byte-identical', identical);
+}
+
+function testUpdateGating(SnowDepthField) {
+  console.log('update — driven off the grounded + moving trigger; physics-neutral (PR 2)');
+  // Airborne: no compaction (but refill still runs).
+  const air = new SnowDepthField();
+  air.update(0.1, { x: 0, y: 5, z: 0 }, true, 20);
+  check('airborne frames leave no track', air.sample(0, 0) === 1);
+
+  // Grounded but essentially stopped: no compaction.
+  const stopped = new SnowDepthField();
+  stopped.update(0.1, { x: 0, y: 0, z: 0 }, false, 0.2);
+  check('a stopped snowman leaves no track', stopped.sample(0, 0) === 1);
+
+  // Grounded + moving: a packed track appears.
+  const skiing = new SnowDepthField();
+  skiing.update(0.1, { x: 0, y: 0, z: 0 }, false, 20);
+  check('a grounded, moving snowman packs a track', skiing.sample(0, 0) < 1);
+
+  // update() must never mutate the player position object (physics-neutral).
+  const player = { x: 3, y: 1, z: -4 };
+  skiing.update(0.1, player, false, 20);
+  check('update() does not mutate the player position', player.x === 3 && player.y === 1 && player.z === -4);
+
+  // NaN player / speed must not corrupt the field.
+  const robust = new SnowDepthField();
+  robust.update(0.1, { x: NaN, y: 0, z: 0 }, false, 20);
+  robust.update(0.1, { x: 0, y: 0, z: 0 }, false, NaN);
+  check('NaN player / speed leave the field bounded and untracked',
+    robust.depth.every(v => v >= 0 && v <= 1 && Number.isFinite(v)) && robust.sample(0, 0) === 1);
+
+  // Frame-rate INDEPENDENCE + CONTINUITY (Codex #350): stamps are spaced by travelled
+  // DISTANCE, so a straight run packs the same continuous line whether it's one big frame
+  // or many small ones. Isolate compaction with refillRate 0 so the check is exact.
+  const coarse = new SnowDepthField({ refillRate: 0 });
+  const fine = new SnowDepthField({ refillRate: 0 });
+  // Same path (-10,0) -> (10,0): coarse in one 20-unit frame, fine in forty 0.5-unit steps.
+  coarse.update(0.1, { x: -10, y: 0, z: 0 }, false, 20);
+  coarse.update(0.1, { x: 10, y: 0, z: 0 }, false, 20);
+  fine.update(0.01, { x: -10, y: 0, z: 0 }, false, 20);
+  for (let i = 1; i <= 40; i++) fine.update(0.01, { x: -10 + i * 0.5, y: 0, z: 0 }, false, 20);
+  let continuous = true, matched = true;
+  for (let x = -9; x <= 9; x += 0.5) {
+    const c = coarse.sample(x, 0), f = fine.sample(x, 0);
+    if (c >= 1 || f >= 1) continuous = false;          // an unpacked point on the line == a gap
+    if (Math.abs(c - f) > 1e-6) matched = false;
+  }
+  check('the packed line is continuous along the path — no dots/gaps', continuous);
+  check('one big frame and many small frames pack an identical line (frame-rate independent)', matched);
+
+  // A jump must NOT draw a packed line across the airborne gap (the anchor drops when the
+  // skis leave the snow, so takeoff and landing tracks are separate).
+  const jump = new SnowDepthField({ refillRate: 0 });
+  jump.update(0.016, { x: -5, y: 0, z: 0 }, false, 20); // anchor
+  jump.update(0.016, { x: -4, y: 0, z: 0 }, false, 20); // ground: stamps -5 -> -4
+  jump.update(0.016, { x: 0, y: 5, z: 0 }, true, 20);   // airborne over the middle (no stamp)
+  jump.update(0.016, { x: 5, y: 0, z: 0 }, false, 20);  // land far: re-anchor, no cross-gap line
+  jump.update(0.016, { x: 6, y: 0, z: 0 }, false, 20);  // ground: stamps 5 -> 6
+  check('a jump leaves the airborne gap unpacked (no line across it)',
+    jump.sample(0, 0) === 1 && jump.sample(-4.5, 0) < 1 && jump.sample(5.5, 0) < 1);
 }
 
 function testResetAndDispose(SnowDepthField) {

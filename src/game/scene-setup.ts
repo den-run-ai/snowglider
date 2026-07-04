@@ -14,6 +14,7 @@ import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { AvalancheSystem } from '../avalanche.js';
 import { SnowTrails } from '../snowtracks.js';
+import { SnowDepthField } from '../mountains/snow-depth.js';
 import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
@@ -51,6 +52,7 @@ export const AVALANCHE_BOULDER_COUNT = BLUE_AVALANCHE.boulderCount;       // 120
 export interface GameState {
   avalanche: AvalancheSystem | null; // live avalanche system (null if module absent)
   snowTrails: SnowTrails | null;     // dynamic ski-trail / snow-accumulation visuals (#17)
+  snowDepth: SnowDepthField | null;  // persistent snow-depth field: packed ski lines + refill (#246)
   debris: SnowmanDebris | null;      // crash-shatter wipeout system (#53)
   scenery: ScenerySystem | null;     // background scenery: distant, non-interactive world (#320)
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
@@ -304,6 +306,7 @@ export function setupScene(signal?: AbortSignal) {
   const state: GameState = {
     avalanche: null,
     snowTrails: null,
+    snowDepth: null,
     debris: null,
     scenery: null,
     avalancheTriggered: false,
@@ -346,6 +349,14 @@ export function setupScene(signal?: AbortSignal) {
   const snowTrails = new SnowTrails(scene);
   snowTrails.setTerrainFunction(Snow.getTerrainHeight);
   state.snowTrails = snowTrails;
+
+  // --- Persistent snow-depth field (#246, PR 2: driven, not yet rendered) ---
+  // The skis pack this [0..1] depth grid into lasting ski lines that fresh snow refills;
+  // the main loop drives it off the same grounded/moving trigger as the ski trails. PR 2
+  // wires the seam only — the field carries NO GPU texture yet, so nothing changes on
+  // screen (a later PR samples it into the terrain material). Purely cosmetic data:
+  // never touches physics/pos/velocity/heightMap.
+  state.snowDepth = new SnowDepthField();
 
   // --- Initialize Snowman crash-shatter (#53) ---
   // The wipeout system. Constructed here so the coordinator can fire it from the
