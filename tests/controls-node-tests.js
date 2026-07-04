@@ -193,6 +193,32 @@ async function main() {
     nestedEvt.defaultPrevented === false);
   document.body.removeChild(uiBtn);
 
+  // The camera tray's fold header/title is a plain div (not a button), and on landscape
+  // phones the bottom-left tray sits inside a steering region. A fold tap/swipe that
+  // starts on that chrome must be treated as UI — NOT preventDefaulted and NOT read as
+  // ski steering — via the `#cameraControls` exclusion (Codex review, PR #331).
+  const camTray = document.createElement('div');
+  camTray.id = 'cameraControls';
+  const camHeader = document.createElement('div');
+  camHeader.id = 'cameraControlsHeader';
+  const camTitle = document.createElement('h3');
+  camTitle.textContent = '🎥 Camera';
+  camHeader.appendChild(camTitle);
+  camTray.appendChild(camHeader);
+  document.body.appendChild(camTray);
+  controls.left = false;
+  const camPoint = [{ identifier: 13, clientX: W / 6, clientY: H / 2 }];
+  for (const type of ['touchstart', 'touchmove', 'touchend']) {
+    const evt = /** @type {any} */ (new window.Event(type, { bubbles: true, cancelable: true }));
+    evt.changedTouches = camPoint;
+    camTitle.dispatchEvent(evt); // touch on the header TITLE (a non-button div)
+    check(`${type} on the camera tray header is NOT preventDefaulted (fold gesture, not steering)`,
+      evt.defaultPrevented === false);
+  }
+  check('a fold gesture on the camera tray header is never read as ski steering',
+    controls.left === false);
+  document.body.removeChild(camTray);
+
   console.log('\n--- visual touch controls (mobile) ---');
   check('mobile setup creates the 5 visual touch-control overlays',
     document.querySelectorAll('.touch-control').length === 5);
