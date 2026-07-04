@@ -544,6 +544,22 @@ async function main() {
   await flushAll();
   check('setCurrentUser with no pending work does not reinitialize', calls.reinitializeFirestore === 0);
 
+  console.log('\n--- offline-queue: a FAILED online sync is queued for retry (Codex #362) ---');
+  // Online + Firestore ready + signed-in ranked finish, but the user-doc write fails
+  // (flaky Firestore). updateUserBestTime resolves false, so recordScore must mark the
+  // best pending — otherwise the best is stranded in localStorage with no retry (the
+  // finish-path queueOfflineBest no-ops while online).
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'u-flaky-sync', isAnonymous: false, displayName: 'FlakySync' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  setNextSetDocError('users/u-flaky-sync', { code: 'unavailable' }); // the personal-best write fails
+  ScoresModule.recordScore(25); // Blue (ranked); fresh best => effectiveBestTime = 25
+  await flushAll();
+  const pendingAfterFail = JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}');
+  check('a failed online ranked sync is queued pending for retry',
+    !!pendingAfterFail.blue && pendingAfterFail.blue.time === 25);
+
   console.log(`\nSCORES TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

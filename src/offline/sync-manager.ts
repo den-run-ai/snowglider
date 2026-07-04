@@ -90,6 +90,23 @@ export function queueOfflineBest(tier: Difficulty, time: number, deps: SyncDeps)
 }
 
 /**
+ * Mark a best pending because an ONLINE sync attempt did NOT confirm — the finish path
+ * ran updateUserBestTime while online + Firestore-ready, but it resolved `false` (a
+ * transient getDoc/setDoc/leaderboard failure) or rejected. Unlike queueOfflineBest this
+ * ignores current connectivity (the attempt already happened and failed), so eligibility
+ * — a real signed-in user on a ranked tier — is enough to queue a retry. Without this a
+ * flaky-Firestore online finish would strand the best in localStorage with no marker, and
+ * queueOfflineBest no-ops while online (Codex #362). Returns whether a marker was written.
+ * Never throws.
+ */
+export function queueFailedSync(tier: Difficulty, time: number, deps: SyncDeps): boolean {
+  const user = deps.getActiveUser();
+  // canSyncNow = false: the online attempt already failed, so eligibility + ranked is enough.
+  if (!shouldQueuePending(user, tier, false)) return false;
+  return markPendingSync(tier, time, deps.storage === undefined ? {} : { storage: deps.storage });
+}
+
+/**
  * Flush queued pending syncs. No-ops unless online, Firestore is ready, and a real user
  * is signed in. For each queued RANKED tier it awaits the authoritative sync and clears
  * that tier's marker ONLY when the write is CONFIRMED (sync resolves anything but

@@ -60,7 +60,7 @@ import {
 // sync now, and flush the queue on reconnect. The pending marker is durable across a
 // tab close (localStorage) — it fills the gap where Firestore was not initialized at
 // finish time (offline first-load), which the SDK's own offline write-queue can't cover.
-import { queueOfflineBest, flushPendingSync, hasPendingSync, type SyncDeps } from './offline/sync-manager.js';
+import { queueOfflineBest, queueFailedSync, flushPendingSync, hasPendingSync, type SyncDeps } from './offline/sync-manager.js';
 
 // Module state
 let firestore: Firestore | null = null; // Local cache of firestore instance, updated by initializeScores
@@ -731,10 +731,17 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
     // safe and never downgrades a faster stored time.
     if (userAtTimeOfRecord && firestore) {
       console.log("Attempting to sync best time to Firestore:", effectiveBestTime, `(${tier})`);
-      // Use the snapshot of user data captured at function start time
-      // Fire-and-forget from the finish path (its own SDK-queue durability); the
-      // returned success promise only matters to the offline-queue flush.
-      void updateUserBestTime(userAtTimeOfRecord.uid, effectiveBestTime, tier); // This function handles leaderboard update too
+      // Fire-and-forget for the finish UI, BUT capture a non-confirming result: this sync
+      // now resolves `false` when it doesn't settle (transient getDoc/setDoc/leaderboard
+      // failure). While online + Firestore-ready the queueOfflineBest() call below writes
+      // no marker, so without this a flaky-Firestore online finish would strand the best in
+      // localStorage with no reconnect retry — so on a non-confirming result (or a
+      // rejection) mark it pending for a later reconnect/auth-restore flush (Codex #362).
+      void updateUserBestTime(userAtTimeOfRecord.uid, effectiveBestTime, tier) // This function handles leaderboard update too
+        .then((confirmed) => {
+          if (confirmed === false) queueFailedSync(tier, effectiveBestTime, buildSyncDeps());
+        })
+        .catch(() => { queueFailedSync(tier, effectiveBestTime, buildSyncDeps()); });
 
       // Track new best time in Analytics (if available)
       if (isNewLocalBest && analytics) {

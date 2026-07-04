@@ -60,6 +60,25 @@ async function main() {
   ls = createLocalStorageMock();
   check('does NOT queue an unranked tier', sm.queueOfflineBest('black', 30, deps({ online: false, storage: ls })) === false);
 
+  // --- queueFailedSync: an ONLINE attempt that didn't confirm still queues (Codex #362) ---
+  // Unlike queueOfflineBest it ignores connectivity: the sync already ran online + failed,
+  // so eligibility + ranked is enough — otherwise a flaky-Firestore online finish strands
+  // the best in localStorage with no retry marker.
+  ls = createLocalStorageMock();
+  check('queues a failed ONLINE ranked sync even though it "could sync now"',
+    sm.queueFailedSync('blue', 30, deps({ online: true, firestore: true, storage: ls })) === true);
+  check('marker written for the failed online blue sync',
+    store.getPendingSync('blue', ls) !== null && store.getPendingSync('blue', ls).time === 30);
+  ls = createLocalStorageMock();
+  check('queueFailedSync does NOT queue an anonymous guest',
+    sm.queueFailedSync('blue', 30, deps({ user: GUEST, online: true, firestore: true, storage: ls })) === false);
+  ls = createLocalStorageMock();
+  check('queueFailedSync does NOT queue an unranked tier',
+    sm.queueFailedSync('black', 30, deps({ online: true, firestore: true, storage: ls })) === false);
+  ls = createLocalStorageMock();
+  check('queueFailedSync does NOT queue a signed-out user',
+    sm.queueFailedSync('blue', 30, deps({ user: null, online: true, firestore: true, storage: ls })) === false);
+
   // --- hasPendingSync (drives the reconnect reinit decision) ---
   ls = createLocalStorageMock();
   check('hasPendingSync false when empty', sm.hasPendingSync(ls) === false);
