@@ -1,3 +1,4 @@
+// @ts-check
 // scenery-ambient-tests.js — headless coverage for the ambient-life layer
 // (src/scenery/ambient-life.ts, issue #320 PR 7): drifting clouds, circling birds, spindrift.
 //
@@ -130,7 +131,7 @@ function testStreamNeutrality(THREE, build, makeSceneryRng, budget) {
 // leaves every matrix untouched.
 async function testReducedMotion(THREE, build, makeSceneryRng, budget) {
   console.log('--- ambient life: frozen under prefers-reduced-motion ---');
-  const g = globalThis;
+  const g = /** @type {any} */ (globalThis);
   const prevWindow = g.window;
   g.window = { matchMedia: (q) => ({ matches: /prefers-reduced-motion/.test(q) }) };
   try {

@@ -1,3 +1,4 @@
+// @ts-check
 // scenery-belts-tests.js — headless coverage for the decorative forest belts
 // (src/scenery/forest-belts.ts, issue #320 PR 4).
 //

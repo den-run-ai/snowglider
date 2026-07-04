@@ -1,3 +1,4 @@
+// @ts-check
 // scenery-ridges-tests.js — headless coverage for the distant alpine panorama
 // (src/scenery/distant-ridges.ts, issue #320 PR 2): the layered ridge silhouettes.
 //

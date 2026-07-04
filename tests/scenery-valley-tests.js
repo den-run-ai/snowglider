@@ -1,3 +1,4 @@
+// @ts-check
 // scenery-valley-tests.js — headless coverage for the valley backdrop
 // (src/scenery/valley-backdrop.ts, issue #320 PR 3): frozen lake + far lodges +
 // forest patches.

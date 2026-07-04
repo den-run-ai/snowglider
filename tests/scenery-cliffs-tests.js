@@ -1,3 +1,4 @@
+// @ts-check
 // scenery-cliffs-tests.js — headless coverage for the flank cliff outcrops
 // (src/scenery/cliff-bands.ts, issue #320 PR 5).
 //
