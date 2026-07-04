@@ -89,8 +89,13 @@ async function main() {
   const ghost = findGhost();
 
   check('a ghost object is spawned into the scene', !!ghost);
-  check('ghost is visible during playback', !!ghost && ghost.visible === true);
-  check('ghost x/z follow the recorded track', !!ghost && ghost.position.x === 0 && ghost.position.z === START_Z - 20);
+  // The on-screen ghost is hidden by default (GHOST_VISIBLE = false in course.ts): it
+  // read as confusing / visually blocking, so the apparition stays invisible. Playback
+  // still runs every frame on the hidden mesh (the x/z-follow and terrain-clamp checks
+  // below prove it), keeping the trajectory available for testing / evals. Flip
+  // GHOST_VISIBLE to true to show it, and this assertion to `=== true`.
+  check('ghost stays hidden during playback (GHOST_VISIBLE = false)', !!ghost && ghost.visible === false);
+  check('ghost x/z still follow the recorded track (playback runs while hidden)', !!ghost && ghost.position.x === 0 && ghost.position.z === START_Z - 20);
   check('ghost is NOT buried: render y is clamped up to the current surface',
     !!ghost && ghost.position.y >= RAISED_SURFACE - 1e-6);
 
