@@ -547,6 +547,265 @@ async function main() {
       approx(entry.x, classic.x) && approx(entry.y, classic.y) && approx(entry.z, classic.z));
   }
 
+  console.log('\n--- cameraman path-follow: model-yaw flip does not orbit-flip the target (issue #357) ---');
+  {
+    // The bug: cameraman used `playerRotation.y + angle`, so a sudden model-yaw flip (terrain /
+    // pose) whipped the camera to the opposite lane around the rider. Path-follow reads the
+    // travelled trajectory, not the instantaneous yaw. To isolate the YAW's effect from the
+    // camera's normal per-frame drift, run two identical cameramen down the same straight line
+    // and differ ONLY in the model yaw on the final frame; the targets must be (near) identical.
+    const runCameraman = (finalYaw) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const rot = new THREE.Euler(0, 0, 0);
+      const player = new THREE.Vector3(0, 50, 0);
+      const vel = { x: 0, z: 20 }; // straight downhill, fast enough to source heading from velocity
+      cam.initialize(player, rot);
+      cam.update(player, rot, vel, () => 0); // first-frame snap
+      for (let i = 0; i < 60; i++) { player.z += 0.5; cam.update(player, rot, vel, () => 0); }
+      player.z += 0.5;
+      cam.update(player, new THREE.Euler(0, finalYaw, 0), vel, () => 0);
+      return cam.smoothingVectors.targetPosition.clone();
+    };
+    const straight = runCameraman(0);           // no yaw change
+    const flipped = runCameraman(Math.PI);      // 180° model-yaw flip on the last frame
+    // Old orbit-derived math would swing the target by ~2·horiz (tens of units) across the rider.
+    check('a π model-yaw flip does not move the cameraman target across the rider (x)',
+      Math.abs(flipped.x - straight.x) < 0.5);
+    check('a π model-yaw flip does not move the cameraman target across the rider (z)',
+      Math.abs(flipped.z - straight.z) < 0.5);
+  }
+
+  console.log('\n--- cameraman path-follow: a curving line turns the camera gradually (issue #357) ---');
+  {
+    // Feed a straight line, then abruptly steer the travel direction 90°. The framing heading
+    // must ease (turn over many frames), never snap lane-to-lane in a single frame.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const rot = new THREE.Euler(0, 0, 0);
+    const player = new THREE.Vector3(0, 50, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 20 }, () => 0); // snap
+    for (let i = 0; i < 60; i++) { player.z += 0.5; cam.update(player, rot, { x: 0, z: 20 }, () => 0); }
+    const h0 = cam.cameramanHeading; // ~0 (travelling +z)
+    // One frame of a 90° steer (now travelling +x): heading must NOT jump the full 90°.
+    player.x += 0.5;
+    cam.update(player, rot, { x: 20, z: 0 }, () => 0);
+    const h1 = cam.cameramanHeading;
+    check('the framing heading does not snap the full turn in one frame',
+      Math.abs(h1 - h0) < 0.5); // a 90° (~1.57 rad) snap would blow past this
+    // Keep steering +x for many frames: the heading converges toward the new travel direction.
+    for (let i = 0; i < 140; i++) { player.x += 0.5; cam.update(player, rot, { x: 20, z: 0 }, () => 0); }
+    const h2 = cam.cameramanHeading;
+    check('the framing heading converges toward the new travel direction over many frames',
+      h2 > h0 + 0.5);
+  }
+
+  console.log('\n--- cameraman lookAt eases toward the target instead of copying it (issue #357) ---');
+  {
+    // The old code copied playerPosition into lookAtPosition and looked at it immediately, so the
+    // view snapped. Cameraman now eases the smoothed lookAt toward the desired subject target.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const rot = new THREE.Euler(0, 0, 0);
+    const player = new THREE.Vector3(0, 50, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 0 }, () => 0); // snap: lookAtPosition seeded to player (x=0)
+    // Teleport the subject far in +x with no velocity (no look-ahead); the lookAt must ease, not jump.
+    const moved = new THREE.Vector3(100, 50, 0);
+    cam.update(moved, rot, { x: 0, z: 0 }, () => 0);
+    const look1 = cam.smoothingVectors.lookAtPosition.x;
+    check('cameraman lookAt moves only partway toward the jumped target on the first frame',
+      look1 > 1 && look1 < 99);
+    // Over many frames it converges onto the target.
+    for (let i = 0; i < 200; i++) cam.update(moved, rot, { x: 0, z: 0 }, () => 0);
+    check('cameraman lookAt converges onto the target over many frames',
+      approx(cam.smoothingVectors.lookAtPosition.x, 100, 1));
+
+    // Non-cameraman modes keep the byte-identical straight-copy lookAt (ease factor 1.0).
+    const follow = newCamera();
+    follow.setMode('orbit');
+    const p = new THREE.Vector3(0, 50, 0);
+    follow.initialize(p, rot);
+    follow.update(p, rot, { x: 0, z: 0 }, () => 0); // snap
+    const jumped = new THREE.Vector3(40, 50, 0);
+    follow.update(jumped, rot, { x: 0, z: 0 }, () => 0);
+    check('non-cameraman lookAt still copies the target exactly (no easing regression)',
+      approx(follow.smoothingVectors.lookAtPosition.x, 40));
+  }
+
+  console.log('\n--- cameraman path state resets on restart / mode (re)entry (issue #357) ---');
+  {
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const rot = new THREE.Euler(0, 0, 0);
+    const player = new THREE.Vector3(0, 50, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 20 }, () => 0); // snap
+    for (let i = 0; i < 30; i++) { player.z += 0.5; cam.update(player, rot, { x: 0, z: 20 }, () => 0); }
+    check('cameraman records path history while active', cam.cameramanPath.length > 1);
+    cam.initialize(new THREE.Vector3(0, 50, 0), rot);
+    check('re-initialize (restart) clears the cameraman path',
+      cam.cameramanPath.length === 0 && cam.cameramanPathDistance === 0 && cam.cameramanHeading === null);
+    // Re-entering cameraman via setMode also clears any stale stint.
+    cam.cameramanPath.push({ x: 999, y: 0, z: 999, s: 5, heading: 0 });
+    cam.cameramanPathDistance = 5;
+    cam.setMode('orbit');
+    cam.setMode('cameraman');
+    check('re-entering cameraman clears a stale path from the previous stint',
+      cam.cameramanPath.length === 0 && cam.cameramanHeading === null);
+  }
+
+  console.log('\n--- cameraman path-follow: target height anchors to the uphill trail point (issue #357, PR #356) ---');
+  {
+    // The trail point is uphill of the rider on a descent (higher terrain). Anchoring the target
+    // height to the rider's (lower) y would seat it at/below terrain at the trail x/z, so the
+    // floor clamp drags the camera along the ground. Anchoring to trail.y preserves the elevated
+    // low-side pose. Two runs share identical horizontal motion (=> identical framing/height);
+    // only the y-profile differs, isolating the anchor: the descending run must lift MORE.
+    const runProfile = (descend) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const rot = new THREE.Euler(0, 0, 0);
+      const player = new THREE.Vector3(0, 200, 0);
+      const vel = { x: 0, z: 20 };
+      cam.initialize(player, rot);
+      cam.update(player, rot, vel, () => 0); // snap
+      for (let i = 0; i < 60; i++) {
+        player.z += 0.8;
+        if (descend) player.y -= 0.8; // steep descent: trail behind stays higher than the rider
+        cam.update(player, rot, vel, () => 0);
+      }
+      return { targetY: cam.smoothingVectors.targetPosition.y, playerY: player.y };
+    };
+    const flat = runProfile(false);
+    const desc = runProfile(true);
+    const flatLift = flat.targetY - flat.playerY; // == height only (trail.y == player.y)
+    const descLift = desc.targetY - desc.playerY; // == height + (uphill trail.y - player.y)
+    check('descending cameraman target lifts above the rider by more than the flat case (trail.y anchor)',
+      descLift > flatLift + 3);
+  }
+
+  console.log('\n--- cameraman path: history trims, slow-speed heading, empty-path fallback (issue #357) ---');
+  {
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const rot = new THREE.Euler(0, 0, 0);
+    const player = new THREE.Vector3(0, 50, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 20 }, () => 0); // snap
+    // Travel well past CAMERAMAN_HISTORY_DISTANCE (120u) so the oldest samples are trimmed.
+    for (let i = 0; i < 400; i++) { player.z += 0.8; cam.update(player, rot, { x: 0, z: 20 }, () => 0); }
+    check('path history stays bounded after long travel (oldest samples trimmed)',
+      cam.cameramanPath.length > 2 && cam.cameramanPath.length < 300 &&
+      (cam.cameramanPathDistance - cam.cameramanPath[0].s) <= 121);
+
+    // Slow-speed sample derives heading from the position delta, not the (near-zero) velocity.
+    const c2 = newCamera();
+    c2.resetCameramanPath();
+    c2.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 0, z: 0 }, 0.3);
+    c2.recordCameramanPath(new THREE.Vector3(1, 0, 1), { x: 0, z: 0 }, 0.3); // speed 0 -> atan2(dx,dz)=π/4
+    const last = c2.cameramanPath[c2.cameramanPath.length - 1];
+    check('a slow-speed sample takes its heading from the position delta', approx(last.heading, Math.PI / 4, 0.001));
+
+    // sampleCameramanTrail on an empty path returns a finite fallback instead of throwing.
+    const c3 = newCamera();
+    c3.resetCameramanPath();
+    const fb = c3.sampleCameramanTrail(5);
+    check('sampleCameramanTrail on an empty path returns a finite fallback',
+      Number.isFinite(fb.x) && Number.isFinite(fb.y) && Number.isFinite(fb.z));
+  }
+
+  console.log('\n--- cameraman path: long frames stay evenly spaced; heading seeds from travel (issue #357, PR #356) ---');
+  {
+    // A long/hitchy frame (or high speed) that covers several spacings must lay each missed
+    // sample ALONG the segment at ~CAMERAMAN_SAMPLE_SPACING, not one endpoint sample — otherwise
+    // the path spacing (and the sampled trail/heading) would be frame-rate dependent.
+    const cam = newCamera();
+    cam.resetCameramanPath();
+    cam.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 0, z: 20 }, 0); // seed at origin
+    cam.recordCameramanPath(new THREE.Vector3(0, 0, 3.0), { x: 0, z: 20 }, 0); // one 3.0u frame
+    const gaps = [];
+    for (let i = 1; i < cam.cameramanPath.length; i++) gaps.push(cam.cameramanPath[i].s - cam.cameramanPath[i - 1].s);
+    check('a long frame inserts several evenly-spaced samples along the segment (not one endpoint)',
+      cam.cameramanPath.length >= 4 && gaps.length >= 3 && gaps.every(g => approx(g, 0.75)));
+
+    // Frame-rate independence: the same 3.0u path taken in 4 small frames vs 1 big frame yields
+    // (near) identical sample spacing and a matching sampled trail point.
+    const fine = newCamera();
+    fine.resetCameramanPath();
+    fine.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 0, z: 20 }, 0);
+    for (let k = 1; k <= 4; k++) fine.recordCameramanPath(new THREE.Vector3(0, 0, 0.75 * k), { x: 0, z: 20 }, 0);
+    check('a long frame and many short frames produce the same total path distance',
+      approx(cam.cameramanPathDistance, fine.cameramanPathDistance, 0.01));
+
+    // The FIRST sample seeds its heading from travel (velocity), not a temporarily-flipped model
+    // yaw — so entering/restarting cameraman while moving can't start the camera on the wrong lane.
+    const seed = newCamera();
+    seed.resetCameramanPath();
+    seed.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 20, z: 0 }, Math.PI); // travel +x (π/2), yaw flipped to π
+    check('the first cameraman sample seeds heading from travel, not the flipped model yaw',
+      approx(seed.cameramanPath[0].heading, Math.PI / 2, 0.001) && approx(seed.cameramanHeading, Math.PI / 2, 0.001));
+    // With no travel signal it still falls back to the model yaw.
+    const still = newCamera();
+    still.resetCameramanPath();
+    still.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 0, z: 0 }, 0.4); // stopped
+    check('a stopped first sample falls back to the model yaw', approx(still.cameramanPath[0].heading, 0.4, 0.001));
+  }
+
+  console.log('\n--- cameraman entry snap frames from travel, not a flipped model yaw (issue #357, PR #356) ---');
+  {
+    // Switching to cameraman mid-run (V/tray) calls initialize() then update()'s first-frame snap.
+    // If playerRotation.y is momentarily flipped, a yaw-based entry would seat the FIRST rendered
+    // frame on the wrong lane before path-follow engages. The entry now frames from velocity, so
+    // two entries with the same travel but opposite yaw land at the same camera pose.
+    const entryFor = (yaw) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const player = new THREE.Vector3(0, 50, 0);
+      const rot = new THREE.Euler(0, yaw, 0);
+      cam.initialize(player, rot);
+      cam.update(player, rot, { x: 0, z: 20 }, () => 0); // first-frame snap with forward travel
+      return cam.camera.position.clone();
+    };
+    const straight = entryFor(0);
+    const flipped = entryFor(Math.PI); // 180° model-yaw flip, same +z travel
+    check('cameraman entry snap is immune to a flipped model yaw when moving (x)',
+      Math.abs(straight.x - flipped.x) < 1);
+    check('cameraman entry snap is immune to a flipped model yaw when moving (z)',
+      Math.abs(straight.z - flipped.z) < 1);
+
+    // Entry with no travel still uses the model yaw (unchanged behaviour: opposite yaw flips side).
+    const restEntry = (yaw) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const player = new THREE.Vector3(0, 50, 0);
+      cam.initialize(player, new THREE.Euler(0, yaw, 0));
+      return cam.camera.position.clone();
+    };
+    check('a stopped cameraman entry still frames from the model yaw',
+      Math.abs(restEntry(0).x - restEntry(Math.PI).x) > 3);
+
+    // The entry pose must match the FIRST steady path-follow frame (side + up, no trailing term),
+    // so the position smoothing doesn't swing the camera around the rider on the next frame. The
+    // old cinematicOffset entry seated a full `horiz` behind/side, ~a right-angle away from the
+    // steady side pose → a large horizontal gap; the fixed entry gap is just the radial ease.
+    const noSnap = newCamera();
+    noSnap.setMode('cameraman');
+    const p2 = new THREE.Vector3(0, 50, 0);
+    const r2 = new THREE.Euler(0, 0, 0);
+    const v2 = { x: 0, z: 20 };
+    noSnap.initialize(p2, r2);
+    noSnap.update(p2, r2, v2, () => 0);            // frame 1: entry snap
+    const entryPos = noSnap.camera.position.clone();
+    noSnap.update(p2, r2, v2, () => 0);            // frame 2: first steady path-follow target
+    const steadyTarget = noSnap.smoothingVectors.targetPosition.clone();
+    const horizGap = Math.hypot(steadyTarget.x - entryPos.x, steadyTarget.z - entryPos.z);
+    check('cameraman entry pose matches the first steady frame (no swing-around snap)', horizGap < 9);
+    check('cameraman entry and first steady frame are on the same side of the rider (x sign)',
+      Math.sign(entryPos.x) === Math.sign(steadyTarget.x) && Math.abs(entryPos.x) > 1);
+  }
+
   console.log('\n--- handleResize ---');
   {
     const cam = newCamera();
