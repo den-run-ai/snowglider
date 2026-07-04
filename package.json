@@ -62,6 +62,7 @@
     "test:scenery": "node --import ./tests/loaders/register-ts-resolve.mjs tests/scenery-tests.js",
     "test:scenery-ridges": "node --import ./tests/loaders/register-ts-resolve.mjs tests/scenery-ridges-tests.js",
     "test:scenery-valley": "node --import ./tests/loaders/register-ts-resolve.mjs tests/scenery-valley-tests.js",
+    "test:scenery-belts": "node --import ./tests/loaders/register-ts-resolve.mjs tests/scenery-belts-tests.js",
     "test:coverage-merge": "node tests/coverage-merge-tests.js",
     "test:verify": "node tests/verification/physics_invariant_harness.js && node --import ./tests/loaders/register-ts-resolve.mjs tests/verification/dom_smoke_test.js",
     "test:turn-styles": "node tests/verification/turn_styles_compare.js",
