@@ -1,16 +1,21 @@
 // @ts-check
-// snow-depth-tests.js — headless coverage for the persistent snow-depth field LOGIC
-// (src/mountains/snow-depth.ts, issue #246, visual-only v1 · PR 1 of the stack).
+// snow-depth-tests.js — headless coverage for the persistent snow-depth field
+// (src/mountains/snow-depth.ts, issue #246, visual-only v1 · PRs 1–3 of the stack).
 //
-// PR 1 is PURE FIELD LOGIC with no renderer integration, so it is fully Node-testable —
-// which is exactly what #246 asks the field PR to pin:
+// The field logic is fully Node-testable — exactly what #246 asks the field PR to pin:
 //   * construction is full powder (depth 1) everywhere
 //   * compaction lowers depth near the pass, tapering to the rim, clamped >= 0
 //   * refill raises packed cells back toward full, clamped <= 1
 //   * values stay bounded in [0..1] under an adversarial input sequence
 //   * the field is deterministic for a fixed input sequence
-//   * it consumes ZERO global Math.random (stream-neutral by construction — no THREE yet)
-//   * reset() restores full powder; dispose() is a safe idempotent no-op
+//   * it consumes ZERO global Math.random (the DataTexture UUID draw is privately guarded)
+//   * update() is driven off the grounded+moving trigger and never mutates the player (PR 2)
+//   * the DataTexture byte mirror stays in sync via flush(); applySnowDepthModulation wires
+//     the terrain material's onBeforeCompile without removing its chunks (PR 3)
+//   * reset() restores full powder; dispose() frees the texture idempotently
+//
+// The live shader COMPILE + per-frame perf are verified separately by the e2e checks
+// (tests/e2e/perf-budget.spec.ts / boot smoke), per #246 — node tests cover the logic.
 //
 // Run via the ts-resolve loader (the auto-runner supplies it):
 //   node --import ./tests/loaders/register-ts-resolve.mjs tests/snow-depth-tests.js
@@ -20,7 +25,7 @@ let pass = 0, fail = 0;
 function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: ${name}`); cond ? pass++ : fail++; }
 
 async function main() {
-  const { SnowDepthField } = await import('../src/mountains/snow-depth.ts');
+  const { SnowDepthField, applySnowDepthModulation } = await import('../src/mountains/snow-depth.ts');
 
   testConstruction(SnowDepthField);
   testStreamNeutrality(SnowDepthField);
@@ -32,6 +37,8 @@ async function main() {
   testNonFiniteHardening(SnowDepthField);
   testDeterminism(SnowDepthField);
   testUpdateGating(SnowDepthField);
+  testTextureAndFlush(SnowDepthField);
+  testShaderModulation(SnowDepthField, applySnowDepthModulation);
   testResetAndDispose(SnowDepthField);
 
   console.log(`\nSNOW-DEPTH TOTAL: ${pass} passed, ${fail} failed`);
@@ -229,16 +236,73 @@ function testUpdateGating(SnowDepthField) {
     jump.sample(0, 0) === 1 && jump.sample(-4.5, 0) < 1 && jump.sample(5.5, 0) < 1);
 }
 
+function testTextureAndFlush(SnowDepthField) {
+  console.log('texture + flush (PR 3) — GPU mirror stays in sync');
+  const f = new SnowDepthField();
+  check('owns a DataTexture matching the grid dimensions',
+    !!f.texture && f.texture.image.width === f.cols && f.texture.image.height === f.rows);
+  check('texture starts as a full-powder byte mirror (all 255)',
+    f.texture.image.data.every(v => v === 255));
+  // A packing pass + flush must lower the corresponding texel bytes.
+  f.compactAt(0, 0);
+  f.flush();
+  check('flush lowers the packed texel bytes below 255',
+    Array.from(f.texture.image.data).some(v => v < 255));
+  // A clean flush is a cheap no-op — three bumps texture.version on each needsUpdate=true,
+  // so a no-op flush must NOT bump it (needsUpdate itself is a write-only setter).
+  const versionAfterFlush = f.texture.version;
+  f.flush();
+  check('a clean flush does not re-upload the texture (version unchanged)',
+    f.texture.version === versionAfterFlush);
+  // A packing pass re-uploads after the next flush (version bumps).
+  f.compactAt(10, 10);
+  f.flush();
+  check('a change re-uploads the texture (version bumps)', f.texture.version > versionAfterFlush);
+}
+
+function testShaderModulation(SnowDepthField, applySnowDepthModulation) {
+  console.log('applySnowDepthModulation (PR 3) — onBeforeCompile injection');
+  const f = new SnowDepthField();
+  // A minimal material stand-in — the function only assigns onBeforeCompile + cache key.
+  const material = {};
+  applySnowDepthModulation(material, f);
+  check('assigns a stable customProgramCacheKey', typeof material.customProgramCacheKey === 'function'
+    && material.customProgramCacheKey() === 'terrain-snow-depth-v1');
+  check('assigns an onBeforeCompile hook', typeof material.onBeforeCompile === 'function');
+
+  // Drive the hook with a stub shader carrying the chunks it edits.
+  const shader = {
+    uniforms: {},
+    vertexShader: '#include <common>\nvoid main(){\n#include <begin_vertex>\n}',
+    fragmentShader: '#include <common>\nvoid main(){\n#include <map_fragment>\n#include <roughnessmap_fragment>\n}',
+  };
+  material.onBeforeCompile(shader);
+  check('binds the depth texture + field-extent uniforms',
+    shader.uniforms.uSnowDepthTex && shader.uniforms.uSnowDepthTex.value === f.texture
+    && !!shader.uniforms.uSnowFieldMin && !!shader.uniforms.uSnowFieldSize);
+  check('injects the depth-uv varying into the vertex shader',
+    shader.vertexShader.includes('vSnowDepthUv') && shader.vertexShader.includes('uSnowFieldMin'));
+  check('modulates diffuse + roughness in the fragment shader',
+    shader.fragmentShader.includes('uSnowDepthTex')
+    && shader.fragmentShader.includes('diffuseColor.rgb')
+    && shader.fragmentShader.includes('roughnessFactor'));
+  check('leaves the original chunk includes in place (edits append, not remove)',
+    shader.fragmentShader.includes('#include <map_fragment>')
+    && shader.vertexShader.includes('#include <begin_vertex>'));
+}
+
 function testResetAndDispose(SnowDepthField) {
   console.log('reset + dispose');
   const f = new SnowDepthField();
   for (let i = 0; i < 10; i++) f.compactAt(0, 0);
+  f.flush();
   check('field is packed before reset', f.sample(0, 0) < 1);
   f.reset();
   check('reset restores full powder everywhere', f.depth.every(v => v === 1));
+  check('reset restores the texture byte mirror to full powder', f.texture.image.data.every(v => v === 255));
   let threw = false;
   try { f.dispose(); f.dispose(); } catch { threw = true; }
-  check('dispose is a safe idempotent no-op', !threw);
+  check('dispose is idempotent (second call does not throw)', !threw);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });

@@ -168,9 +168,9 @@ isolated:
 | PR | Scope | Status |
 |---|---|---|
 | **PR 1** | `src/mountains/snow-depth.ts` — the pure `SnowDepthField` grid logic + Node tests. **No renderer integration.** | ✅ landed |
-| **PR 2** | Drive the field's `compactAt` from the grounded ski-track cadence (`SnowDepthField.update`, wired in `game/scene-setup.ts` / `game/main-loop.ts` / `game/lifecycle.ts` / `game/teardown.ts`); no visible change, transient trails stay, field carries no GPU texture yet. | this stack |
-| PR 3 | One `DataTexture` sampled by the terrain material (`onBeforeCompile`): packed → darker/icier, powder → brighter/softer. No displacement, no geometry/height-map mutation. | follow-up |
-| PR 4 | Perf: capped resolution, dirty-only upload, near-player window, mobile scaling; verify against `tests/e2e/perf-budget.spec.ts`. | follow-up |
+| **PR 2** | Drive the field's `compactAt` from the grounded ski-track cadence (`SnowDepthField.update`, wired in `game/scene-setup.ts` / `game/main-loop.ts` / `game/lifecycle.ts` / `game/teardown.ts`); no visible change, transient trails stay, field carries no GPU texture yet. | ✅ landed |
+| **PR 3** | One `DataTexture` sampled by the terrain material (`applySnowDepthModulation` → `onBeforeCompile`): packed → darker/icier (`vec3(0.86,0.90,0.98)` tint + roughness `0.58`), powder → brighter/softer. No displacement, no geometry / height-map mutation; full-powder start renders identically. | this stack |
+| PR 4 | Perf: capped resolution, dirty-only upload (`texture.addUpdateRange`), near-player window, mobile scaling; verify against `tests/e2e/perf-budget.spec.ts`. | follow-up |
 | PR 5 | Integrate / supersede the transient `SnowTrails` overlay once the texture path is visually proven. | follow-up |
 
 **The field logic (`SnowDepthField`).** A bounded 2D grid (`Float32Array depth`, one cell
@@ -181,7 +181,23 @@ undisturbed powder, `0` is fully packed / skied-out.
   most at the centre and tapering to `0` at the rim (clamped `>= 0`).
 - `refill(dt)` — fresh snow settles: every packed cell recovers toward `1` at a constant
   `refillRate` per second (a linear recovery, not a proportional lerp; clamped `<= 1`).
-- `sample(x, z)` / `reset()` / `dispose()` (a no-op until PR 3 owns a texture).
+- `update(dt, player, isInAir, speed)` — the main-loop driver: refill, then, while grounded
+  and moving, lay compaction stamps along the travelled path — one every `stampSpacing`
+  world units of distance (matching `SnowTrails`), so the packed line is continuous and
+  frame-rate independent — then `flush()` the change to the texture.
+- `sample(x, z)` / `reset()` / `dispose()` (frees the DataTexture as of PR 3).
+
+**The GPU seam (PR 3).** `flush()` mirrors changed cells into a single-channel
+`THREE.DataTexture` (guarded by a private random stream so its UUID draw can't perturb the
+seeded placement RNG). `applySnowDepthModulation(terrainMaterial, field)` samples it in the
+terrain material's `onBeforeCompile` — the mesh sits at the origin with its rotation baked
+into the geometry, so vertex `position.xz` indexes the field directly — and scales
+`diffuseColor` (toward a cool icy grey-blue) and `roughnessFactor` (down, for a sharper
+icy glint) by how packed each texel is. It moves **no vertex**, so the two-formula terrain
+height contract is untouched, and a stable `customProgramCacheKey` keeps the modulated
+terrain program distinct. Live shader compile + per-frame program/texture budget are
+verified by `tests/e2e/perf-budget.spec.ts` (the terrain program adds exactly one; standard
+peak 25, EZ peak 42).
 
 **Hard guardrail — "persistent visual snow memory, zero physics meaning."** v1 carries
 **no** physics: the field never reads or writes `pos`/`velocity`, the authoritative
