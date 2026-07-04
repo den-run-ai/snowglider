@@ -15,6 +15,9 @@ import { getTerrainHeight, getTerrainGradient } from './terrain.js';
 // for straight tiers, so `x - lane` collapses to `x` and Bunny/Blue stay byte-identical.
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 import { SNOW_WHITE } from './snow-palette.js';
+// Guards THREE UUID draws during shared-material construction so they cannot perturb the
+// caller's seeded global Math.random stream (same guard trees.ts uses for its pooled mats).
+import { withPrivateThreeRandom } from '../scenery/scenery-rng.js';
 
 /** A placed rock's world position and size. */
 export interface RockPosition {
@@ -124,6 +127,52 @@ function getRockNormalTexture(): THREE.CanvasTexture | null {
   return tex;
 }
 
+// Two shared rock materials (boulder / cliff), built once and reused across the few
+// hundred rock meshes instead of one MeshStandardMaterial per rock. Safe because the
+// per-rock stone hue and snow cap ride in each geometry's own vertex-colour attribute
+// (see applyRockSnowColors); only roughness and normalScale differ by rock type, so a
+// single material per type suffices. The normal-map contrast is a touch stronger now
+// that the convex-hull macro shape carries the read (the old value was tuned for a
+// bumpier dodecahedron). Lazily created and cached; nulled by resetRockCaches on teardown.
+let boulderMaterial: THREE.MeshStandardMaterial | null = null;
+let cliffMaterial: THREE.MeshStandardMaterial | null = null;
+function getRockMaterial(cliff: boolean): THREE.MeshStandardMaterial {
+  const existing = cliff ? cliffMaterial : boulderMaterial;
+  if (existing) return existing;
+  // Guard the material + normal-texture UUID draws so they never touch the seeded global
+  // stream: every rock then consumes the same per-rock global budget regardless of which
+  // rock happens to trigger the one-time material creation.
+  const mat = withPrivateThreeRandom(() => new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: cliff ? 0.95 : 0.9,
+    metalness: 0.0, // matte rock/snow, not the shiny grey crystal it read as before
+    flatShading: true,
+    vertexColors: true,
+    normalMap: getRockNormalTexture(),
+    normalScale: new THREE.Vector2(cliff ? 0.7 : 0.5, cliff ? 0.7 : 0.5)
+  }));
+  if (cliff) cliffMaterial = mat; else boulderMaterial = mat;
+  return mat;
+}
+
+/**
+ * Null (and defensively dispose) the module-level rock singletons so a later rebuild
+ * re-creates them cleanly instead of holding freed-but-still-referenced GPU handles.
+ * Mirrors resetTreePools: disposeSceneResources already disposes the scene-attached
+ * copies, and dispose() is idempotent, so this is safe to call alongside it on teardown.
+ */
+export function resetRockCaches(): void {
+  const free = (r: { dispose?: () => void } | null): void => {
+    if (r && typeof r.dispose === 'function') r.dispose();
+  };
+  free(boulderMaterial);
+  free(cliffMaterial);
+  free(rockNormalTexture);
+  boulderMaterial = null;
+  cliffMaterial = null;
+  rockNormalTexture = null;
+}
+
 /**
  * Bake snow accumulation into a rock's vertex colours: upward-facing faces gather
  * snow (toward white), the rest keep the rock's base grey. The deformed
@@ -226,10 +275,12 @@ function nextRockSeed(): number {
 const LEGACY_GLOBAL_DRAWS = { boulder: 448, cliff: 340 } as const;
 // Global draws this path makes on its own before the compatibility burn: the ConvexGeometry
 // UUID (4) + makeRockColor (4) + the MeshStandardMaterial UUID (4) + the Mesh UUID (4). The
-// hull point cloud draws only from the private seeded stream, so it adds none. If this path's
-// THREE construction ever changes (e.g. shared materials in a later PR), the RNG-budget test
-// fails and this constant + the burn move together.
-const CONSTRUCTION_GLOBAL_DRAWS = 16;
+// hull point cloud draws only from the private seeded stream, so it adds none. The two rock
+// materials are shared module singletons whose UUID draws are guarded by withPrivateThreeRandom
+// (zero global draws), so material construction is NOT counted here — only the per-rock geometry
+// UUID (4), makeRockColor (4), and mesh UUID (4). If this path's THREE construction ever changes,
+// the RNG-budget test fails and this constant + the burn move together.
+const CONSTRUCTION_GLOBAL_DRAWS = 12;
 
 // Hull point-cloud radius envelope (× size). The floor keeps the base broad enough that
 // the sink-depth grounding in addRocks (boulders size·0.3, cliffs size·0.28) never leaves
@@ -292,22 +343,14 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
 
   // Snow gathers on the rock's up-facing faces (baked into vertex colours); the base
   // stone colour rides in the same attribute, so the material colour stays white and
-  // is modulated per-vertex. A shared craggy normal map adds surface roughness without
-  // extra geometry. (issue #17, Stage 2)
+  // is modulated per-vertex. The per-rock hue lives entirely in that vertex-colour
+  // attribute, so all boulders (resp. cliffs) can share ONE material — only roughness/
+  // normalScale differ by type. A shared craggy normal map adds surface roughness
+  // without extra geometry. (issue #17, Stage 2)
   const rockColor = makeRockColor(cliff ? 1 : 0);
   applyRockSnowColors(geometry, rockColor);
 
-  const rockMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: cliff ? 0.95 : 0.9,
-    metalness: 0.0, // matte rock/snow, not the shiny grey crystal it read as before
-    flatShading: true,
-    vertexColors: true,
-    normalMap: getRockNormalTexture(),
-    normalScale: new THREE.Vector2(cliff ? 0.6 : 0.4, cliff ? 0.6 : 0.4)
-  });
-
-  const rock = new THREE.Mesh(geometry, rockMaterial);
+  const rock = new THREE.Mesh(geometry, getRockMaterial(cliff));
   rock.castShadow = true;
   rock.receiveShadow = true;
   // Tag every rock so addRocks' re-run de-dup sweep matches by flag, not geometry type.
