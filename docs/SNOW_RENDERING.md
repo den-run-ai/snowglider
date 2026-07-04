@@ -170,7 +170,7 @@ isolated:
 | **PR 1** | `src/mountains/snow-depth.ts` — the pure `SnowDepthField` grid logic + Node tests. **No renderer integration.** | ✅ landed |
 | **PR 2** | Drive the field's `compactAt` from the grounded ski-track cadence (`SnowDepthField.update`, wired in `game/scene-setup.ts` / `game/main-loop.ts` / `game/lifecycle.ts` / `game/teardown.ts`); no visible change, transient trails stay, field carries no GPU texture yet. | ✅ landed |
 | **PR 3** | One `DataTexture` sampled by the terrain material (`applySnowDepthModulation` → `onBeforeCompile`): packed → darker/icier (`vec3(0.86,0.90,0.98)` tint + roughness `0.58`), powder → brighter/softer. No displacement, no geometry / height-map mutation; full-powder start renders identically. | ✅ landed |
-| **PR 4** | Perf/upload discipline: near-player windowed refill (`refillNear`, `updateRadius`), dirty-**row** byte sync + `addUpdateRange` upload (not the whole grid), resolution scaling (coarser grid on mobile/low-power, `?snowdepth=off\|low\|high` override), and a `stats()` debug seam. Verified against `tests/e2e/perf-budget.spec.ts`. | this stack |
+| **PR 4** | Perf/upload discipline: near-player windowed refill (`refillNear`, `updateRadius`), dirty-**row** byte sync (only the changed rows are re-copied; full GPU re-upload — `addUpdateRange` is unsafe on a single-channel `RedFormat` texture, Codex #352), resolution scaling (coarser grid on mobile/low-power, `?snowdepth=off\|low\|high` override), and a `stats()` debug seam. Verified against `tests/e2e/perf-budget.spec.ts`. | this stack |
 | PR 5 | Integrate / supersede the transient `SnowTrails` overlay once the texture path is visually proven. | follow-up |
 
 **The field logic (`SnowDepthField`).** A bounded 2D grid (`Float32Array depth`, one cell
@@ -190,9 +190,12 @@ undisturbed powder, `0` is fully packed / skied-out.
 
 **Perf / upload discipline (PR 4).** Per-frame cost is bounded to the near-player window, not
 the whole grid: `update()` refills only cells within `updateRadius` (far tracks stop aging and
-persist as lasting memory), and `flush()` re-syncs + uploads only the **dirty row range** it
-touched (via `addUpdateRange` where three honors it), so a moving frame never copies the full
-30k-cell grid. The grid resolution scales down on mobile/low-power devices (a coarser
+persist as lasting memory), and `flush()` re-copies only the **dirty row range** into the byte
+mirror, so a moving frame's CPU work never touches the full 30k-cell grid. The GPU upload is a
+full `needsUpdate` re-upload from the always-consistent byte mirror — deliberately **not**
+`addUpdateRange`, whose uploader assumes an RGBA 4-byte component stride and would misalign a
+partial range on this single-channel `RedFormat` texture (Codex #352); a 30 KB full upload is
+trivial. The grid resolution scales down on mobile/low-power devices (a coarser
 `cols`×`rows`), and `?snowdepth=off` skips the field + terrain modulation entirely (`scene-setup`
 leaves `state.snowDepth` null, so the loop/lifecycle/teardown all no-op). The DataTexture upload
 stays a +1 texture within the `tests/e2e/perf-budget.spec.ts` ceiling.

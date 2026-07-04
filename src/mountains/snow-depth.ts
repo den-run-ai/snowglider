@@ -355,21 +355,23 @@ export class SnowDepthField {
   /**
    * Sync the changed depth cells into the GPU byte mirror and flag the texture for re-upload —
    * a no-op on a clean frame (airborne, stopped, fully-refilled), so the common case costs
-   * nothing. PR 4 upload discipline: only the dirty ROW range is re-copied to the byte mirror
-   * (and marked for GPU upload via `addUpdateRange` where three honors it), so a moving frame
-   * touches ~the near-player window, not the whole 30k-cell grid.
+   * nothing. PR 4 upload discipline: only the dirty ROW range is re-copied into the byte
+   * mirror, so a moving frame's CPU work tracks the near-player window, not the whole
+   * 30k-cell grid. The GPU upload is a full re-upload (see the note in the body on why
+   * `addUpdateRange` is unsafe for this RedFormat texture).
    */
   flush(): void {
     if (this.dirtyMaxRow < 0) return; // clean → zero cost
     const r0 = this.dirtyMinRow, r1 = this.dirtyMaxRow;
     const d = this.depth, b = this.bytes;
     const start = r0 * this.cols, end = (r1 + 1) * this.cols;
+    // Re-sync ONLY the dirty rows into the byte mirror — that is the real per-frame win
+    // (O(window), not O(30k)). The GPU upload itself is a full re-upload via needsUpdate:
+    // three's DataTexture `addUpdateRange` uploader assumes an RGBA (4-byte) component
+    // stride, so a partial range on this single-channel RedFormat texture would upload
+    // misaligned texels (Codex #352). A full 30 KB re-upload from the always-consistent
+    // `bytes` mirror is trivial and correct, so we deliberately DON'T use addUpdateRange.
     for (let i = start; i < end; i++) b[i] = Math.round(d[i]! * 255);
-    // Upload only the changed rows where three supports partial DataTexture uploads; the
-    // needsUpdate flag re-uploads (whole texture on engines that ignore ranges — still correct,
-    // since `bytes` is fully consistent). addUpdateRange guarded for older three typings.
-    const tex = this.texture as THREE.DataTexture & { addUpdateRange?: (s: number, c: number) => void };
-    if (typeof tex.addUpdateRange === 'function') tex.addUpdateRange(start, end - start);
     this.texture.needsUpdate = true;
     this.dirtyMinRow = Infinity;
     this.dirtyMaxRow = -1;
