@@ -14,7 +14,7 @@ import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { AvalancheSystem } from '../avalanche.js';
 import { SnowTrails } from '../snowtracks.js';
-import { SnowDepthField, applySnowDepthModulation } from '../mountains/snow-depth.js';
+import { SnowDepthField, applySnowDepthModulation, type SnowDepthOptions } from '../mountains/snow-depth.js';
 import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
@@ -67,6 +67,33 @@ export interface GameState {
   builtDifficulty: Difficulty;       // tier the terrain corridor/mesh (and later gates/obstacles/
                                      // avalanche) were baked from at scene build; a run-start
                                      // mismatch triggers a reload so the scene matches the run
+}
+
+/** Mobile / low-power heuristic for the snow-depth grid resolution (mirrors controls.ts). */
+function isLowPowerDevice(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.userAgent === 'string' &&
+    (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      // Coarse-pointer tablets/2-in-1s that don't match the UA list above.
+      (typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1 &&
+        typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches));
+}
+
+/**
+ * Choose the snow-depth field config for this device (PR 4 perf scaling). A `?snowdepth=`
+ * URL override wins (`off` disables it, `low`/`high` force a tier); otherwise low-power
+ * devices get a coarser grid (fewer cells to walk + upload each frame) and desktops the
+ * full-resolution default. Purely a perf/quality choice — never gameplay.
+ */
+function resolveSnowDepthConfig(): { enabled: boolean; options: SnowDepthOptions } {
+  const LOW: SnowDepthOptions = { cols: 96, rows: 128 };
+  const FULL: SnowDepthOptions = {};
+  const q = (typeof window !== 'undefined' && window.location && window.location.search) || '';
+  const m = /[?&]snowdepth=(off|low|high)\b/i.exec(q);
+  const override = m ? m[1]!.toLowerCase() : null;
+  if (override === 'off') return { enabled: false, options: FULL };
+  if (override === 'low') return { enabled: true, options: LOW };
+  if (override === 'high') return { enabled: true, options: FULL };
+  return { enabled: true, options: isLowPowerDevice() ? LOW : FULL };
 }
 
 /**
@@ -350,7 +377,7 @@ export function setupScene(signal?: AbortSignal) {
   snowTrails.setTerrainFunction(Snow.getTerrainHeight);
   state.snowTrails = snowTrails;
 
-  // --- Persistent snow-depth field (#246, PR 3: rendered) ---
+  // --- Persistent snow-depth field (#246, PR 3: rendered · PR 4: perf-scaled) ---
   // The skis pack this [0..1] depth grid into lasting ski lines that fresh snow refills;
   // the main loop drives it off the same grounded/moving trigger as the ski trails. The
   // field's single-channel DataTexture is sampled by the terrain material to modulate
@@ -358,11 +385,18 @@ export function setupScene(signal?: AbortSignal) {
   // moves no vertex, so the terrain height contract and physics are untouched. While the
   // field is full powder (spawn) the modulation is the identity, so the slope starts
   // visually unchanged. Applied AFTER createTerrain so `terrain.material` exists.
-  const snowDepth = new SnowDepthField();
-  state.snowDepth = snowDepth;
-  const terrainMaterial = terrain.material as THREE.Material;
-  applySnowDepthModulation(terrainMaterial, snowDepth);
-  terrainMaterial.needsUpdate = true; // force a recompile so onBeforeCompile runs
+  //
+  // PR 4 perf scaling: a coarser grid on mobile/low-power GPUs (fewer cells to walk +
+  // upload), and a `?snowdepth=off` escape hatch that skips the field + modulation entirely
+  // (state.snowDepth stays null ⇒ the main loop / lifecycle / teardown all no-op).
+  const snowDepthCfg = resolveSnowDepthConfig();
+  if (snowDepthCfg.enabled) {
+    const snowDepth = new SnowDepthField(snowDepthCfg.options);
+    state.snowDepth = snowDepth;
+    const terrainMaterial = terrain.material as THREE.Material;
+    applySnowDepthModulation(terrainMaterial, snowDepth);
+    terrainMaterial.needsUpdate = true; // force a recompile so onBeforeCompile runs
+  }
 
   // --- Initialize Snowman crash-shatter (#53) ---
   // The wipeout system. Constructed here so the coordinator can fire it from the

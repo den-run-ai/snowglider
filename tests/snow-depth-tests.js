@@ -39,6 +39,7 @@ async function main() {
   testUpdateGating(SnowDepthField);
   testTextureAndFlush(SnowDepthField);
   testShaderModulation(SnowDepthField, applySnowDepthModulation);
+  testPerfScaling(SnowDepthField);
   testResetAndDispose(SnowDepthField);
 
   console.log(`\nSNOW-DEPTH TOTAL: ${pass} passed, ${fail} failed`);
@@ -289,6 +290,50 @@ function testShaderModulation(SnowDepthField, applySnowDepthModulation) {
   check('leaves the original chunk includes in place (edits append, not remove)',
     shader.fragmentShader.includes('#include <map_fragment>')
     && shader.vertexShader.includes('#include <begin_vertex>'));
+}
+
+function testPerfScaling(SnowDepthField) {
+  console.log('perf scaling (PR 4) — windowed refill, dirty-row upload, resolution, stats');
+
+  // Resolution scaling: a coarse grid honors cols/rows (mobile/low-power path).
+  const low = new SnowDepthField({ cols: 96, rows: 128 });
+  check('a coarse grid honors the requested resolution', low.cols === 96 && low.rows === 128
+    && low.depth.length === 96 * 128);
+
+  // Windowed refill: update() only ages tracks within updateRadius of the player. A packed
+  // track far behind persists; one near the player refills.
+  const f = new SnowDepthField({ refillRate: 0.5, stampStrength: 0.6, updateRadius: 20 });
+  // Lay two packed spots: one near the origin, one far downfield.
+  f.compactAt(0, 0, 3, 0.6);
+  f.compactAt(0, 120, 3, 0.6);
+  f.flush();
+  const nearPacked = f.sample(0, 0), farPacked = f.sample(0, 120);
+  check('both spots are packed before refill', nearPacked < 1 && farPacked < 1);
+  // Drive several frames with the player parked at the origin (grounded but stopped ⇒ no new
+  // stamp, but refillNear still ages the window around the origin).
+  for (let i = 0; i < 5; i++) f.update(0.1, { x: 0, y: 0, z: 0 }, false, 0);
+  check('a track near the player refills (ages) via the windowed update', f.sample(0, 0) > nearPacked);
+  check('a track far outside updateRadius does NOT refill (persists)',
+    Math.abs(f.sample(0, 120) - farPacked) < 1e-9);
+
+  // Dirty-row upload discipline: flush only re-syncs the changed rows, and a clean flush is
+  // a no-op (no extra upload).
+  const g = new SnowDepthField();
+  const uploads0 = g.stats().uploads;
+  g.compactAt(0, 0, 2, 0.5);
+  g.flush();
+  const uploads1 = g.stats().uploads;
+  check('a dirty flush counts one upload', uploads1 === uploads0 + 1);
+  g.flush(); // clean
+  check('a clean flush does no upload', g.stats().uploads === uploads1);
+  // Bytes far from the touched row stay at full-powder 255 (only the dirty rows were synced).
+  const farByte = g.texture.image.data[(g.rows - 1) * g.cols]; // last row, far from (0,0)
+  check('untouched rows keep their full-powder bytes (partial sync)', farByte === 255);
+
+  // stats() reports the grid + packed-cell count.
+  const s = g.stats();
+  check('stats() reports grid dimensions + a positive packed-cell count',
+    s.cols === g.cols && s.rows === g.rows && s.cells === g.depth.length && s.packedCells > 0);
 }
 
 function testResetAndDispose(SnowDepthField) {

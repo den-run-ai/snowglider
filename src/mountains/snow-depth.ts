@@ -1,7 +1,9 @@
 // mountains/snow-depth.ts — persistent snow-depth field (issue #246, visual-only v1).
 //
-// STAGE: PR 3 of the #246 stack — the field now owns a GPU DataTexture and modulates the
-// terrain material. This module owns a bounded 2D grid of snow "depth" in [0..1]
+// STAGE: PRs 3–4 of the #246 stack — the field owns a GPU DataTexture and modulates the
+// terrain material (PR 3), and bounds its per-frame cost to a near-player window with a
+// dirty-row texture upload + resolution scaling (PR 4). This module owns a bounded 2D grid
+// of snow "depth" in [0..1]
 // (1 = undisturbed powder, 0 = fully packed / skied-out) and the math that ages it: the
 // skis COMPACT depth in cells near a pass (PR 2 drives this off the ski-track cadence);
 // fresh snowfall / refill raises packed cells back toward full at a constant per-second
@@ -58,6 +60,9 @@ export interface SnowDepthOptions {
   stampStrength?: number;
   /** World radius of the ski compaction footprint. */
   packRadius?: number;
+  /** World radius of the near-player refill window `update()` walks each frame (PR 4 perf:
+   *  only cells this close to the player age back toward powder; far tracks persist). */
+  updateRadius?: number;
 }
 
 // --- Defaults --------------------------------------------------------------
@@ -76,6 +81,7 @@ const DEF_COMPACTION_PER_PASS = 0.5; // one centred pass removes up to half the 
 const DEF_STAMP_SPACING = 1.1;       // world units between driver stamps (matches SnowTrails)
 const DEF_STAMP_STRENGTH = 0.2;      // per-stamp centre pack; overlapping stamps build the line
 const DEF_PACK_RADIUS = 2.4;         // a touch wider than the ski gauge so a line reads solid
+const DEF_UPDATE_RADIUS = 30;        // near-player refill window (PR 4 perf: bounds per-frame work)
 
 // Cap the stamps laid in one frame so a teleport / huge dt can't spin the interpolation
 // loop (a jump/restart already breaks the line via the anchor reset, so this is a backstop).
@@ -142,6 +148,7 @@ export class SnowDepthField {
   readonly stampSpacing: number;
   readonly stampStrength: number;
   readonly packRadius: number;
+  readonly updateRadius: number;
 
   /** Authoritative depth grid, row-major, values in [0..1] (1 == full powder). */
   readonly depth: Float32Array;
@@ -149,8 +156,14 @@ export class SnowDepthField {
   private readonly bytes: Uint8Array;
   /** Single-channel DataTexture the terrain material samples (see applySnowDepthModulation). */
   readonly texture: THREE.DataTexture;
-  /** Set when `depth` has changed since the last flush; gates the texture re-upload. */
-  private dirty = false;
+
+  // Dirty-ROW range accumulated since the last flush (PR 4 upload discipline): only these
+  // rows are re-synced to the byte mirror, instead of copying the whole 30k-cell grid every
+  // moving frame. `dirtyMaxRow < 0` means clean → flush() is a zero-cost no-op.
+  private dirtyMinRow = Infinity;
+  private dirtyMaxRow = -1;
+  /** Count of texture re-uploads (for the perf-scaling debug seam / tests). */
+  private uploads = 0;
 
   // Frame-driver stamping state: the last point a stamp was laid at, plus the arc-length
   // carried over toward the next stamp, so `update()` spaces stamps by travelled DISTANCE
@@ -175,6 +188,7 @@ export class SnowDepthField {
     this.stampSpacing = spacing > 0 ? spacing : DEF_STAMP_SPACING;
     this.stampStrength = clamp01(finiteOr(opts.stampStrength, DEF_STAMP_STRENGTH));
     this.packRadius = Math.max(0, finiteOr(opts.packRadius, DEF_PACK_RADIUS));
+    this.updateRadius = Math.max(0, finiteOr(opts.updateRadius, DEF_UPDATE_RADIUS));
 
     const cells = this.cols * this.rows;
     this.depth = new Float32Array(cells).fill(1);
@@ -215,6 +229,12 @@ export class SnowDepthField {
     return Math.max(0, Math.floor((worldRadius / this.sizeZ) * (this.rows - 1)));
   }
 
+  /** Widen the dirty-row range to include row `r` (flush re-uploads only these rows). */
+  private markRow(r: number): void {
+    if (r < this.dirtyMinRow) this.dirtyMinRow = r;
+    if (r > this.dirtyMaxRow) this.dirtyMaxRow = r;
+  }
+
   /** Nearest-cell depth in [0..1] at a world position (1 == undisturbed powder). */
   sample(x: number, z: number): number {
     return this.depth[this.rowAt(z) * this.cols + this.colAt(x)]!;
@@ -253,24 +273,54 @@ export class SnowDepthField {
         if (d2 > 1) continue;
         const falloff = 1 - Math.sqrt(d2);        // 1 at centre → 0 at the rim
         const next = clamp01(this.depth[base + c]! - s * falloff);
-        if (next !== this.depth[base + c]) { this.depth[base + c] = next; this.dirty = true; }
+        if (next !== this.depth[base + c]) { this.depth[base + c] = next; this.markRow(r); }
       }
     }
   }
 
+  /** The per-second linear refill amount for `dt` (clamped `dt >= 0`), or 0 if disabled. */
+  private refillStep(dt: number): number {
+    return this.refillRate * (Number.isFinite(dt) ? Math.max(0, dt) : 0);
+  }
+
+  /** Raise a rectangular block of rows/cols toward full powder by `step` (marks dirty rows). */
+  private refillBlock(step: number, r0: number, r1: number, c0: number, c1: number): void {
+    if (step <= 0) return;
+    for (let r = r0; r <= r1; r++) {
+      const base = r * this.cols;
+      let rowTouched = false;
+      for (let c = c0; c <= c1; c++) {
+        const cur = this.depth[base + c]!;
+        if (cur < 1) { this.depth[base + c] = clamp01(cur + step); rowTouched = true; }
+      }
+      if (rowTouched) this.markRow(r);
+    }
+  }
+
   /**
-   * Refill packed cells back toward full powder over `dt` seconds — a LINEAR recovery at a
-   * constant `refillRate` per second (`depth += refillRate * dt`), NOT a proportional lerp.
-   * Pure and deterministic given `dt`; clamps at 1 so it never overshoots. PR 1 refills the
-   * whole grid; PR 4 restricts the walk to a near-player window for perf.
+   * Refill EVERY packed cell back toward full powder over `dt` seconds — a LINEAR recovery at
+   * a constant `refillRate` per second (`depth += refillRate * dt`), NOT a proportional lerp.
+   * Pure and deterministic given `dt`; clamps at 1 so it never overshoots. This walks the whole
+   * grid; the frame driver uses the cheaper near-player {@link refillNear} instead (PR 4).
    */
   refill(dt: number): void {
-    const step = this.refillRate * (Number.isFinite(dt) ? Math.max(0, dt) : 0);
-    if (step <= 0) return;
-    const d = this.depth;
-    for (let i = 0; i < d.length; i++) {
-      if (d[i]! < 1) { d[i] = clamp01(d[i]! + step); this.dirty = true; }
-    }
+    this.refillBlock(this.refillStep(dt), 0, this.rows - 1, 0, this.cols - 1);
+  }
+
+  /**
+   * Refill only the cells within `updateRadius` of world (x, z) — the near-player window the
+   * frame driver walks each frame (PR 4). Bounds per-frame cost to the window regardless of
+   * grid size; the trade-off is that tracks farther than `updateRadius` behind the player stop
+   * aging and simply persist (which reads as lasting ski memory). Same linear recovery + clamp.
+   */
+  refillNear(dt: number, x: number, z: number): void {
+    const step = this.refillStep(dt);
+    if (step <= 0 || !Number.isFinite(x) || !Number.isFinite(z)) return;
+    const cc = this.colAt(x), cr = this.rowAt(z);
+    const rc = this.colRadius(this.updateRadius), rr = this.rowRadius(this.updateRadius);
+    this.refillBlock(step,
+      Math.max(0, cr - rr), Math.min(this.rows - 1, cr + rr),
+      Math.max(0, cc - rc), Math.min(this.cols - 1, cc + rc));
   }
 
   /**
@@ -293,26 +343,47 @@ export class SnowDepthField {
    * a static mark, not an animation.
    */
   update(dt: number, player: Vec3Like, isInAir: boolean, speed: number): void {
-    this.refill(dt);
-    const laying = player && Number.isFinite(player.x) && Number.isFinite(player.z) &&
-      !isInAir && Number.isFinite(speed) && speed > MIN_COMPACT_SPEED;
+    const hasPos = player && Number.isFinite(player.x) && Number.isFinite(player.z);
+    // PR 4: refill only the near-player window (bounded per-frame cost), not the whole grid.
+    if (hasPos) this.refillNear(dt, player.x, player.z);
+    const laying = hasPos && !isInAir && Number.isFinite(speed) && speed > MIN_COMPACT_SPEED;
     if (laying) this.stampAlongPath(player.x, player.z);
     else this.lastX = null; // break the line: the next grounded stamp starts a fresh anchor
     this.flush();
   }
 
   /**
-   * Sync the changed depth cells into the GPU byte mirror and flag the texture for
-   * re-upload — a no-op on a clean frame (airborne, stopped, fully-refilled), so the
-   * common case costs nothing. (PR 4 narrows the sync/upload to a near-player window;
-   * PR 3 re-uploads the whole DataTexture on change, which three does on `needsUpdate`.)
+   * Sync the changed depth cells into the GPU byte mirror and flag the texture for re-upload —
+   * a no-op on a clean frame (airborne, stopped, fully-refilled), so the common case costs
+   * nothing. PR 4 upload discipline: only the dirty ROW range is re-copied into the byte
+   * mirror, so a moving frame's CPU work tracks the near-player window, not the whole
+   * 30k-cell grid. The GPU upload is a full re-upload (see the note in the body on why
+   * `addUpdateRange` is unsafe for this RedFormat texture).
    */
   flush(): void {
-    if (!this.dirty) return;
-    this.dirty = false;
+    if (this.dirtyMaxRow < 0) return; // clean → zero cost
+    const r0 = this.dirtyMinRow, r1 = this.dirtyMaxRow;
     const d = this.depth, b = this.bytes;
-    for (let i = 0; i < d.length; i++) b[i] = Math.round(d[i]! * 255);
+    const start = r0 * this.cols, end = (r1 + 1) * this.cols;
+    // Re-sync ONLY the dirty rows into the byte mirror — that is the real per-frame win
+    // (O(window), not O(30k)). The GPU upload itself is a full re-upload via needsUpdate:
+    // three's DataTexture `addUpdateRange` uploader assumes an RGBA (4-byte) component
+    // stride, so a partial range on this single-channel RedFormat texture would upload
+    // misaligned texels (Codex #352). A full 30 KB re-upload from the always-consistent
+    // `bytes` mirror is trivial and correct, so we deliberately DON'T use addUpdateRange.
+    for (let i = start; i < end; i++) b[i] = Math.round(d[i]! * 255);
     this.texture.needsUpdate = true;
+    this.dirtyMinRow = Infinity;
+    this.dirtyMaxRow = -1;
+    this.uploads++;
+  }
+
+  /** Lightweight read-only telemetry for the perf-scaling / diagnostics seam (PR 4). */
+  stats(): { cols: number; rows: number; cells: number; packedCells: number; uploads: number } {
+    let packed = 0;
+    const d = this.depth;
+    for (let i = 0; i < d.length; i++) if (d[i]! < 1) packed++;
+    return { cols: this.cols, rows: this.rows, cells: d.length, packedCells: packed, uploads: this.uploads };
   }
 
   /**
@@ -348,7 +419,8 @@ export class SnowDepthField {
   reset(): void {
     this.depth.fill(1);
     this.bytes.fill(255);
-    this.dirty = false;
+    this.dirtyMinRow = Infinity;
+    this.dirtyMaxRow = -1;
     this.texture.needsUpdate = true;
     this.lastX = null;
     this.stampCarry = 0;
