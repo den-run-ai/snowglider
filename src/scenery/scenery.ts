@@ -29,6 +29,7 @@ import { makeSceneryRng, withPrivateThreeRandom } from './scenery-rng.js';
 import { DEFAULT_SCENERY_BUDGET, type SceneryBudget } from './scenery-budget.js';
 import { buildDistantRidges } from './distant-ridges.js';
 import { buildValleyBackdrop } from './valley-backdrop.js';
+import { buildForestBelts } from './forest-belts.js';
 
 /** Read-only context handed to scenery construction. Everything here is either a pure
  *  sampler or immutable layout data — scenery may READ it but must never mutate it. */
@@ -107,6 +108,12 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   // floor, in a side valley between the play area and the ridges. Render-only (no reflective
   // shader); self-grounded (the valley is past the rendered terrain, so it samples no terrain).
   group.add(buildValleyBackdrop(rng, budget));
+
+  // --- Layer: decorative forest belts (PR 4) ---
+  // Instanced conifer belts on the outer flanks (|x|∈[102,145]), grounded on the terrain and
+  // OUTSIDE the lane. Collision-neutral — never added to treePositions, so they thicken the
+  // tree line without being obstacles.
+  group.add(buildForestBelts(rng, budget, ctx));
 
   let disposed = false;
 
