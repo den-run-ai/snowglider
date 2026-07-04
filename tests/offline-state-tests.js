@@ -68,6 +68,26 @@ async function main() {
   unsubA();
   unsubB();
 
+  // --- Headless fallback paths: no window/navigator at all ---
+  const savedWindow = globalThis.window;
+  const savedNavigator = globalThis.navigator;
+  try {
+    // Deliberately remove the DOM globals to exercise the Node/headless path.
+    globalThis.window = /** @type {any} */ (undefined);
+    // navigator may be a read-only global in Node; try to shadow it, ignore if we can't.
+    try { Object.defineProperty(globalThis, 'navigator', { configurable: true, value: undefined }); } catch { /* leave Node's navigator */ }
+    check('isOnline() optimistic true with no navigator.onLine', state.isOnline() === true);
+    check('isStandalone() false with no window/navigator', state.isStandalone() === false);
+    const noop = state.watchConnectivity(() => {});
+    check('watchConnectivity returns a no-op unsubscribe with no window', typeof noop === 'function');
+    let unsubThrew = false;
+    try { noop(); } catch { unsubThrew = true; }
+    check('the no-op unsubscribe is safe to call', unsubThrew === false);
+  } finally {
+    globalThis.window = savedWindow;
+    try { Object.defineProperty(globalThis, 'navigator', { configurable: true, value: savedNavigator }); } catch { /* restore best-effort */ }
+  }
+
   env.teardown();
   console.log(`\nOFFLINE-STATE TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

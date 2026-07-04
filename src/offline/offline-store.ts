@@ -20,6 +20,7 @@ import {
   localBestTimeKey,
   localBestSplitsKey,
   localGhostKey,
+  isDifficulty,
   type Difficulty,
 } from '../difficulty.js';
 
@@ -158,9 +159,13 @@ export function readPendingSync(storage?: StorageLike | null): Record<string, Pe
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
   const out: Record<string, PendingSyncEntry> = {};
   for (const [tier, value] of Object.entries(parsed as Record<string, unknown>)) {
+    // Drop tampered/unknown tiers: a corrupt payload could carry a matching but
+    // bogus key/tier pair (e.g. { evil: { tier: 'evil', time: 25 } }); only real
+    // difficulty ids may pass so downstream sync can trust the drained map.
+    if (!isDifficulty(tier)) continue;
     if (!value || typeof value !== 'object') continue;
     const entry = value as Partial<PendingSyncEntry>;
-    // The stored `tier` field must agree with its map key AND carry a valid time.
+    // The stored `tier` field must agree with its (validated) map key AND carry a valid time.
     if (entry.tier !== tier) continue;
     if (!isValidScoreTime(entry.time)) continue;
     const recordedAt =

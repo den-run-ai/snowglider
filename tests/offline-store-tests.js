@@ -93,6 +93,21 @@ async function main() {
   check('pending time is now 20', store.getPendingSync('black', ls).time === 20);
   check('invalid pending time rejected', store.markPendingSync('black', NaN, { storage: ls }) === false);
 
+  // markPendingSync without an explicit recordedAt stamps Date.now() (a finite number).
+  store.markPendingSync('expert', 22, { storage: ls });
+  const pExpert = store.getPendingSync('expert', ls);
+  check('markPendingSync defaults recordedAt to a finite timestamp', !!pExpert && typeof pExpert.recordedAt === 'number' && Number.isFinite(pExpert.recordedAt));
+  // A non-finite explicit recordedAt normalizes to null.
+  store.clearPendingSync('expert', ls);
+  store.markPendingSync('expert', 22, { recordedAt: NaN, storage: ls });
+  check('non-finite recordedAt normalizes to null', store.getPendingSync('expert', ls).recordedAt === null);
+  store.clearPendingSync('expert', ls);
+
+  // clearPendingSync on an absent tier is a no-op (does not throw / create the key).
+  let clearThrew = false;
+  try { store.clearPendingSync('expert', ls); } catch { clearThrew = true; }
+  check('clearPendingSync on absent tier is a safe no-op', clearThrew === false);
+
   // Second tier is independent.
   store.markPendingSync('bunny', 26, { recordedAt: 444, storage: ls });
   check('two tiers tracked independently', store.getPendingSync('bunny', ls).time === 26 && store.getPendingSync('black', ls).time === 20);
@@ -115,6 +130,13 @@ async function main() {
   // A forged sub-floor time is dropped on read.
   ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ black: { tier: 'black', time: 1, recordedAt: 1 } }));
   check('forged sub-floor pending time dropped', store.getPendingSync('black', ls) === null);
+  // An unknown/tampered tier key is rejected even if its `tier` field matches the key
+  // (Codex #359 hardening) — only real difficulty ids survive readPendingSync.
+  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ evil: { tier: 'evil', time: 25, recordedAt: 1 } }));
+  check('unknown tier key rejected (not a real difficulty)', Object.keys(store.readPendingSync(ls)).length === 0);
+  // A valid entry with a non-number recordedAt reads back with recordedAt null.
+  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ blue: { tier: 'blue', time: 30, recordedAt: 'oops' } }));
+  check('non-number stored recordedAt reads as null', store.getPendingSync('blue', ls).recordedAt === null);
 
   console.log(`\nOFFLINE-STORE TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
