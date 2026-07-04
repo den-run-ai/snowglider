@@ -276,14 +276,41 @@ async function main() {
   check('shatterRoots is a flat list including the head cluster', Array.isArray(ud.shatterRoots) && ud.shatterRoots.includes(ud.parts.headGroup));
   check('base transforms kept OFF the registry (parts.base undefined)', !!ud.partBaseTransforms && !!ud.partBaseTransforms.headGroup && ud.parts.base === undefined);
   check('scarf + tail present in registry and shatter roots (PR C)', !!ud.parts.scarf && !!ud.parts.scarfTail && ud.shatterRoots.includes(ud.parts.scarfTail));
-  check('face/hat are children of the head cluster (head bob keeps them attached)',
-    ud.parts.head.parent === ud.parts.headGroup &&
-    ud.parts.leftEye.parent === ud.parts.headGroup &&
-    ud.parts.hatTop.parent === ud.parts.headGroup);
-  // Re-basing the cluster must keep world positions identical at rest (~head y=7).
+  // The head MESH stays in the neck-pivoted cluster, but the face + hat now hang off
+  // the head MESH (not headGroup) so BOTH the head-cluster bob/lean AND the per-frame
+  // head squash-and-stretch (head is one of the three breathing balls) carry them —
+  // they used to be siblings of `head` and detached from the scaling head surface
+  // (issue #337, same defect as the floating buttons below).
+  check('head mesh stays in the neck-pivoted cluster', ud.parts.head.parent === ud.parts.headGroup);
+  check('face/hat hang off the head MESH (head squash+bob keep them attached)',
+    ud.parts.leftEye.parent === ud.parts.head &&
+    ud.parts.rightEye.parent === ud.parts.head &&
+    ud.parts.nose.parent === ud.parts.head &&
+    ud.parts.hatBase.parent === ud.parts.head &&
+    ud.parts.hatTop.parent === ud.parts.head);
+  // Buttons hang off the BALL they sit on (middle/bottom) so the belly squash carries
+  // them instead of leaving them suspended in front of the snowman (issue #337).
+  check('buttons hang off the ball they sit on (belly squash keeps them attached)',
+    ud.parts.button1.parent === ud.parts.middle &&
+    ud.parts.button2.parent === ud.parts.middle &&
+    ud.parts.button3.parent === ud.parts.bottom);
+  // Re-basing the cluster + accessories must keep world positions identical at rest.
   const headWorld = new RealTHREE.Vector3();
   ud.parts.head.getWorldPosition(headWorld);
   check('head world position preserved at rest (~y=7, x~0)', Math.abs(headWorld.y - 7.0) < 1e-6 && Math.abs(headWorld.x) < 1e-6);
+  // Reparenting is rest-pose-neutral: every reparented accessory keeps its shipped
+  // world position (world pos == the pre-fix literal it was authored at).
+  const wp = new RealTHREE.Vector3();
+  const restWorld = [
+    [ud.parts.leftEye, 0.4, 7.2, 0.8], [ud.parts.rightEye, -0.4, 7.2, 0.8],
+    [ud.parts.nose, 0, 7.0, 1], [ud.parts.hatBase, 0, 7.9, 0], [ud.parts.hatTop, 0, 8.45, 0],
+    [ud.parts.button1, 0, 5.5, 1.4], [ud.parts.button2, 0, 4.5, 1.45], [ud.parts.button3, 0, 3.0, 1.9]
+  ];
+  const restOk = restWorld.every(([p, x, y, z]) => {
+    p.getWorldPosition(wp);
+    return Math.abs(wp.x - x) < 1e-6 && Math.abs(wp.y - y) < 1e-6 && Math.abs(wp.z - z) < 1e-6;
+  });
+  check('reparented face/hat/buttons keep their shipped world position at rest', restOk);
   // Flex drives the REAL snowman finitely, then resets clean.
   Flex.update(snowman, 1 / 60, { speed: 18, technique: 'carve', turnRate: 0.6, justLanded: true, landingForce: 0.9, isInAir: false });
   check('Flex.update mutates the real snowman finitely', Number.isFinite(ud.parts.head.scale.y) && Number.isFinite(ud.parts.headGroup.rotation.z));
