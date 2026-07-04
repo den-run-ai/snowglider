@@ -560,6 +560,25 @@ async function main() {
   check('a failed online ranked sync is queued pending for retry',
     !!pendingAfterFail.blue && pendingAfterFail.blue.time === 25);
 
+  console.log('\n--- offline-queue: reinit reattaches a detached ScoresModule, then flushes (Codex #362) ---');
+  // Divergence: AuthModule still holds Firestore (firestoreAvailable = true) but ScoresModule
+  // nulled its OWN local instance after a transient leaderboard failure (scores.ts clears it
+  // on 'unavailable'). resetState leaves exactly that state (available + local null). A
+  // pending best + reconnect must reinitialize, REATTACH ScoresModule, and flush — not stay
+  // stuck because reinit early-returns without re-pushing the instance (the auth.ts fix).
+  resetState(ScoresModule); // firestoreAvailable = true, ScoresModule local firestore = null
+  reinitializeSucceeds = true; // reinit reattaches ScoresModule (its initializeScores re-runs the flush)
+  currentAuthUser = { uid: 'u-detached', isAnonymous: false, displayName: 'Detached' };
+  ScoresModule.setCurrentUser(currentAuthUser); // no marker yet → drains to a no-op
+  env.localStorage.setItem('snowgliderPendingSync',
+    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+  calls.reinitializeFirestore = 0;
+  window.dispatchEvent(new window.Event('online'));
+  await flushAll();
+  check('a detached ScoresModule reconnect reinitializes', calls.reinitializeFirestore > 0);
+  check('reattach + flush clears the pending marker',
+    JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}').blue === undefined);
+
   console.log(`\nSCORES TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

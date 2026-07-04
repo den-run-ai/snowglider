@@ -770,9 +770,18 @@ function reinitializeFirestore() {
   
   if (firestore) {
     console.log("Firestore is already available, no need to reinitialize");
+    // AuthModule still holds its instance, but ScoresModule may have nulled its OWN local
+    // instance after a transient leaderboard getDoc/setDoc failure (scores.ts clears it on
+    // 'unavailable'/'failed-precondition'). Reattach it (idempotent — same instance) so a
+    // caller relying on reinit to restore syncing (the offline-queue drain) isn't stranded
+    // by that divergence: without this the early-return leaves ScoresModule detached and a
+    // pending offline best stuck across every later reconnect/auth-restore retry (Codex #362).
+    if (ScoresModule && typeof ScoresModule.initializeScores === 'function') {
+      ScoresModule.initializeScores(firestore, analytics);
+    }
     return true;
   }
-  
+
   try {
     // Initialize Firestore (skip on localhost/file protocol)
     const isTrulyLocal = window.location.protocol === 'file:' ||
