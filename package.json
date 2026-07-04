@@ -79,6 +79,7 @@
     "test:e2e:coverage": "E2E_COVERAGE=1 PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test --project=chromium",
     "test:e2e:webkit": "PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test --project=webkit",
     "test:e2e:ui": "PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test --ui",
+    "test:pwa": "npm run build && PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test -c playwright.pwa.config.ts",
     "test:all": "npm test && npm run test:browser",
     "test:coverage": "c8 --all --src src --reporter=lcov --reporter=text npm run test",
     "coverage:merge": "node tests/coverage/merge-lcov.js --out coverage/lcov.info coverage/lcov.info coverage/browser/lcov.info coverage/e2e/lcov.info",

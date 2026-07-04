@@ -25,6 +25,11 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // The PWA offline specs (pwa-*.spec.ts) require the PRODUCTION build's real service
+  // worker and run against `vite preview` via playwright.pwa.config.ts + `npm run
+  // test:pwa`. This dev-server suite starts plain `vite` (no dist/sw.js), so exclude
+  // them here or they'd time out waiting for a worker that doesn't exist (issue #358).
+  testIgnore: /pwa-.*\.spec\.ts/,
   // Keep Playwright's failure artifacts under the already-gitignored test-results/.
   outputDir: './test-results/playwright',
   // Folds any E2E_COVERAGE shards into coverage/e2e/lcov.info; no-op otherwise.
@@ -45,7 +50,7 @@ export default defineConfig({
       // the user-flow specs have a fast, reliable baseline to compare WebKit against.
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /mobile\.spec\.ts/,
+      testIgnore: /(mobile|pwa-.*)\.spec\.ts/,
     },
     {
       // WebKit — the closest CI proxy for desktop/iOS Safari. This is the whole
@@ -54,7 +59,7 @@ export default defineConfig({
       // CLAUDE.md — that still needs a real device.)
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
-      testIgnore: /mobile\.spec\.ts/,
+      testIgnore: /(mobile|pwa-.*)\.spec\.ts/,
     },
     {
       // Emulated iPhone (WebKit engine, mobile UA, touch, mobile viewport). The
