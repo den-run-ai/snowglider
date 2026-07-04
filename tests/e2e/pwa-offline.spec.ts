@@ -30,18 +30,21 @@ test.describe('PWA offline mode', () => {
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
 
-    // 1) First online load registers the service worker.
+    // 1) The ONE and ONLY online load. The SW installs (fully populating its precache) and
+    // activates; its activate handler calls clients.claim(), which takes control of THIS
+    // already-open page WITHOUT a second navigation. We deliberately do NOT reload online —
+    // a second online pass would let a controlling worker runtime-cache non-precached assets,
+    // warming a cache a first-time-then-offline player would never have (Codex #363).
     await page.goto('/', { waitUntil: 'load' });
     await expect(page.locator('#startGameButton')).toBeVisible();
     await waitForServiceWorkerActive(page);
-
-    // 2) Reload online so this page is CONTROLLED by the worker (clients.claim + reload).
-    await page.reload({ waitUntil: 'load' });
+    // clients.claim() sets the controller on this page — no online reload needed.
     await page.waitForFunction(() => navigator.serviceWorker.controller !== null, undefined, {
       timeout: 30_000,
     });
 
-    // 3) Go offline and reload — the app shell must come from the cache.
+    // 2) Go offline and launch — the next navigation must be served entirely from the SW's
+    // precache (only ONE prior online load, never warmed by a second online pass).
     await page.context().setOffline(true);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.locator('#startGameButton')).toBeVisible();
@@ -52,7 +55,7 @@ test.describe('PWA offline mode', () => {
       { timeout: 30_000 },
     );
 
-    // 4) Core gameplay works offline: start a run and confirm the sim advances.
+    // 3) Core gameplay works offline: start a run and confirm the sim advances.
     await startGame(page);
     const start = await getPos(page);
     expect(start, 'run should publish a position offline').not.toBeNull();
