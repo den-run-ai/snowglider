@@ -168,8 +168,35 @@ function buildLodges(rng: () => number, budget: SceneryBudget): THREE.Group {
   return group;
 }
 
+/** A normalized 3-tier conifer (base at y=0, ~1.6 tall), positions+index only (the unlit
+ *  MeshBasicMaterial needs no normals). Reads as a tapered fir instead of a flat cone. */
+function patchConiferGeometry(): THREE.BufferGeometry {
+  const tiers = [
+    { r: 0.82, h: 0.8, y: 0.4 },
+    { r: 0.58, h: 0.7, y: 0.85 },
+    { r: 0.34, h: 0.6, y: 1.25 },
+  ];
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (const t of tiers) {
+    const c = new THREE.ConeGeometry(t.r, t.h, 6);
+    c.translate(0, t.y, 0);
+    const p = c.attributes.position!.array as ArrayLike<number>;
+    const idx = c.index!.array as ArrayLike<number>;
+    const base = positions.length / 3;
+    for (let i = 0; i < p.length; i++) positions.push(p[i]!);
+    for (let i = 0; i < idx.length; i++) indices.push(idx[i]! + base);
+    c.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  return geo;
+}
+
 /** Scattered low forest/meadow patches (one InstancedMesh, no collision). Distinct from the
- *  gameplay forest — purely a valley texture. */
+ *  gameplay forest — purely a valley texture. Tapered multi-tier firs (PR 4b) so the distant
+ *  tree line reads naturally rather than as flat cones. */
 function buildForestPatches(rng: () => number, budget: SceneryBudget): THREE.InstancedMesh {
   const count = Math.max(24, Math.min(budget.forestBeltTrees, 80));
   const dummy = new THREE.Matrix4();
@@ -183,15 +210,14 @@ function buildForestPatches(rng: () => number, budget: SceneryBudget): THREE.Ins
     const r = LAKE_RADIUS * (1.2 + rng() * 1.4);
     const x = VALLEY_CX + Math.cos(a) * r * 1.2;
     const z = VALLEY_CZ + Math.sin(a) * r * 0.85;
-    const s = 4 + rng() * 6;
-    pos.set(x, FLOOR_Y + s * 0.5, z);
+    const s = 3 + rng() * 5;
+    pos.set(x, FLOOR_Y, z); // base at the valley floor (geometry base is y=0)
     quat.set(0, 0, 0, 1);
-    scl.set(s * (0.7 + rng() * 0.6), s, s * (0.7 + rng() * 0.6));
+    scl.set(s * (0.75 + rng() * 0.5), s, s * (0.75 + rng() * 0.5));
     transforms.push(dummy.clone().compose(pos, quat, scl));
   }
   return withPrivateThreeRandom(() => {
-    // Low-poly squashed cone reads as a distant conifer clump.
-    const geo = new THREE.ConeGeometry(0.7, 1.6, 6);
+    const geo = patchConiferGeometry();
     const mat = new THREE.MeshBasicMaterial({ color: PATCH_COLOR, fog: true });
     const inst = new THREE.InstancedMesh(geo, mat, count);
     inst.name = 'valley-forest-patches';
