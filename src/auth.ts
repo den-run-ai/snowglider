@@ -660,6 +660,33 @@ function syncUserData(user: User) {
     return;
   }
 
+  // Backfill EACH ranked tier's local best time to Firestore via syncBestTimeWithRetry,
+  // which queues a pending marker if the write doesn't confirm. This is the only automatic
+  // path that pushes a local-only best (finished signed-out/offline) to the global board, so
+  // it must run on BOTH the profile-write SUCCESS and its FAILURE: if the profile setDoc
+  // rejects transiently (unavailable / failed-precondition / rules skew), the bests must
+  // still reach the pending-sync path — with Firestore then nulled, the retry write resolves
+  // false and queueFailedSync records a marker — rather than being stranded until another
+  // finish/sign-in (Codex #362). Only RANKED tiers backfill (an unranked practice best must
+  // never reach the global leaderboard). Reads localStorage only, so it works with or without
+  // a live Firestore.
+  const backfillLocalBests = () => {
+    for (const cfg of DIFFICULTIES) {
+      if (!cfg.ranked) continue;
+      const key = localBestTimeKey(cfg.id);
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const bestTime = parseFloat(raw);
+      if (!ScoresModule.isValidScoreTime(bestTime)) {
+        console.warn(`Ignoring invalid local best time (${cfg.id}) during sign-in sync:`, raw);
+        localStorage.removeItem(key);
+        continue;
+      }
+      console.log(`Found local best time (${cfg.id}), attempting to sync:`, bestTime);
+      ScoresModule.syncBestTimeWithRetry(user.uid, bestTime, cfg.id);
+    }
+  };
+
   try {
     const userDocRef = doc(firestore, 'users', user.uid);
     // Use setDoc with merge:true to create or update user profile
@@ -671,32 +698,7 @@ function syncUserData(user: User) {
     }, { merge: true })
     .then(() => {
       console.log("User data synced/updated in Firestore for:", user.uid);
-      // Backfill EACH difficulty tier's local best time to its per-tier user-doc field
-      // after the user doc is confirmed/created (Blue == the original snowgliderBestTime
-      // key / bestTime field, unchanged).
-      for (const cfg of DIFFICULTIES) {
-        // Only backfill RANKED tiers. updateUserBestTime always follows with
-        // updateLeaderboard, so backfilling an unranked tier here would publish a
-        // practice score to the global board — exactly what the finish overlay avoids
-        // for unranked tiers. Their best stays local until the tier is ranked.
-        if (!cfg.ranked) continue;
-        const key = localBestTimeKey(cfg.id);
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const bestTime = parseFloat(raw);
-        if (!ScoresModule.isValidScoreTime(bestTime)) {
-          console.warn(`Ignoring invalid local best time (${cfg.id}) during sign-in sync:`, raw);
-          localStorage.removeItem(key);
-          continue;
-        }
-        console.log(`Found local best time (${cfg.id}), attempting to sync:`, bestTime);
-        // This sign-in backfill is the only automatic path that pushes a local-only best
-        // (finished signed-out/offline) to Firestore. Route it through syncBestTimeWithRetry
-        // so a transient user-doc/leaderboard failure (updateUserBestTime resolving false)
-        // queues a pending marker for a later reconnect/auth-restore retry, instead of being
-        // dropped and leaving the score local until another finish/sign-in (Codex #362).
-        ScoresModule.syncBestTimeWithRetry(user.uid, bestTime, cfg.id);
-      }
+      backfillLocalBests();
     })
     .catch(error => {
       console.error("Error saving user data to Firestore:", error);
@@ -710,6 +712,11 @@ function syncUserData(user: User) {
         // Display leaderboard with unavailable message
         ScoresModule.displayLeaderboard();
       }
+      // The profile write failed, but the local bests must still be routed into the
+      // pending-sync path for a later retry (Codex #362). With Firestore nulled above (the
+      // transient codes), syncBestTimeWithRetry's write resolves false and queueFailedSync
+      // records a marker; otherwise it re-attempts the sync directly.
+      backfillLocalBests();
     });
   } catch (error) {
     // Catch synchronous errors, though unlikely here
@@ -718,6 +725,10 @@ function syncUserData(user: User) {
     // Update ScoresModule about Firestore unavailability
     ScoresModule.initializeScores(null, analytics);
     ScoresModule.displayLeaderboard();
+    // A synchronous failure before the write also strands the local bests — route them into
+    // the pending-sync path (Firestore is now null, so the retry resolves false and a marker
+    // is written) so a later reconnect/auth-restore retries (Codex #362).
+    backfillLocalBests();
   }
 }
 

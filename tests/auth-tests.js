@@ -391,6 +391,20 @@ async function main() {
   check('syncUserData does NOT backfill an unranked tier best to the global board',
     !fb.read('leaderboard_bunny', 'sync1') && !fb.read('users', 'sync1').bestTimeBunny);
 
+  // Codex #362: if the sign-in PROFILE write itself fails transiently, the local best must
+  // STILL be routed into the pending-sync queue (not dropped) so a later reconnect/auth-restore
+  // retries it — the backfill now runs on the profile-write failure path too. With Firestore
+  // nulled on 'unavailable', syncBestTimeWithRetry's write resolves false and a marker is written.
+  const store = await import('../src/offline/offline-store.ts');
+  localStorage.removeItem('snowgliderPendingSync');
+  localStorage.setItem('snowgliderBestTime', '20.5'); // a fresh local-only best (ranked Blue)
+  fb.setNextSetDocError('users/syncfail1', { code: 'unavailable' }); // the profile setDoc rejects
+  fb.emitAuthState({ uid: 'syncfail1', email: 'f@g.ai', displayName: 'Fail', photoURL: null });
+  await new Promise(r => setTimeout(r, 250)); // past the 100ms syncUserData timer
+  await flush(); await flush(); await flush();
+  check('a failed sign-in profile write still queues the local best for retry (Codex #362)',
+    store.getPendingSync('syncfail1', 'blue', localStorage)?.time === 20.5);
+
   // getUserIdToken delegates to the signed-in user's getIdToken (with forceRefresh).
   fb.emitAuthState({ uid: 'tok1', email: 't@g.ai', displayName: 'Tok', photoURL: null,
     getIdToken: (force) => Promise.resolve(`token-${force}`) });
