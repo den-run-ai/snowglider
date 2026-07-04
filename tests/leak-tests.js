@@ -1,3 +1,4 @@
+// @ts-check
 // leak-tests.js — lifecycle / disposal leak-regression for the THREE-object systems
 // that allocate-and-dispose GPU resources (plan §1C, "disposal / leak regression").
 //

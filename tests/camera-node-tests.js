@@ -1,3 +1,4 @@
+// @ts-check
 // camera-node-tests.js
 // Headless, c8-instrumented coverage for src/camera.ts (the follow-camera).
 //
@@ -12,8 +13,9 @@
 const { JSDOM } = require('jsdom');
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://snowglider.ai/' });
-global.window = dom.window;
-global.document = dom.window.document;
+const g = /** @type {any} */ (globalThis);
+g.window = dom.window;
+g.document = dom.window.document;
 
 let pass = 0;
 let fail = 0;
@@ -435,7 +437,7 @@ async function main() {
     check('cameraman trails off to one side at rest (nonzero angle)', Math.abs(camRest.angle) > 0.3);
 
     // Steep/expert terrain WHILE SKIING pulls both modes back AND lifts them overhead.
-    for (const mode of ['drone', 'cameraman']) {
+    for (const mode of /** @type {Array<'drone' | 'cameraman'>} */ (['drone', 'cameraman'])) {
       const flat = cam.cinematicTargets(mode, 0, 0, 12, false);
       const steep = cam.cinematicTargets(mode, 0, 0.8, 12, false);
       check(`${mode}: expert terrain pulls the camera back (vs same-speed flat)`, steep.distMult > flat.distMult + 0.1);
@@ -470,7 +472,7 @@ async function main() {
     const droneDist = Math.hypot(drone.x, drone.z);
     const manDist = Math.hypot(man.x, man.z);
     check('drone offset sits farther out (horizontally) than the cameraman', droneDist > manDist);
-    check('cinematicOffset returns a THREE.Vector3', drone.isVector3 === true);
+    check('cinematicOffset returns a THREE.Vector3', /** @type {any} */ (drone).isVector3 === true);
   }
 
   console.log('\n--- cinematic modes: update() drives framing, stays above terrain, no manual leak ---');

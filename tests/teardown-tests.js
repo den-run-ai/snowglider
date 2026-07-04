@@ -1,3 +1,4 @@
+// @ts-check
 // teardown-tests.js — headless coverage for the dispose-audit teardown path
 // (src/game/teardown.ts): the dedup-safe scene-resource sweep and the idempotent
 // disposeGame() entry point.
@@ -45,7 +46,7 @@ async function testAudioToastTeardown() {
   const { AudioModule } = await import('../src/audio.ts');
 
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
-  const g = globalThis;
+  const g = /** @type {any} */ (globalThis);
   const prevDoc = g.document, prevWin = g.window;
   g.window = dom.window;
   g.document = dom.window.document;
@@ -78,7 +79,7 @@ async function testSnowflakePoolTeardown(THREE) {
 
   // jsdom lacks a 2d canvas context; stub the few calls createSnowflakes makes.
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
-  const g = globalThis;
+  const g = /** @type {any} */ (globalThis);
   const prevDoc = g.document, prevWin = g.window;
   g.window = dom.window;
   g.document = dom.window.document;
@@ -289,7 +290,7 @@ async function testOwnedDomNodeRemoval(THREE, disposeGame) {
 
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
   const { document } = dom.window;
-  const g = globalThis;
+  const g = /** @type {any} */ (globalThis);
   const prevDoc = g.document;
   g.document = document; // teardown.ts reads the global `document` for getElementById
 
