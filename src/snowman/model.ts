@@ -110,19 +110,25 @@ export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}
   nose.rotation.x = Math.PI / 2;
   group.add(nose);
   
-  // Buttons (on middle and bottom spheres)
+  // Buttons — parented to the BALL they sit on (not the root group) so the flex
+  // layer's per-frame squash-and-stretch of that ball carries them along its moving
+  // surface. As siblings of the balls they stayed at fixed positions while the belly
+  // scaled, so a squashing middle/bottom sphere left the buttons suspended in front of
+  // the snowman (issue #337). Positions are BALL-LOCAL (world pos minus the ball's
+  // centre) so the shipped rest pose is byte-identical; the buttons now ride (and
+  // gently deform with) the snow they're pressed into.
   const buttonGeometry = new THREE.SphereGeometry(0.15, 12, 12);
   const button1 = new THREE.Mesh(buttonGeometry, blackMaterial);
-  button1.position.set(0, 5.5, 1.4); // On middle sphere front
-  group.add(button1);
-  
+  button1.position.set(0, 5.5 - middle.position.y, 1.4); // middle-local (world y 5.5)
+  middle.add(button1);
+
   const button2 = new THREE.Mesh(buttonGeometry, blackMaterial);
-  button2.position.set(0, 4.5, 1.45); // On middle sphere front
-  group.add(button2);
-  
+  button2.position.set(0, 4.5 - middle.position.y, 1.45); // middle-local (world y 4.5)
+  middle.add(button2);
+
   const button3 = new THREE.Mesh(buttonGeometry, blackMaterial);
-  button3.position.set(0, 3.0, 1.9); // On bottom sphere front
-  group.add(button3);
+  button3.position.set(0, 3.0 - bottom.position.y, 1.9); // bottom-local (world y 3.0)
+  bottom.add(button3);
   
   // --- Stick Arms ---
   // Create a function to build a branched arm
@@ -266,9 +272,19 @@ export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}
   const NECK_Y = 6.0; // top of the middle sphere / base of the head — a natural pivot
   const headGroup = new THREE.Group();
   headGroup.position.set(0, NECK_Y, 0);
-  for (const part of [head, leftEye, rightEye, nose, hatBase, hatTop]) {
-    part.position.y -= NECK_Y;   // into headGroup-local space (identical world y)
-    headGroup.add(part);         // Object3D.add() reparents from `group`
+  head.position.y -= NECK_Y;     // head into headGroup-local space (identical world y)
+  headGroup.add(head);           // Object3D.add() reparents from `group`
+  // Glue the face + hat to the head MESH (not just the cluster). headGroup carries the
+  // whole face when the flex layer BOBS/LEANS it, but the layer also SQUASH-STRETCHES
+  // the `head` mesh itself every frame (head is one of the three breathing balls). As
+  // siblings of `head` the eyes/nose/hat ignored that scale and detached from the
+  // moving head surface, the same defect as the buttons (issue #337). Nesting them
+  // under `head` makes them ride (and gently deform with) the head. Positions rebase
+  // into head-local so world placement is byte-identical at rest.
+  for (const part of [leftEye, rightEye, nose, hatBase, hatTop]) {
+    part.position.y -= NECK_Y;         // group -> headGroup-local (identical world y)
+    part.position.sub(head.position);  // headGroup-local -> head-local
+    head.add(part);                    // Object3D.add() reparents onto the head mesh
   }
   group.add(headGroup);
 
