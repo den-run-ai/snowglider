@@ -43,8 +43,11 @@ export interface SnowDepthOptions {
   rows?: number;
   /** Depth recovered per second as packed cells refill toward full powder (0..1/s). */
   refillRate?: number;
-  /** Depth removed at the centre of a ski pass (0..1 per pass, tapering to the rim). */
+  /** Depth removed at the centre of one explicit `compactAt` pass (0..1, tapers to rim). */
   compactionPerPass?: number;
+  /** Depth packed per SECOND at the centre by the frame driver `update()` (frame-rate
+   *  independent — scaled by dt, unlike the fixed per-pass `compactionPerPass`). */
+  compactionRate?: number;
   /** World radius of the ski compaction footprint. */
   packRadius?: number;
 }
@@ -62,6 +65,7 @@ const DEF_COLS = 150;
 const DEF_ROWS = 200;
 const DEF_REFILL_RATE = 0.05;        // packed snow takes ~20 s of coverage to fully refill
 const DEF_COMPACTION_PER_PASS = 0.5; // one centred pass removes up to half the depth
+const DEF_COMPACTION_RATE = 3.0;     // depth/sec the frame driver packs a dwelt-on line (dt-scaled)
 const DEF_PACK_RADIUS = 2.4;         // a touch wider than the ski gauge so a line reads solid
 
 // Hard caps so a bad option can't blow the grid size / per-frame cost.
@@ -102,6 +106,7 @@ export class SnowDepthField {
   readonly rows: number;
   readonly refillRate: number;
   readonly compactionPerPass: number;
+  readonly compactionRate: number;
   readonly packRadius: number;
 
   /** Authoritative depth grid, row-major, values in [0..1] (1 == full powder). */
@@ -116,6 +121,7 @@ export class SnowDepthField {
     this.rows = clampInt(opts.rows ?? DEF_ROWS, 2, MAX_ROWS);
     this.refillRate = Math.max(0, finiteOr(opts.refillRate, DEF_REFILL_RATE));
     this.compactionPerPass = clamp01(finiteOr(opts.compactionPerPass, DEF_COMPACTION_PER_PASS));
+    this.compactionRate = Math.max(0, finiteOr(opts.compactionRate, DEF_COMPACTION_RATE));
     this.packRadius = Math.max(0, finiteOr(opts.packRadius, DEF_PACK_RADIUS));
 
     this.depth = new Float32Array(this.cols * this.rows).fill(1);
@@ -202,15 +208,25 @@ export class SnowDepthField {
    * whole field, then — only while grounded and actually moving — compact the snow under
    * the skis at the player position. The grounded/moving gate mirrors the ski-track
    * stamping cadence in `snowtracks.ts`, so the two share the same "a ski is on the snow"
-   * trigger. Pure: reads the position + horizontal speed, never writes them, so the
-   * physics-invariant path is byte-identical. Reduced-motion is intentionally NOT gated
-   * here — a packed line is a static mark, not an animation.
+   * trigger.
+   *
+   * FRAME-RATE INDEPENDENT (Codex #350): the per-frame compaction is `compactionRate * dt`,
+   * not a fixed per-pass amount, so a spot packs at the same *rate over time* whether the
+   * client renders at 60, 120, or 144 Hz (mirrors how `refill` already scales by `dt`).
+   * A fixed-per-frame pack would over-darken a ski line on high-refresh displays and on the
+   * extra no-substep render frames the fixed-timestep loop emits above 60 Hz. `dt` is
+   * clamped `>= 0`; `compactAt` clamps the resulting strength to `[0..1]`.
+   *
+   * Pure: reads the position + horizontal speed, never writes them, so the physics-invariant
+   * path is byte-identical. Reduced-motion is intentionally NOT gated here — a packed line is
+   * a static mark, not an animation.
    */
   update(dt: number, player: Vec3Like, isInAir: boolean, speed: number): void {
     this.refill(dt);
     if (!player || !Number.isFinite(player.x) || !Number.isFinite(player.z)) return;
     if (!isInAir && Number.isFinite(speed) && speed > MIN_COMPACT_SPEED) {
-      this.compactAt(player.x, player.z);
+      const step = this.compactionRate * (Number.isFinite(dt) ? Math.max(0, dt) : 0);
+      this.compactAt(player.x, player.z, this.packRadius, step);
     }
   }
 

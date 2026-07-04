@@ -197,6 +197,17 @@ function testUpdateGating(SnowDepthField) {
   robust.update(0.1, { x: 0, y: 0, z: 0 }, false, NaN);
   check('NaN player / speed leave the field bounded and untracked',
     robust.depth.every(v => v >= 0 && v <= 1 && Number.isFinite(v)) && robust.sample(0, 0) === 1);
+
+  // Frame-rate INDEPENDENCE (Codex #350): the same elapsed time packs the same depth
+  // whether the client renders one big frame or many small ones. Isolate compaction with
+  // refillRate 0 so the check is exact.
+  const p = { x: 0, y: 0, z: 0 };
+  const coarse = new SnowDepthField({ refillRate: 0 });
+  const fine = new SnowDepthField({ refillRate: 0 });
+  coarse.update(0.1, p, false, 20);                          // one 100 ms frame (10 Hz)
+  for (let i = 0; i < 10; i++) fine.update(0.01, p, false, 20); // ten 10 ms frames (100 Hz)
+  check('same elapsed time packs the same depth regardless of frame count (60 vs 144 Hz)',
+    Math.abs(coarse.sample(0, 0) - fine.sample(0, 0)) < 1e-6 && coarse.sample(0, 0) < 1);
 }
 
 function testResetAndDispose(SnowDepthField) {
