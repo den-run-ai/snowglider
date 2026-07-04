@@ -39,4 +39,16 @@ if find dist/src -name '*.ts' -print -quit | grep -q .; then
   exit 1
 fi
 
-echo "dist guard OK: transpiled JS present, no raw TypeScript in dist/"
+# PWA install assets (issue #358, PR 2): the manifest + icon must ship so the game is
+# installable. They live in public/ and Vite copies public/ to dist/ root on build; if
+# that ever stops, the app silently loses installability — fail the build instead.
+require_file() {
+  if [ ! -f "$1" ]; then
+    echo "::error::expected $1 in the Pages artifact — the build did not emit it"
+    exit 1
+  fi
+}
+require_file dist/manifest.webmanifest
+require_file dist/icons/icon.svg
+
+echo "dist guard OK: transpiled JS present, PWA manifest+icons present, no raw TypeScript in dist/"
