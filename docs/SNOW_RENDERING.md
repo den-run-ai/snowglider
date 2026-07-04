@@ -157,6 +157,41 @@ blob) under each tree and large rock:
 
 This complements, rather than duplicates, the player-following directional shadow: the
 contact blob is a tight AO darkening right at the base, independent of sun direction.
+## Persistent snow-depth field (#246, visual-only v1)
+
+The transient ski grooves in `src/snowtracks.ts` are *temporary feedback, not
+accumulation* (their own header says so) — they fade in a few seconds and the slope
+forgets you. The persistent snow-depth field is the larger follow-up that gives the
+mountain memory. It is landing as a **staged PR stack** so the risky renderer work is
+isolated:
+
+| PR | Scope | Status |
+|---|---|---|
+| **PR 1** | `src/mountains/snow-depth.ts` — the pure `SnowDepthField` grid logic + Node tests. **No renderer integration.** | this stack |
+| PR 2 | Drive the field's `compactAt` from the existing grounded ski-track stamp cadence (the `SnowTrails` seam); no visible change, transient trails stay. | follow-up |
+| PR 3 | One `DataTexture` sampled by the terrain material (`onBeforeCompile`): packed → darker/icier, powder → brighter/softer. No displacement, no geometry/height-map mutation. | follow-up |
+| PR 4 | Perf: capped resolution, dirty-only upload, near-player window, mobile scaling; verify against `tests/e2e/perf-budget.spec.ts`. | follow-up |
+| PR 5 | Integrate / supersede the transient `SnowTrails` overlay once the texture path is visually proven. | follow-up |
+
+**The field logic (`SnowDepthField`).** A bounded 2D grid (`Float32Array depth`, one cell
+per ~2 world units over the terrain footprint) storing snow depth in `[0..1]` — `1` is
+undisturbed powder, `0` is fully packed / skied-out.
+
+- `compactAt(x, z, radius?, strength?)` — a ski pass removes depth in cells near `(x,z)`,
+  most at the centre and tapering to `0` at the rim (clamped `>= 0`).
+- `refill(dt)` — fresh snow settles: every packed cell lerps back toward `1` at
+  `refillRate` per second (clamped `<= 1`, never overshoots).
+- `sample(x, z)` / `reset()` / `dispose()` (a no-op until PR 3 owns a texture).
+
+**Hard guardrail — "persistent visual snow memory, zero physics meaning."** v1 carries
+**no** physics: the field never reads or writes `pos`/`velocity`, the authoritative
+`heightMap`, terrain vertex positions, friction, grip, or scoring. The physics-invariant
+harness (`npm run test:verify`) therefore stays byte-identical. The logic is
+dependency-free (no THREE / DOM), so it consumes zero `Math.random` (stream-neutral by
+construction) and is exhaustively Node-tested (`npm run test:snow-depth`): compaction
+lowers depth, refill raises it, values stay bounded in `[0..1]`, and a fixed input
+sequence is deterministic.
+
 ## Ownership boundaries
 
 Keeping each layer in its lane is what prevents the whiteout / grey / muddy
@@ -170,6 +205,7 @@ regressions from creeping back when one piece is retuned:
 | Snow palette (`mountains/snow-palette.ts`) | the ONE set of shared snow colour/roughness constants (`SNOW_WHITE` caps/shelves, `SNOW_SHADE`, `CAVITY_COLOR`, surface/cap roughness) consumed by the terrain surface, rock caps, tree caps/shelves, and the snowman body | any behaviour — it is constants only, so it can be imported from anywhere (including headless tests) without cycles |
 | Obstacle contact shadows (`mountains/contact-shadows.ts`, #17) | baked AO blobs under trees/rocks (one InstancedMesh) | casting real shadows / physics |
 | Tree snow load + shedding (`mountains/trees.ts` registry, `src/tree-shed.ts`, #253) | per-tree load attributes (foliage droop/damping, snow-shelf scale), gust-shed puffs, slow re-laden | terrain snow depth, collision positions, physics |
+| Persistent snow-depth field (`mountains/snow-depth.ts`, #246) | the `[0..1]` per-cell snow-depth grid + its compaction/refill math (later: a DataTexture the terrain material samples for packed-vs-powder albedo/roughness) | pos/velocity, `heightMap`, terrain vertices, friction, grip, scoring — **visual memory only, zero physics meaning** |
 | Sun cycle (`src/sky.ts`, #163) | directional sun position/color/intensity, Preetham `sunPosition`/`exposure`, bounded fog/background tint | snow albedo, vertex tint, smoothed normals, terrain, **hemisphere fill** |
 
 ## The sun cycle is an atmospheric layer, not a readability fix
