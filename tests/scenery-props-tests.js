@@ -1,3 +1,4 @@
+// @ts-check
 // scenery-props-tests.js — headless coverage for the decorative prop catalog + placement
 // (src/scenery/prop-catalog.ts + src/scenery/decorative-props.ts, issue #320 PR 6).
 //

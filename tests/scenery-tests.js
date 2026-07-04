@@ -1,3 +1,4 @@
+// @ts-check
 // scenery-tests.js — headless coverage for the background scenery facade
 // (src/scenery/scenery.ts) and its seed derivation (src/scenery/scenery-budget.ts).
 //

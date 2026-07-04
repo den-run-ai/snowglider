@@ -1,3 +1,4 @@
+// @ts-check
 // scenery-rng-tests.js — headless coverage for the scenery RNG helpers
 // (src/scenery/scenery-rng.ts): the seeded placement generator and the
 // private-Math.random guard that keeps Three.js UUID draws from perturbing a
