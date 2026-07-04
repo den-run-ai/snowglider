@@ -53,11 +53,13 @@ canvas { display: block; }
   gap: 6px;
   /* Cap the panel so its bottom edge always stays ABOVE the bottom-left camera
      tray (#cameraControls, bottom:80px) and the Reset / Camera-mode row
-     (#resetBtn, bottom:20px) — all three share the left column. The ~280px
+     (#resetBtn, bottom:20px) — all three share the left column. The ~320px
      reserve keeps the expanded panel from colliding with (and covering the
      clicks of) the camera controls at any viewport height (issue #305 follow-up).
-     overflow-y still scrolls on very short screens so every row stays reachable. */
-  max-height: calc(100vh - 280px);
+     Raised from 280px when the camera tray gained a foldable header (~30px taller
+     when expanded). overflow-y still scrolls on very short screens so every row
+     stays reachable. */
+  max-height: calc(100vh - 320px);
   transition: all 0.3s ease;
   overflow-x: hidden;
   overflow-y: auto; /* Scroll if the techniques don't fit, so every row stays reachable */
@@ -492,6 +494,73 @@ canvas { display: block; }
   z-index: 100;
   user-select: none;
   touch-action: manipulation;
+}
+/* Collapsible header + content wrapper, mirroring the Game Controls / Game Stats HUD
+   panels so the camera tray folds the same way on desktop and mobile. lifecycle.ts
+   builds these nodes and setupCollapsiblePanel() toggles `.collapsed` on the tray. */
+#cameraControlsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  position: relative;
+}
+#cameraControlsHeader h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #ffffff;
+}
+#toggleCamera {
+  background: none;
+  border: none;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  color: white;
+}
+/* Horizontal-swipe affordance, shown only on touch devices — matches the other panels. */
+#cameraControlsHeader::after {
+  content: "⟷";
+  position: absolute;
+  right: 28px;
+  font-size: 13px;
+  opacity: 0.6;
+  color: #ffff99;
+  display: none;
+}
+@media (hover: none) and (pointer: coarse) {
+  #cameraControlsHeader::after { display: block; }
+}
+#cameraControlsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+#cameraControls.collapsed {
+  /* Shrink to a compact header chip when folded (the hidden content otherwise keeps
+     the tray as wide as the mode-chip row), matching the Game Controls / Stats panels. */
+  max-width: 170px;
+}
+#cameraControls.collapsed #cameraControlsContent {
+  max-height: 0;
+  opacity: 0;
+  margin: 0;
+  padding: 0;
+}
+#cameraControls.collapsed #cameraControlsHeader {
+  border-bottom-color: transparent;
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 #cameraControls .cam-row {
   display: flex;

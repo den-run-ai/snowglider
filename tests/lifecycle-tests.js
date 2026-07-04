@@ -152,6 +152,23 @@ async function main() {
     check('orbit slider is present (0–360)',
       !!document.getElementById('cameraOrbitSlider'));
 
+    // Foldable header (matches the Game Controls / Game Stats HUD panels): a titled
+    // header + ▲/▼ toggle wrapping a collapsible content region that holds every widget.
+    const camTray = document.getElementById('cameraControls');
+    const camToggle = document.getElementById('toggleCamera');
+    check('tray has a collapsible header with a title + toggle button',
+      !!document.getElementById('cameraControlsHeader') && !!camToggle &&
+      !!document.querySelector('#cameraControlsHeader h3'));
+    check('the six mode chips live inside the collapsible content wrapper',
+      document.querySelectorAll('#cameraControlsContent [data-cam-mode]').length === 6);
+    // Clicking the toggle folds the tray (collapsed class + ▼) and unfolds it (▲).
+    camToggle.click();
+    check('toggle folds the camera tray',
+      camTray.classList.contains('collapsed') && camToggle.textContent === '▼');
+    camToggle.click();
+    check('toggle unfolds the camera tray',
+      !camTray.classList.contains('collapsed') && camToggle.textContent === '▲');
+
     // Helper to dispatch a window event with extra props (jsdom lacks WheelEvent).
     // `target` is read-only and set to `window` by dispatch; the handlers treat a
     // window target as "not over a UI panel", which is what we want here.
