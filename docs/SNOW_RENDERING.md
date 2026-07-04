@@ -171,7 +171,7 @@ isolated:
 | **PR 2** | Drive the field's `compactAt` from the grounded ski-track cadence (`SnowDepthField.update`, wired in `game/scene-setup.ts` / `game/main-loop.ts` / `game/lifecycle.ts` / `game/teardown.ts`); no visible change, transient trails stay, field carries no GPU texture yet. | ✅ landed |
 | **PR 3** | One `DataTexture` sampled by the terrain material (`applySnowDepthModulation` → `onBeforeCompile`): packed → darker/icier (`vec3(0.86,0.90,0.98)` tint + roughness `0.58`), powder → brighter/softer. No displacement, no geometry / height-map mutation; full-powder start renders identically. | ✅ landed |
 | **PR 4** | Perf/upload discipline: near-player windowed refill (`refillNear`, `updateRadius`), dirty-**row** byte sync (only the changed rows are re-copied; full GPU re-upload — `addUpdateRange` is unsafe on a single-channel `RedFormat` texture, Codex #352), resolution scaling (coarser grid on mobile/low-power, `?snowdepth=off\|low\|high` override), and a `stats()` debug seam. Verified against `tests/e2e/perf-budget.spec.ts`. | this stack |
-| PR 5 | Integrate / supersede the transient `SnowTrails` overlay once the texture path is visually proven. | follow-up |
+| **PR 5** | Integrate the transient `SnowTrails` overlay: it becomes the **fresh-cut cue** (crisp groove, trimmed lifetime) while `SnowDepthField` carries the **lasting** memory. Overlay deliberately kept (sharp groove reads more immediately than the broad material modulation); final opacity/lifetime + any removal are a visual-tuning call. | this stack |
 
 **The field logic (`SnowDepthField`).** A bounded 2D grid (`Float32Array depth`, one cell
 per ~2 world units over the terrain footprint) storing snow depth in `[0..1]` — `1` is
