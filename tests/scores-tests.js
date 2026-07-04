@@ -101,6 +101,11 @@ async function flushAll() {
 
 async function main() {
   const ScoresModule = await loadScoresModule();
+  // The pending-sync store is keyed by uid+tier (Codex #362); seed/read markers through it
+  // rather than hand-building the composite localStorage keys.
+  const store = await import('../src/offline/offline-store.ts');
+  const seedPending = (uid, tier, time) => store.markPendingSync(tier, time, uid, { recordedAt: 1, storage: env.localStorage });
+  const pendingTime = (uid, tier) => store.getPendingSync(uid, tier, env.localStorage)?.time;
 
   console.log('--- ScoresModule load & validation ---');
   check('module exposes the expected public surface',
@@ -472,8 +477,7 @@ async function main() {
   firestoreAvailable = false;             // AuthModule reports Firestore down...
   ScoresModule.initializeScores(null, null); // ...and the local instance is null
   reinitializeSucceeds = true;            // reinit will restore it + re-run the flush
-  env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'u-recon', recordedAt: 1 } }));
+  seedPending('u-recon', 'blue', 25);
   calls.reinitializeFirestore = 0;
   window.dispatchEvent(new window.Event('online'));
   await flushAll();
@@ -496,8 +500,7 @@ async function main() {
   currentAuthUser = { uid: 'guest', isAnonymous: true };
   firestoreAvailable = false;
   ScoresModule.initializeScores(null, null);
-  env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'guest', recordedAt: 1 } }));
+  seedPending('guest', 'blue', 25);
   calls.reinitializeFirestore = 0;
   window.dispatchEvent(new window.Event('online'));
   await flushAll();
@@ -513,8 +516,7 @@ async function main() {
   firestoreAvailable = false;                // AuthModule reports Firestore down...
   ScoresModule.initializeScores(null, null); // ...local instance null; early flush no-ops (no user)
   reinitializeSucceeds = true;
-  env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'u-restore', recordedAt: 1 } }));
+  seedPending('u-restore', 'blue', 25);
   calls.reinitializeFirestore = 0;
   currentAuthUser = { uid: 'u-restore', isAnonymous: false, displayName: 'Restore' };
   ScoresModule.setCurrentUser(currentAuthUser);
@@ -526,8 +528,7 @@ async function main() {
   resetState(ScoresModule);
   firestoreAvailable = false;
   ScoresModule.initializeScores(null, null);
-  env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'guest2', recordedAt: 1 } }));
+  seedPending('guest2', 'blue', 25);
   calls.reinitializeFirestore = 0;
   currentAuthUser = { uid: 'guest2', isAnonymous: true };
   ScoresModule.setCurrentUser(currentAuthUser);
@@ -556,9 +557,8 @@ async function main() {
   setNextSetDocError('users/u-flaky-sync', { code: 'unavailable' }); // the personal-best write fails
   ScoresModule.recordScore(25); // Blue (ranked); fresh best => effectiveBestTime = 25
   await flushAll();
-  const pendingAfterFail = JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}');
   check('a failed online ranked sync is queued pending for retry',
-    !!pendingAfterFail.blue && pendingAfterFail.blue.time === 25);
+    pendingTime('u-flaky-sync', 'blue') === 25);
 
   console.log('\n--- offline-queue: reinit reattaches a detached ScoresModule, then flushes (Codex #362) ---');
   // Divergence: AuthModule still holds Firestore (firestoreAvailable = true) but ScoresModule
@@ -570,14 +570,13 @@ async function main() {
   reinitializeSucceeds = true; // reinit reattaches ScoresModule (its initializeScores re-runs the flush)
   currentAuthUser = { uid: 'u-detached', isAnonymous: false, displayName: 'Detached' };
   ScoresModule.setCurrentUser(currentAuthUser); // no marker yet → drains to a no-op
-  env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'u-detached', recordedAt: 1 } }));
+  seedPending('u-detached', 'blue', 25);
   calls.reinitializeFirestore = 0;
   window.dispatchEvent(new window.Event('online'));
   await flushAll();
   check('a detached ScoresModule reconnect reinitializes', calls.reinitializeFirestore > 0);
   check('reattach + flush clears the pending marker',
-    JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}').blue === undefined);
+    pendingTime('u-detached', 'blue') === undefined);
 
   console.log('\n--- syncBestTimeWithRetry: sign-in backfill queues a failed sync (Codex #362) ---');
   // auth.ts's sign-in backfill (the only automatic path for a local-only best) routes
@@ -591,7 +590,7 @@ async function main() {
   ScoresModule.syncBestTimeWithRetry('u-backfill', 22, 'blue');
   await flushAll();
   check('a failed sign-in backfill is queued pending for retry',
-    JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}').blue?.time === 22);
+    pendingTime('u-backfill', 'blue') === 22);
 
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
@@ -600,7 +599,7 @@ async function main() {
   ScoresModule.syncBestTimeWithRetry('u-backfill-ok', 22, 'blue');
   await flushAll();
   check('a confirmed sign-in backfill leaves no pending marker',
-    JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}').blue === undefined);
+    pendingTime('u-backfill-ok', 'blue') === undefined);
 
   console.log(`\nSCORES TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

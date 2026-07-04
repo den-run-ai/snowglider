@@ -149,11 +149,23 @@ export function saveLocalBestIfBetter(
 
 // --- Pending-sync marker ------------------------------------------------------
 
+// Pending markers are keyed by uid + tier, NOT tier alone, so two users on a shared
+// browser each keep their own pending best per tier — one never overwrites the other's,
+// and the flush drains only the current user's entries (Codex #362). A NUL separator
+// can't appear in a Firebase uid or a difficulty id, so the split is unambiguous.
+const PENDING_KEY_SEP = '\u0000';
+
+/** Composite storage-map key for a per-user pending marker. */
+function pendingKey(uid: string, tier: Difficulty): string {
+  return `${uid}${PENDING_KEY_SEP}${tier}`;
+}
+
 /**
- * Read the pending-sync map (tier -> entry). Returns {} on absent key, junk JSON, a
- * non-object payload, or unavailable storage. Entries with an invalid time or a tier
- * that mismatches its key are dropped, so a tampered payload can't feed a forged
- * time into a later leaderboard sync. Never throws.
+ * Read the pending-sync map (`uid\0tier` -> entry). Returns {} on absent key, junk JSON, a
+ * non-object payload, or unavailable storage. Entries whose key can't be split into a
+ * non-empty uid + real difficulty, whose stored tier/uid disagree with the key, or whose
+ * time is implausible for the tier are dropped — so a tampered payload can't feed a forged
+ * time (or an ownerless marker) into a later leaderboard sync. Never throws.
  */
 export function readPendingSync(storage?: StorageLike | null): Record<string, PendingSyncEntry> {
   const raw = safeGetItem(PENDING_SYNC_KEY, storage);
@@ -166,27 +178,30 @@ export function readPendingSync(storage?: StorageLike | null): Record<string, Pe
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
   const out: Record<string, PendingSyncEntry> = {};
-  for (const [tier, value] of Object.entries(parsed as Record<string, unknown>)) {
-    // Drop tampered/unknown tiers: a corrupt payload could carry a matching but
-    // bogus key/tier pair (e.g. { evil: { tier: 'evil', time: 25 } }); only real
-    // difficulty ids may pass so downstream sync can trust the drained map.
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    // Split the composite key into its owner uid + tier. A missing separator (or empty
+    // uid) is a legacy/tampered key — drop it (a pre-uid marker keyed by bare tier lands
+    // here too, and is correctly discarded on upgrade).
+    const sepIdx = key.indexOf(PENDING_KEY_SEP);
+    if (sepIdx <= 0) continue;
+    const uid = key.slice(0, sepIdx);
+    const tier = key.slice(sepIdx + 1);
+    // Drop tampered/unknown tiers: only real difficulty ids may pass so downstream sync
+    // can trust the drained map.
     if (!isDifficulty(tier)) continue;
     if (!value || typeof value !== 'object') continue;
     const entry = value as Partial<PendingSyncEntry>;
-    // The stored `tier` field must agree with its (validated) map key AND carry a time
-    // plausible for THAT tier (tier-aware floor, Codex #359).
+    // The stored `tier`/`uid` fields must agree with the (validated) composite key, and the
+    // time must be plausible for THAT tier (tier-aware floor, Codex #359).
     if (entry.tier !== tier) continue;
+    if (entry.uid !== uid) continue;
     if (!isPlausibleTierTime(tier, entry.time)) continue;
-    // A marker MUST carry the uid that earned it; without an owner the flush can't tell
-    // whose score it is and could sync it to whoever is signed in at retry (Codex #362).
-    // Drop an ownerless/tampered entry (also drops any pre-uid marker on upgrade).
-    if (typeof entry.uid !== 'string' || entry.uid.length === 0) continue;
     const recordedAt =
       typeof entry.recordedAt === 'number' && Number.isFinite(entry.recordedAt)
         ? entry.recordedAt
         : null;
-    // The `entry.tier !== tier` guard above narrows `tier` to Difficulty here.
-    out[tier] = { tier, time: entry.time, uid: entry.uid, recordedAt };
+    // The guards above narrow `tier` to Difficulty and confirm `uid` is a non-empty string.
+    out[key] = { tier, time: entry.time, uid, recordedAt };
   }
   return out;
 }
@@ -204,11 +219,12 @@ export function writePendingSync(
 }
 
 /**
- * Mark a tier's best offline result as awaiting sync. No-ops (returns false) for an
- * invalid time. Keeps only the BEST (lowest) pending time per tier, so repeated
- * offline runs never queue a slower time over a faster one. `recordedAt` defaults to
- * `Date.now()` when available; pass an explicit value for deterministic tests.
- * Never throws.
+ * Mark a `uid`'s best offline result for `tier` as awaiting sync. No-ops (returns false)
+ * for an invalid time or an empty uid. Keeps only the BEST (lowest) pending time per
+ * (uid, tier), so repeated offline runs never queue a slower time over a faster one — and
+ * a DIFFERENT user's entry for the same tier is preserved (its own composite key), never
+ * overwritten (Codex #362). `recordedAt` defaults to `Date.now()`; pass an explicit value
+ * for deterministic tests. Never throws.
  */
 export function markPendingSync(
   tier: Difficulty,
@@ -221,11 +237,11 @@ export function markPendingSync(
   if (typeof uid !== 'string' || uid.length === 0) return false;
   const storage = opts?.storage;
   const map = readPendingSync(storage);
-  const existing = map[tier];
-  // Keep the faster time only WITHIN the same owner. A different user's queued best for this
-  // tier must not block (or be blocked by) this one — overwrite it with the current owner's
-  // mark (the other user's local best still backfills on their own next sign-in).
-  if (existing && existing.uid === uid && existing.time <= time) return false;
+  const key = pendingKey(uid, tier);
+  // Keep the faster time for THIS (uid, tier). A different user's entry lives under its own
+  // key, so it is neither consulted here nor clobbered below.
+  const existing = map[key];
+  if (existing && existing.time <= time) return false;
   let recordedAt: number | null;
   if (opts && 'recordedAt' in opts) {
     recordedAt = typeof opts.recordedAt === 'number' && Number.isFinite(opts.recordedAt)
@@ -234,23 +250,25 @@ export function markPendingSync(
   } else {
     recordedAt = typeof Date !== 'undefined' && typeof Date.now === 'function' ? Date.now() : null;
   }
-  map[tier] = { tier, time, uid, recordedAt };
+  map[key] = { tier, time, uid, recordedAt };
   return writePendingSync(map, storage);
 }
 
-/** The pending entry for a tier, or null. */
-export function getPendingSync(tier: Difficulty, storage?: StorageLike | null): PendingSyncEntry | null {
-  return readPendingSync(storage)[tier] ?? null;
+/** The pending entry for a (uid, tier), or null. */
+export function getPendingSync(uid: string, tier: Difficulty, storage?: StorageLike | null): PendingSyncEntry | null {
+  return readPendingSync(storage)[pendingKey(uid, tier)] ?? null;
 }
 
 /**
- * Clear a tier's pending marker (call after a successful global-leaderboard sync).
- * Removes the whole key when nothing remains. Never throws.
+ * Clear a (uid, tier) pending marker (call after that user's confirmed leaderboard sync).
+ * Leaves every other user's entries intact; removes the whole storage key when the map
+ * empties. Never throws.
  */
-export function clearPendingSync(tier: Difficulty, storage?: StorageLike | null): void {
+export function clearPendingSync(uid: string, tier: Difficulty, storage?: StorageLike | null): void {
   const map = readPendingSync(storage);
-  if (!(tier in map)) return;
-  delete map[tier];
+  const key = pendingKey(uid, tier);
+  if (!(key in map)) return;
+  delete map[key];
   if (Object.keys(map).length === 0) {
     safeRemoveItem(PENDING_SYNC_KEY, storage);
   } else {

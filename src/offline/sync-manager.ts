@@ -55,10 +55,13 @@ export function shouldQueuePending(
   return isSyncEligibleUser(user) && getDifficultyConfig(tier).ranked && !canSyncNow;
 }
 
-/** Is there at least one queued pending sync? Used by the reconnect path to decide
- *  whether it's worth reinitializing Firestore. Never throws. */
-export function hasPendingSync(storage?: StorageLike | null): boolean {
-  return Object.keys(readPendingSync(storage)).length > 0;
+/** Is there queued pending work? With `uid` it counts only THAT user's entries (the
+ *  reconnect path reinitializes Firestore only when the current user actually has work);
+ *  without it, any pending entry. Never throws. */
+export function hasPendingSync(uid?: string | null, storage?: StorageLike | null): boolean {
+  const pending = readPendingSync(storage);
+  if (uid == null) return Object.keys(pending).length > 0;
+  return Object.values(pending).some((entry) => entry.uid === uid);
 }
 
 /** Dependencies for the queue/flush operations (injectable for headless tests). */
@@ -95,18 +98,20 @@ export function queueOfflineBest(tier: Difficulty, time: number, deps: SyncDeps)
  * Mark a best pending because an ONLINE sync attempt did NOT confirm — the finish path
  * ran updateUserBestTime while online + Firestore-ready, but it resolved `false` (a
  * transient getDoc/setDoc/leaderboard failure) or rejected. Unlike queueOfflineBest this
- * ignores current connectivity (the attempt already happened and failed), so eligibility
- * — a real signed-in user on a ranked tier — is enough to queue a retry. Without this a
- * flaky-Firestore online finish would strand the best in localStorage with no marker, and
- * queueOfflineBest no-ops while online (Codex #362). Returns whether a marker was written.
- * Never throws.
+ * ignores current connectivity (the attempt already happened and failed), so a ranked tier
+ * is enough to queue a retry — a flaky-Firestore online finish would otherwise strand the
+ * best in localStorage with no marker (queueOfflineBest no-ops while online). The `uid` is
+ * the owner CAPTURED when the sync was attempted; it is NOT re-read from getActiveUser here,
+ * because the async write can settle after the player signs out / switches accounts — using
+ * the live user then would queue A's score under B's uid or drop it (Codex #362). Returns
+ * whether a marker was written. Never throws.
  */
-export function queueFailedSync(tier: Difficulty, time: number, deps: SyncDeps): boolean {
-  const user = deps.getActiveUser();
-  // canSyncNow = false: the online attempt already failed, so eligibility + ranked is enough.
-  // `|| !user` narrows the type (shouldQueuePending isn't a type guard).
-  if (!shouldQueuePending(user, tier, false) || !user) return false;
-  return markPendingSync(tier, time, user.uid, deps.storage === undefined ? {} : { storage: deps.storage });
+export function queueFailedSync(uid: string, tier: Difficulty, time: number, deps: SyncDeps): boolean {
+  // The original owner must be a real, non-empty uid; the ranked-tier gate matches
+  // shouldQueuePending (guests/unranked never reach here from the finish/backfill callers).
+  if (typeof uid !== 'string' || uid.length === 0) return false;
+  if (!getDifficultyConfig(tier).ranked) return false;
+  return markPendingSync(tier, time, uid, deps.storage === undefined ? {} : { storage: deps.storage });
 }
 
 /**
@@ -134,9 +139,9 @@ export async function flushPendingSync(deps: SyncDeps): Promise<Difficulty[]> {
     // own owner's reconnect/sign-in retry (Codex #362).
     if (entry.uid !== user.uid) continue;
     // Belt-and-suspenders: a tier that became un-ranked (config change) can't reach the
-    // global board, so drop its marker without syncing.
+    // global board, so drop this user's marker without syncing.
     if (!getDifficultyConfig(tier).ranked) {
-      clearPendingSync(tier, deps.storage);
+      clearPendingSync(user.uid, tier, deps.storage);
       continue;
     }
     let confirmed = false;
@@ -148,7 +153,7 @@ export async function flushPendingSync(deps: SyncDeps): Promise<Difficulty[]> {
       confirmed = false;
     }
     if (confirmed) {
-      clearPendingSync(tier, deps.storage);
+      clearPendingSync(user.uid, tier, deps.storage);
       cleared.push(tier);
     }
   }

@@ -150,10 +150,12 @@ function flushOfflineScoreQueue() {
 function syncBestTimeWithRetry(uid: string, time: number, tier: Difficulty): void {
   void updateUserBestTime(uid, time, tier)
     .then((confirmed) => {
-      if (confirmed === false) queueFailedSync(tier, time, buildSyncDeps());
+      // Queue under the ORIGINAL uid captured here — not getActiveUser() at resolve time,
+      // which may be a different account (or none) if the player switched mid-write (Codex #362).
+      if (confirmed === false) queueFailedSync(uid, tier, time, buildSyncDeps());
     })
     .catch(() => {
-      queueFailedSync(tier, time, buildSyncDeps());
+      queueFailedSync(uid, tier, time, buildSyncDeps());
     });
 }
 
@@ -168,7 +170,11 @@ function syncBestTimeWithRetry(uid: string, time: number, tier: Difficulty): voi
 // Firestore exists and never calls setCurrentUser, so there's no reinit→init→flush loop.
 function drainPendingSyncQueue() {
   try {
-    if (!firestore && hasPendingSync() && getActiveUser()) {
+    const activeUser = getActiveUser();
+    // Only reinitialize when THIS user actually has queued work (hasPendingSync scoped to
+    // their uid) — a foreign user's leftover marker must not churn a reinit for someone
+    // who has nothing to sync (Codex #362).
+    if (!firestore && activeUser && hasPendingSync(activeUser.uid)) {
       const authModule = window.AuthModule as { reinitializeFirestore?: () => unknown } | null | undefined;
       if (authModule && typeof authModule.reinitializeFirestore === 'function') {
         console.log('Reconnected with a pending offline best; reinitializing Firestore to sync it.');
