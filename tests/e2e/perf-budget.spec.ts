@@ -52,8 +52,13 @@ const BUDGET = {
   calls: 800, // draw calls per frame (measured peak ~273; TIGHT — instancing must hold)
   triangles: 350_000, // rasterized triangles per frame (measured peak ~183k; loose — forest never culls)
   geometries: 185, // live BufferGeometry count (measured peak ~155 with the #18 shadow pass; TIGHT — pooled, must stay bounded)
-  textures: 25, // live texture count (measured 11; TIGHT)
-  programs: 25, // compiled shader programs (measured 16; TIGHT — catches shader-compile blowups)
+  textures: 25, // live texture count (measured 16 incl. the snow-depth DataTexture; TIGHT)
+  // Snow-depth terrain modulation (#246 PR 3) samples a DataTexture in the terrain
+  // material via onBeforeCompile, which needs a stable customProgramCacheKey — that
+  // un-shares the terrain program from any identical MeshStandardMaterial, adding exactly
+  // one dedicated program (measured 24 -> 25). Ceiling nudged to 26 for a hair of headroom;
+  // still TIGHT — a per-object shader regression would blow this well past 26.
+  programs: 26, // compiled shader programs (measured 25 with the snow-depth terrain program)
 };
 
 type PerfInfo = {
@@ -90,12 +95,11 @@ const EZ_BUDGET = {
   geometries: 210, // + up to 12 archetype geometries over the stylized ~155 peak
   textures: 30, // + needle sprite & co. over the stylized measured ~11
   // Background scenery system (issue #320) adds a handful of shared instanced-basic-fog
-  // program variants; the final layer (ambient life, PR 7) tips the EZ peak to 41 (its
-  // clouds/birds/spindrift share ONE FrontSide basic+fog program — see ambient-life.ts —
-  // so the addition is minimal). The standard variant sits at 24/25; only the EZ variant,
-  // which had no headroom left, needs the nudge. Still TIGHT: a per-archetype/-object
-  // shader regression would blow this into the dozens, well past 43.
-  programs: 43, // measured peak 41 with the full scenery stack (was 40 pre-scenery)
+  // program variants; the ambient-life layer tipped the EZ peak to 41 (its clouds/birds/
+  // spindrift share ONE FrontSide basic+fog program — see ambient-life.ts). The snow-depth
+  // terrain program (#246 PR 3) then adds one more, to 42. Still TIGHT: a per-archetype/
+  // -object shader regression would blow this into the dozens, well past 43.
+  programs: 43, // measured peak 42 (41 scenery stack + 1 snow-depth terrain program)
 };
 
 /** Seed Math.random BEFORE any game script runs so the forest layout (tree count,

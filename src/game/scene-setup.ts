@@ -14,7 +14,7 @@ import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { AvalancheSystem } from '../avalanche.js';
 import { SnowTrails } from '../snowtracks.js';
-import { SnowDepthField } from '../mountains/snow-depth.js';
+import { SnowDepthField, applySnowDepthModulation } from '../mountains/snow-depth.js';
 import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
@@ -350,13 +350,19 @@ export function setupScene(signal?: AbortSignal) {
   snowTrails.setTerrainFunction(Snow.getTerrainHeight);
   state.snowTrails = snowTrails;
 
-  // --- Persistent snow-depth field (#246, PR 2: driven, not yet rendered) ---
+  // --- Persistent snow-depth field (#246, PR 3: rendered) ---
   // The skis pack this [0..1] depth grid into lasting ski lines that fresh snow refills;
-  // the main loop drives it off the same grounded/moving trigger as the ski trails. PR 2
-  // wires the seam only — the field carries NO GPU texture yet, so nothing changes on
-  // screen (a later PR samples it into the terrain material). Purely cosmetic data:
-  // never touches physics/pos/velocity/heightMap.
-  state.snowDepth = new SnowDepthField();
+  // the main loop drives it off the same grounded/moving trigger as the ski trails. The
+  // field's single-channel DataTexture is sampled by the terrain material to modulate
+  // albedo/roughness (packed = darker/icier, powder = brighter/softer). Render-only:
+  // moves no vertex, so the terrain height contract and physics are untouched. While the
+  // field is full powder (spawn) the modulation is the identity, so the slope starts
+  // visually unchanged. Applied AFTER createTerrain so `terrain.material` exists.
+  const snowDepth = new SnowDepthField();
+  state.snowDepth = snowDepth;
+  const terrainMaterial = terrain.material as THREE.Material;
+  applySnowDepthModulation(terrainMaterial, snowDepth);
+  terrainMaterial.needsUpdate = true; // force a recompile so onBeforeCompile runs
 
   // --- Initialize Snowman crash-shatter (#53) ---
   // The wipeout system. Constructed here so the coordinator can fire it from the

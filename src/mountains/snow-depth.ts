@@ -1,29 +1,34 @@
 // mountains/snow-depth.ts — persistent snow-depth field (issue #246, visual-only v1).
 //
-// STAGE: PR 1 of the #246 stack — the PURE FIELD LOGIC, with NO renderer integration.
-// This module owns a bounded 2D grid of snow "depth" in [0..1] (1 = undisturbed powder,
-// 0 = fully packed / skied-out) and the math that ages it: the skis COMPACT depth in
-// cells near a pass; fresh snowfall / refill raises packed cells back toward full at a
-// constant per-second rate (a linear recovery, not a proportional lerp — v1 keeps it
-// simple). Later PRs drive it from the real ski-track cadence (PR 2) and sample it into the
-// terrain material via a DataTexture (PR 3) so packed ski lines read darker/icier and
-// powder reads brighter/softer — giving the slope MEMORY that `src/snowtracks.ts` (its
+// STAGE: PR 3 of the #246 stack — the field now owns a GPU DataTexture and modulates the
+// terrain material. This module owns a bounded 2D grid of snow "depth" in [0..1]
+// (1 = undisturbed powder, 0 = fully packed / skied-out) and the math that ages it: the
+// skis COMPACT depth in cells near a pass (PR 2 drives this off the ski-track cadence);
+// fresh snowfall / refill raises packed cells back toward full at a constant per-second
+// rate (a linear recovery, not a proportional lerp — v1 keeps it simple). PR 3 mirrors the
+// grid into a single-channel DataTexture that the terrain material samples
+// (`applySnowDepthModulation` via `onBeforeCompile`) so packed ski lines read darker/icier
+// and powder reads brighter/softer — giving the slope MEMORY that `src/snowtracks.ts` (its
 // own header: "temporary track feedback, NOT accumulation") explicitly names as its
 // larger follow-up.
 //
 // THE INVARIANTS (mirror the scenery / wind / ski-trail discipline; #246 guardrails):
 //   * physics-neutral    — NEVER reads or writes pos/velocity/heightMap/terrain vertices/
-//                          course state. v1 carries NO physics meaning: depth does not
+//                          course state, and the shader modulation moves NO vertex (albedo
+//                          + roughness only). v1 carries NO physics meaning: depth does not
 //                          feed the height field, friction, grip, or scoring. The phrase
 //                          the stack holds to is "persistent visual snow memory, zero
 //                          physics meaning."
-//   * dependency-free    — PR 1 imports NOTHING (no THREE, no DOM). The grid is plain
-//                          typed-array math, so it is trivially headless / Node-testable
-//                          and consumes ZERO Math.random (stream-neutral by construction;
-//                          the DataTexture that would draw a UUID arrives in PR 3, guarded
-//                          then).
+//   * Math.random-neutral— the only Three.js construction (the DataTexture) is wrapped in a
+//                          private, deterministic random guard so its UUID draw cannot
+//                          perturb the seeded placement stream (mirrors trees.ts
+//                          `depthUuidRandom` / scenery `withPrivateThreeRandom`). The grid
+//                          math itself draws no randomness.
+//   * headless-safe      — the DataTexture is a plain data holder (no GPU/canvas/DOM), so
+//                          the Node suites still construct and drive the field directly.
 //   * bounded / deterministic — every mutation clamps to [0..1]; identical input
 //                          sequences produce identical grids; grid resolution is capped.
+import * as THREE from 'three';
 
 /** Minimal positional shape (accepts a THREE.Vector3 or a plain literal). */
 export interface Vec3Like {
@@ -83,6 +88,26 @@ const MAX_ROWS = 520;
 // Don't stamp a compaction pass when essentially stopped (matches SnowTrails.MIN_SPEED).
 const MIN_COMPACT_SPEED = 1.2;
 
+// Private xorshift32 stream used ONLY to feed the DataTexture's UUID draw so it can't
+// perturb the caller's seeded global Math.random stream (Math.random-neutral invariant).
+// A distinct seed constant from trees.ts `depthUuidRandom` and scenery's `threeUuidRandom`
+// keeps the guards from ever sharing a stream.
+let snowDepthUuidState = 0x1b8f2d43;
+function withPrivateThreeRandom<T>(fn: () => T): T {
+  const saved = Math.random;
+  Math.random = function snowDepthUuidRandom(): number {
+    snowDepthUuidState ^= snowDepthUuidState << 13;
+    snowDepthUuidState ^= snowDepthUuidState >>> 17;
+    snowDepthUuidState ^= snowDepthUuidState << 5;
+    return (snowDepthUuidState >>> 0) / 0x100000000;
+  };
+  try {
+    return fn();
+  } finally {
+    Math.random = saved;
+  }
+}
+
 function clampInt(v: number, lo: number, hi: number): number {
   if (!Number.isFinite(v)) return lo;
   return Math.max(lo, Math.min(hi, Math.round(v)));
@@ -120,6 +145,12 @@ export class SnowDepthField {
 
   /** Authoritative depth grid, row-major, values in [0..1] (1 == full powder). */
   readonly depth: Float32Array;
+  /** Uint8 mirror uploaded to the GPU (0..255 == 0..1), synced from `depth` on flush. */
+  private readonly bytes: Uint8Array;
+  /** Single-channel DataTexture the terrain material samples (see applySnowDepthModulation). */
+  readonly texture: THREE.DataTexture;
+  /** Set when `depth` has changed since the last flush; gates the texture re-upload. */
+  private dirty = false;
 
   // Frame-driver stamping state: the last point a stamp was laid at, plus the arc-length
   // carried over toward the next stamp, so `update()` spaces stamps by travelled DISTANCE
@@ -145,7 +176,24 @@ export class SnowDepthField {
     this.stampStrength = clamp01(finiteOr(opts.stampStrength, DEF_STAMP_STRENGTH));
     this.packRadius = Math.max(0, finiteOr(opts.packRadius, DEF_PACK_RADIUS));
 
-    this.depth = new Float32Array(this.cols * this.rows).fill(1);
+    const cells = this.cols * this.rows;
+    this.depth = new Float32Array(cells).fill(1);
+    this.bytes = new Uint8Array(cells).fill(255);
+
+    // The DataTexture draws a UUID via Math.random on construction — guard it so a scene
+    // built on the seeded stream stays byte-identical (Math.random-neutral).
+    this.texture = withPrivateThreeRandom(() => {
+      const tex = new THREE.DataTexture(this.bytes, this.cols, this.rows, THREE.RedFormat, THREE.UnsignedByteType);
+      tex.magFilter = THREE.LinearFilter;
+      tex.minFilter = THREE.LinearFilter;
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.generateMipmaps = false;
+      // This is DATA (depth 0..1), not colour — no sRGB decode on sample (review nit).
+      tex.colorSpace = THREE.NoColorSpace;
+      tex.needsUpdate = true;
+      return tex;
+    });
   }
 
   /** Column index for a world x, clamped to the grid. */
@@ -204,7 +252,8 @@ export class SnowDepthField {
         const d2 = dc * dc + dr * dr;
         if (d2 > 1) continue;
         const falloff = 1 - Math.sqrt(d2);        // 1 at centre → 0 at the rim
-        this.depth[base + c] = clamp01(this.depth[base + c]! - s * falloff);
+        const next = clamp01(this.depth[base + c]! - s * falloff);
+        if (next !== this.depth[base + c]) { this.depth[base + c] = next; this.dirty = true; }
       }
     }
   }
@@ -220,7 +269,7 @@ export class SnowDepthField {
     if (step <= 0) return;
     const d = this.depth;
     for (let i = 0; i < d.length; i++) {
-      if (d[i]! < 1) d[i] = clamp01(d[i]! + step);
+      if (d[i]! < 1) { d[i] = clamp01(d[i]! + step); this.dirty = true; }
     }
   }
 
@@ -247,11 +296,23 @@ export class SnowDepthField {
     this.refill(dt);
     const laying = player && Number.isFinite(player.x) && Number.isFinite(player.z) &&
       !isInAir && Number.isFinite(speed) && speed > MIN_COMPACT_SPEED;
-    if (!laying) {
-      this.lastX = null; // break the line: the next grounded stamp starts a fresh anchor
-      return;
-    }
-    this.stampAlongPath(player.x, player.z);
+    if (laying) this.stampAlongPath(player.x, player.z);
+    else this.lastX = null; // break the line: the next grounded stamp starts a fresh anchor
+    this.flush();
+  }
+
+  /**
+   * Sync the changed depth cells into the GPU byte mirror and flag the texture for
+   * re-upload — a no-op on a clean frame (airborne, stopped, fully-refilled), so the
+   * common case costs nothing. (PR 4 narrows the sync/upload to a near-player window;
+   * PR 3 re-uploads the whole DataTexture on change, which three does on `needsUpdate`.)
+   */
+  flush(): void {
+    if (!this.dirty) return;
+    this.dirty = false;
+    const d = this.depth, b = this.bytes;
+    for (let i = 0; i < d.length; i++) b[i] = Math.round(d[i]! * 255);
+    this.texture.needsUpdate = true;
   }
 
   /**
@@ -286,16 +347,71 @@ export class SnowDepthField {
    *  with no line drawn from the old finish position to the new spawn. */
   reset(): void {
     this.depth.fill(1);
+    this.bytes.fill(255);
+    this.dirty = false;
+    this.texture.needsUpdate = true;
     this.lastX = null;
     this.stampCarry = 0;
   }
 
-  /**
-   * Release any GPU resource the field owns. A no-op in PR 1 (the field is pure data);
-   * reserved so callers can wire teardown now — PR 3 gives it a DataTexture to dispose.
-   * Idempotent by construction.
-   */
+  /** Release the DataTexture. Idempotent (three's dispose tolerates a second call). */
   dispose(): void {
-    /* no GPU resource owned yet — see PR 3 */
+    this.texture.dispose();
   }
+}
+
+// --- Terrain-material shader modulation (PR 3) -----------------------------
+// How strongly a fully-packed cell (depth 0) shifts the snow surface. Authored for the
+// project's legacy linear pipeline (ColorManagement disabled), in the spirit of the
+// snow-palette constants: packed snow reads a touch darker with a faint cool (icy) tint,
+// and less rough than powder so it catches a sharper specular glint.
+const PACKED_TINT = 'vec3(0.86, 0.90, 0.98)'; // multiply diffuse toward icy grey-blue
+const PACKED_ROUGHNESS = '0.58';               // vs the ~0.92 matte powder surface
+
+/**
+ * Wire a {@link SnowDepthField} into a terrain MeshStandardMaterial via `onBeforeCompile`
+ * so the fragment shader samples per-cell depth and modulates albedo + roughness. The
+ * terrain mesh sits at the origin with its rotation baked into the geometry, so the vertex
+ * `position.xz` IS the world XZ used to index the field — no model matrix needed.
+ *
+ * Render-only: the injection reads a texture and scales `diffuseColor` / `roughnessFactor`;
+ * it never moves a vertex, so the terrain height contract (mesh vertex == getTerrainHeight)
+ * is untouched. A stable `customProgramCacheKey` keeps the modulated program from colliding
+ * with an unmodulated MeshStandardMaterial (mirrors trees.ts `applyTreeSway`). While the
+ * field is full powder (depth 1) the modulation is the identity, so an un-skied slope
+ * renders byte-identically to before.
+ */
+export function applySnowDepthModulation(material: THREE.Material, field: SnowDepthField): void {
+  const vertexHead = `#include <common>
+varying vec2 vSnowDepthUv;
+uniform vec2 uSnowFieldMin;
+uniform vec2 uSnowFieldSize;`;
+  const vertexCompute = `#include <begin_vertex>
+  vSnowDepthUv = (position.xz - uSnowFieldMin) / uSnowFieldSize;`;
+  const fragmentHead = `#include <common>
+varying vec2 vSnowDepthUv;
+uniform sampler2D uSnowDepthTex;`;
+  // Sample once right after the base colour is established, then reuse for roughness.
+  const fragmentColor = `#include <map_fragment>
+  float snowDepthSample = texture2D(uSnowDepthTex, vSnowDepthUv).r;
+  float snowPacked = clamp(1.0 - snowDepthSample, 0.0, 1.0);
+  diffuseColor.rgb *= mix(vec3(1.0), ${PACKED_TINT}, snowPacked);`;
+  const fragmentRoughness = `#include <roughnessmap_fragment>
+  roughnessFactor = mix(roughnessFactor, ${PACKED_ROUGHNESS}, snowPacked);`;
+
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSnowDepthTex = { value: field.texture };
+    shader.uniforms.uSnowFieldMin = { value: new THREE.Vector2(field.minX, field.minZ) };
+    shader.uniforms.uSnowFieldSize = { value: new THREE.Vector2(field.sizeX, field.sizeZ) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', vertexHead)
+      .replace('#include <begin_vertex>', vertexCompute);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', fragmentHead)
+      .replace('#include <map_fragment>', fragmentColor)
+      .replace('#include <roughnessmap_fragment>', fragmentRoughness);
+  };
+  // onBeforeCompile edits are not part of three's default program cache key; a stable key
+  // keeps the modulated terrain program distinct from any unmodulated MeshStandardMaterial.
+  material.customProgramCacheKey = () => 'terrain-snow-depth-v1';
 }
