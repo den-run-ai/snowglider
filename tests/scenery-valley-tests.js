@@ -1,0 +1,177 @@
+// scenery-valley-tests.js — headless coverage for the valley backdrop
+// (src/scenery/valley-backdrop.ts, issue #320 PR 3): frozen lake + far lodges +
+// forest patches.
+//
+// Pins the PR-3 invariants: deterministic per-seed geometry, finite transforms, unlit
+// NON-reflective fog materials with no shadows, an InstancedMesh for the patches (so the
+// dispose sweep frees its instance buffer), read-only terrain sampling, and — the
+// load-bearing one — ZERO global Math.random consumption.
+//
+// Run via the ts-resolve loader:
+//   node --import ./tests/loaders/register-ts-resolve.mjs tests/scenery-valley-tests.js
+'use strict';
+
+let pass = 0, fail = 0;
+function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: ${name}`); cond ? pass++ : fail++; }
+
+const flatTerrain = () => 0;
+
+async function main() {
+  const THREE = await import('three');
+  const { buildValleyBackdrop } = await import('../src/scenery/valley-backdrop.ts');
+  const { makeSceneryRng } = await import('../src/scenery/scenery-rng.ts');
+  const { DEFAULT_SCENERY_BUDGET } = await import('../src/scenery/scenery-budget.ts');
+
+  const ctx = { terrain: null, getTerrainHeight: flatTerrain, courseLine: null, difficulty: 'blue', seed: 1 };
+
+  testStructure(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
+  testLodgePlacement(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
+  testMaterials(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
+  testDeterminism(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
+  testGrounding(THREE, buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
+  testStreamNeutrality(buildValleyBackdrop, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
+
+  console.log(`\nSCENERY-VALLEY TOTAL: ${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+}
+
+function collectMeshes(THREE, group) {
+  const meshes = [];
+  group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  return meshes;
+}
+
+function testStructure(THREE, build, makeSceneryRng, budget, ctx) {
+  console.log('--- buildValleyBackdrop: structure & finiteness ---');
+  const g = build(makeSceneryRng(5), budget, ctx);
+  check('returns a Group named "valley-backdrop"', g.isGroup === true && g.name === 'valley-backdrop');
+
+  check('has a rendered floor, frozen lake, forest patches, and lodges', g.children.length === 4);
+  check('carries its own rendered valley floor', !!g.getObjectByName('valley-floor'));
+
+  const lake = g.getObjectByName('frozen-lake');
+  check('lake is a Mesh with indexed geometry', !!lake && lake.isMesh && !!lake.geometry.index);
+
+  const patches = g.getObjectByName('valley-forest-patches');
+  check('forest patches are an InstancedMesh', !!patches && patches.isInstancedMesh === true);
+  check('patch instances have finite matrices', (() => {
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < patches.count; i++) { patches.getMatrixAt(i, m); if (m.elements.some((v) => !Number.isFinite(v))) return false; }
+    return true;
+  })());
+
+  const meshes = collectMeshes(THREE, g);
+  const allFinite = meshes.every((mesh) => {
+    const arr = mesh.geometry.getAttribute('position')?.array || [];
+    return Array.from(arr).every((v) => Number.isFinite(v)) &&
+      [mesh.position.x, mesh.position.y, mesh.position.z].every((v) => Number.isFinite(v));
+  });
+  check('all geometry + positions finite', allFinite);
+  check('at least one lodge silhouette built', !!g.getObjectByName('lodge'));
+}
+
+// Regression (Codex review on #323): a lodge is a Group positioned at its shore point with
+// LOCAL child offsets, so a nonzero rotation spins it about its own axis. The earlier bug
+// positioned the children in WORLD space and rotated an origin-anchored group, swinging the
+// whole lodge around world origin — off the lakeside cluster. Assert every lodge's rendered
+// (world) position stays down in the valley, never near world origin.
+function testLodgePlacement(THREE, build, makeSceneryRng, budget, ctx) {
+  console.log('--- buildValleyBackdrop: lodges rotate about their own origin ---');
+  const g = build(makeSceneryRng(9), budget, ctx);
+  g.updateMatrixWorld(true);
+  const lodges = [];
+  g.traverse((o) => { if (o.name === 'lodge') lodges.push(o); });
+  check('lodge cluster built', lodges.length >= 3);
+  const wp = new THREE.Vector3();
+  let allInValley = true, anyAtOrigin = false;
+  for (const lodge of lodges) {
+    // Check a child's WORLD position — the location actually rendered.
+    const child = lodge.children[0];
+    child.getWorldPosition(wp);
+    const distXZ = Math.hypot(wp.x, wp.z);
+    // The shore arc keeps every lodge deep in -z (z < -330) around the valley center; the
+    // fix makes the child's world XZ equal the shore point exactly (local offset is purely
+    // vertical). The rotation-about-origin bug would swing z out of this band.
+    if (!(wp.z < -330 && wp.x > -320 && wp.x < 160 && distXZ > 300 && distXZ < 900)) allInValley = false;
+    if (distXZ < 100) anyAtOrigin = true;
+  }
+  check('every lodge renders down in the valley (z<-330, near shore, off world origin)', allInValley);
+  check('no lodge swung to world origin (the rotation-about-origin bug)', !anyAtOrigin);
+}
+
+function testMaterials(THREE, build, makeSceneryRng, budget, ctx) {
+  console.log('--- buildValleyBackdrop: render-only, non-reflective materials ---');
+  const g = build(makeSceneryRng(6), budget, ctx);
+  const meshes = collectMeshes(THREE, g);
+  check('every material is unlit MeshBasicMaterial (no reflection)', meshes.every((m) => {
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    return mats.every((mm) => mm.isMeshBasicMaterial === true);
+  }));
+  check('no envMap / reflective shader on the lake', (() => {
+    const lake = g.getObjectByName('frozen-lake');
+    return !lake.material.envMap;
+  })());
+  check('every material is fog-enabled', meshes.every((m) => {
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    return mats.every((mm) => mm.fog === true);
+  }));
+  check('nothing casts or receives a shadow', meshes.every((m) => m.castShadow === false && m.receiveShadow === false));
+}
+
+function testDeterminism(THREE, build, makeSceneryRng, budget, ctx) {
+  console.log('--- buildValleyBackdrop: seeded determinism ---');
+  const lakePos = (g) => Array.from(g.getObjectByName('frozen-lake').geometry.getAttribute('position').array);
+  const a = build(makeSceneryRng(11), budget, ctx);
+  const b = build(makeSceneryRng(11), budget, ctx);
+  const c = build(makeSceneryRng(12), budget, ctx);
+  const pa = lakePos(a), pb = lakePos(b), pc = lakePos(c);
+  check('same seed => identical lake geometry', pa.length === pb.length && pa.every((v, i) => v === pb[i]));
+  check('different seed => different lake geometry', pa.some((v, i) => v !== pc[i]));
+}
+
+// Grounding (Codex review on #323): the valley is past the rendered terrain mesh, so props
+// must sit on the valley's OWN rendered snowfield floor — not on analytic getTerrainHeight()
+// samples that would float them above the only visible floor. Assert the floor exists and
+// every prop is grounded to it (lodge bases at the lake/floor level, floor just below the ice).
+function testGrounding(THREE, build, makeSceneryRng, budget) {
+  console.log('--- buildValleyBackdrop: props grounded on a rendered valley floor ---');
+  const g = build(makeSceneryRng(3), budget);
+  g.updateMatrixWorld(true);
+
+  const floor = g.getObjectByName('valley-floor');
+  check('a rendered valley floor mesh exists', !!floor && floor.isMesh === true);
+
+  // The lake's vertices all sit at the basin floor Y; derive it to compare against.
+  const lakePos = g.getObjectByName('frozen-lake').geometry.getAttribute('position');
+  const lakeY = lakePos.getY(0);
+  const floorY = floor.geometry.getAttribute('position').getY(0);
+  check('the rendered floor sits just below the lake (no coplanar z-fight)', floorY < lakeY && (lakeY - floorY) < 3);
+
+  // Every lodge is grounded to the basin floor (base at lakeY), not raised above it.
+  const wp = new THREE.Vector3();
+  let allGrounded = true;
+  g.traverse((o) => {
+    if (o.name === 'lodge') { o.getWorldPosition(wp); if (Math.abs(wp.y - lakeY) > 1e-3) allGrounded = false; }
+  });
+  check('every lodge base is grounded to the valley floor (not floating)', allGrounded);
+
+  // The valley composes without any terrain sampler at all — it is self-grounded.
+  let threw = false;
+  try { build(makeSceneryRng(3), budget); } catch { threw = true; }
+  check('builds with no terrain context (self-grounded, samples no terrain)', !threw);
+}
+
+function testStreamNeutrality(build, makeSceneryRng, budget, ctx) {
+  console.log('--- buildValleyBackdrop: global Math.random neutrality ---');
+  const savedRandom = Math.random;
+  let calls = 0;
+  Math.random = () => { calls++; return savedRandom(); };
+  try {
+    build(makeSceneryRng(77), budget, ctx);
+    check('builds lake + lodges + patches without consuming global Math.random', calls === 0);
+  } finally {
+    Math.random = savedRandom;
+  }
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
