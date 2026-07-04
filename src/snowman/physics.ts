@@ -77,12 +77,17 @@ export const CLEAR_SCORE = 75;      // air-score points banked per cleared obsta
 export const CLEAR_MAX_PER_AIR = 3; // max scored clears in one air phase
 
 // --- Freestyle tricks (#32, Expert tier only) --------------------------------
-// The in-air trick vocabulary for a *manual* jump on a tier whose ski tuning sets
+// The in-air trick vocabulary for ANY jump on a tier whose ski tuning sets
 // `freestyleTricks` (the ◆◆ Expert tier): steering Left/Right spins (yaw), Up/Down
 // flips (front/back somersault), and re-pressing Jump mid-air holds a grab. All of
-// it is double-gated — playerJump provenance AND tuning.freestyleTricks — so every
-// other tier, and every auto-jump / hop / coasting air phase, stays byte-identical
-// to today (the §5 no-input invariant). Tricks never touch pos/velocity in the air
+// it is double-gated — the `freestyleAir` flag AND tuning.freestyleTricks. `freestyleAir`
+// is set at a deliberate manual pop AND at an Expert terrain kicker (auto-jump), so a
+// sculpted kicker is a full freestyle air phase (the air touch users actually reach) —
+// but, unlike `playerJump`, it does NOT mark the phase dodge-worthy, so a passive kicker
+// never triggers the deliberate-jump-only avalanche-dodge / obstacle-clear rewards
+// (Codex review on #333). Every other tier, its kickers, and every hop / coasting air
+// phase stay byte-identical to today (the §5 no-input invariant), because freestyleAir is
+// only set on a kicker when the tier sets freestyleTricks. Tricks never touch pos/velocity in the air
 // (the existing airControl nudge is unchanged; the rotation itself is cosmetic and
 // applied in pose.ts from the userData accumulators). Their one physics consequence
 // is at touchdown: landing mid-rotation (under-rotated) spoils the landing — forced
@@ -182,7 +187,10 @@ export function resetSnowman(
     snowman.userData.plowCharge = 0;
     // Clear jump provenance so a new run never inherits a stale "this air phase was
     // a deliberate jump" flag from the previous run (meaningful jumps #47, §3.1).
+    // `freestyleAir` (the trick-input/graded-landing flag, which also covers an Expert
+    // kicker) is cleared alongside so a fresh run never inherits a stale trick air phase.
     snowman.userData.playerJump = false;
+    snowman.userData.freestyleAir = false;
     // Clear the freestyle trick slate (#32) so a new run never inherits a mid-air
     // rotation or an armed grab from the previous run. trickCameraYaw is the pose
     // layer's camera-heading correction for the spin (incl. its post-landing
@@ -193,6 +201,10 @@ export function resetSnowman(
     snowman.userData.trickGrabArmed = false;
     snowman.userData.trickGrabbing = false;
     snowman.userData.trickCameraYaw = 0;
+    // Pose-layer spin accumulators (rate + eased bank of the spin-lean flair): clear so
+    // a restart taken mid-spin never spawns with a stale body bank (the pivot carries it).
+    snowman.userData.trickSpinRate = 0;
+    snowman.userData.spinLean = 0;
     // Clear the scored-obstacle-clear slate (JP-2) so a new run never inherits a
     // previous air phase's dedup set or count.
     snowman.userData.clearsThisAir = 0;
@@ -283,19 +295,28 @@ export function stepSnowmanPhysics(
 
     // Consume the takeoff provenance: read who launched this air phase, then clear
     // it so the grounded / between-jumps state reads as non-rewarding (#47, §3.1).
+    // `freestyleAir` is a SUPERSET of a deliberate jump — it also covers an Expert
+    // terrain kicker, whose air accepts tricks and earns a graded landing but which is
+    // NOT a deliberate jump, so it must never read as one to the avalanche-dodge /
+    // obstacle-clear policies (those stay strictly on `playerJump`; Codex review on
+    // #333). Both takeoff flags are consumed here so the grounded state is inert.
     const wasPlayerJump = !!(snowman.userData && snowman.userData.playerJump);
-    if (snowman.userData) snowman.userData.playerJump = false;
+    const wasFreestyleAir = !!(snowman.userData && snowman.userData.freestyleAir);
+    if (snowman.userData) {
+      snowman.userData.playerJump = false;
+      snowman.userData.freestyleAir = false;
+    }
 
     // Landing impact based on air time and height (the original always-on scrub).
     const landingImpact = Math.min(0.5, airTime * 0.15);
     landingForce = airTime; // seconds aloft; used for camera shake on touchdown
 
-    if (wasPlayerJump) {
-      // Grade a *manual* jump's landing from how well the horizontal heading lines
-      // up with the fall line at the landing point — skis pointing the way you're
-      // travelling = a clean stomp (§3.2). This whole branch is gated on the
-      // playerJump flag, so auto-jump / hop / coasting landings (below) are
-      // byte-identical to today and the no-input invariant holds (§5).
+    if (wasPlayerJump || wasFreestyleAir) {
+      // Grade a jump's landing from how well the horizontal heading lines up with the
+      // fall line at the landing point — skis pointing the way you're travelling = a
+      // clean stomp (§3.2). Entered by a deliberate jump (any tier) OR an Expert kicker
+      // (freestyleAir), so a NON-freestyle auto-jump / hop / coasting landing (below)
+      // stays byte-identical to today and the no-input invariant holds (§5).
       const landSpeed = Math.sqrt(velocity.x*velocity.x + velocity.z*velocity.z);
       const landDir = getDownhillDirection(pos.x, pos.z); // unit downhill
       const alignment = landSpeed > 1e-3
@@ -387,9 +408,10 @@ export function stepSnowmanPhysics(
         ud.clearedObstacles = {};
       }
     } else {
-      // Auto-jump (terrain lip) or hop-turn landing: unchanged from today. This is
-      // the no-input / coasting path the physics-invariant harness pins, so the
-      // scrub must stay exactly Math.min(0.5, airTime*0.15).
+      // NON-freestyle auto-jump (terrain lip) or hop-turn landing: unchanged from today.
+      // This is the no-input / coasting path the physics-invariant harness pins, so the
+      // scrub must stay exactly Math.min(0.5, airTime*0.15). (An Expert kicker is
+      // freestyleAir, so it takes the graded branch above, not this one.)
       velocity.x *= (1 - landingImpact);
       velocity.z *= (1 - landingImpact);
     }
@@ -448,9 +470,33 @@ export function stepSnowmanPhysics(
       verticalVelocity = 6 + (currentSpeed * 0.3);
     }
     isInAir = true;
-    // Terrain auto-jump is never player-initiated — stamp provenance false so its
-    // landing keeps today's scrub and the no-input baseline never moves (§3.1).
-    if (snowman.userData) snowman.userData.playerJump = false;
+    // Terrain auto-jump (kicker) provenance. A kicker is NEVER a deliberate jump, so
+    // `playerJump` stays false — its landing keeps today's plain scrub on non-freestyle
+    // tiers (the no-input baseline never moves, §3.1; the Blue invariant harness stays
+    // byte-identical), and the avalanche-dodge / obstacle-clear policies (which read
+    // playerJump) never treat a passive lip launch as a dodge-worthy leap (Codex on #333).
+    // On the ◆◆ Expert freestyle tier the sculpted kickers ARE the main way you get big
+    // air — and on touch the ONLY reachable air (a manual pop needs a steer-free CENTER
+    // tap) — so the air itself IS freestyle: `freestyleAir` opts the phase into trick
+    // input + a graded landing (Left/Right/Up/Down spin/flip below; the landing grades +
+    // scores the trick like a manual pop) WITHOUT pretending it was a deliberate jump.
+    // Gated on tuning.freestyleTricks, so every other tier is byte-identical (#32 mobile).
+    if (snowman.userData) {
+      snowman.userData.playerJump = false;
+      snowman.userData.freestyleAir = tuning.freestyleTricks;
+      if (tuning.freestyleTricks) {
+        // Fresh trick slate for this kicker air phase (mirrors the manual-jump takeoff).
+        // The grab stays disarmed until Jump is pressed then released mid-air; a kicker
+        // has no takeoff press, so the accumulate block arms it on the first no-Jump frame.
+        snowman.userData.trickSpin = 0;
+        snowman.userData.trickFlip = 0;
+        snowman.userData.trickGrabTime = 0;
+        snowman.userData.trickGrabArmed = false;
+        snowman.userData.trickGrabbing = false;
+        snowman.userData.clearsThisAir = 0;
+        snowman.userData.clearedObstacles = {};
+      }
+    }
   }
   
   // Manual jump / hop turn with spacebar or touch (grounded, off cooldown).
@@ -487,8 +533,9 @@ export function stepSnowmanPhysics(
         snowman.userData.carveCharge = 0;
         snowman.userData.lastSteerDir = hopSteer;
         // A hop turn is a steering move, not a straight jump — it earns no jump
-        // reward, so its landing keeps today's scrub (§3.1).
+        // reward, so its landing keeps today's scrub (§3.1) and it is not freestyle air.
         snowman.userData.playerJump = false;
+        snowman.userData.freestyleAir = false;
       }
       technique = 'hop';
     } else {
@@ -499,6 +546,10 @@ export function stepSnowmanPhysics(
       // can grade it and award the clean-landing boost / air score (§3.1).
       if (snowman.userData) {
         snowman.userData.playerJump = true;
+        // A deliberate jump is ALSO a freestyle air phase on Expert: freestyleAir opts in
+        // the trick input + graded landing, while playerJump (above) additionally makes it
+        // dodge-worthy / clear-scoring. On non-freestyle tiers freestyleAir stays false.
+        snowman.userData.freestyleAir = tuning.freestyleTricks;
         // Freestyle (#32): a fresh trick slate for this air phase. The grab is DISARMED
         // until the (still held) Jump key is released mid-air, so the takeoff press can
         // never read as a grab. Input-gated (controls.jump), so coasting never runs this.
@@ -554,14 +605,17 @@ export function stepSnowmanPhysics(
       velocity.x += tuning.airControl * delta;
     }
 
-    // Freestyle tricks (#32): spin / flip / grab accumulate ONLY in a player-initiated
-    // air phase on a freestyle tier (◆◆ Expert). Left/Right yaw the body (on top of the
-    // unchanged airControl drift above), Up/Down somersault it, and re-pressing Jump —
-    // it must be RELEASED after the takeoff press first — holds a grab. Pure userData
-    // accumulator writes: pos/velocity are never touched here, so the coasting baseline
-    // and every non-freestyle tier stay byte-identical; the rotation itself is applied
-    // cosmetically in pose.ts, and the landing branch settles the consequences.
-    if (tuning.freestyleTricks && snowman.userData && snowman.userData.playerJump) {
+    // Freestyle tricks (#32): spin / flip / grab accumulate in ANY freestyleAir phase on
+    // a freestyle tier (◆◆ Expert) — a manual pop OR an Expert kicker, both of which set
+    // freestyleAir. (Gating on freestyleAir, NOT playerJump, is what keeps a passive
+    // kicker out of the deliberate-jump-only avalanche-dodge/clear policies — Codex on
+    // #333.) Left/Right yaw the body (on top of the unchanged airControl drift above),
+    // Up/Down somersault it, and re-pressing Jump — it must be RELEASED after the takeoff
+    // press first — holds a grab. Pure userData accumulator writes: pos/velocity are never
+    // touched here, so the coasting baseline and every non-freestyle tier stay
+    // byte-identical; the rotation itself is applied cosmetically in pose.ts, and the
+    // landing branch settles the consequences.
+    if (tuning.freestyleTricks && snowman.userData && snowman.userData.freestyleAir) {
       const ud = snowman.userData;
       const spinDir = (controls.right ? 1 : 0) - (controls.left ? 1 : 0); // + = clockwise from above
       if (spinDir !== 0) ud.trickSpin = ((ud.trickSpin as number) || 0) + spinDir * SPIN_RATE_DEG * delta;

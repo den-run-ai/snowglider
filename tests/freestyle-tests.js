@@ -66,6 +66,7 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
   const D = await import('../src/difficulty.ts');
   const THREE = await import('three');
   const { createSnowman } = await import('../src/snowman/model.ts');
+  const AV = await import('../src/avalanche.ts');
   const update = Snowman.updateSnowman;
   const EXPERT_SKI = D.getDifficultyConfig('expert').ski;
 
@@ -257,8 +258,14 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     assert(spun.landing.airScoreDelta > 0 && plain.landing.airScoreDelta > 0, 'both score airtime');
   });
 
-  runTest('Provenance gate: tricks never accumulate in an auto-jump air phase', () => {
-    // Launch via the terrain-lip auto-jump (no jump input) with trick keys held.
+  runTest('Expert: a terrain kicker (auto-jump) IS a freestyle air phase — tricks accumulate + grade (#32 mobile)', () => {
+    // Launch via the terrain-lip auto-jump (NO jump input) with trick keys held. On the
+    // ◆◆ Expert freestyle tier a kicker is the main way you get big air — and on touch
+    // the only air a player actually reaches — so it now counts as a full freestyle jump:
+    // playerJump is stamped, spin/flip accumulate off Left/Right/Up/Down, and the landing
+    // is graded + settled exactly like a manual pop. (The previous gate — "tricks never
+    // accumulate in an auto-jump air phase" — was the pre-#32-mobile behaviour; the
+    // Blue/Black provenance invariant is now pinned by the separate test below.)
     let s = 7 >>> 0;
     Math.random = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
     const snowman = fakeSnowman();
@@ -273,15 +280,64 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
         3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
         [], undefined, EXPERT_SKI);
     };
+    step(ctrl({ right: true, down: true })); // auto-jump fires; trick keys held (spin + flip)
+    assert(st.isInAir, 'auto-jump must fire');
+    // A kicker is freestyle air, but NOT a deliberate jump: playerJump stays false so the
+    // avalanche-dodge / obstacle-clear policies (which read playerJump) never treat a
+    // passive lip launch as a dodge-worthy leap (Codex review on #333).
+    assert(snowman.userData.playerJump === false, 'a kicker must NOT set playerJump (dodge/clear stay deliberate-only)');
+    assert(snowman.userData.freestyleAir === true, 'but a kicker IS freestyle air on Expert');
+    // Codex #333, end-to-end: a passive kicker overlapping the avalanche front must be
+    // BURIED, never granted the deliberate-jump dodge — the loop resolves the dodge from
+    // playerJump (false here), NOT freestyleAir. (Would be 'dodgedFirst' if the dodge
+    // wrongly keyed off the freestyle flag, making natural lips an avalanche-immunity farm.)
+    assert(AV.resolveBurialOutcome(true, st.isInAir, !!snowman.userData.playerJump, false) === 'buried',
+      'a kicker overlapping the avalanche is buried, not dodged');
+    let maxSpin = 0, maxFlip = 0, frames = 0;
+    while (st.isInAir && frames < 600) {
+      step(ctrl({ right: true, down: true }));
+      maxSpin = Math.max(maxSpin, Math.abs(snowman.userData.trickSpin || 0));
+      maxFlip = Math.max(maxFlip, Math.abs(snowman.userData.trickFlip || 0));
+      frames++;
+    }
+    assert(maxSpin > 90, `kicker spin must accumulate on Expert, got ${maxSpin.toFixed(0)}°`);
+    assert(maxFlip > 90, `kicker flip must accumulate on Expert, got ${maxFlip.toFixed(0)}°`);
+    assert(snowman.userData.trickSpin === 0 && snowman.userData.trickFlip === 0,
+      'trick state must be consumed on landing');
+    assert(st.justLanded && st.landingQuality !== null,
+      'a kicker landing is graded on Expert (like a manual pop)');
+  });
+
+  runTest('Provenance gate holds OFF the freestyle tier: a Blue kicker never accumulates or grades (§3.1)', () => {
+    // The real invariant preserved from the pre-#32-mobile gate: on a NON-freestyle tier
+    // a terrain auto-jump is NOT a player jump — no trick state, landing ungraded/unscored,
+    // byte-identical to the frozen baseline even with trick keys held. Expert flips this
+    // on for the sculpted kickers; every other tier holds. (The invariant harness proves
+    // the byte-identity; this pins the observable trick/grade surface.)
+    let s = 7 >>> 0;
+    Math.random = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const snowman = fakeSnowman();
+    const pos = { x: 0, z: -50, y: getTerrainHeight(0, -50) };
+    const velocity = { x: 0, z: -16 };
+    let st = { isInAir: false, verticalVelocity: 0,
+               lastTerrainHeight: getTerrainHeight(0, -50) + 5, // fake a lip: height drop < -0.8
+               airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+    const step = (c) => {
+      st = update(snowman, 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity, st.lastTerrainHeight,
+        st.airTime, st.jumpCooldown, c, st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown,
+        3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
+        [], undefined, D.BLUE_PHYSICS_TUNING);
+    };
     step(ctrl({ right: true, down: true })); // auto-jump fires; trick keys held
     assert(st.isInAir, 'auto-jump must fire');
-    assert(!snowman.userData.playerJump, 'auto-jump is not a player jump');
+    assert(!snowman.userData.playerJump, 'a Blue kicker is not a player jump');
+    assert(!snowman.userData.freestyleAir, 'a Blue kicker is not freestyle air (flag off the freestyle tier)');
     let frames = 0;
     while (st.isInAir && frames < 600) { step(ctrl({ right: true, down: true })); frames++; }
     assert(!snowman.userData.trickSpin && !snowman.userData.trickFlip,
-      'tricks must not accumulate without playerJump provenance');
+      'no trick accumulation off the freestyle tier');
     assert(st.landingQuality === null && st.airScoreDelta === 0 && st.trickName === null,
-      'auto-jump landing stays ungraded and unscored');
+      'a non-freestyle kicker landing stays ungraded and unscored');
   });
 
   // ---------------------------------------------------------------------------

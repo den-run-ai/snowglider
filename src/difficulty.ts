@@ -50,9 +50,11 @@ export interface SnowmanPhysicsTuning {
   skidScrubMax: number;       // base wash-out scrub for an uncommitted (skidded) turn
   airControl: number;         // side force available while airborne
   // Freestyle tricks (#32): whether the kernel accepts in-air trick input (spins /
-  // flips / grabs on a manual jump). Expert-only. False on every other tier, so the
-  // BLUE default — the tuning the physics-invariant harness runs with — is
-  // byte-identical to the pre-freestyle kernel even under airborne steering input.
+  // flips / grabs) on ANY jump — a deliberate manual pop AND a terrain kicker
+  // (auto-jump), since kicker air is where touch players actually rotate. Expert-only.
+  // False on every other tier, so the BLUE default — the tuning the physics-invariant
+  // harness runs with — is byte-identical to the pre-freestyle kernel even under
+  // airborne steering input (a non-freestyle kicker stays a non-player jump).
   freestyleTricks: boolean;
   // Per-tier jump availability (#47 round 2 / jump-system completion, workstream A).
   // Both default TRUE on Blue — the tuning the physics-invariant harness runs with —

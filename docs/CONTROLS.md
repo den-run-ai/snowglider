@@ -85,6 +85,23 @@ and what drives the ski/body pose — purely cosmetic, it never feeds back into 
 physics. Details and the edge-engagement equations:
 [`PHYSICS.md` §3.3](PHYSICS.md#33-ski-technique-the-skill-layer).
 
+### Freestyle tricks (◆◆ Expert)
+
+On the **Expert** tier, the *same* steering keys become trick controls **while you're
+in the air** — off a deliberate jump **and** off any terrain **kicker** (the sculpted
+lips loft you). This is the air a touch player actually reaches: launch off a kicker,
+then touch a direction to rotate. Land the rotation clean and it scores + boosts you;
+land mid-rotation and it spoils the landing (head-first crashes).
+
+| Trick | Keyboard | Touch | Notes |
+|---|---|---|---|
+| **Spin** (yaw) | Hold ← / → in the air | Touch left / right region | 360°/s; the body banks into a fast spin |
+| **Flip** (somersault) | Hold ↑ (front) / ↓ (back) in the air | Touch top / bottom region | 300°/s; orbits the body's center of mass |
+| **Grab** | Release then re-hold Space mid-air | Lift then re-tap center | Tucks into a grab; scores per second held |
+
+Combine them (spin **and** flip together = a "corked" rotation). Full model, rates,
+and the landing grade: [`PHYSICS.md` §4.1](PHYSICS.md#41-freestyle-tricks-32--expert-tier-only).
+
 ---
 
 ## 3. Notes for contributors
