@@ -473,7 +473,7 @@ async function main() {
   ScoresModule.initializeScores(null, null); // ...and the local instance is null
   reinitializeSucceeds = true;            // reinit will restore it + re-run the flush
   env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'u-recon', recordedAt: 1 } }));
   calls.reinitializeFirestore = 0;
   window.dispatchEvent(new window.Event('online'));
   await flushAll();
@@ -497,7 +497,7 @@ async function main() {
   firestoreAvailable = false;
   ScoresModule.initializeScores(null, null);
   env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'guest', recordedAt: 1 } }));
   calls.reinitializeFirestore = 0;
   window.dispatchEvent(new window.Event('online'));
   await flushAll();
@@ -514,7 +514,7 @@ async function main() {
   ScoresModule.initializeScores(null, null); // ...local instance null; early flush no-ops (no user)
   reinitializeSucceeds = true;
   env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'u-restore', recordedAt: 1 } }));
   calls.reinitializeFirestore = 0;
   currentAuthUser = { uid: 'u-restore', isAnonymous: false, displayName: 'Restore' };
   ScoresModule.setCurrentUser(currentAuthUser);
@@ -527,7 +527,7 @@ async function main() {
   firestoreAvailable = false;
   ScoresModule.initializeScores(null, null);
   env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'guest2', recordedAt: 1 } }));
   calls.reinitializeFirestore = 0;
   currentAuthUser = { uid: 'guest2', isAnonymous: true };
   ScoresModule.setCurrentUser(currentAuthUser);
@@ -571,7 +571,7 @@ async function main() {
   currentAuthUser = { uid: 'u-detached', isAnonymous: false, displayName: 'Detached' };
   ScoresModule.setCurrentUser(currentAuthUser); // no marker yet → drains to a no-op
   env.localStorage.setItem('snowgliderPendingSync',
-    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+    JSON.stringify({ blue: { tier: 'blue', time: 25, uid: 'u-detached', recordedAt: 1 } }));
   calls.reinitializeFirestore = 0;
   window.dispatchEvent(new window.Event('online'));
   await flushAll();

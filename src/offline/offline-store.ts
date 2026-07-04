@@ -45,6 +45,10 @@ export const PENDING_SYNC_KEY = 'snowgliderPendingSync';
 export interface PendingSyncEntry {
   tier: Difficulty;
   time: number;
+  /** The uid that earned this pending best. The flush syncs ONLY entries owned by the
+   *  currently signed-in user, so on a shared browser user A's queued best is never
+   *  attributed to user B who signs in before the retry (Codex #362). */
+  uid: string;
   /** Epoch ms when the pending best was recorded, or null if not captured. */
   recordedAt: number | null;
 }
@@ -173,12 +177,16 @@ export function readPendingSync(storage?: StorageLike | null): Record<string, Pe
     // plausible for THAT tier (tier-aware floor, Codex #359).
     if (entry.tier !== tier) continue;
     if (!isPlausibleTierTime(tier, entry.time)) continue;
+    // A marker MUST carry the uid that earned it; without an owner the flush can't tell
+    // whose score it is and could sync it to whoever is signed in at retry (Codex #362).
+    // Drop an ownerless/tampered entry (also drops any pre-uid marker on upgrade).
+    if (typeof entry.uid !== 'string' || entry.uid.length === 0) continue;
     const recordedAt =
       typeof entry.recordedAt === 'number' && Number.isFinite(entry.recordedAt)
         ? entry.recordedAt
         : null;
     // The `entry.tier !== tier` guard above narrows `tier` to Difficulty here.
-    out[tier] = { tier, time: entry.time, recordedAt };
+    out[tier] = { tier, time: entry.time, uid: entry.uid, recordedAt };
   }
   return out;
 }
@@ -205,13 +213,19 @@ export function writePendingSync(
 export function markPendingSync(
   tier: Difficulty,
   time: unknown,
+  uid: string,
   opts?: { recordedAt?: number | null; storage?: StorageLike | null }
 ): boolean {
   if (!isPlausibleTierTime(tier, time)) return false;
+  // A marker MUST carry its owner so the flush never syncs it to a different user (Codex #362).
+  if (typeof uid !== 'string' || uid.length === 0) return false;
   const storage = opts?.storage;
   const map = readPendingSync(storage);
   const existing = map[tier];
-  if (existing && existing.time <= time) return false;
+  // Keep the faster time only WITHIN the same owner. A different user's queued best for this
+  // tier must not block (or be blocked by) this one — overwrite it with the current owner's
+  // mark (the other user's local best still backfills on their own next sign-in).
+  if (existing && existing.uid === uid && existing.time <= time) return false;
   let recordedAt: number | null;
   if (opts && 'recordedAt' in opts) {
     recordedAt = typeof opts.recordedAt === 'number' && Number.isFinite(opts.recordedAt)
@@ -220,7 +234,7 @@ export function markPendingSync(
   } else {
     recordedAt = typeof Date !== 'undefined' && typeof Date.now === 'function' ? Date.now() : null;
   }
-  map[tier] = { tier, time, recordedAt };
+  map[tier] = { tier, time, uid, recordedAt };
   return writePendingSync(map, storage);
 }
 

@@ -82,12 +82,12 @@ async function main() {
   // --- hasPendingSync (drives the reconnect reinit decision) ---
   ls = createLocalStorageMock();
   check('hasPendingSync false when empty', sm.hasPendingSync(ls) === false);
-  store.markPendingSync('blue', 25, { recordedAt: 1, storage: ls });
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
   check('hasPendingSync true once a marker exists', sm.hasPendingSync(ls) === true);
 
   // --- flushPendingSync (async; clears only on a CONFIRMED sync) ---
   ls = createLocalStorageMock();
-  store.markPendingSync('blue', 25, { recordedAt: 1, storage: ls });
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
   const synced = [];
   const flushDeps = deps({ user: REAL_USER, firestore: true, online: true, storage: ls, sync: (uid, time, tier) => { synced.push({ uid, time, tier }); return Promise.resolve(true); } });
   const flushed = await sm.flushPendingSync(flushDeps);
@@ -97,33 +97,33 @@ async function main() {
 
   // A sync that resolves false (write did not settle) LEAVES the marker.
   ls = createLocalStorageMock();
-  store.markPendingSync('blue', 25, { recordedAt: 1, storage: ls });
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
   const failCleared = await sm.flushPendingSync(deps({ firestore: true, online: true, storage: ls, sync: () => Promise.resolve(false) }));
   check('unconfirmed sync (false) does NOT clear the marker', failCleared.length === 0 && store.getPendingSync('blue', ls) !== null);
 
   // A sync that REJECTS leaves the marker too (the durable retry record survives).
   ls = createLocalStorageMock();
-  store.markPendingSync('blue', 25, { recordedAt: 1, storage: ls });
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
   await sm.flushPendingSync(deps({ firestore: true, online: true, storage: ls, sync: () => Promise.reject(new Error('transient')) }));
   check('a rejected sync leaves the durable marker (Codex #362)', store.getPendingSync('blue', ls) !== null);
 
   // No-op when offline.
   ls = createLocalStorageMock();
-  store.markPendingSync('blue', 25, { recordedAt: 1, storage: ls });
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
   const off = [];
   await sm.flushPendingSync(deps({ firestore: true, online: false, storage: ls, sync: (u, t, ti) => { off.push(ti); return true; } }));
   check('flush no-ops offline (marker retained)', off.length === 0 && store.getPendingSync('blue', ls) !== null);
 
   // No-op when Firestore not ready.
   ls = createLocalStorageMock();
-  store.markPendingSync('blue', 25, { recordedAt: 1, storage: ls });
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
   const noFs = [];
   await sm.flushPendingSync(deps({ firestore: false, online: true, storage: ls, sync: (u, t, ti) => { noFs.push(ti); return true; } }));
   check('flush no-ops when Firestore unavailable (marker retained)', noFs.length === 0 && store.getPendingSync('blue', ls) !== null);
 
   // No-op for anonymous / signed-out.
   ls = createLocalStorageMock();
-  store.markPendingSync('blue', 25, { recordedAt: 1, storage: ls });
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
   const anon = [];
   await sm.flushPendingSync(deps({ user: GUEST, firestore: true, online: true, storage: ls, sync: (u, t, ti) => { anon.push(ti); return true; } }));
   check('flush no-ops for an anonymous user (marker retained)', anon.length === 0 && store.getPendingSync('blue', ls) !== null);
@@ -131,10 +131,19 @@ async function main() {
   // A tier that became unranked is cleared without syncing.
   ls = createLocalStorageMock();
   // Force a pending entry on an unranked tier directly (bypass the queue eligibility).
-  store.markPendingSync('black', 20, { recordedAt: 1, storage: ls });
+  store.markPendingSync('black', 20, 'u1', { recordedAt: 1, storage: ls });
   const unrankedSync = [];
   await sm.flushPendingSync(deps({ firestore: true, online: true, storage: ls, sync: (u, t, ti) => { unrankedSync.push(ti); return true; } }));
   check('flush drops an unranked pending tier without syncing', unrankedSync.length === 0 && store.getPendingSync('black', ls) === null);
+
+  // A marker owned by a DIFFERENT user is NOT synced (shared browser: user A queued, user B
+  // is now signed in). Syncing it would attribute A's best to B — leave it for A's own retry.
+  ls = createLocalStorageMock();
+  store.markPendingSync('blue', 25, 'userA', { recordedAt: 1, storage: ls });
+  const foreign = [];
+  const foreignFlushed = await sm.flushPendingSync(deps({ user: REAL_USER, firestore: true, online: true, storage: ls, sync: (u, t, ti) => { foreign.push(ti); return true; } }));
+  check('flush skips a marker owned by another user (Codex #362)', foreign.length === 0 && foreignFlushed.length === 0);
+  check('the other user’s marker is left intact for their own retry', store.getPendingSync('blue', ls) !== null && store.getPendingSync('blue', ls).uid === 'userA');
 
   // --- resultSyncStatusCopy precedence ---
   const S = (o) => Object.assign({ online: true, firestoreAvailable: true, ranked: true, signedIn: true, anonymous: false }, o);

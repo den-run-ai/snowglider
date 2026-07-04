@@ -82,11 +82,13 @@ export function queueOfflineBest(tier: Difficulty, time: number, deps: SyncDeps)
   const online = (deps.isOnline ?? defaultIsOnline)();
   const canSyncNow = deps.isFirestoreReady() && online;
   const user = deps.getActiveUser();
-  if (!shouldQueuePending(user, tier, canSyncNow)) return false;
-  // Pass storage only when explicitly provided (exactOptionalPropertyTypes: an
-  // undefined `storage` property is not the same as an absent one — absent means
-  // "use ambient localStorage").
-  return markPendingSync(tier, time, deps.storage === undefined ? {} : { storage: deps.storage });
+  // `|| !user` is a type-narrowing no-op: shouldQueuePending only returns true for an
+  // eligible (real, non-null) user, but it's not a type guard.
+  if (!shouldQueuePending(user, tier, canSyncNow) || !user) return false;
+  // Stamp the owner so the flush only syncs it back to THIS user (Codex #362). Pass storage
+  // only when explicitly provided (exactOptionalPropertyTypes: an undefined `storage`
+  // property is not the same as an absent one — absent means "use ambient localStorage").
+  return markPendingSync(tier, time, user.uid, deps.storage === undefined ? {} : { storage: deps.storage });
 }
 
 /**
@@ -102,8 +104,9 @@ export function queueOfflineBest(tier: Difficulty, time: number, deps: SyncDeps)
 export function queueFailedSync(tier: Difficulty, time: number, deps: SyncDeps): boolean {
   const user = deps.getActiveUser();
   // canSyncNow = false: the online attempt already failed, so eligibility + ranked is enough.
-  if (!shouldQueuePending(user, tier, false)) return false;
-  return markPendingSync(tier, time, deps.storage === undefined ? {} : { storage: deps.storage });
+  // `|| !user` narrows the type (shouldQueuePending isn't a type guard).
+  if (!shouldQueuePending(user, tier, false) || !user) return false;
+  return markPendingSync(tier, time, user.uid, deps.storage === undefined ? {} : { storage: deps.storage });
 }
 
 /**
@@ -125,6 +128,11 @@ export async function flushPendingSync(deps: SyncDeps): Promise<Difficulty[]> {
   // entry.tier is a validated Difficulty (readPendingSync drops unknown ids + bad times).
   for (const entry of Object.values(pending)) {
     const tier = entry.tier;
+    // Only sync a marker OWNED by the current user. On a shared browser user A can queue a
+    // pending best, then user B signs in before the retry; syncing A's entry here would write
+    // A's score into B's user doc + leaderboard entry. Leave a foreign entry untouched for its
+    // own owner's reconnect/sign-in retry (Codex #362).
+    if (entry.uid !== user.uid) continue;
     // Belt-and-suspenders: a tier that became un-ranked (config change) can't reach the
     // global board, so drop its marker without syncing.
     if (!getDifficultyConfig(tier).ranked) {

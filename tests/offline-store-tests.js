@@ -95,22 +95,35 @@ async function main() {
   // --- Pending-sync marker ---
   ls.reset();
   check('readPendingSync empty when absent', Object.keys(store.readPendingSync(ls)).length === 0);
-  check('markPendingSync writes a valid entry', store.markPendingSync('black', 25, { recordedAt: 111, storage: ls }) === true);
+  check('markPendingSync writes a valid entry', store.markPendingSync('black', 25, 'u1', { recordedAt: 111, storage: ls }) === true);
   const p1 = store.getPendingSync('black', ls);
-  check('pending entry has tier/time/recordedAt', !!p1 && p1.tier === 'black' && p1.time === 25 && p1.recordedAt === 111);
-  check('markPendingSync keeps the BEST (lower) time', store.markPendingSync('black', 30, { recordedAt: 222, storage: ls }) === false);
+  check('pending entry has tier/time/uid/recordedAt', !!p1 && p1.tier === 'black' && p1.time === 25 && p1.uid === 'u1' && p1.recordedAt === 111);
+  check('markPendingSync keeps the BEST (lower) time for the same owner', store.markPendingSync('black', 30, 'u1', { recordedAt: 222, storage: ls }) === false);
   check('pending time unchanged after slower mark', store.getPendingSync('black', ls).time === 25);
-  check('faster pending time replaces', store.markPendingSync('black', 20, { recordedAt: 333, storage: ls }) === true);
+  check('faster pending time replaces', store.markPendingSync('black', 20, 'u1', { recordedAt: 333, storage: ls }) === true);
   check('pending time is now 20', store.getPendingSync('black', ls).time === 20);
-  check('invalid pending time rejected', store.markPendingSync('black', NaN, { storage: ls }) === false);
+  check('invalid pending time rejected', store.markPendingSync('black', NaN, 'u1', { storage: ls }) === false);
+  // A marker MUST carry an owning uid (Codex #362): an empty uid is refused.
+  check('markPendingSync without a uid is refused', store.markPendingSync('black', 19, '', { storage: ls }) === false);
+
+  // A DIFFERENT owner's mark for the same tier overwrites (never blocked by the other user's
+  // faster time), so each user's queued best is recorded rather than lost to a shared key.
+  ls.reset();
+  store.markPendingSync('black', 30, 'userA', { recordedAt: 1, storage: ls });
+  check('a different owner overwrites even with a slower time', store.markPendingSync('black', 40, 'userB', { recordedAt: 2, storage: ls }) === true);
+  const pOwner = store.getPendingSync('black', ls);
+  check('the current owner + time are recorded', !!pOwner && pOwner.uid === 'userB' && pOwner.time === 40);
+  ls.reset();
+  // Restore the black=20 / u1 state the later two-tiers + clear assertions expect.
+  store.markPendingSync('black', 20, 'u1', { recordedAt: 333, storage: ls });
 
   // markPendingSync without an explicit recordedAt stamps Date.now() (a finite number).
-  store.markPendingSync('expert', 22, { storage: ls });
+  store.markPendingSync('expert', 22, 'u1', { storage: ls });
   const pExpert = store.getPendingSync('expert', ls);
   check('markPendingSync defaults recordedAt to a finite timestamp', !!pExpert && typeof pExpert.recordedAt === 'number' && Number.isFinite(pExpert.recordedAt));
   // A non-finite explicit recordedAt normalizes to null.
   store.clearPendingSync('expert', ls);
-  store.markPendingSync('expert', 22, { recordedAt: NaN, storage: ls });
+  store.markPendingSync('expert', 22, 'u1', { recordedAt: NaN, storage: ls });
   check('non-finite recordedAt normalizes to null', store.getPendingSync('expert', ls).recordedAt === null);
   store.clearPendingSync('expert', ls);
 
@@ -120,7 +133,7 @@ async function main() {
   check('clearPendingSync on absent tier is a safe no-op', clearThrew === false);
 
   // Second tier is independent.
-  store.markPendingSync('bunny', 30, { recordedAt: 444, storage: ls });
+  store.markPendingSync('bunny', 30, 'u1', { recordedAt: 444, storage: ls });
   check('two tiers tracked independently', store.getPendingSync('bunny', ls).time === 30 && store.getPendingSync('black', ls).time === 20);
 
   // Clear one tier; the other survives; key removed only when empty.
@@ -146,8 +159,12 @@ async function main() {
   ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ evil: { tier: 'evil', time: 25, recordedAt: 1 } }));
   check('unknown tier key rejected (not a real difficulty)', Object.keys(store.readPendingSync(ls)).length === 0);
   // A valid entry with a non-number recordedAt reads back with recordedAt null.
-  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ blue: { tier: 'blue', time: 30, recordedAt: 'oops' } }));
+  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ blue: { tier: 'blue', time: 30, uid: 'u1', recordedAt: 'oops' } }));
   check('non-number stored recordedAt reads as null', store.getPendingSync('blue', ls).recordedAt === null);
+  // An ownerless entry (no uid) is dropped on read — the flush could otherwise sync it to
+  // whoever is signed in at retry (Codex #362). Also drops any pre-uid marker after upgrade.
+  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ blue: { tier: 'blue', time: 30, recordedAt: 1 } }));
+  check('ownerless pending entry (no uid) dropped', store.getPendingSync('blue', ls) === null);
 
   console.log(`\nOFFLINE-STORE TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
