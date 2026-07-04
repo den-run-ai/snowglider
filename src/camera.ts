@@ -612,22 +612,34 @@ export class Camera {
    * neither): without them speed is 0, so the motion-gated slope/air terms fall to their base
    * pose, which is the right neutral framing for a mode switch.
    *
-   * For CAMERAMAN the entry snap frames off the direction of TRAVEL (velocity), not the
-   * instantaneous model yaw, when the skier is moving: switching to cameraman mid-run via V/tray
-   * calls initialize() then takes update()'s first-frame branch, so if `playerRotation.y` is
-   * momentarily flipped/spun the yaw-based snap would seat the first rendered frame on the wrong
-   * lane before path-follow engages next frame (codex review, PR #356). Deriving the entry
-   * heading from velocity matches the velocity-seeded path so the two agree from frame one.
+   * For CAMERAMAN the entry offset is built with the SAME decomposition the steady-state
+   * path-follow uses on its first frame — side + up, with NO trailing-behind term — instead of
+   * `cinematicOffset`'s single behind/side vector. On the first steady frame the freshly-seeded
+   * path sample sits at the rider, so the sampled trail point IS the rider and the behind
+   * component is zero, growing in only as the path fills. Seating the entry a full `horiz` behind
+   * (or, before this, in front) made the position smoothing swing the camera around the rider on
+   * the next frame — a visible snap (codex review, PR #356). The framing heading comes from
+   * velocity when moving (yaw-flip immune) and falls back to the model yaw when stopped.
    */
   entryOffset(distance: number, yaw: number, playerPosition: THREE.Vector3, velocity?: PlanarVelocity, context: AutoFrameContext = {}): THREE.Vector3 {
     if (!isCinematic(this.mode)) return this.followOffset(distance, yaw);
     const speed = velocity ? Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) : 0;
     const grad = Mountains.getTerrainGradient(playerPosition.x, playerPosition.z);
     const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
-    const baseYaw = (this.mode === 'cameraman' && velocity && speed > CAMERAMAN_MIN_SPEED_FOR_HEADING)
-      ? Math.atan2(velocity.x, velocity.z)
-      : yaw;
-    return this.cinematicOffset(this.mode, distance, baseYaw, this.frameCount, slope, speed, context.isInAir === true);
+    if (this.mode === 'cameraman') {
+      const heading = (velocity && speed > CAMERAMAN_MIN_SPEED_FOR_HEADING)
+        ? Math.atan2(velocity.x, velocity.z)
+        : yaw;
+      const { angle, pitch, distMult } = this.cinematicTargets('cameraman', this.frameCount, slope, speed, context.isInAir === true);
+      const d = distance * distMult;
+      const horiz = d * Math.cos(pitch);
+      const height = 8 + d * Math.sin(pitch);
+      const sideDistance = horiz * Math.sin(angle);
+      // Right-hand perpendicular to the travel heading (forward = (sin h, cos h)); side + up only.
+      return new THREE.Vector3(Math.cos(heading) * sideDistance, height, -Math.sin(heading) * sideDistance);
+    }
+    // Drone: unchanged orbit-style entry (its steady-state is also cinematicOffset, so no snap).
+    return this.cinematicOffset(this.mode, distance, yaw, this.frameCount, slope, speed, context.isInAir === true);
   }
 
   // Position camera initially behind the player

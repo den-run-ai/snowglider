@@ -785,6 +785,25 @@ async function main() {
     };
     check('a stopped cameraman entry still frames from the model yaw',
       Math.abs(restEntry(0).x - restEntry(Math.PI).x) > 3);
+
+    // The entry pose must match the FIRST steady path-follow frame (side + up, no trailing term),
+    // so the position smoothing doesn't swing the camera around the rider on the next frame. The
+    // old cinematicOffset entry seated a full `horiz` behind/side, ~a right-angle away from the
+    // steady side pose → a large horizontal gap; the fixed entry gap is just the radial ease.
+    const noSnap = newCamera();
+    noSnap.setMode('cameraman');
+    const p2 = new THREE.Vector3(0, 50, 0);
+    const r2 = new THREE.Euler(0, 0, 0);
+    const v2 = { x: 0, z: 20 };
+    noSnap.initialize(p2, r2);
+    noSnap.update(p2, r2, v2, () => 0);            // frame 1: entry snap
+    const entryPos = noSnap.camera.position.clone();
+    noSnap.update(p2, r2, v2, () => 0);            // frame 2: first steady path-follow target
+    const steadyTarget = noSnap.smoothingVectors.targetPosition.clone();
+    const horizGap = Math.hypot(steadyTarget.x - entryPos.x, steadyTarget.z - entryPos.z);
+    check('cameraman entry pose matches the first steady frame (no swing-around snap)', horizGap < 9);
+    check('cameraman entry and first steady frame are on the same side of the rider (x sign)',
+      Math.sign(entryPos.x) === Math.sign(steadyTarget.x) && Math.abs(entryPos.x) > 1);
   }
 
   console.log('\n--- handleResize ---');
