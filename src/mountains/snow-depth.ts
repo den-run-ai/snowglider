@@ -45,9 +45,12 @@ export interface SnowDepthOptions {
   refillRate?: number;
   /** Depth removed at the centre of one explicit `compactAt` pass (0..1, tapers to rim). */
   compactionPerPass?: number;
-  /** Depth packed per SECOND at the centre by the frame driver `update()` (frame-rate
-   *  independent — scaled by dt, unlike the fixed per-pass `compactionPerPass`). */
-  compactionRate?: number;
+  /** World distance between stamps the frame driver `update()` lays along the travelled
+   *  path (distance-based ⇒ frame-rate independent and gap-free). */
+  stampSpacing?: number;
+  /** Depth removed at the centre of each `update()` stamp (0..1); passes overlap so a
+   *  single ski pass builds a solid line and repeats deepen it. */
+  stampStrength?: number;
   /** World radius of the ski compaction footprint. */
   packRadius?: number;
 }
@@ -65,8 +68,13 @@ const DEF_COLS = 150;
 const DEF_ROWS = 200;
 const DEF_REFILL_RATE = 0.05;        // packed snow takes ~20 s of coverage to fully refill
 const DEF_COMPACTION_PER_PASS = 0.5; // one centred pass removes up to half the depth
-const DEF_COMPACTION_RATE = 3.0;     // depth/sec the frame driver packs a dwelt-on line (dt-scaled)
+const DEF_STAMP_SPACING = 1.1;       // world units between driver stamps (matches SnowTrails)
+const DEF_STAMP_STRENGTH = 0.2;      // per-stamp centre pack; overlapping stamps build the line
 const DEF_PACK_RADIUS = 2.4;         // a touch wider than the ski gauge so a line reads solid
+
+// Cap the stamps laid in one frame so a teleport / huge dt can't spin the interpolation
+// loop (a jump/restart already breaks the line via the anchor reset, so this is a backstop).
+const MAX_STAMPS_PER_FRAME = 512;
 
 // Hard caps so a bad option can't blow the grid size / per-frame cost.
 const MAX_COLS = 400;
@@ -106,11 +114,21 @@ export class SnowDepthField {
   readonly rows: number;
   readonly refillRate: number;
   readonly compactionPerPass: number;
-  readonly compactionRate: number;
+  readonly stampSpacing: number;
+  readonly stampStrength: number;
   readonly packRadius: number;
 
   /** Authoritative depth grid, row-major, values in [0..1] (1 == full powder). */
   readonly depth: Float32Array;
+
+  // Frame-driver stamping state: the last point a stamp was laid at, plus the arc-length
+  // carried over toward the next stamp, so `update()` spaces stamps by travelled DISTANCE
+  // (continuous, frame-rate independent) instead of stamping once per frame. `lastX` null
+  // means "no active line" — set on spawn/reset and whenever the skis leave the snow
+  // (airborne / stopped), so a jump or restart never draws a stamp across the gap.
+  private lastX: number | null = null;
+  private lastZ = 0;
+  private stampCarry = 0;
 
   constructor(opts: SnowDepthOptions = {}) {
     this.minX = Number.isFinite(opts.minX) ? opts.minX! : DEF_MIN_X;
@@ -121,7 +139,10 @@ export class SnowDepthField {
     this.rows = clampInt(opts.rows ?? DEF_ROWS, 2, MAX_ROWS);
     this.refillRate = Math.max(0, finiteOr(opts.refillRate, DEF_REFILL_RATE));
     this.compactionPerPass = clamp01(finiteOr(opts.compactionPerPass, DEF_COMPACTION_PER_PASS));
-    this.compactionRate = Math.max(0, finiteOr(opts.compactionRate, DEF_COMPACTION_RATE));
+    // Spacing must be > 0 or the stamp loop can't advance; fall back to the default.
+    const spacing = finiteOr(opts.stampSpacing, DEF_STAMP_SPACING);
+    this.stampSpacing = spacing > 0 ? spacing : DEF_STAMP_SPACING;
+    this.stampStrength = clamp01(finiteOr(opts.stampStrength, DEF_STAMP_STRENGTH));
     this.packRadius = Math.max(0, finiteOr(opts.packRadius, DEF_PACK_RADIUS));
 
     this.depth = new Float32Array(this.cols * this.rows).fill(1);
@@ -205,17 +226,18 @@ export class SnowDepthField {
 
   /**
    * One cosmetic frame driven from the main loop's render-frame zone (PR 2): refill the
-   * whole field, then — only while grounded and actually moving — compact the snow under
-   * the skis at the player position. The grounded/moving gate mirrors the ski-track
-   * stamping cadence in `snowtracks.ts`, so the two share the same "a ski is on the snow"
-   * trigger.
+   * field, then — only while grounded and actually moving — lay compaction stamps ALONG the
+   * segment the skis travelled since the last frame. The grounded/moving gate mirrors the
+   * ski-track stamping cadence in `snowtracks.ts`, so the two share the same "a ski is on
+   * the snow" trigger.
    *
-   * FRAME-RATE INDEPENDENT (Codex #350): the per-frame compaction is `compactionRate * dt`,
-   * not a fixed per-pass amount, so a spot packs at the same *rate over time* whether the
-   * client renders at 60, 120, or 144 Hz (mirrors how `refill` already scales by `dt`).
-   * A fixed-per-frame pack would over-darken a ski line on high-refresh displays and on the
-   * extra no-substep render frames the fixed-timestep loop emits above 60 Hz. `dt` is
-   * clamped `>= 0`; `compactAt` clamps the resulting strength to `[0..1]`.
+   * FRAME-RATE INDEPENDENT + GAP-FREE (Codex #350): stamps are spaced by travelled DISTANCE
+   * (`stampSpacing`), interpolated along the previous→current segment — exactly like
+   * `SnowTrails.update`. So the packed line is continuous at any speed, is identical whether
+   * a 10 m move happens in one 60 Hz frame or ten 144 Hz frames, and doesn't dot/gap on a
+   * low-FPS hitch or over-pack a stale point on a no-substep >60 Hz frame. When the skis
+   * leave the snow (airborne / stopped / off-grid) the anchor is dropped, so a jump or
+   * restart never draws a stamp across the gap.
    *
    * Pure: reads the position + horizontal speed, never writes them, so the physics-invariant
    * path is byte-identical. Reduced-motion is intentionally NOT gated here — a packed line is
@@ -223,16 +245,49 @@ export class SnowDepthField {
    */
   update(dt: number, player: Vec3Like, isInAir: boolean, speed: number): void {
     this.refill(dt);
-    if (!player || !Number.isFinite(player.x) || !Number.isFinite(player.z)) return;
-    if (!isInAir && Number.isFinite(speed) && speed > MIN_COMPACT_SPEED) {
-      const step = this.compactionRate * (Number.isFinite(dt) ? Math.max(0, dt) : 0);
-      this.compactAt(player.x, player.z, this.packRadius, step);
+    const laying = player && Number.isFinite(player.x) && Number.isFinite(player.z) &&
+      !isInAir && Number.isFinite(speed) && speed > MIN_COMPACT_SPEED;
+    if (!laying) {
+      this.lastX = null; // break the line: the next grounded stamp starts a fresh anchor
+      return;
     }
+    this.stampAlongPath(player.x, player.z);
   }
 
-  /** Reset every cell to full powder (a fresh, un-packed slope for each new run). */
+  /**
+   * Lay compaction stamps from the last stamp point to (x, z), one every `stampSpacing`
+   * world units of arc length, carrying the leftover distance to the next frame. The first
+   * stamp of a line drops at the anchor. Deterministic; no randomness.
+   */
+  private stampAlongPath(x: number, z: number): void {
+    if (this.lastX === null) {
+      this.compactAt(x, z, this.packRadius, this.stampStrength);
+      this.lastX = x; this.lastZ = z; this.stampCarry = 0;
+      return;
+    }
+    const dx = x - this.lastX, dz = z - this.lastZ;
+    const seg = Math.hypot(dx, dz);
+    if (!(seg > 1e-6)) return; // no travel this frame; keep the anchor + carry
+    const ux = dx / seg, uz = dz / seg;
+    let d = this.stampSpacing - this.stampCarry; // arc distance from lastX to the next stamp
+    let placed = 0, last = 0;
+    while (d <= seg && placed < MAX_STAMPS_PER_FRAME) {
+      this.compactAt(this.lastX + ux * d, this.lastZ + uz * d, this.packRadius, this.stampStrength);
+      last = d;
+      d += this.stampSpacing;
+      placed++;
+    }
+    // Carry the distance since the last stamp (or accumulate the whole segment if none fit).
+    this.stampCarry = placed > 0 ? seg - last : this.stampCarry + seg;
+    this.lastX = x; this.lastZ = z;
+  }
+
+  /** Reset to full powder AND drop the stamp anchor, so a new run starts on a pristine slope
+   *  with no line drawn from the old finish position to the new spawn. */
   reset(): void {
     this.depth.fill(1);
+    this.lastX = null;
+    this.stampCarry = 0;
   }
 
   /**
