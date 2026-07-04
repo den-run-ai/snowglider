@@ -612,9 +612,9 @@ function clearFlight(playerJump, treeXs) {
   const trees = treeXs.map((z) => ({ x: 0, y: 0, z }));
   const pos = { x: 0, z: 0, y: 12 };
   const velocity = { x: 0, z: -20 };
-  // Launch rising hard (vv 20, airGravity 16 ⇒ rising for 1.25 s > the whole probe):
-  // the tree suppression branch requires verticalVelocity > 0, so every obstacle
-  // column must be crossed while still on the way up.
+  // Launch rising hard (vv 20, airGravity 16 ⇒ rising for 1.25 s > the whole probe) and
+  // high above the trees the whole time: the tree suppression branch is height-based
+  // (isInAir && pos.y > tree.y + 5), so every obstacle column is crossed while cleared.
   let st = { isInAir: true, verticalVelocity: 20, lastTerrainHeight: 0,
              airTime: 0.2, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
   let banked = 0, clearEvents = 0, clearCount = 0;

@@ -198,7 +198,6 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
   detectCollisionsAndFinish({
     pos,
     isInAir,
-    verticalVelocity,
     terrainHeightAtPosition,
     treePositions,
     rockPositions,

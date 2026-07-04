@@ -20,7 +20,6 @@ export interface ObstacleClear {
 interface SnowmanCollisionState {
   pos: PlayerPos;
   isInAir: boolean;
-  verticalVelocity: number;
   terrainHeightAtPosition: number;
   treePositions: TreePos[];
   rockPositions: RockPos[];
@@ -37,7 +36,6 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   const {
     pos,
     isInAir,
-    verticalVelocity,
     terrainHeightAtPosition,
     treePositions,
     rockPositions,
@@ -110,8 +108,15 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     // Tree collision only happens when snowman is on the ground or close to it
     const isCloseEnough = horizontalDistance < treeCollisionRadius;
 
-    // Only consider jumping over trees when genuinely in the air AND moving upward AND high enough
-    const isJumpingHighAboveTrees = isInAir && verticalVelocity > 0 && pos.y > (treePos.y + 5);
+    // Clearance is height-based only: once the snowman is airborne and high enough
+    // above the tree base it clears the tree whether it is still rising or already
+    // descending past the jump apex. This mirrors the rock clearance below and fixes
+    // the "sail over a tree and land clear of the trunk" case on black/expert lines:
+    // requiring upward motion (verticalVelocity > 0) crashed every descending-but-high
+    // pass — you could only clear a tree on the way UP, so any jump whose downward arc
+    // still overlapped the trunk radius (i.e. most real jumps over a tree) crashed even
+    // though the snowman was well above the tree. (Same bug already fixed for rocks.)
+    const isJumpingHighAboveTrees = isInAir && pos.y > (treePos.y + 5);
 
     // Airborne clear (JP-2): this frame WOULD have hit the tree but the suppression
     // branch is letting the player sail over — record it (index keys the obstacle for
