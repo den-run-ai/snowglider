@@ -142,6 +142,7 @@ const CAMERAMAN_HISTORY_DISTANCE = 120;       // max travelled distance of path 
 const CAMERAMAN_LOOK_EASE = 0.10;             // per-frame ease of the smoothed look-at target
 const CAMERAMAN_HEADING_EASE = 0.06;          // per-frame ease of the side/trail framing heading
 const CAMERAMAN_MIN_SPEED_FOR_HEADING = 1.0;  // below this, derive heading from the position delta
+const CAMERAMAN_MAX_SAMPLES_PER_FRAME = 64;   // backstop against an unbounded insert on a teleport-sized jump
 
 /** Clamp `v` to [lo, hi]. */
 function clampNum(v: number, lo: number, hi: number): number {
@@ -396,32 +397,59 @@ export class Camera {
 
   /**
    * Record the snowman's travelled path for the cameraman follow (issue #337). Samples are
-   * spaced by travelled DISTANCE (like SnowTrails), never one-per-frame, so the trail is
-   * frame-rate independent and doesn't bunch up at speed. Each sample stores the cumulative
-   * horizontal distance `s` and the travel `heading` (from velocity while moving, else the
-   * position delta, else the caller's fallback yaw). Samples older than
-   * CAMERAMAN_HISTORY_DISTANCE are dropped so the buffer stays bounded (teardown-neutral —
-   * plain objects, freed with the Camera). Reads only the per-frame physics result, never
-   * mutating it, so the deterministic sim is unaffected.
+   * spaced by travelled DISTANCE (`CAMERAMAN_SAMPLE_SPACING`), never one-per-frame, so the trail
+   * is frame-rate independent. A long frame (low FPS / high speed) that covers several spacings
+   * lays each missed sample ALONG the segment and carries the sub-spacing residual to the next
+   * frame — mirroring `SnowTrails` (codex review, PR #356); otherwise the spacing would collapse
+   * to the render-frame distance and the sampled trail/heading would differ at 60/120/144 Hz.
+   * Each sample stores the cumulative horizontal distance `s` and the travel `heading` (from
+   * velocity while moving, else the position delta). The FIRST sample seeds its heading from
+   * velocity too when the skier is already moving, so entering/restarting cameraman with a
+   * temporarily-flipped model yaw doesn't start the camera on the wrong lane (codex review, PR
+   * #356). Old samples beyond `CAMERAMAN_HISTORY_DISTANCE` are dropped so the buffer stays
+   * bounded (teardown-neutral — plain objects, freed with the Camera). Reads only the per-frame
+   * physics result, never mutating it, so the deterministic sim is unaffected.
    */
   recordCameramanPath(playerPosition: THREE.Vector3, velocity: PlanarVelocity, fallbackYaw: number): void {
+    const speed = Math.hypot(velocity.x, velocity.z);
     const last = this.cameramanPath[this.cameramanPath.length - 1];
     if (!last) {
-      this.cameramanPath.push({ x: playerPosition.x, y: playerPosition.y, z: playerPosition.z, s: 0, heading: fallbackYaw });
+      // Seed heading from real travel when moving; only fall back to the model yaw when there is
+      // no travel signal (so a flipped-yaw entry mid-run doesn't seat the camera on the wrong side).
+      const seedHeading = speed > CAMERAMAN_MIN_SPEED_FOR_HEADING ? Math.atan2(velocity.x, velocity.z) : fallbackYaw;
+      this.cameramanPath.push({ x: playerPosition.x, y: playerPosition.y, z: playerPosition.z, s: 0, heading: seedHeading });
       this.cameramanPathDistance = 0;
-      if (this.cameramanHeading === null) this.cameramanHeading = fallbackYaw;
+      if (this.cameramanHeading === null) this.cameramanHeading = seedHeading;
       return;
     }
     const dx = playerPosition.x - last.x;
     const dz = playerPosition.z - last.z;
     const step = Math.hypot(dx, dz);
     if (step < CAMERAMAN_SAMPLE_SPACING) return;
-    const speed = Math.hypot(velocity.x, velocity.z);
     const rawHeading = speed > CAMERAMAN_MIN_SPEED_FOR_HEADING
       ? Math.atan2(velocity.x, velocity.z)
       : Math.atan2(dx, dz);
-    this.cameramanPathDistance += step;
-    this.cameramanPath.push({ x: playerPosition.x, y: playerPosition.y, z: playerPosition.z, s: this.cameramanPathDistance, heading: rawHeading });
+    // Lay each missed sample evenly along the segment travelled this frame (not all at the
+    // endpoint), stopping the last one within a spacing of the endpoint so the leftover distance
+    // carries to the next frame. Capped so a teleport-sized jump can't insert unboundedly.
+    const invStep = 1 / step;
+    const baseX = last.x, baseY = last.y, baseZ = last.z, baseS = last.s;
+    const dy = playerPosition.y - baseY;
+    let dist = CAMERAMAN_SAMPLE_SPACING;
+    let inserted = 0;
+    while (dist <= step && inserted < CAMERAMAN_MAX_SAMPLES_PER_FRAME) {
+      const t = dist * invStep;
+      this.cameramanPathDistance = baseS + dist;
+      this.cameramanPath.push({
+        x: baseX + dx * t,
+        y: baseY + dy * t,
+        z: baseZ + dz * t,
+        s: this.cameramanPathDistance,
+        heading: rawHeading,
+      });
+      dist += CAMERAMAN_SAMPLE_SPACING;
+      inserted++;
+    }
     while (this.cameramanPath.length > 2 && this.cameramanPathDistance - this.cameramanPath[0]!.s > CAMERAMAN_HISTORY_DISTANCE) {
       this.cameramanPath.shift();
     }

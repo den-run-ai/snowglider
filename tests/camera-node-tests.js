@@ -716,6 +716,43 @@ async function main() {
       Number.isFinite(fb.x) && Number.isFinite(fb.y) && Number.isFinite(fb.z));
   }
 
+  console.log('\n--- cameraman path: long frames stay evenly spaced; heading seeds from travel (issue #337, PR #356) ---');
+  {
+    // A long/hitchy frame (or high speed) that covers several spacings must lay each missed
+    // sample ALONG the segment at ~CAMERAMAN_SAMPLE_SPACING, not one endpoint sample — otherwise
+    // the path spacing (and the sampled trail/heading) would be frame-rate dependent.
+    const cam = newCamera();
+    cam.resetCameramanPath();
+    cam.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 0, z: 20 }, 0); // seed at origin
+    cam.recordCameramanPath(new THREE.Vector3(0, 0, 3.0), { x: 0, z: 20 }, 0); // one 3.0u frame
+    const gaps = [];
+    for (let i = 1; i < cam.cameramanPath.length; i++) gaps.push(cam.cameramanPath[i].s - cam.cameramanPath[i - 1].s);
+    check('a long frame inserts several evenly-spaced samples along the segment (not one endpoint)',
+      cam.cameramanPath.length >= 4 && gaps.length >= 3 && gaps.every(g => approx(g, 0.75)));
+
+    // Frame-rate independence: the same 3.0u path taken in 4 small frames vs 1 big frame yields
+    // (near) identical sample spacing and a matching sampled trail point.
+    const fine = newCamera();
+    fine.resetCameramanPath();
+    fine.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 0, z: 20 }, 0);
+    for (let k = 1; k <= 4; k++) fine.recordCameramanPath(new THREE.Vector3(0, 0, 0.75 * k), { x: 0, z: 20 }, 0);
+    check('a long frame and many short frames produce the same total path distance',
+      approx(cam.cameramanPathDistance, fine.cameramanPathDistance, 0.01));
+
+    // The FIRST sample seeds its heading from travel (velocity), not a temporarily-flipped model
+    // yaw — so entering/restarting cameraman while moving can't start the camera on the wrong lane.
+    const seed = newCamera();
+    seed.resetCameramanPath();
+    seed.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 20, z: 0 }, Math.PI); // travel +x (π/2), yaw flipped to π
+    check('the first cameraman sample seeds heading from travel, not the flipped model yaw',
+      approx(seed.cameramanPath[0].heading, Math.PI / 2, 0.001) && approx(seed.cameramanHeading, Math.PI / 2, 0.001));
+    // With no travel signal it still falls back to the model yaw.
+    const still = newCamera();
+    still.resetCameramanPath();
+    still.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 0, z: 0 }, 0.4); // stopped
+    check('a stopped first sample falls back to the model yaw', approx(still.cameramanPath[0].heading, 0.4, 0.001));
+  }
+
   console.log('\n--- handleResize ---');
   {
     const cam = newCamera();
