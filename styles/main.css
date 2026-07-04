@@ -58,8 +58,12 @@ canvas { display: block; }
      clicks of) the camera controls at any viewport height (issue #305 follow-up).
      Raised from 280px when the camera tray gained a foldable header (~30px taller
      when expanded). overflow-y still scrolls on very short screens so every row
-     stays reachable. */
-  max-height: calc(100vh - 320px);
+     stays reachable. The max() floor keeps a usable, scrollable sliver on ultra-short
+     viewports (<~384px tall, e.g. a 568x320 landscape phone) where 100vh-320px would
+     otherwise resolve to 0 and hide every row when the panel is expanded (Codex
+     review, PR #331). 64px sits below the reserve value at the shortest layout we
+     verify no-overlap for (844x390 -> 70px), so it never loosens that clearance. */
+  max-height: max(64px, calc(100vh - 320px));
   transition: all 0.3s ease;
   overflow-x: hidden;
   overflow-y: auto; /* Scroll if the techniques don't fit, so every row stays reachable */
