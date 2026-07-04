@@ -547,7 +547,7 @@ async function main() {
       approx(entry.x, classic.x) && approx(entry.y, classic.y) && approx(entry.z, classic.z));
   }
 
-  console.log('\n--- cameraman path-follow: model-yaw flip does not orbit-flip the target (issue #337) ---');
+  console.log('\n--- cameraman path-follow: model-yaw flip does not orbit-flip the target (issue #357) ---');
   {
     // The bug: cameraman used `playerRotation.y + angle`, so a sudden model-yaw flip (terrain /
     // pose) whipped the camera to the opposite lane around the rider. Path-follow reads the
@@ -576,7 +576,7 @@ async function main() {
       Math.abs(flipped.z - straight.z) < 0.5);
   }
 
-  console.log('\n--- cameraman path-follow: a curving line turns the camera gradually (issue #337) ---');
+  console.log('\n--- cameraman path-follow: a curving line turns the camera gradually (issue #357) ---');
   {
     // Feed a straight line, then abruptly steer the travel direction 90°. The framing heading
     // must ease (turn over many frames), never snap lane-to-lane in a single frame.
@@ -601,7 +601,7 @@ async function main() {
       h2 > h0 + 0.5);
   }
 
-  console.log('\n--- cameraman lookAt eases toward the target instead of copying it (issue #337) ---');
+  console.log('\n--- cameraman lookAt eases toward the target instead of copying it (issue #357) ---');
   {
     // The old code copied playerPosition into lookAtPosition and looked at it immediately, so the
     // view snapped. Cameraman now eases the smoothed lookAt toward the desired subject target.
@@ -634,7 +634,7 @@ async function main() {
       approx(follow.smoothingVectors.lookAtPosition.x, 40));
   }
 
-  console.log('\n--- cameraman path state resets on restart / mode (re)entry (issue #337) ---');
+  console.log('\n--- cameraman path state resets on restart / mode (re)entry (issue #357) ---');
   {
     const cam = newCamera();
     cam.setMode('cameraman');
@@ -656,7 +656,7 @@ async function main() {
       cam.cameramanPath.length === 0 && cam.cameramanHeading === null);
   }
 
-  console.log('\n--- cameraman path-follow: target height anchors to the uphill trail point (issue #337, PR #356) ---');
+  console.log('\n--- cameraman path-follow: target height anchors to the uphill trail point (issue #357, PR #356) ---');
   {
     // The trail point is uphill of the rider on a descent (higher terrain). Anchoring the target
     // height to the rider's (lower) y would seat it at/below terrain at the trail x/z, so the
@@ -686,7 +686,7 @@ async function main() {
       descLift > flatLift + 3);
   }
 
-  console.log('\n--- cameraman path: history trims, slow-speed heading, empty-path fallback (issue #337) ---');
+  console.log('\n--- cameraman path: history trims, slow-speed heading, empty-path fallback (issue #357) ---');
   {
     const cam = newCamera();
     cam.setMode('cameraman');
@@ -716,7 +716,7 @@ async function main() {
       Number.isFinite(fb.x) && Number.isFinite(fb.y) && Number.isFinite(fb.z));
   }
 
-  console.log('\n--- cameraman path: long frames stay evenly spaced; heading seeds from travel (issue #337, PR #356) ---');
+  console.log('\n--- cameraman path: long frames stay evenly spaced; heading seeds from travel (issue #357, PR #356) ---');
   {
     // A long/hitchy frame (or high speed) that covers several spacings must lay each missed
     // sample ALONG the segment at ~CAMERAMAN_SAMPLE_SPACING, not one endpoint sample — otherwise
@@ -753,7 +753,7 @@ async function main() {
     check('a stopped first sample falls back to the model yaw', approx(still.cameramanPath[0].heading, 0.4, 0.001));
   }
 
-  console.log('\n--- cameraman entry snap frames from travel, not a flipped model yaw (issue #337, PR #356) ---');
+  console.log('\n--- cameraman entry snap frames from travel, not a flipped model yaw (issue #357, PR #356) ---');
   {
     // Switching to cameraman mid-run (V/tray) calls initialize() then update()'s first-frame snap.
     // If playerRotation.y is momentarily flipped, a yaw-based entry would seat the FIRST rendered

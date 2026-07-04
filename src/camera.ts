@@ -24,7 +24,7 @@ import { Mountains } from './mountains.js';
  *  - `firstPerson` — over-the-head cam.
  *  - `cameraman`   — cinematic ski-film chase: low, close, side-trailing, with a gentle
  *                    handheld weave. Pulls back + lifts on steep/expert lines and jumps.
- *                    Follows the snowman's ACTUAL travelled path (issue #337), not its
+ *                    Follows the snowman's ACTUAL travelled path (issue #357), not its
  *                    instantaneous model yaw, so a terrain/pose yaw flip can't whip it
  *                    around the rider; the framing heading + look-at are eased.
  *  - `drone`       — cinematic aerial chase: high, far, slowly circling overhead. Also
@@ -129,7 +129,7 @@ const CAMERAMAN_BASE_DIST = 0.9;     // follow-distance multiplier — closer th
 const CAMERAMAN_SLOPE_DIST = 0.6;    // pull back on expert terrain
 const CAMERAMAN_AIR_DIST = 0.55;     // pull back over a jump
 
-// --- Cameraman path-follow (issue #337) ---
+// --- Cameraman path-follow (issue #357) ---
 // The cameraman trails the snowman's ACTUAL recorded path like a fellow skier with a camera,
 // rather than orbiting its instantaneous model yaw. This is the fix for the "teleport" feel:
 // when terrain/pose logic snaps `playerRotation.y`, an orbit-derived offset (`yaw + angle`)
@@ -196,7 +196,7 @@ interface SmoothingVectors {
 
 /**
  * One recorded sample of the snowman's travelled path, used only by the cameraman follow
- * (issue #337). `s` is the cumulative horizontal distance along the path; `heading` is the
+ * (issue #357). `s` is the cumulative horizontal distance along the path; `heading` is the
  * travel heading (`atan2(dx, dz)`) at this sample. Plain object (no THREE construction), so
  * recording draws no UUID randomness and stays seeded-RNG-neutral.
  */
@@ -234,7 +234,7 @@ export class Camera {
   minPitch: number;
   maxPitch: number;
 
-  // --- Cameraman path-follow state (issue #337) ---
+  // --- Cameraman path-follow state (issue #357) ---
   // Recorded snowman path + the eased framing heading the cameraman follow reads instead of
   // the instantaneous player yaw. All cleared on initialize/mode-(re)entry so a restart or a
   // return to cameraman never samples a stale, far-away trail point (state-leak guard).
@@ -282,7 +282,7 @@ export class Camera {
     this.minPitch = -0.35; // a little below level
     this.maxPitch = 1.15;  // near top-down
 
-    // Cameraman path-follow state (issue #337): starts empty; filled while in cameraman mode.
+    // Cameraman path-follow state (issue #357): starts empty; filled while in cameraman mode.
     this.cameramanPath = [];
     this.cameramanPathDistance = 0;
     this.cameramanHeading = null;
@@ -385,7 +385,7 @@ export class Camera {
   }
 
   /**
-   * Clear the cameraman path history (issue #337). Called on restart (`initialize`), a full
+   * Clear the cameraman path history (issue #357). Called on restart (`initialize`), a full
    * `resetView`, and whenever cameraman mode is (re)entered, so the follow never samples a
    * stale, far-away trail point from a previous run or a previous cameraman stint.
    */
@@ -396,7 +396,7 @@ export class Camera {
   }
 
   /**
-   * Record the snowman's travelled path for the cameraman follow (issue #337). Samples are
+   * Record the snowman's travelled path for the cameraman follow (issue #357). Samples are
    * spaced by travelled DISTANCE (`CAMERAMAN_SAMPLE_SPACING`), never one-per-frame, so the trail
    * is frame-rate independent. A long frame (low FPS / high speed) that covers several spacings
    * lays each missed sample ALONG the segment and carries the sub-spacing residual to the next
@@ -457,7 +457,7 @@ export class Camera {
 
   /**
    * Sample a point `distanceBehind` world-units back along the recorded cameraman path,
-   * linearly interpolating between the two bracketing samples (issue #337). With no history
+   * linearly interpolating between the two bracketing samples (issue #357). With no history
    * yet it returns the oldest/only sample, so the first cameraman frame degrades to "beside
    * the rider" and the trailing offset grows in as the path fills.
    */
@@ -799,7 +799,7 @@ export class Camera {
       const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
       if (this.mode === 'cameraman') {
         // Cameraman follows the snowman's ACTUAL recorded path like a fellow skier with a camera
-        // (issue #337). It samples a point a fixed distance BACK along the trail and sits just off
+        // (issue #357). It samples a point a fixed distance BACK along the trail and sits just off
         // to one side of it. Crucially the side/trail basis comes from the eased path tangent, NOT
         // the snowman's instantaneous playerRotation.y — so a sudden terrain/pose yaw flip no longer
         // whips the camera to the opposite lane around the rider the way `yaw + angle` did. The
