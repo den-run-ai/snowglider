@@ -36,7 +36,10 @@ export interface AmbientLifeSystem {
 // Prevailing drift direction for clouds + spindrift (unit-ish), scaled by wind strength.
 const DRIFT_X = 0.92, DRIFT_Z = -0.39;
 
-/** A shallow double-wing "bird" silhouette (two triangles), origin at its body. */
+/** A shallow double-wing "bird" silhouette, made DOUBLE-FACED in the geometry (front + reversed
+ *  winding) so it reads from any angle WITHOUT `side: DoubleSide` — which would set the
+ *  DOUBLE_SIDED shader define and compile a distinct program (perf-budget: keep all ambient
+ *  materials FrontSide so they share ONE instanced-basic-fog program). Origin at its body. */
 function birdGeometry(): THREE.BufferGeometry {
   const positions = [
     0, 0, 0.10,   // 0 front body
@@ -46,7 +49,21 @@ function birdGeometry(): THREE.BufferGeometry {
   ];
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setIndex([0, 1, 2, 0, 3, 1]);
+  // Front faces + the same triangles wound the other way => visible from both sides.
+  geo.setIndex([0, 1, 2, 0, 3, 1, /* back */ 0, 2, 1, 0, 1, 3]);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** A double-faced flat quad (two triangles + their reverse) for spindrift wisps, so they read
+ *  from both sides on a FrontSide material (again avoiding the DOUBLE_SIDED program). Unit width,
+ *  0.28 tall, centred at the origin in the XY plane. */
+function wispGeometry(): THREE.BufferGeometry {
+  const hw = 0.5, hh = 0.14;
+  const positions = [-hw, -hh, 0, hw, -hh, 0, hw, hh, 0, -hw, hh, 0];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex([0, 1, 2, 0, 2, 3, /* back */ 0, 2, 1, 0, 3, 2]);
   geo.computeVertexNormals();
   return geo;
 }
@@ -103,6 +120,11 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
 
   const reduced = prefersReducedMotion();
   let time = 0;
+  // Accumulated wind-drift offset (Codex review on #332): clouds + spindrift translate by this,
+  // advanced by `dt * wind` each frame. Integrating the drift (rather than multiplying the
+  // CURRENT wind sample by total elapsed time) means a gust only affects FUTURE motion — with
+  // `wind * time` a strength change re-evaluated all prior history and teleported the instances.
+  let windDrift = 0;
 
   // Scratch (reused each frame; no per-frame allocation).
   const m = new THREE.Matrix4();
@@ -114,7 +136,11 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
   const built = withPrivateThreeRandom(() => {
     const group = new THREE.Group();
     group.name = 'ambient-life';
-
+    // All three materials are unlit MeshBasicMaterial + fog + FrontSide, so they share ONE
+    // instanced-basic-fog shader program (the same one the valley forest patches already use).
+    // Colour is a uniform and `transparent`/`depthWrite` are render state — NONE add a program;
+    // only `side: DoubleSide` would (DOUBLE_SIDED define), which is why the flat bird/wisp
+    // geometries are double-faced instead. Keeps the layer within the tight perf-budget.
     const clouds = new THREE.InstancedMesh(
       new THREE.IcosahedronGeometry(1, 1),
       new THREE.MeshBasicMaterial({ color: 0xf4f8fd, fog: true }),
@@ -124,14 +150,18 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
 
     const birds = new THREE.InstancedMesh(
       birdGeometry(),
-      new THREE.MeshBasicMaterial({ color: 0x3a3f47, fog: true, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x3a3f47, fog: true }),
       birdCount,
     );
     birds.name = 'ambient-birds';
 
+    // Opaque, pale wisps: keeping spindrift opaque (rather than transparent) means all three
+    // ambient materials are the SAME program config (unlit basic + fog + FrontSide, colour is a
+    // uniform), so they share ONE program — the very one the valley forest patches already use —
+    // and the layer adds ~0 shader programs, staying well within the tight perf-budget ceiling.
     const spindrift = new THREE.InstancedMesh(
-      new THREE.PlaneGeometry(1, 0.28),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, fog: true, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }),
+      wispGeometry(),
+      new THREE.MeshBasicMaterial({ color: 0xeaf2fb, fog: true }),
       driftCount,
     );
     spindrift.name = 'ambient-spindrift';
@@ -153,12 +183,12 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
     return ((((v + half) % span) + span) % span) - half;
   };
 
-  function writeFrame(windStrength: number): void {
-    const wind = 0.4 + windStrength * 1.6; // gentle even in calm; faster in gusts
-    // Clouds — drift along the prevailing wind, wrapped over a wide span.
+  function writeFrame(): void {
+    // Clouds — drift along the prevailing wind, wrapped over a wide span. Offset is the
+    // ACCUMULATED wind-drift (integrated in update), so a gust never re-evaluates past motion.
     for (let i = 0; i < cloudCount; i++) {
-      const cx = wrap((cloud.x[i] as number) + DRIFT_X * wind * 2.2 * time, 460);
-      const cz = wrap((cloud.z[i] as number) + DRIFT_Z * wind * 2.2 * time, 460);
+      const cx = wrap((cloud.x[i] as number) + DRIFT_X * 2.2 * windDrift, 460);
+      const cz = wrap((cloud.z[i] as number) + DRIFT_Z * 2.2 * windDrift, 460);
       p.set(cx, cloud.y[i] as number, cz);
       q.identity();
       s.set(cloud.sx[i] as number, cloud.sy[i] as number, cloud.sz[i] as number);
@@ -182,11 +212,12 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
       birds.setMatrixAt(i, m);
     }
     birds.instanceMatrix.needsUpdate = true;
-    // Spindrift — stream with the wind over the slope, recycling across the span.
+    // Spindrift — stream with the wind over the slope, recycling across the span. Per-wisp
+    // speed scales the shared accumulated wind-drift (so gusts only push future motion).
     for (let i = 0; i < driftCount; i++) {
-      const spd = (drift.spd[i] as number) * wind;
-      const dx = wrap((drift.x[i] as number) + DRIFT_X * spd * time, 190);
-      const dz = wrap((drift.z[i] as number) + DRIFT_Z * spd * time, 190);
+      const spd = drift.spd[i] as number;
+      const dx = wrap((drift.x[i] as number) + DRIFT_X * spd * windDrift, 190);
+      const dz = wrap((drift.z[i] as number) + DRIFT_Z * spd * windDrift, 190);
       const dy = (drift.y[i] as number) + Math.sin(time * 0.6 + i) * 1.5;
       p.set(dx, dy, dz);
       e.set(0, (drift.rot[i] as number), 0);
@@ -200,13 +231,15 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
   }
 
   // Seed the static initial frame (also the frozen frame under reduced motion).
-  writeFrame(0);
+  writeFrame();
 
   function update(dt: number, _playerPosition: THREE.Vector3, windStrength: number): void {
     if (reduced) return;            // frozen under prefers-reduced-motion
     if (!(dt > 0)) return;          // no-op on a zero/negative delta
     time += dt;
-    writeFrame(windStrength);
+    // Integrate wind drift: gentle even in calm, faster in gusts. Only future motion is affected.
+    windDrift += dt * (0.4 + windStrength * 1.6);
+    writeFrame();
   }
 
   return { group, update };

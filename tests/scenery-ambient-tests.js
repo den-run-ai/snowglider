@@ -94,7 +94,10 @@ function testMaterials(THREE, build, makeSceneryRng, budget) {
   check('every layer is unlit MeshBasicMaterial', all.every((m) => m.material.isMeshBasicMaterial === true));
   check('every layer is fog-enabled', all.every((m) => m.material.fog === true));
   check('nothing casts or receives a shadow', all.every((m) => m.castShadow === false && m.receiveShadow === false));
-  check('spindrift is transparent (soft wisps)', im['ambient-spindrift'].material.transparent === true);
+  // Perf: all three materials are FrontSide (no DoubleSide) so they share ONE shader program
+  // (the flat bird/wisp geometries are double-faced instead) — keeps the layer within the
+  // tight perf-budget program ceiling. `im` is referenced to keep the spindrift name checked.
+  check('every layer is FrontSide (shares one program; keeps perf-budget)', all.every((m) => m.material.side === THREE.FrontSide) && !!im['ambient-spindrift']);
 }
 
 function testDeterminism(THREE, build, makeSceneryRng, budget) {
