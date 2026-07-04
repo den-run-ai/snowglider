@@ -30,6 +30,7 @@ import { DEFAULT_SCENERY_BUDGET, type SceneryBudget } from './scenery-budget.js'
 import { buildDistantRidges } from './distant-ridges.js';
 import { buildValleyBackdrop } from './valley-backdrop.js';
 import { buildForestBelts } from './forest-belts.js';
+import { buildCliffBands } from './cliff-bands.js';
 
 /** Read-only context handed to scenery construction. Everything here is either a pure
  *  sampler or immutable layout data — scenery may READ it but must never mutate it. */
@@ -114,6 +115,11 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   // OUTSIDE the lane. Collision-neutral — never added to treePositions, so they thicken the
   // tree line without being obstacles.
   group.add(buildForestBelts(rng, budget, ctx));
+
+  // --- Layer: cliff / cornice extensions (PR 5) ---
+  // Tall craggy snow-capped rock outcrops on the outer flanks (|x|∈[122,148]), grounded on the
+  // terrain, adding vertical rock drama. Collision-neutral — never added to rockPositions.
+  group.add(buildCliffBands(rng, budget, ctx));
 
   let disposed = false;
 
