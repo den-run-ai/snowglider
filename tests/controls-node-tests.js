@@ -68,7 +68,7 @@ function dispatchTouch(type, target, points) {
 }
 
 async function main() {
-  const { Controls } = await import('../src/controls.ts');
+  const { Controls, shouldShowTouchZones } = await import('../src/controls.ts');
 
   console.log('--- module surface ---');
   check('exposes the Controls API',
@@ -235,6 +235,25 @@ async function main() {
   check('toggleTouchControls(true) recreates the visual controls and returns true',
     Controls.toggleTouchControls(true) === true &&
     document.querySelectorAll('.touch-control').length === 5);
+
+  console.log('\n--- shouldShowTouchZones (debug-flag gate) ---');
+  // Pure predicate, so drive its three branches directly (no setupControls re-run, which would
+  // double-bind the button handlers checked below). dom.reconfigure swaps window.location.search.
+  dom.reconfigure({ url: 'https://snowglider.ai/' });
+  window.localStorage.removeItem('snowglider.debugTouchZones');
+  check('no URL flag and no localStorage key => false (default off)',
+    shouldShowTouchZones() === false);
+  dom.reconfigure({ url: 'https://snowglider.ai/?debugTouchZones=1' });
+  check('?debugTouchZones in the URL => true', shouldShowTouchZones() === true);
+  dom.reconfigure({ url: 'https://snowglider.ai/' });
+  window.localStorage.setItem('snowglider.debugTouchZones', '1');
+  check('persisted localStorage flag => true', shouldShowTouchZones() === true);
+  window.localStorage.removeItem('snowglider.debugTouchZones');
+  // A throwing storage access (private-mode / blocked) is caught and falls back to false.
+  const restoreGetItem = window.localStorage.getItem.bind(window.localStorage);
+  window.localStorage.getItem = () => { throw new Error('storage blocked'); };
+  check('localStorage access throwing => false (caught)', shouldShowTouchZones() === false);
+  window.localStorage.getItem = restoreGetItem;
 
   console.log('\n--- per-tier jump availability (setJumpEnabled, workstream A) ---');
   // On a no-jump tier (Bunny) the CENTER touch region must be excluded from

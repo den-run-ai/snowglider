@@ -171,8 +171,10 @@ function setupKeyboardControls(signal?: AbortSignal) {
 // mobile). Opt in for debugging touch hit-areas with `?debugTouchZones=1` or by setting
 // localStorage['snowglider.debugTouchZones'] = '1'. Touch INPUT is unaffected either way.
 // Wrapped in try/catch because URLSearchParams/localStorage can throw on some mobile/private
-// contexts; the default (no overlay) is the safe fallback.
-function shouldShowTouchZones(): boolean {
+// contexts; the default (no overlay) is the safe fallback. Exported as a small testable seam so
+// the node suite can cover all three branches (URL flag / localStorage / thrown-access fallback)
+// without re-running setupControls (which would double-bind the button touch handlers).
+export function shouldShowTouchZones(): boolean {
   try {
     if (new URLSearchParams(window.location.search).has('debugTouchZones')) return true;
     return window.localStorage.getItem('snowglider.debugTouchZones') === '1';
