@@ -463,6 +463,46 @@ async function main() {
     calls.reinitializeFirestore > 0 &&
     document.getElementById('leaderboard').innerHTML.includes('30.00s'));
 
+  console.log('\n--- offline-queue reconnect (issue #358, PR 4) ---');
+  // A signed-in real user finished a ranked run while Firestore was NOT initialized
+  // (offline first-load), leaving a durable pending marker. On reconnect the module must
+  // REINITIALIZE Firestore (whose initializeScores re-runs the flush), not just no-op.
+  resetState(ScoresModule);
+  currentAuthUser = { uid: 'u-recon', isAnonymous: false, displayName: 'Recon' };
+  firestoreAvailable = false;             // AuthModule reports Firestore down...
+  ScoresModule.initializeScores(null, null); // ...and the local instance is null
+  reinitializeSucceeds = true;            // reinit will restore it + re-run the flush
+  env.localStorage.setItem('snowgliderPendingSync',
+    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+  calls.reinitializeFirestore = 0;
+  window.dispatchEvent(new window.Event('online'));
+  await flushAll();
+  // Triggering the reinit is the fix (Codex #362); reinit's initializeScores re-runs the
+  // flush. The flush→clear mechanics (confirmed-sync only) are unit-tested in sync-manager.
+  check('reconnect with a pending best reinitializes Firestore', calls.reinitializeFirestore > 0);
+
+  // No reinit churn when there is no pending work.
+  resetState(ScoresModule);
+  currentAuthUser = { uid: 'u2', isAnonymous: false };
+  firestoreAvailable = false;
+  ScoresModule.initializeScores(null, null);
+  calls.reinitializeFirestore = 0;
+  window.dispatchEvent(new window.Event('online'));
+  await flushAll();
+  check('reconnect with NO pending work does not reinitialize', calls.reinitializeFirestore === 0);
+
+  // An anonymous guest never triggers a reinit (stays local-only).
+  resetState(ScoresModule);
+  currentAuthUser = { uid: 'guest', isAnonymous: true };
+  firestoreAvailable = false;
+  ScoresModule.initializeScores(null, null);
+  env.localStorage.setItem('snowgliderPendingSync',
+    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+  calls.reinitializeFirestore = 0;
+  window.dispatchEvent(new window.Event('online'));
+  await flushAll();
+  check('anonymous guest does not reinitialize on reconnect', calls.reinitializeFirestore === 0);
+
   console.log(`\nSCORES TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

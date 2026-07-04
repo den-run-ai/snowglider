@@ -690,7 +690,9 @@ function syncUserData(user: User) {
           continue;
         }
         console.log(`Found local best time (${cfg.id}), attempting to sync:`, bestTime);
-        ScoresModule.updateUserBestTime(user.uid, bestTime, cfg.id);
+        // Fire-and-forget: updateUserBestTime now returns a success promise (for the
+        // offline-queue flush), but this sign-in backfill doesn't need it.
+        void ScoresModule.updateUserBestTime(user.uid, bestTime, cfg.id);
       }
     })
     .catch(error => {
