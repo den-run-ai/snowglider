@@ -19,8 +19,11 @@ export const OFFLINE_BADGE_TEXT = 'Offline mode — local bests only';
 /** Fallback line for the leaderboard when the global board can't be reached. */
 export const LEADERBOARD_OFFLINE_TEXT = 'Global leaderboard unavailable. Showing your local best.';
 
-/** Install-affordance copy, reused by PR 2's install prompt. */
-export const INSTALL_HINT_TEXT = 'Install SnowGlider to play offline';
+// Install-affordance copy, reused by PR 2's install prompt. INSTALL-ONLY wording on
+// purpose: offline app-shell caching lands in a later PR (the service worker), so
+// promising "play offline" here would be a false guarantee for anyone who installs
+// before that ships (Codex #360). It's honest in every stacked state.
+export const INSTALL_HINT_TEXT = 'Install SnowGlider as an app';
 
 /** DOM id of the mounted offline badge. */
 export const OFFLINE_BADGE_ID = 'offlineBadge';
