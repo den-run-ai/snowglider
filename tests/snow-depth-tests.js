@@ -29,6 +29,7 @@ async function main() {
   testCompactParams(SnowDepthField);
   testRefill(SnowDepthField);
   testBounds(SnowDepthField);
+  testNonFiniteHardening(SnowDepthField);
   testDeterminism(SnowDepthField);
   testResetAndDispose(SnowDepthField);
 
@@ -130,6 +131,23 @@ function testBounds(SnowDepthField) {
   f.compactAt(NaN, NaN);
   check('NaN/negative inputs leave the field bounded',
     f.depth.every(v => v >= 0 && v <= 1 && Number.isFinite(v)));
+}
+
+function testNonFiniteHardening(SnowDepthField) {
+  console.log('non-finite hardening — NaN options / strength never poison the grid (Codex #349)');
+  // NaN construction options fall back to defaults / clamp, never store NaN.
+  const f = new SnowDepthField({ refillRate: NaN, compactionPerPass: NaN, packRadius: NaN });
+  check('NaN construction options resolve to finite tunables',
+    Number.isFinite(f.refillRate) && Number.isFinite(f.compactionPerPass) && Number.isFinite(f.packRadius));
+  check('a NaN-option field still starts full powder', f.depth.every(v => v === 1));
+  // A NaN strength / radius passed explicitly must not write NaN into depth.
+  const g = new SnowDepthField();
+  g.compactAt(0, 0, 4, NaN);
+  g.compactAt(0, 0, NaN, 0.5);
+  g.compactAt(NaN, 0, 4, 0.5);
+  check('NaN strength / radius / centre leave the grid finite and bounded',
+    g.depth.every(v => v >= 0 && v <= 1 && Number.isFinite(v)));
+  check('NaN compaction args are a no-op (still full powder)', g.sample(0, 0) === 1);
 }
 
 function testDeterminism(SnowDepthField) {

@@ -72,8 +72,16 @@ function clampInt(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, Math.round(v)));
 }
 
+// NaN-SAFE clamp to [0..1]. `NaN > 0` is false, so a NaN (from a bad caller/config value)
+// falls through to 0 instead of poisoning the grid — this is what keeps the promised
+// [0..1] depth invariant airtight for JS callers that TypeScript can't police.
 function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
+  return v > 0 ? (v < 1 ? v : 1) : 0;
+}
+
+// A finite tuning value, or the fallback when a caller passes NaN/Infinity/undefined.
+function finiteOr(v: number | undefined, fallback: number): number {
+  return Number.isFinite(v) ? (v as number) : fallback;
 }
 
 /**
@@ -102,9 +110,9 @@ export class SnowDepthField {
     this.sizeZ = Number.isFinite(opts.sizeZ) && opts.sizeZ! > 0 ? opts.sizeZ! : DEF_SIZE_Z;
     this.cols = clampInt(opts.cols ?? DEF_COLS, 2, MAX_COLS);
     this.rows = clampInt(opts.rows ?? DEF_ROWS, 2, MAX_ROWS);
-    this.refillRate = Math.max(0, opts.refillRate ?? DEF_REFILL_RATE);
-    this.compactionPerPass = clamp01(opts.compactionPerPass ?? DEF_COMPACTION_PER_PASS);
-    this.packRadius = Math.max(0, opts.packRadius ?? DEF_PACK_RADIUS);
+    this.refillRate = Math.max(0, finiteOr(opts.refillRate, DEF_REFILL_RATE));
+    this.compactionPerPass = clamp01(finiteOr(opts.compactionPerPass, DEF_COMPACTION_PER_PASS));
+    this.packRadius = Math.max(0, finiteOr(opts.packRadius, DEF_PACK_RADIUS));
 
     this.depth = new Float32Array(this.cols * this.rows).fill(1);
   }
@@ -145,7 +153,9 @@ export class SnowDepthField {
    */
   compactAt(x: number, z: number, radius: number = this.packRadius, strength: number = this.compactionPerPass): void {
     const s = clamp01(strength);
-    if (s <= 0 || radius <= 0) return;
+    // `!(x > 0)` style guards reject NaN (and <= 0) in one check; a non-finite centre
+    // (x/z) would map to a clamped cell but never mutate one usefully, so bail early.
+    if (!(s > 0) || !(radius > 0) || !Number.isFinite(x) || !Number.isFinite(z)) return;
     const cc = this.colAt(x);
     const cr = this.rowAt(z);
     const rc = this.colRadius(radius);
