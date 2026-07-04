@@ -26,8 +26,22 @@ const BELT_SPAN_X = 43;      // belt band width per flank → outer edge ~145, i
 const Z_MIN = -190;          // along the run length, within the terrain
 const Z_SPAN = 230;          // z ∈ [-190, 40]
 const TRUNK_H = 1.4;
-const FOLIAGE_COLOR = 0x2e5d34;
 const TRUNK_COLOR = 0x6b4a2f;
+// Per-vertex foliage palette: deep shadowed green at the base → lit green up the crown →
+// frosted snow dusting on the upper tiers, so the belt conifers read as natural snow-laden firs
+// instead of flat cartoon cones (blends with the EZ gameplay forest). Owner feedback, PR 4b.
+const GREEN_LOW: [number, number, number] = hexRgb(0x24401f);
+const GREEN_HIGH: [number, number, number] = hexRgb(0x40703a);
+const SNOW: [number, number, number] = hexRgb(0xecf2f8);
+
+function hexRgb(hex: number): [number, number, number] {
+  return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+}
+function lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
 
 /** Concatenate several indexed geometries (position+normal) into one, offsetting indices. Avoids
  *  the three/addons merge util (kept out of raw-source deployed paths, per sky.ts). */
@@ -52,13 +66,40 @@ function mergeIndexed(geos: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return out;
 }
 
-/** A two-tier conifer canopy, origin at the ground (base sits on the trunk top). Guarded. */
+/** A tapered multi-tier conifer canopy with a per-vertex green→snow gradient, origin at the
+ *  ground (base sits on the trunk top). Four overlapping cones of decreasing radius/height give
+ *  a natural fir silhouette; the upper tiers frost toward snow. Guarded. */
 function foliageGeometry(): THREE.BufferGeometry {
-  const c1 = new THREE.ConeGeometry(1.4, 3.0, 7);
-  c1.translate(0, TRUNK_H + 1.5, 0);
-  const c2 = new THREE.ConeGeometry(1.0, 2.4, 7);
-  c2.translate(0, TRUNK_H + 3.1, 0);
-  return mergeIndexed([c1, c2]);
+  const tiers = [
+    { r: 1.75, h: 2.3, y: TRUNK_H + 1.0 },
+    { r: 1.35, h: 2.1, y: TRUNK_H + 2.2 },
+    { r: 0.98, h: 1.9, y: TRUNK_H + 3.35 },
+    { r: 0.6, h: 1.7, y: TRUNK_H + 4.45 },
+  ];
+  const geo = mergeIndexed(tiers.map((t) => {
+    const c = new THREE.ConeGeometry(t.r, t.h, 8);
+    c.translate(0, t.y, 0);
+    return c;
+  }));
+
+  // Colour by normalized height: deep green base → lit green crown, with a snow dusting frosting
+  // the upper tiers (blended, not pure white, so it reads as snow-laden rather than a snowman).
+  const posAttr = geo.getAttribute('position') as THREE.BufferAttribute;
+  let minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < posAttr.count; i++) { const y = posAttr.getY(i); if (y < minY) minY = y; if (y > maxY) maxY = y; }
+  const span = maxY - minY || 1;
+  const colors = new Float32Array(posAttr.count * 3);
+  for (let i = 0; i < posAttr.count; i++) {
+    const yn = (posAttr.getY(i) - minY) / span;
+    const g = Math.min(1, yn * 1.15); // green shade lightens up the crown
+    const snow = smoothstep(0.5, 1.0, yn) * 0.55; // frost the upper half, partial blend
+    for (let k = 0; k < 3; k++) {
+      const green = lerp(GREEN_LOW[k]!, GREEN_HIGH[k]!, g);
+      colors[i * 3 + k] = lerp(green, SNOW[k]!, snow);
+    }
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  return geo;
 }
 
 /** A thin trunk cylinder, base at the ground. Guarded. */
@@ -102,7 +143,9 @@ export function buildForestBelts(rng: () => number, budget: SceneryBudget, ctx: 
 
     const foliage = new THREE.InstancedMesh(
       foliageGeometry(),
-      new THREE.MeshStandardMaterial({ color: FOLIAGE_COLOR, roughness: 0.85, flatShading: true, fog: true }),
+      // vertexColors carries the green→snow gradient; flatShading+fog+vertexColors shares the
+      // SAME shader program the cliff outcrops already compile, so this adds no new program.
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true, fog: true }),
       count,
     );
     foliage.name = 'forest-belt-foliage';
