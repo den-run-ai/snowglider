@@ -38,6 +38,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
 - `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis (includes the now-shipped R2/R3 refactor stages)
 - `.claude/skills/webgpu-threejs-tsl/` - Vendored Claude Code skill: WebGPU renderer + TSL (Three.js Shading Language) reference for any future WebGPU work. Reference docs only (excluded from eslint); provenance and local API corrections are recorded in its `UPSTREAM.md`.
+- `.claude/skills/snowglider-dev/` - Claude Code skill: SnowGlider's engineering-discipline playbook, distilled from the commit history, Codex review threads, and issues. Encodes the hard invariants (byte-identical no-input physics, seeded-`Math.random` neutrality, fixed-timestep frame-rate independence, terrain two-formula `MUST MATCH`, teardown safety, automation gating, the `window.*` seam) and the recurring Codex/regression bug classes (shared-flag repurposing, state leaking across mode/run boundaries, teardown gaps, async races, incomplete consumer updates, within-frame ordering, perf-budget, deploy ordering). `SKILL.md` is the pre-flight checklist + bug-class self-check; `references/` holds the depth (`invariants.md`, `bug-classes.md`, `workflow.md`). Complements this file (the *what*) with the *how not to break it*.
 
 ## Commands
 - Install dependencies: `npm ci`
