@@ -37,7 +37,7 @@ console.log('\n✅ PASS: Tree Collision Detection Logic');
 console.log('The core collision detection logic has three components:');
 console.log('1. Direct position matching with epsilon: Math.abs(pos.x - treePos.x) < 0.001');
 console.log('2. Horizontal distance calculation: Math.sqrt(dx*dx + dz*dz) < collisionRadius');
-console.log('3. Jump exemption: isInAir && verticalVelocity > 0 && pos.y > (tree.y + 5)');
+console.log('3. Jump exemption: isInAir && pos.y > (tree.y + 5)  (height-based, rising OR descending)');
 console.log('These are correctly implemented, but only applied to trees in the collision array.');
 
 // Test 3: Snow Splash Effect Fix
