@@ -58,9 +58,17 @@ function wirePanel(
     toggle();
   });
 
+  // Track whether the active touch became a horizontal swipe. The swipe handler below
+  // sets the collapse state directly on touchmove; without this guard the touchend
+  // handler would toggle a SECOND time and undo the swipe, so the panels' advertised
+  // swipe-to-collapse/expand gesture never actually stuck (Codex review, PR #331).
+  let touchStartX = 0;
+  let swiped = false;
+
   header.addEventListener('touchend', function(e) {
     console.log(`${name} header touch end`);
     e.preventDefault();
+    if (swiped) { swiped = false; return; } // a swipe already set the state; don't re-toggle
     toggle();
   }, { passive: false });
 
@@ -80,29 +88,20 @@ function wirePanel(
   }
 
   // Add horizontal swipe handler for the panel
-  let touchStartX = 0;
-
   header.addEventListener('touchstart', function(e) {
     touchStartX = e.touches[0]!.clientX;
+    swiped = false;
   }, { passive: true });
 
   header.addEventListener('touchmove', function(e) {
-    const touchX = e.touches[0]!.clientX;
-    const diff = touchX - touchStartX;
-
-    // If swiping left and panel expanded, collapse it
-    if (diff < -30 && !container.classList.contains('collapsed')) {
-      console.log(`Swipe left detected, collapsing ${name}`);
-      setCollapsed(true);
-      e.preventDefault();
-    }
-
-    // If swiping right and panel collapsed, expand it
-    if (diff > 30 && container.classList.contains('collapsed')) {
-      console.log(`Swipe right detected, expanding ${name}`);
-      setCollapsed(false);
-      e.preventDefault();
-    }
+    const diff = e.touches[0]!.clientX - touchStartX;
+    if (Math.abs(diff) <= 30) return; // below the swipe threshold: still a tap, let touchend toggle
+    // A horizontal swipe owns this gesture — left collapses, right expands (idempotent if
+    // already there). `swiped` makes the touchend handler skip its toggle so the gesture sticks.
+    console.log(`Swipe ${diff < 0 ? 'left' : 'right'} detected, ${diff < 0 ? 'collapsing' : 'expanding'} ${name}`);
+    swiped = true;
+    setCollapsed(diff < 0);
+    e.preventDefault();
   }, { passive: false });
 }
 

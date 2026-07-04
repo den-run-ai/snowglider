@@ -79,6 +79,23 @@ async function main() {
   statsH.dispatchEvent(touchEvent(window, 'touchmove', 100)); // diff -100 -> collapse
   check('swipe left collapses an expanded panel', statsC.classList.contains('collapsed'));
 
+  // A REAL swipe fires touchstart -> touchmove -> touchend. The trailing touchend must
+  // not re-toggle and undo the swipe, or the gesture nets back to the start state
+  // (Codex review, PR #331). Panel is collapsed here.
+  statsH.dispatchEvent(touchEvent(window, 'touchstart', 100));
+  statsH.dispatchEvent(touchEvent(window, 'touchmove', 200)); // swipe right -> expand
+  statsH.dispatchEvent(touchEvent(window, 'touchend'));       // must NOT collapse again
+  check('swipe right + touchend stays expanded (no double-toggle)',
+    !statsC.classList.contains('collapsed'));
+  statsH.dispatchEvent(touchEvent(window, 'touchstart', 200));
+  statsH.dispatchEvent(touchEvent(window, 'touchmove', 100)); // swipe left -> collapse
+  statsH.dispatchEvent(touchEvent(window, 'touchend'));       // must NOT expand again
+  check('swipe left + touchend stays collapsed (no double-toggle)',
+    statsC.classList.contains('collapsed'));
+  // A plain tap (touchend with no swipe) still toggles.
+  statsH.dispatchEvent(touchEvent(window, 'touchend'));       // tap -> expand
+  check('tap (touchend, no preceding swipe) still toggles', !statsC.classList.contains('collapsed'));
+
   // --- Controls panel: autoCollapseOnSmallScreens=true ---
   // Force a small viewport so the resize handler auto-collapses on wire-up.
   Object.defineProperty(window, 'innerWidth', { value: 400, configurable: true });

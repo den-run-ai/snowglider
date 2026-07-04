@@ -274,10 +274,17 @@ function setupTouchControls(signal?: AbortSignal) {
   // (audio/reset/camera/restart) keep working unchanged — they call their own
   // preventDefault, so bailing here only drops the now-redundant document-level
   // suppression and never double-fires.
+  //
+  // `#cameraControls` covers the bottom-left camera tray as a whole: its buttons match
+  // the role list above, but its collapsible header/title and the gaps between widgets
+  // are plain divs. On landscape phones the tray sits inside a steering region, so a
+  // fold tap/swipe on that chrome would otherwise ALSO be read as ski steering. This
+  // mirrors the mouse-drag/wheel exclusion lifecycle.ts already applies to the tray
+  // (Codex review, PR #331).
   const isInteractiveUiTouch = (event: TouchEvent): boolean => {
     const target = event.target as Element | null;
     return !!(target && typeof target.closest === 'function' &&
-      target.closest('button, a, input, select, textarea, label, [role="button"]'));
+      target.closest('button, a, input, select, textarea, label, [role="button"], #cameraControls'));
   };
 
   // A touch the gameplay layer must leave entirely alone: a scroll inside a guide

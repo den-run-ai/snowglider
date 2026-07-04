@@ -15,6 +15,7 @@ import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { updateTimerDisplay } from '../ui/hud.js';
+import { setupCollapsiblePanel } from '../ui/collapsible-panel.js';
 import { usesOrbitControls, type CameraMode } from '../camera.js';
 import type { SceneContext } from './scene-setup.js';
 
@@ -289,6 +290,26 @@ export function createLifecycle(deps: LifecycleDeps) {
     const tray = document.createElement('div');
     tray.id = 'cameraControls';
 
+    // Collapsible header (matches the Game Controls / Game Stats HUD panels): a title
+    // plus a ▲/▼ toggle. setupCollapsiblePanel() below wires the click / touch / swipe
+    // collapse behavior and toggles the `collapsed` class on the tray. The mode chips
+    // and orbit/zoom rows live in a content wrapper that the class hides.
+    const header = document.createElement('div');
+    header.id = 'cameraControlsHeader';
+    const title = document.createElement('h3');
+    title.textContent = '🎥 Camera';
+    const toggleBtn = document.createElement('button');
+    toggleBtn.id = 'toggleCamera';
+    toggleBtn.type = 'button';
+    toggleBtn.textContent = '▲';
+    toggleBtn.setAttribute('aria-label', 'Toggle camera options');
+    header.append(title, toggleBtn);
+    tray.appendChild(header);
+
+    const content = document.createElement('div');
+    content.id = 'cameraControlsContent';
+    tray.appendChild(content);
+
     // Mode chips: Auto / Follow / Orbit / FP / Cameraman / Drone.
     const modes: Array<{ mode: CameraMode; label: string; title: string }> = [
       { mode: 'auto', label: 'Auto', title: 'Auto — smart camera that adapts to speed and turns' },
@@ -310,7 +331,7 @@ export function createLifecycle(deps: LifecycleDeps) {
       btn.addEventListener('touchend', (e) => { e.preventDefault(); selectCameraMode(mode); }, touchOpts);
       modeRow.appendChild(btn);
     }
-    tray.appendChild(modeRow);
+    content.appendChild(modeRow);
 
     // Orbit row: ⟲  [0–360° slider]  ⟳  ⊙(recenter).
     const orbitRow = document.createElement('div');
@@ -335,7 +356,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     const recenterBtn = makeIconButton('⊙', 'Recenter behind snowman (C)', () => { cameraManager.recenter(); syncOrbitSlider(); });
     recenterBtn.setAttribute('data-cam-orbit', 'recenter');
     orbitRow.append(orbitLeft, slider, orbitRight, recenterBtn);
-    tray.appendChild(orbitRow);
+    content.appendChild(orbitRow);
 
     // Zoom row: −  Zoom  +.
     const zoomRow = document.createElement('div');
@@ -348,9 +369,20 @@ export function createLifecycle(deps: LifecycleDeps) {
     const zoomIn = makeIconButton('+', 'Zoom in (+ / wheel)', () => cameraManager.adjustZoom(ZOOM_IN_STEP));
     zoomIn.setAttribute('data-cam-zoom', 'in');
     zoomRow.append(zoomOut, zoomLabel, zoomIn);
-    tray.appendChild(zoomRow);
+    content.appendChild(zoomRow);
 
     document.body.appendChild(tray);
+
+    // Wire the collapse toggle / header tap / horizontal swipe, reusing the shared HUD
+    // panel behavior. No resetListeners / small-screen auto-collapse: the tray is a
+    // fresh node each game and its only listeners live on this subtree (header/button),
+    // so teardown's removal of #cameraControls disposes them — no window-level leak.
+    setupCollapsiblePanel({
+      name: 'camera',
+      containerId: 'cameraControls',
+      toggleButtonId: 'toggleCamera',
+      headerId: 'cameraControlsHeader',
+    });
 
     // These window-level listeners only steer the camera during a LIVE run. Gating on
     // state.gameActive keeps them inert on the start / about / leaderboard menu, the
