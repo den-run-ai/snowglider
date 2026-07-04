@@ -28,6 +28,7 @@
 
 import * as THREE from 'three';
 import { resetTreePools } from '../trees.js';
+import { resetRockCaches } from '../mountains/rocks.js';
 import { resetSnowmanSnowMaterial } from '../snowman/snow-material.js';
 import { TreeShed } from '../tree-shed.js';
 import type { SceneContext } from './scene-setup.js';
@@ -132,6 +133,9 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   //    instead of holding freed-but-still-referenced handles (the scene sweep already
   //    disposed the scene-attached ones; this frees the rest and clears the caches).
   resetTreePools();
+  // ... the two shared rock materials + the rock normal texture (the sweep just disposed
+  //    the scene-attached copies; null the module caches so a remount rebuilds them).
+  resetRockCaches();
   // ... the shared snowman/debris snow material cache likewise (the sweep just
   //    disposed the material + its textures; a remount must rebuild, not reuse).
   resetSnowmanSnowMaterial();
