@@ -31,6 +31,7 @@ import { buildDistantRidges } from './distant-ridges.js';
 import { buildValleyBackdrop } from './valley-backdrop.js';
 import { buildForestBelts } from './forest-belts.js';
 import { buildCliffBands } from './cliff-bands.js';
+import { buildDecorativeProps } from './decorative-props.js';
 
 /** Read-only context handed to scenery construction. Everything here is either a pure
  *  sampler or immutable layout data — scenery may READ it but must never mutate it. */
@@ -120,6 +121,12 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   // Tall craggy snow-capped rock outcrops on the outer flanks (|x|∈[122,148]), grounded on the
   // terrain, adding vertical rock drama. Collision-neutral — never added to rockPositions.
   group.add(buildCliffBands(rng, budget, ctx));
+
+  // --- Layer: decorative props (PR 6) ---
+  // Procedural backcountry props (cairns, trail markers, fences, stumps) from the catalog,
+  // scattered on the near-to-mid flanks (|x|∈[48,95]) and grounded. Collision-neutral —
+  // never added to treePositions/rockPositions, so the player skis past, not through.
+  group.add(buildDecorativeProps(rng, budget, ctx));
 
   let disposed = false;
 
