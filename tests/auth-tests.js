@@ -396,6 +396,25 @@ async function main() {
   // sync regardless of profile-write success, Firestore readiness, or account switches.
   const store = await import('../src/offline/offline-store.ts');
 
+  // (A2) Blocked/private storage: reading a local best throws. The throw-safe backfill must
+  // degrade gracefully, NOT abort the sign-in/profile sync (Codex #362). Firestore is still
+  // available here (the sync1 profile write above succeeded), so the profile doc must still
+  // be written. Scope the throw to the best-time keys so the rest of the sign-in flow works.
+  const origGetItem = localStorage.getItem.bind(localStorage);
+  localStorage.getItem = (k) => {
+    if (String(k).startsWith('snowgliderBestTime')) throw new Error('storage blocked');
+    return origGetItem(k);
+  };
+  try {
+    fb.emitAuthState({ uid: 'blockedfs1', email: 'b@g.ai', displayName: 'Blocked', photoURL: null });
+    await new Promise(r => setTimeout(r, 250));
+    await flush(); await flush(); await flush();
+  } finally {
+    localStorage.getItem = origGetItem;
+  }
+  check('sign-in sync survives storage that throws — profile still written (Codex #362)',
+    !!fb.read('users', 'blockedfs1') && fb.read('users', 'blockedfs1').displayName === 'Blocked');
+
   // (B) A failed PROFILE write on sign-in never DROPS the local best: because backfill is
   // decoupled from the profile write, the best is either synced (backfill's own write went
   // through) OR queued (it didn't) — never lost. Assert the confirm-OR-queue invariant

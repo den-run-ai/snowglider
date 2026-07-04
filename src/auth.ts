@@ -72,6 +72,7 @@ import { getAnalytics, logEvent, type Analytics } from "https://www.gstatic.com/
 import { initializeApp, type FirebaseApp, type FirebaseOptions } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import ScoresModule from "./scores.js";
 import { DIFFICULTIES, localBestTimeKey, type Difficulty } from "./difficulty.js";
+import { safeGetItem, safeRemoveItem } from "./offline/offline-store.js";
 import { withTrafficTag } from "./analytics-env.js";
 
 // Initialize Firebase Auth
@@ -668,12 +669,16 @@ function backfillRankedLocalBestsWithRetry(user: User): void {
   for (const cfg of DIFFICULTIES) {
     if (!cfg.ranked) continue;
     const key = localBestTimeKey(cfg.id);
-    const raw = localStorage.getItem(key);
+    // Throw-safe storage access (offline-store helpers): a blocked / private-mode / sandboxed
+    // context makes localStorage.getItem throw. Since this runs before syncUserData's try
+    // block, a raw getItem would abort the whole sign-in/profile sync — degrade to "no best
+    // found" instead (Codex #362).
+    const raw = safeGetItem(key);
     if (!raw) continue;
     const bestTime = parseFloat(raw);
     if (!ScoresModule.isValidScoreTime(bestTime)) {
       console.warn(`Ignoring invalid local best time (${cfg.id}) during sign-in sync:`, raw);
-      localStorage.removeItem(key);
+      safeRemoveItem(key);
       continue;
     }
     console.log(`Found local best time (${cfg.id}), attempting to sync:`, bestTime);
