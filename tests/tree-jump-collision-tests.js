@@ -37,16 +37,19 @@ async function run() {
 
   /**
    * Run one collision frame and report whether it ended the run (and why).
+   * The clearance is intentionally height-based only (the fix), so collision.ts no
+   * longer takes verticalVelocity — the rising/descending framing below is about the
+   * PHYSICAL frame being modelled (before vs after the jump apex), which the clearance
+   * no longer distinguishes. That is exactly what these cases prove.
    * @param {{x:number,y:number,z:number}} pos
    * @param {boolean} isInAir
-   * @param {number} verticalVelocity
    */
-  function frame(pos, isInAir, verticalVelocity) {
+  function frame(pos, isInAir) {
+    /** @type {string|null} */
     let reason = null;
     detectCollisionsAndFinish({
       pos,
       isInAir,
-      verticalVelocity,
       terrainHeightAtPosition: 0,
       treePositions: [tree],
       rockPositions: [],
@@ -59,28 +62,29 @@ async function run() {
   // Player horizontally inside the trunk radius (dist 1 < 2.5) for the airborne cases.
   const inside = (y) => ({ x: 1, y, z: 0 });
 
-  // 1) The bug repro: DESCENDING (vv < 0) but high above the tree, overlapping the
-  //    trunk radius. Must clear — this is the post-apex "coming down over it" frame.
-  check('descending high above the tree clears it (no crash)',
-    frame(inside(10), true, -5) === null);
+  // 1) The bug repro: a DESCENDING (post-apex) frame high above the tree, overlapping
+  //    the trunk radius. Must clear — under the old verticalVelocity > 0 gate this
+  //    crashed; height-based clearance lets it sail over.
+  check('high above the tree while descending clears it (no crash)',
+    frame(inside(10), true) === null);
 
-  // 2) Rising high above the tree also clears it (unchanged behaviour).
-  check('rising high above the tree clears it (no crash)',
-    frame(inside(10), true, 5) === null);
+  // 2) A rising (pre-apex) frame high above the tree also clears it (unchanged).
+  check('high above the tree while rising clears it (no crash)',
+    frame(inside(10), true) === null);
 
   // 3) Airborne but BELOW the clearance height (y < tree.y + 5) while overlapping the
   //    trunk radius: that is clipping the tree, so it still crashes.
   check('airborne but too low over the trunk still crashes',
-    /tree/i.test(String(frame(inside(3), true, -5))));
+    /tree/i.test(String(frame(inside(3), true))));
 
   // 4) On the ground, overlapping the trunk radius: crash (grounded hit).
   check('grounded inside the trunk radius crashes',
-    /tree/i.test(String(frame(inside(0), false, 0))));
+    /tree/i.test(String(frame(inside(0), false))));
 
   // 5) Landing AWAY from the trunk (dist 3 > 2.5 radius), descending onto the terrain:
   //    no tree collision — the core "land clear of the trunk" guarantee.
   check('descending clear of the trunk radius does not crash',
-    frame({ x: 3, y: 0, z: 0 }, false, -5) === null);
+    frame({ x: 3, y: 0, z: 0 }, false) === null);
 
   console.log('\n================================================');
   console.log(`Summary: ${passed} passed, ${failed} failed`);
