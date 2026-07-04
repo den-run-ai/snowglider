@@ -220,8 +220,15 @@ async function main() {
   document.body.removeChild(camTray);
 
   console.log('\n--- visual touch controls (mobile) ---');
-  check('mobile setup creates the 5 visual touch-control overlays',
-    document.querySelectorAll('.touch-control').length === 5);
+  // The touch-zone overlay rectangles are now OFF by default — drawn every run they read as
+  // big floating white panels over the scene (the reported mobile "snow plates"). The initial
+  // setupControls() above ran with no debug flag set, so NO overlays were drawn, while touch
+  // INPUT (exercised throughout this suite) still works. The ?debugTouchZones=1 opt-in path is
+  // covered end-to-end in tests/e2e/mobile.spec.ts (re-running setupControls() here would
+  // double-bind the reset/camera button handlers checked below).
+  check('mobile setup draws NO touch-zone overlays by default (debug-gated)',
+    document.querySelectorAll('.touch-control').length === 0);
+  // toggleTouchControls(true) still force-creates the overlays regardless of the flag.
   check('toggleTouchControls(false) removes the visual controls and returns false',
     Controls.toggleTouchControls(false) === false &&
     document.querySelectorAll('.touch-control').length === 0);

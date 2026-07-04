@@ -166,6 +166,21 @@ function setupKeyboardControls(signal?: AbortSignal) {
   window.addEventListener('keyup', handleKeyUp, opts);
 }
 
+// Whether to draw the translucent touch-zone overlay rectangles. OFF by default — drawn every
+// run they read as big floating white panels over the scene (the reported "snow plates" bug on
+// mobile). Opt in for debugging touch hit-areas with `?debugTouchZones=1` or by setting
+// localStorage['snowglider.debugTouchZones'] = '1'. Touch INPUT is unaffected either way.
+// Wrapped in try/catch because URLSearchParams/localStorage can throw on some mobile/private
+// contexts; the default (no overlay) is the safe fallback.
+function shouldShowTouchZones(): boolean {
+  try {
+    if (new URLSearchParams(window.location.search).has('debugTouchZones')) return true;
+    return window.localStorage.getItem('snowglider.debugTouchZones') === '1';
+  } catch {
+    return false;
+  }
+}
+
 // Setup touch control handlers
 function setupTouchControls(signal?: AbortSignal) {
   // Listener options: thread the teardown signal when present (passive:false is required
@@ -181,10 +196,15 @@ function setupTouchControls(signal?: AbortSignal) {
     );
   };
   
-  // Only create visual indicators if we're on a mobile device
+  // On a touch device, wire the mobile-only button touch handlers. The full-screen
+  // translucent touch-ZONE rectangles (createOrUpdateVisualControls) are a DEBUG aid, not
+  // gameplay UI: drawn every run they overlay the scene as five big semi-transparent panels
+  // (the screen-thirds, each with an arrow) that players read as floating white plates. Gate
+  // only the VISUALS behind an opt-in flag so normal mobile play shows none; the touch INPUT
+  // regions computed in updateTouchRegions() below are always active regardless of this flag.
   if (isMobileDevice()) {
-    touchState.showVisualControls = true;
-    
+    touchState.showVisualControls = shouldShowTouchZones();
+
     // Add touch event handlers for reset and restart buttons
     setupButtonTouchHandlers(signal);
   }
