@@ -4,7 +4,9 @@
 //   - Visible checkpoint gates and a finish arch placed down the fall line
 //   - Live split times at each checkpoint, compared against your personal best
 //   - A progress bar / distance-to-finish HUD so the objective is always legible
-//   - A translucent "ghost" of your best run that you race in real time
+//   - A "ghost" of your best run that you race in real time (currently HIDDEN — see
+//     GHOST_VISIBLE; the trajectory is still recorded/persisted/played back so the
+//     feature stays available for trajectory testing/evals)
 //   - A result screen with per-checkpoint splits and a medal
 //
 // Design notes:
@@ -105,6 +107,14 @@ export const CourseModule = (function () {
 
   // Ghost sampling cadence
   const SAMPLE_INTERVAL = 0.05; // seconds between recorded trajectory samples (~20 Hz)
+
+  // Ghost visibility. The translucent apparition of your best run reads as confusing
+  // and visually blocks/distracts from the descent, so it is hidden for now. The rest
+  // of the ghost feature stays fully live in the background — trajectories are still
+  // recorded (`recordSamples`), persisted, loaded, and played back — so it remains
+  // available for testing / evals of snowman trajectories. Flip to `true` to bring the
+  // on-screen ghost + its ahead/behind HUD readout back.
+  const GHOST_VISIBLE = false;
 
   // localStorage keys — per difficulty tier (`…_blue`, `…_bunny`, `…_black`). The
   // pre-tier un-suffixed keys are migrated to the Blue tier once (migrateLegacyLocalKeys).
@@ -498,7 +508,7 @@ export const CourseModule = (function () {
       hud.root.style.display = 'flex';
       hud.fill.style.width = '0%';
       hud.distance.textContent = `${COURSE_LENGTH} m to finish`;
-      hud.ghostDelta.textContent = ghostSamples ? 'Racing your ghost' : 'No ghost yet';
+      hud.ghostDelta.textContent = GHOST_VISIBLE ? (ghostSamples ? 'Racing your ghost' : 'No ghost yet') : '';
       hud.ghostDelta.style.color = '#74b9ff';
       hud.flash.style.opacity = '0';
     }
@@ -547,8 +557,11 @@ export const CourseModule = (function () {
     }
 
     // --- Ghost playback ---
+    // Playback keeps running (position is interpolated + terrain-clamped every frame)
+    // so the feature stays exercisable for trajectory evals, but the mesh and the
+    // ahead/behind HUD readout are only shown when GHOST_VISIBLE.
     if (ghost && ghostSamples) {
-      ghost.visible = true;
+      ghost.visible = GHOST_VISIBLE;
       const gp = ghostPositionAt(elapsed);
       if (gp) {
         // A ghost stores each sample's recorded y, which was the terrain height at
@@ -564,7 +577,9 @@ export const CourseModule = (function () {
         if (typeof gp.rot === 'number') ghost.rotation.y = gp.rot;
       }
       // Ahead/behind readout, expressed in time at the player's current depth.
-      const gt = ghostTimeAtZ(pos.z);
+      // Gated off while the ghost is hidden (GHOST_VISIBLE): a delta against an invisible
+      // racer reads as confusing, so gt stays null and the readout block is skipped.
+      const gt = GHOST_VISIBLE ? ghostTimeAtZ(pos.z) : null;
       if (gt !== null && hud.ghostDelta) {
         const delta = elapsed - gt; // +ve: ghost was here earlier => you're behind
         if (pos.z > START_Z - 2) {
@@ -703,7 +718,9 @@ export const CourseModule = (function () {
     const improve = document.createElement('div');
     Object.assign(improve.style, { fontSize: '14px', marginBottom: '12px' });
     if (isFirst) {
-      improve.textContent = 'Set the time to beat — your ghost will race you next run.';
+      improve.textContent = GHOST_VISIBLE
+        ? 'Set the time to beat — your ghost will race you next run.'
+        : 'Set the time to beat — try to beat it on your next run.';
       improve.style.color = '#74b9ff';
     } else if (isBest) {
       const d = totalTime - previousBest;

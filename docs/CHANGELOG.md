@@ -13,6 +13,21 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Hide the racing ghost (kept live in the background for trajectory evals)
+- The translucent "ghost" of your best run is **no longer drawn**. On the slope it read
+  as confusing and it visually blocked/distracted from the descent, so a new
+  `GHOST_VISIBLE = false` flag in `course.ts` hides both the on-screen apparition and its
+  ahead/behind HUD readout. Flip the flag to `true` to bring it back.
+- The rest of the feature stays **fully live in the background**: the run trajectory is
+  still recorded, persisted to `localStorage`, loaded, terrain-clamped, and played back
+  every frame (just on an invisible mesh), so it remains available for testing / evals of
+  snowman trajectories. Personal-best times, splits, medals, and the result screen are
+  unchanged.
+- User-facing copy that promised a visible ghost (start screen, About panel, meta/OG
+  descriptions) was reworded to "your own best time". Purely a visibility/copy change —
+  no physics, RNG stream, or persisted-data format touched; the `dom_smoke_test`
+  ghost-persistence assertions still pass.
+
 ### Cinematic follow cameras: "Cameraman" ski-film chase + aerial "Drone" mode (issue #315)
 - **Two cinematic modes join the `V` cycle** after First Person, so the full order is
   **Auto → Follow → Orbit → First Person → Cameraman → Drone → Auto**. Defaults (Auto/Follow)
