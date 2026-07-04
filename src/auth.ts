@@ -690,9 +690,12 @@ function syncUserData(user: User) {
           continue;
         }
         console.log(`Found local best time (${cfg.id}), attempting to sync:`, bestTime);
-        // Fire-and-forget: updateUserBestTime now returns a success promise (for the
-        // offline-queue flush), but this sign-in backfill doesn't need it.
-        void ScoresModule.updateUserBestTime(user.uid, bestTime, cfg.id);
+        // This sign-in backfill is the only automatic path that pushes a local-only best
+        // (finished signed-out/offline) to Firestore. Route it through syncBestTimeWithRetry
+        // so a transient user-doc/leaderboard failure (updateUserBestTime resolving false)
+        // queues a pending marker for a later reconnect/auth-restore retry, instead of being
+        // dropped and leaving the score local until another finish/sign-in (Codex #362).
+        ScoresModule.syncBestTimeWithRetry(user.uid, bestTime, cfg.id);
       }
     })
     .catch(error => {

@@ -138,6 +138,25 @@ function flushOfflineScoreQueue() {
   });
 }
 
+/**
+ * Attempt the authoritative best-time sync and, if it does NOT confirm (a transient
+ * getDoc/setDoc/leaderboard failure resolves `false`, or the promise rejects), queue the
+ * best for a later reconnect/auth-restore retry. Shared by the finish path (recordScore)
+ * and the sign-in backfill (auth.ts syncUserData) so a flaky-Firestore write is never
+ * silently dropped — either caller's failed online write is retried instead of leaving
+ * the best local-only (Codex #362). Fire-and-forget; queueFailedSync is internally guarded
+ * (real signed-in user + ranked tier).
+ */
+function syncBestTimeWithRetry(uid: string, time: number, tier: Difficulty): void {
+  void updateUserBestTime(uid, time, tier)
+    .then((confirmed) => {
+      if (confirmed === false) queueFailedSync(tier, time, buildSyncDeps());
+    })
+    .catch(() => {
+      queueFailedSync(tier, time, buildSyncDeps());
+    });
+}
+
 // Drain the pending-sync queue (issue #358, PR 4). Driven by BOTH the `online` event
 // (offline→online) AND a real user arriving via setCurrentUser (a persisted login
 // restored on reload settles AFTER initializeScores' early flush already no-opped with
@@ -731,17 +750,12 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
     // safe and never downgrades a faster stored time.
     if (userAtTimeOfRecord && firestore) {
       console.log("Attempting to sync best time to Firestore:", effectiveBestTime, `(${tier})`);
-      // Fire-and-forget for the finish UI, BUT capture a non-confirming result: this sync
-      // now resolves `false` when it doesn't settle (transient getDoc/setDoc/leaderboard
-      // failure). While online + Firestore-ready the queueOfflineBest() call below writes
-      // no marker, so without this a flaky-Firestore online finish would strand the best in
-      // localStorage with no reconnect retry — so on a non-confirming result (or a
-      // rejection) mark it pending for a later reconnect/auth-restore flush (Codex #362).
-      void updateUserBestTime(userAtTimeOfRecord.uid, effectiveBestTime, tier) // This function handles leaderboard update too
-        .then((confirmed) => {
-          if (confirmed === false) queueFailedSync(tier, effectiveBestTime, buildSyncDeps());
-        })
-        .catch(() => { queueFailedSync(tier, effectiveBestTime, buildSyncDeps()); });
+      // Fire-and-forget for the finish UI, but a non-confirming result is queued for retry:
+      // this sync resolves `false` when it doesn't settle (transient getDoc/setDoc/leaderboard
+      // failure), and while online + Firestore-ready the queueOfflineBest() call below writes
+      // no marker — so without a retry a flaky-Firestore online finish would strand the best
+      // in localStorage. syncBestTimeWithRetry queues it on a non-confirming result (Codex #362).
+      syncBestTimeWithRetry(userAtTimeOfRecord.uid, effectiveBestTime, tier); // handles leaderboard update too
 
       // Track new best time in Analytics (if available)
       if (isNewLocalBest && analytics) {
@@ -800,6 +814,9 @@ const ScoresModule = {
   displayLeaderboard,
   getLeaderboard,
   updateUserBestTime,
+  // Authoritative sync that queues the best for retry if the write doesn't confirm.
+  // The sign-in backfill (auth.ts) uses this so a failed backfill isn't dropped (Codex #362).
+  syncBestTimeWithRetry,
   updateLeaderboard,
   isFirestoreAvailable,
   isValidScoreTime,

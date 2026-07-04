@@ -105,7 +105,7 @@ async function main() {
   console.log('--- ScoresModule load & validation ---');
   check('module exposes the expected public surface',
     !!ScoresModule && ['initializeScores', 'setCurrentUser', 'recordScore',
-      'getLeaderboard', 'updateUserBestTime', 'updateLeaderboard',
+      'getLeaderboard', 'updateUserBestTime', 'syncBestTimeWithRetry', 'updateLeaderboard',
       'isFirestoreAvailable', 'isValidScoreTime'].every(key => typeof ScoresModule[key] === 'function'));
   check('score validation rejects impossible, sub-floor and non-finite times',
     ScoresModule.isValidScoreTime(0.01) === false &&
@@ -577,6 +577,29 @@ async function main() {
   await flushAll();
   check('a detached ScoresModule reconnect reinitializes', calls.reinitializeFirestore > 0);
   check('reattach + flush clears the pending marker',
+    JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}').blue === undefined);
+
+  console.log('\n--- syncBestTimeWithRetry: sign-in backfill queues a failed sync (Codex #362) ---');
+  // auth.ts's sign-in backfill (the only automatic path for a local-only best) routes
+  // through this. A transient user-doc failure must queue a pending marker rather than drop
+  // the best; a confirmed sync must leave no marker.
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'u-backfill', isAnonymous: false, displayName: 'Backfill' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  setNextSetDocError('users/u-backfill', { code: 'unavailable' }); // the backfill write fails
+  ScoresModule.syncBestTimeWithRetry('u-backfill', 22, 'blue');
+  await flushAll();
+  check('a failed sign-in backfill is queued pending for retry',
+    JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}').blue?.time === 22);
+
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'u-backfill-ok', isAnonymous: false, displayName: 'BackfillOK' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  ScoresModule.syncBestTimeWithRetry('u-backfill-ok', 22, 'blue');
+  await flushAll();
+  check('a confirmed sign-in backfill leaves no pending marker',
     JSON.parse(env.localStorage.getItem('snowgliderPendingSync') || '{}').blue === undefined);
 
   console.log(`\nSCORES TEST TOTAL: ${pass} passed, ${fail} failed`);
