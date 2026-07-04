@@ -3,8 +3,9 @@
 // STAGE: PR 1 of the #246 stack — the PURE FIELD LOGIC, with NO renderer integration.
 // This module owns a bounded 2D grid of snow "depth" in [0..1] (1 = undisturbed powder,
 // 0 = fully packed / skied-out) and the math that ages it: the skis COMPACT depth in
-// cells near a pass; fresh snowfall / refill lerps packed cells back toward full over
-// time. Later PRs drive it from the real ski-track cadence (PR 2) and sample it into the
+// cells near a pass; fresh snowfall / refill raises packed cells back toward full at a
+// constant per-second rate (a linear recovery, not a proportional lerp — v1 keeps it
+// simple). Later PRs drive it from the real ski-track cadence (PR 2) and sample it into the
 // terrain material via a DataTexture (PR 3) so packed ski lines read darker/icier and
 // powder reads brighter/softer — giving the slope MEMORY that `src/snowtracks.ts` (its
 // own header: "temporary track feedback, NOT accumulation") explicitly names as its
@@ -179,9 +180,10 @@ export class SnowDepthField {
   }
 
   /**
-   * Refill packed cells back toward full powder over `dt` seconds (fresh snow settling +
-   * slow recovery). Pure and deterministic given `dt`; clamps at 1 so it never overshoots.
-   * PR 1 refills the whole grid; PR 4 restricts the walk to a near-player window for perf.
+   * Refill packed cells back toward full powder over `dt` seconds — a LINEAR recovery at a
+   * constant `refillRate` per second (`depth += refillRate * dt`), NOT a proportional lerp.
+   * Pure and deterministic given `dt`; clamps at 1 so it never overshoots. PR 1 refills the
+   * whole grid; PR 4 restricts the walk to a near-player window for perf.
    */
   refill(dt: number): void {
     const step = this.refillRate * (Number.isFinite(dt) ? Math.max(0, dt) : 0);

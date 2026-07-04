@@ -179,8 +179,8 @@ undisturbed powder, `0` is fully packed / skied-out.
 
 - `compactAt(x, z, radius?, strength?)` — a ski pass removes depth in cells near `(x,z)`,
   most at the centre and tapering to `0` at the rim (clamped `>= 0`).
-- `refill(dt)` — fresh snow settles: every packed cell lerps back toward `1` at
-  `refillRate` per second (clamped `<= 1`, never overshoots).
+- `refill(dt)` — fresh snow settles: every packed cell recovers toward `1` at a constant
+  `refillRate` per second (a linear recovery, not a proportional lerp; clamped `<= 1`).
 - `sample(x, z)` / `reset()` / `dispose()` (a no-op until PR 3 owns a texture).
 
 **Hard guardrail — "persistent visual snow memory, zero physics meaning."** v1 carries
