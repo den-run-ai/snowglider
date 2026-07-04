@@ -89,7 +89,13 @@ const EZ_BUDGET = {
   triangles: 600_000, // loose ceiling over the measured ~410k (forest never culls)
   geometries: 210, // + up to 12 archetype geometries over the stylized ~155 peak
   textures: 30, // + needle sprite & co. over the stylized measured ~11
-  programs: 40, // + per-archetype sway variants (visible + depth) over ~16
+  // Background scenery system (issue #320) adds a handful of shared instanced-basic-fog
+  // program variants; the final layer (ambient life, PR 7) tips the EZ peak to 41 (its
+  // clouds/birds/spindrift share ONE FrontSide basic+fog program — see ambient-life.ts —
+  // so the addition is minimal). The standard variant sits at 24/25; only the EZ variant,
+  // which had no headroom left, needs the nudge. Still TIGHT: a per-archetype/-object
+  // shader regression would blow this into the dozens, well past 43.
+  programs: 43, // measured peak 41 with the full scenery stack (was 40 pre-scenery)
 };
 
 /** Seed Math.random BEFORE any game script runs so the forest layout (tree count,
