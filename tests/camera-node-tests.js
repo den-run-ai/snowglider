@@ -753,6 +753,40 @@ async function main() {
     check('a stopped first sample falls back to the model yaw', approx(still.cameramanPath[0].heading, 0.4, 0.001));
   }
 
+  console.log('\n--- cameraman entry snap frames from travel, not a flipped model yaw (issue #337, PR #356) ---');
+  {
+    // Switching to cameraman mid-run (V/tray) calls initialize() then update()'s first-frame snap.
+    // If playerRotation.y is momentarily flipped, a yaw-based entry would seat the FIRST rendered
+    // frame on the wrong lane before path-follow engages. The entry now frames from velocity, so
+    // two entries with the same travel but opposite yaw land at the same camera pose.
+    const entryFor = (yaw) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const player = new THREE.Vector3(0, 50, 0);
+      const rot = new THREE.Euler(0, yaw, 0);
+      cam.initialize(player, rot);
+      cam.update(player, rot, { x: 0, z: 20 }, () => 0); // first-frame snap with forward travel
+      return cam.camera.position.clone();
+    };
+    const straight = entryFor(0);
+    const flipped = entryFor(Math.PI); // 180° model-yaw flip, same +z travel
+    check('cameraman entry snap is immune to a flipped model yaw when moving (x)',
+      Math.abs(straight.x - flipped.x) < 1);
+    check('cameraman entry snap is immune to a flipped model yaw when moving (z)',
+      Math.abs(straight.z - flipped.z) < 1);
+
+    // Entry with no travel still uses the model yaw (unchanged behaviour: opposite yaw flips side).
+    const restEntry = (yaw) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const player = new THREE.Vector3(0, 50, 0);
+      cam.initialize(player, new THREE.Euler(0, yaw, 0));
+      return cam.camera.position.clone();
+    };
+    check('a stopped cameraman entry still frames from the model yaw',
+      Math.abs(restEntry(0).x - restEntry(Math.PI).x) > 3);
+  }
+
   console.log('\n--- handleResize ---');
   {
     const cam = newCamera();

@@ -611,13 +611,23 @@ export class Camera {
    * keep the exact `followOffset()` behaviour. `velocity`/`context` are optional (initialize has
    * neither): without them speed is 0, so the motion-gated slope/air terms fall to their base
    * pose, which is the right neutral framing for a mode switch.
+   *
+   * For CAMERAMAN the entry snap frames off the direction of TRAVEL (velocity), not the
+   * instantaneous model yaw, when the skier is moving: switching to cameraman mid-run via V/tray
+   * calls initialize() then takes update()'s first-frame branch, so if `playerRotation.y` is
+   * momentarily flipped/spun the yaw-based snap would seat the first rendered frame on the wrong
+   * lane before path-follow engages next frame (codex review, PR #356). Deriving the entry
+   * heading from velocity matches the velocity-seeded path so the two agree from frame one.
    */
   entryOffset(distance: number, yaw: number, playerPosition: THREE.Vector3, velocity?: PlanarVelocity, context: AutoFrameContext = {}): THREE.Vector3 {
     if (!isCinematic(this.mode)) return this.followOffset(distance, yaw);
     const speed = velocity ? Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) : 0;
     const grad = Mountains.getTerrainGradient(playerPosition.x, playerPosition.z);
     const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
-    return this.cinematicOffset(this.mode, distance, yaw, this.frameCount, slope, speed, context.isInAir === true);
+    const baseYaw = (this.mode === 'cameraman' && velocity && speed > CAMERAMAN_MIN_SPEED_FOR_HEADING)
+      ? Math.atan2(velocity.x, velocity.z)
+      : yaw;
+    return this.cinematicOffset(this.mode, distance, baseYaw, this.frameCount, slope, speed, context.isInAir === true);
   }
 
   // Position camera initially behind the player
