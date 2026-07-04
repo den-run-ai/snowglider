@@ -33,6 +33,8 @@ import './sfx.js';
 import './sky.js';
 import './wind.js';
 import './intro.js';
+import { initServiceWorker } from './pwa/register-sw.js';
+import { showUpdatePrompt } from './pwa/update-ui.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;
@@ -57,6 +59,12 @@ if (typeof window !== 'undefined') {
   // instance), while raw-source serving resolves it to /src/snowglider.js (the
   // request the puppeteer start-menu regression intercepts).
   (window as any).__loadSnowGliderOrchestrator = () => import('./snowglider.js');
+
+  // Register the offline service worker (issue #358, PR 3). Self-gating: it no-ops
+  // under ?test= / auth.html / insecure origins and runs the ?sw=reset hatch instead
+  // of registering when asked. A waiting update surfaces the "New version available"
+  // banner only on a safe (start) screen; sw.ts never activates a new bundle mid-run.
+  initServiceWorker({ onUpdateReady: (apply) => showUpdatePrompt(apply) });
 }
 
 console.log(`[snowglider] bundled three.js r${THREE.REVISION}`);

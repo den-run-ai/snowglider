@@ -1237,6 +1237,34 @@ canvas { display: block; }
   color: #ffffff;
 }
 
+/* "New version available" banner (issue #358, PR 3). Shown only on the start screen
+   when a service-worker update is waiting; Reload activates the new bundle. */
+.sw-update-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+  margin: 10px auto 0;
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 214, 120, 0.18);
+  border: 1px solid rgba(255, 224, 150, 0.4);
+  color: rgba(255, 244, 214, 0.92);
+  font: 500 13px system-ui, sans-serif;
+}
+.sw-update-reload {
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: none;
+  background: #ffe08a;
+  color: #201a0b;
+  font: 600 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.sw-update-reload:hover {
+  background: #fff0c0;
+}
+
 /* While the start overlay is up, lift the account/sign-in control above it so
    players can sign in before starting a run (the overlay sits at z-index 2000). */
 body.start-screen-active #authContainer {

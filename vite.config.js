@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const outDir = 'dist';
@@ -181,5 +182,47 @@ export default defineConfig({
       }
     }
   },
-  plugins: [injectBuildId(), copyStaticAppFiles()]
+  plugins: [
+    injectBuildId(),
+    // PWA service worker (issue #358, PR 3). `injectManifest` lets us hand-author the
+    // routing in src/pwa/sw.ts (rather than generateSW) — REQUIRED here because dist/
+    // also carries the copied src/, tests/, node_modules/three, auth.html and a large
+    // MP3 for the deployed browser suites, which must NEVER be precached. The precache
+    // globs are therefore tightly scoped to the true app shell (index.html + the hashed
+    // Vite chunks/css + the PR-2 manifest/icons) with defensive globIgnores; the
+    // build-artifact test (tests/pwa-build-artifact-tests.js) + verify-pages-dist.sh
+    // fail the build if anything forbidden leaks into the generated precache list.
+    // Placed BEFORE copyStaticAppFiles so it globs dist while it still holds only the
+    // real bundle output — the copied src/tests aren't there yet.
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src/pwa',
+      filename: 'sw.ts',
+      // We ship our own manifest (public/manifest.webmanifest, PR 2) and register the
+      // SW ourselves (src/pwa/register-sw.ts), so disable the plugin's copies.
+      manifest: false,
+      injectRegister: false,
+      injectManifest: {
+        globPatterns: ['index.html', 'manifest.webmanifest', 'assets/*.js', 'assets/*.css', 'icons/*.svg'],
+        // The ez-tree evergreen chunk is a ~4 MB lazy import (players only). Precaching
+        // it would bloat the install and blow workbox's 2 MiB per-file ceiling; sw.ts
+        // runtime-caches it (CacheFirst) instead, so it works offline after one online
+        // load and otherwise falls back to the stylized cone trees — the SHELL precache
+        // stays small (index + the core hashed chunk + css + manifest + icon).
+        globIgnores: [
+          '**/*.map',
+          'assets/**/*.mp3',
+          'assets/ez-tree*.js',
+          'auth.html',
+          'src/**',
+          'tests/**',
+          'node_modules/**',
+          'README.md',
+          'LICENSE',
+        ],
+      },
+      devOptions: { enabled: false },
+    }),
+    copyStaticAppFiles()
+  ]
 });
