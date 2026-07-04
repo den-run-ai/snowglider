@@ -15,7 +15,7 @@ function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: $
 
 async function main() {
   const THREE = await import('three');
-  const { PROP_CATALOG } = await import('../src/scenery/prop-catalog.ts');
+  const { PROP_CATALOG, createPropPool } = await import('../src/scenery/prop-catalog.ts');
   const { buildDecorativeProps } = await import('../src/scenery/decorative-props.ts');
   const { makeSceneryRng } = await import('../src/scenery/scenery-rng.ts');
   const { DEFAULT_SCENERY_BUDGET } = await import('../src/scenery/scenery-budget.ts');
@@ -23,11 +23,12 @@ async function main() {
   const flat = (_x, _z) => 4;
   const ctx = { terrain: null, getTerrainHeight: flat, courseLine: null, difficulty: 'blue', seed: 1 };
 
-  testCatalog(THREE, PROP_CATALOG, makeSceneryRng);
+  testCatalog(THREE, PROP_CATALOG, createPropPool, makeSceneryRng);
   testPlacement(THREE, buildDecorativeProps, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testOutsideLane(THREE, buildDecorativeProps, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testGrounded(THREE, buildDecorativeProps, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testMaterials(THREE, buildDecorativeProps, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
+  testGeometryPooling(THREE, buildDecorativeProps, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testDeterminism(THREE, buildDecorativeProps, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
   testStreamNeutrality(buildDecorativeProps, makeSceneryRng, DEFAULT_SCENERY_BUDGET, ctx);
 
@@ -35,13 +36,14 @@ async function main() {
   process.exit(fail ? 1 : 0);
 }
 
-function testCatalog(THREE, catalog, makeSceneryRng) {
+function testCatalog(THREE, catalog, createPropPool, makeSceneryRng) {
   console.log('--- prop catalog: archetypes ---');
   check('catalog has several archetypes', catalog.length >= 4);
   const rng = makeSceneryRng(1);
+  const pool = createPropPool();
   let allObjects = true, basedAtGround = true;
   for (const a of catalog) {
-    const o = a.build(rng);
+    const o = a.build(rng, pool);
     if (!o || !o.isObject3D) allObjects = false;
     o.updateMatrixWorld(true);
     // Base near local y=0: the lowest child should not sit far below the origin.
@@ -50,6 +52,24 @@ function testCatalog(THREE, catalog, makeSceneryRng) {
   }
   check('every archetype builds an Object3D', allObjects);
   check('every archetype is based at ~local y=0 (placer grounds it)', basedAtGround);
+}
+
+// Perf regression guard (Codex review on #327): all scattered props must SHARE a pooled set of
+// geometries/materials, so the live BufferGeometry count stays bounded regardless of how many
+// props are scattered — the same invariant tests/e2e/perf-budget.spec.ts pins for the forest.
+function testGeometryPooling(THREE, build, makeSceneryRng, budget, ctx) {
+  console.log('--- decorative props: geometry/material pooling ---');
+  const g = build(makeSceneryRng(4), budget, ctx);
+  const geos = new Set(), mats = new Set();
+  let meshCount = 0;
+  g.traverse((o) => {
+    if (o.isMesh) { meshCount++; geos.add(o.geometry); const m = o.material; (Array.isArray(m) ? m : [m]).forEach((x) => mats.add(x)); }
+  });
+  check('scatter produces many meshes', meshCount >= 16);
+  // A handful of shared geometries/materials — NOT one per mesh. 7 geos + 6 mats in the pool.
+  check('unique geometries stay pooled + bounded (<= 8)', geos.size <= 8);
+  check('unique materials stay pooled + bounded (<= 8)', mats.size <= 8);
+  check('far fewer unique geometries than meshes (pooled, not per-prop)', geos.size < meshCount);
 }
 
 function testPlacement(THREE, build, makeSceneryRng, budget, ctx) {

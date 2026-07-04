@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { withPrivateThreeRandom } from './scenery-rng.js';
 import type { SceneryBudget } from './scenery-budget.js';
 import type { SceneryContext } from './scenery.js';
-import { PROP_CATALOG } from './prop-catalog.js';
+import { PROP_CATALOG, createPropPool } from './prop-catalog.js';
 
 const FLANK_MIN_X = 48;
 const FLANK_SPAN_X = 47; // → outer edge ~95
@@ -35,9 +35,12 @@ export function buildDecorativeProps(rng: () => number, budget: SceneryBudget, c
   return withPrivateThreeRandom(() => {
     const group = new THREE.Group();
     group.name = 'decorative-props';
+    // ONE shared geometry/material pool for the whole scatter (Codex review on #327): every
+    // prop references it, so N props add a fixed handful of geometries, not N×(2..5).
+    const pool = createPropPool();
     for (let i = 0; i < count; i++) {
       const arch = PROP_CATALOG[Math.floor(rng() * PROP_CATALOG.length)] ?? PROP_CATALOG[0]!;
-      const prop = arch.build(rng);
+      const prop = arch.build(rng, pool);
       const side = rng() < 0.5 ? -1 : 1;
       const x = side * (FLANK_MIN_X + rng() * FLANK_SPAN_X);
       const z = Z_MIN + rng() * Z_SPAN;
