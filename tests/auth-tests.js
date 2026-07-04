@@ -391,19 +391,49 @@ async function main() {
   check('syncUserData does NOT backfill an unranked tier best to the global board',
     !fb.read('leaderboard_bunny', 'sync1') && !fb.read('users', 'sync1').bestTimeBunny);
 
-  // Codex #362: if the sign-in PROFILE write itself fails transiently, the local best must
-  // STILL be routed into the pending-sync queue (not dropped) so a later reconnect/auth-restore
-  // retries it — the backfill now runs on the profile-write failure path too. With Firestore
-  // nulled on 'unavailable', syncBestTimeWithRetry's write resolves false and a marker is written.
+  // --- Codex #362: score backfill is DECOUPLED from profile persistence ---
+  // Invariant: a real signed-in user with a ranked local best must confirm-or-queue the
+  // sync regardless of profile-write success, Firestore readiness, or account switches.
   const store = await import('../src/offline/offline-store.ts');
+
+  // (B) A failed PROFILE write on sign-in never DROPS the local best: because backfill is
+  // decoupled from the profile write, the best is either synced (backfill's own write went
+  // through) OR queued (it didn't) — never lost. Assert the confirm-OR-queue invariant
+  // directly so it's race-independent.
   localStorage.removeItem('snowgliderPendingSync');
   localStorage.setItem('snowgliderBestTime', '20.5'); // a fresh local-only best (ranked Blue)
-  fb.setNextSetDocError('users/syncfail1', { code: 'unavailable' }); // the profile setDoc rejects
+  fb.setNextSetDocError('users/syncfail1', { code: 'unavailable' }); // a user-doc write fails
   fb.emitAuthState({ uid: 'syncfail1', email: 'f@g.ai', displayName: 'Fail', photoURL: null });
   await new Promise(r => setTimeout(r, 250)); // past the 100ms syncUserData timer
   await flush(); await flush(); await flush();
-  check('a failed sign-in profile write still queues the local best for retry (Codex #362)',
+  check('a failed sign-in write never drops the local best — synced OR queued (Codex #362)',
+    fb.read('leaderboard', 'syncfail1')?.time === 20.5 ||
     store.getPendingSync('syncfail1', 'blue', localStorage)?.time === 20.5);
+
+  // (C) A real user signing in while Firestore is NULL must STILL queue local bests —
+  // handleSignedInUser now always calls syncUserData, and backfill runs even without a live
+  // Firestore. First drive Firestore to null via a failed profile write for a user with NO
+  // local best (so nothing is queued for them), then sign in a user who does have one.
+  localStorage.removeItem('snowgliderBestTime');
+  localStorage.removeItem('snowgliderPendingSync');
+  fb.setNextSetDocError('users/nullfs0', { code: 'unavailable' }); // profile write fails -> Firestore nulled
+  fb.emitAuthState({ uid: 'nullfs0', email: 'z@g.ai', displayName: 'Z', photoURL: null });
+  await new Promise(r => setTimeout(r, 250));
+  await flush(); await flush(); await flush();
+  localStorage.setItem('snowgliderBestTime', '21'); // a fresh local ranked best
+  fb.emitAuthState({ uid: 'nullfs1', email: 'n@g.ai', displayName: 'NoFs', photoURL: null });
+  await new Promise(r => setTimeout(r, 250));
+  await flush(); await flush(); await flush();
+  check('a real sign-in with Firestore null still queues the local best (Codex #362)',
+    store.getPendingSync('nullfs1', 'blue', localStorage)?.time === 21);
+
+  // (D) An anonymous guest sign-in never routes a local best to the global leaderboard.
+  localStorage.setItem('snowgliderBestTime', '22');
+  fb.emitAuthState({ uid: 'guestX', email: null, displayName: null, photoURL: null, isAnonymous: true });
+  await new Promise(r => setTimeout(r, 250));
+  await flush(); await flush(); await flush();
+  check('an anonymous guest sign-in does not queue a local best (Codex #362)',
+    store.getPendingSync('guestX', 'blue', localStorage) === null);
 
   // getUserIdToken delegates to the signed-in user's getIdToken (with forceRefresh).
   fb.emitAuthState({ uid: 'tok1', email: 't@g.ai', displayName: 'Tok', photoURL: null,
