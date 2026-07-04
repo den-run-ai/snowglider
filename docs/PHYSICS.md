@@ -400,15 +400,20 @@ On the ◆◆ **Expert** tier (`ski.freestyleTricks` in `src/difficulty.ts` — 
 tier that sets it), **every** jump's air phase accepts trick input — a deliberate
 manual pop *and* a sculpted terrain **kicker** (auto-jump). Kicker air is the main
 way you get big air on Expert, and on **touch** it is the *only* air a player reaches
-(a manual pop needs a steer-free tap in the CENTER region), so a kicker stamps
-`playerJump` too — gated on `tuning.freestyleTricks`, so every other tier's kicker
-stays a non-player jump and byte-identical (#32 mobile fix). The tricks re-use the
-existing controls while airborne:
+(a manual pop needs a steer-free tap in the CENTER region), so a kicker sets a
+`freestyleAir` flag — gated on `tuning.freestyleTricks`, so every other tier's kicker
+stays non-freestyle and byte-identical (#32 mobile fix). `freestyleAir` is a *superset*
+of `playerJump`: it opts the phase into trick input + a graded landing **without**
+marking it a deliberate jump, so a passive kicker never triggers the deliberate-jump-only
+**avalanche-dodge** or **obstacle-clear** rewards (those stay strictly on `playerJump` —
+a natural lip is not an avalanche-immunity farm). The tricks re-use the existing controls
+while airborne:
 
 ```
-// Double gate: tuning.freestyleTricks (Expert only) AND playerJump provenance —
-// where on Expert a terrain kicker (auto-jump) stamps playerJump too, so kicker air
-// is a full freestyle phase (manual pops and kickers both count).
+// Double gate: tuning.freestyleTricks (Expert only) AND the freestyleAir flag —
+// set at a deliberate manual pop AND at an Expert kicker, so kicker air is a full
+// freestyle phase (manual pops and kickers both count). playerJump (dodge/clear) is
+// left FALSE on a kicker, so a passive lip launch is never dodge-worthy.
 // Pure userData accumulator writes — pos/velocity are NEVER touched here (the
 // existing ±5 m/s² airControl drift above is unchanged and still applies):
 Left/Right : trickSpin ∓= 360 * delta      // SPIN_RATE_DEG (deg/s of yaw, right = +)
@@ -441,9 +446,9 @@ by the freestyle suite's pivot trajectory-identity check). The **only** physics 
 landing mid-rotation (under-rotated) forces the SKETCHY scrub, which is the
 freestyle risk/reward. Trick points ride inside `airScoreDelta` (same banking path),
 and `trickName` is returned for the toast (`✈ AIR <t>s · <trick> · <grade>`).
-Trick state lives on `snowman.userData` with the same lifecycle as `playerJump`:
-reset at every freestyle takeoff (a manual pop or an Expert kicker), consumed at
-landing, cleared in `resetSnowman`.
+Trick state (and the `freestyleAir` flag) lives on `snowman.userData` with the same
+lifecycle as `playerJump`: set/reset at every freestyle takeoff (a manual pop or an
+Expert kicker), consumed at landing, cleared in `resetSnowman`.
 Because spins can't yet alter the *velocity* heading (that needs heading-relative
 velocity, #244), a spun landing is still graded by velocity-vs-fall-line alignment.
 Tunables + grading live in `src/snowman/physics.ts` (exported constants +

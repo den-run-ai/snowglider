@@ -66,6 +66,7 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
   const D = await import('../src/difficulty.ts');
   const THREE = await import('three');
   const { createSnowman } = await import('../src/snowman/model.ts');
+  const AV = await import('../src/avalanche.ts');
   const update = Snowman.updateSnowman;
   const EXPERT_SKI = D.getDifficultyConfig('expert').ski;
 
@@ -281,7 +282,17 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     };
     step(ctrl({ right: true, down: true })); // auto-jump fires; trick keys held (spin + flip)
     assert(st.isInAir, 'auto-jump must fire');
-    assert(snowman.userData.playerJump === true, 'a kicker is a freestyle jump on Expert');
+    // A kicker is freestyle air, but NOT a deliberate jump: playerJump stays false so the
+    // avalanche-dodge / obstacle-clear policies (which read playerJump) never treat a
+    // passive lip launch as a dodge-worthy leap (Codex review on #333).
+    assert(snowman.userData.playerJump === false, 'a kicker must NOT set playerJump (dodge/clear stay deliberate-only)');
+    assert(snowman.userData.freestyleAir === true, 'but a kicker IS freestyle air on Expert');
+    // Codex #333, end-to-end: a passive kicker overlapping the avalanche front must be
+    // BURIED, never granted the deliberate-jump dodge — the loop resolves the dodge from
+    // playerJump (false here), NOT freestyleAir. (Would be 'dodgedFirst' if the dodge
+    // wrongly keyed off the freestyle flag, making natural lips an avalanche-immunity farm.)
+    assert(AV.resolveBurialOutcome(true, st.isInAir, !!snowman.userData.playerJump, false) === 'buried',
+      'a kicker overlapping the avalanche is buried, not dodged');
     let maxSpin = 0, maxFlip = 0, frames = 0;
     while (st.isInAir && frames < 600) {
       step(ctrl({ right: true, down: true }));
@@ -320,6 +331,7 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     step(ctrl({ right: true, down: true })); // auto-jump fires; trick keys held
     assert(st.isInAir, 'auto-jump must fire');
     assert(!snowman.userData.playerJump, 'a Blue kicker is not a player jump');
+    assert(!snowman.userData.freestyleAir, 'a Blue kicker is not freestyle air (flag off the freestyle tier)');
     let frames = 0;
     while (st.isInAir && frames < 600) { step(ctrl({ right: true, down: true })); frames++; }
     assert(!snowman.userData.trickSpin && !snowman.userData.trickFlip,
