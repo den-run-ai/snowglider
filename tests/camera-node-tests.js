@@ -656,6 +656,66 @@ async function main() {
       cam.cameramanPath.length === 0 && cam.cameramanHeading === null);
   }
 
+  console.log('\n--- cameraman path-follow: target height anchors to the uphill trail point (issue #337, PR #356) ---');
+  {
+    // The trail point is uphill of the rider on a descent (higher terrain). Anchoring the target
+    // height to the rider's (lower) y would seat it at/below terrain at the trail x/z, so the
+    // floor clamp drags the camera along the ground. Anchoring to trail.y preserves the elevated
+    // low-side pose. Two runs share identical horizontal motion (=> identical framing/height);
+    // only the y-profile differs, isolating the anchor: the descending run must lift MORE.
+    const runProfile = (descend) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const rot = new THREE.Euler(0, 0, 0);
+      const player = new THREE.Vector3(0, 200, 0);
+      const vel = { x: 0, z: 20 };
+      cam.initialize(player, rot);
+      cam.update(player, rot, vel, () => 0); // snap
+      for (let i = 0; i < 60; i++) {
+        player.z += 0.8;
+        if (descend) player.y -= 0.8; // steep descent: trail behind stays higher than the rider
+        cam.update(player, rot, vel, () => 0);
+      }
+      return { targetY: cam.smoothingVectors.targetPosition.y, playerY: player.y };
+    };
+    const flat = runProfile(false);
+    const desc = runProfile(true);
+    const flatLift = flat.targetY - flat.playerY; // == height only (trail.y == player.y)
+    const descLift = desc.targetY - desc.playerY; // == height + (uphill trail.y - player.y)
+    check('descending cameraman target lifts above the rider by more than the flat case (trail.y anchor)',
+      descLift > flatLift + 3);
+  }
+
+  console.log('\n--- cameraman path: history trims, slow-speed heading, empty-path fallback (issue #337) ---');
+  {
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const rot = new THREE.Euler(0, 0, 0);
+    const player = new THREE.Vector3(0, 50, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 20 }, () => 0); // snap
+    // Travel well past CAMERAMAN_HISTORY_DISTANCE (120u) so the oldest samples are trimmed.
+    for (let i = 0; i < 400; i++) { player.z += 0.8; cam.update(player, rot, { x: 0, z: 20 }, () => 0); }
+    check('path history stays bounded after long travel (oldest samples trimmed)',
+      cam.cameramanPath.length > 2 && cam.cameramanPath.length < 300 &&
+      (cam.cameramanPathDistance - cam.cameramanPath[0].s) <= 121);
+
+    // Slow-speed sample derives heading from the position delta, not the (near-zero) velocity.
+    const c2 = newCamera();
+    c2.resetCameramanPath();
+    c2.recordCameramanPath(new THREE.Vector3(0, 0, 0), { x: 0, z: 0 }, 0.3);
+    c2.recordCameramanPath(new THREE.Vector3(1, 0, 1), { x: 0, z: 0 }, 0.3); // speed 0 -> atan2(dx,dz)=π/4
+    const last = c2.cameramanPath[c2.cameramanPath.length - 1];
+    check('a slow-speed sample takes its heading from the position delta', approx(last.heading, Math.PI / 4, 0.001));
+
+    // sampleCameramanTrail on an empty path returns a finite fallback instead of throwing.
+    const c3 = newCamera();
+    c3.resetCameramanPath();
+    const fb = c3.sampleCameramanTrail(5);
+    check('sampleCameramanTrail on an empty path returns a finite fallback',
+      Number.isFinite(fb.x) && Number.isFinite(fb.y) && Number.isFinite(fb.z));
+  }
+
   console.log('\n--- handleResize ---');
   {
     const cam = newCamera();

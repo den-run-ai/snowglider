@@ -761,7 +761,7 @@ export class Camera {
         );
         const d = dynamicDistance * distMult;
         const horiz = d * Math.cos(pitch);
-        const height = 8 + d * Math.sin(pitch); // matches cinematicOffset()/followOffset() base height
+        const height = 8 + d * Math.sin(pitch); // vertical offset above the trail point (as followOffset)
         const trailDistance = horiz * Math.cos(angle);
         const sideDistance = horiz * Math.sin(angle);
         const trail = this.sampleCameramanTrail(trailDistance);
@@ -775,9 +775,14 @@ export class Camera {
         // Right-hand perpendicular to the travel heading (forward = (sin h, cos h)).
         const rightX = Math.cos(h);
         const rightZ = -Math.sin(h);
+        // Anchor the target height to the TRAIL point's elevation, not the player's. The trail
+        // point is uphill of the rider on a descent (higher terrain); anchoring to the lower
+        // playerPosition.y would seat the target at/below the terrain at trail.x/z, so the floor
+        // clamp would drag the camera along the ground instead of holding the elevated low-side
+        // pose (codex review, PR #356). trail.y is the rider's recorded elevation at that point.
         this.smoothingVectors.targetPosition.set(
           trail.x + rightX * sideDistance,
-          playerPosition.y + height,
+          trail.y + height,
           trail.z + rightZ * sideDistance,
         );
       } else {
