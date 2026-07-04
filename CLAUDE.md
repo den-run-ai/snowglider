@@ -95,6 +95,21 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   pointing at system Chrome — see [`tests/puppeteer-runner.js`](tests/puppeteer-runner.js))
   to capture the actual rendered feature, and embed the image(s) in the PR body.
   Show before/after when changing existing visuals.
+- **Screenshots MUST show the real PLAYER path, not the automation fallback.** The game
+  intentionally serves a degraded/stylized scene under automation so seeded test streams
+  stay byte-identical — most importantly, the EZ-Tree gameplay forest (`src/mountains/ez-forest.ts`)
+  falls back to the stylized cone trees whenever it detects automation (`navigator.webdriver`,
+  `window.isTestMode`, or a `?test=` URL). **Headless puppeteer/Playwright always set
+  `navigator.webdriver = true`**, so a naive screenshot captures the *cone* forest and
+  MISREPRESENTS the game (it looks like the realistic EZ trees are gone when they are not).
+  Before capturing, force the player path: append `?eztrees=1` (the URL opt-in overrides the
+  automation gate — see `resolveEzForestEnabled`) and/or defeat the gate in an init script
+  (`Object.defineProperty(navigator, 'webdriver', { get: () => false })`). Sanity-check the
+  shot before embedding it: e.g. assert the EZ branch instances actually attached
+  (`terrainMesh.parent.children.some(c => c.userData.forestPart === 'ezBranches')`). Never
+  use a plain `?test=` URL for a visual screenshot. The same "automation serves a reduced
+  scene" caveat applies to any feature gated off under `isTestMode`/`webdriver` (intro,
+  debris, sfx) — screenshot the mode the player actually sees.
 - **Do not commit screenshots/PNGs into the repo tree** (keep `main` text-only;
   media uses Git LFS). Host PR screenshots off-tree and embed them by URL: push the
   PNG(s) to a throwaway `assets/*` branch via the Git Data API (create blob →
