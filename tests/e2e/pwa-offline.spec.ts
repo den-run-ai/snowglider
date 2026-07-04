@@ -76,6 +76,37 @@ test.describe('PWA offline mode', () => {
     expect(isTestMode).toBe(true);
   });
 
+  test('an already-installed worker still bypasses ?test= (never serves it the cached shell)', async ({ page }) => {
+    // The production hazard the fresh-context test above can't see (Codex #363): an origin
+    // that ALREADY has SnowGlider's SW installed from a normal '/' visit, then loads a
+    // ?test= route. If the worker's navigation fallback regressed and served the cached app
+    // shell for /?test=..., the deployed in-page suites would silently run against a stale
+    // shell instead of the network. Prove the bypass holds WITH an active, controlling worker.
+    await page.goto('/', { waitUntil: 'load' });
+    await waitForServiceWorkerActive(page);
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null, undefined, {
+      timeout: 30_000,
+    });
+
+    // Go offline. Baseline: a normal '/' navigation IS served the cached shell (so we know
+    // the worker is genuinely active + serving, not simply absent).
+    await page.context().setOffline(true);
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#startGameButton')).toBeVisible();
+
+    // The real assertion: a ?test= navigation is NOT served from cache. The worker must let
+    // it hit the network — which is down — so the navigation FAILS. If the fallback wrongly
+    // served the cached shell for ?test=, this goto would instead succeed.
+    const testNavFailed = await page
+      .goto('/?test=smoke', { waitUntil: 'domcontentloaded' })
+      .then(() => false)
+      .catch(() => true);
+    expect(testNavFailed, 'offline ?test= must NOT be served the cached shell — the worker must bypass it').toBe(true);
+
+    await page.context().setOffline(false);
+  });
+
   test('?sw=reset unregisters the worker and clears our caches', async ({ page }) => {
     // Register the SW first.
     await page.goto('/', { waitUntil: 'load' });
