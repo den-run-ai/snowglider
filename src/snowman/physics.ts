@@ -77,12 +77,15 @@ export const CLEAR_SCORE = 75;      // air-score points banked per cleared obsta
 export const CLEAR_MAX_PER_AIR = 3; // max scored clears in one air phase
 
 // --- Freestyle tricks (#32, Expert tier only) --------------------------------
-// The in-air trick vocabulary for a *manual* jump on a tier whose ski tuning sets
+// The in-air trick vocabulary for ANY jump on a tier whose ski tuning sets
 // `freestyleTricks` (the ◆◆ Expert tier): steering Left/Right spins (yaw), Up/Down
 // flips (front/back somersault), and re-pressing Jump mid-air holds a grab. All of
-// it is double-gated — playerJump provenance AND tuning.freestyleTricks — so every
-// other tier, and every auto-jump / hop / coasting air phase, stays byte-identical
-// to today (the §5 no-input invariant). Tricks never touch pos/velocity in the air
+// it is double-gated — playerJump provenance AND tuning.freestyleTricks — where on
+// Expert a terrain kicker (auto-jump) ALSO stamps playerJump, so a sculpted kicker is
+// a full freestyle air phase (the air touch users actually reach). Every other tier,
+// its kickers, and every hop / coasting air phase stay byte-identical to today (the
+// §5 no-input invariant), because playerJump is only stamped on a kicker when the
+// tier sets freestyleTricks. Tricks never touch pos/velocity in the air
 // (the existing airControl nudge is unchanged; the rotation itself is cosmetic and
 // applied in pose.ts from the userData accumulators). Their one physics consequence
 // is at touchdown: landing mid-rotation (under-rotated) spoils the landing — forced
@@ -193,6 +196,10 @@ export function resetSnowman(
     snowman.userData.trickGrabArmed = false;
     snowman.userData.trickGrabbing = false;
     snowman.userData.trickCameraYaw = 0;
+    // Pose-layer spin accumulators (rate + eased bank of the spin-lean flair): clear so
+    // a restart taken mid-spin never spawns with a stale body bank (the pivot carries it).
+    snowman.userData.trickSpinRate = 0;
+    snowman.userData.spinLean = 0;
     // Clear the scored-obstacle-clear slate (JP-2) so a new run never inherits a
     // previous air phase's dedup set or count.
     snowman.userData.clearsThisAir = 0;
@@ -448,9 +455,31 @@ export function stepSnowmanPhysics(
       verticalVelocity = 6 + (currentSpeed * 0.3);
     }
     isInAir = true;
-    // Terrain auto-jump is never player-initiated — stamp provenance false so its
-    // landing keeps today's scrub and the no-input baseline never moves (§3.1).
-    if (snowman.userData) snowman.userData.playerJump = false;
+    // Terrain auto-jump (kicker) provenance. On a NON-freestyle tier a kicker is never
+    // player-initiated: stamp `false` so its landing keeps today's plain scrub, the
+    // no-input coasting baseline never moves (§3.1), and the physics-invariant harness
+    // (Blue) stays byte-identical. On the ◆◆ Expert freestyle tier, though, the sculpted
+    // kickers ARE the main way you get big air — and on touch the ONLY reachable air (a
+    // manual pop needs a deliberate steer-free tap in the CENTER region) — so a kicker
+    // counts as a full freestyle jump: stamp `playerJump` true so Left/Right/Up/Down
+    // spin/flip in the accumulate block below and the landing grades + scores the trick
+    // exactly like a manual pop (#32 mobile fix — this is where touch users actually
+    // rotate). Gated on tuning.freestyleTricks, so every other tier is unchanged.
+    if (snowman.userData) {
+      snowman.userData.playerJump = tuning.freestyleTricks;
+      if (tuning.freestyleTricks) {
+        // Fresh trick slate for this kicker air phase (mirrors the manual-jump takeoff).
+        // The grab stays disarmed until Jump is pressed then released mid-air; a kicker
+        // has no takeoff press, so the accumulate block arms it on the first no-Jump frame.
+        snowman.userData.trickSpin = 0;
+        snowman.userData.trickFlip = 0;
+        snowman.userData.trickGrabTime = 0;
+        snowman.userData.trickGrabArmed = false;
+        snowman.userData.trickGrabbing = false;
+        snowman.userData.clearsThisAir = 0;
+        snowman.userData.clearedObstacles = {};
+      }
+    }
   }
   
   // Manual jump / hop turn with spacebar or touch (grounded, off cooldown).
@@ -554,8 +583,9 @@ export function stepSnowmanPhysics(
       velocity.x += tuning.airControl * delta;
     }
 
-    // Freestyle tricks (#32): spin / flip / grab accumulate ONLY in a player-initiated
-    // air phase on a freestyle tier (◆◆ Expert). Left/Right yaw the body (on top of the
+    // Freestyle tricks (#32): spin / flip / grab accumulate in ANY playerJump air phase
+    // on a freestyle tier (◆◆ Expert) — a manual pop OR an Expert kicker, both of which
+    // now stamp playerJump. Left/Right yaw the body (on top of the
     // unchanged airControl drift above), Up/Down somersault it, and re-pressing Jump —
     // it must be RELEASED after the takeoff press first — holds a grab. Pure userData
     // accumulator writes: pos/velocity are never touched here, so the coasting baseline

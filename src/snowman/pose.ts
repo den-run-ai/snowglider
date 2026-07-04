@@ -104,6 +104,9 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
     const spinDeltaRad = (trickSpin - spinApplied) * (Math.PI / 180);
     snowman.rotation.y -= spinDeltaRad;
     snowman.userData.trickSpinApplied = trickSpin;
+    // Stash this frame's spin RATE (signed radians) so the spin-lean flair below can
+    // bank the body proportionally to how fast it is whipping around (dynamic look).
+    snowman.userData.trickSpinRate = spinDeltaRad;
     // Camera-safe heading (#32, codex on PR #275): accumulate the same yaw so the
     // follow camera can add it back and stay behind the line of travel while the
     // model spins. Accumulated (not assigned) so a new spin launched while a prior
@@ -112,6 +115,7 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
       ((snowman.userData.trickCameraYaw as number) || 0) + spinDeltaRad;
   } else {
     snowman.userData.trickSpinApplied = 0;
+    snowman.userData.trickSpinRate = 0;
 
     // Ease any leftover camera correction out instead of dropping it (codex on
     // PR #275, round 2): at touchdown the physics clears trickSpin while the root
@@ -260,4 +264,24 @@ export function applySnowmanPose(snowman: THREE.Object3D, state: SnowmanPoseStat
   } else if (isInAir && trickFlip !== 0) {
     snowman.rotation.x += trickFlip * (Math.PI / 180);
   }
+
+  // Freestyle spin flair (#32): a spinning skier BANKS off-vertical into the whip
+  // instead of turning like a stiff turntable — the cue that makes a big Expert spin
+  // read as athletic and dynamic. Purely cosmetic: a roll proportional to the current
+  // spin RATE (stashed above), smoothed so it eases in as the spin winds up and back to
+  // level as it stops / on landing. Applied as a roll on the COM flip pivot so it
+  // composes cleanly with any somersault AND leaves the ROOT — hence the follow camera,
+  // which reads the root — perfectly steady; folded onto the root for the pivot-less
+  // test fakes. Never touches physics, the trick grade, or rotation.y (the heading the
+  // camera correction tracks), so the spin/camera continuity invariant is untouched.
+  const SPIN_LEAN_MAX = 0.4;   // rad (~23°) of bank at a full-rate (360°/s) spin
+  const SPIN_LEAN_GAIN = 3.5;  // rad of bank per rad/frame of spin (≈ max at full rate)
+  const spinRate = (snowman.userData.trickSpinRate as number) || 0; // signed rad/frame
+  const leanTarget = Math.max(-SPIN_LEAN_MAX, Math.min(SPIN_LEAN_MAX, spinRate * SPIN_LEAN_GAIN));
+  let spinLean = (snowman.userData.spinLean as number) || 0;
+  spinLean += (leanTarget - spinLean) * Math.min(1, delta * 8);
+  if (Math.abs(spinLean) < 1e-4) spinLean = 0;
+  snowman.userData.spinLean = spinLean;
+  if (flipPivot) flipPivot.rotation.z = spinLean;
+  else if (isInAir) snowman.rotation.z += spinLean;
 }

@@ -397,11 +397,18 @@ frame's burial overlap to `safe` / `buried` / `dodgedFirst` / `dodged`:
 ### 4.1 Freestyle tricks (#32 — Expert tier only)
 
 On the ◆◆ **Expert** tier (`ski.freestyleTricks` in `src/difficulty.ts` — the only
-tier that sets it), a *manual* jump's air phase accepts trick input, re-using the
+tier that sets it), **every** jump's air phase accepts trick input — a deliberate
+manual pop *and* a sculpted terrain **kicker** (auto-jump). Kicker air is the main
+way you get big air on Expert, and on **touch** it is the *only* air a player reaches
+(a manual pop needs a steer-free tap in the CENTER region), so a kicker stamps
+`playerJump` too — gated on `tuning.freestyleTricks`, so every other tier's kicker
+stays a non-player jump and byte-identical (#32 mobile fix). The tricks re-use the
 existing controls while airborne:
 
 ```
-// Double gate: tuning.freestyleTricks (Expert only) AND playerJump provenance.
+// Double gate: tuning.freestyleTricks (Expert only) AND playerJump provenance —
+// where on Expert a terrain kicker (auto-jump) stamps playerJump too, so kicker air
+// is a full freestyle phase (manual pops and kickers both count).
 // Pure userData accumulator writes — pos/velocity are NEVER touched here (the
 // existing ±5 m/s² airControl drift above is unchanged and still applies):
 Left/Right : trickSpin ∓= 360 * delta      // SPIN_RATE_DEG (deg/s of yaw, right = +)
@@ -425,14 +432,18 @@ velocity-facing smoothing; `trickFlip` rotates the model's **COM pivot** —
 `userData.flipPivot`, a child group at the mass-weighted center y ≈ 3.1 (JP-5,
 radii 2/1.5/1 ⇒ masses ∝ 8/3.375/1) — so a somersault orbits the body's center of
 mass instead of the feet while the root keeps position/yaw/tilt and the follow
-camera stays steady; a held grab tucks `scale.y`) — so the trajectory of a trick
+camera stays steady; a held grab tucks `scale.y`; and a **spin-lean flair** banks the
+body off-vertical into a spin — a roll on the COM pivot scaled by the live spin rate
+and eased in/out — so a big spin reads as athletic rather than a stiff turntable, all
+cosmetic and leaving the root/camera heading untouched) — so the trajectory of a trick
 flight is identical to the same flight without the trick system (pinned pose-only
 by the freestyle suite's pivot trajectory-identity check). The **only** physics consequence is at touchdown:
 landing mid-rotation (under-rotated) forces the SKETCHY scrub, which is the
 freestyle risk/reward. Trick points ride inside `airScoreDelta` (same banking path),
 and `trickName` is returned for the toast (`✈ AIR <t>s · <trick> · <grade>`).
 Trick state lives on `snowman.userData` with the same lifecycle as `playerJump`:
-reset at every manual takeoff, consumed at landing, cleared in `resetSnowman`.
+reset at every freestyle takeoff (a manual pop or an Expert kicker), consumed at
+landing, cleared in `resetSnowman`.
 Because spins can't yet alter the *velocity* heading (that needs heading-relative
 velocity, #244), a spun landing is still graded by velocity-vs-fall-line alignment.
 Tunables + grading live in `src/snowman/physics.ts` (exported constants +
