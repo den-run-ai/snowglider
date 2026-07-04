@@ -148,6 +148,19 @@ async function main() {
   check('the current user’s marker is cleared', store.getPendingSync('u1', 'blue', ls) === null);
   check('the other user’s marker is left intact for their own retry', store.getPendingSync('userA', 'blue', ls)?.uid === 'userA' && store.getPendingSync('userA', 'blue', ls)?.time === 25);
 
+  // A BETTER run rewrites the same (uid, tier) marker WHILE the sync awaits: the flush must
+  // not clear the newer entry, since only the older time was confirmed (Codex #362).
+  ls = createLocalStorageMock();
+  store.markPendingSync('blue', 30, 'u1', { recordedAt: 1, storage: ls }); // the entry being flushed
+  const raceFlushed = await sm.flushPendingSync(deps({ user: REAL_USER, firestore: true, online: true, storage: ls,
+    sync: async () => {
+      // mid-await: the player finishes a faster Blue run, rewriting the marker (keep-best).
+      store.markPendingSync('blue', 25, 'u1', { recordedAt: 2, storage: ls });
+      return true;
+    } }));
+  check('flush does NOT clear a marker rewritten to a better time mid-sync (Codex #362)',
+    raceFlushed.length === 0 && store.getPendingSync('u1', 'blue', ls)?.time === 25);
+
   // --- resultSyncStatusCopy precedence ---
   const S = (o) => Object.assign({ online: true, firestoreAvailable: true, ranked: true, signedIn: true, anonymous: false }, o);
   check('normal online signed-in sync → no caveat', sm.resultSyncStatusCopy(S({})) === null);

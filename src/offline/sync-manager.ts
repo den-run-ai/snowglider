@@ -21,6 +21,7 @@ import { getDifficultyConfig, type Difficulty } from '../difficulty.js';
 import {
   markPendingSync,
   readPendingSync,
+  getPendingSync,
   clearPendingSync,
   type StorageLike,
 } from './offline-store.js';
@@ -153,8 +154,17 @@ export async function flushPendingSync(deps: SyncDeps): Promise<Difficulty[]> {
       confirmed = false;
     }
     if (confirmed) {
-      clearPendingSync(user.uid, tier, deps.storage);
-      cleared.push(tier);
+      // Clear ONLY if the marker still matches the entry we just synced. While the sync
+      // awaited Firestore, the same player could finish a BETTER run that rewrote this
+      // (uid, tier) marker (e.g. 30s → 25s via markPendingSync keep-best); clearing
+      // unconditionally would delete that newer retry even though only the older time was
+      // confirmed. Re-read and match on time so a fresher pending best is preserved for the
+      // next flush (Codex #362).
+      const current = getPendingSync(user.uid, tier, deps.storage);
+      if (current && current.time === entry.time) {
+        clearPendingSync(user.uid, tier, deps.storage);
+        cleared.push(tier);
+      }
     }
   }
   return cleared;
