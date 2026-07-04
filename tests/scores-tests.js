@@ -503,6 +503,47 @@ async function main() {
   await flushAll();
   check('anonymous guest does not reinitialize on reconnect', calls.reinitializeFirestore === 0);
 
+  console.log('\n--- offline-queue flush on auth restore (issue #358, PR 4, Codex #362) ---');
+  // A persisted login restored on reload: initializeScores runs its early flush BEFORE the
+  // auth observer calls setCurrentUser, so that flush no-ops with no active user. When the
+  // real user finally arrives via setCurrentUser (no later `online` event on an already-
+  // online session), the module must drain the queue — here reinitialize Firestore, whose
+  // initializeScores re-runs the flush — rather than leave the marker stuck.
+  resetState(ScoresModule);
+  firestoreAvailable = false;                // AuthModule reports Firestore down...
+  ScoresModule.initializeScores(null, null); // ...local instance null; early flush no-ops (no user)
+  reinitializeSucceeds = true;
+  env.localStorage.setItem('snowgliderPendingSync',
+    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+  calls.reinitializeFirestore = 0;
+  currentAuthUser = { uid: 'u-restore', isAnonymous: false, displayName: 'Restore' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  await flushAll();
+  check('a restored real user with a pending best drains the queue (reinitializes Firestore)',
+    calls.reinitializeFirestore > 0);
+
+  // A restored anonymous guest never drains/reinits (stays local-only).
+  resetState(ScoresModule);
+  firestoreAvailable = false;
+  ScoresModule.initializeScores(null, null);
+  env.localStorage.setItem('snowgliderPendingSync',
+    JSON.stringify({ blue: { tier: 'blue', time: 25, recordedAt: 1 } }));
+  calls.reinitializeFirestore = 0;
+  currentAuthUser = { uid: 'guest2', isAnonymous: true };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  await flushAll();
+  check('a restored anonymous guest does not reinitialize', calls.reinitializeFirestore === 0);
+
+  // No pending work → setCurrentUser must not churn a reinit.
+  resetState(ScoresModule);
+  firestoreAvailable = false;
+  ScoresModule.initializeScores(null, null);
+  calls.reinitializeFirestore = 0;
+  currentAuthUser = { uid: 'u-nopending', isAnonymous: false };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  await flushAll();
+  check('setCurrentUser with no pending work does not reinitialize', calls.reinitializeFirestore === 0);
+
   console.log(`\nSCORES TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

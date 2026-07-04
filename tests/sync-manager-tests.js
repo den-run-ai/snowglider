@@ -124,7 +124,10 @@ async function main() {
   check('offline → offline copy', sm.resultSyncStatusCopy(S({ online: false })) === sm.RESULT_OFFLINE_COPY);
   check('anonymous → guest copy', sm.resultSyncStatusCopy(S({ anonymous: true })) === sm.RESULT_GUEST_COPY);
   check('signed-out online → defer to login prompt (null)', sm.resultSyncStatusCopy(S({ signedIn: false })) === null);
-  check('online signed-in but Firestore down → stale copy', sm.resultSyncStatusCopy(S({ firestoreAvailable: false })) === sm.RESULT_STALE_COPY);
+  check('online signed-in but Firestore down → leaderboard-unavailable copy', sm.resultSyncStatusCopy(S({ firestoreAvailable: false })) === sm.RESULT_LEADERBOARD_UNAVAILABLE_COPY);
+  // The outage copy must NOT claim a cached/last-online board is shown (Codex #362): the
+  // result overlay renders "Leaderboard unavailable" in that path, not a stale board.
+  check('leaderboard-unavailable copy does not promise a shown board', !/last online|out of date/i.test(sm.RESULT_LEADERBOARD_UNAVAILABLE_COPY));
   check('offline takes precedence over anonymous', sm.resultSyncStatusCopy(S({ online: false, anonymous: true })) === sm.RESULT_OFFLINE_COPY);
   check('unranked takes precedence over offline', sm.resultSyncStatusCopy(S({ ranked: false, online: false })) === sm.RESULT_UNRANKED_COPY);
 

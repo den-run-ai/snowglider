@@ -138,14 +138,16 @@ function flushOfflineScoreQueue() {
   });
 }
 
-// Reconnect handler (issue #358, PR 4). When there's queued work but Firestore was
-// never initialized (an offline first-load), the flush would no-op — so reinitialize
-// Firestore first: its initializeScores() re-runs this module's flush once the instance
-// is live (Codex #362). Otherwise flush directly. Guarded on a signed-in user + actual
-// pending work so a plain reconnect doesn't churn a reinit. `reinitializeFirestore` is
-// only ever driven from here (the event), not from initializeScores' post-init flush, so
-// there's no reinit→init→flush→reinit loop.
-function handleReconnect() {
+// Drain the pending-sync queue (issue #358, PR 4). Driven by BOTH the `online` event
+// (offline→online) AND a real user arriving via setCurrentUser (a persisted login
+// restored on reload settles AFTER initializeScores' early flush already no-opped with
+// no active user — Codex #362). When there's queued work but Firestore was never
+// initialized (an offline first-load), the flush would no-op — so reinitialize Firestore
+// first: its initializeScores() re-runs this module's flush once the instance is live.
+// Otherwise flush directly. Guarded on a signed-in user + actual pending work so a plain
+// reconnect/sign-in doesn't churn a reinit. `reinitializeFirestore` early-returns once
+// Firestore exists and never calls setCurrentUser, so there's no reinit→init→flush loop.
+function drainPendingSyncQueue() {
   try {
     if (!firestore && hasPendingSync() && getActiveUser()) {
       const authModule = window.AuthModule as { reinitializeFirestore?: () => unknown } | null | undefined;
@@ -165,7 +167,7 @@ function ensureOnlineFlushListener() {
   if (offlineSyncOnlineListenerBound) return;
   if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
   offlineSyncOnlineListenerBound = true;
-  window.addEventListener('online', handleReconnect);
+  window.addEventListener('online', drainPendingSyncQueue);
 }
 
 /**
@@ -174,6 +176,16 @@ function ensureOnlineFlushListener() {
  */
 function setCurrentUser(user: User | null) {
   currentUser = user;
+  // A persisted login restored on reload calls this AFTER initializeScores' early flush
+  // already no-opped (no active user yet), and setCurrentUser used to do nothing further
+  // — so an already-online session with a pending offline best stayed stuck until some
+  // later reconnect/reinit (Codex #362). Now that a real (non-anonymous) user is present,
+  // drain the queue. drainPendingSyncQueue is internally guarded on online + Firestore
+  // (reinit if needed) + a real active user + actual pending work, so this is a no-op on
+  // logout, guests, offline, or an empty queue.
+  if (user && !user.isAnonymous) {
+    drainPendingSyncQueue();
+  }
 }
 
 function getActiveUser(): User | null {

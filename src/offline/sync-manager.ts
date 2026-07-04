@@ -147,15 +147,20 @@ export const RESULT_UNRANKED_COPY = 'Practice tier — local best and ghost only
 export const RESULT_OFFLINE_COPY = 'Saved locally. Global leaderboard will sync when you are online and signed in.';
 /** Anonymous-guest copy: saved locally, sign in to sync future eligible scores. */
 export const RESULT_GUEST_COPY = 'Saved locally. Sign in to sync future eligible scores.';
-/** Stale-leaderboard copy: the last online board may be out of date. */
-export const RESULT_STALE_COPY = 'Last online leaderboard shown. It may be out of date.';
+/**
+ * Firestore-outage copy: online + signed-in + ranked, but the leaderboard read/write
+ * couldn't reach Firestore. The result overlay's leaderboard panel shows "Leaderboard
+ * unavailable" in this path (not a cached board), so the copy must NOT claim the last
+ * online board is shown (Codex #362). The score is saved locally and queued for sync.
+ */
+export const RESULT_LEADERBOARD_UNAVAILABLE_COPY = 'Score saved locally. Global leaderboard is temporarily unavailable.';
 
 /**
  * The honest sync-status line for the result screen, or null when nothing extra needs
  * saying (a normal online signed-in sync, or a signed-out online run where the existing
  * "Log in to save your score" prompt already covers it). Pure so the copy is unit
  * tested. Precedence: unranked practice > offline > anonymous guest > signed-out (defer
- * to the login prompt) > (online, signed-in, Firestore down) stale.
+ * to the login prompt) > (online, signed-in, Firestore down) leaderboard-unavailable.
  */
 export function resultSyncStatusCopy(state: ResultSyncState): string | null {
   if (!state.ranked) return RESULT_UNRANKED_COPY;
@@ -164,7 +169,7 @@ export function resultSyncStatusCopy(state: ResultSyncState): string | null {
   // Signed-out (online, ranked): the result overlay's own login prompt already handles
   // this — don't double up.
   if (!state.signedIn) return null;
-  if (!state.firestoreAvailable) return RESULT_STALE_COPY;
+  if (!state.firestoreAvailable) return RESULT_LEADERBOARD_UNAVAILABLE_COPY;
   return null;
 }
 
