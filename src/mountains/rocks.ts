@@ -9,6 +9,9 @@
 // (Stage R-mountains, issue #34).
 import * as THREE from 'three';
 import { getTerrainHeight, getTerrainGradient } from './terrain.js';
+// Guards the shared material's THREE UUID draw so it cannot perturb the caller's seeded
+// global Math.random stream (same guard trees.ts uses for its pooled materials).
+import { withPrivateThreeRandom } from '../scenery/scenery-rng.js';
 // The run's centerline: the clear collidable corridor + cliff exclusion follow it, and
 // a Black run adds deterministic rock-gate pinches along it. activeLaneX is exactly 0
 // for straight tiers, so `x - lane` collapses to `x` and Bunny/Blue stay byte-identical.
@@ -121,6 +124,60 @@ function getRockNormalTexture(): THREE.CanvasTexture | null {
   tex.colorSpace = THREE.NoColorSpace;
   rockNormalTexture = tex;
   return tex;
+}
+
+// Number of global Math.random() values THREE draws for one Material's UUID. main built
+// one MeshStandardMaterial per rock (that draw happened per rock); with the shared
+// materials below it happens once, so createRock burns this many draws per rock to keep
+// the per-rock global budget — and thus downstream placement — byte-identical to main.
+const ROCK_MATERIAL_UUID_DRAWS = 4;
+
+// Two shared rock materials (boulder / cliff), built once and reused across the few
+// hundred rock meshes instead of one MeshStandardMaterial per rock. Safe because the
+// per-rock stone hue + snow cap ride in each geometry's vertex-colour attribute (see
+// applyRockSnowColors); only roughness and normalScale differ by rock type. Lazily
+// created and cached; nulled by resetRockCaches on teardown.
+let boulderMaterial: THREE.MeshStandardMaterial | null = null;
+let cliffMaterial: THREE.MeshStandardMaterial | null = null;
+function getRockMaterial(cliff: boolean): THREE.MeshStandardMaterial {
+  const existing = cliff ? cliffMaterial : boulderMaterial;
+  if (existing) return existing;
+  // Resolve the shared normal map OUTSIDE the private-RNG guard so its one-time texture
+  // UUID draw still lands on the global stream exactly as main's did (main created it on
+  // the first rock). Only the material's own UUID draw is guarded, and it is compensated
+  // per rock by the burn in createRock.
+  const normalMap = getRockNormalTexture();
+  const mat = withPrivateThreeRandom(() => new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: cliff ? 0.95 : 0.9,
+    metalness: 0.0, // matte rock/snow, not the shiny grey crystal it read as before
+    flatShading: true,
+    vertexColors: true,
+    normalMap,
+    normalScale: new THREE.Vector2(cliff ? 0.6 : 0.4, cliff ? 0.6 : 0.4)
+  }));
+  if (cliff) cliffMaterial = mat; else boulderMaterial = mat;
+  return mat;
+}
+
+/**
+ * Null (and defensively dispose) the module-level rock singletons so a later rebuild
+ * re-creates them cleanly instead of holding freed-but-still-referenced GPU handles.
+ * Mirrors resetTreePools: disposeSceneResources already disposes the scene-attached
+ * copies, and dispose() is idempotent, so this is safe to call alongside it on teardown.
+ * Also frees the shared rock normal texture, which previously had no reset (a latent
+ * cross-session leak: the sweep disposed it but the module cache kept the dead handle).
+ */
+export function resetRockCaches(): void {
+  const free = (r: { dispose?: () => void } | null): void => {
+    if (r && typeof r.dispose === 'function') r.dispose();
+  };
+  free(boulderMaterial);
+  free(cliffMaterial);
+  free(rockNormalTexture);
+  boulderMaterial = null;
+  cliffMaterial = null;
+  rockNormalTexture = null;
 }
 
 /**
@@ -302,25 +359,21 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
   const rockColor = makeRockColor(cliff ? 1 : 0);
   applyRockSnowColors(geometry, rockColor);
 
-  const rockMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: cliff ? 0.95 : 0.9,
-    metalness: 0.0, // matte rock/snow, not the shiny grey crystal it read as before
-    flatShading: true,
-    vertexColors: true,
-    normalMap: getRockNormalTexture(),
-    normalScale: new THREE.Vector2(cliff ? 0.6 : 0.4, cliff ? 0.6 : 0.4)
-  });
-
-  const rock = new THREE.Mesh(geometry, rockMaterial);
+  const rock = new THREE.Mesh(geometry, getRockMaterial(cliff));
   rock.castShadow = true;
   rock.receiveShadow = true;
   // Tag every rock so addRocks' re-run de-dup sweep can find it by flag rather than
   // geometry type. The type match (`.type.includes('Dodecahedron')`) only works while
-  // rocks are dodecahedra; a future geometry swap (e.g. a convex hull, whose
-  // `.type === 'BufferGeometry'`) would slip the sweep and duplicate rocks on every
-  // rebuild. The flag is geometry-agnostic and survives that change.
+  // rocks are dodecahedra; the flag is geometry-agnostic and survives a future change.
   rock.userData.isRock = true;
+
+  // Compatibility burn: sharing the material removed the per-rock MeshStandardMaterial
+  // UUID draw (4 global Math.random values) that main made for every rock. Consume the
+  // same 4 here so createRock leaves the global stream exactly where main did — otherwise
+  // rock/tree placement (terrain-mesh runs addRocks before addTrees on the same stream)
+  // shifts and the byte-identical physics/winnability baselines break. Pinned by the
+  // RNG-budget test in rock-material-tests.js.
+  for (let i = 0; i < ROCK_MATERIAL_UUID_DRAWS; i++) Math.random();
 
   return rock;
 }
