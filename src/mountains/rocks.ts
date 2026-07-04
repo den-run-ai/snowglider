@@ -315,6 +315,12 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
   const rock = new THREE.Mesh(geometry, rockMaterial);
   rock.castShadow = true;
   rock.receiveShadow = true;
+  // Tag every rock so addRocks' re-run de-dup sweep can find it by flag rather than
+  // geometry type. The type match (`.type.includes('Dodecahedron')`) only works while
+  // rocks are dodecahedra; a future geometry swap (e.g. a convex hull, whose
+  // `.type === 'BufferGeometry'`) would slip the sweep and duplicate rocks on every
+  // rebuild. The flag is geometry-agnostic and survives that change.
+  rock.userData.isRock = true;
 
   return rock;
 }
@@ -327,13 +333,12 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
 // large rocks filtered out of the hazard list by the ski-lane/spawn safety checks — still
 // get a grounding blob (Codex review #243). Optional, so existing callers are unchanged.
 export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): RockPosition[] {
-  // Remove any existing rocks from the scene to prevent duplicates
+  // Remove any existing rocks from the scene to prevent duplicates. Rocks are tagged
+  // `userData.isRock` in createRock, so the sweep is geometry-agnostic — it keeps
+  // working if the rock geometry ever changes away from a dodecahedron.
   for (let i = scene.children.length - 1; i >= 0; i--) {
     const child = scene.children[i]!;
-    // Rocks are typically meshes with dodecahedron geometry
-    const mesh = child as THREE.Mesh;
-    if (child.type === 'Mesh' && mesh.geometry &&
-        mesh.geometry.type && mesh.geometry.type.includes('Dodecahedron')) {
+    if (child.userData && child.userData.isRock === true) {
       scene.remove(child);
     }
   }
