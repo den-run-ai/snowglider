@@ -38,14 +38,18 @@ async function main() {
   check('localBestSplitsKey(blue) is suffixed for blue too', store.localBestSplitsKey('blue') === 'snowgliderBestSplits_blue');
   check('localGhostKey(bunny) matches the course.ts scheme', store.localGhostKey('bunny') === 'snowgliderGhost_bunny');
 
-  // --- isValidScoreTime mirrors the leaderboard floor/ceiling ---
-  check('valid mid-range time accepted', store.isValidScoreTime(30) === true);
-  check('time at the floor accepted', store.isValidScoreTime(MIN) === true);
-  check('sub-floor time rejected', store.isValidScoreTime(MIN - 1) === false);
-  check('above-ceiling time rejected', store.isValidScoreTime(MAX + 1) === false);
-  check('NaN rejected', store.isValidScoreTime(NaN) === false);
-  check('Infinity rejected', store.isValidScoreTime(Infinity) === false);
-  check('string rejected', store.isValidScoreTime('30') === false);
+  // --- isPlausibleTierTime uses the TIER'S OWN floor (not the global 18 s) ---
+  check('valid mid-range time accepted (blue)', store.isPlausibleTierTime('blue', 30) === true);
+  check('time at the blue floor accepted', store.isPlausibleTierTime('blue', MIN) === true);
+  check('sub-floor blue time rejected', store.isPlausibleTierTime('blue', MIN - 1) === false);
+  check('above-ceiling time rejected', store.isPlausibleTierTime('blue', MAX + 1) === false);
+  check('NaN rejected', store.isPlausibleTierTime('blue', NaN) === false);
+  check('Infinity rejected', store.isPlausibleTierTime('blue', Infinity) === false);
+  check('string rejected', store.isPlausibleTierTime('blue', '30') === false);
+  // Black/Expert legitimately finish below Blue's 18 s floor (their floor is 13 s).
+  check('Black time below the Blue floor is valid (15 s)', store.isPlausibleTierTime('black', 15) === true);
+  check('Expert time below the Blue floor is valid (15 s)', store.isPlausibleTierTime('expert', 15) === true);
+  check('Black time below the BLACK floor rejected (12 s)', store.isPlausibleTierTime('black', 12) === false);
 
   // --- Throw-safe primitives never throw when storage is unavailable ---
   const bad = throwingStorage();
@@ -65,9 +69,16 @@ async function main() {
   ls.setItem('snowgliderBestTime', 'not-a-number');
   check('readLocalBest null on corrupt value', store.readLocalBest('blue', ls) === null);
   check('readLocalBest purged the corrupt value', ls.getItem('snowgliderBestTime') === null);
-  ls.setItem('snowgliderBestTime', String(MIN - 5)); // implausible / sub-floor
+  ls.setItem('snowgliderBestTime', String(MIN - 5)); // implausible / sub-floor for BLUE
   check('readLocalBest null on implausible value', store.readLocalBest('blue', ls) === null);
   check('readLocalBest purged the implausible value', ls.getItem('snowgliderBestTime') === null);
+  // The SAME 13 s value is a VALID Black best (Black's floor is 13 s) — must be preserved,
+  // not purged (Codex #359: tier-aware local-best validation).
+  ls.setItem('snowgliderBestTime_black', '15');
+  check('readLocalBest preserves a valid fast Black best (15 s)', store.readLocalBest('black', ls) === 15);
+  check('valid Black best not purged', ls.getItem('snowgliderBestTime_black') === '15');
+  check('saveLocalBestIfBetter accepts a sub-18 s Black best', store.saveLocalBestIfBetter('black', 14, ls) === true);
+  check('Black best updated to 14', store.readLocalBest('black', ls) === 14);
 
   // --- saveLocalBestIfBetter: first write, improvement, no-regression, invalid ---
   ls.reset();
@@ -109,13 +120,13 @@ async function main() {
   check('clearPendingSync on absent tier is a safe no-op', clearThrew === false);
 
   // Second tier is independent.
-  store.markPendingSync('bunny', 26, { recordedAt: 444, storage: ls });
-  check('two tiers tracked independently', store.getPendingSync('bunny', ls).time === 26 && store.getPendingSync('black', ls).time === 20);
+  store.markPendingSync('bunny', 30, { recordedAt: 444, storage: ls });
+  check('two tiers tracked independently', store.getPendingSync('bunny', ls).time === 30 && store.getPendingSync('black', ls).time === 20);
 
   // Clear one tier; the other survives; key removed only when empty.
   store.clearPendingSync('black', ls);
   check('cleared tier is gone', store.getPendingSync('black', ls) === null);
-  check('other tier survives clear', store.getPendingSync('bunny', ls).time === 26);
+  check('other tier survives clear', store.getPendingSync('bunny', ls).time === 30);
   store.clearPendingSync('bunny', ls);
   check('pending key removed when map empties', ls.getItem(store.PENDING_SYNC_KEY) === null);
 

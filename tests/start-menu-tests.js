@@ -267,6 +267,31 @@ async function main() {
   check('signed out: getLeaderboard is NOT called (Firestore rules deny it)',
     leaderboardReads === 0);
 
+  // Offline gate (issue #358, Codex): even with real auth + Firestore initialized and
+  // signed out on a ranked tier, the sign-in hint + leaderboard preview must hide when
+  // offline — the connectivity handler re-runs refreshStartAccountUI, which now factors
+  // in navigator.onLine. Drive onLine and fire the window events the handler listens on.
+  let online = true;
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('online + signed out + ranked: sign-in hint shown', hint.style.display === 'block');
+  online = false;
+  window.dispatchEvent(new window.Event('offline'));
+  await settle();
+  check('going offline hides the sign-in hint', hint.style.display === 'none');
+  check('going offline hides the leaderboard preview', lb.style.display === 'none');
+  online = true;
+  window.dispatchEvent(new window.Event('online'));
+  await settle();
+  check('back online re-shows the sign-in hint', hint.style.display === 'block');
+
   // Auth up but Firestore disabled (localhost/127.0.0.1 + file:// fallback): the
   // hint advertises leaderboard saving that can't work there, so it must stay
   // hidden even when signed out.

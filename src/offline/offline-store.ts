@@ -15,12 +15,13 @@
 // exactly a value scores.ts accepts. This PR ships the layer + its tests; the
 // consumers (scores.ts sync, course.ts) are rewired in the later stacked PRs.
 
-import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
+import { MAX_VALID_SCORE_TIME } from '../score-limits.js';
 import {
   localBestTimeKey,
   localBestSplitsKey,
   localGhostKey,
   isDifficulty,
+  getDifficultyConfig,
   type Difficulty,
 } from '../difficulty.js';
 
@@ -49,16 +50,19 @@ export interface PendingSyncEntry {
 }
 
 /**
- * Is `time` a plausible, storable score? Mirrors scores.ts `isValidScoreTime`
- * exactly (finite, within the measured leaderboard plausibility floor/ceiling), so
- * this layer and the live scoring path agree on what counts as a real time. Rejects
+ * Is `time` a plausible, storable score for `tier`? Uses the TIER'S OWN plausibility
+ * floor (`getDifficultyConfig(tier).minScoreTime`), mirroring result-overlay.ts
+ * `isPlausibleForTier` — Blue's floor is the global 18 s, but Black/Expert legitimately
+ * finish below that (their floor is 13 s), so validating a local best against the
+ * global floor would wrongly purge a valid fast Black/Expert time. Every read/write
+ * path here is tier-aware for exactly this reason (Codex #359). Rejects
  * NaN/Infinity/strings without throwing.
  */
-export function isValidScoreTime(time: unknown): time is number {
+export function isPlausibleTierTime(tier: Difficulty, time: unknown): time is number {
   return (
     typeof time === 'number' &&
     Number.isFinite(time) &&
-    time >= MIN_VALID_SCORE_TIME &&
+    time >= getDifficultyConfig(tier).minScoreTime &&
     time <= MAX_VALID_SCORE_TIME
   );
 }
@@ -117,7 +121,7 @@ export function readLocalBest(tier: Difficulty, storage?: StorageLike | null): n
   const raw = safeGetItem(key, storage);
   if (raw === null || raw === '') return null;
   const value = parseFloat(raw);
-  if (isValidScoreTime(value)) return value;
+  if (isPlausibleTierTime(tier, value)) return value;
   safeRemoveItem(key, storage);
   return null;
 }
@@ -133,7 +137,7 @@ export function saveLocalBestIfBetter(
   time: unknown,
   storage?: StorageLike | null
 ): boolean {
-  if (!isValidScoreTime(time)) return false;
+  if (!isPlausibleTierTime(tier, time)) return false;
   const existing = readLocalBest(tier, storage);
   if (existing !== null && existing <= time) return false;
   return safeSetItem(localBestTimeKey(tier), String(time), storage);
@@ -165,9 +169,10 @@ export function readPendingSync(storage?: StorageLike | null): Record<string, Pe
     if (!isDifficulty(tier)) continue;
     if (!value || typeof value !== 'object') continue;
     const entry = value as Partial<PendingSyncEntry>;
-    // The stored `tier` field must agree with its (validated) map key AND carry a valid time.
+    // The stored `tier` field must agree with its (validated) map key AND carry a time
+    // plausible for THAT tier (tier-aware floor, Codex #359).
     if (entry.tier !== tier) continue;
-    if (!isValidScoreTime(entry.time)) continue;
+    if (!isPlausibleTierTime(tier, entry.time)) continue;
     const recordedAt =
       typeof entry.recordedAt === 'number' && Number.isFinite(entry.recordedAt)
         ? entry.recordedAt
@@ -202,7 +207,7 @@ export function markPendingSync(
   time: unknown,
   opts?: { recordedAt?: number | null; storage?: StorageLike | null }
 ): boolean {
-  if (!isValidScoreTime(time)) return false;
+  if (!isPlausibleTierTime(tier, time)) return false;
   const storage = opts?.storage;
   const map = readPendingSync(storage);
   const existing = map[tier];

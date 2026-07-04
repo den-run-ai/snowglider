@@ -44,6 +44,10 @@ import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-u
     if (unwatchConnectivity) unwatchConnectivity();
     unwatchConnectivity = watchConnectivity((online) => {
       setOfflineBadgeVisible(offlineBadge, !online);
+      // Global-only affordances (sign-in hint + leaderboard preview) are decided from
+      // Firebase-INITIALIZED state, which stays true after going offline; re-run the
+      // refresh so they hide/show with connectivity, not just the badge (Codex #359).
+      refreshStartAccountUI();
     });
   }
 
@@ -98,8 +102,9 @@ import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-u
       // Only show when signing in can actually deliver the advertised benefit:
       // a RANKED tier is selected, real auth AND Firestore are up (the
       // localhost/127.0.0.1 + file:// fallbacks skip Firestore, so leaderboard writes
-      // are no-ops there) and the player is signed out.
-      hint.style.display = (ranked && firebase.auth && firebase.firestore && !authState.isSignedIn) ? 'block' : 'none';
+      // are no-ops there), the player is signed out, AND we're online — offline, the
+      // global leaderboard is unreachable so advertising it would be misleading.
+      hint.style.display = (ranked && firebase.auth && firebase.firestore && !authState.isSignedIn && isOnline()) ? 'block' : 'none';
     }
 
     const lb = document.getElementById('startLeaderboard');
@@ -113,7 +118,9 @@ import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-u
     // misleading "No times yet" preview and log a permission error on every
     // signed-out start screen. So only read once signed in; signed-out players get
     // the sign-in hint instead.
-    if (!ranked || !authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function') {
+    // Also hide the preview when offline: getLeaderboard() would fail/return stale and
+    // the offline badge already communicates the degraded state (Codex #359).
+    if (!ranked || !authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function' || !isOnline()) {
       lb.style.display = 'none';
       return;
     }
