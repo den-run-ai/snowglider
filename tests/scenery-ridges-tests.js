@@ -22,6 +22,7 @@ async function main() {
   testStructure(THREE, buildDistantRidges, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testDeterminism(buildDistantRidges, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testMaterials(THREE, buildDistantRidges, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
+  testSnowCaps(THREE, buildDistantRidges, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testStreamNeutrality(buildDistantRidges, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
 
   console.log(`\nSCENERY-RIDGES TOTAL: ${pass} passed, ${fail} failed`);
@@ -47,13 +48,18 @@ function testStructure(THREE, buildDistantRidges, makeSceneryRng, budget) {
   const allPos = positionsOf(group).flat();
   check('all vertex coordinates finite (no NaN/Infinity)', allPos.every((v) => Number.isFinite(v)));
 
-  // Rings must close seamlessly: first and last angular column share the same x/z.
+  // Rings must close seamlessly: the first and last angular columns share the same x/z. The
+  // geometry is column-major with `rowsPerCol` vertices per column (userData hints), so the
+  // last column's first vertex is at index (cols-1)*rowsPerCol.
   const first = meshes[0].geometry.getAttribute('position');
-  const n = first.count;
+  const cols = meshes[0].userData.cols;
+  const rowsPerCol = meshes[0].userData.rowsPerCol;
+  const lastColStart = (cols - 1) * rowsPerCol;
   const closed =
-    Math.abs(first.getX(0) - first.getX(n - 2)) < 1e-3 &&
-    Math.abs(first.getZ(0) - first.getZ(n - 2)) < 1e-3;
+    Math.abs(first.getX(0) - first.getX(lastColStart)) < 1e-3 &&
+    Math.abs(first.getZ(0) - first.getZ(lastColStart)) < 1e-3;
   check('ring closes seamlessly (first column == last column)', closed);
+  check('geometry has vertical subdivisions (rows per column > 2)', rowsPerCol > 2);
 
   // Farther layers sit at larger radius (receding stack).
   const radiusOf = (m) => {
@@ -86,6 +92,37 @@ function testMaterials(THREE, buildDistantRidges, makeSceneryRng, budget) {
   check('no layer casts a shadow', meshes.every((m) => m.castShadow === false));
   check('no layer receives a shadow', meshes.every((m) => m.receiveShadow === false));
   check('double-sided (visible from inside the ring)', meshes.every((m) => m.material.side === THREE.DoubleSide));
+  check('driven by vertex colours (snow caps + rock)', meshes.every((m) => m.material.vertexColors === true));
+}
+
+// Detail pass (PR 3b): the ridges carry a per-vertex snow-cap gradient so they read as snowy
+// peaks (not flat grey humps) in every lighting phase. Assert each ridge has a colour attribute
+// with a real gradient: bright snow near the top of the tallest columns, darker rock elsewhere.
+function testSnowCaps(THREE, buildDistantRidges, makeSceneryRng, budget) {
+  console.log('--- buildDistantRidges: snow-capped vertex gradient ---');
+  const meshes = ridgeMeshes(buildDistantRidges(makeSceneryRng(21), budget));
+  const m0 = meshes[0];
+  const col = m0.geometry.getAttribute('color');
+  check('ridges carry a per-vertex colour attribute', !!col && col.count === m0.geometry.getAttribute('position').count);
+
+  const lum = (i) => 0.2126 * col.getX(i) + 0.7152 * col.getY(i) + 0.0722 * col.getZ(i);
+  let maxLum = 0, minLum = 1;
+  for (let i = 0; i < col.count; i++) { const l = lum(i); if (l > maxLum) maxLum = l; if (l < minLum) minLum = l; }
+  check('has bright snow-cap vertices (max luminance high)', maxLum > 0.85);
+  check('has darker rock vertices (a real gradient, not flat)', maxLum - minLum > 0.15);
+
+  // The snow must sit near the TOPS: for the tallest column, the top-row vertex is brighter
+  // than its base-row vertex.
+  const cols = m0.userData.cols, rowsPerCol = m0.userData.rowsPerCol;
+  const pos = m0.geometry.getAttribute('position');
+  let tallCol = 0, tallH = -Infinity;
+  for (let j = 0; j < cols; j++) {
+    const top = pos.getY(j * rowsPerCol + (rowsPerCol - 1));
+    if (top > tallH) { tallH = top; tallCol = j; }
+  }
+  const topLum = lum(tallCol * rowsPerCol + (rowsPerCol - 1));
+  const baseLum = lum(tallCol * rowsPerCol);
+  check('tallest peak is snow-capped (top brighter than base)', topLum > baseLum + 0.1);
 }
 
 function testStreamNeutrality(buildDistantRidges, makeSceneryRng, budget) {
