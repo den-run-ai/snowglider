@@ -201,14 +201,17 @@ const LEGACY_DRAWS = { boulder: 448, cliff: 340 };
     }
   });
 
-  runTest('cliff vertices stay inside their (taller) envelope [0.18·size, 2.7·size]', () => {
+  runTest('cliff vertices stay inside their envelope [0.18·size, 1.9·size]', () => {
+    // Upper bound pins the collision-neutral height cap (peak ~1.5·size, within the old
+    // dodecahedron cliff's ~1.59·size): a re-inflated crag would widen the visual/collision
+    // gap the runtime rock-clearance check assumes (Codex PR #344 P2), so it must fail here.
     for (const seed of [1, 2, 3]) {
       const size = 4;
       const p = positionsOf(buildPinned(size, { cliff: true, seed }));
       for (let i = 0; i < p.length; i += 3) {
         const r = Math.hypot(p[i], p[i + 1], p[i + 2]);
         assert(r >= 0.18 * size - 1e-6, `seed ${seed}: cliff vertex dipped to ${(r / size).toFixed(3)}·size`);
-        assert(r <= 2.7 * size + 1e-6, `seed ${seed}: cliff vertex escaped to ${(r / size).toFixed(3)}·size`);
+        assert(r <= 1.9 * size + 1e-6, `seed ${seed}: cliff vertex escaped to ${(r / size).toFixed(3)}·size (> 1.9 — widens the collision gap)`);
       }
     }
   });

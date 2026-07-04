@@ -267,7 +267,14 @@ function seededRockPoints(rng: () => number, size: number, cliff: boolean): THRE
     x *= 0.85 + 0.4 * rng();          // horizontal anisotropy
     w *= 0.85 + 0.4 * rng();
     if (cliff) {
-      y *= 1.5 + 0.9 * rng();         // stretch tall -> crag
+      // Stretch tall enough to read as a crag, but keep the peak within the OLD
+      // dodecahedron cliff's vertical envelope (~1.59·size). The runtime rock-clearance
+      // check (snowman/collision.ts) treats every hazard top as `y + size*0.7` and this
+      // PR must stay collision-neutral, so a taller mesh would let an airborne player be
+      // flagged as clearing a hazard while still passing through the visible crag
+      // (Codex PR #344 P2). Capping the height keeps that visual/collision gap no wider
+      // than main's; a fully height-aware collision model is a separate physics change.
+      y *= 1.1 + 0.35 * rng();        // peak ≈ 1.1·rad·size ≤ ~1.6·size (matches old cliff)
       if (w > 0) w *= 0.25;           // shear one face flat -> sheer read
     } else if (y < -0.2 * size) {
       y *= 0.5;                       // flatten the base -> sits grounded
