@@ -67,13 +67,20 @@ test.describe('PWA offline mode', () => {
     // (main.ts gates registration off), so the deployed in-page suites keep the real
     // network path and can never be served a stale cached shell.
     await page.goto('/?test=smoke', { waitUntil: 'load' });
+    // isTestMode is assigned by setupScene(), which can finish AFTER the `load` event (the
+    // auth wait / deferred orchestrator import), so WAIT for it rather than reading it once —
+    // both to avoid a flaky assertion and so the registration check below reflects a fully
+    // initialized test page (Codex #363).
+    await page.waitForFunction(
+      () => (window as Window & { isTestMode?: boolean }).isTestMode === true,
+      undefined,
+      { timeout: 30_000 },
+    );
+    // Even after full test-mode init, main.ts must NOT have registered the SW under ?test=.
     const registrations = await page.evaluate(() =>
       navigator.serviceWorker.getRegistrations().then((r) => r.length),
     );
     expect(registrations, 'SW must not register on a ?test= route').toBe(0);
-    // The page itself still loaded (automation flag set by scene-setup).
-    const isTestMode = await page.evaluate(() => (window as Window & { isTestMode?: boolean }).isTestMode === true);
-    expect(isTestMode).toBe(true);
   });
 
   test('an already-installed worker still bypasses ?test= (never serves it the cached shell)', async ({ page }) => {
