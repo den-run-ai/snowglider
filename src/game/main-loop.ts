@@ -581,6 +581,13 @@ export function createMainLoop(deps: MainLoopDeps) {
       // skis that fresh snow covers back over. Purely cosmetic — reads position only.
       state.snowTrails?.update(frameDelta, snowman, player.isInAir);
 
+      // Persistent snow-depth field (#246, PR 2): the skis pack the snow into lasting ski
+      // lines that fresh snow slowly refills — driven off the same grounded/moving trigger
+      // as the ski trails above. Purely cosmetic data: reads position + horizontal speed
+      // only, never writes physics; not yet rendered (a later PR samples it in the shader).
+      const horizontalSpeed = Math.hypot(velocity.x, velocity.z);
+      state.snowDepth?.update(frameDelta, snowman.position, player.isInAir, horizontalSpeed);
+
       // Advance the golden-hour<->midday sun cycle (sun position/colour, sky exposure,
       // fog). Purely atmospheric; a no-op under reduced motion. (#163)
       Sky.update(frameDelta);

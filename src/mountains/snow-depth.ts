@@ -68,6 +68,9 @@ const DEF_PACK_RADIUS = 2.4;         // a touch wider than the ski gauge so a li
 const MAX_COLS = 400;
 const MAX_ROWS = 520;
 
+// Don't stamp a compaction pass when essentially stopped (matches SnowTrails.MIN_SPEED).
+const MIN_COMPACT_SPEED = 1.2;
+
 function clampInt(v: number, lo: number, hi: number): number {
   if (!Number.isFinite(v)) return lo;
   return Math.max(lo, Math.min(hi, Math.round(v)));
@@ -191,6 +194,23 @@ export class SnowDepthField {
     const d = this.depth;
     for (let i = 0; i < d.length; i++) {
       if (d[i]! < 1) d[i] = clamp01(d[i]! + step);
+    }
+  }
+
+  /**
+   * One cosmetic frame driven from the main loop's render-frame zone (PR 2): refill the
+   * whole field, then — only while grounded and actually moving — compact the snow under
+   * the skis at the player position. The grounded/moving gate mirrors the ski-track
+   * stamping cadence in `snowtracks.ts`, so the two share the same "a ski is on the snow"
+   * trigger. Pure: reads the position + horizontal speed, never writes them, so the
+   * physics-invariant path is byte-identical. Reduced-motion is intentionally NOT gated
+   * here — a packed line is a static mark, not an animation.
+   */
+  update(dt: number, player: Vec3Like, isInAir: boolean, speed: number): void {
+    this.refill(dt);
+    if (!player || !Number.isFinite(player.x) || !Number.isFinite(player.z)) return;
+    if (!isInAir && Number.isFinite(speed) && speed > MIN_COMPACT_SPEED) {
+      this.compactAt(player.x, player.z);
     }
   }
 

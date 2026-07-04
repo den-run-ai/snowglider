@@ -167,8 +167,8 @@ isolated:
 
 | PR | Scope | Status |
 |---|---|---|
-| **PR 1** | `src/mountains/snow-depth.ts` — the pure `SnowDepthField` grid logic + Node tests. **No renderer integration.** | this stack |
-| PR 2 | Drive the field's `compactAt` from the existing grounded ski-track stamp cadence (the `SnowTrails` seam); no visible change, transient trails stay. | follow-up |
+| **PR 1** | `src/mountains/snow-depth.ts` — the pure `SnowDepthField` grid logic + Node tests. **No renderer integration.** | ✅ landed |
+| **PR 2** | Drive the field's `compactAt` from the grounded ski-track cadence (`SnowDepthField.update`, wired in `game/scene-setup.ts` / `game/main-loop.ts` / `game/lifecycle.ts` / `game/teardown.ts`); no visible change, transient trails stay, field carries no GPU texture yet. | this stack |
 | PR 3 | One `DataTexture` sampled by the terrain material (`onBeforeCompile`): packed → darker/icier, powder → brighter/softer. No displacement, no geometry/height-map mutation. | follow-up |
 | PR 4 | Perf: capped resolution, dirty-only upload, near-player window, mobile scaling; verify against `tests/e2e/perf-budget.spec.ts`. | follow-up |
 | PR 5 | Integrate / supersede the transient `SnowTrails` overlay once the texture path is visually proven. | follow-up |

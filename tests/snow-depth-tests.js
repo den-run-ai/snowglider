@@ -31,6 +31,7 @@ async function main() {
   testBounds(SnowDepthField);
   testNonFiniteHardening(SnowDepthField);
   testDeterminism(SnowDepthField);
+  testUpdateGating(SnowDepthField);
   testResetAndDispose(SnowDepthField);
 
   console.log(`\nSNOW-DEPTH TOTAL: ${pass} passed, ${fail} failed`);
@@ -166,6 +167,36 @@ function testDeterminism(SnowDepthField) {
     if (a.depth[i] !== b.depth[i]) identical = false;
   }
   check('two fields driven with the same sequence are byte-identical', identical);
+}
+
+function testUpdateGating(SnowDepthField) {
+  console.log('update — driven off the grounded + moving trigger; physics-neutral (PR 2)');
+  // Airborne: no compaction (but refill still runs).
+  const air = new SnowDepthField();
+  air.update(0.1, { x: 0, y: 5, z: 0 }, true, 20);
+  check('airborne frames leave no track', air.sample(0, 0) === 1);
+
+  // Grounded but essentially stopped: no compaction.
+  const stopped = new SnowDepthField();
+  stopped.update(0.1, { x: 0, y: 0, z: 0 }, false, 0.2);
+  check('a stopped snowman leaves no track', stopped.sample(0, 0) === 1);
+
+  // Grounded + moving: a packed track appears.
+  const skiing = new SnowDepthField();
+  skiing.update(0.1, { x: 0, y: 0, z: 0 }, false, 20);
+  check('a grounded, moving snowman packs a track', skiing.sample(0, 0) < 1);
+
+  // update() must never mutate the player position object (physics-neutral).
+  const player = { x: 3, y: 1, z: -4 };
+  skiing.update(0.1, player, false, 20);
+  check('update() does not mutate the player position', player.x === 3 && player.y === 1 && player.z === -4);
+
+  // NaN player / speed must not corrupt the field.
+  const robust = new SnowDepthField();
+  robust.update(0.1, { x: NaN, y: 0, z: 0 }, false, 20);
+  robust.update(0.1, { x: 0, y: 0, z: 0 }, false, NaN);
+  check('NaN player / speed leave the field bounded and untracked',
+    robust.depth.every(v => v >= 0 && v <= 1 && Number.isFinite(v)) && robust.sample(0, 0) === 1);
 }
 
 function testResetAndDispose(SnowDepthField) {

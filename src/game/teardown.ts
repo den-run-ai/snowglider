@@ -123,6 +123,9 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   //    sweep above is safe (THREE's dispose tolerates a second call).
   ctx.state.debris?.reset();
   ctx.state.snowTrails?.dispose();
+  // Persistent snow-depth field (#246): dispose() is a no-op until a later PR gives the
+  // field a GPU DataTexture, but wire it now so teardown is complete when that lands.
+  ctx.state.snowDepth?.dispose();
   ctx.state.avalanche?.dispose();
   // Background scenery (#320): dispose() frees the scenery group's GPU buffers plus any
   // off-scene caches/loaders/listeners a later PR adds (the scene sweep above already

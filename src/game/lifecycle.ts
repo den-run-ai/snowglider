@@ -72,6 +72,10 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Clear ski trails so a new run starts on a fresh, untracked slope (#17).
     if (state.snowTrails) state.snowTrails.reset();
 
+    // Reset the persistent snow-depth field to full powder so a new run begins on a
+    // pristine, un-packed slope (#246).
+    if (state.snowDepth) state.snowDepth.reset();
+
     // Reset avalanche system
     const avalanche = state.avalanche;
     if (avalanche) {
