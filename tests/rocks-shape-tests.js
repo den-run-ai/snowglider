@@ -13,8 +13,8 @@
  *     by ~0.3·size, so the hull must stay full-size-ish and never dip inside 0.45·size),
  *     and no NaN/Infinity in positions or normals.
  *   - Snow shelves: applyRockSnowColors still engages on the up-facing scrape planes.
- *   - Cleanup matcher: geometry.type still includes 'Dodecahedron' (addRocks' re-run
- *     de-dup sweep keys on it).
+ *   - Cleanup matcher: every rock carries userData.isRock (addRocks' re-run de-dup
+ *     sweep keys on it — geometry-agnostic, so it survives a future geometry swap).
  *
  * Run: node --import ./tests/loaders/register-ts-resolve.mjs tests/rocks-shape-tests.js
  */
@@ -165,11 +165,13 @@ function mulberry32(seed) {
     assert(snowy > 0, 'no vertex reached near-snow colour — the snow band no longer engages');
   });
 
-  runTest("cleanup matcher intact: geometry.type still includes 'Dodecahedron'", () => {
-    assert(buildPinned(2, { seed: 41 }).geometry.type.includes('Dodecahedron'),
-      `geometry.type is ${buildPinned(2, { seed: 41 }).geometry.type}`);
-    assert(buildPinned(4, { cliff: true, seed: 42 }).geometry.type.includes('Dodecahedron'),
-      'cliff geometry.type lost Dodecahedron');
+  runTest('cleanup matcher intact: every rock is tagged userData.isRock', () => {
+    // addRocks' re-run de-dup sweep keys on this flag (geometry-agnostic), so it must
+    // ride on every rock regardless of type. Pins both boulders and cliffs.
+    assert(buildPinned(2, { seed: 41 }).userData.isRock === true,
+      `boulder missing userData.isRock (got ${buildPinned(2, { seed: 41 }).userData.isRock})`);
+    assert(buildPinned(4, { cliff: true, seed: 42 }).userData.isRock === true,
+      'cliff missing userData.isRock');
   });
 
   console.log(`\n==================================`);
