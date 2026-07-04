@@ -18,6 +18,7 @@
     "test:ez-forest": "node --import ./tests/loaders/register-ts-resolve.mjs tests/ez-forest-tests.js",
     "test:avalanche": "node tests/avalanche-tests.js",
     "test:snowtrails": "node tests/snowtrails-tests.js",
+    "test:snow-depth": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snow-depth-tests.js",
     "test:rocks": "node --import ./tests/loaders/register-ts-resolve.mjs tests/rocks-shape-tests.js",
     "test:snow-particles": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snow-particles-tests.js",
     "test:auth": "node --import ./tests/loaders/register-firebase-mock.mjs tests/auth-tests.js && node tests/firebase-bootstrap-tests.js",

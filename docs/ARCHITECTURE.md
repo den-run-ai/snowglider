@@ -117,6 +117,7 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `Controls` | `controls.ts` | object + fns | Keyboard + touch input → shared `controls` state |
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
 | `SnowTrails` | `snowtracks.ts` | `class` | Cosmetic **temporary** ski tracks: instanced grooves carved behind the skis that fade after a few seconds (transient feedback, not a snow-accumulation model); terrain-aware, reduced-motion-aware, never touches physics (#17) |
+| `SnowDepthField` | `mountains/snow-depth.ts` | `class` | Persistent snow-depth grid (#246, visual-only v1): a `[0..1]` per-cell depth field the skis compact and fresh snow refills, giving the slope *memory*. PR 1 is pure dependency-free logic (Node-tested, zero `Math.random`); later PRs drive it from the ski-track cadence and sample it into the terrain material. **Zero physics meaning** — never touches `pos`/`velocity`/`heightMap`/friction |
 | `SnowmanDebris` | `debris.ts` | `class` | Crash-shatter wipeout: owned snow-ball fragments + puff, own settle loop, terrain-aware, disposable (#53) |
 | `EffectsModule` | `effects.ts` | IIFE | Avalanche warning UI + camera FOV/shake |
 | `IntroModule` | `intro.ts` | IIFE | Cinematic "fly over the mountain" intro at game start (issue #51) |
