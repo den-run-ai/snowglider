@@ -118,6 +118,53 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   `https://raw.githubusercontent.com/<owner>/<repo>/assets/<name>/<file>.png`.
   Confirm each raw URL returns HTTP 200 before relying on it in the PR body.
 
+### Stacked PRs (large features)
+
+Land a big feature as a **staged stack of small PRs**, each independently reviewable and
+each holding this repo's invariants (byte-identical `test:verify`, seeded-`Math.random`
+neutrality, the perf budget). This is how the persistent snow-depth field (#246) shipped
+(`snow-depth.ts` PRs 1–5). Shape the stack so risk *climbs*: pure dependency-free logic
+first (Node-testable, no renderer/physics), then the wiring, then the risky renderer /
+shader / GPU work, then perf-scaling, then cleanup — so the low-risk layers can merge while
+the risky one is still in review.
+
+- Each PR's base is the branch **below** it, not `main`: PR 1 → `main`; PR 2 → PR-1 branch;
+  PR 3 → PR-2 branch; … Name branches distinctly (`claude/<feature>-prN`). In each PR body
+  say "stacked on #N — merge that first," and **never merge — leave the stack for the
+  maintainer.**
+- **Restacking after a review fix (this bites).** Fixing a review comment on a lower PR
+  amends its branch, so every PR above must rebase onto the new tip. Use `git rebase --onto`
+  with the **old** parent tip so you replay only that PR's *own* commits — a plain
+  `git rebase <parent>` replays the parent's now-superseded commit too and conflicts against
+  itself:
+  ```bash
+  # PR-1 branch moved  OLD_P1 -> NEW_P1
+  git rebase --onto <NEW_P1> <OLD_P1> <pr2-branch>   # replays only PR-2's commits
+  git push --force-with-lease origin <pr2-branch>    # then repeat PR-3 onto the new PR-2, …
+  ```
+  Resolve conflicts by keeping **both** layers' intent (the lower PR's method rewrite + the
+  upper PR's added call/row). After each restack re-run the full gate on that branch
+  (`npm run lint && npm run typecheck && npm test && npm run test:verify && npm run build`,
+  plus `tests/e2e/perf-budget.spec.ts` for any PR touching the renderer — its ceilings are a
+  regression guard; only bump one when the measured output justifies it, and say so).
+- **Delegate the mechanical restacks to a subagent**; keep the main context for the feature
+  work. Give the subagent the exact `--onto` SHAs and, for any semantic merge (the same
+  method changed on two branches), the **exact target code** to commit — don't let it guess.
+  Have it report the new tip SHA and each gate's pass/fail, and push only if all pass.
+- **Review rounds (Codex).** Every PR gets an automated Codex review; subscribe to PR
+  activity. For each finding: fix at the layer that **owns** the code (a bug in PR-1's logic
+  is fixed on PR-1, then restack up), reply on the thread with the fixing commit + what
+  changed, and resolve it. Recurring classes worth pre-empting here:
+  - **Non-finite inputs poisoning a `[0..1]` field** — `clamp01(NaN)` returns `NaN`; make the
+    clamp NaN-safe (`v > 0 ? min(v,1) : 0`) and route tuning options through a finite fallback.
+  - **Frame-rate dependence** — anything driven per render frame must scale by `dt`, and a
+    *stamped* trail must be spaced by travelled **distance** (like `SnowTrails`), not stamped
+    once per frame, or it dots/gaps at speed and differs at 60/120/144 Hz.
+  - **Partial GPU texture uploads** — three's `DataTexture.addUpdateRange` assumes an RGBA
+    4-byte component stride, so a partial range on a single-channel `RedFormat` texture
+    uploads misaligned texels; do a full `needsUpdate` re-upload from a consistent byte mirror
+    (the win is windowing the CPU sync, not the upload).
+
 ## Code Style Guidelines
 - **Indentation**: 2 spaces
 - **Semicolons**: Required at end of statements
