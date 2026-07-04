@@ -10,6 +10,8 @@
 import { AudioModule } from '../audio.js';
 import { getDifficultyConfig, readStoredDifficulty, storeDifficulty, type Difficulty } from '../difficulty.js';
 import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPickerHandle } from './difficulty-picker.js';
+import { isOnline, watchConnectivity } from '../offline/offline-state.js';
+import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-ui.js';
 
 (function () {
   let startGamePending = false;
@@ -24,6 +26,26 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
   // in-flight leaderboard read can detect that a newer refresh superseded it
   // (e.g. the player logged out mid-read) and discard its now-stale result.
   let accountRefreshSeq = 0;
+
+  // Handle to the offline-mode badge + its connectivity subscription. The badge is
+  // mounted hidden and only revealed when offline, so the online start screen is
+  // unchanged; the unsubscribe keeps us teardown-clean if the menu is re-initialized.
+  let offlineBadge: HTMLElement | null = null;
+  let unwatchConnectivity: (() => void) | null = null;
+
+  // Mount the offline badge into the start container and keep its visibility in sync
+  // with connectivity. Idempotent: re-init tears down the prior watcher first so we
+  // never stack duplicate `online`/`offline` listeners.
+  function setupOfflineBadge() {
+    const container = document.getElementById('startGameContainer');
+    if (!container) return;
+    offlineBadge = ensureOfflineBadge(container);
+    setOfflineBadgeVisible(offlineBadge, !isOnline());
+    if (unwatchConnectivity) unwatchConnectivity();
+    unwatchConnectivity = watchConnectivity((online) => {
+      setOfflineBadgeVisible(offlineBadge, !online);
+    });
+  }
 
   function addBuildBadge() {
     const buildMeta = document.querySelector('meta[name="build-id"]');
@@ -289,6 +311,7 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
 
   function initializeStartMenu() {
     addBuildBadge();
+    setupOfflineBadge();
     buildDifficultyPicker();
     // Surface the account/sign-in control above the start overlay while it's up.
     document.body.classList.add('start-screen-active');

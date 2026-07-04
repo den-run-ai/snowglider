@@ -1178,6 +1178,21 @@ canvas { display: block; }
   pointer-events: none; /* purely informational — never intercept clicks */
 }
 
+/* Offline-mode badge (issue #358). Mounted hidden inside #startGameContainer and
+   revealed only when the browser reports offline, so the online start screen is
+   unchanged. A calm frosted chip that reads as informational, not an error. */
+.offline-badge {
+  align-self: center;
+  margin: 8px auto 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(120, 170, 210, 0.18);
+  border: 1px solid rgba(180, 215, 245, 0.35);
+  color: rgba(223, 244, 255, 0.9);
+  font: 500 12px system-ui, sans-serif;
+  letter-spacing: 0.2px;
+}
+
 /* While the start overlay is up, lift the account/sign-in control above it so
    players can sign in before starting a run (the overlay sits at z-index 2000). */
 body.start-screen-active #authContainer {
