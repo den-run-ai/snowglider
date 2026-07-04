@@ -114,7 +114,9 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
     drift.y[i] = 26 + rng() * 60;
     drift.z[i] = -200 + rng() * 220;
     drift.spd[i] = 14 + rng() * 22;
-    drift.scl[i] = 2.5 + rng() * 4;
+    // Kept modest: a large flat quad reads as a floating plate even when faint, so cap the top
+    // end. Combined with the low-opacity material above, wisps stay small thin streaks of haze.
+    drift.scl[i] = 1.6 + rng() * 2.4;
     drift.rot[i] = rng() * Math.PI * 2;
   }
 
@@ -143,7 +145,11 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
     // geometries are double-faced instead. Keeps the layer within the tight perf-budget.
     const clouds = new THREE.InstancedMesh(
       new THREE.IcosahedronGeometry(1, 1),
-      new THREE.MeshBasicMaterial({ color: 0xf4f8fd, fog: true }),
+      // Soft, translucent puffs. transparent + depthWrite:false so the low-poly icosahedra
+      // read as hazy cloud volume rather than hard opaque pale discs floating in the sky
+      // (which is how the fully-opaque version looked when the camera zoomed far out). This
+      // is RENDER STATE only — not a shader-program define — so it stays program-neutral.
+      new THREE.MeshBasicMaterial({ color: 0xf4f8fd, fog: true, transparent: true, opacity: 0.6, depthWrite: false }),
       cloudCount,
     );
     clouds.name = 'ambient-clouds';
@@ -155,13 +161,16 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
     );
     birds.name = 'ambient-birds';
 
-    // Opaque, pale wisps: keeping spindrift opaque (rather than transparent) means all three
-    // ambient materials are the SAME program config (unlit basic + fog + FrontSide, colour is a
-    // uniform), so they share ONE program — the very one the valley forest patches already use —
-    // and the layer adds ~0 shader programs, staying well within the tight perf-budget ceiling.
+    // Faint, pale wisps. The wisp is a flat untextured quad, so a FULLY OPAQUE material drew a
+    // hard-edged white "plate" hanging in the sky — very visible at far camera zoom (issue: big
+    // floating snow plates). transparent + low opacity + depthWrite:false turns each quad into
+    // thin blowing-snow haze instead. `transparent`/`opacity`/`depthWrite` are RENDER STATE, not
+    // shader-program defines (see the block comment above), so this stays program-neutral: all
+    // three ambient materials remain unlit MeshBasicMaterial + fog + FrontSide and share ONE
+    // program (only `map`/`side:DoubleSide` would fork it — hence the double-faced wisp geometry).
     const spindrift = new THREE.InstancedMesh(
       wispGeometry(),
-      new THREE.MeshBasicMaterial({ color: 0xeaf2fb, fog: true }),
+      new THREE.MeshBasicMaterial({ color: 0xeaf2fb, fog: true, transparent: true, opacity: 0.2, depthWrite: false }),
       driftCount,
     );
     spindrift.name = 'ambient-spindrift';

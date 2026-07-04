@@ -68,7 +68,7 @@ function dispatchTouch(type, target, points) {
 }
 
 async function main() {
-  const { Controls } = await import('../src/controls.ts');
+  const { Controls, shouldShowTouchZones } = await import('../src/controls.ts');
 
   console.log('--- module surface ---');
   check('exposes the Controls API',
@@ -220,14 +220,40 @@ async function main() {
   document.body.removeChild(camTray);
 
   console.log('\n--- visual touch controls (mobile) ---');
-  check('mobile setup creates the 5 visual touch-control overlays',
-    document.querySelectorAll('.touch-control').length === 5);
+  // The touch-zone overlay rectangles are now OFF by default — drawn every run they read as
+  // big floating white panels over the scene (the reported mobile "snow plates"). The initial
+  // setupControls() above ran with no debug flag set, so NO overlays were drawn, while touch
+  // INPUT (exercised throughout this suite) still works. The ?debugTouchZones=1 opt-in path is
+  // covered end-to-end in tests/e2e/mobile.spec.ts (re-running setupControls() here would
+  // double-bind the reset/camera button handlers checked below).
+  check('mobile setup draws NO touch-zone overlays by default (debug-gated)',
+    document.querySelectorAll('.touch-control').length === 0);
+  // toggleTouchControls(true) still force-creates the overlays regardless of the flag.
   check('toggleTouchControls(false) removes the visual controls and returns false',
     Controls.toggleTouchControls(false) === false &&
     document.querySelectorAll('.touch-control').length === 0);
   check('toggleTouchControls(true) recreates the visual controls and returns true',
     Controls.toggleTouchControls(true) === true &&
     document.querySelectorAll('.touch-control').length === 5);
+
+  console.log('\n--- shouldShowTouchZones (debug-flag gate) ---');
+  // Pure predicate, so drive its three branches directly (no setupControls re-run, which would
+  // double-bind the button handlers checked below). dom.reconfigure swaps window.location.search.
+  dom.reconfigure({ url: 'https://snowglider.ai/' });
+  window.localStorage.removeItem('snowglider.debugTouchZones');
+  check('no URL flag and no localStorage key => false (default off)',
+    shouldShowTouchZones() === false);
+  dom.reconfigure({ url: 'https://snowglider.ai/?debugTouchZones=1' });
+  check('?debugTouchZones in the URL => true', shouldShowTouchZones() === true);
+  dom.reconfigure({ url: 'https://snowglider.ai/' });
+  window.localStorage.setItem('snowglider.debugTouchZones', '1');
+  check('persisted localStorage flag => true', shouldShowTouchZones() === true);
+  window.localStorage.removeItem('snowglider.debugTouchZones');
+  // A throwing storage access (private-mode / blocked) is caught and falls back to false.
+  const restoreGetItem = window.localStorage.getItem.bind(window.localStorage);
+  window.localStorage.getItem = () => { throw new Error('storage blocked'); };
+  check('localStorage access throwing => false (caught)', shouldShowTouchZones() === false);
+  window.localStorage.getItem = restoreGetItem;
 
   console.log('\n--- per-tier jump availability (setJumpEnabled, workstream A) ---');
   // On a no-jump tier (Bunny) the CENTER touch region must be excluded from

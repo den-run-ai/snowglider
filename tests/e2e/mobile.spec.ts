@@ -52,17 +52,27 @@ test.describe('mobile touch', () => {
     expect((await getControls(page))?.jump).toBe(false);
   });
 
-  test('mobile renders the canvas and on-screen touch controls', async ({ page }) => {
+  test('mobile renders the canvas; touch-zone overlays are OFF by default', async ({ page }) => {
     await gotoGame(page);
     await startGame(page);
 
     // The three.js canvas is visible on the mobile viewport.
     await expect(page.locator('#gameCanvas canvas')).toBeVisible();
 
-    // Mobile UA => the game creates visual touch-region overlays (controls.ts
-    // showVisualControls), one per region.
+    // The translucent touch-zone overlay rectangles (controls.ts showVisualControls) are a
+    // DEBUG aid, off by default — otherwise they read as big floating white panels over the
+    // scene. Touch INPUT still works (the region test above proves it); only the VISUALS are
+    // gated behind ?debugTouchZones.
+    await expect(page.locator('.touch-control')).toHaveCount(0);
+  });
+
+  test('debug touch-zone overlays render with ?debugTouchZones=1', async ({ page }) => {
+    await gotoGame(page, '?debugTouchZones=1');
+    await startGame(page);
+
+    // Opt-in flag => the five screen-third overlays (left/right/up/down/jump) are drawn.
+    await expect(page.locator('.touch-control')).toHaveCount(5);
     await expect(page.locator('.touch-control').first()).toBeVisible();
-    expect(await page.locator('.touch-control').count()).toBeGreaterThan(0);
   });
 });
 
