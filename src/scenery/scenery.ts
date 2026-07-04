@@ -32,6 +32,7 @@ import { buildValleyBackdrop } from './valley-backdrop.js';
 import { buildForestBelts } from './forest-belts.js';
 import { buildCliffBands } from './cliff-bands.js';
 import { buildDecorativeProps } from './decorative-props.js';
+import { buildAmbientLife } from './ambient-life.js';
 
 /** Read-only context handed to scenery construction. Everything here is either a pure
  *  sampler or immutable layout data — scenery may READ it but must never mutate it. */
@@ -128,11 +129,18 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   // never added to treePositions/rockPositions, so the player skis past, not through.
   group.add(buildDecorativeProps(rng, budget, ctx));
 
+  // --- Layer: ambient life (PR 7) ---
+  // Drifting clouds, circling birds, blowing spindrift — the first ANIMATED layer. Ticked in
+  // update() below (cosmetic-only); frozen under prefers-reduced-motion.
+  const ambient = buildAmbientLife(rng, budget);
+  group.add(ambient.group);
+
   let disposed = false;
 
-  function update(_dt: number, _playerPosition: THREE.Vector3, _ctx?: SceneryUpdateContext): void {
-    // No cosmetic layers yet (PR 1 is the seam). Intentionally a no-op — and it must
-    // stay physics/collision-neutral when layers are added: read-only signals only.
+  function update(dt: number, playerPosition: THREE.Vector3, ctx?: SceneryUpdateContext): void {
+    // Cosmetic-only: advances the ambient-life animation from the render delta + wind signal.
+    // Writes only ambient instance matrices — never pos/velocity/terrain/course/collision.
+    ambient.update(dt, playerPosition, ctx?.windStrength ?? 0);
   }
 
   function dispose(): void {
