@@ -101,11 +101,16 @@ async function flushAll() {
 
 async function main() {
   const ScoresModule = await loadScoresModule();
+  // The pending-sync store is keyed by uid+tier (Codex #362); seed/read markers through it
+  // rather than hand-building the composite localStorage keys.
+  const store = await import('../src/offline/offline-store.ts');
+  const seedPending = (uid, tier, time) => store.markPendingSync(tier, time, uid, { recordedAt: 1, storage: env.localStorage });
+  const pendingTime = (uid, tier) => store.getPendingSync(uid, tier, env.localStorage)?.time;
 
   console.log('--- ScoresModule load & validation ---');
   check('module exposes the expected public surface',
     !!ScoresModule && ['initializeScores', 'setCurrentUser', 'recordScore',
-      'getLeaderboard', 'updateUserBestTime', 'updateLeaderboard',
+      'getLeaderboard', 'updateUserBestTime', 'syncBestTimeWithRetry', 'updateLeaderboard',
       'isFirestoreAvailable', 'isValidScoreTime'].every(key => typeof ScoresModule[key] === 'function'));
   check('score validation rejects impossible, sub-floor and non-finite times',
     ScoresModule.isValidScoreTime(0.01) === false &&
@@ -462,6 +467,139 @@ async function main() {
   check('successful reinitialization restores the local instance and renders scores',
     calls.reinitializeFirestore > 0 &&
     document.getElementById('leaderboard').innerHTML.includes('30.00s'));
+
+  console.log('\n--- offline-queue reconnect (issue #358, PR 4) ---');
+  // A signed-in real user finished a ranked run while Firestore was NOT initialized
+  // (offline first-load), leaving a durable pending marker. On reconnect the module must
+  // REINITIALIZE Firestore (whose initializeScores re-runs the flush), not just no-op.
+  resetState(ScoresModule);
+  currentAuthUser = { uid: 'u-recon', isAnonymous: false, displayName: 'Recon' };
+  firestoreAvailable = false;             // AuthModule reports Firestore down...
+  ScoresModule.initializeScores(null, null); // ...and the local instance is null
+  reinitializeSucceeds = true;            // reinit will restore it + re-run the flush
+  seedPending('u-recon', 'blue', 25);
+  calls.reinitializeFirestore = 0;
+  window.dispatchEvent(new window.Event('online'));
+  await flushAll();
+  // Triggering the reinit is the fix (Codex #362); reinit's initializeScores re-runs the
+  // flush. The flush→clear mechanics (confirmed-sync only) are unit-tested in sync-manager.
+  check('reconnect with a pending best reinitializes Firestore', calls.reinitializeFirestore > 0);
+
+  // No reinit churn when there is no pending work.
+  resetState(ScoresModule);
+  currentAuthUser = { uid: 'u2', isAnonymous: false };
+  firestoreAvailable = false;
+  ScoresModule.initializeScores(null, null);
+  calls.reinitializeFirestore = 0;
+  window.dispatchEvent(new window.Event('online'));
+  await flushAll();
+  check('reconnect with NO pending work does not reinitialize', calls.reinitializeFirestore === 0);
+
+  // An anonymous guest never triggers a reinit (stays local-only).
+  resetState(ScoresModule);
+  currentAuthUser = { uid: 'guest', isAnonymous: true };
+  firestoreAvailable = false;
+  ScoresModule.initializeScores(null, null);
+  seedPending('guest', 'blue', 25);
+  calls.reinitializeFirestore = 0;
+  window.dispatchEvent(new window.Event('online'));
+  await flushAll();
+  check('anonymous guest does not reinitialize on reconnect', calls.reinitializeFirestore === 0);
+
+  console.log('\n--- offline-queue flush on auth restore (issue #358, PR 4, Codex #362) ---');
+  // A persisted login restored on reload: initializeScores runs its early flush BEFORE the
+  // auth observer calls setCurrentUser, so that flush no-ops with no active user. When the
+  // real user finally arrives via setCurrentUser (no later `online` event on an already-
+  // online session), the module must drain the queue — here reinitialize Firestore, whose
+  // initializeScores re-runs the flush — rather than leave the marker stuck.
+  resetState(ScoresModule);
+  firestoreAvailable = false;                // AuthModule reports Firestore down...
+  ScoresModule.initializeScores(null, null); // ...local instance null; early flush no-ops (no user)
+  reinitializeSucceeds = true;
+  seedPending('u-restore', 'blue', 25);
+  calls.reinitializeFirestore = 0;
+  currentAuthUser = { uid: 'u-restore', isAnonymous: false, displayName: 'Restore' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  await flushAll();
+  check('a restored real user with a pending best drains the queue (reinitializes Firestore)',
+    calls.reinitializeFirestore > 0);
+
+  // A restored anonymous guest never drains/reinits (stays local-only).
+  resetState(ScoresModule);
+  firestoreAvailable = false;
+  ScoresModule.initializeScores(null, null);
+  seedPending('guest2', 'blue', 25);
+  calls.reinitializeFirestore = 0;
+  currentAuthUser = { uid: 'guest2', isAnonymous: true };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  await flushAll();
+  check('a restored anonymous guest does not reinitialize', calls.reinitializeFirestore === 0);
+
+  // No pending work → setCurrentUser must not churn a reinit.
+  resetState(ScoresModule);
+  firestoreAvailable = false;
+  ScoresModule.initializeScores(null, null);
+  calls.reinitializeFirestore = 0;
+  currentAuthUser = { uid: 'u-nopending', isAnonymous: false };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  await flushAll();
+  check('setCurrentUser with no pending work does not reinitialize', calls.reinitializeFirestore === 0);
+
+  console.log('\n--- offline-queue: a FAILED online sync is queued for retry (Codex #362) ---');
+  // Online + Firestore ready + signed-in ranked finish, but the user-doc write fails
+  // (flaky Firestore). updateUserBestTime resolves false, so recordScore must mark the
+  // best pending — otherwise the best is stranded in localStorage with no retry (the
+  // finish-path queueOfflineBest no-ops while online).
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'u-flaky-sync', isAnonymous: false, displayName: 'FlakySync' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  setNextSetDocError('users/u-flaky-sync', { code: 'unavailable' }); // the personal-best write fails
+  ScoresModule.recordScore(25); // Blue (ranked); fresh best => effectiveBestTime = 25
+  await flushAll();
+  check('a failed online ranked sync is queued pending for retry',
+    pendingTime('u-flaky-sync', 'blue') === 25);
+
+  console.log('\n--- offline-queue: reinit reattaches a detached ScoresModule, then flushes (Codex #362) ---');
+  // Divergence: AuthModule still holds Firestore (firestoreAvailable = true) but ScoresModule
+  // nulled its OWN local instance after a transient leaderboard failure (scores.ts clears it
+  // on 'unavailable'). resetState leaves exactly that state (available + local null). A
+  // pending best + reconnect must reinitialize, REATTACH ScoresModule, and flush — not stay
+  // stuck because reinit early-returns without re-pushing the instance (the auth.ts fix).
+  resetState(ScoresModule); // firestoreAvailable = true, ScoresModule local firestore = null
+  reinitializeSucceeds = true; // reinit reattaches ScoresModule (its initializeScores re-runs the flush)
+  currentAuthUser = { uid: 'u-detached', isAnonymous: false, displayName: 'Detached' };
+  ScoresModule.setCurrentUser(currentAuthUser); // no marker yet → drains to a no-op
+  seedPending('u-detached', 'blue', 25);
+  calls.reinitializeFirestore = 0;
+  window.dispatchEvent(new window.Event('online'));
+  await flushAll();
+  check('a detached ScoresModule reconnect reinitializes', calls.reinitializeFirestore > 0);
+  check('reattach + flush clears the pending marker',
+    pendingTime('u-detached', 'blue') === undefined);
+
+  console.log('\n--- syncBestTimeWithRetry: sign-in backfill queues a failed sync (Codex #362) ---');
+  // auth.ts's sign-in backfill (the only automatic path for a local-only best) routes
+  // through this. A transient user-doc failure must queue a pending marker rather than drop
+  // the best; a confirmed sync must leave no marker.
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'u-backfill', isAnonymous: false, displayName: 'Backfill' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  setNextSetDocError('users/u-backfill', { code: 'unavailable' }); // the backfill write fails
+  ScoresModule.syncBestTimeWithRetry('u-backfill', 22, 'blue');
+  await flushAll();
+  check('a failed sign-in backfill is queued pending for retry',
+    pendingTime('u-backfill', 'blue') === 22);
+
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  currentAuthUser = { uid: 'u-backfill-ok', isAnonymous: false, displayName: 'BackfillOK' };
+  ScoresModule.setCurrentUser(currentAuthUser);
+  ScoresModule.syncBestTimeWithRetry('u-backfill-ok', 22, 'blue');
+  await flushAll();
+  check('a confirmed sign-in backfill leaves no pending marker',
+    pendingTime('u-backfill-ok', 'blue') === undefined);
 
   console.log(`\nSCORES TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

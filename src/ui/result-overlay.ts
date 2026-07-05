@@ -15,6 +15,8 @@ import { EffectsModule } from '../effects.js';
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
 import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, type Difficulty } from '../difficulty.js';
+import { resultSyncStatusCopy } from '../offline/sync-manager.js';
+import { isOnline } from '../offline/offline-state.js';
 
 export function isValidScoreTime(time: number): boolean {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
@@ -71,6 +73,11 @@ function removeLoginPrompt() {
   const loginPrompt = document.getElementById('loginPrompt');
   if (loginPrompt) {
     loginPrompt.remove();
+  }
+  // Clear the PR-4 sync-status line too, so a prior run's message can't linger.
+  const syncStatus = document.getElementById('syncStatus');
+  if (syncStatus) {
+    syncStatus.remove();
   }
 }
 
@@ -211,9 +218,35 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         bestTimeDisplay.style.color = 'white';
       }
 
-      // Show login prompt if not logged in — only on ranked tiers, where signing in
-      // actually saves to the global board (unranked tiers are local practice only).
-      if (!getSignedInUser() && tierRanked) {
+      // Honest sync-status line (issue #358, PR 4): tell the player what actually
+      // happened to their result — practice tier (local only), offline (will sync
+      // later), guest (sign in to sync), or a stale board during a Firestore outage.
+      const signedInUser = getSignedInUser();
+      const online = isOnline();
+      const firestoreAvailable = !!(window.AuthModule
+        && typeof window.AuthModule.isFirebaseAvailable === 'function'
+        && window.AuthModule.isFirebaseAvailable().firestore);
+      const syncCopy = resultSyncStatusCopy({
+        online,
+        firestoreAvailable,
+        ranked: tierRanked,
+        signedIn: !!signedInUser,
+        anonymous: !!(signedInUser && signedInUser.isAnonymous),
+      });
+      if (syncCopy && !document.getElementById('syncStatus')) {
+        const syncStatus = document.createElement('p');
+        syncStatus.id = 'syncStatus';
+        syncStatus.textContent = syncCopy;
+        syncStatus.style.color = '#9fd0f5';
+        syncStatus.style.fontStyle = 'italic';
+        syncStatus.style.margin = '10px 0';
+        gameOverOverlay.insertBefore(syncStatus, restartButton);
+      }
+
+      // Show login prompt if not logged in — only on ranked tiers AND while online,
+      // where signing in actually saves to the global board (unranked tiers are local
+      // practice only; offline the sync-status line above already explains the state).
+      if (!signedInUser && tierRanked && online) {
         const loginPrompt = document.createElement('p');
         loginPrompt.textContent = 'Log in to save your score and see the leaderboard!';
         loginPrompt.style.color = '#4285F4';
