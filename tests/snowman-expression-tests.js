@@ -56,10 +56,15 @@ function makeSnowman(withFace = true) {
     parts.leftEye = makePart(0.4, 0.2, 0.8); parts.rightEye = makePart(-0.4, 0.2, 0.8);
     parts.leftPupil = makePart(0, 0.04, 0.11); parts.rightPupil = makePart(0, 0.04, 0.11);
     parts.leftCheek = makePart(0.62, -0.16, 0.7); parts.rightCheek = makePart(-0.62, -0.16, 0.7);
+    // Body-acting parts (PR 3): arm groups (base rot x=PI/16, y=∓PI/8), hat, nose.
+    parts.leftArmGroup = makePart(1.35, 4.9, 0); parts.leftArmGroup.rotation.set(Math.PI / 16, -Math.PI / 8, 0);
+    parts.rightArmGroup = makePart(-1.35, 4.9, 0); parts.rightArmGroup.rotation.set(Math.PI / 16, Math.PI / 8, 0);
+    parts.hatBase = makePart(0, 7.9, 0); parts.hatTop = makePart(0, 8.45, 0);
+    parts.nose = makePart(0, 0, 1); parts.nose.rotation.x = Math.PI / 2;
   }
   return { userData: { parts, partBaseTransforms: recordBase(parts) } };
 }
-const faceKeys = ['mouthBead0', 'mouthBead1', 'mouthBead2', 'mouthBead3', 'mouthBead4', 'mouthBead5', 'mouthBead6', 'leftBrow', 'rightBrow', 'leftEye', 'rightEye', 'leftPupil', 'rightPupil', 'leftCheek', 'rightCheek'];
+const faceKeys = ['mouthBead0', 'mouthBead1', 'mouthBead2', 'mouthBead3', 'mouthBead4', 'mouthBead5', 'mouthBead6', 'leftBrow', 'rightBrow', 'leftEye', 'rightEye', 'leftPupil', 'rightPupil', 'leftCheek', 'rightCheek', 'leftArmGroup', 'rightArmGroup', 'hatBase', 'hatTop', 'nose'];
 const allVals = (sm) => faceKeys.flatMap(k => { const p = sm.userData.parts[k]; return [p.position.x, p.position.y, p.position.z, p.scale.x, p.scale.y, p.scale.z, p.rotation.x, p.rotation.y, p.rotation.z]; });
 const allFinite = (arr) => arr.every(n => Number.isFinite(n));
 function runFor(sm, Expression, frames, motion, dt = 1 / 60) { for (let i = 0; i < frames; i++) Expression.update(sm, dt, typeof motion === 'function' ? motion(i) : motion); }
@@ -75,15 +80,20 @@ async function main() {
     check('finite on {speed:0, dt:0} frame (no 0/0 NaN)', allFinite(allVals(sm)));
   }
 
-  // 2) A long, hard, thrashing run stays bounded + finite.
+  // 2) A long, hard, thrashing run stays bounded + finite (deviation from base clamped).
   {
     const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
     let bounded = true;
     const techs = ['glide', 'carve', 'snowplow', 'tuck', 'skid', 'parallel', 'hop', 'air'];
     runFor(sm, Expression, 1200, (i) => ({ speed: 20, technique: techs[i % techs.length], turnRate: Math.sin(i * 0.2), isInAir: i % 90 < 15 }));
     for (const k of faceKeys) {
-      const p = sm.userData.parts[k];
-      if (Math.abs(p.position.y) > 2 || p.scale.y > 3 || p.scale.y < 0 || Math.abs(p.rotation.z) > 4) bounded = false;
+      const p = sm.userData.parts[k], b = base[k];
+      // No part may drift more than 2u from its neutral position, exceed 3x scale, or
+      // swing more than 2 rad from its neutral orientation on any axis.
+      if (Math.abs(p.position.y - b.position.y) > 2 || Math.abs(p.position.x - b.position.x) > 2 ||
+          p.scale.y > 3 || p.scale.y < 0 || Math.abs(p.rotation.z - b.rotation.z) > 2 ||
+          Math.abs(p.rotation.x - b.rotation.x) > 2) bounded = false;
     }
     check('bounded + finite over 1200 hard mixed frames', bounded && allFinite(allVals(sm)));
   }
@@ -188,6 +198,65 @@ async function main() {
     check('pupils shift opposite directions for opposite turns',
       Math.sign(smL.userData.parts.leftPupil.position.x - 0) !== Math.sign(smR.userData.parts.leftPupil.position.x - 0) &&
       Math.abs(smR.userData.parts.leftPupil.position.x) > 1e-3);
+  }
+
+  // 10) Body acting: air spreads/raises the arms (rotation offsets from base).
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    runFor(sm, Expression, 120, { speed: 22, technique: 'air', turnRate: 0, isInAir: true });
+    const p = sm.userData.parts;
+    check('air splays the arms outward (rotation.z offset, mirrored L/R)',
+      Math.abs(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) > 0.1 &&
+      Math.sign(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) !== Math.sign(p.rightArmGroup.rotation.z - base.rightArmGroup.rotation.z));
+  }
+
+  // 11) Body acting: tuck sweeps the arms back (rotation.x above base) and drops the hat.
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    runFor(sm, Expression, 120, { speed: 24, technique: 'tuck', turnRate: 0, isInAir: false });
+    const p = sm.userData.parts;
+    check('tuck sweeps the arms back (rotation.x above base)',
+      p.leftArmGroup.rotation.x > base.leftArmGroup.rotation.x + 0.1 && p.rightArmGroup.rotation.x > base.rightArmGroup.rotation.x + 0.1);
+    check('tuck pushes the hat down (position.y below base)',
+      p.hatTop.position.y < base.hatTop.position.y - 1e-3 && p.hatBase.position.y < base.hatBase.position.y - 1e-3);
+  }
+
+  // 12) Body acting: carve counter-rotates the arms (inside forward / outside back).
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    runFor(sm, Expression, 120, { speed: 20, technique: 'carve', turnRate: 0.9, isInAir: false });
+    const p = sm.userData.parts;
+    check('carve counter-rotates the arms (L/R rotation.x diverge oppositely)',
+      Math.sign(p.leftArmGroup.rotation.x - base.leftArmGroup.rotation.x) !== Math.sign(p.rightArmGroup.rotation.x - base.rightArmGroup.rotation.x));
+  }
+
+  // 13) Body acting: the hat leans into the turn (rotation.z offset flips with turn sign).
+  {
+    const smL = makeSnowman(), smR = makeSnowman();
+    const b = smL.userData.partBaseTransforms.hatTop.rotation.z;
+    runFor(smL, Expression, 120, { speed: 15, technique: 'parallel', turnRate: -1, isInAir: false });
+    runFor(smR, Expression, 120, { speed: 15, technique: 'parallel', turnRate: 1, isInAir: false });
+    check('hat leans opposite ways for opposite turns',
+      Math.sign(smL.userData.parts.hatTop.rotation.z - b) !== Math.sign(smR.userData.parts.hatTop.rotation.z - b) &&
+      Math.abs(smR.userData.parts.hatTop.rotation.z - b) > 1e-3);
+  }
+
+  // 14) Body acting: reset() restores arms/hat/nose to neutral.
+  {
+    const sm = makeSnowman();
+    const before = recordBase(sm.userData.parts);
+    runFor(sm, Expression, 200, { speed: 24, technique: 'tuck', turnRate: 0.8, isInAir: false });
+    Expression.reset(sm);
+    const p = sm.userData.parts;
+    let restored = true;
+    for (const k of ['leftArmGroup', 'rightArmGroup', 'hatBase', 'hatTop', 'nose']) {
+      const b = before[k];
+      if (p[k].rotation.x !== b.rotation.x || p[k].rotation.z !== b.rotation.z || p[k].position.y !== b.position.y) restored = false;
+    }
+    check('reset() restores arms/hat/nose to neutral', restored);
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

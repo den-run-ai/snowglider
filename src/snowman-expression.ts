@@ -1,13 +1,15 @@
 // snowman-expression.ts — cosmetic facial-expression layer (issue #364).
 //
 // A sibling of snowman-flex.ts, kept SEPARATE so flex (breathing / squash / head-bob /
-// ski camber) and emotion (mouth / brows / eyes) stay cleanly decoupled. Like flex it is
-// purely visual: it reads the per-frame motion the physics kernel already produced
-// (speed / technique / turn / air) and writes ONLY child-mesh transforms on the FACE
-// parts the face rig registered (src/snowman/face.ts) — a part-set DISJOINT from flex
-// (flex never touches the mouth/brows/eyes/pupils/cheeks), so the two layers compose
-// without fighting. It NEVER touches pos/velocity or anything the kernel owns, so the
-// physics-invariant harness and the frozen baseline stay byte-identical.
+// ski camber) and emotion + body acting (mouth / brows / eyes / arms / hat / nose) stay
+// cleanly decoupled. Like flex it is purely visual: it reads the per-frame motion the
+// physics kernel already produced (speed / technique / turn / air) and writes ONLY
+// child-mesh transforms on the FACE parts the face rig registered (src/snowman/face.ts)
+// plus the arm groups / hat pieces / nose — a part-set DISJOINT from flex (flex never
+// touches the mouth/brows/eyes/pupils/cheeks/arms/hat/nose) AND from pose.ts (which owns
+// only the ski ROOTS + the root yaw), so the layers compose without fighting. It NEVER
+// touches pos/velocity or anything the kernel owns, so the physics-invariant harness and
+// the frozen baseline stay byte-identical.
 //
 // The face parts are parented under the head mesh, which flex squash-stretches every
 // frame, so the whole face rides (and gently deforms with) the moving head surface;
@@ -49,6 +51,11 @@ interface ExprState {
   brow: number;       // brow raise(+ surprise)/lower(- focus), eased [-1..1]
   eye: number;        // eye openness from technique (squint<1),eased [0..1]
   look: number;       // pupil shift toward the turn, eased [-1..1]
+  // Body acting (issue #364 PR 3): arm / hat poses, all eased toward technique targets.
+  armSpread: number;  // arms splay out/up (air / snowplow / hop), eased [0..1]
+  armBack: number;    // arms swept back (tuck),                   eased [0..1]
+  armAsym: number;    // carve counterbalance (inside fwd / outside back), eased [-1..1]
+  hatTilt: number;    // hat lean into the turn + tuck push-down,  eased [-1..1]
 }
 
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
@@ -65,6 +72,16 @@ const EYE_MIN = 0.12;           // eye scale.y at a full blink (a thin coal line
 const PUPIL_SHIFT = 0.05;       // pupil x-shift toward a full-rate turn (world units)
 const CHEEK_POP = 0.35;         // extra cheek scale on a full grin
 const MICRO = 0.02;             // idle micro-motion amplitude on the mouth curve
+
+// --- body-acting tuning (issue #364 PR 3) — all clamped rotation offsets (rad) ------
+const ARM_SPREAD = 0.7;         // arm splay-out around the shoulder z-axis at full spread
+const ARM_RAISE = 0.5;          // arm lift (forward/up around x) at full spread
+const ARM_BACK = 0.8;           // arm sweep-back (around x) at full tuck
+const ARM_ASYM = 0.55;          // carve counterbalance swing per arm at full turn
+const HAT_TILT = 0.22;          // hat lean into a full-rate turn
+const HAT_TUCK_DROP = 0.12;     // hat pushed down/forward in a full tuck (world units)
+const NOSE_WOBBLE = 0.06;       // deterministic carrot wobble amplitude at speed (rad)
+const NOSE_TURN = 0.12;         // nose tilt into a full-rate turn (rad)
 
 // Blink cadence — deterministic (no Math.random): a quick full blink on a fixed period.
 const BLINK_INTERVAL = 3.6;     // seconds between blinks
@@ -116,7 +133,10 @@ function getState(ud: Record<string, unknown>): ExprState {
 }
 
 function freshState(): ExprState {
-  return { t: 0, blink: BLINK_INTERVAL, curve: 0.3, open: 0, brow: 0, eye: 1, look: 0 };
+  return {
+    t: 0, blink: BLINK_INTERVAL, curve: 0.3, open: 0, brow: 0, eye: 1, look: 0,
+    armSpread: 0, armBack: 0, armAsym: 0, hatTilt: 0,
+  };
 }
 
 function prefersReducedMotion(): boolean {
@@ -202,6 +222,30 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   const pop = 1 + Math.max(0, es.curve) * CHEEK_POP;
   writeCheek(parts.leftCheek, base.leftCheek, pop);
   writeCheek(parts.rightCheek, base.rightCheek, pop);
+
+  // --- Body acting (issue #364 PR 3): arms / hat / nose -------------------------------
+  // Ease the arm/hat pose channels toward their technique targets, then write the arm
+  // group + hat + nose transforms. These parts are NOT touched by flex or pose.ts (pose
+  // owns only the ski ROOTS and the root yaw), so the writes compose cleanly. The ski
+  // wedge/edge/draw is left to pose.ts by design.
+  const air = !!m.isInAir;
+  const spreadTgt = air ? 0.9 : m.technique === 'snowplow' ? 0.7 : m.technique === 'hop' ? 0.5 : 0;
+  const backTgt = !air && m.technique === 'tuck' ? 0.85 : 0;
+  const asymTgt = !air && m.technique === 'carve' ? turn : 0;
+  const tiltTgt = !air && m.technique === 'tuck' ? 0 : turn; // hat leans into the turn (dropped in tuck)
+  es.armSpread += (spreadTgt - es.armSpread) * k;
+  es.armBack += (backTgt - es.armBack) * k;
+  es.armAsym += (asymTgt - es.armAsym) * k;
+  es.hatTilt += (tiltTgt - es.hatTilt) * k;
+  es.armSpread = finite(es.armSpread); es.armBack = finite(es.armBack);
+  es.armAsym = finite(es.armAsym); es.hatTilt = finite(es.hatTilt);
+
+  writeArm(parts.leftArmGroup, base.leftArmGroup, es, +1);
+  writeArm(parts.rightArmGroup, base.rightArmGroup, es, -1);
+  writeHat(parts.hatBase, base.hatBase, es, m.technique === 'tuck' && !air);
+  writeHat(parts.hatTop, base.hatTop, es, m.technique === 'tuck' && !air);
+  // Deterministic carrot wobble: a tiny speed-scaled quiver plus a lean into the turn.
+  writeNose(parts.nose, base.nose, Math.sin(es.t * 9) * NOSE_WOBBLE * speedN + turn * NOSE_TURN);
 }
 
 function writeBrow(p: THREE.Object3D | undefined, b: BaseTransform | undefined, brow: number, sign: number): void {
@@ -228,6 +272,33 @@ function writeCheek(p: THREE.Object3D | undefined, b: BaseTransform | undefined,
   p.scale.set(b.scale.x * s, b.scale.y * s, b.scale.z * s);
 }
 
+/** Pose one arm group as rotation OFFSETS from its neutral base (the arm points +y out
+ *  of the shoulder). `sign` is +1 for the left arm (+x shoulder), -1 for the right, so
+ *  spread splays both arms symmetrically OUTWARD and the carve asymmetry counter-rotates
+ *  them (inside arm forward, outside back). All offsets clamped so a pose never breaks. */
+function writeArm(p: THREE.Object3D | undefined, b: BaseTransform | undefined, es: ExprState, sign: number): void {
+  if (!p || !b) return;
+  const rotX = clamp(-es.armSpread * ARM_RAISE + es.armBack * ARM_BACK - sign * es.armAsym * ARM_ASYM, -1.4, 1.4);
+  const rotZ = clamp(sign * es.armSpread * ARM_SPREAD, -1.2, 1.2);
+  p.rotation.set(b.rotation.x + rotX, b.rotation.y, b.rotation.z + rotZ);
+}
+
+/** Lean the hat into the turn (rotation.z) and, in a tuck, push it down/forward. The two
+ *  hat pieces share the head cluster's bob via their parenting; this adds the personality. */
+function writeHat(p: THREE.Object3D | undefined, b: BaseTransform | undefined, es: ExprState, tucking: boolean): void {
+  if (!p || !b) return;
+  const tilt = clamp(es.hatTilt * HAT_TILT, -0.4, 0.4);
+  const drop = tucking ? HAT_TUCK_DROP : 0;
+  p.position.set(b.position.x, b.position.y - drop, b.position.z);
+  p.rotation.set(b.rotation.x + (tucking ? 0.12 : 0), b.rotation.y, b.rotation.z + tilt);
+}
+
+/** A subtle deterministic carrot wobble/tilt (rotation.z offset from the base +x/2 pose). */
+function writeNose(p: THREE.Object3D | undefined, b: BaseTransform | undefined, wobble: number): void {
+  if (!p || !b) return;
+  p.rotation.set(b.rotation.x, b.rotation.y, b.rotation.z + clamp(wobble, -0.3, 0.3));
+}
+
 /** Snap every expression-animated face part back to its neutral transform and clear the
  *  expression state. Called on each run reset/restart so a new run starts from a clean
  *  face (and by update() under prefers-reduced-motion). */
@@ -239,6 +310,8 @@ function reset(snowman: THREE.Object3D): void {
   const keys = [
     ...MOUTH_BEADS, 'mouth', 'leftBrow', 'rightBrow', 'leftEye', 'rightEye',
     'leftPupil', 'rightPupil', 'leftCheek', 'rightCheek',
+    // Body acting (PR 3): arms / hat / nose.
+    'leftArmGroup', 'rightArmGroup', 'hatBase', 'hatTop', 'nose',
   ];
   for (const key of keys) {
     const p = parts[key]; const b = base[key];
