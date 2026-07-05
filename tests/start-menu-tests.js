@@ -441,8 +441,8 @@ async function main() {
   // ScoresModule present but without getLeaderboard (defensive) -> board hidden.
   resetAccountDom();
   window.AuthModule = {
-    isFirebaseAvailable: () => ({ auth: true, firestore: true }),
-    getAuthState: () => ({ user: { uid: 'me' }, isSignedIn: true })
+    isFirebaseAvailable: () => ({ auth: true, firestore: true, analytics: false }),
+    getAuthState: () => ({ user: /** @type {any} */ ({ uid: 'me' }), isSignedIn: true })
   };
   window.ScoresModule = {};
   lb.style.display = 'block';

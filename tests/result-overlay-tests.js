@@ -144,7 +144,7 @@ async function main() {
   // --- Finish + valid time, NOT a new best, signed in -> leaderboard insertion ---
   {
     leaderboardShown = 0;
-    window.AuthModule.getCurrentUser = () => ({ uid: 'u1' });
+    window.AuthModule.getCurrentUser = () => /** @type {any} */ ({ uid: 'u1' });
     const deps = makeDeps({ bestTime: 1 }); // existing best (1s) faster than the ~20s finish
     createShowGameOver(deps)(FINISH);
     check('finish that is not a new best shows "Your Time"', /Your Time/.test(deps.bestTimeDisplay.textContent));
@@ -158,7 +158,7 @@ async function main() {
   // leaderboard/result panel get inserted, and (b) reflect the tier just played.
   {
     leaderboardShown = 0;
-    window.AuthModule.getCurrentUser = () => ({ uid: 'u1' });
+    window.AuthModule.getCurrentUser = () => /** @type {any} */ ({ uid: 'u1' });
     const deps = makeDeps({ bestTime: 1, getDifficulty: () => 'blue' });
     // A stand-in picker element inserted ABOVE the restart button (as snowglider.ts does);
     // the later leaderboard insertion would otherwise leave it stranded above the board.
@@ -180,7 +180,7 @@ async function main() {
   // re-show it — the element stays parented, so display must be re-set, not only on first
   // insert (the Blue → Black → Blue round-trip is the regression Codex flagged).
   {
-    window.AuthModule.getCurrentUser = () => ({ uid: 'u1' });
+    window.AuthModule.getCurrentUser = () => /** @type {any} */ ({ uid: 'u1' });
     const blueDeps = makeDeps({ bestTime: 1, getDifficulty: () => 'blue' });
     const lb = document.getElementById('leaderboard');
     // Reuse the SAME overlay DOM across all three finishes (no makeDeps reset between them);

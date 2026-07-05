@@ -158,14 +158,13 @@ import { initInstallPrompt, type InstallPromptController } from '../pwa/install-
           return;
         }
 
-        // authState + list come from the untyped (any) AuthModule/ScoresModule boot
-        // bridges; narrow them to the fields used here so the .uid/.displayName/.time
-        // accesses below are type-checked instead of silently any.
-        const me = (authState as { user?: { uid?: string; displayName?: string | null } | null }).user ?? null;
+        // authState + list are now typed via the AuthModuleApi/ScoresModuleApi boot
+        // seams (types/globals.d.ts), so the .uid/.displayName/.time accesses below are
+        // type-checked directly — no local `any` narrowing needed.
+        const me = authState.user ?? null;
         const tierLabel = getDifficultyConfig(selectedDifficulty).label;
         let html = `<h3>🏆 ${tierLabel} Top Times</h3><table><tr><th>#</th><th>Player</th><th>Time</th></tr>`;
-        const rows = list as Array<{ userId?: string; displayName?: string | null; time?: number }>;
-        rows.slice(0, 5).forEach((entry, index) => {
+        list.slice(0, 5).forEach((entry, index) => {
           const isMe = me && entry.userId === me.uid;
           // Other players show their denormalized leaderboard-doc name (written by
           // ScoresModule.updateLeaderboard); entries from before the field existed
@@ -336,7 +335,7 @@ import { initInstallPrompt, type InstallPromptController } from '../pwa/install-
     buildDifficultyPicker();
     // Surface the account/sign-in control above the start overlay while it's up.
     document.body.classList.add('start-screen-active');
-    if ((window as any).SnowGliderGameScriptsReady) {
+    if (window.SnowGliderGameScriptsReady) {
       startPendingGameIfReady();
       refreshStartAccountUI();
     }

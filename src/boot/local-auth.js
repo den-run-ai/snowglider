@@ -101,7 +101,7 @@
           authContainer.appendChild(localModeNotice);
         }
       },
-      /** @param {number} time @param {string=} tier */
+      /** @param {number} time @param {import('../difficulty.js').Difficulty=} tier */
       recordScore: function (time, tier) {
         if (!isValidScoreTime(time)) {
           console.warn("Skipping local score record (Invalid time value):", time);
@@ -115,7 +115,7 @@
           console.log("Score recorded locally:", time);
         }
       },
-      /** @param {string=} tier */
+      /** @param {import('../difficulty.js').Difficulty=} tier */
       displayLeaderboard: function (tier) {
         if (window.ScoresModule && typeof window.ScoresModule.displayLeaderboard === 'function') {
           window.ScoresModule.displayLeaderboard(tier);

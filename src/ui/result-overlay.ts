@@ -202,7 +202,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // Record the score whenever the leaderboard API is available (it handles its own
       // auth + persistence); otherwise fall back to persisting a new local best.
       if (canRecordScore && tierRanked) {
-        window.AuthModule.recordScore(currentTime, tier);
+        window.AuthModule.recordScore?.(currentTime, tier);
       } else if (isNewBestTime) {
         // Unranked tier (or no leaderboard API): keep the local per-tier best only.
         localStorage.setItem(localBestTimeKey(tier), String(currentTime));
@@ -320,7 +320,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       }
 
       // Display leaderboard for the run's tier
-      window.AuthModule.displayLeaderboard(tier);
+      window.AuthModule.displayLeaderboard?.(tier);
     } else {
       // No global board for this result (unranked tier, or signed out): hide any
       // leaderboard a previous RANKED finish left visible in the overlay. Without this,
