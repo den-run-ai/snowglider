@@ -209,6 +209,18 @@ async function main() {
     .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   check('Enter on a focused difficulty option does NOT start the run', launches === 0);
 
+  // Enter on the PWA install chip must NOT also start the run (Codex #360): a keyboard
+  // user pressing Enter on Install would otherwise both install AND launch the game.
+  launches = 0;
+  const installChip = document.createElement('div');
+  installChip.id = 'installPrompt';
+  const installBtn2 = document.createElement('button');
+  installChip.appendChild(installBtn2);
+  startContainer.appendChild(installChip);
+  installBtn2.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  check('Enter on the install chip does NOT start the run', launches === 0);
+  startContainer.removeChild(installChip);
+
   console.log('\n--- keyboard: Escape closes the about panel ---');
   SM.showAbout();
   document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));

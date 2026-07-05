@@ -1193,6 +1193,50 @@ canvas { display: block; }
   letter-spacing: 0.2px;
 }
 
+/* PWA install chip (issue #358). Mounted hidden inside #startGameContainer; the
+   install-prompt module reveals it (display:flex) only when the browser offers
+   install and we're not under automation/standalone. Additive — never blocks Start. */
+.install-prompt {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+  margin: 10px auto 0;
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: rgba(120, 170, 210, 0.16);
+  border: 1px solid rgba(180, 215, 245, 0.32);
+  color: rgba(223, 244, 255, 0.92);
+  font: 500 13px system-ui, sans-serif;
+}
+.install-prompt-install {
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: none;
+  background: #dff4ff;
+  color: #0b1020;
+  font: 600 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.install-prompt-install:hover {
+  background: #ffffff;
+}
+.install-prompt-dismiss {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: rgba(223, 244, 255, 0.7);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.install-prompt-dismiss:hover {
+  color: #ffffff;
+}
+
 /* While the start overlay is up, lift the account/sign-in control above it so
    players can sign in before starting a run (the overlay sits at z-index 2000). */
 body.start-screen-active #authContainer {

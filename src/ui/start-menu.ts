@@ -12,6 +12,7 @@ import { getDifficultyConfig, readStoredDifficulty, storeDifficulty, type Diffic
 import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPickerHandle } from './difficulty-picker.js';
 import { isOnline, watchConnectivity } from '../offline/offline-state.js';
 import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-ui.js';
+import { initInstallPrompt, type InstallPromptController } from '../pwa/install-prompt.js';
 
 (function () {
   let startGamePending = false;
@@ -32,6 +33,9 @@ import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-u
   // unchanged; the unsubscribe keeps us teardown-clean if the menu is re-initialized.
   let offlineBadge: HTMLElement | null = null;
   let unwatchConnectivity: (() => void) | null = null;
+  // The install-prompt controller; re-init disposes the prior one so we never stack
+  // duplicate beforeinstallprompt listeners or leave a second chip behind.
+  let installPrompt: InstallPromptController | null = null;
 
   // Mount the offline badge into the start container and keep its visibility in sync
   // with connectivity. Idempotent: re-init tears down the prior watcher first so we
@@ -49,6 +53,15 @@ import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-u
       // refresh so they hide/show with connectivity, not just the badge (Codex #359).
       refreshStartAccountUI();
     });
+  }
+
+  // Wire the PWA install prompt (issue #358, PR 2). Additive and self-gating: the
+  // chip only appears when the browser fires `beforeinstallprompt` and we're not
+  // under automation/standalone. Dispose any prior controller first so a re-init
+  // doesn't stack listeners.
+  function setupInstallPrompt() {
+    if (installPrompt) installPrompt.dispose();
+    installPrompt = initInstallPrompt();
   }
 
   function addBuildBadge() {
@@ -319,6 +332,7 @@ import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-u
   function initializeStartMenu() {
     addBuildBadge();
     setupOfflineBadge();
+    setupInstallPrompt();
     buildDifficultyPicker();
     // Surface the account/sign-in control above the start overlay while it's up.
     document.body.classList.add('start-screen-active');
@@ -367,11 +381,12 @@ import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-u
       const startContainer = document.getElementById('startGameContainer');
       const aboutPanel = document.getElementById('aboutGamePanel');
 
-      // Don't let Enter/Space start the run when a difficulty option is focused —
-      // the button's native activation should just select the tier. Otherwise a
-      // keyboard user picking Black/Bunny would also trigger the global start.
+      // Don't let Enter/Space start the run when focus is on an interactive start-screen
+      // control whose own activation should NOT also launch the game: a difficulty option
+      // (just selects the tier) or the PWA install chip (Install/dismiss — Codex #360, a
+      // keyboard Enter on Install would otherwise both install AND start the run).
       const target = event.target as Element | null;
-      if (target && typeof target.closest === 'function' && target.closest('#difficultyPicker')) {
+      if (target && typeof target.closest === 'function' && target.closest('#difficultyPicker, #installPrompt')) {
         return;
       }
 

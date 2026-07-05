@@ -207,6 +207,9 @@ jobs:
           test -f dist/LICENSE
           test -f dist/README.md
           test ! -d dist/tests/verification
+          # PWA install assets (issue #358, PR 2) must ship so the game is installable.
+          test -f dist/manifest.webmanifest
+          test -f dist/icons/icon.svg
           # Guard against a raw-TypeScript Pages artifact (defense-in-depth). The
           # real prod-outage fix was switching the Pages source to GitHub Actions
           # (build_type=workflow) so the legacy branch builder can't serve raw src/;

@@ -32,6 +32,20 @@
   <meta name="twitter:image" content="https://raw.githubusercontent.com/den-run-ai/snowglider/assets/og-image/og-card.png">
 
   <link rel="stylesheet" href="styles/main.css">
+
+  <!-- PWA install metadata (issue #358, PR 2). The manifest + icons make the game
+       installable on desktop/Android; the service worker (offline app-shell caching)
+       lands in a later PR. Icons are SVG to keep the repo binary-free (matching the
+       inline-SVG convention used elsewhere here) — raster apple-touch fidelity on
+       older iOS is a follow-up. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0b1020">
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="SnowGlider">
+
   <!--
     Import map for the ES-module bundle path (issue #84, Phase 2). It only takes
     effect when index.html is served as raw source (the puppeteer suite and
