@@ -25,6 +25,8 @@ import { readStoredDifficulty, getDifficultyConfig, BLUE_AVALANCHE, type Difficu
 import { courseLineFor, setActiveCourseLine } from '../course-line.js';
 import { createScenery, type ScenerySystem } from '../scenery/scenery.js';
 import { scenerySeedFor } from '../scenery/scenery-budget.js';
+import { createAgents, type AgentSystem } from '../agents/agents.js';
+import { agentsSeedFor } from '../agents/agents-budget.js';
 
 // The shipped Blue avalanche numbers, re-exported from the difficulty spine so there is
 // ONE source of truth (difficulty.ts BLUE_AVALANCHE). The winnability harness reads these
@@ -55,6 +57,7 @@ export interface GameState {
   snowDepth: SnowDepthField | null;  // persistent snow-depth field: packed ski lines + refill (#246)
   debris: SnowmanDebris | null;      // crash-shatter wipeout system (#53)
   scenery: ScenerySystem | null;     // background scenery: distant, non-interactive world (#320)
+  agents: AgentSystem | null;        // living-world agent layer: background wildlife etc. (#366)
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
   lastAvalancheZ: number;            // z the trigger distance is measured from
   dodgeAwarded: boolean;             // this slide's once-only dodge bonus already paid (JP-3)
@@ -336,6 +339,7 @@ export function setupScene(signal?: AbortSignal) {
     snowDepth: null,
     debris: null,
     scenery: null,
+    agents: null,
     avalancheTriggered: false,
     lastAvalancheZ: 0,
     dodgeAwarded: false,
@@ -456,6 +460,20 @@ export function setupScene(signal?: AbortSignal) {
     courseLine,
     difficulty: builtDifficulty,
     seed: scenerySeedFor(builtDifficulty),
+  });
+
+  // --- Living-world agent layer (#366) ---
+  // Also built AFTER the collision arrays, so agents can never be mistaken for an obstacle
+  // source. PR 1 adds a purely-cosmetic, background-only wildlife herd; it is render-only /
+  // collision-neutral / physics-neutral / Math.random-stream-neutral / teardown-safe, and
+  // keyed off `builtDifficulty` like the rest of the one-shot scene build (a run locked on a
+  // different tier reloads via maybeReloadForRunTier). Later PRs add interactive agents that
+  // report outcomes to the main loop rather than mutating physics themselves.
+  state.agents = createAgents(scene, {
+    getTerrainHeight: Snow.getTerrainHeight,
+    courseLine,
+    difficulty: builtDifficulty,
+    seed: agentsSeedFor(builtDifficulty),
   });
 
   // (window.isTestMode is published at the top of setupScene, before any

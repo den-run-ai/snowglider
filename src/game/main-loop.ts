@@ -601,6 +601,11 @@ export function createMainLoop(deps: MainLoopDeps) {
         windGust: Wind.gust(),
       });
 
+      // Living-world agent layer (#366): cosmetic-only tick in the render-frame zone (NOT
+      // the fixed physics substep), next to scenery. Reads the render delta + player
+      // position; the background wildlife never writes pos/velocity/collision/course state.
+      state.agents?.update(frameDelta, snowman.position);
+
       // --- Avalanche burial + survival check + warning UI -----------------------
       // Burial is checked ONCE PER RENDER FRAME here — after the player's substeps and
       // after this frame's avalanche.update (above) — and BEFORE hasPassed()/reset. So a

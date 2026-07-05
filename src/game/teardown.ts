@@ -131,6 +131,10 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   // off-scene caches/loaders/listeners a later PR adds (the scene sweep above already
   // caught its attached meshes; dispose() is idempotent, so the overlap is safe).
   ctx.state.scenery?.dispose();
+  // Living-world agent layer (#366): dispose() frees the agent group's GPU buffers plus any
+  // off-scene caches a later PR adds (the scene sweep above already caught its attached
+  // meshes; dispose() is idempotent, so the overlap is safe).
+  ctx.state.agents?.dispose();
 
   // 4. Null the pooled tree singletons so a later rebuild re-creates them cleanly
   //    instead of holding freed-but-still-referenced handles (the scene sweep already
