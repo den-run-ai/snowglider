@@ -169,10 +169,53 @@ jobs:
           files: ./coverage/e2e/lcov.info
           flags: e2e
 
+  pwa:
+    name: PWA offline acceptance (production build)
+    runs-on: ubuntu-latest
+    # Validates the offline PWA contract (issue #358) against the PRODUCTION build via
+    # `vite preview` — the only place the real service worker (dist/sw.js) exists, so
+    # the dev-server e2e suite can't cover it. This job GATES the Pages deploy
+    # (build-pages `needs: [test, pwa]`): a shipped service-worker regression can persist
+    # for users across releases, so a broken offline shell must block publish rather than
+    # go out (Codex #363). Uses the version-matched Playwright container so the pinned
+    # chromium build is present.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.0-noble
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run PWA offline acceptance tests
+        # test:pwa builds first, then Playwright starts `vite preview` and drives the
+        # real service worker (offline launch, ?test= protection, ?sw=reset).
+        run: npm run test:pwa
+        env:
+          CI: true
+
+      - name: Upload Playwright PWA report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: playwright-report-pwa
+          path: playwright-report/
+          retention-days: 7
+
   build-pages:
     name: Build GitHub Pages artifact
     runs-on: ubuntu-latest
-    needs: test
+    # Gate the Pages build/deploy on BOTH the Node/browser suite AND the production-build
+    # PWA offline acceptance, so a broken service worker can never publish (Codex #363).
+    needs: [test, pwa]
     if: ${{ github.event_name != 'pull_request' }}
 
     steps:
