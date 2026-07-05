@@ -210,6 +210,10 @@ jobs:
           # PWA install assets (issue #358, PR 2) must ship so the game is installable.
           test -f dist/manifest.webmanifest
           test -f dist/icons/icon.svg
+          # PWA service worker (issue #358, PR 3): the built worker must ship (its
+          # precache-manifest cache-safety is asserted by verify-pages-dist.sh below).
+          test -f dist/sw.js
+          test ! -f dist/src/pwa/sw.ts
           # Guard against a raw-TypeScript Pages artifact (defense-in-depth). The
           # real prod-outage fix was switching the Pages source to GitHub Actions
           # (build_type=workflow) so the legacy branch builder can't serve raw src/;

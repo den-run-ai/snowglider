@@ -84,6 +84,10 @@ module.exports = [
   // them (they are linted non-type-checked in the block below).
   ...tseslint.config({
     files: ["src/**/*.ts", "types/**/*.ts"],
+    // src/pwa/sw.ts is the service worker: it's excluded from tsconfig (webworker
+    // lib, compiled standalone by vite-plugin-pwa), so the type-aware program can't
+    // include it. It's linted non-type-checked in its own block below.
+    ignores: ["src/pwa/sw.ts"],
     extends: [tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       sourceType: "module",
@@ -142,6 +146,23 @@ module.exports = [
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": "off"
+    }
+  }),
+  // The service worker (src/pwa/sw.ts) runs in the ServiceWorkerGlobalScope and is
+  // excluded from tsconfig, so lint it non-type-checked with worker + browser globals
+  // (self, caches, clients, skipWaiting, ExtendableMessageEvent, …).
+  ...tseslint.config({
+    files: ["src/pwa/sw.ts"],
+    extends: [tseslint.configs.recommended],
+    languageOptions: {
+      sourceType: "module",
+      globals: {
+        ...globals.serviceworker,
+        ...globals.browser
+      }
+    },
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn"
     }
   }),
   {

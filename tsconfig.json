@@ -18,5 +18,6 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.js", "src/**/*.ts", "types/**/*.d.ts"],
-  "exclude": ["node_modules", "dist", "coverage", "tests"]
+  "//": "src/pwa/sw.ts targets the ServiceWorkerGlobalScope (webworker lib, not DOM) and is compiled standalone by vite-plugin-pwa's injectManifest — excluding it keeps the DOM-lib app typecheck from choking on its worker globals.",
+  "exclude": ["node_modules", "dist", "coverage", "tests", "src/pwa/sw.ts"]
 }
