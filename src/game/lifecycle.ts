@@ -8,6 +8,7 @@ import { Controls } from '../controls.js';
 import { getDifficultyConfig } from '../difficulty.js';
 import { Snow } from '../snow.js';
 import { Flex } from '../snowman-flex.js';
+import { Expression } from '../snowman-expression.js';
 import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
@@ -64,6 +65,10 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Snap the cosmetic flex layer (squash/jiggle/head-bob) back to a neutral pose so a
     // new run starts clean (issue #53). Purely visual; no physics impact.
     Flex.reset(snowman);
+
+    // Snap the facial expression (mouth/brows/eyes) back to the neutral relaxed-smile
+    // face too, so a new run starts from a clean expression (issue #364). Purely visual.
+    Expression.reset(snowman);
 
     // Clear any crash-shatter wipeout: dispose its (debris-owned) fragments and re-show
     // the snowman, so a restart always begins with a clean, visible snowman (#53).

@@ -27,6 +27,7 @@ import { Wind } from '../wind.js';
 import { TreeShed, forestProximityAt } from '../tree-shed.js';
 import { Snowman, type UpdateResult, type LandingQuality } from '../snowman.js';
 import { Flex } from '../snowman-flex.js';
+import { Expression } from '../snowman-expression.js';
 import { CourseModule } from '../course.js';
 import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
@@ -317,6 +318,18 @@ export function createMainLoop(deps: MainLoopDeps) {
       tookOff: ev.tookOff && !!(snowman.userData && snowman.userData.playerJump),
       windSway,
       windStream
+    });
+
+    // Cosmetic facial expression (issue #364). Same render-observer contract as Flex:
+    // reads the per-frame result only, writes ONLY the face parts' child transforms
+    // (a set disjoint from Flex) — never pos/velocity. Runs right after Flex.update so
+    // it composes on top of this frame's head squash. Event reactions (landing grade /
+    // tricks / avalanche) layer on in a later PR; this pass is the technique face.
+    Expression.update(snowman, frameDelta, {
+      speed: flexSpeed,
+      technique: result.technique,
+      turnRate: flexSpeed > 1e-3 ? velocity.x / flexSpeed : 0, // zero-speed guard (no 0/0 NaN)
+      isInAir: player.isInAir,
     });
 
     // Sound effects (issue #158): a takeoff whoosh on the ground->air transition, a
