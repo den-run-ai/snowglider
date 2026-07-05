@@ -67,7 +67,11 @@ let firestore: Firestore | null = null; // Local cache of firestore instance, up
 let analytics: Analytics | null = null;
 let currentUser: User | null = null;
 
-function isValidScoreTime(time: number) {
+// Type-guard form: accepts `unknown` (Firestore reads and localStorage parses flow
+// through here as untyped data) and narrows to `number` on success, so callers can
+// decode a raw field and use it as a number without an unsafe cast. The body already
+// did the `typeof === 'number'` check, so this is purely a signature tightening.
+function isValidScoreTime(time: unknown): time is number {
   return typeof time === 'number' &&
     Number.isFinite(time) &&
     time >= MIN_VALID_SCORE_TIME &&
@@ -291,7 +295,9 @@ function updateUserBestTime(userId: string, time: number, tier: Difficulty = DEF
   // confirmed sync and KEEPS it on any failure (Codex #362).
   return getDoc(userDocRef)
     .then(docSnap => {
-      const storedBest = docSnap.exists() ? docSnap.data()[bestField] : null;
+      const storedBest: unknown = docSnap.exists() ? docSnap.data()[bestField] : null;
+      // isValidScoreTime is a type guard: aliasing its result in `hasStoredBest`
+      // narrows `storedBest` to `number` wherever hasStoredBest gates its use below.
       const hasStoredBest = isValidScoreTime(storedBest);
       if (storedBest !== null && storedBest !== undefined && !hasStoredBest) {
         console.warn(`Ignoring invalid stored best for user ${userId}:`, storedBest);
@@ -403,7 +409,7 @@ function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFA
   // so a slower run can never downgrade a faster board entry.
   return getDoc(leaderboardDocRef)
     .then(leaderboardSnap => {
-      const leaderboardBest = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
+      const leaderboardBest: unknown = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
       if (leaderboardBest !== null && !isValidScoreTime(leaderboardBest)) {
         console.warn(`Replacing invalid leaderboard entry for user ${userId}:`, leaderboardBest);
       }
@@ -467,8 +473,32 @@ function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFA
 export interface LeaderboardScore {
   userId: string;     // the leaderboard document id (== the user's uid)
   time: number;       // best run time in seconds
-  userRef: any;       // Firestore DocumentReference to the user doc (untyped DocumentData)
+  userRef: DocumentReference; // reference to the user doc (denormalized foreign key)
   displayName: string | null; // denormalized at write time; null on legacy/guestless entries
+}
+
+/** The trusted shape decoded from a raw Firestore `leaderboard` document. */
+interface LeaderboardDoc {
+  user: DocumentReference;
+  time: number;
+  displayName: string | null;
+}
+
+/**
+ * Decode+validate a raw Firestore leaderboard document at the trust boundary, so the
+ * untyped `DocumentData` never flows into the app as `any`. Returns null for anything
+ * that isn't a valid, complete entry (invalid/absent time, missing user ref).
+ */
+function readLeaderboardDoc(data: unknown): LeaderboardDoc | null {
+  if (!data || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  if (!isValidScoreTime(d.time)) return null; // narrows d.time to number
+  if (!d.user) return null;
+  return {
+    user: d.user as DocumentReference,
+    time: d.time,
+    displayName: typeof d.displayName === 'string' ? d.displayName : null,
+  };
 }
 
 function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<LeaderboardScore[]> {
@@ -503,25 +533,26 @@ function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<Leaderbo
       .then(snapshot => {
         const scores: LeaderboardScore[] = [];
         snapshot.forEach(docSnap => {
-          const data = docSnap.data();
-          // Ensure data has expected fields before pushing
-          if (data && isValidScoreTime(data.time) && data.user) {
+          // Decode the raw DocumentData through the trust boundary — invalid/incomplete
+          // entries (bad time, missing user ref) are dropped rather than flowing as `any`.
+          const decoded = readLeaderboardDoc(docSnap.data());
+          if (decoded) {
             scores.push({
               userId: docSnap.id, // The user ID is the document ID
-              time: data.time,
-              userRef: data.user as DocumentReference, // Store the DocumentReference to the user
+              time: decoded.time,
+              userRef: decoded.user, // DocumentReference to the user doc
               // Denormalized name (may be absent on entries written before the
               // field existed — the renderer falls back to 'Anonymous').
-              displayName: typeof data.displayName === 'string' ? data.displayName : null
+              displayName: decoded.displayName
             });
           } else {
-            console.warn("Skipping invalid leaderboard entry:", docSnap.id, data);
+            console.warn("Skipping invalid leaderboard entry:", docSnap.id, docSnap.data());
           }
         });
         console.log("Leaderboard data fetched:", scores.length, "entries");
         return scores;
       })
-      .catch(error => {
+      .catch((error: { code?: string }) => {
         console.error("Error fetching leaderboard:", error);
         // Only set Firestore to null for serious connectivity issues, not permissions
         if (error.code === 'unavailable' || error.code === 'failed-precondition') {
