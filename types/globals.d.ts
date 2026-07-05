@@ -167,6 +167,21 @@ declare global {
     _authTokenSyncURL?: string | null;
   }
 
+  /** Browser-test hook surface published on `window` by the snowman test hooks
+   *  (src/snowman/test-hooks.ts) + the debris opt-in (snowglider.ts). Collision hooks
+   *  are installed for the browser collision suites; the *Enabled flags are opt-ins
+   *  that let a dedicated test re-enable a feature the automation gate otherwise
+   *  suppresses (debris / diagnostics / sfx). All optional — present only under test. */
+  interface TestHooksApi {
+    forceTreeCollision?(): boolean;
+    checkTreeCollision?(x: number, z: number): boolean;
+    checkExtendedTerrainCollision?(): boolean;
+    isDebrisActive?(): boolean;
+    debrisEnabled?: boolean;
+    diagnosticsEnabled?: boolean;
+    sfxEnabled?: boolean;
+  }
+
   // Window members below are the remaining boot/auth/test seams. They are not
   // per-module namespace bridges.
   interface Window {
@@ -206,8 +221,7 @@ declare global {
     showGameOver?: (reason: string) => void;
     initializeGameWithAudio?: () => void;
     // Test-only handles read/written by snowman.js test hooks + browser suites.
-    // (Still `any` — the test-hook surface is typed in a later hardening PR.)
-    testHooks?: any;
+    testHooks?: TestHooksApi;
     treeCollisionRadius?: number;
     testTreeJumpingCheck?: boolean;
     testCollisionDetected?: boolean;

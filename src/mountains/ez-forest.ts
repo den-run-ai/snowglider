@@ -155,17 +155,63 @@ function farRecipe(r: EzRecipe): EzRecipe {
 /** How many snow shelf anchors each archetype exposes (trees.ts samples from these). */
 const SNOW_ANCHORS_PER_ARCHETYPE = 12;
 
+// --- @dgreenheck/ez-tree adapter types (issue #367) --------------------------------
+// The published package ships no usable types for our purposes, so instead of
+// scattering `any` casts across generateArchetype we describe the small slice of its
+// surface this module actually drives. The dynamic import stays `unknown` and is
+// validated by a runtime guard (asEzTreeModule) at the boundary.
+
+/** The one ez-tree instance API this module uses (a narrow view — the real options
+ *  object has many more fields we neither read nor write). */
+interface EzTreeInstance {
+  loadPreset(name: string): void;
+  generate(): void;
+  options: {
+    seed: number;
+    branch: {
+      levels: number;
+      children: number[];
+      segments: number[];
+      sections: number[];
+    };
+    leaves: {
+      count: number;
+      size: number;
+    };
+  };
+  branchesMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
+  leavesMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhongMaterial>;
+}
+
+/** The module shape we expect from the lazy `@dgreenheck/ez-tree` import. */
+interface EzTreeModule {
+  Tree: new () => EzTreeInstance;
+}
+
+/** Runtime guard at the import trust boundary: accept the module (or its `default`
+ *  interop wrapper) only if it exposes a `Tree` constructor; throw otherwise so the
+ *  load promise rejects and the memo clears for a retry. */
+function asEzTreeModule(mod: unknown): EzTreeModule {
+  const hasTree = (v: unknown): v is EzTreeModule =>
+    !!v && typeof v === 'object' && typeof (v as { Tree?: unknown }).Tree === 'function';
+  if (hasTree(mod)) return mod;
+  const fallback = (mod as { default?: unknown } | null | undefined)?.default;
+  if (hasTree(fallback)) return fallback;
+  throw new Error('EzForest: @dgreenheck/ez-tree did not export a Tree constructor');
+}
+
 // Memoized module + archetypes. The import promise is shared so concurrent callers
 // (re-inits racing the first build) never double-fetch the 4 MB chunk.
-let ezModulePromise: Promise<any> | null = null;
+let ezModulePromise: Promise<EzTreeModule> | null = null;
 let archetypesPromise: Promise<EzArchetype[]> | null = null;
 let archetypesCache: EzArchetype[] | null = null;
 
 // Test seam: the dynamic-import thunk, injectable so the Node suite can exercise a
 // failed chunk fetch (and the retry after it) without a network. Setting a new
-// importer clears the module memo so the next load actually goes through it.
-let ezModuleImporter: () => Promise<any> = () => import('@dgreenheck/ez-tree');
-export function __setEzModuleImporterForTests(importer: (() => Promise<any>) | null): void {
+// importer clears the module memo so the next load actually goes through it. The raw
+// module shape is `unknown` — asEzTreeModule validates it at the boundary.
+let ezModuleImporter: () => Promise<unknown> = () => import('@dgreenheck/ez-tree');
+export function __setEzModuleImporterForTests(importer: (() => Promise<unknown>) | null): void {
   ezModuleImporter = importer ?? (() => import('@dgreenheck/ez-tree'));
   ezModulePromise = null;
 }
@@ -183,19 +229,19 @@ export function __setEzModuleImporterForTests(importer: (() => Promise<any>) | n
  *  is off headless), so the one-time import draws never land on an instrumented
  *  stream; per-archetype GENERATION, which re-runs after resets, stays
  *  stream-neutral via the synchronous swap in ensureEzArchetypes. */
-function loadEzTreeModule(): Promise<any> {
+function loadEzTreeModule(): Promise<EzTreeModule> {
   if (!ezModulePromise) {
     const loading = (async () => {
-      const g = globalThis as any;
+      const g = globalThis as unknown as { document?: unknown };
       let shimmed = false;
       if (typeof g.document === 'undefined') {
-        const stubEl = (): any => ({ addEventListener() {}, removeEventListener() {}, setAttribute() {}, style: {} });
+        const stubEl = () => ({ addEventListener() {}, removeEventListener() {}, setAttribute() {}, style: {} });
         g.document = { createElementNS: stubEl, createElement: stubEl };
         shimmed = true;
       }
       try {
-        const mod: any = await ezModuleImporter();
-        return mod && mod.Tree ? mod : mod.default;
+        const mod: unknown = await ezModuleImporter();
+        return asEzTreeModule(mod);
       } finally {
         if (shimmed) delete g.document;
       }
@@ -236,7 +282,7 @@ function computeSnowAnchors(leaves: THREE.BufferGeometry): Array<{ x: number; y:
   return anchors;
 }
 
-function generateArchetype(EZ: any, recipe: EzRecipe, species: number, detail: EzDetail): EzArchetype {
+function generateArchetype(EZ: EzTreeModule, recipe: EzRecipe, species: number, detail: EzDetail): EzArchetype {
   const tree = new EZ.Tree();
   tree.loadPreset(recipe.preset);
   tree.options.seed = recipe.seed;
@@ -254,8 +300,8 @@ function generateArchetype(EZ: any, recipe: EzRecipe, species: number, detail: E
   tree.options.leaves.size = tree.options.leaves.size * recipe.leavesSizeMul;
   tree.generate();
 
-  const branches = tree.branchesMesh.geometry as THREE.BufferGeometry;
-  const leaves = tree.leavesMesh.geometry as THREE.BufferGeometry;
+  const branches = tree.branchesMesh.geometry;
+  const leaves = tree.leavesMesh.geometry;
   branches.computeBoundingBox();
   const height = branches.boundingBox ? branches.boundingBox.max.y : 1;
 
@@ -263,14 +309,14 @@ function generateArchetype(EZ: any, recipe: EzRecipe, species: number, detail: E
   // The package flags it SRGBColorSpace, but this game renders the legacy linear
   // pipeline (ColorManagement off, NoColorSpace canvas textures everywhere) — the
   // sRGB decode would double-darken the needles, so re-flag it to match.
-  const leafMaterial = tree.leavesMesh.material as THREE.MeshPhongMaterial;
-  const leafMap = (leafMaterial && leafMaterial.map) || null;
+  const leafMaterial = tree.leavesMesh.material;
+  const leafMap = leafMaterial.map || null;
   if (leafMap) leafMap.colorSpace = THREE.NoColorSpace;
 
   // The geometries are ours now; the generated Phong materials are not used
   // (trees.ts builds tinted, swaying materials) — free them. Their maps are the
   // package's shared texture cache, which material.dispose() correctly leaves alone.
-  (tree.branchesMesh.material as THREE.Material).dispose();
+  tree.branchesMesh.material.dispose();
   leafMaterial.dispose();
 
   return { branches, leaves, leafMap, height, snowAnchors: computeSnowAnchors(leaves), species, detail };
