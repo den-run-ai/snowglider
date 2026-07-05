@@ -10,6 +10,8 @@
 import { AudioModule } from '../audio.js';
 import { getDifficultyConfig, readStoredDifficulty, storeDifficulty, type Difficulty } from '../difficulty.js';
 import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPickerHandle } from './difficulty-picker.js';
+import { isOnline, watchConnectivity } from '../offline/offline-state.js';
+import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-ui.js';
 
 (function () {
   let startGamePending = false;
@@ -24,6 +26,30 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
   // in-flight leaderboard read can detect that a newer refresh superseded it
   // (e.g. the player logged out mid-read) and discard its now-stale result.
   let accountRefreshSeq = 0;
+
+  // Handle to the offline-mode badge + its connectivity subscription. The badge is
+  // mounted hidden and only revealed when offline, so the online start screen is
+  // unchanged; the unsubscribe keeps us teardown-clean if the menu is re-initialized.
+  let offlineBadge: HTMLElement | null = null;
+  let unwatchConnectivity: (() => void) | null = null;
+
+  // Mount the offline badge into the start container and keep its visibility in sync
+  // with connectivity. Idempotent: re-init tears down the prior watcher first so we
+  // never stack duplicate `online`/`offline` listeners.
+  function setupOfflineBadge() {
+    const container = document.getElementById('startGameContainer');
+    if (!container) return;
+    offlineBadge = ensureOfflineBadge(container);
+    setOfflineBadgeVisible(offlineBadge, !isOnline());
+    if (unwatchConnectivity) unwatchConnectivity();
+    unwatchConnectivity = watchConnectivity((online) => {
+      setOfflineBadgeVisible(offlineBadge, !online);
+      // Global-only affordances (sign-in hint + leaderboard preview) are decided from
+      // Firebase-INITIALIZED state, which stays true after going offline; re-run the
+      // refresh so they hide/show with connectivity, not just the badge (Codex #359).
+      refreshStartAccountUI();
+    });
+  }
 
   function addBuildBadge() {
     const buildMeta = document.querySelector('meta[name="build-id"]');
@@ -76,8 +102,9 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
       // Only show when signing in can actually deliver the advertised benefit:
       // a RANKED tier is selected, real auth AND Firestore are up (the
       // localhost/127.0.0.1 + file:// fallbacks skip Firestore, so leaderboard writes
-      // are no-ops there) and the player is signed out.
-      hint.style.display = (ranked && firebase.auth && firebase.firestore && !authState.isSignedIn) ? 'block' : 'none';
+      // are no-ops there), the player is signed out, AND we're online — offline, the
+      // global leaderboard is unreachable so advertising it would be misleading.
+      hint.style.display = (ranked && firebase.auth && firebase.firestore && !authState.isSignedIn && isOnline()) ? 'block' : 'none';
     }
 
     const lb = document.getElementById('startLeaderboard');
@@ -91,7 +118,9 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     // misleading "No times yet" preview and log a permission error on every
     // signed-out start screen. So only read once signed in; signed-out players get
     // the sign-in hint instead.
-    if (!ranked || !authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function') {
+    // Also hide the preview when offline: getLeaderboard() would fail/return stale and
+    // the offline badge already communicates the degraded state (Codex #359).
+    if (!ranked || !authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function' || !isOnline()) {
       lb.style.display = 'none';
       return;
     }
@@ -289,6 +318,7 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
 
   function initializeStartMenu() {
     addBuildBadge();
+    setupOfflineBadge();
     buildDifficultyPicker();
     // Surface the account/sign-in control above the start overlay while it's up.
     document.body.classList.add('start-screen-active');

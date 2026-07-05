@@ -376,6 +376,30 @@ export function localBestTimeKey(tier: Difficulty): string {
   return tier === 'blue' ? 'snowgliderBestTime' : `snowgliderBestTime_${tier}`;
 }
 
+// Split/ghost storage names. Unlike best-time, these are suffixed for EVERY tier
+// (Blue included) — the historical scheme in course.ts, whose one-time
+// `migrateLegacyLocalKeys` moved the pre-tier un-suffixed keys onto `…_blue`. These
+// exports are the single source of truth the offline layer reuses instead of
+// re-deriving the strings (see src/offline/offline-store.ts); course.ts still owns
+// its own literals today — tests/offline-store-tests.js pins the format so the two
+// can never drift.
+
+/** localStorage base name for a tier's best splits (per-tier suffixed, Blue included). */
+export const LOCAL_BEST_SPLITS_BASE = 'snowgliderBestSplits';
+
+/** localStorage base name for a tier's ghost recording (per-tier suffixed, Blue included). */
+export const LOCAL_GHOST_BASE = 'snowgliderGhost';
+
+/** localStorage key for a tier's best splits. Suffixed for every tier (Blue included). */
+export function localBestSplitsKey(tier: Difficulty): string {
+  return `${LOCAL_BEST_SPLITS_BASE}_${tier}`;
+}
+
+/** localStorage key for a tier's ghost recording. Suffixed for every tier (Blue included). */
+export function localGhostKey(tier: Difficulty): string {
+  return `${LOCAL_GHOST_BASE}_${tier}`;
+}
+
 /** Firestore leaderboard collection name for a tier. */
 export function leaderboardCollectionName(tier: Difficulty): string {
   return tier === 'blue' ? 'leaderboard' : `leaderboard_${tier}`;

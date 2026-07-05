@@ -86,6 +86,21 @@ async function main() {
   const startMenu = document.getElementById('startMenu');
   const keyboardHint = document.getElementById('keyboardHint');
 
+  console.log('\n--- offline badge (issue #358) ---');
+  // The offline badge is mounted into #startGameContainer but stays hidden while the
+  // harness reports online (navigator.onLine defaults true) — no visible change to the
+  // online start screen.
+  const offlineBadge = document.getElementById('offlineBadge');
+  check('offline badge is mounted into the start container', !!offlineBadge && offlineBadge.parentElement === startContainer);
+  check('offline badge carries the contract copy', !!offlineBadge && offlineBadge.textContent === 'Offline mode — local bests only');
+  check('offline badge hidden while online', !!offlineBadge && offlineBadge.style.display === 'none');
+  // An `offline` event reveals it; `online` hides it again (connectivity subscription).
+  window.dispatchEvent(new window.Event('offline'));
+  check('offline event reveals the badge', !!offlineBadge && offlineBadge.style.display === 'block');
+  window.dispatchEvent(new window.Event('online'));
+  check('online event hides the badge again', !!offlineBadge && offlineBadge.style.display === 'none');
+  check('only one offline badge in the DOM', document.querySelectorAll('#offlineBadge').length === 1);
+
   console.log('\n--- build badge ---');
   // PR #111 moved the badge off the "Start Game" CTA into an unobtrusive footer.
   check('addBuildBadge renders the build id into the #buildBadge footer',
@@ -251,6 +266,31 @@ async function main() {
   check('signed out: leaderboard hidden', lb.style.display === 'none');
   check('signed out: getLeaderboard is NOT called (Firestore rules deny it)',
     leaderboardReads === 0);
+
+  // Offline gate (issue #358, Codex): even with real auth + Firestore initialized and
+  // signed out on a ranked tier, the sign-in hint + leaderboard preview must hide when
+  // offline — the connectivity handler re-runs refreshStartAccountUI, which now factors
+  // in navigator.onLine. Drive onLine and fire the window events the handler listens on.
+  let online = true;
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('online + signed out + ranked: sign-in hint shown', hint.style.display === 'block');
+  online = false;
+  window.dispatchEvent(new window.Event('offline'));
+  await settle();
+  check('going offline hides the sign-in hint', hint.style.display === 'none');
+  check('going offline hides the leaderboard preview', lb.style.display === 'none');
+  online = true;
+  window.dispatchEvent(new window.Event('online'));
+  await settle();
+  check('back online re-shows the sign-in hint', hint.style.display === 'block');
 
   // Auth up but Firestore disabled (localhost/127.0.0.1 + file:// fallback): the
   // hint advertises leaderboard saving that can't work there, so it must stay
@@ -448,6 +488,20 @@ async function main() {
   await settle();
   check('no auth/scores modules: sign-in hint hidden', hint.style.display === 'none');
   check('no auth/scores modules: leaderboard hidden', lb.style.display === 'none');
+
+  // Re-initializing the menu must tear down the prior connectivity watcher (rather
+  // than stack a second one) and must not duplicate the offline badge. After a
+  // re-init, a single `offline` event should still flip the badge exactly once.
+  console.log('\n--- offline badge re-init/teardown (issue #358) ---');
+  const badgeBefore = document.getElementById('offlineBadge');
+  if (badgeBefore) badgeBefore.style.display = 'none';
+  SM.initializeStartMenu();
+  check('re-init does not duplicate the offline badge', document.querySelectorAll('#offlineBadge').length === 1);
+  const badgeAfter = document.getElementById('offlineBadge');
+  window.dispatchEvent(new window.Event('offline'));
+  check('after re-init the badge still reveals on offline', !!badgeAfter && badgeAfter.style.display === 'block');
+  window.dispatchEvent(new window.Event('online'));
+  check('after re-init the badge still hides on online', !!badgeAfter && badgeAfter.style.display === 'none');
 
   console.log(`\nSTART MENU TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
