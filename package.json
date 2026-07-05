@@ -38,6 +38,7 @@
     "test:controls": "node --import ./tests/loaders/register-ts-resolve.mjs tests/controls-node-tests.js",
     "test:camera": "node --import ./tests/loaders/register-ts-resolve.mjs tests/camera-node-tests.js",
     "test:flex": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snowman-flex-tests.js",
+    "test:face": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snowman-face-tests.js",
     "test:snowman-material": "node --import ./tests/loaders/register-ts-resolve.mjs tests/snowman-material-tests.js",
     "test:debris": "node --import ./tests/loaders/register-ts-resolve.mjs tests/debris-tests.js",
     "test:leak": "node --import ./tests/loaders/register-ts-resolve.mjs tests/leak-tests.js",
