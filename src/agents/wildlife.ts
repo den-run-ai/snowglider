@@ -24,6 +24,7 @@
 
 import * as THREE from 'three';
 import { withPrivateThreeRandom } from './agents-rng.js';
+import { DEFAULT_AGENT_BUDGET } from './agents-budget.js';
 import type { AgentBudget } from './agents-budget.js';
 
 function prefersReducedMotion(): boolean {
@@ -90,7 +91,11 @@ export function buildWildlife(
   budget: AgentBudget,
   getTerrainHeight: (x: number, z: number) => number,
 ): WildlifeSystem {
-  const count = Math.max(0, Math.min(24, Math.floor(budget.wildlife)));
+  // Finite-guard the budget: it is a public/optional field, so a caller could hand us a
+  // NaN/Infinity override. `new Array(NaN)` throws and `Math.floor(NaN)` poisons the count,
+  // so fall back to the shipped default before flooring/clamping.
+  const rawWildlife = Number.isFinite(budget.wildlife) ? budget.wildlife : DEFAULT_AGENT_BUDGET.wildlife;
+  const count = Math.max(0, Math.min(24, Math.floor(rawWildlife)));
 
   // --- Deterministic initial layout (from the seeded rng; no THREE, no Math.random) ---
   // Each animal wanders a slow, gentle loop around a home point far out on ONE flank, well
@@ -103,7 +108,11 @@ export function buildWildlife(
   for (let i = 0; i < count; i++) {
     const side = rng() < 0.5 ? -1 : 1;              // left or right flank
     home.x[i] = side * (70 + rng() * 60);           // |x| ∈ [70,130] — far background flank
-    home.z[i] = -260 + rng() * 300;                 // spread along the descent
+    // z ∈ [-190, 40] — along the descent but WITHIN the rendered terrain (mesh is
+    // z∈[-200,200]). Matches the grounded forest-belts band (Z_MIN=-190): with the small
+    // wander radius (≤9) the animal never drifts past the south mesh edge to float in
+    // mid-air. (The earlier [-260,40) range left ~20% of the herd standing off the mesh.)
+    home.z[i] = -190 + rng() * 230;                 // spread along the descent
     home.r[i] = 5 + rng() * 9;                       // small wander radius
     home.spd[i] = (rng() < 0.5 ? -1 : 1) * (0.12 + rng() * 0.16); // slow amble
     home.ang[i] = rng() * Math.PI * 2;

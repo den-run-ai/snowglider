@@ -174,6 +174,33 @@ function testWildlife(THREE, createAgents, agentsSeedFor, budget) {
   let threwEmpty = false;
   try { agentsD.update(0.016, new THREE.Vector3()); agentsD.dispose(); } catch { threwEmpty = true; }
   check('empty herd updates + disposes without throwing', !threwEmpty);
+
+  // Grounding stays ON the rendered terrain: the mesh spans x∈[-150,150], z∈[-200,200].
+  // Record every (x,z) the herd hands the sampler across build + a long run and assert it
+  // never samples past the mesh edge (guards the old off-mesh z-range that left animals
+  // floating in mid-air past the south edge).
+  const sceneE = new THREE.Scene();
+  let onMesh = true;
+  const boundsSampler = (x, z) => {
+    if (x < -150 || x > 150 || z < -200 || z > 200) onMesh = false;
+    return 0;
+  };
+  const agentsE = createAgents(sceneE, baseCtx(agentsSeedFor, 'expert', { getTerrainHeight: boundsSampler }));
+  for (let f = 0; f < 400; f++) agentsE.update(0.033, new THREE.Vector3());
+  check('herd stays on the rendered terrain (never samples past the mesh edge)', onMesh);
+
+  // A non-finite budget override (public/optional field) must not throw or poison the
+  // count — it falls back to the shipped default and yields a bounded, valid herd.
+  const sceneF = new THREE.Scene();
+  let threwNaN = false, herdF = null;
+  try {
+    const agentsF = createAgents(sceneF, baseCtx(agentsSeedFor, 'blue', { budget: { wildlife: NaN } }));
+    herdF = findHerd(agentsF);
+    agentsF.update(0.016, new THREE.Vector3());
+  } catch { threwNaN = true; }
+  check('NaN wildlife budget does not throw', !threwNaN);
+  check('NaN wildlife budget => bounded herd (count within [0,24])',
+    !!herdF && Number.isInteger(herdF.count) && herdF.count >= 0 && herdF.count <= 24);
 }
 
 function testDispose(THREE, createAgents, agentsSeedFor) {
