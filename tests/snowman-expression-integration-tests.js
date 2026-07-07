@@ -35,10 +35,23 @@ async function main() {
   check('carve counter-rotated the arms off neutral', Math.abs(carved.arm.rx - neutral.leftArmGroup.rx) > 1e-3 || Math.abs(carved.arm.rz - neutral.leftArmGroup.rz) > 1e-3);
   check('carve squinted the eyes (scale.y < 1)', parts.leftEye.scale.y < 0.98);
 
-  // A clean-landing reaction should drive a big grin + arm pump.
+  // A clean-landing reaction should drive a big grin + cheek pop — STRICTLY stronger than
+  // a control snowman driven through the identical motion WITHOUT the landing, so the check
+  // fails if the reaction becomes a no-op (a bare smile threshold is already met by the
+  // neutral/idle face). The control runs the same carve→glide sequence sans justLanded.
+  const control = createSnowman(new THREE.Scene());
+  const cp = control.userData.parts;
+  for (let i = 0; i < 90; i++) Expression.update(control, 1 / 60, { speed: 20, technique: 'carve', turnRate: 0.8, isInAir: false });
   Expression.update(snowman, 1 / 60, { speed: 18, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'clean' });
-  for (let i = 0; i < 18; i++) Expression.update(snowman, 1 / 60, { speed: 18, technique: 'glide', turnRate: 0, isInAir: false });
+  Expression.update(control, 1 / 60, { speed: 18, technique: 'glide', turnRate: 0, isInAir: false });
+  for (let i = 0; i < 18; i++) {
+    Expression.update(snowman, 1 / 60, { speed: 18, technique: 'glide', turnRate: 0, isInAir: false });
+    Expression.update(control, 1 / 60, { speed: 18, technique: 'glide', turnRate: 0, isInAir: false });
+  }
+  const grin = (q) => q.mouthBead0.position.y - q.mouthBead3.position.y;
   check('clean landing → outer mouth beads lifted into a big smile', parts.mouthBead0.position.y > parts.mouthBead3.position.y + 0.05);
+  check('clean landing → grin + cheek pop strictly exceed the same motion without the landing',
+    grin(parts) > grin(cp) + 1e-3 && parts.leftCheek.scale.x > cp.leftCheek.scale.x + 1e-3);
 
   console.log('--- finiteness: every world matrix stays finite ---');
   snowman.updateMatrixWorld(true);
@@ -70,7 +83,9 @@ async function main() {
   let restored = true;
   for (const k of Object.keys(neutral)) {
     const p = parts[k], n = neutral[k];
-    if (Math.abs(p.position.y - n.py) > 1e-9 || Math.abs(p.scale.y - n.sy) > 1e-9 || Math.abs(p.rotation.z - n.rz) > 1e-9 || Math.abs(p.rotation.x - n.rx) > 1e-9) restored = false;
+    // position.x is included on purpose: it's the pupil "look" axis the preceding turning
+    // run displaces, so a reset leak there (which py/sy/rz/rx alone would miss) is caught.
+    if (Math.abs(p.position.x - n.px) > 1e-9 || Math.abs(p.position.y - n.py) > 1e-9 || Math.abs(p.scale.y - n.sy) > 1e-9 || Math.abs(p.rotation.z - n.rz) > 1e-9 || Math.abs(p.rotation.x - n.rx) > 1e-9) restored = false;
   }
   check('every part is byte-identical to its freshly-built neutral after reset', restored);
   // The recorded base transforms must equal the freshly-built neutral (the flex/expression
