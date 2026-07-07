@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { getSnowmanSnowMaterial } from './snow-material.js';
 import { createSkis } from './ski.js';
+import { createFace } from './face.js';
 
 // The shaped skis (issue #189) — geometry, loft builder, and per-tier top-sheet
 // colours — live in ./ski.ts. SKI_TOP_SHEET is re-exported here so existing importers
@@ -288,6 +289,13 @@ export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}
   }
   group.add(headGroup);
 
+  // --- Face rig (issue #364) -------------------------------------------------
+  // Build the coal-bead mouth, twig brows, frosty cheeks, and eye-highlight dots and
+  // parent them under `head` (the eyes are already there after the reparenting above),
+  // so the flex/expression layers carry them along the squashing head surface. Purely
+  // cosmetic geometry; the expression controller animates these as offsets from neutral.
+  const face = createFace(head, blackMaterial, leftEye, rightEye);
+
   // Keep references + neutral pose so ski technique (e.g. snowplow wedge) can be shown.
   group.userData = group.userData || {};
   group.userData.leftSki = leftSki;
@@ -310,7 +318,16 @@ export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}
     // (rotation.x bend). The ski ROOTS (leftSki/rightSki) stay off the registry so
     // pose.ts keeps sole ownership of the wedge/edge/draw transform.
     leftSkiTip: left.tipArm, leftSkiTail: left.tailArm,
-    rightSkiTip: right.tipArm, rightSkiTail: right.tailArm
+    rightSkiTip: right.tipArm, rightSkiTail: right.tailArm,
+    // Face rig (issue #364): the coal-bead mouth (group + 7 beads), twig brows, frosty
+    // cheeks, and eye-highlight dots. Animated by src/snowman-expression.ts (PR 2+).
+    mouth: face.mouth,
+    mouthBead0: face.mouthBeads[0]!, mouthBead1: face.mouthBeads[1]!, mouthBead2: face.mouthBeads[2]!,
+    mouthBead3: face.mouthBeads[3]!, mouthBead4: face.mouthBeads[4]!, mouthBead5: face.mouthBeads[5]!,
+    mouthBead6: face.mouthBeads[6]!,
+    leftBrow: face.leftBrow, rightBrow: face.rightBrow,
+    leftCheek: face.leftCheek, rightCheek: face.rightCheek,
+    leftPupil: face.leftPupil, rightPupil: face.rightPupil
   };
   // SHATTER roots: the flat list of TOP-LEVEL rigid pieces the PR-B debris system
   // flings, so accessories ride with their cluster instead of being double-spawned.
