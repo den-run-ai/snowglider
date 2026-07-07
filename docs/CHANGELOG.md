@@ -38,6 +38,14 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 - **Tests:** `npm run test:face` (rig geometry), `npm run test:expression` (controller +
   reactions), and `tests/snowman-expression-integration-tests.js` (the real model driven
   through Flex + Expression together).
+- **Follow-up polish (post-merge review):** two cosmetic fixes to the shipped rig. (1) The
+  reshaped mouth beads now **ride the head sphere** — the controller recomputes each bead's
+  surface `z` for its new latitude (matching `face.ts`'s `surfaceZ`), so a full "O"/frown no
+  longer leaves coal beads floating ~0.15–0.23u proud of the face when viewed side-on; the
+  neutral resting pose stays byte-identical. (2) The **tuck hat push-down eases in** with the
+  arm sweep-back (scaled by the already-eased `armBack` channel) instead of snapping the full
+  `0.12u` + ~7° in a single frame on tuck enter/exit. Guarded by a real-model surface-distance
+  assertion in the integration suite and an ease-in unit check in `test:expression`.
 
 ### Hide the racing ghost (kept live in the background for trajectory evals)
 - The translucent "ghost" of your best run is **no longer drawn**. On the slope it read

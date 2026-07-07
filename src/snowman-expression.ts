@@ -83,6 +83,18 @@ interface ExprState {
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
 
+// Head sphere geometry — MUST MATCH src/snowman/face.ts (HEAD_R / MOUTH_Y / surfaceZ). Used
+// so a reshaped mouth bead rides DOWN/UP the head surface as its latitude changes, instead of
+// keeping its neutral z and floating proud of the face at an "O"/frown extreme.
+const HEAD_R = 1.0;             // unit head sphere radius (face.ts HEAD_R)
+const MOUTH_Y = -0.42;          // mouth-group latitude on the face (face.ts MOUTH_Y)
+/** Surface z on the unit head for a face feature at head-local (x, y), a hair proud so the
+ *  bead sits ON the snow. MUST MATCH src/snowman/face.ts surfaceZ (same clamp + proud) so a
+ *  bead's neutral z stays byte-identical to the baked geometry. */
+function surfaceZ(x: number, y: number, proud = 0.02): number {
+  return Math.sqrt(Math.max(0.04, HEAD_R * HEAD_R - x * x - y * y)) + proud;
+}
+
 // --- tuning (all clamped so the face reads clearly but never breaks) ---------
 const EASE = 8;                 // per-second lerp rate for the eased channels
 const MOUTH_HALF_WIDTH = 0.42;  // matches face.ts (bead x reach) — normalizes bead x to nx
@@ -99,6 +111,7 @@ const MICRO = 0.02;             // idle micro-motion amplitude on the mouth curv
 const ARM_SPREAD = 0.7;         // arm splay-out around the shoulder z-axis at full spread
 const ARM_RAISE = 0.5;          // arm lift (forward/up around x) at full spread
 const ARM_BACK = 0.8;           // arm sweep-back (around x) at full tuck
+const ARM_TUCK_BACK = 0.85;     // armBack channel's eased target in a full tuck (drives the hat drop)
 const ARM_ASYM = 0.55;          // carve counterbalance swing per arm at full turn
 const HAT_TILT = 0.22;          // hat lean into a full-rate turn
 const HAT_TUCK_DROP = 0.12;     // hat pushed down/forward in a full tuck (world units)
@@ -329,7 +342,12 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
     if (!p || !b) continue;
     const nx = clamp(b.position.x / MOUTH_HALF_WIDTH, -1, 1);
     const dy = curve * CURVE_AMP * nx * nx - open * OPEN_AMP * (1 - nx * nx);
-    p.position.set(b.position.x, b.position.y + clamp(dy, -0.5, 0.5), b.position.z);
+    const y = b.position.y + clamp(dy, -0.5, 0.5);
+    // Ride the bead along the head sphere as it lifts/drops instead of holding its neutral z:
+    // recompute the surface z for the bead's NEW head-local latitude (MOUTH_Y + y; x is
+    // group-local, and the group sits at x=0/z=0 so bead-local == head-local here). At neutral
+    // (dy=0) this reproduces the baked z exactly, so the resting face stays byte-identical.
+    p.position.set(b.position.x, y, surfaceZ(b.position.x, MOUTH_Y + y));
   }
   // Crook the whole mouth on a sketchy wince (a lopsided grimace).
   if (parts.mouth && base.mouth) {
@@ -367,7 +385,7 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   // A reaction OVERRIDES the technique arm targets while active (arms up for a
   // celebration, windmill for a wince/panic), else the technique poses drive.
   const spreadTgt = react ? react.spread : air ? 0.9 : m.technique === 'snowplow' ? 0.7 : m.technique === 'hop' ? 0.5 : 0;
-  const backTgt = react ? react.back : (!air && m.technique === 'tuck' ? 0.85 : 0);
+  const backTgt = react ? react.back : (!air && m.technique === 'tuck' ? ARM_TUCK_BACK : 0);
   const asymTgt = react ? react.asym : (!air && m.technique === 'carve' ? turn : 0);
   // Hat leans INTO the turn (dropped flat in tuck). The into-turn direction on rotation.z is
   // `-turn`, matching the flex head-cluster lean (targetLean = -turn * LEAN_TARGET in
@@ -382,9 +400,8 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
 
   writeArm(parts.leftArmGroup, base.leftArmGroup, es, +1);
   writeArm(parts.rightArmGroup, base.rightArmGroup, es, -1);
-  const tucking = m.technique === 'tuck' && !air;
-  writeHat(parts.hatBase, base.hatBase, es, tucking);
-  writeHat(parts.hatTop, base.hatTop, es, tucking);
+  writeHat(parts.hatBase, base.hatBase, es);
+  writeHat(parts.hatTop, base.hatTop, es);
   // Deterministic carrot wobble: a tiny speed-scaled quiver plus a lean into the turn. The
   // nose lean uses the same into-turn sign as the hat/head (`-turn` on rotation.z).
   writeNose(parts.nose, base.nose, Math.sin(es.t * 9) * NOSE_WOBBLE * speedN - turn * NOSE_TURN);
@@ -437,13 +454,17 @@ function writeArm(p: THREE.Object3D | undefined, b: BaseTransform | undefined, e
 
 /** Lean the hat into the turn (rotation.z), bounce it on a landing (the hatBounce spring),
  *  and in a tuck push it down/forward. The two hat pieces share the head cluster's bob via
- *  their parenting; this adds the personality on top. */
-function writeHat(p: THREE.Object3D | undefined, b: BaseTransform | undefined, es: ExprState, tucking: boolean): void {
+ *  their parenting; this adds the personality on top. The tuck push-down/forward is scaled by
+ *  the already-eased armBack channel (its tuck target is ARM_TUCK_BACK) rather than snapping
+ *  on the raw tuck boolean, so the hat eases in/out in lockstep with the arms instead of
+ *  popping 0.12u + ~7° in a single frame on tuck enter/exit. */
+function writeHat(p: THREE.Object3D | undefined, b: BaseTransform | undefined, es: ExprState): void {
   if (!p || !b) return;
   const tilt = clamp(es.hatTilt * HAT_TILT, -0.4, 0.4);
-  const drop = tucking ? HAT_TUCK_DROP : 0;
+  const tuck = clamp(es.armBack / ARM_TUCK_BACK, 0, 1);
+  const drop = tuck * HAT_TUCK_DROP;
   p.position.set(b.position.x, b.position.y - drop + clamp(es.hatBounce, -HAT_BOUNCE_CLAMP, HAT_BOUNCE_CLAMP), b.position.z);
-  p.rotation.set(b.rotation.x + (tucking ? 0.12 : 0), b.rotation.y, b.rotation.z + tilt);
+  p.rotation.set(b.rotation.x + tuck * 0.12, b.rotation.y, b.rotation.z + tilt);
 }
 
 /** A subtle deterministic carrot wobble/tilt (rotation.z offset from the base +x/2 pose). */
