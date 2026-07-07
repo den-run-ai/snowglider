@@ -274,14 +274,41 @@ async function main() {
   console.log('--- event reactions (PR 4) ---');
 
   // 15) Clean-landing smile: a graded clean landing overrides the technique with a big
-  //     grin + cheek pop for its window.
+  //     grin + cheek pop for its window. Compared against a CONTROL run with identical
+  //     motion but NO landing — the clean reaction must produce a STRICTLY bigger grin +
+  //     cheek pop than the plain idle-glide face, so the check fails if the reaction is a
+  //     no-op (both the neutral smile and idle glide already satisfy a bare threshold).
   {
-    const sm = makeSnowman();
+    const sm = makeSnowman(), ctl = makeSnowman();
     Expression.update(sm, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'clean' });
+    Expression.update(ctl, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
     runFor(sm, Expression, 18, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
-    const p = sm.userData.parts;
-    check('clean landing → big smile (outer beads well above centre) + cheek pop',
-      p.mouthBead0.position.y > p.mouthBead3.position.y + 0.1 && p.leftCheek.scale.x > 0.62 * 1.1);
+    runFor(ctl, Expression, 18, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
+    const p = sm.userData.parts, pc = ctl.userData.parts;
+    const grin = (q) => q.mouthBead0.position.y - q.mouthBead3.position.y;
+    check('clean landing → bigger grin + cheek pop than a plain glide (reaction is not a no-op)',
+      p.mouthBead0.position.y > p.mouthBead3.position.y + 0.1 &&
+      grin(p) > grin(pc) + 1e-3 && p.leftCheek.scale.x > pc.leftCheek.scale.x + 1e-3);
+  }
+
+  // 15b) OK-landing priority: alone it shows the relieved smile (hat-bounce + mild grin),
+  //      but a bearing-down avalanche outranks it (panic wins — brows raise, no relief).
+  {
+    const solo = makeSnowman();
+    Expression.update(solo, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'ok' });
+    runFor(solo, Expression, 8, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
+    const ps = solo.userData.parts, bs = solo.userData.partBaseTransforms;
+    check('ok landing alone → relieved smile (grin above the neutral base)',
+      ps.mouthBead0.position.y - ps.mouthBead3.position.y > (bs.mouthBead0.position.y - bs.mouthBead3.position.y) + 1e-3);
+
+    // Same ok landing, but with a close slide every frame: avalanche panic outranks ok.
+    const both = makeSnowman();
+    const bb = both.userData.partBaseTransforms;
+    Expression.update(both, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'ok', avalancheDistance: 6 });
+    runFor(both, Expression, 8, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, avalancheDistance: 6 });
+    const pb = both.userData.parts;
+    check('avalanche panic outranks ok landing (brows raised into panic, not a relieved smile)',
+      pb.leftBrow.position.y > bb.leftBrow.position.y + 1e-3);
   }
 
   // 16) Sketchy wince: one eye squeezed shut (left < right) + crooked mouth + windmill.

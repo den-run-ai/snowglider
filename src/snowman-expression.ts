@@ -107,8 +107,10 @@ const NOSE_TURN = 0.12;         // nose tilt into a full-rate turn (rad)
 
 // --- event-reaction tuning (issue #364 PR 4) ----------------------------------------
 // Short-lived reaction durations (seconds). Priority (highest first) is resolved in
-// reactionOverride(): finish > trick > clean > woo > sketchy > avalanche panic; below
-// that the steady-state technique face (incl. airborne) shows through.
+// reactionOverride(): finish > trick > clean > woo > sketchy > avalanche panic > ok
+// landing; below that the steady-state technique face (incl. airborne) shows through.
+// (ok-landing is the mildest cue — a relieved smile — so it sits LAST, deliberately below
+// avalanche panic: a bearing-down slide should never be masked by a relieved grin.)
 const REACT_CLEAN = 0.6;        // clean-landing smile + cheek pop + arm pump
 const REACT_OK = 0.4;           // ok-landing relieved smile
 const REACT_SKETCHY = 0.8;      // sketchy-landing wince (one eye squeezed, crooked mouth, windmill)
@@ -178,7 +180,7 @@ interface ReactionPose {
 /** Resolve the single highest-priority active reaction into a full pose override, or null
  *  to fall through to the steady-state technique face. Edge reactions are gated on their
  *  countdown timer (already ticked this frame); level reactions read the motion directly.
- *  Priority: finish > trick > clean > woo > sketchy > avalanche panic. */
+ *  Priority: finish > trick > clean > woo > sketchy > avalanche panic > ok landing. */
 function reactionOverride(es: ExprState, m: ExpressionMotion): ReactionPose | null {
   if (m.finished) {
     // Celebration: big grin, brows up, both arms thrown up.
@@ -277,12 +279,17 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   }
   if (m.trickName) es.trickT = REACT_TRICK;
   if (m.obstacleCleared) es.wooT = REACT_WOO;
+
+  // Resolve the highest-priority active reaction from THIS frame's full timers, BEFORE
+  // ticking them down — otherwise an edge reaction is shortened by the same frame's dt on
+  // the very frame it fires (a large delta through the legacy updateSnowman(delta) seam
+  // could clip it entirely), making the reaction frame-delta dependent.
+  const react = reactionOverride(es, m);
+
+  // Now tick the reaction timers down for the NEXT frame.
   es.cleanT = Math.max(0, es.cleanT - dt); es.okT = Math.max(0, es.okT - dt);
   es.sketchyT = Math.max(0, es.sketchyT - dt); es.trickT = Math.max(0, es.trickT - dt);
   es.wooT = Math.max(0, es.wooT - dt);
-
-  // Resolve the highest-priority active reaction (or null => steady-state technique face).
-  const react = reactionOverride(es, m);
   const tgt = react ? react.face : techniqueTarget(m, speedN);
 
   // Ease the face target + look toward the turn.
