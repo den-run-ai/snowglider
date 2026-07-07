@@ -232,8 +232,10 @@ export function createLifecycle(deps: LifecycleDeps) {
   // camera for it, and refresh the UI. Returns the new mode (useful for tests).
   function toggleCameraView() {
     const newMode = cameraManager.toggleCameraMode();
-    // Reset camera initialization with current snowman position and rotation
-    cameraManager.initialize(snowman.position, snowman.rotation);
+    // Re-seat the camera with the current snowman position/rotation AND live velocity,
+    // so a cinematic-mode entry mid-run frames from the real travel direction (the
+    // cameraman entry falls back to the model yaw only when there is no travel signal).
+    cameraManager.initialize(snowman.position, snowman.rotation, player.velocity);
     syncCameraModeUi(newMode);
     return newMode;
   }
@@ -241,7 +243,7 @@ export function createLifecycle(deps: LifecycleDeps) {
   // Jump straight to a named mode (camera tray chips).
   function selectCameraMode(mode: CameraMode) {
     const newMode = cameraManager.setMode(mode);
-    cameraManager.initialize(snowman.position, snowman.rotation);
+    cameraManager.initialize(snowman.position, snowman.rotation, player.velocity);
     syncCameraModeUi(newMode);
     return newMode;
   }
