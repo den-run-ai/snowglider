@@ -96,15 +96,19 @@ function surfaceZ(x: number, y: number, proud = 0.02): number {
 }
 
 // --- tuning (all clamped so the face reads clearly but never breaks) ---------
+// Amplitudes deliberately SMALL (player feedback): the original values swung the mouth
+// ends up the cheeks into a scary "Joker" grin and slammed the brows into angry slashes.
+// The face must stay a pleasant, near-neutral classic snowman at every state — the
+// expression layer adds a nuance, never a caricature.
 const EASE = 8;                 // per-second lerp rate for the eased channels
-const MOUTH_HALF_WIDTH = 0.42;  // matches face.ts (bead x reach) — normalizes bead x to nx
-const CURVE_AMP = 0.34;         // bead-y lift/drop at full smile/frown (world units)
-const OPEN_AMP = 0.30;          // extra jaw drop of the centre beads at full "O"
-const BROW_RAISE_AMP = 0.14;    // brow y-raise at full surprise (world units)
-const BROW_ANGLE_AMP = 0.5;     // brow rotation.z swing at full focus/surprise (rad)
+const MOUTH_HALF_WIDTH = 0.3;   // matches face.ts (bead x reach) — normalizes bead x to nx
+const CURVE_AMP = 0.1;          // bead-y lift/drop at full smile/frown (world units)
+const OPEN_AMP = 0.16;          // extra jaw drop of the centre beads at full "O"
+const BROW_RAISE_AMP = 0.06;    // brow y-raise at full surprise (world units)
+const BROW_ANGLE_AMP = 0.15;    // brow rotation.z swing at full focus/surprise (rad)
 const EYE_MIN = 0.12;           // eye scale.y at a full blink (a thin coal line)
 const PUPIL_SHIFT = 0.05;       // pupil x-shift toward a full-rate turn (world units)
-const CHEEK_POP = 0.35;         // extra cheek scale on a full grin
+const CHEEK_POP = 0.12;         // extra cheek scale on a big smile
 const MICRO = 0.02;             // idle micro-motion amplitude on the mouth curve
 
 // --- body-acting tuning (issue #364 PR 3) — all clamped rotation offsets (rad) ------
@@ -134,7 +138,7 @@ const HAT_BOUNCE_KICK = 3.2;    // downward velocity impulse on the hat at a lan
 const HAT_BOUNCE_K = 60;        // hat-bounce spring stiffness
 const HAT_BOUNCE_C = 9;         // hat-bounce spring damping
 const HAT_BOUNCE_CLAMP = 0.25;  // max hat-bounce displacement (world units)
-const WINCE_CROOK = 0.22;       // mouth crook (rotation.z) at a full sketchy wince (rad)
+const WINCE_CROOK = 0.12;       // mouth crook (rotation.z) at a full sketchy wince (rad)
 const WINDMILL_RATE = 26;       // rad/s of the sketchy/panic arm windmill oscillation
 const EYE_WIDE = 1.18;          // eye scale.y cap so panic/surprise can read bug-eyed
 
@@ -159,18 +163,18 @@ function techniqueTarget(m: ExpressionMotion, speedN: number): FaceTarget {
   }
   switch (m.technique) {
     case 'carve':
-      // Determined: brows angled down into the turn, a small confident grin, a squint.
-      return { curve: 0.25, open: 0, brow: -0.55, eye: 0.72 };
+      // Determined: brows a touch lowered, a small confident smile, a light squint.
+      return { curve: 0.25, open: 0, brow: -0.25, eye: 0.8 };
     case 'snowplow':
       // Braking "uh-oh": wide eyes, raised brows, a small O-mouth.
-      return { curve: -0.1, open: 0.4, brow: 0.7, eye: 1 };
+      return { curve: -0.1, open: 0.4, brow: 0.5, eye: 1 };
     case 'tuck':
-      // Racer: low brows, compressed squint, flat mouth.
-      return { curve: 0, open: 0, brow: -0.7, eye: 0.5 };
+      // Racer: slightly low brows, compressed squint, flat mouth.
+      return { curve: 0, open: 0, brow: -0.35, eye: 0.6 };
     case 'skid':
     case 'parallel':
-      // Concentrated: flat/neutral mouth, brows slightly lowered, eyes near normal.
-      return { curve: 0.05, open: 0, brow: -0.2, eye: 0.9 };
+      // Concentrated: flat/neutral mouth, brows barely lowered, eyes near normal.
+      return { curve: 0.05, open: 0, brow: -0.1, eye: 0.9 };
     case 'hop':
       // A quick little pop of surprise.
       return { curve: 0.4, open: 0.25, brow: 0.4, eye: 1 };
@@ -411,8 +415,8 @@ function writeBrow(p: THREE.Object3D | undefined, b: BaseTransform | undefined, 
   if (!p || !b) return;
   const raise = clamp(brow, -1, 1) * BROW_RAISE_AMP;
   const angle = sign * -brow * BROW_ANGLE_AMP; // lowered brows (brow<0) angle inward-down
-  p.position.set(b.position.x, b.position.y + clamp(raise, -0.2, 0.2), b.position.z);
-  p.rotation.set(b.rotation.x, b.rotation.y, b.rotation.z + clamp(angle, -0.7, 0.7));
+  p.position.set(b.position.x, b.position.y + clamp(raise, -0.1, 0.1), b.position.z);
+  p.rotation.set(b.rotation.x, b.rotation.y, b.rotation.z + clamp(angle, -0.25, 0.25));
 }
 
 function writeEye(p: THREE.Object3D | undefined, b: BaseTransform | undefined, open: number): void {

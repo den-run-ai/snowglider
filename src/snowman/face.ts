@@ -48,16 +48,21 @@ export interface SnowmanFaceParts {
 // --- Geometry / layout constants (head-LOCAL space) --------------------------
 // The head is a unit sphere (radius 1) centred at the head mesh's local origin; the
 // face looks down +z (nose at z=1, eyes at z≈0.8). Every position below is head-local.
+// Layout tuning (player feedback): the original face read "scary Halloween / Joker" —
+// the mouth spanned the full eye width (0.42) with big beads climbing the cheeks, and
+// thick tilted brows scowled. The pleasant-classic-snowman layout keeps the mouth
+// NARROW (well inside the eyes), the beads small, and the brows thin, short and FLAT.
 const HEAD_R = 1.0;
-const BEAD_COUNT = 7;                 // coal beads along the mouth curve (7–9 reads well)
+const BEAD_COUNT = 7;                 // coal beads along the mouth curve
 const MOUTH_Y = -0.42;                // mouth centre latitude on the face
-const MOUTH_HALF_WIDTH = 0.42;        // x reach of the outermost bead
-const MOUTH_SMILE_BASE = 0.12;        // neutral pose is a gentle relaxed smile (ends up)
-const BEAD_RADIUS = 0.055;
+const MOUTH_HALF_WIDTH = 0.3;         // x reach of the outermost bead (eyes sit at ±0.4)
+const MOUTH_SMILE_BASE = 0.1;         // neutral pose is a gentle relaxed smile (ends up)
+const BEAD_RADIUS = 0.045;
 const BROW_Y = 0.52;                  // brows sit above the eyes (eyes at y≈0.2)
 const BROW_X = 0.4;                   // same x as the eyes
-const BROW_LEN = 0.42;
-const BROW_TILT = 0.18;               // slight inward-down "resting" angle (rad)
+const BROW_LEN = 0.26;
+const BROW_R = 0.03;                  // thin twig — a faint line, not a heavy black slash
+const BROW_TILT = 0;                  // flat resting brows read friendly, never angry
 const CHEEK_X = 0.62;
 const CHEEK_Y = -0.16;
 const PUPIL_R = 0.05;                 // white highlight dots ride under the eyes (radius 0.15)
@@ -84,7 +89,7 @@ export function createFace(
 ): SnowmanFaceParts {
   // Frosty cheek + eye-highlight materials. Plain colour-only MeshStandardMaterials so
   // they share the existing "plain standard" shader program (perf-budget: +0 programs).
-  const cheekMaterial = new THREE.MeshStandardMaterial({ color: 0xE8909A, roughness: 0.9 }); // faint frosty pink
+  const cheekMaterial = new THREE.MeshStandardMaterial({ color: 0xF2C4CC, roughness: 0.9 }); // very faint frosty pink
   const highlightMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.4, emissive: 0x222222 });
 
   // --- Coal-bead mouth ------------------------------------------------------
@@ -114,12 +119,12 @@ export function createFace(
   // Short coal/twig cylinders above each eye. Built lying along local x (rotate the
   // cylinder's y-axis onto x), with a slight resting tilt; the controller rotates/raises
   // them for focus / panic / joy. Shared geometry.
-  const browGeo = new THREE.CylinderGeometry(0.05, 0.05, BROW_LEN, 6);
+  const browGeo = new THREE.CylinderGeometry(BROW_R, BROW_R, BROW_LEN, 6);
   function makeBrow(sign: number): THREE.Object3D {
     const brow = new THREE.Mesh(browGeo, coalMaterial);
     brow.position.set(sign * BROW_X, BROW_Y, surfaceZ(sign * BROW_X, BROW_Y));
-    // Cylinder default axis is +y; lay it horizontal (along x) then add a small inward
-    // downward tilt so the resting brow reads relaxed, not angry.
+    // Cylinder default axis is +y; lay it horizontal (along x). The resting brow is FLAT
+    // (BROW_TILT 0) — any resting tilt reads angry; the controller adds transient angles.
     brow.rotation.z = Math.PI / 2 + sign * BROW_TILT;
     return brow;
   }
@@ -129,9 +134,10 @@ export function createFace(
   head.add(rightBrow);
 
   // --- Frosty cheeks --------------------------------------------------------
-  // Faint pink flattened spheres beside the nose. Flattened via mesh scale so the one
-  // shared sphere geometry serves both. The controller pops them on a big smile / land.
-  const cheekGeo = new THREE.SphereGeometry(0.16, 8, 8);
+  // Very faint pink flattened spheres beside the nose — a subtle frosty blush, not
+  // clown circles. Flattened via mesh scale so the one shared sphere geometry serves
+  // both. The controller pops them (slightly) on a big smile / land.
+  const cheekGeo = new THREE.SphereGeometry(0.115, 8, 8);
   function makeCheek(sign: number): THREE.Object3D {
     const cheek = new THREE.Mesh(cheekGeo, cheekMaterial);
     cheek.position.set(sign * CHEEK_X, CHEEK_Y, surfaceZ(sign * CHEEK_X, CHEEK_Y, -0.04));

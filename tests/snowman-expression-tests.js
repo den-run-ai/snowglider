@@ -35,7 +35,7 @@ function recordBase(parts) {
   }
   return out;
 }
-const HALF = 0.42;
+const HALF = 0.3;
 /** @returns {any} */
 function makeSnowman(withFace = true) {
   /** @type {Record<string, any>} */
@@ -45,14 +45,15 @@ function makeSnowman(withFace = true) {
     head: makePart(0, 1.0, 0), headGroup: makePart(0, 6.0, 0),
   };
   if (withFace) {
-    // Mouth beads at the shipped layout: x = (i/6*2-1)*0.42, gentle-smile base y.
+    // Mouth beads at the shipped layout: x = (i/6*2-1)*0.3, gentle-smile base y.
     for (let i = 0; i < 7; i++) {
       const t = (i / 6) * 2 - 1;
-      parts[`mouthBead${i}`] = makePart(t * HALF, 0.12 * t * t, 0.85);
+      parts[`mouthBead${i}`] = makePart(t * HALF, 0.1 * t * t, 0.85);
     }
     parts.mouth = makePart(0, -0.42, 0);
-    parts.leftBrow = makePart(0.4, 0.52, 0.75); parts.leftBrow.rotation.z = Math.PI / 2 + 0.18;
-    parts.rightBrow = makePart(-0.4, 0.52, 0.75); parts.rightBrow.rotation.z = Math.PI / 2 - 0.18;
+    // Resting brows are FLAT (face.ts BROW_TILT 0) — a tilt reads angry.
+    parts.leftBrow = makePart(0.4, 0.52, 0.75); parts.leftBrow.rotation.z = Math.PI / 2;
+    parts.rightBrow = makePart(-0.4, 0.52, 0.75); parts.rightBrow.rotation.z = Math.PI / 2;
     parts.leftEye = makePart(0.4, 0.2, 0.8); parts.rightEye = makePart(-0.4, 0.2, 0.8);
     parts.leftPupil = makePart(0, 0.04, 0.11); parts.rightPupil = makePart(0, 0.04, 0.11);
     parts.leftCheek = makePart(0.62, -0.16, 0.7); parts.rightCheek = makePart(-0.62, -0.16, 0.7);
