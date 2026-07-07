@@ -342,6 +342,20 @@ async function main() {
       Math.abs(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) > 0.1 && p.mouthBead0.position.y > p.mouthBead3.position.y + 0.1);
   }
 
+  // 18b) A named trick that lands as a WIPEOUT drives NO celebration (the crash frame must
+  //      not flash a trick grin — the trickName can coincide with the wipeout grade).
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    Expression.update(sm, 1 / 60, { speed: 18, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, trickName: '360', landingQuality: 'wipeout' });
+    runFor(sm, Expression, 20, { speed: 5, technique: 'glide', turnRate: 0, isInAir: false });
+    const p = sm.userData.parts;
+    // No trick override => arms are NOT thrown up (they stay at the neutral glide pose).
+    check('trick on a wipeout landing → no celebration (arms stay near neutral)',
+      Math.abs(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) < 0.05 &&
+      Math.abs(p.rightArmGroup.rotation.z - base.rightArmGroup.rotation.z) < 0.05);
+  }
+
   // 19) Avalanche panic: a close slide raises the brows and animates the arms; it clears
   //     once the slide is far away.
   {

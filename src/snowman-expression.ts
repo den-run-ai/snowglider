@@ -277,7 +277,12 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
     else if (lq === 'sketchy') es.sketchyT = REACT_SKETCHY;
     if (lq !== 'wipeout') es.hatBounceV -= HAT_BOUNCE_KICK;
   }
-  if (m.trickName) es.trickT = REACT_TRICK;
+  // A named trick can complete on the SAME frame the landing grades 'wipeout' (the physics
+  // step computes trickName before assigning the wipeout grade on a hard/head-first
+  // landing). A wipeout ends the run and must show no reaction, so suppress the (high
+  // priority) trick celebration on a wipeout frame — otherwise a crash path that still
+  // renders (or a test that disables shatter) flashes a celebration instead of the crash.
+  if (m.trickName && m.landingQuality !== 'wipeout') es.trickT = REACT_TRICK;
   if (m.obstacleCleared) es.wooT = REACT_WOO;
 
   // Resolve the highest-priority active reaction from THIS frame's full timers, BEFORE
