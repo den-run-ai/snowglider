@@ -110,7 +110,11 @@ declare global {
     updateLeaderboard?(uid: string, time: number, tier?: Difficulty): Promise<boolean> | void;
     syncBestTimeWithRetry?(uid: string, time: number, tier: Difficulty): void;
     isFirestoreAvailable?(): boolean;
-    isValidScoreTime?(time: number): boolean;
+    // Accepts `unknown` so a seam caller can validate a raw Firestore/localStorage read at
+    // the boundary (the decoder purpose), matching the exported guard's `unknown` input.
+    // (Return stays `boolean`, not a `time is number` predicate: the reduced local-mode
+    // shim in boot/local-auth.js is a classic JS function that can't declare a predicate.)
+    isValidScoreTime?(time: unknown): boolean;
     leaderboardRow?(rank: number, name: string, photoURL: string | null,
                     time: number, isCurrentUser: boolean): HTMLTableRowElement;
   }
