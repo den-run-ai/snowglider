@@ -36,6 +36,24 @@ export interface ExpressionMotion {
   technique: string;
   turnRate: number;
   isInAir: boolean;
+  // --- Event signals (issue #364 PR 4) — all OPTIONAL, absent => no reaction, so every
+  //     PR 2/PR 3 caller/test stays byte-identical. Edge events (justLanded / trickName /
+  //     obstacleCleared) kick a short-lived reaction; level signals (avalancheDistance /
+  //     finished) drive a reaction while they hold. ---
+  /** A landing completed THIS frame (aggregated across the frame's substeps by the loop). */
+  justLanded?: boolean;
+  /** How that landing graded: 'clean' | 'ok' | 'sketchy' | 'wipeout' | null. 'wipeout'
+   *  ends the run (crash), so it drives no face reaction. */
+  landingQuality?: string | null;
+  /** A scored obstacle clear this frame ('tree' | 'rock'), or null. */
+  obstacleCleared?: 'tree' | 'rock' | null;
+  /** The completed freestyle trick's label this frame (Expert tier), or null. */
+  trickName?: string | null;
+  /** Closest active-avalanche distance; small => panic. Infinity/absent => no threat. */
+  avalancheDistance?: number;
+  /** The run finished this frame — celebration (reserved: the loop currently stops the
+   *  render observers on finish, so this is a forward-compatible hook, defaulting false). */
+  finished?: boolean;
 }
 
 interface XYZ { x: number; y: number; z: number; }
@@ -56,6 +74,10 @@ interface ExprState {
   armBack: number;    // arms swept back (tuck),                   eased [0..1]
   armAsym: number;    // carve counterbalance (inside fwd / outside back), eased [-1..1]
   hatTilt: number;    // hat lean into the turn + tuck push-down,  eased [-1..1]
+  // Event reactions (issue #364 PR 4): short-lived timers (seconds remaining) + a hat
+  // bounce spring kicked on landing. All zero at rest.
+  cleanT: number; okT: number; sketchyT: number; trickT: number; wooT: number;
+  hatBounce: number; hatBounceV: number;
 }
 
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
@@ -82,6 +104,26 @@ const HAT_TILT = 0.22;          // hat lean into a full-rate turn
 const HAT_TUCK_DROP = 0.12;     // hat pushed down/forward in a full tuck (world units)
 const NOSE_WOBBLE = 0.06;       // deterministic carrot wobble amplitude at speed (rad)
 const NOSE_TURN = 0.12;         // nose tilt into a full-rate turn (rad)
+
+// --- event-reaction tuning (issue #364 PR 4) ----------------------------------------
+// Short-lived reaction durations (seconds). Priority (highest first) is resolved in
+// reactionOverride(): finish > trick > clean > woo > sketchy > avalanche panic > ok
+// landing; below that the steady-state technique face (incl. airborne) shows through.
+// (ok-landing is the mildest cue — a relieved smile — so it sits LAST, deliberately below
+// avalanche panic: a bearing-down slide should never be masked by a relieved grin.)
+const REACT_CLEAN = 0.6;        // clean-landing smile + cheek pop + arm pump
+const REACT_OK = 0.4;           // ok-landing relieved smile
+const REACT_SKETCHY = 0.8;      // sketchy-landing wince (one eye squeezed, crooked mouth, windmill)
+const REACT_TRICK = 0.9;        // freestyle-trick celebration grin
+const REACT_WOO = 0.5;          // obstacle-clear "woo!" open grin
+const AVAL_PANIC_DIST = 40;     // avalanche closer than this => panic (matches the warning band)
+const HAT_BOUNCE_KICK = 3.2;    // downward velocity impulse on the hat at a landing
+const HAT_BOUNCE_K = 60;        // hat-bounce spring stiffness
+const HAT_BOUNCE_C = 9;         // hat-bounce spring damping
+const HAT_BOUNCE_CLAMP = 0.25;  // max hat-bounce displacement (world units)
+const WINCE_CROOK = 0.22;       // mouth crook (rotation.z) at a full sketchy wince (rad)
+const WINDMILL_RATE = 26;       // rad/s of the sketchy/panic arm windmill oscillation
+const EYE_WIDE = 1.18;          // eye scale.y cap so panic/surprise can read bug-eyed
 
 // Blink cadence — deterministic (no Math.random): a quick full blink on a fixed period.
 const BLINK_INTERVAL = 3.6;     // seconds between blinks
@@ -126,6 +168,55 @@ function techniqueTarget(m: ExpressionMotion, speedN: number): FaceTarget {
   }
 }
 
+/** An event reaction's full pose override: a face target plus the arm/hat body targets
+ *  and any asymmetric extras (a one-eye wince, a mouth crook). Returned by
+ *  reactionOverride() and — when present — REPLACES the technique targets for the frame. */
+interface ReactionPose {
+  face: FaceTarget;
+  spread: number; back: number; asym: number;
+  wince: number;      // 0..1: closes the left eye + crooks the mouth (sketchy)
+}
+
+/** Resolve the single highest-priority active reaction into a full pose override, or null
+ *  to fall through to the steady-state technique face. Edge reactions are gated on their
+ *  countdown timer (already ticked this frame); level reactions read the motion directly.
+ *  Priority: finish > trick > clean > woo > sketchy > avalanche panic > ok landing. */
+function reactionOverride(es: ExprState, m: ExpressionMotion): ReactionPose | null {
+  if (m.finished) {
+    // Celebration: big grin, brows up, both arms thrown up.
+    return { face: { curve: 1, open: 0.3, brow: 0.85, eye: 1.1 }, spread: 1, back: 0, asym: 0, wince: 0 };
+  }
+  if (es.trickT > 0) {
+    // Excited, slightly asymmetric grin; one arm reaching (asym), arms up.
+    return { face: { curve: 0.9, open: 0.4, brow: 0.7, eye: 1.12 }, spread: 0.85, back: 0, asym: 0.6, wince: 0 };
+  }
+  if (es.cleanT > 0) {
+    // Clean stomp: big smile + cheek pop, an arm pump.
+    return { face: { curve: 1, open: 0.12, brow: 0.4, eye: 1 }, spread: 0.7, back: 0, asym: 0, wince: 0 };
+  }
+  if (es.wooT > 0) {
+    // Obstacle clear: "woo!" open grin, brows up, a little arm flick.
+    return { face: { curve: 0.85, open: 0.5, brow: 0.6, eye: 1.12 }, spread: 0.6, back: 0, asym: 0, wince: 0 };
+  }
+  if (es.sketchyT > 0) {
+    // Sketchy landing: crooked mouth, one eye squeezed shut, arms windmill.
+    const w = clamp(es.sketchyT / REACT_SKETCHY, 0, 1);
+    return { face: { curve: -0.3, open: 0.2, brow: 0.35, eye: 0.9 }, spread: 0.5, back: 0, asym: Math.sin(es.t * WINDMILL_RATE) * 0.6 * w, wince: w };
+  }
+  const avDist = m.avalancheDistance ?? Infinity;
+  if (Number.isFinite(avDist) && avDist < AVAL_PANIC_DIST) {
+    // Avalanche close: panic eyes + raised brows, a frantic arm brace/windmill. Intensity
+    // climbs as the slide closes in.
+    const p = clamp(1 - avDist / AVAL_PANIC_DIST, 0, 1);
+    return { face: { curve: -0.35, open: 0.2 + 0.4 * p, brow: 0.6 + 0.4 * p, eye: 1.1 }, spread: 0.45 + 0.4 * p, back: 0, asym: Math.sin(es.t * WINDMILL_RATE) * 0.5 * p, wince: 0 };
+  }
+  if (es.okT > 0) {
+    // Relieved smile.
+    return { face: { curve: 0.6, open: 0, brow: 0.2, eye: 1 }, spread: 0, back: 0, asym: 0, wince: 0 };
+  }
+  return null;
+}
+
 function getState(ud: Record<string, unknown>): ExprState {
   let es = ud.expr as ExprState | undefined;
   if (!es) { es = freshState(); ud.expr = es; }
@@ -136,6 +227,7 @@ function freshState(): ExprState {
   return {
     t: 0, blink: BLINK_INTERVAL, curve: 0.3, open: 0, brow: 0, eye: 1, look: 0,
     armSpread: 0, armBack: 0, armAsym: 0, hatTilt: 0,
+    cleanT: 0, okT: 0, sketchyT: 0, trickT: 0, wooT: 0, hatBounce: 0, hatBounceV: 0,
   };
 }
 
@@ -175,8 +267,37 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   const turn = clamp(finite(m.turnRate), -1, 1);
   es.t += dt;
 
-  // Ease the technique target + look toward the turn.
-  const tgt = techniqueTarget(m, speedN);
+  // --- Event-reaction timers (PR 4) --------------------------------------------------
+  // Kick a short-lived timer on each EDGE event this frame; a wipeout ends the run so it
+  // drives no face reaction. Any non-wipeout landing also kicks the hat-bounce spring.
+  if (m.justLanded) {
+    const lq = m.landingQuality ?? null;
+    if (lq === 'clean') es.cleanT = REACT_CLEAN;
+    else if (lq === 'ok') es.okT = REACT_OK;
+    else if (lq === 'sketchy') es.sketchyT = REACT_SKETCHY;
+    if (lq !== 'wipeout') es.hatBounceV -= HAT_BOUNCE_KICK;
+  }
+  // A named trick can complete on the SAME frame the landing grades 'wipeout' (the physics
+  // step computes trickName before assigning the wipeout grade on a hard/head-first
+  // landing). A wipeout ends the run and must show no reaction, so suppress the (high
+  // priority) trick celebration on a wipeout frame — otherwise a crash path that still
+  // renders (or a test that disables shatter) flashes a celebration instead of the crash.
+  if (m.trickName && m.landingQuality !== 'wipeout') es.trickT = REACT_TRICK;
+  if (m.obstacleCleared) es.wooT = REACT_WOO;
+
+  // Resolve the highest-priority active reaction from THIS frame's full timers, BEFORE
+  // ticking them down — otherwise an edge reaction is shortened by the same frame's dt on
+  // the very frame it fires (a large delta through the legacy updateSnowman(delta) seam
+  // could clip it entirely), making the reaction frame-delta dependent.
+  const react = reactionOverride(es, m);
+
+  // Now tick the reaction timers down for the NEXT frame.
+  es.cleanT = Math.max(0, es.cleanT - dt); es.okT = Math.max(0, es.okT - dt);
+  es.sketchyT = Math.max(0, es.sketchyT - dt); es.trickT = Math.max(0, es.trickT - dt);
+  es.wooT = Math.max(0, es.wooT - dt);
+  const tgt = react ? react.face : techniqueTarget(m, speedN);
+
+  // Ease the face target + look toward the turn.
   const k = clamp(dt * EASE, 0, 1);
   es.curve += (tgt.curve - es.curve) * k;
   es.open += (tgt.open - es.open) * k;
@@ -185,6 +306,14 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   es.look += (turn - es.look) * k;
   es.curve = finite(es.curve); es.open = finite(es.open);
   es.brow = finite(es.brow); es.eye = finite(es.eye); es.look = finite(es.look);
+
+  // The sketchy-wince intensity fades with its own reaction timer, so no extra easing.
+  const wince = react ? clamp(react.wince, 0, 1) : 0;
+
+  // Hat-bounce spring: a damped landing bounce, integrated on the fixed easing dt.
+  es.hatBounceV += (-HAT_BOUNCE_K * es.hatBounce - HAT_BOUNCE_C * es.hatBounceV) * dt;
+  es.hatBounce = clamp(finite(es.hatBounce + es.hatBounceV * dt), -HAT_BOUNCE_CLAMP, HAT_BOUNCE_CLAMP);
+  es.hatBounceV = finite(es.hatBounceV);
 
   // A tiny deterministic micro-quiver on the mouth so an idle face isn't frozen.
   const micro = Math.sin(es.t * 2.3) * MICRO;
@@ -202,6 +331,10 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
     const dy = curve * CURVE_AMP * nx * nx - open * OPEN_AMP * (1 - nx * nx);
     p.position.set(b.position.x, b.position.y + clamp(dy, -0.5, 0.5), b.position.z);
   }
+  // Crook the whole mouth on a sketchy wince (a lopsided grimace).
+  if (parts.mouth && base.mouth) {
+    parts.mouth.rotation.set(base.mouth.rotation.x, base.mouth.rotation.y, base.mouth.rotation.z + wince * WINCE_CROOK);
+  }
 
   // --- Brows: raise/lower + angle from the single brow channel -----------------------
   // brow>0 (surprise/panic) lifts the brows and arches them; brow<0 (focus/determined)
@@ -209,9 +342,11 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   writeBrow(parts.leftBrow, base.leftBrow, es.brow, +1);
   writeBrow(parts.rightBrow, base.rightBrow, es.brow, -1);
 
-  // --- Eyes: squint from technique, times the deterministic blink dip ----------------
-  const eyeOpen = clamp(es.eye * blinkFactor(es, dt), EYE_MIN, 1);
-  writeEye(parts.leftEye, base.leftEye, eyeOpen);
+  // --- Eyes: squint/wide from technique-or-reaction, times the deterministic blink dip -
+  // A sketchy wince squeezes ONE eye (the left) shut for a lopsided grimace.
+  const blink = blinkFactor(es, dt);
+  const eyeOpen = clamp(es.eye * blink, EYE_MIN, EYE_WIDE);
+  writeEye(parts.leftEye, base.leftEye, clamp(eyeOpen * (1 - 0.9 * wince), EYE_MIN, EYE_WIDE));
   writeEye(parts.rightEye, base.rightEye, eyeOpen);
 
   // --- Pupils: shift a touch toward the turn (eye-local; ride the eye squash) ---------
@@ -229,9 +364,11 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   // owns only the ski ROOTS and the root yaw), so the writes compose cleanly. The ski
   // wedge/edge/draw is left to pose.ts by design.
   const air = !!m.isInAir;
-  const spreadTgt = air ? 0.9 : m.technique === 'snowplow' ? 0.7 : m.technique === 'hop' ? 0.5 : 0;
-  const backTgt = !air && m.technique === 'tuck' ? 0.85 : 0;
-  const asymTgt = !air && m.technique === 'carve' ? turn : 0;
+  // A reaction OVERRIDES the technique arm targets while active (arms up for a
+  // celebration, windmill for a wince/panic), else the technique poses drive.
+  const spreadTgt = react ? react.spread : air ? 0.9 : m.technique === 'snowplow' ? 0.7 : m.technique === 'hop' ? 0.5 : 0;
+  const backTgt = react ? react.back : (!air && m.technique === 'tuck' ? 0.85 : 0);
+  const asymTgt = react ? react.asym : (!air && m.technique === 'carve' ? turn : 0);
   // Hat leans INTO the turn (dropped flat in tuck). The into-turn direction on rotation.z is
   // `-turn`, matching the flex head-cluster lean (targetLean = -turn * LEAN_TARGET in
   // snowman-flex.ts); +turn would tip the hat the opposite way from the body's lean.
@@ -245,8 +382,9 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
 
   writeArm(parts.leftArmGroup, base.leftArmGroup, es, +1);
   writeArm(parts.rightArmGroup, base.rightArmGroup, es, -1);
-  writeHat(parts.hatBase, base.hatBase, es, m.technique === 'tuck' && !air);
-  writeHat(parts.hatTop, base.hatTop, es, m.technique === 'tuck' && !air);
+  const tucking = m.technique === 'tuck' && !air;
+  writeHat(parts.hatBase, base.hatBase, es, tucking);
+  writeHat(parts.hatTop, base.hatTop, es, tucking);
   // Deterministic carrot wobble: a tiny speed-scaled quiver plus a lean into the turn. The
   // nose lean uses the same into-turn sign as the hat/head (`-turn` on rotation.z).
   writeNose(parts.nose, base.nose, Math.sin(es.t * 9) * NOSE_WOBBLE * speedN - turn * NOSE_TURN);
@@ -297,13 +435,14 @@ function writeArm(p: THREE.Object3D | undefined, b: BaseTransform | undefined, e
   p.rotation.set(b.rotation.x + rotX, b.rotation.y, b.rotation.z + rotZ);
 }
 
-/** Lean the hat into the turn (rotation.z) and, in a tuck, push it down/forward. The two
- *  hat pieces share the head cluster's bob via their parenting; this adds the personality. */
+/** Lean the hat into the turn (rotation.z), bounce it on a landing (the hatBounce spring),
+ *  and in a tuck push it down/forward. The two hat pieces share the head cluster's bob via
+ *  their parenting; this adds the personality on top. */
 function writeHat(p: THREE.Object3D | undefined, b: BaseTransform | undefined, es: ExprState, tucking: boolean): void {
   if (!p || !b) return;
   const tilt = clamp(es.hatTilt * HAT_TILT, -0.4, 0.4);
   const drop = tucking ? HAT_TUCK_DROP : 0;
-  p.position.set(b.position.x, b.position.y - drop, b.position.z);
+  p.position.set(b.position.x, b.position.y - drop + clamp(es.hatBounce, -HAT_BOUNCE_CLAMP, HAT_BOUNCE_CLAMP), b.position.z);
   p.rotation.set(b.rotation.x + (tucking ? 0.12 : 0), b.rotation.y, b.rotation.z + tilt);
 }
 

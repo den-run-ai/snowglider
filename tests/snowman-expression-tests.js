@@ -270,6 +270,141 @@ async function main() {
     check('reset() restores arms/hat/nose to neutral', restored);
   }
 
+  // ===== Event reactions (PR 4) =====
+  console.log('--- event reactions (PR 4) ---');
+
+  // 15) Clean-landing smile: a graded clean landing overrides the technique with a big
+  //     grin + cheek pop for its window. Compared against a CONTROL run with identical
+  //     motion but NO landing — the clean reaction must produce a STRICTLY bigger grin +
+  //     cheek pop than the plain idle-glide face, so the check fails if the reaction is a
+  //     no-op (both the neutral smile and idle glide already satisfy a bare threshold).
+  {
+    const sm = makeSnowman(), ctl = makeSnowman();
+    Expression.update(sm, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'clean' });
+    Expression.update(ctl, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
+    runFor(sm, Expression, 18, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
+    runFor(ctl, Expression, 18, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
+    const p = sm.userData.parts, pc = ctl.userData.parts;
+    const grin = (q) => q.mouthBead0.position.y - q.mouthBead3.position.y;
+    check('clean landing → bigger grin + cheek pop than a plain glide (reaction is not a no-op)',
+      p.mouthBead0.position.y > p.mouthBead3.position.y + 0.1 &&
+      grin(p) > grin(pc) + 1e-3 && p.leftCheek.scale.x > pc.leftCheek.scale.x + 1e-3);
+  }
+
+  // 15b) OK-landing priority: alone it shows the relieved smile (hat-bounce + mild grin),
+  //      but a bearing-down avalanche outranks it (panic wins — brows raise, no relief).
+  {
+    const solo = makeSnowman();
+    Expression.update(solo, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'ok' });
+    runFor(solo, Expression, 8, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
+    const ps = solo.userData.parts, bs = solo.userData.partBaseTransforms;
+    check('ok landing alone → relieved smile (grin above the neutral base)',
+      ps.mouthBead0.position.y - ps.mouthBead3.position.y > (bs.mouthBead0.position.y - bs.mouthBead3.position.y) + 1e-3);
+
+    // Same ok landing, but with a close slide every frame: avalanche panic outranks ok.
+    const both = makeSnowman();
+    const bb = both.userData.partBaseTransforms;
+    Expression.update(both, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'ok', avalancheDistance: 6 });
+    runFor(both, Expression, 8, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, avalancheDistance: 6 });
+    const pb = both.userData.parts;
+    check('avalanche panic outranks ok landing (brows raised into panic, not a relieved smile)',
+      pb.leftBrow.position.y > bb.leftBrow.position.y + 1e-3);
+  }
+
+  // 16) Sketchy wince: one eye squeezed shut (left < right) + crooked mouth + windmill.
+  {
+    const sm = makeSnowman();
+    Expression.update(sm, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'sketchy' });
+    runFor(sm, Expression, 10, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
+    const p = sm.userData.parts;
+    check('sketchy landing → left eye squeezed shut (scale.y well below right)', p.leftEye.scale.y < p.rightEye.scale.y - 0.2);
+    check('sketchy landing → mouth is crooked (mouth.rotation.z != 0)', Math.abs(p.mouth.rotation.z) > 1e-3);
+  }
+
+  // 17) Obstacle "woo!": an open grin (mouth opens, corners up).
+  {
+    const sm = makeSnowman();
+    Expression.update(sm, 1 / 60, { speed: 15, technique: 'glide', turnRate: 0, isInAir: true, obstacleCleared: 'tree' });
+    runFor(sm, Expression, 12, { speed: 15, technique: 'glide', turnRate: 0, isInAir: false });
+    const p = sm.userData.parts;
+    check('obstacle clear → "woo" open grin (centre bead dropped + corners up)',
+      p.mouthBead3.position.y < -0.05 && p.mouthBead0.position.y > p.mouthBead3.position.y);
+  }
+
+  // 18) Trick celebration persists AFTER landing (overrides the grounded technique).
+  {
+    const sm = makeSnowman();
+    Expression.update(sm, 1 / 60, { speed: 18, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, trickName: '360' });
+    runFor(sm, Expression, 20, { speed: 5, technique: 'glide', turnRate: 0, isInAir: false }); // grounded, slow
+    const p = sm.userData.parts;
+    const base = sm.userData.partBaseTransforms;
+    check('trick landing → celebration grin persists while grounded (arms up + big smile)',
+      Math.abs(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) > 0.1 && p.mouthBead0.position.y > p.mouthBead3.position.y + 0.1);
+  }
+
+  // 18b) A named trick that lands as a WIPEOUT drives NO celebration (the crash frame must
+  //      not flash a trick grin — the trickName can coincide with the wipeout grade).
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    Expression.update(sm, 1 / 60, { speed: 18, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, trickName: '360', landingQuality: 'wipeout' });
+    runFor(sm, Expression, 20, { speed: 5, technique: 'glide', turnRate: 0, isInAir: false });
+    const p = sm.userData.parts;
+    // No trick override => arms are NOT thrown up (they stay at the neutral glide pose).
+    check('trick on a wipeout landing → no celebration (arms stay near neutral)',
+      Math.abs(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) < 0.05 &&
+      Math.abs(p.rightArmGroup.rotation.z - base.rightArmGroup.rotation.z) < 0.05);
+  }
+
+  // 19) Avalanche panic: a close slide raises the brows and animates the arms; it clears
+  //     once the slide is far away.
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    runFor(sm, Expression, 30, { speed: 16, technique: 'glide', turnRate: 0, isInAir: false, avalancheDistance: 8 });
+    const p = sm.userData.parts;
+    check('avalanche close → brows raised (panic)', p.leftBrow.position.y > base.leftBrow.position.y + 1e-3 && p.rightBrow.position.y > base.rightBrow.position.y + 1e-3);
+    // Far avalanche => no panic, face eases back to the idle smile.
+    runFor(sm, Expression, 120, { speed: 16, technique: 'glide', turnRate: 0, isInAir: false, avalancheDistance: 500 });
+    check('avalanche far → panic clears (brows return near neutral)', Math.abs(p.leftBrow.position.y - base.leftBrow.position.y) < 0.05);
+  }
+
+  // 20) Hat bounce: a landing kicks the hat spring (displaces then settles back).
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    Expression.update(sm, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'ok' });
+    let maxDev = 0;
+    for (let i = 0; i < 8; i++) { Expression.update(sm, 1 / 60, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false }); maxDev = Math.max(maxDev, Math.abs(sm.userData.parts.hatTop.position.y - base.hatTop.position.y)); }
+    check('landing kicks a hat bounce (hat displaces from base)', maxDev > 0.02);
+    runFor(sm, Expression, 200, { speed: 12, technique: 'glide', turnRate: 0, isInAir: false });
+    check('hat bounce settles back to rest', Math.abs(sm.userData.parts.hatTop.position.y - base.hatTop.position.y) < 0.01);
+  }
+
+  // 21) Wipeout drives NO face reaction (it ends the run via the crash path).
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    Expression.update(sm, 1 / 60, { speed: 20, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'wipeout' });
+    runFor(sm, Expression, 10, { speed: 5, technique: 'glide', turnRate: 0, isInAir: false });
+    const p = sm.userData.parts;
+    // No sketchy/clean override: the mouth is NOT crooked and the face is a plain idle smile.
+    check('wipeout landing drives no wince/celebration (mouth uncrooked)', Math.abs(p.mouth.rotation.z - base.mouth.rotation.z) < 1e-6);
+  }
+
+  // 22) Backward-compat: with no event fields, the face is byte-identical to the pure
+  //     technique face (reactions never fire).
+  {
+    const a = makeSnowman(), b = makeSnowman();
+    for (let i = 0; i < 100; i++) {
+      Expression.update(a, 1 / 60, { speed: 15, technique: 'carve', turnRate: 0.5, isInAir: false });
+      Expression.update(b, 1 / 60, { speed: 15, technique: 'carve', turnRate: 0.5, isInAir: false, justLanded: false, landingQuality: null, obstacleCleared: null, trickName: null, avalancheDistance: Infinity });
+    }
+    const pa = a.userData.parts, pb = b.userData.parts;
+    check('absent vs explicitly-empty event fields produce identical faces',
+      pa.mouthBead0.position.y === pb.mouthBead0.position.y && pa.leftEye.scale.y === pb.leftEye.scale.y && pa.leftArmGroup.rotation.z === pb.leftArmGroup.rotation.z);
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

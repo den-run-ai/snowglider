@@ -320,16 +320,29 @@ export function createMainLoop(deps: MainLoopDeps) {
       windStream
     });
 
-    // Cosmetic facial expression (issue #364). Same render-observer contract as Flex:
-    // reads the per-frame result only, writes ONLY the face parts' child transforms
-    // (a set disjoint from Flex) — never pos/velocity. Runs right after Flex.update so
-    // it composes on top of this frame's head squash. Event reactions (landing grade /
-    // tricks / avalanche) layer on in a later PR; this pass is the technique face.
+    // Cosmetic facial expression + body acting (issue #364). Same render-observer
+    // contract as Flex: reads the per-frame result + this frame's aggregated events only,
+    // writes ONLY the face/arm/hat/nose child transforms (a set disjoint from Flex) —
+    // never pos/velocity. Runs right after Flex.update so it composes on top of this
+    // frame's head squash. The event signals (landing grade / trick / obstacle clear)
+    // come from `ev` (aggregated across the frame's substeps, so a mid-frame landing
+    // isn't dropped); the avalanche distance is the closest active-slide boulder, read
+    // from the avalanche system only (never pos/velocity), mirroring updateCamera.
+    let exprAvalancheDist = Infinity;
+    const avForExpr = state.avalanche;
+    if (avForExpr && state.avalancheTriggered && avForExpr.active) {
+      exprAvalancheDist = avForExpr.getClosestDistance(snowman.position);
+    }
     Expression.update(snowman, frameDelta, {
       speed: flexSpeed,
       technique: result.technique,
       turnRate: flexSpeed > 1e-3 ? velocity.x / flexSpeed : 0, // zero-speed guard (no 0/0 NaN)
       isInAir: player.isInAir,
+      justLanded: ev.justLanded,
+      landingQuality: ev.landingQuality,
+      obstacleCleared: ev.obstacleCleared,
+      trickName: ev.trickName,
+      avalancheDistance: exprAvalancheDist,
     });
 
     // Sound effects (issue #158): a takeoff whoosh on the ground->air transition, a
