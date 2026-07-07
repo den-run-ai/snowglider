@@ -115,7 +115,7 @@ import { AudioModule } from '../audio.js';
     if (testParam === 'unified') {
       // Set this before module test suites evaluate so they publish their
       // window.run*Tests hooks without also self-starting.
-      (window as any)._unifiedTestRunnerActive = true;
+      window._unifiedTestRunnerActive = true;
     }
 
     const testModuleLoads = selectedScripts.map((scriptName) => {
@@ -152,7 +152,7 @@ import { AudioModule } from '../audio.js';
   }
 
   function announceGameScriptsReady() {
-    (window as any).SnowGliderGameScriptsReady = true;
+    window.SnowGliderGameScriptsReady = true;
     window.dispatchEvent(new CustomEvent('snowglider:game-scripts-ready'));
   }
 

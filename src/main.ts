@@ -40,7 +40,7 @@ import { showUpdatePrompt } from './pwa/update-ui.js';
 export const BUNDLED_THREE_REVISION = THREE.REVISION;
 
 if (typeof window !== 'undefined') {
-  (window as any).__SNOWGLIDER_BUNDLE__ = {
+  window.__SNOWGLIDER_BUNDLE__ = {
     threeRevision: THREE.REVISION
   };
 
@@ -58,7 +58,7 @@ if (typeof window !== 'undefined') {
   // Vite still bundles it into the shared module graph (one Snow/Snowman/etc.
   // instance), while raw-source serving resolves it to /src/snowglider.js (the
   // request the puppeteer start-menu regression intercepts).
-  (window as any).__loadSnowGliderOrchestrator = () => import('./snowglider.js');
+  window.__loadSnowGliderOrchestrator = () => import('./snowglider.js');
 
   // Register the offline service worker (issue #358, PR 3). Self-gating: it no-ops
   // under ?test= / auth.html / insecure origins and runs the ?sw=reset hatch instead

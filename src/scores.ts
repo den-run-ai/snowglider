@@ -464,7 +464,7 @@ function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFA
  * @returns {Promise<Array>} Promise resolving to array of score objects
  */
 /** A leaderboard row assembled from a Firestore `leaderboard` document. */
-interface LeaderboardScore {
+export interface LeaderboardScore {
   userId: string;     // the leaderboard document id (== the user's uid)
   time: number;       // best run time in seconds
   userRef: any;       // Firestore DocumentReference to the user doc (untyped DocumentData)

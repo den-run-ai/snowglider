@@ -86,8 +86,11 @@ function main() {
 
   // Install AuthModule explicitly (the IIFE only auto-installs ScoresModule).
   a.window.SnowGliderLocalAuth.installAuthModule();
-  const Scores = a.window.ScoresModule;
-  const Auth = a.window.AuthModule;
+  // Cast to `any`: this suite deliberately probes the JS shim's RUNTIME validation
+  // with adversarial inputs (no args, a string time), which the typed ScoresModuleApi/
+  // AuthModuleApi seams (types/globals.d.ts) now correctly reject at compile time.
+  const Scores = /** @type {any} */ (a.window.ScoresModule);
+  const Auth = /** @type {any} */ (a.window.AuthModule);
 
   // --- ScoresModule no-op surface ---
   Scores.initializeScores();
