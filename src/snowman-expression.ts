@@ -278,8 +278,12 @@ function writeCheek(p: THREE.Object3D | undefined, b: BaseTransform | undefined,
  *  them (inside arm forward, outside back). All offsets clamped so a pose never breaks. */
 function writeArm(p: THREE.Object3D | undefined, b: BaseTransform | undefined, es: ExprState, sign: number): void {
   if (!p || !b) return;
+  // rotZ splays the arms OUTWARD: the left arm (sign +1, +x shoulder) rotates -z so its tip
+  // swings out to +x, the right arm mirrors it. (The earlier +sign rotation swung both arms
+  // inward-and-up over the head, clipping the twigs into the r=1 head sphere in the spread
+  // states — snowplow/air/hop; invisible from the front follow cam but visible in orbit/drone.)
   const rotX = clamp(-es.armSpread * ARM_RAISE + es.armBack * ARM_BACK - sign * es.armAsym * ARM_ASYM, -1.4, 1.4);
-  const rotZ = clamp(sign * es.armSpread * ARM_SPREAD, -1.2, 1.2);
+  const rotZ = clamp(-sign * es.armSpread * ARM_SPREAD, -1.2, 1.2);
   p.rotation.set(b.rotation.x + rotX, b.rotation.y, b.rotation.z + rotZ);
 }
 

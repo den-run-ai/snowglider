@@ -208,7 +208,11 @@ async function main() {
     const p = sm.userData.parts;
     check('air splays the arms outward (rotation.z offset, mirrored L/R)',
       Math.abs(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) > 0.1 &&
-      Math.sign(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) !== Math.sign(p.rightArmGroup.rotation.z - base.rightArmGroup.rotation.z));
+      Math.sign(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) !== Math.sign(p.rightArmGroup.rotation.z - base.rightArmGroup.rotation.z) &&
+      // Lock the OUTWARD direction: the left arm (+x shoulder) must rotate -z so its tip
+      // swings out to +x. A +z regression swings both arms inward over the head (clipping
+      // the twigs into the head sphere in the spread states — snowplow/air/hop).
+      (p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) < 0);
   }
 
   // 11) Body acting: tuck sweeps the arms back (rotation.x above base) and drops the hat.
