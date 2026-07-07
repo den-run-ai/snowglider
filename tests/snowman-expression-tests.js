@@ -231,6 +231,20 @@ async function main() {
       p.hatTop.position.y < base.hatTop.position.y - 1e-3 && p.hatBase.position.y < base.hatBase.position.y - 1e-3);
   }
 
+  // 11b) The tuck hat-drop EASES in with the arm sweep-back, it does NOT snap on the boolean:
+  //      after a single tuck frame the hat has barely dropped; the drop deepens as armBack
+  //      eases toward its tuck target. A boolean-snap regression drops the full amount frame 1.
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    Expression.update(sm, 1 / 60, { speed: 24, technique: 'tuck', turnRate: 0, isInAir: false });
+    const drop1 = base.hatTop.position.y - sm.userData.parts.hatTop.position.y;
+    runFor(sm, Expression, 60, { speed: 24, technique: 'tuck', turnRate: 0, isInAir: false });
+    const dropN = base.hatTop.position.y - sm.userData.parts.hatTop.position.y;
+    check('hat tuck-drop eases in (one-frame drop is a small fraction of the settled drop)',
+      dropN > 1e-3 && drop1 < dropN * 0.4);
+  }
+
   // 12) Body acting: carve counter-rotates the arms (inside forward / outside back).
   {
     const sm = makeSnowman();

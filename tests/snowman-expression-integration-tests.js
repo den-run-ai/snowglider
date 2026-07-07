@@ -74,6 +74,27 @@ async function main() {
     check('tuck sweeps the hand behind the racer (world z well below neutral)', handZ(tk) < neutralZ - 0.3);
   }
 
+  console.log('--- mouth beads ride the head sphere at expression extremes (no float) ---');
+  {
+    // A wide-open mouth drops the centre bead's latitude; its surface z must be recomputed so
+    // it rides DOWN the head sphere and its distance from the head centre stays ~constant. The
+    // old code held the neutral z, leaving the coal bead floating ~0.15u proud of the face.
+    const mb = createSnowman(new THREE.Scene());
+    const beadDist = (sm, key) => {
+      sm.updateMatrixWorld(true);
+      const hc = new THREE.Vector3(); sm.userData.parts.head.getWorldPosition(hc);
+      const bp = new THREE.Vector3(); sm.userData.parts[key].getWorldPosition(bp);
+      return bp.distanceTo(hc);
+    };
+    const neutralR = beadDist(mb, 'mouthBead3');
+    // Sustained avalanche panic drives the widest steady jaw-open (a level reaction, so it
+    // holds while the slide is close — unlike the short timed landing reactions).
+    for (let i = 0; i < 120; i++) Expression.update(mb, 1 / 60, { speed: 16, technique: 'glide', turnRate: 0, isInAir: false, avalancheDistance: 1 });
+    const openR = beadDist(mb, 'mouthBead3');
+    check('open mouth keeps the centre bead on the head surface (distance ~ neutral, not proud)',
+      Math.abs(openR - neutralR) < 0.03 * neutralR);
+  }
+
   console.log('--- finiteness: every world matrix stays finite ---');
   snowman.updateMatrixWorld(true);
   let allFinite = true;
