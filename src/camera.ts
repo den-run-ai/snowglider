@@ -656,9 +656,11 @@ export class Camera {
    * switching to Cam/Drone (via `V` or a tray chip) frames the advertised low-side / aerial
    * view immediately instead of rendering one frame at the classic Follow pose and then easing
    * from it — which read as a visible snap/lag (codex review, PR #319). Non-cinematic modes
-   * keep the exact `followOffset()` behaviour. `velocity`/`context` are optional (initialize has
-   * neither): without them speed is 0, so the motion-gated slope/air terms fall to their base
-   * pose, which is the right neutral framing for a mode switch.
+   * keep the exact `followOffset()` behaviour. `velocity`/`context` are optional: the lifecycle
+   * mode-switch passes the live velocity through `initialize()` (a restart passes the freshly
+   * zeroed one), while `context` still arrives only via `update()`'s first-frame snap. Without
+   * them speed is 0, so the motion-gated slope/air terms fall to their base pose, which is the
+   * right neutral framing for a from-rest entry.
    *
    * For CAMERAMAN the entry offset is built with the SAME decomposition the steady-state
    * path-follow uses on its first frame — side + up, with NO trailing-behind term — instead of

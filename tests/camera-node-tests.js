@@ -940,6 +940,28 @@ async function main() {
       Math.abs(straight.z - flipped.z) < 0.001);
   }
 
+  console.log('\n--- cameraman: collapsed chord with no prior heading falls back to the trail sample ---');
+  {
+    // Defensive fallback: normally recordCameramanPath seeds cameramanHeading before the
+    // chord logic ever runs, so the `?? trail.heading` arm is unreachable through play. Force
+    // it (short path extent -> collapsed chord, heading manually nulled) and confirm the
+    // heading re-seeds finite from the recorded trail sample instead of staying null/NaN.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const rot = new THREE.Euler(0, 0, 0);
+    const player = new THREE.Vector3(0, 50, 0);
+    const vel = { x: 0, z: 20 };
+    cam.initialize(player, rot);
+    cam.update(player, rot, vel, () => 0); // snap
+    for (let i = 0; i < 4; i++) { player.z += 0.5; cam.update(player, rot, vel, () => 0); } // ~2u of path (< min chord)
+    cam.cameramanHeading = null; // simulate lost heading state
+    player.z += 0.5;
+    cam.update(player, rot, vel, () => 0);
+    check('a collapsed chord with a null heading re-seeds from the trail-sample heading',
+      cam.cameramanHeading !== null && Number.isFinite(cam.cameramanHeading) &&
+      approx(cam.cameramanHeading, 0, 0.001)); // travelling +z -> heading 0
+  }
+
   console.log('\n--- handleResize ---');
   {
     const cam = newCamera();
