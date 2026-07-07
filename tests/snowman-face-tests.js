@@ -33,7 +33,8 @@ async function main() {
   console.log('--- face rig: registry + base transforms ---');
   const faceKeys = [
     'mouth', 'mouthBead0', 'mouthBead1', 'mouthBead2', 'mouthBead3', 'mouthBead4',
-    'mouthBead5', 'mouthBead6', 'leftBrow', 'rightBrow', 'leftCheek', 'rightCheek',
+    'mouthBead5', 'mouthBead6', 'mouthSeg0', 'mouthSeg1', 'mouthSeg2', 'mouthSeg3',
+    'mouthSeg4', 'mouthSeg5', 'leftBrow', 'rightBrow', 'leftCheek', 'rightCheek',
     'leftPupil', 'rightPupil',
   ];
   check('every face part is registered in userData.parts',
@@ -41,11 +42,20 @@ async function main() {
   check('every face part got a recorded base transform (for reset/offsets)',
     faceKeys.every((k) => !!base[k] && typeof base[k].position.x === 'number'));
 
-  console.log('--- structure: mouth group + bead / pupil parenting ---');
+  console.log('--- structure: mouth group + line joint/segment / pupil parenting ---');
   check('mouth is a THREE.Group', parts.mouth.isGroup === true);
-  check('mouth has exactly 7 coal beads as children',
-    parts.mouth.children.length === 7 &&
-    [0, 1, 2, 3, 4, 5, 6].every((i) => parts[`mouthBead${i}`].parent === parts.mouth));
+  check('mouth has exactly 7 line joints + 6 line segments as children',
+    parts.mouth.children.length === 13 &&
+    [0, 1, 2, 3, 4, 5, 6].every((i) => parts[`mouthBead${i}`].parent === parts.mouth) &&
+    [0, 1, 2, 3, 4, 5].every((i) => parts[`mouthSeg${i}`].parent === parts.mouth));
+  // The silhouette line is CONTINUOUS: each segment spans its two neighbouring joints
+  // (midpoint position, chord length via scale.y — so no visible dots or gaps).
+  check('each line segment sits at its joints\' midpoint with the chord length', [0, 1, 2, 3, 4, 5].every((i) => {
+    const a = parts[`mouthBead${i}`].position, b = parts[`mouthBead${i + 1}`].position, s = parts[`mouthSeg${i}`];
+    const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+    return Math.abs(s.position.x - (a.x + b.x) / 2) < 1e-6 && Math.abs(s.position.y - (a.y + b.y) / 2) < 1e-6 &&
+      Math.abs(s.scale.y - len) < 1e-6;
+  }));
   check('mouth is parented under the head mesh', parts.mouth.parent === parts.head);
   check('brows + cheeks are parented under the head mesh',
     parts.leftBrow.parent === parts.head && parts.rightBrow.parent === parts.head &&
@@ -83,17 +93,20 @@ async function main() {
     parts.leftBrow.position.y > 0.2 && parts.rightBrow.position.y > 0.2);
 
   console.log('--- shadows off + material sharing (perf budget) ---');
-  const faceMeshes = ['mouthBead0', 'mouthBead3', 'leftBrow', 'rightBrow', 'leftCheek', 'rightCheek', 'leftPupil', 'rightPupil'];
+  const faceMeshes = ['mouthBead0', 'mouthBead3', 'mouthSeg0', 'mouthSeg5', 'leftBrow', 'rightBrow', 'leftCheek', 'rightCheek', 'leftPupil', 'rightPupil'];
   check('face parts do NOT cast shadows (matches eyes/nose)', faceMeshes.every((k) => parts[k].castShadow === false));
   const blackMat = parts.leftEye.material; // the shared black coal material
-  check('coal beads reuse the shared black material', parts.mouthBead0.material === blackMat && parts.mouthBead3.material === blackMat);
+  check('mouth joints + line segments reuse the shared black material',
+    parts.mouthBead0.material === blackMat && parts.mouthBead3.material === blackMat &&
+    parts.mouthSeg0.material === blackMat && parts.mouthSeg5.material === blackMat);
   check('twig brows reuse the shared black material', parts.leftBrow.material === blackMat && parts.rightBrow.material === blackMat);
   check('cheeks + pupils are plain MeshStandardMaterial (share the standard program)',
     parts.leftCheek.material.isMeshStandardMaterial === true && parts.leftPupil.material.isMeshStandardMaterial === true);
   check('both cheeks share one material instance; both pupils share one',
     parts.leftCheek.material === parts.rightCheek.material && parts.leftPupil.material === parts.rightPupil.material);
-  check('all 7 beads share ONE geometry; both brows share ONE (pooled)',
+  check('all 7 joints share ONE geometry; all 6 segments share ONE; both brows share ONE (pooled)',
     [1, 2, 3, 4, 5, 6].every((i) => parts[`mouthBead${i}`].geometry === parts.mouthBead0.geometry) &&
+    [1, 2, 3, 4, 5].every((i) => parts[`mouthSeg${i}`].geometry === parts.mouthSeg0.geometry) &&
     parts.leftBrow.geometry === parts.rightBrow.geometry);
 
   console.log(`\n${pass} passed, ${fail} failed`);

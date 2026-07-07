@@ -93,6 +93,14 @@ async function main() {
     const openR = beadDist(mb, 'mouthBead3');
     check('open mouth keeps the centre bead on the head surface (distance ~ neutral, not proud)',
       Math.abs(openR - neutralR) < 0.03 * neutralR);
+    // The silhouette-line segments must follow the dropped joints (continuous line at
+    // the jaw-open extreme: midpoint position + chord length, mouth-local space).
+    const mp = mb.userData.parts;
+    check('line segments track the reshaped joints on the real model', [2, 3].every((i) => {
+      const a = mp[`mouthBead${i}`].position, b = mp[`mouthBead${i + 1}`].position, s = mp[`mouthSeg${i}`];
+      return Math.abs(s.position.y - (a.y + b.y) / 2) < 1e-9 &&
+        Math.abs(s.scale.y - Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)) < 1e-9;
+    }));
   }
 
   console.log('--- finiteness: every world matrix stays finite ---');

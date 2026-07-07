@@ -25,6 +25,7 @@
 // THREE is imported type-only so this module has no runtime dependency on three and stays
 // trivially testable headless with plain `{position,scale,rotation,userData}` stand-ins.
 import type * as THREE from 'three';
+import { MOUTH_Y, MOUTH_HALF_WIDTH, surfaceZ, layoutMouthLine } from './snowman/mouth-line.js';
 
 /** The per-frame motion the expression layer reads. `technique` is the SkiTechnique
  *  string; `turnRate` is the caller's ZERO-SPEED-GUARDED steering signal (the same one
@@ -83,17 +84,12 @@ interface ExprState {
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
 
-// Head sphere geometry — MUST MATCH src/snowman/face.ts (HEAD_R / MOUTH_Y / surfaceZ). Used
-// so a reshaped mouth bead rides DOWN/UP the head surface as its latitude changes, instead of
-// keeping its neutral z and floating proud of the face at an "O"/frown extreme.
-const HEAD_R = 1.0;             // unit head sphere radius (face.ts HEAD_R)
-const MOUTH_Y = -0.42;          // mouth-group latitude on the face (face.ts MOUTH_Y)
-/** Surface z on the unit head for a face feature at head-local (x, y), a hair proud so the
- *  bead sits ON the snow. MUST MATCH src/snowman/face.ts surfaceZ (same clamp + proud) so a
- *  bead's neutral z stays byte-identical to the baked geometry. */
-function surfaceZ(x: number, y: number, proud = 0.02): number {
-  return Math.sqrt(Math.max(0.04, HEAD_R * HEAD_R - x * x - y * y)) + proud;
-}
+// Head-sphere / mouth-layout math is shared with src/snowman/face.ts via
+// src/snowman/mouth-line.ts (MOUTH_Y / MOUTH_HALF_WIDTH / surfaceZ / layoutMouthLine),
+// so a reshaped mouth joint rides DOWN/UP the head surface as its latitude changes and
+// the line segments are refit with the exact math that baked the neutral pose — one
+// source of truth instead of duplicated MUST-MATCH constants. mouth-line.ts is pure
+// math with no runtime THREE dependency, so this module stays headless-testable.
 
 // --- tuning (all clamped so the face reads clearly but never breaks) ---------
 // Amplitudes deliberately SMALL (player feedback): the original values swung the mouth
@@ -101,8 +97,7 @@ function surfaceZ(x: number, y: number, proud = 0.02): number {
 // The face must stay a pleasant, near-neutral classic snowman at every state — the
 // expression layer adds a nuance, never a caricature.
 const EASE = 8;                 // per-second lerp rate for the eased channels
-const MOUTH_HALF_WIDTH = 0.3;   // matches face.ts (bead x reach) — normalizes bead x to nx
-const CURVE_AMP = 0.1;          // bead-y lift/drop at full smile/frown (world units)
+const CURVE_AMP = 0.1;          // joint-y lift/drop at full smile/frown (world units)
 const OPEN_AMP = 0.16;          // extra jaw drop of the centre beads at full "O"
 const BROW_RAISE_AMP = 0.06;    // brow y-raise at full surprise (world units)
 const BROW_ANGLE_AMP = 0.15;    // brow rotation.z swing at full focus/surprise (rad)
@@ -148,6 +143,9 @@ const BLINK_DUR = 0.14;         // seconds a blink takes (down-and-up)
 
 const MOUTH_BEADS: ReadonlyArray<string> = [
   'mouthBead0', 'mouthBead1', 'mouthBead2', 'mouthBead3', 'mouthBead4', 'mouthBead5', 'mouthBead6',
+];
+const MOUTH_SEGS: ReadonlyArray<string> = [
+  'mouthSeg0', 'mouthSeg1', 'mouthSeg2', 'mouthSeg3', 'mouthSeg4', 'mouthSeg5',
 ];
 
 /** A technique's steady-state face target. Missing channels default to neutral. */
@@ -337,8 +335,8 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   const curve = clamp(es.curve + micro, -1.2, 1.2);
   const open = clamp(es.open, 0, 1);
 
-  // --- Mouth: reshape the 7 coal beads around their neutral (gentle-smile) base ------
-  // bead.y = base.y + smile/frown(nx²) - jaw-open(centre). nx in [-1..1] is the bead's
+  // --- Mouth: reshape the 7 line joints around their neutral (gentle-smile) base -----
+  // joint.y = base.y + smile/frown(nx²) - jaw-open(centre). nx in [-1..1] is the joint's
   // normalized horizontal position, so the ENDS carry the smile/frown and the CENTRE
   // carries the jaw drop. Neutral (curve 0, open 0) reproduces the shipped smile exactly.
   for (const key of MOUTH_BEADS) {
@@ -347,12 +345,16 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
     const nx = clamp(b.position.x / MOUTH_HALF_WIDTH, -1, 1);
     const dy = curve * CURVE_AMP * nx * nx - open * OPEN_AMP * (1 - nx * nx);
     const y = b.position.y + clamp(dy, -0.5, 0.5);
-    // Ride the bead along the head sphere as it lifts/drops instead of holding its neutral z:
-    // recompute the surface z for the bead's NEW head-local latitude (MOUTH_Y + y; x is
-    // group-local, and the group sits at x=0/z=0 so bead-local == head-local here). At neutral
+    // Ride the joint along the head sphere as it lifts/drops instead of holding its neutral z:
+    // recompute the surface z for the joint's NEW head-local latitude (MOUTH_Y + y; x is
+    // group-local, and the group sits at x=0/z=0 so joint-local == head-local here). At neutral
     // (dy=0) this reproduces the baked z exactly, so the resting face stays byte-identical.
     p.position.set(b.position.x, y, surfaceZ(b.position.x, MOUTH_Y + y));
   }
+  // Refit the 6 thin line segments between the reshaped joints (the silhouette-line
+  // mouth) with the same math that baked the neutral pose. No-ops on a rig without
+  // segments (e.g. an older test stub), so it is always safe.
+  layoutMouthLine(MOUTH_BEADS.map((k) => parts[k]), MOUTH_SEGS.map((k) => parts[k]));
   // Crook the whole mouth on a sketchy wince (a lopsided grimace).
   if (parts.mouth && base.mouth) {
     parts.mouth.rotation.set(base.mouth.rotation.x, base.mouth.rotation.y, base.mouth.rotation.z + wince * WINCE_CROOK);
@@ -486,7 +488,7 @@ function reset(snowman: THREE.Object3D): void {
   const parts = ud.parts as Record<string, THREE.Object3D>;
   const base = ud.partBaseTransforms as Record<string, BaseTransform>;
   const keys = [
-    ...MOUTH_BEADS, 'mouth', 'leftBrow', 'rightBrow', 'leftEye', 'rightEye',
+    ...MOUTH_BEADS, ...MOUTH_SEGS, 'mouth', 'leftBrow', 'rightBrow', 'leftEye', 'rightEye',
     'leftPupil', 'rightPupil', 'leftCheek', 'rightCheek',
     // Body acting (PR 3): arms / hat / nose.
     'leftArmGroup', 'rightArmGroup', 'hatBase', 'hatTop', 'nose',
