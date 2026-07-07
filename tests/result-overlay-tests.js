@@ -199,6 +199,42 @@ async function main() {
       lb.style.display === 'block');
   }
 
+  // --- Missing AuthModule.displayLeaderboard hides the board instead of showing stale content ---
+  // displayLeaderboard is the call that refreshes the board's CONTENTS; the overlay itself only
+  // re-shows the element. A future AuthModule seam lacking the method used to silently no-op
+  // (`?.`), leaving the just-shown board displaying a STALE leaderboard from a prior finish. The
+  // hardened path fails loudly (console.error) and hides the board instead.
+  {
+    const rankedDeps = makeDeps({ bestTime: 1, getDifficulty: () => 'blue' });
+    const lb = document.getElementById('leaderboard'); // after makeDeps rebuilds the DOM
+    // A normal ranked finish (working seam) leaves the board shown (block)...
+    window.AuthModule = {
+      recordScore: () => {},
+      getCurrentUser: () => /** @type {any} */ ({ uid: 'u1' }),
+      displayLeaderboard: () => {},
+    };
+    createShowGameOver(rankedDeps)(FINISH);
+    check('ranked finish with a working seam shows the board', lb.style.display === 'block');
+
+    // ...a subsequent ranked finish whose AuthModule LACKS displayLeaderboard must hide the
+    // board and log, not leave the stale board visible.
+    const origError = console.error;
+    let logged = 0;
+    console.error = () => { logged++; };
+    window.AuthModule = {
+      recordScore: () => {},
+      getCurrentUser: () => /** @type {any} */ ({ uid: 'u1' }),
+      // displayLeaderboard intentionally absent
+    };
+    try {
+      createShowGameOver(rankedDeps)(FINISH);
+    } finally {
+      console.error = origError;
+    }
+    check('missing displayLeaderboard hides the board (no stale display)', lb.style.display === 'none');
+    check('missing displayLeaderboard logs an error', logged === 1);
+  }
+
   // --- Finish + valid time, no AuthModule.recordScore -> localStorage fallback best ---
   {
     delete window.AuthModule;

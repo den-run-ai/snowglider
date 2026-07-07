@@ -319,8 +319,18 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         leaderboardElement.style.display = 'block';
       }
 
-      // Display leaderboard for the run's tier
-      window.AuthModule.displayLeaderboard?.(tier);
+      // Display leaderboard for the run's tier. displayLeaderboard is the call that
+      // refreshes the board's CONTENTS — the block above only re-shows the element. If a
+      // future AuthModule implementation ever lacks it, a silent `?.` no-op would leave the
+      // just-shown board displaying a STALE leaderboard from a prior finish. Fail loudly and
+      // hide the board instead, so a missing seam surfaces rather than misleading the player.
+      const authModule = window.AuthModule;
+      if (typeof authModule.displayLeaderboard === 'function') {
+        authModule.displayLeaderboard(tier);
+      } else {
+        console.error('result-overlay: AuthModule.displayLeaderboard is unavailable; hiding the leaderboard to avoid showing a stale board.');
+        if (leaderboardElement) leaderboardElement.style.display = 'none';
+      }
     } else {
       // No global board for this result (unranked tier, or signed out): hide any
       // leaderboard a previous RANKED finish left visible in the overlay. Without this,
