@@ -962,6 +962,60 @@ async function main() {
       approx(cam.cameramanHeading, 0, 0.001)); // travelling +z -> heading 0
   }
 
+  console.log('\n--- cameraman eases are frame-rate independent (dt-scaled via context.frameDt) ---');
+  {
+    // The camera updates on the RENDER frame, not the fixed physics grid, so a constant
+    // per-call ease factor converges faster at high refresh rates (codex review, PR #379).
+    // Run the SAME wall-clock trajectory at 60 fps and 144 fps (passing frameDt) and require
+    // the eased cameraman state — profile distance/pitch and framing heading — to land in
+    // (near) the same place. Without dt-scaling the 144 fps run converges visibly further.
+    const runAtRate = (fps) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const player = new THREE.Vector3(0, 50, 0);
+      const rot = new THREE.Euler(0, 0, 0);
+      const dt = 1 / fps;
+      cam.initialize(player, rot);
+      const frames = Math.round(6 * fps); // 6 wall-clock seconds
+      for (let i = 0; i < frames; i++) {
+        const t = i * dt;
+        const h = t < 3 ? 0 : Math.PI / 3; // straight, then a sustained 60° direction change
+        const vel = { x: Math.sin(h) * 18, z: Math.cos(h) * 18 };
+        player.x += vel.x * dt;
+        player.z += vel.z * dt;
+        rot.y = h;
+        // isInAir for the last second so the eased profile is mid-transition at the probe.
+        cam.update(player, rot, vel, () => 0, { isInAir: t > 5, frameDt: dt });
+      }
+      return { dist: cam.cameramanDist, pitch: cam.cameramanPitch, heading: cam.cameramanHeading };
+    };
+    const at60 = runAtRate(60);
+    const at144 = runAtRate(144);
+    check('eased profile distance converges the same per wall-second at 60 vs 144 fps',
+      Math.abs(at60.dist - at144.dist) < 0.5);
+    check('eased profile pitch converges the same per wall-second at 60 vs 144 fps',
+      Math.abs(at60.pitch - at144.pitch) < 0.02);
+    check('framing heading converges the same per wall-second at 60 vs 144 fps',
+      Math.abs(at60.heading - at144.heading) < 0.05);
+
+    // NaN guard (this repo's non-finite-input bug class): a poisoned frameDt must fall back
+    // to the 60 fps step, never propagate NaN into the eased state.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 18 }, () => 0); // snap
+    for (let i = 0; i < 10; i++) {
+      player.z += 0.3;
+      cam.update(player, rot, { x: 0, z: 18 }, () => 0, { frameDt: NaN });
+    }
+    check('a non-finite frameDt falls back to the 60 fps step (no NaN in the eased state)',
+      Number.isFinite(cam.cameramanDist) && Number.isFinite(cam.cameramanPitch) &&
+      Number.isFinite(cam.cameramanHeading) &&
+      Number.isFinite(cam.smoothingVectors.lookAtPosition.x));
+  }
+
   console.log('\n--- handleResize ---');
   {
     const cam = newCamera();

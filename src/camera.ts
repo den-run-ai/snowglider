@@ -141,8 +141,8 @@ const CAMERAMAN_AIR_DIST = 0.55;     // pull back over a jump
 // window (see below), and the look-at is eased so the view direction glides too.
 const CAMERAMAN_SAMPLE_SPACING = 0.75;        // world units of travel between recorded path samples
 const CAMERAMAN_HISTORY_DISTANCE = 120;       // max travelled distance of path history retained
-const CAMERAMAN_LOOK_EASE = 0.10;             // per-frame ease of the smoothed look-at target
-const CAMERAMAN_HEADING_EASE = 0.06;          // per-frame ease of the side/trail framing heading
+const CAMERAMAN_LOOK_EASE = 0.10;             // 60 fps-equivalent ease of the smoothed look-at target
+const CAMERAMAN_HEADING_EASE = 0.06;          // 60 fps-equivalent ease of the side/trail framing heading
 const CAMERAMAN_MIN_SPEED_FOR_HEADING = 1.0;  // below this, derive heading from the position delta
 const CAMERAMAN_MAX_SAMPLES_PER_FRAME = 64;   // backstop against an unbounded insert on a teleport-sized jump
 // --- Cameraman turn stability (the "cameraman should stay in place while the rider turns" fix) ---
@@ -160,13 +160,29 @@ const CAMERAMAN_HEADING_MIN_CHORD = 4;        // below this chord length, hold t
 // The situational profile (slope/speed → follow distance + pitch) is EASED for the cameraman the
 // way Auto eases autoZoom/autoPitch. Applied raw (as before), a terrain-gradient change re-scaled
 // the follow distance up to ~1.7× within a frame and the target surged several units — the camera
-// lunged back/forth even on a straight run. Same constant-per-frame-factor pattern as the rest of
-// this rig (`smoothing`, AUTO_FRAME_EASE); the game loop is fixed-timestep, so that is safe here.
-const CAMERAMAN_PROFILE_EASE = 0.04;          // per-frame ease of the eased distance/pitch profile
+// lunged back/forth even on a straight run.
+const CAMERAMAN_PROFILE_EASE = 0.04;          // 60 fps-equivalent ease of the distance/pitch profile
+// NOTE (codex review, PR #379): Camera.update runs on the RENDER frame, not the fixed physics
+// grid, so a constant per-call ease factor would converge frame-rate dependently (~71%/s at
+// 30 Hz vs ~99.7%/s at 144 Hz). The cameraman eases (profile / heading / look) are therefore
+// dt-scaled via easeFor() using the loop-provided `AutoFrameContext.frameDt`: at exactly 60 fps
+// the factor equals the constant above, and other refresh rates converge identically per
+// wall-second. Omitted frameDt (headless tests, older callers) falls back to the 60 fps step.
 
 /** Clamp `v` to [lo, hi]. */
 function clampNum(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * Frame-rate-independent per-call ease factor (codex review, PR #379): closes the same
+ * fraction of the remaining gap PER WALL-SECOND regardless of refresh rate. `base` is the
+ * factor at exactly 60 fps; `dtFrames` is the render frame expressed in 60ths of a second
+ * (frameDt · 60). A 144 Hz frame applies less per call, a 30 Hz frame more, so one second
+ * of easing converges identically everywhere.
+ */
+function easeFor(base: number, dtFrames: number): number {
+  return 1 - Math.pow(1 - base, dtFrames);
 }
 
 /** Wrap an angle to (-π, π] so easing toward 0 always takes the short way round. */
@@ -203,6 +219,13 @@ export interface AutoFrameContext {
   isInAir?: boolean;
   /** World-unit distance to the nearest active avalanche boulder; Infinity/omitted = safe. */
   avalancheDistance?: number;
+  /**
+   * Real render-frame delta in SECONDS. Used only to dt-scale the cameraman eases so their
+   * convergence is frame-rate independent (codex review, PR #379) — the camera updates on the
+   * render frame, not the fixed physics grid. Omitted / non-finite / non-positive falls back
+   * to the 60 fps step (1/60), which keeps headless tests and older callers byte-identical.
+   */
+  frameDt?: number;
 }
 
 /** Reusable vectors that carry smoothing state between frames. */
@@ -854,27 +877,33 @@ export class Camera {
       if (this.mode === 'cameraman') {
         // Cameraman follows the snowman's ACTUAL recorded path like a fellow skier with a camera
         // (issue #357). It samples a point a fixed distance BACK along the trail and sits just off
-        // to one side of it. Crucially the side/trail basis comes from the eased path tangent, NOT
-        // the snowman's instantaneous playerRotation.y — so a sudden terrain/pose yaw flip no longer
-        // whips the camera to the opposite lane around the rider the way `yaw + angle` did. The
-        // per-mode pitch/side/distance profile is still the shared cinematic one (deterministic,
-        // frameCount-clocked), so the "low, close, side-trailing, handheld weave" identity is kept.
+        // to one side of it. Crucially the side/trail basis comes from the path's distance-windowed
+        // average direction (below), NOT the snowman's instantaneous playerRotation.y — so a sudden
+        // terrain/pose yaw flip no longer whips the camera to the opposite lane around the rider
+        // the way `yaw + angle` did. The per-mode pitch/side/distance profile is still the shared
+        // cinematic one, so the "low, close, side-trailing, handheld weave" identity is kept.
         this.recordCameramanPath(playerPosition, velocity, playerRotation.y);
         const { angle, pitch, distMult } = this.cinematicTargets(
           'cameraman', this.frameCount, slope, currentSpeed, context.isInAir === true,
         );
+        // dt-scale of this frame for the cameraman eases (codex review, PR #379): the camera
+        // updates on the render frame, so a constant per-call factor would converge much faster
+        // at 144 Hz than 30 Hz. Non-finite / non-positive / omitted → the 60 fps step.
+        const rawDtFrames = context.frameDt === undefined ? 1 : context.frameDt * 60;
+        const dtFrames = Number.isFinite(rawDtFrames) && rawDtFrames > 0 ? rawDtFrames : 1;
         // Ease the situational distance/pitch profile (CAMERAMAN_PROFILE_EASE) instead of
         // applying it raw: a terrain-gradient or speed change now glides the framing the way
         // Auto's autoZoom/autoPitch do, rather than surging the target several units in a frame.
         // Seeded from the instantaneous profile on the first cameraman frame, so the entry pose
         // still matches the first steady frame exactly (PR #356's no-snap guarantee).
+        const profileEase = easeFor(CAMERAMAN_PROFILE_EASE, dtFrames);
         const dTarget = dynamicDistance * distMult;
         this.cameramanDist = this.cameramanDist === null
           ? dTarget
-          : this.cameramanDist + (dTarget - this.cameramanDist) * CAMERAMAN_PROFILE_EASE;
+          : this.cameramanDist + (dTarget - this.cameramanDist) * profileEase;
         this.cameramanPitch = this.cameramanPitch === null
           ? pitch
-          : this.cameramanPitch + (pitch - this.cameramanPitch) * CAMERAMAN_PROFILE_EASE;
+          : this.cameramanPitch + (pitch - this.cameramanPitch) * profileEase;
         const d = this.cameramanDist;
         const easedPitch = this.cameramanPitch;
         const horiz = d * Math.cos(easedPitch);
@@ -898,7 +927,7 @@ export class Camera {
           : (this.cameramanHeading ?? trail.heading);
         this.cameramanHeading = this.cameramanHeading === null
           ? desiredHeading
-          : this.cameramanHeading + wrapAngle(desiredHeading - this.cameramanHeading) * CAMERAMAN_HEADING_EASE;
+          : this.cameramanHeading + wrapAngle(desiredHeading - this.cameramanHeading) * easeFor(CAMERAMAN_HEADING_EASE, dtFrames);
         const h = this.cameramanHeading;
         // Right-hand perpendicular to the travel heading (forward = (sin h, cos h)).
         const rightX = Math.cos(h);
@@ -955,7 +984,14 @@ export class Camera {
       desiredLookAt.x += (velocity.x / speedMagnitude) * lookAheadFactor;
       desiredLookAt.z += (velocity.z / speedMagnitude) * lookAheadFactor;
     }
-    const lookEase = this.mode === 'cameraman' ? CAMERAMAN_LOOK_EASE : 1.0;
+    // Cameraman's look-at ease is dt-scaled like its other eases (codex review, PR #379);
+    // every other mode keeps the exact 1.0 copy, so this stays byte-identical outside cameraman.
+    let lookEase = 1.0;
+    if (this.mode === 'cameraman') {
+      const rawLookDtFrames = context.frameDt === undefined ? 1 : context.frameDt * 60;
+      const lookDtFrames = Number.isFinite(rawLookDtFrames) && rawLookDtFrames > 0 ? rawLookDtFrames : 1;
+      lookEase = easeFor(CAMERAMAN_LOOK_EASE, lookDtFrames);
+    }
     this.smoothingVectors.lookAtPosition.lerp(desiredLookAt, lookEase);
     this.camera.lookAt(this.smoothingVectors.lookAtPosition);
     

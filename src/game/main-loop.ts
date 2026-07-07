@@ -405,7 +405,10 @@ export function createMainLoop(deps: MainLoopDeps) {
   const cameraRotScratch = new THREE.Euler();
 
   // --- Update Camera: Follow the Snowman ---
-  function updateCamera() {
+  // `frameDt` is the render-frame delta in seconds. The camera uses it only to dt-scale the
+  // cameraman-mode eases so their convergence is frame-rate independent (codex, PR #379);
+  // it never feeds physics.
+  function updateCamera(frameDt: number) {
     // Cosmetic-only situational signals for Auto framing (issue #305, P3+): a jump and
     // how close an avalanche is. Reads the loop's air flag + the avalanche system only
     // (never pos/velocity), so the deterministic sim is untouched. Terrain steepness,
@@ -415,7 +418,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     if (avalanche && state.avalancheTriggered && avalanche.active) {
       avalancheDistance = avalanche.getClosestDistance(snowman.position);
     }
-    const cameraContext = { isInAir: player.isInAir, avalancheDistance };
+    const cameraContext = { isInAir: player.isInAir, avalancheDistance, frameDt };
     // Freestyle (#32): the trick spin is written onto the snowman's root rotation.y
     // (pose.ts) — the transform the follow camera also derives its orbit angle from,
     // so left alone the camera would whirl around the rider at the spin rate
@@ -738,7 +741,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       // mogul field. Exactly the tuned constant at midday. See game/sun-shadow.ts.
       compensateShadowBiasForElevation(directionalLight, sunDirScratch.y, Sky.getMiddaySunElevationSin());
 
-      updateCamera();
+      updateCamera(frameDelta);
       updateTimerDisplay(state.gameActive, state.startTime); // Update the timer display
 
       // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
