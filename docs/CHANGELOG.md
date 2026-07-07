@@ -13,6 +13,32 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Procedural snowman expression rig (face + body personality) — issue #364
+- The snowman now **emotes**. A new procedural face rig (`src/snowman/face.ts`) adds a
+  coal-bead mouth, twig eyebrows, frosty cheeks, and white eye-highlight dots, and a new
+  cosmetic controller (`src/snowman-expression.ts`, a sibling of `snowman-flex.ts`) animates
+  them plus the arms, hat, and carrot from the motion the physics kernel already produced.
+- **Technique face:** a small state machine maps ski technique to expression — a relaxed
+  idle smile, a determined carve squint with brows angled into the turn, a braking "uh-oh"
+  on snowplow, a racer squint in a tuck, a bright open smile in the air — with the arms,
+  hat, and carrot posing to match (arms up in the air, swept back in a tuck, counter-
+  balancing a carve; the hat leans into turns; the carrot gets a tiny wobble) and a
+  deterministic blink.
+- **Event reactions:** short-lived, priority-resolved reactions layer on top — a big grin +
+  hat bounce on a clean landing, a one-eye wince + crooked mouth on a sketchy one, a "woo!"
+  on an obstacle clear, a celebration on a freestyle trick, and panic eyes + a frantic brace
+  as an avalanche closes in.
+- **Invariants:** the whole layer is render-only, physics-neutral, and deterministic — it
+  reads the per-frame result and writes only cosmetic child transforms on a part-set disjoint
+  from both flex and `pose.ts`, uses no `Math.random`/wall-clock (blink/wobble/windmill run
+  off an internal time accumulator; the hat bounce is a dt-integrated spring), and eases
+  frame-rate-independently. The no-input coasting baseline stays **byte-identical** (no
+  baseline regeneration) and reduced-motion snaps the whole rig rigid. Shipped as a staged
+  stack of small PRs (face rig → controller → body acting → event reactions → docs/acceptance).
+- **Tests:** `npm run test:face` (rig geometry), `npm run test:expression` (controller +
+  reactions), and `tests/snowman-expression-integration-tests.js` (the real model driven
+  through Flex + Expression together).
+
 ### Hide the racing ghost (kept live in the background for trajectory evals)
 - The translucent "ghost" of your best run is **no longer drawn**. On the slope it read
   as confusing and it visually blocked/distracted from the descent, so a new
