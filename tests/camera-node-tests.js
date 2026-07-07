@@ -806,6 +806,216 @@ async function main() {
       Math.sign(entryPos.x) === Math.sign(steadyTarget.x) && Math.abs(entryPos.x) > 1);
   }
 
+  console.log('\n--- cameraman turn stability: holds its lane through S-turn carving ---');
+  {
+    // The "cameraman should stay in place while the rider turns" fix: the framing heading
+    // averages the path over a distance window, so ordinary S-turn carving (travel heading
+    // swinging ±0.61 rad) must NOT sweep the side basis back and forth around the rider.
+    // The old local-tangent ease swept |cameramanHeading| past 0.5; the windowed chord
+    // holds it near the average downhill line.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+    cam.initialize(player, rot);
+    let maxH = 0;
+    for (let i = 0; i < 720; i++) {
+      const t = i / 60;
+      const h = 0.61 * Math.sin(2 * Math.PI * t / 2.5); // ±35° carve, 2.5 s period, 18 u/s
+      const vel = { x: Math.sin(h) * 18, z: Math.cos(h) * 18 };
+      player.x += vel.x / 60;
+      player.z += vel.z / 60;
+      rot.y = h;
+      cam.update(player, rot, vel, () => 0);
+      if (i > 240 && cam.cameramanHeading !== null) maxH = Math.max(maxH, Math.abs(cam.cameramanHeading));
+    }
+    check('S-turn carving barely moves the cameraman framing heading (holds its lane)',
+      maxH < 0.3); // old eased-local-tangent code sweeps to ~0.53
+  }
+
+  console.log('\n--- cameraman trail advances continuously (no per-sample stall/jump) ---');
+  {
+    // The trail point must key off the rider's CONTINUOUS travelled distance, not the
+    // sample-quantized path length — the old code froze the trail point between sample
+    // inserts and then jumped it a full 0.75 u spacing in one frame (a 45 u/s stutter).
+    // On a straight constant-speed run every per-frame target advance must sit near the
+    // per-frame travel (0.3 u), never collapsing to ~0 or spiking past a spacing.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+    const vel = { x: 0, z: 18 };
+    cam.initialize(player, rot);
+    cam.update(player, rot, vel, () => 0); // snap
+    let prev = null, minAdv = Infinity, maxAdv = 0;
+    for (let i = 0; i < 400; i++) {
+      player.z += 0.3;
+      cam.update(player, rot, vel, () => 0);
+      const tp = cam.smoothingVectors.targetPosition;
+      if (prev && i > 120) {
+        const d = Math.hypot(tp.x - prev.x, tp.z - prev.z);
+        minAdv = Math.min(minAdv, d);
+        maxAdv = Math.max(maxAdv, d);
+      }
+      prev = tp.clone();
+    }
+    check('cameraman target never stalls between path samples (min advance > 0.1)', minAdv > 0.1);
+    check('cameraman target never jumps a full sample spacing in one frame (max advance < 0.7)', maxAdv < 0.7);
+  }
+
+  console.log('\n--- cameraman situational profile is eased, not stepped ---');
+  {
+    // Slope/air re-scale the follow distance and pitch. Applied raw, the isInAir flip
+    // stepped the target ~16 u in a single frame (the camera lunged); the eased profile
+    // must glide instead.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+    const vel = { x: 0, z: 18 };
+    cam.initialize(player, rot);
+    cam.update(player, rot, vel, () => 0); // snap
+    for (let i = 0; i < 200; i++) { player.z += 0.3; cam.update(player, rot, vel, () => 0, { isInAir: false }); }
+    const before = cam.smoothingVectors.targetPosition.clone();
+    player.z += 0.3;
+    cam.update(player, rot, vel, () => 0, { isInAir: true });
+    const after = cam.smoothingVectors.targetPosition;
+    const jump = Math.sqrt(
+      (after.x - before.x) ** 2 + (after.y - before.y) ** 2 + (after.z - before.z) ** 2);
+    check('the jump (isInAir) pull-back eases in rather than stepping the target (< 2 u/frame)',
+      jump < 2); // old un-eased profile stepped ~16 u
+    // And it still gets there: after a long airtime the eased distance approaches the
+    // full air profile (bigger than the grounded follow distance).
+    const groundedDist = cam.cameramanDist;
+    for (let i = 0; i < 300; i++) { player.z += 0.3; cam.update(player, rot, vel, () => 0, { isInAir: true }); }
+    check('the eased profile still converges to the full jump pull-back',
+      cam.cameramanDist > groundedDist + 5);
+  }
+
+  console.log('\n--- cameraman: yaw-only turning in place does not move the target ---');
+  {
+    // A/B twin-camera regression: identical path history + frame count, differing ONLY in
+    // a final yaw-only turn-in-place (no displacement, no velocity). The target must not
+    // depend on the model yaw once real travel has seeded the path.
+    const run = (finalYaw) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const rot = new THREE.Euler(0, 0, 0);
+      const player = new THREE.Vector3(0, 50, 0);
+      const vel = { x: 0, z: 20 };
+      cam.initialize(player, rot);
+      cam.update(player, rot, vel, () => 0); // first-frame snap
+      for (let i = 0; i < 60; i++) {
+        player.z += 0.5;
+        cam.update(player, rot, vel, () => 0);
+      }
+      // The snowman now rotates in place: only the model yaw differs between the runs.
+      cam.update(player, new THREE.Euler(0, finalYaw, 0), { x: 0, z: 0 }, () => 0);
+      return cam.smoothingVectors.targetPosition.clone();
+    };
+    const normal = run(0);
+    const turned = run(Math.PI);
+    check('yaw-only turn in place does not move the cameraman target (x)',
+      Math.abs(turned.x - normal.x) < 0.5);
+    check('yaw-only turn in place does not move the cameraman target (z)',
+      Math.abs(turned.z - normal.z) < 0.5);
+  }
+
+  console.log('\n--- cameraman entry: initialize() with live velocity is yaw-immune ---');
+  {
+    // The lifecycle mode-switch now passes the live velocity into initialize(), so even the
+    // pre-first-update entry pose frames from travel when moving (yaw fallback only at rest).
+    const entryFor = (yaw) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const player = new THREE.Vector3(0, 50, 0);
+      cam.initialize(player, new THREE.Euler(0, yaw, 0), { x: 0, z: 20 });
+      return cam.camera.position.clone();
+    };
+    const straight = entryFor(0);
+    const flipped = entryFor(Math.PI);
+    check('initialize() with velocity seats the cameraman entry independent of model yaw (x)',
+      Math.abs(straight.x - flipped.x) < 0.001);
+    check('initialize() with velocity seats the cameraman entry independent of model yaw (z)',
+      Math.abs(straight.z - flipped.z) < 0.001);
+  }
+
+  console.log('\n--- cameraman: collapsed chord with no prior heading falls back to the trail sample ---');
+  {
+    // Defensive fallback: normally recordCameramanPath seeds cameramanHeading before the
+    // chord logic ever runs, so the `?? trail.heading` arm is unreachable through play. Force
+    // it (short path extent -> collapsed chord, heading manually nulled) and confirm the
+    // heading re-seeds finite from the recorded trail sample instead of staying null/NaN.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const rot = new THREE.Euler(0, 0, 0);
+    const player = new THREE.Vector3(0, 50, 0);
+    const vel = { x: 0, z: 20 };
+    cam.initialize(player, rot);
+    cam.update(player, rot, vel, () => 0); // snap
+    for (let i = 0; i < 4; i++) { player.z += 0.5; cam.update(player, rot, vel, () => 0); } // ~2u of path (< min chord)
+    cam.cameramanHeading = null; // simulate lost heading state
+    player.z += 0.5;
+    cam.update(player, rot, vel, () => 0);
+    check('a collapsed chord with a null heading re-seeds from the trail-sample heading',
+      cam.cameramanHeading !== null && Number.isFinite(cam.cameramanHeading) &&
+      approx(cam.cameramanHeading, 0, 0.001)); // travelling +z -> heading 0
+  }
+
+  console.log('\n--- cameraman eases are frame-rate independent (dt-scaled via context.frameDt) ---');
+  {
+    // The camera updates on the RENDER frame, not the fixed physics grid, so a constant
+    // per-call ease factor converges faster at high refresh rates (codex review, PR #379).
+    // Run the SAME wall-clock trajectory at 60 fps and 144 fps (passing frameDt) and require
+    // the eased cameraman state — profile distance/pitch and framing heading — to land in
+    // (near) the same place. Without dt-scaling the 144 fps run converges visibly further.
+    const runAtRate = (fps) => {
+      const cam = newCamera();
+      cam.setMode('cameraman');
+      const player = new THREE.Vector3(0, 50, 0);
+      const rot = new THREE.Euler(0, 0, 0);
+      const dt = 1 / fps;
+      cam.initialize(player, rot);
+      const frames = Math.round(6 * fps); // 6 wall-clock seconds
+      for (let i = 0; i < frames; i++) {
+        const t = i * dt;
+        const h = t < 3 ? 0 : Math.PI / 3; // straight, then a sustained 60° direction change
+        const vel = { x: Math.sin(h) * 18, z: Math.cos(h) * 18 };
+        player.x += vel.x * dt;
+        player.z += vel.z * dt;
+        rot.y = h;
+        // isInAir for the last second so the eased profile is mid-transition at the probe.
+        cam.update(player, rot, vel, () => 0, { isInAir: t > 5, frameDt: dt });
+      }
+      return { dist: cam.cameramanDist, pitch: cam.cameramanPitch, heading: cam.cameramanHeading };
+    };
+    const at60 = runAtRate(60);
+    const at144 = runAtRate(144);
+    check('eased profile distance converges the same per wall-second at 60 vs 144 fps',
+      Math.abs(at60.dist - at144.dist) < 0.5);
+    check('eased profile pitch converges the same per wall-second at 60 vs 144 fps',
+      Math.abs(at60.pitch - at144.pitch) < 0.02);
+    check('framing heading converges the same per wall-second at 60 vs 144 fps',
+      Math.abs(at60.heading - at144.heading) < 0.05);
+
+    // NaN guard (this repo's non-finite-input bug class): a poisoned frameDt must fall back
+    // to the 60 fps step, never propagate NaN into the eased state.
+    const cam = newCamera();
+    cam.setMode('cameraman');
+    const player = new THREE.Vector3(0, 50, 0);
+    const rot = new THREE.Euler(0, 0, 0);
+    cam.initialize(player, rot);
+    cam.update(player, rot, { x: 0, z: 18 }, () => 0); // snap
+    for (let i = 0; i < 10; i++) {
+      player.z += 0.3;
+      cam.update(player, rot, { x: 0, z: 18 }, () => 0, { frameDt: NaN });
+    }
+    check('a non-finite frameDt falls back to the 60 fps step (no NaN in the eased state)',
+      Number.isFinite(cam.cameramanDist) && Number.isFinite(cam.cameramanPitch) &&
+      Number.isFinite(cam.cameramanHeading) &&
+      Number.isFinite(cam.smoothingVectors.lookAtPosition.x));
+  }
+
   console.log('\n--- handleResize ---');
   {
     const cam = newCamera();

@@ -23,10 +23,12 @@ import { Mountains } from './mountains.js';
  *  - `orbit`       — free 360° orbit: player fully controls yaw/pitch/zoom, held put.
  *  - `firstPerson` — over-the-head cam.
  *  - `cameraman`   — cinematic ski-film chase: low, close, side-trailing, with a gentle
- *                    handheld weave. Pulls back + lifts on steep/expert lines and jumps.
- *                    Follows the snowman's ACTUAL travelled path (issue #357), not its
- *                    instantaneous model yaw, so a terrain/pose yaw flip can't whip it
- *                    around the rider; the framing heading + look-at are eased.
+ *                    handheld weave. Pulls back + lifts on steep/expert lines and jumps
+ *                    (profile EASED, never stepped). Follows the snowman's ACTUAL travelled
+ *                    path (issue #357), not its instantaneous model yaw, and frames from the
+ *                    path's distance-windowed average direction — so neither a yaw flip nor
+ *                    ordinary carved turns swing it around the rider: it holds its lane while
+ *                    the rider turns, coming around only when the new direction persists.
  *  - `drone`       — cinematic aerial chase: high, far, slowly circling overhead. Also
  *                    pulls back + lifts harder on steep/expert terrain and jumps.
  * `V` cycles them in this order; the legacy toggle (controls.ts / lifecycle) maps to
@@ -135,18 +137,52 @@ const CAMERAMAN_AIR_DIST = 0.55;     // pull back over a jump
 // when terrain/pose logic snaps `playerRotation.y`, an orbit-derived offset (`yaw + angle`)
 // whipped the camera to the opposite lane around the rider; a path-sampled trail point does
 // not move when the yaw flips. Samples are spaced by travelled DISTANCE (frame-rate
-// independent, like SnowTrails), and both the side/trail framing heading and the look-at
-// target are eased so a curving line turns the camera gradually instead of lane-to-lane.
+// independent, like SnowTrails), the framing heading averages the path over a distance
+// window (see below), and the look-at is eased so the view direction glides too.
 const CAMERAMAN_SAMPLE_SPACING = 0.75;        // world units of travel between recorded path samples
 const CAMERAMAN_HISTORY_DISTANCE = 120;       // max travelled distance of path history retained
-const CAMERAMAN_LOOK_EASE = 0.10;             // per-frame ease of the smoothed look-at target
-const CAMERAMAN_HEADING_EASE = 0.06;          // per-frame ease of the side/trail framing heading
+const CAMERAMAN_LOOK_EASE = 0.10;             // 60 fps-equivalent ease of the smoothed look-at target
+const CAMERAMAN_HEADING_EASE = 0.06;          // 60 fps-equivalent ease of the side/trail framing heading
 const CAMERAMAN_MIN_SPEED_FOR_HEADING = 1.0;  // below this, derive heading from the position delta
 const CAMERAMAN_MAX_SAMPLES_PER_FRAME = 64;   // backstop against an unbounded insert on a teleport-sized jump
+// --- Cameraman turn stability (the "cameraman should stay in place while the rider turns" fix) ---
+// PR #356 stopped the camera reading the instantaneous model yaw, but the framing heading still
+// eased toward the LOCAL path tangent (τ ≈ 0.27 s at 60 fps) — short enough that ordinary S-turn
+// carving swept nearly the full turn angle into the side basis, swinging the camera around the
+// trail point on every turn. The heading now comes from the CHORD of the last
+// CAMERAMAN_HEADING_WINDOW units of recorded path (average direction of travel, distance-based so
+// frame-rate independent): quick carves and yaw wiggles cancel out inside the window and the
+// cameraman holds its lane, coming around only when a new direction PERSISTS for ~a window of
+// travel. When the chord collapses (hairpin returning past the window point, or a near-stop) the
+// heading simply holds — exactly the stay-put behaviour a real cameraman has.
+const CAMERAMAN_HEADING_WINDOW = 40;          // world units of path the framing heading averages over
+const CAMERAMAN_HEADING_MIN_CHORD = 4;        // below this chord length, hold the current heading
+// The situational profile (slope/speed → follow distance + pitch) is EASED for the cameraman the
+// way Auto eases autoZoom/autoPitch. Applied raw (as before), a terrain-gradient change re-scaled
+// the follow distance up to ~1.7× within a frame and the target surged several units — the camera
+// lunged back/forth even on a straight run.
+const CAMERAMAN_PROFILE_EASE = 0.04;          // 60 fps-equivalent ease of the distance/pitch profile
+// NOTE (codex review, PR #379): Camera.update runs on the RENDER frame, not the fixed physics
+// grid, so a constant per-call ease factor would converge frame-rate dependently (~71%/s at
+// 30 Hz vs ~99.7%/s at 144 Hz). The cameraman eases (profile / heading / look) are therefore
+// dt-scaled via easeFor() using the loop-provided `AutoFrameContext.frameDt`: at exactly 60 fps
+// the factor equals the constant above, and other refresh rates converge identically per
+// wall-second. Omitted frameDt (headless tests, older callers) falls back to the 60 fps step.
 
 /** Clamp `v` to [lo, hi]. */
 function clampNum(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * Frame-rate-independent per-call ease factor (codex review, PR #379): closes the same
+ * fraction of the remaining gap PER WALL-SECOND regardless of refresh rate. `base` is the
+ * factor at exactly 60 fps; `dtFrames` is the render frame expressed in 60ths of a second
+ * (frameDt · 60). A 144 Hz frame applies less per call, a 30 Hz frame more, so one second
+ * of easing converges identically everywhere.
+ */
+function easeFor(base: number, dtFrames: number): number {
+  return 1 - Math.pow(1 - base, dtFrames);
 }
 
 /** Wrap an angle to (-π, π] so easing toward 0 always takes the short way round. */
@@ -183,6 +219,13 @@ export interface AutoFrameContext {
   isInAir?: boolean;
   /** World-unit distance to the nearest active avalanche boulder; Infinity/omitted = safe. */
   avalancheDistance?: number;
+  /**
+   * Real render-frame delta in SECONDS. Used only to dt-scale the cameraman eases so their
+   * convergence is frame-rate independent (codex review, PR #379) — the camera updates on the
+   * render frame, not the fixed physics grid. Omitted / non-finite / non-positive falls back
+   * to the 60 fps step (1/60), which keeps headless tests and older callers byte-identical.
+   */
+  frameDt?: number;
 }
 
 /** Reusable vectors that carry smoothing state between frames. */
@@ -241,6 +284,17 @@ export class Camera {
   cameramanPath: CameraPathSample[];
   cameramanPathDistance: number;
   cameramanHeading: number | null;
+  // Continuous travelled distance of the RIDER along the recorded path: the latest sample's `s`
+  // plus the sub-spacing residual to the rider's current position. Trail sampling keys off this
+  // (not the sample-quantized `cameramanPathDistance`) so the trail point advances smoothly at
+  // the rider's speed instead of freezing between sample inserts and jumping a full spacing
+  // (0.75 u in one frame = a 45 u/s target stutter at 60 fps).
+  cameramanTravel: number;
+  // Eased situational profile (follow distance / pitch) — see CAMERAMAN_PROFILE_EASE. `null`
+  // until the first cameraman frame seeds them from the instantaneous profile, which keeps the
+  // entry pose and the first steady frame identical (the PR #356 no-snap guarantee).
+  cameramanDist: number | null;
+  cameramanPitch: number | null;
 
   // `_scene` is accepted to match the call site (`new Camera(scene)`) and kept for
   // parity with the other managers, though the camera reads terrain via the
@@ -286,6 +340,9 @@ export class Camera {
     this.cameramanPath = [];
     this.cameramanPathDistance = 0;
     this.cameramanHeading = null;
+    this.cameramanTravel = 0;
+    this.cameramanDist = null;
+    this.cameramanPitch = null;
   }
 
   // Compute the third-person camera offset from the player for a given base follow
@@ -393,6 +450,9 @@ export class Camera {
     this.cameramanPath = [];
     this.cameramanPathDistance = 0;
     this.cameramanHeading = null;
+    this.cameramanTravel = 0;
+    this.cameramanDist = null;
+    this.cameramanPitch = null;
   }
 
   /**
@@ -419,40 +479,48 @@ export class Camera {
       const seedHeading = speed > CAMERAMAN_MIN_SPEED_FOR_HEADING ? Math.atan2(velocity.x, velocity.z) : fallbackYaw;
       this.cameramanPath.push({ x: playerPosition.x, y: playerPosition.y, z: playerPosition.z, s: 0, heading: seedHeading });
       this.cameramanPathDistance = 0;
+      this.cameramanTravel = 0;
       if (this.cameramanHeading === null) this.cameramanHeading = seedHeading;
       return;
     }
     const dx = playerPosition.x - last.x;
     const dz = playerPosition.z - last.z;
     const step = Math.hypot(dx, dz);
-    if (step < CAMERAMAN_SAMPLE_SPACING) return;
-    const rawHeading = speed > CAMERAMAN_MIN_SPEED_FOR_HEADING
-      ? Math.atan2(velocity.x, velocity.z)
-      : Math.atan2(dx, dz);
-    // Lay each missed sample evenly along the segment travelled this frame (not all at the
-    // endpoint), stopping the last one within a spacing of the endpoint so the leftover distance
-    // carries to the next frame. Capped so a teleport-sized jump can't insert unboundedly.
-    const invStep = 1 / step;
-    const baseX = last.x, baseY = last.y, baseZ = last.z, baseS = last.s;
-    const dy = playerPosition.y - baseY;
-    let dist = CAMERAMAN_SAMPLE_SPACING;
-    let inserted = 0;
-    while (dist <= step && inserted < CAMERAMAN_MAX_SAMPLES_PER_FRAME) {
-      const t = dist * invStep;
-      this.cameramanPathDistance = baseS + dist;
-      this.cameramanPath.push({
-        x: baseX + dx * t,
-        y: baseY + dy * t,
-        z: baseZ + dz * t,
-        s: this.cameramanPathDistance,
-        heading: rawHeading,
-      });
-      dist += CAMERAMAN_SAMPLE_SPACING;
-      inserted++;
+    if (step >= CAMERAMAN_SAMPLE_SPACING) {
+      const rawHeading = speed > CAMERAMAN_MIN_SPEED_FOR_HEADING
+        ? Math.atan2(velocity.x, velocity.z)
+        : Math.atan2(dx, dz);
+      // Lay each missed sample evenly along the segment travelled this frame (not all at the
+      // endpoint), stopping the last one within a spacing of the endpoint so the leftover distance
+      // carries to the next frame. Capped so a teleport-sized jump can't insert unboundedly.
+      const invStep = 1 / step;
+      const baseX = last.x, baseY = last.y, baseZ = last.z, baseS = last.s;
+      const dy = playerPosition.y - baseY;
+      let dist = CAMERAMAN_SAMPLE_SPACING;
+      let inserted = 0;
+      while (dist <= step && inserted < CAMERAMAN_MAX_SAMPLES_PER_FRAME) {
+        const t = dist * invStep;
+        this.cameramanPathDistance = baseS + dist;
+        this.cameramanPath.push({
+          x: baseX + dx * t,
+          y: baseY + dy * t,
+          z: baseZ + dz * t,
+          s: this.cameramanPathDistance,
+          heading: rawHeading,
+        });
+        dist += CAMERAMAN_SAMPLE_SPACING;
+        inserted++;
+      }
+      while (this.cameramanPath.length > 2 && this.cameramanPathDistance - this.cameramanPath[0]!.s > CAMERAMAN_HISTORY_DISTANCE) {
+        this.cameramanPath.shift();
+      }
     }
-    while (this.cameramanPath.length > 2 && this.cameramanPathDistance - this.cameramanPath[0]!.s > CAMERAMAN_HISTORY_DISTANCE) {
-      this.cameramanPath.shift();
-    }
+    // Continuous rider-travel parameter: latest sample's s + the sub-spacing residual to the
+    // rider. Sample inserts keep this continuous (the new latest sample lies ON the segment
+    // toward the rider), so the trail point never freezes-then-jumps a full spacing.
+    const newLast = this.cameramanPath[this.cameramanPath.length - 1]!;
+    this.cameramanTravel = newLast.s +
+      Math.hypot(playerPosition.x - newLast.x, playerPosition.z - newLast.z);
   }
 
   /**
@@ -464,7 +532,10 @@ export class Camera {
   sampleCameramanTrail(distanceBehind: number): CameraPathSample {
     const samples = this.cameramanPath;
     const latest = samples[samples.length - 1];
-    const targetS = this.cameramanPathDistance - distanceBehind;
+    // Behind the rider's CONTINUOUS travelled distance (cameramanTravel), not the last sample's
+    // quantized s — otherwise the trail point stalls between sample inserts and then jumps a
+    // full CAMERAMAN_SAMPLE_SPACING in a single frame.
+    const targetS = this.cameramanTravel - distanceBehind;
     for (let i = samples.length - 1; i > 0; i--) {
       const b = samples[i]!;
       const a = samples[i - 1]!;
@@ -608,9 +679,11 @@ export class Camera {
    * switching to Cam/Drone (via `V` or a tray chip) frames the advertised low-side / aerial
    * view immediately instead of rendering one frame at the classic Follow pose and then easing
    * from it — which read as a visible snap/lag (codex review, PR #319). Non-cinematic modes
-   * keep the exact `followOffset()` behaviour. `velocity`/`context` are optional (initialize has
-   * neither): without them speed is 0, so the motion-gated slope/air terms fall to their base
-   * pose, which is the right neutral framing for a mode switch.
+   * keep the exact `followOffset()` behaviour. `velocity`/`context` are optional: the lifecycle
+   * mode-switch passes the live velocity through `initialize()` (a restart passes the freshly
+   * zeroed one), while `context` still arrives only via `update()`'s first-frame snap. Without
+   * them speed is 0, so the motion-gated slope/air terms fall to their base pose, which is the
+   * right neutral framing for a from-rest entry.
    *
    * For CAMERAMAN the entry offset is built with the SAME decomposition the steady-state
    * path-follow uses on its first frame — side + up, with NO trailing-behind term — instead of
@@ -642,8 +715,12 @@ export class Camera {
     return this.cinematicOffset(this.mode, distance, yaw, this.frameCount, slope, speed, context.isInAir === true);
   }
 
-  // Position camera initially behind the player
-  initialize(playerPosition: THREE.Vector3, playerRotation: THREE.Euler) {
+  // Position camera initially behind the player. `velocity` is optional (a restart calls
+  // this with the player freshly zeroed, where omitting it is equivalent); the lifecycle
+  // mode-switch path passes the live velocity so a cameraman entry MID-RUN frames from the
+  // real travel direction even if the model yaw is momentarily flipped — without it the
+  // entry pose is yaw-derived until update()'s first-frame snap replaces it.
+  initialize(playerPosition: THREE.Vector3, playerRotation: THREE.Euler, velocity?: PlanarVelocity) {
     // Spawn framing is driven by the persisted manual `zoom` only; clear the transient
     // situational autoZoom/autoPitch (and the turn-rate memory) so a restart after a
     // steep/fast/airborne Auto run re-seats at the neutral view.
@@ -689,7 +766,7 @@ export class Camera {
       // gameplay. entryOffset() folds in the current orbit/zoom (neutral by default) for
       // auto/follow/orbit, and the cinematic pose directly for cameraman/drone so a mode
       // switch seats at the advertised framing rather than the Follow pose (codex, PR #319).
-      const camOffset = this.entryOffset(this.minDistance, playerRotation.y, playerPosition);
+      const camOffset = this.entryOffset(this.minDistance, playerRotation.y, playerPosition, velocity);
 
       // Place camera exactly where it should be in its final position
       const initialPos = new THREE.Vector3(playerPosition.x, playerPosition.y, playerPosition.z).add(camOffset);
@@ -800,27 +877,57 @@ export class Camera {
       if (this.mode === 'cameraman') {
         // Cameraman follows the snowman's ACTUAL recorded path like a fellow skier with a camera
         // (issue #357). It samples a point a fixed distance BACK along the trail and sits just off
-        // to one side of it. Crucially the side/trail basis comes from the eased path tangent, NOT
-        // the snowman's instantaneous playerRotation.y — so a sudden terrain/pose yaw flip no longer
-        // whips the camera to the opposite lane around the rider the way `yaw + angle` did. The
-        // per-mode pitch/side/distance profile is still the shared cinematic one (deterministic,
-        // frameCount-clocked), so the "low, close, side-trailing, handheld weave" identity is kept.
+        // to one side of it. Crucially the side/trail basis comes from the path's distance-windowed
+        // average direction (below), NOT the snowman's instantaneous playerRotation.y — so a sudden
+        // terrain/pose yaw flip no longer whips the camera to the opposite lane around the rider
+        // the way `yaw + angle` did. The per-mode pitch/side/distance profile is still the shared
+        // cinematic one, so the "low, close, side-trailing, handheld weave" identity is kept.
         this.recordCameramanPath(playerPosition, velocity, playerRotation.y);
         const { angle, pitch, distMult } = this.cinematicTargets(
           'cameraman', this.frameCount, slope, currentSpeed, context.isInAir === true,
         );
-        const d = dynamicDistance * distMult;
-        const horiz = d * Math.cos(pitch);
-        const height = 8 + d * Math.sin(pitch); // vertical offset above the trail point (as followOffset)
+        // dt-scale of this frame for the cameraman eases (codex review, PR #379): the camera
+        // updates on the render frame, so a constant per-call factor would converge much faster
+        // at 144 Hz than 30 Hz. Non-finite / non-positive / omitted → the 60 fps step.
+        const rawDtFrames = context.frameDt === undefined ? 1 : context.frameDt * 60;
+        const dtFrames = Number.isFinite(rawDtFrames) && rawDtFrames > 0 ? rawDtFrames : 1;
+        // Ease the situational distance/pitch profile (CAMERAMAN_PROFILE_EASE) instead of
+        // applying it raw: a terrain-gradient or speed change now glides the framing the way
+        // Auto's autoZoom/autoPitch do, rather than surging the target several units in a frame.
+        // Seeded from the instantaneous profile on the first cameraman frame, so the entry pose
+        // still matches the first steady frame exactly (PR #356's no-snap guarantee).
+        const profileEase = easeFor(CAMERAMAN_PROFILE_EASE, dtFrames);
+        const dTarget = dynamicDistance * distMult;
+        this.cameramanDist = this.cameramanDist === null
+          ? dTarget
+          : this.cameramanDist + (dTarget - this.cameramanDist) * profileEase;
+        this.cameramanPitch = this.cameramanPitch === null
+          ? pitch
+          : this.cameramanPitch + (pitch - this.cameramanPitch) * profileEase;
+        const d = this.cameramanDist;
+        const easedPitch = this.cameramanPitch;
+        const horiz = d * Math.cos(easedPitch);
+        const height = 8 + d * Math.sin(easedPitch); // vertical offset above the trail point (as followOffset)
         const trailDistance = horiz * Math.cos(angle);
         const sideDistance = horiz * Math.sin(angle);
         const trail = this.sampleCameramanTrail(trailDistance);
-        // Ease the framing heading toward the sampled trail tangent so a curving line turns the
-        // camera gradually instead of snapping lane to lane.
-        const desiredHeading = trail.heading;
+        // Framing heading = the AVERAGE direction of travel over the last CAMERAMAN_HEADING_WINDOW
+        // units of recorded path (chord from the window-back trail point to the rider), eased.
+        // The local tangent (trail.heading) swept the side basis through every ordinary S-turn,
+        // swinging the camera around the rider on each carve; the windowed chord cancels quick
+        // turns out, so the cameraman HOLDS ITS LANE while the rider turns and only comes around
+        // when the new direction persists for ~a window of travel. A collapsed chord (hairpin
+        // doubling back past the window point, or a near-stop) holds the current heading — the
+        // stay-put behaviour a real cameraman has. Distance-based, so frame-rate independent.
+        const windowBack = this.sampleCameramanTrail(CAMERAMAN_HEADING_WINDOW);
+        const chordX = playerPosition.x - windowBack.x;
+        const chordZ = playerPosition.z - windowBack.z;
+        const desiredHeading = Math.hypot(chordX, chordZ) >= CAMERAMAN_HEADING_MIN_CHORD
+          ? Math.atan2(chordX, chordZ)
+          : (this.cameramanHeading ?? trail.heading);
         this.cameramanHeading = this.cameramanHeading === null
           ? desiredHeading
-          : this.cameramanHeading + wrapAngle(desiredHeading - this.cameramanHeading) * CAMERAMAN_HEADING_EASE;
+          : this.cameramanHeading + wrapAngle(desiredHeading - this.cameramanHeading) * easeFor(CAMERAMAN_HEADING_EASE, dtFrames);
         const h = this.cameramanHeading;
         // Right-hand perpendicular to the travel heading (forward = (sin h, cos h)).
         const rightX = Math.cos(h);
@@ -877,7 +984,14 @@ export class Camera {
       desiredLookAt.x += (velocity.x / speedMagnitude) * lookAheadFactor;
       desiredLookAt.z += (velocity.z / speedMagnitude) * lookAheadFactor;
     }
-    const lookEase = this.mode === 'cameraman' ? CAMERAMAN_LOOK_EASE : 1.0;
+    // Cameraman's look-at ease is dt-scaled like its other eases (codex review, PR #379);
+    // every other mode keeps the exact 1.0 copy, so this stays byte-identical outside cameraman.
+    let lookEase = 1.0;
+    if (this.mode === 'cameraman') {
+      const rawLookDtFrames = context.frameDt === undefined ? 1 : context.frameDt * 60;
+      const lookDtFrames = Number.isFinite(rawLookDtFrames) && rawLookDtFrames > 0 ? rawLookDtFrames : 1;
+      lookEase = easeFor(CAMERAMAN_LOOK_EASE, lookDtFrames);
+    }
     this.smoothingVectors.lookAtPosition.lerp(desiredLookAt, lookEase);
     this.camera.lookAt(this.smoothingVectors.lookAtPosition);
     
