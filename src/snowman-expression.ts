@@ -282,7 +282,13 @@ function writeArm(p: THREE.Object3D | undefined, b: BaseTransform | undefined, e
   // swings out to +x, the right arm mirrors it. (The earlier +sign rotation swung both arms
   // inward-and-up over the head, clipping the twigs into the r=1 head sphere in the spread
   // states — snowplow/air/hop; invisible from the front follow cam but visible in orbit/drone.)
-  const rotX = clamp(-es.armSpread * ARM_RAISE + es.armBack * ARM_BACK - sign * es.armAsym * ARM_ASYM, -1.4, 1.4);
+  //
+  // rotX: the arm sticks extend along local +Y and the face/nose point +Z, so a POSITIVE x
+  // rotation swings the hands toward the FRONT (+z). The tuck sweep-back must therefore
+  // SUBTRACT armBack (negative rotX → hands go behind, -z); a positive term reversed it,
+  // throwing the hands out in front of the racer. Spread's raise is negative for the same
+  // reason (up-and-slightly-back), and the carve asym counter-rotates the pair.
+  const rotX = clamp(-es.armSpread * ARM_RAISE - es.armBack * ARM_BACK - sign * es.armAsym * ARM_ASYM, -1.4, 1.4);
   const rotZ = clamp(-sign * es.armSpread * ARM_SPREAD, -1.2, 1.2);
   p.rotation.set(b.rotation.x + rotX, b.rotation.y, b.rotation.z + rotZ);
 }

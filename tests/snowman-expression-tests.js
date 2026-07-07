@@ -215,14 +215,18 @@ async function main() {
       (p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) < 0);
   }
 
-  // 11) Body acting: tuck sweeps the arms back (rotation.x above base) and drops the hat.
+  // 11) Body acting: tuck sweeps the arms BACK and drops the hat. The sticks extend along
+  //     local +y and the nose points +z, so a NEGATIVE rotation.x offset swings the hands
+  //     behind the racer (-z); a positive offset would throw them out in front (the bug this
+  //     locks against). The real-model world-space direction is asserted in the PR5
+  //     integration suite; here we lock the rotation sign the stand-ins can see.
   {
     const sm = makeSnowman();
     const base = sm.userData.partBaseTransforms;
     runFor(sm, Expression, 120, { speed: 24, technique: 'tuck', turnRate: 0, isInAir: false });
     const p = sm.userData.parts;
-    check('tuck sweeps the arms back (rotation.x above base)',
-      p.leftArmGroup.rotation.x > base.leftArmGroup.rotation.x + 0.1 && p.rightArmGroup.rotation.x > base.rightArmGroup.rotation.x + 0.1);
+    check('tuck sweeps the arms back (rotation.x below base → hands go behind)',
+      p.leftArmGroup.rotation.x < base.leftArmGroup.rotation.x - 0.1 && p.rightArmGroup.rotation.x < base.rightArmGroup.rotation.x - 0.1);
     check('tuck pushes the hat down (position.y below base)',
       p.hatTop.position.y < base.hatTop.position.y - 1e-3 && p.hatBase.position.y < base.hatBase.position.y - 1e-3);
   }
