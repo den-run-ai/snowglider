@@ -35,7 +35,7 @@ function recordBase(parts) {
   }
   return out;
 }
-const HALF = 0.42;
+const HALF = 0.3;
 /** @returns {any} */
 function makeSnowman(withFace = true) {
   /** @type {Record<string, any>} */
@@ -45,14 +45,25 @@ function makeSnowman(withFace = true) {
     head: makePart(0, 1.0, 0), headGroup: makePart(0, 6.0, 0),
   };
   if (withFace) {
-    // Mouth beads at the shipped layout: x = (i/6*2-1)*0.42, gentle-smile base y.
+    // Mouth line joints at the shipped layout: x = (i/6*2-1)*0.3, gentle-smile base y,
+    // plus the 6 thin line segments layoutMouthLine refits between them.
     for (let i = 0; i < 7; i++) {
       const t = (i / 6) * 2 - 1;
-      parts[`mouthBead${i}`] = makePart(t * HALF, 0.12 * t * t, 0.85);
+      parts[`mouthBead${i}`] = makePart(t * HALF, 0.1 * t * t, 0.85);
+    }
+    // Segment neutrals baked exactly like face.ts does (midpoint / chord length /
+    // chord angle), so deviation-from-base checks measure real animation, not a bad zero.
+    for (let i = 0; i < 6; i++) {
+      const a = parts[`mouthBead${i}`].position, b = parts[`mouthBead${i + 1}`].position;
+      const seg = makePart((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+      seg.scale.set(1, Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), 1);
+      seg.rotation.z = Math.atan2(b.y - a.y, b.x - a.x) - Math.PI / 2;
+      parts[`mouthSeg${i}`] = seg;
     }
     parts.mouth = makePart(0, -0.42, 0);
-    parts.leftBrow = makePart(0.4, 0.52, 0.75); parts.leftBrow.rotation.z = Math.PI / 2 + 0.18;
-    parts.rightBrow = makePart(-0.4, 0.52, 0.75); parts.rightBrow.rotation.z = Math.PI / 2 - 0.18;
+    // Resting brows are FLAT (face.ts BROW_TILT 0) — a tilt reads angry.
+    parts.leftBrow = makePart(0.4, 0.52, 0.75); parts.leftBrow.rotation.z = Math.PI / 2;
+    parts.rightBrow = makePart(-0.4, 0.52, 0.75); parts.rightBrow.rotation.z = Math.PI / 2;
     parts.leftEye = makePart(0.4, 0.2, 0.8); parts.rightEye = makePart(-0.4, 0.2, 0.8);
     parts.leftPupil = makePart(0, 0.04, 0.11); parts.rightPupil = makePart(0, 0.04, 0.11);
     parts.leftCheek = makePart(0.62, -0.16, 0.7); parts.rightCheek = makePart(-0.62, -0.16, 0.7);
@@ -64,7 +75,7 @@ function makeSnowman(withFace = true) {
   }
   return { userData: { parts, partBaseTransforms: recordBase(parts) } };
 }
-const faceKeys = ['mouthBead0', 'mouthBead1', 'mouthBead2', 'mouthBead3', 'mouthBead4', 'mouthBead5', 'mouthBead6', 'leftBrow', 'rightBrow', 'leftEye', 'rightEye', 'leftPupil', 'rightPupil', 'leftCheek', 'rightCheek', 'leftArmGroup', 'rightArmGroup', 'hatBase', 'hatTop', 'nose'];
+const faceKeys = ['mouthBead0', 'mouthBead1', 'mouthBead2', 'mouthBead3', 'mouthBead4', 'mouthBead5', 'mouthBead6', 'mouthSeg0', 'mouthSeg1', 'mouthSeg2', 'mouthSeg3', 'mouthSeg4', 'mouthSeg5', 'leftBrow', 'rightBrow', 'leftEye', 'rightEye', 'leftPupil', 'rightPupil', 'leftCheek', 'rightCheek', 'leftArmGroup', 'rightArmGroup', 'hatBase', 'hatTop', 'nose'];
 const allVals = (sm) => faceKeys.flatMap(k => { const p = sm.userData.parts[k]; return [p.position.x, p.position.y, p.position.z, p.scale.x, p.scale.y, p.scale.z, p.rotation.x, p.rotation.y, p.rotation.z]; });
 const allFinite = (arr) => arr.every(n => Number.isFinite(n));
 function runFor(sm, Expression, frames, motion, dt = 1 / 60) { for (let i = 0; i < frames; i++) Expression.update(sm, dt, typeof motion === 'function' ? motion(i) : motion); }
@@ -178,6 +189,13 @@ async function main() {
     check('air lifts the mouth corners into a big smile (ends above centre)',
       p.mouthBead0.position.y > p.mouthBead3.position.y + 0.05 && p.mouthBead6.position.y > p.mouthBead3.position.y + 0.05);
     check('air raises the brows', p.leftBrow.position.y > 0.52 + 1e-4);
+    // The silhouette line follows the reshaped joints: each segment sits at its two
+    // joints' midpoint with the chord length (continuous line, no gaps).
+    check('mouth line segments track the reshaped joints', [0, 1, 2, 3, 4, 5].every((i) => {
+      const a = p[`mouthBead${i}`].position, b = p[`mouthBead${i + 1}`].position, s = p[`mouthSeg${i}`];
+      return Math.abs(s.position.y - (a.y + b.y) / 2) < 1e-9 &&
+        Math.abs(s.scale.y - Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)) < 1e-9;
+    }));
   }
 
   // 8) Deterministic blink fires (eye scale.y dips well below the open value over time).

@@ -319,12 +319,15 @@ export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}
     // pose.ts keeps sole ownership of the wedge/edge/draw transform.
     leftSkiTip: left.tipArm, leftSkiTail: left.tailArm,
     rightSkiTip: right.tipArm, rightSkiTail: right.tailArm,
-    // Face rig (issue #364): the coal-bead mouth (group + 7 beads), twig brows, frosty
-    // cheeks, and eye-highlight dots. Animated by src/snowman-expression.ts (PR 2+).
+    // Face rig (issue #364): the silhouette-line mouth (group + 7 joints + 6 line
+    // segments), twig brows, frosty cheeks, and eye-highlight dots. Animated by
+    // src/snowman-expression.ts (the segments are refit between the joints each frame).
     mouth: face.mouth,
     mouthBead0: face.mouthBeads[0]!, mouthBead1: face.mouthBeads[1]!, mouthBead2: face.mouthBeads[2]!,
     mouthBead3: face.mouthBeads[3]!, mouthBead4: face.mouthBeads[4]!, mouthBead5: face.mouthBeads[5]!,
     mouthBead6: face.mouthBeads[6]!,
+    mouthSeg0: face.mouthSegments[0]!, mouthSeg1: face.mouthSegments[1]!, mouthSeg2: face.mouthSegments[2]!,
+    mouthSeg3: face.mouthSegments[3]!, mouthSeg4: face.mouthSegments[4]!, mouthSeg5: face.mouthSegments[5]!,
     leftBrow: face.leftBrow, rightBrow: face.rightBrow,
     leftCheek: face.leftCheek, rightCheek: face.rightCheek,
     leftPupil: face.leftPupil, rightPupil: face.rightPupil
