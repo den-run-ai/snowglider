@@ -53,6 +53,27 @@ async function main() {
   check('clean landing → grin + cheek pop strictly exceed the same motion without the landing',
     grin(parts) > grin(cp) + 1e-3 && parts.leftCheek.scale.x > cp.leftCheek.scale.x + 1e-3);
 
+  console.log('--- tuck sweeps the hands BEHIND the racer (world -z), not in front ---');
+  {
+    // The arm sticks extend along local +y and the nose points +z, so a rotation-only
+    // unit test can't tell forward from back. Measure the actual WORLD position of the
+    // hand (the arm vertex farthest from the shoulder): a tuck must pull it BEHIND neutral
+    // (-z), never throw it out in front (the reversed-sign bug).
+    const tk = createSnowman(new THREE.Scene());
+    const handZ = (sm) => {
+      sm.updateMatrixWorld(true);
+      const g = sm.userData.parts.leftArmGroup;
+      const sh = new THREE.Vector3(); g.getWorldPosition(sh);
+      let farZ = 0, maxr = -1; const v = new THREE.Vector3();
+      g.traverse((o) => { const pos = o.geometry && o.geometry.attributes.position; if (!pos) return;
+        for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld); const r = v.distanceTo(sh); if (r > maxr) { maxr = r; farZ = v.z; } } });
+      return farZ;
+    };
+    const neutralZ = handZ(tk);
+    for (let i = 0; i < 120; i++) Expression.update(tk, 1 / 60, { speed: 24, technique: 'tuck', turnRate: 0, isInAir: false });
+    check('tuck sweeps the hand behind the racer (world z well below neutral)', handZ(tk) < neutralZ - 0.3);
+  }
+
   console.log('--- finiteness: every world matrix stays finite ---');
   snowman.updateMatrixWorld(true);
   let allFinite = true;
