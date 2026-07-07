@@ -241,15 +241,18 @@ async function main() {
       Math.sign(p.leftArmGroup.rotation.x - base.leftArmGroup.rotation.x) !== Math.sign(p.rightArmGroup.rotation.x - base.rightArmGroup.rotation.x));
   }
 
-  // 13) Body acting: the hat leans into the turn (rotation.z offset flips with turn sign).
+  // 13) Body acting: the hat leans INTO the turn (rotation.z offset flips with turn sign,
+  //     AND matches the flex head-cluster convention: into-turn is `-turn` on rotation.z,
+  //     so a positive turnRate must give a NEGATIVE hat rotation.z offset — not just any
+  //     opposite pair, which a sign-inverted lean would also satisfy).
   {
     const smL = makeSnowman(), smR = makeSnowman();
     const b = smL.userData.partBaseTransforms.hatTop.rotation.z;
     runFor(smL, Expression, 120, { speed: 15, technique: 'parallel', turnRate: -1, isInAir: false });
     runFor(smR, Expression, 120, { speed: 15, technique: 'parallel', turnRate: 1, isInAir: false });
-    check('hat leans opposite ways for opposite turns',
-      Math.sign(smL.userData.parts.hatTop.rotation.z - b) !== Math.sign(smR.userData.parts.hatTop.rotation.z - b) &&
-      Math.abs(smR.userData.parts.hatTop.rotation.z - b) > 1e-3);
+    const dzL = smL.userData.parts.hatTop.rotation.z - b, dzR = smR.userData.parts.hatTop.rotation.z - b;
+    check('hat leans into the turn (turn>0 → negative rotation.z, matching the flex head lean)',
+      Math.sign(dzL) !== Math.sign(dzR) && Math.abs(dzR) > 1e-3 && dzR < 0);
   }
 
   // 14) Body acting: reset() restores arms/hat/nose to neutral.

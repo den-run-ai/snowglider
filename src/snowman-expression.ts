@@ -232,7 +232,10 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   const spreadTgt = air ? 0.9 : m.technique === 'snowplow' ? 0.7 : m.technique === 'hop' ? 0.5 : 0;
   const backTgt = !air && m.technique === 'tuck' ? 0.85 : 0;
   const asymTgt = !air && m.technique === 'carve' ? turn : 0;
-  const tiltTgt = !air && m.technique === 'tuck' ? 0 : turn; // hat leans into the turn (dropped in tuck)
+  // Hat leans INTO the turn (dropped flat in tuck). The into-turn direction on rotation.z is
+  // `-turn`, matching the flex head-cluster lean (targetLean = -turn * LEAN_TARGET in
+  // snowman-flex.ts); +turn would tip the hat the opposite way from the body's lean.
+  const tiltTgt = !air && m.technique === 'tuck' ? 0 : -turn;
   es.armSpread += (spreadTgt - es.armSpread) * k;
   es.armBack += (backTgt - es.armBack) * k;
   es.armAsym += (asymTgt - es.armAsym) * k;
@@ -244,8 +247,9 @@ function update(snowman: THREE.Object3D, dt: number, m: ExpressionMotion): void 
   writeArm(parts.rightArmGroup, base.rightArmGroup, es, -1);
   writeHat(parts.hatBase, base.hatBase, es, m.technique === 'tuck' && !air);
   writeHat(parts.hatTop, base.hatTop, es, m.technique === 'tuck' && !air);
-  // Deterministic carrot wobble: a tiny speed-scaled quiver plus a lean into the turn.
-  writeNose(parts.nose, base.nose, Math.sin(es.t * 9) * NOSE_WOBBLE * speedN + turn * NOSE_TURN);
+  // Deterministic carrot wobble: a tiny speed-scaled quiver plus a lean into the turn. The
+  // nose lean uses the same into-turn sign as the hat/head (`-turn` on rotation.z).
+  writeNose(parts.nose, base.nose, Math.sin(es.t * 9) * NOSE_WOBBLE * speedN - turn * NOSE_TURN);
 }
 
 function writeBrow(p: THREE.Object3D | undefined, b: BaseTransform | undefined, brow: number, sign: number): void {
