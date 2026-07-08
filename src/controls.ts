@@ -210,6 +210,32 @@ export function shouldShowTouchAffordances(): boolean {
   }
 }
 
+// Single source of truth for "is this a touch-driven device?" — used both by
+// setupTouchControls (to wire the mobile button handlers + draw the affordances) and
+// exported as Controls.isTouchDevice (the two used to carry duplicate copies).
+//
+// Legacy signals first (window.orientation, mobile UA sniff), then the modern ones:
+// a real touch digitizer (navigator.maxTouchPoints > 0) AND a coarse PRIMARY pointer
+// (matchMedia('(pointer: coarse)')). Requiring BOTH keeps touchscreen laptops (fine
+// mouse primary) on the desktop path while catching the UA-less cases the sniff
+// misses — most notably iPadOS Safari's "desktop mode", which reports a Macintosh UA
+// but maxTouchPoints=5 and a coarse pointer. try/catch because matchMedia/navigator
+// access can throw in exotic embeds; the fallback is the desktop path (no overlay UI).
+function isTouchCapableDevice(): boolean {
+  try {
+    if (typeof window.orientation !== 'undefined') return true;
+    if (navigator.userAgent.indexOf('IEMobile') !== -1) return true;
+    if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+    if (typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 0 &&
+        typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false; // desktop path
+  }
+}
+
 // Whether to draw the full-region DEBUG hit-zone rectangles. OFF by default — opt in for
 // debugging touch hit-areas with `?debugTouchZones=1` or by setting
 // localStorage['snowglider.debugTouchZones'] = '1'. Touch INPUT is unaffected either way.
@@ -228,20 +254,12 @@ function setupTouchControls(signal?: AbortSignal) {
   // for the touch handlers that preventDefault); else live for the page.
   const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
   const touchOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
-  // Detect if we're on a mobile device
-  const isMobileDevice = (): boolean => {
-    return (
-      typeof window.orientation !== 'undefined' ||
-      navigator.userAgent.indexOf('IEMobile') !== -1 ||
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-    );
-  };
-  
+
   // On a touch device, wire the mobile-only button touch handlers and decide which
   // visuals to draw: the production affordances (ON by default) and/or the full-region
   // debug zones (opt-in). The touch INPUT regions computed in updateTouchRegions()
   // below are always active regardless of either flag.
-  if (isMobileDevice()) {
+  if (isTouchCapableDevice()) {
     touchState.showVisualControls = shouldShowTouchAffordances();
     touchState.showDebugTouchZones = shouldShowTouchZones();
 
@@ -615,13 +633,7 @@ export const Controls = {
       indicator.style.display = enabled ? '' : 'none';
     }
   },
-  isTouchDevice: () => {
-    return (
-      typeof window.orientation !== 'undefined' ||
-      navigator.userAgent.indexOf('IEMobile') !== -1 ||
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-    );
-  },
+  isTouchDevice: () => isTouchCapableDevice(),
   // Toggle visibility of touch controls
   toggleTouchControls: (show?: boolean) => {
     if (typeof show === 'boolean') {
