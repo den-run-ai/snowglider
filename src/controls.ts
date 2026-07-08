@@ -33,11 +33,12 @@ interface TouchPoint {
   y: number;
 }
 
-/** Touch tracking state: live touches, the screen regions, and the visual flag. */
+/** Touch tracking state: live touches, the screen regions, and the visual flags. */
 interface TouchState {
   touches: Record<string, TouchPoint>;
   controlRegions: Partial<Record<ControlName, TouchRegion>>;
-  showVisualControls: boolean;
+  showVisualControls: boolean;   // production affordances (small faint pads, default ON on mobile)
+  showDebugTouchZones: boolean;  // full-region debug rectangles (?debugTouchZones=1 only)
 }
 
 // Initialize controls state - used for both keyboard and touch
@@ -53,7 +54,8 @@ const gameControls: ControlState = {
 const touchState: TouchState = {
   touches: {},         // Store active touch points
   controlRegions: {},  // Regions for touch controls on screen
-  showVisualControls: false // Flag to enable visual touch controls (optional)
+  showVisualControls: false,  // Production affordances; set from shouldShowTouchAffordances() on mobile
+  showDebugTouchZones: false  // Debug hit-area rectangles; set from shouldShowTouchZones() on mobile
 };
 
 // Per-tier jump availability (jump-system completion, workstream A). When false —
@@ -166,14 +168,51 @@ function setupKeyboardControls(signal?: AbortSignal) {
   window.addEventListener('keyup', handleKeyUp, opts);
 }
 
-// Whether to draw the translucent touch-zone overlay rectangles. OFF by default — drawn every
-// run they read as big floating white panels over the scene (the reported "snow plates" bug on
-// mobile). Opt in for debugging touch hit-areas with `?debugTouchZones=1` or by setting
+// Two SEPARATE visual concepts share the touch-region math (both pointer-events:none,
+// neither affects touch INPUT, which is always active):
+//
+// 1. Production touch AFFORDANCES — small, faint, centered pads (one per region) that
+//    tell a phone player where left/right/up/down/jump live. Gameplay UI, ON by default
+//    on mobile: when they were removed outright, players reported the touch controls as
+//    having disappeared (the mobile regression this guards against).
+// 2. DEBUG touch zones — the original edge-to-edge screen-third rectangles, useful for
+//    inspecting the real hit-areas. Drawn every run they read as "big floating white
+//    plates" over the scene (the snow-plates complaint), so they stay behind the
+//    explicit `?debugTouchZones=1` opt-in and are never the production UI.
+
+// Production affordance styling: faint enough to never read as scene geometry.
+const AFFORDANCE_IDLE_BG = 'rgba(255, 255, 255, 0.07)';
+const AFFORDANCE_ACTIVE_BG = 'rgba(255, 255, 255, 0.3)';
+const AFFORDANCE_BORDER = '1px solid rgba(255, 255, 255, 0.14)';
+// Debug hit-zone styling: dimmer than the pre-gate 0.2/0.4 originals but full-region.
+const DEBUG_ZONE_IDLE_BG = 'rgba(255, 255, 255, 0.16)';
+const DEBUG_ZONE_ACTIVE_BG = 'rgba(255, 255, 255, 0.4)';
+const DEBUG_ZONE_BORDER = '2px solid rgba(255, 255, 255, 0.28)';
+
+// Whether to draw the production touch affordances on mobile. ON by default — they are
+// gameplay UI, not debug chrome. Opt out with `?hideTouchControls` or persist the choice
+// via localStorage['snowglider.showTouchControls'] = '0' (set '1' to force back on).
+// Wrapped in try/catch because URLSearchParams/localStorage can throw on some mobile/
+// private contexts; the fallback keeps the controls visible (hiding them is the
+// regression, not the safe side). Exported as a small testable seam so the node suite
+// can cover every branch without re-running setupControls (which would double-bind the
+// button touch handlers).
+export function shouldShowTouchAffordances(): boolean {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('hideTouchControls')) return false;
+    const stored = window.localStorage.getItem('snowglider.showTouchControls');
+    if (stored === '0') return false;
+    if (stored === '1') return true;
+  } catch {
+    // Keep the controls visible if storage/search access is blocked.
+  }
+  return true; // default ON for mobile
+}
+
+// Whether to draw the full-region DEBUG hit-zone rectangles. OFF by default — opt in for
+// debugging touch hit-areas with `?debugTouchZones=1` or by setting
 // localStorage['snowglider.debugTouchZones'] = '1'. Touch INPUT is unaffected either way.
-// Wrapped in try/catch because URLSearchParams/localStorage can throw on some mobile/private
-// contexts; the default (no overlay) is the safe fallback. Exported as a small testable seam so
-// the node suite can cover all three branches (URL flag / localStorage / thrown-access fallback)
-// without re-running setupControls (which would double-bind the button touch handlers).
 export function shouldShowTouchZones(): boolean {
   try {
     if (new URLSearchParams(window.location.search).has('debugTouchZones')) return true;
@@ -198,14 +237,13 @@ function setupTouchControls(signal?: AbortSignal) {
     );
   };
   
-  // On a touch device, wire the mobile-only button touch handlers. The full-screen
-  // translucent touch-ZONE rectangles (createOrUpdateVisualControls) are a DEBUG aid, not
-  // gameplay UI: drawn every run they overlay the scene as five big semi-transparent panels
-  // (the screen-thirds, each with an arrow) that players read as floating white plates. Gate
-  // only the VISUALS behind an opt-in flag so normal mobile play shows none; the touch INPUT
-  // regions computed in updateTouchRegions() below are always active regardless of this flag.
+  // On a touch device, wire the mobile-only button touch handlers and decide which
+  // visuals to draw: the production affordances (ON by default) and/or the full-region
+  // debug zones (opt-in). The touch INPUT regions computed in updateTouchRegions()
+  // below are always active regardless of either flag.
   if (isMobileDevice()) {
-    touchState.showVisualControls = shouldShowTouchZones();
+    touchState.showVisualControls = shouldShowTouchAffordances();
+    touchState.showDebugTouchZones = shouldShowTouchZones();
 
     // Add touch event handlers for reset and restart buttons
     setupButtonTouchHandlers(signal);
@@ -256,7 +294,7 @@ function setupTouchControls(signal?: AbortSignal) {
     };
     
     // Create or update visual indicators for touch regions if enabled
-    if (touchState.showVisualControls) {
+    if (touchState.showVisualControls || touchState.showDebugTouchZones) {
       createOrUpdateVisualControls();
     }
   };
@@ -403,8 +441,14 @@ function setupTouchControls(signal?: AbortSignal) {
       gameControls.jump = isActive;
     }
     
-    // Optional: provide visual feedback on touch controls
-    if (touchState.showVisualControls && isActive) {
+    // Visual feedback on the touch overlays. Repaint on BOTH press and release —
+    // gating this on `isActive` left a pad stuck in its highlighted state after the
+    // finger lifted (processTouchInput has already cleared the control flag by now, so
+    // the release repaint returns it to idle).
+    if (touchState.showVisualControls || touchState.showDebugTouchZones) {
+      const debug = touchState.showDebugTouchZones;
+      const activeBg = debug ? DEBUG_ZONE_ACTIVE_BG : AFFORDANCE_ACTIVE_BG;
+      const idleBg = debug ? DEBUG_ZONE_IDLE_BG : AFFORDANCE_IDLE_BG;
       const touchControls = document.querySelectorAll('.touch-control');
       touchControls.forEach(control => {
         const el = control as HTMLElement;
@@ -414,9 +458,9 @@ function setupTouchControls(signal?: AbortSignal) {
             (control.classList.contains('touch-up') && gameControls.up) ||
             (control.classList.contains('touch-down') && gameControls.down) ||
             (control.classList.contains('touch-jump') && gameControls.jump)) {
-          el.style.backgroundColor = 'rgba(255, 255, 255, 0.4)';
+          el.style.backgroundColor = activeBg;
         } else {
-          el.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+          el.style.backgroundColor = idleBg;
         }
       });
     }
@@ -439,36 +483,55 @@ function setupTouchControls(signal?: AbortSignal) {
   document.addEventListener('touchend', handleTouchEnd, touchOpts);
   document.addEventListener('touchcancel', handleTouchEnd, touchOpts);
   
-  // Create visual indicators for touch controls
+  // Shrink a full hit-region down to the small centered pad the production
+  // affordance draws: large enough to notice and tap-target sized (44px floor per
+  // mobile HIG), capped so it never approaches the full region on a big screen.
+  function shrinkRegionForAffordance(region: TouchRegion): TouchRegion {
+    const minSide = Math.min(region.width, region.height);
+    const size = Math.max(44, Math.min(72, minSide * 0.42));
+    return {
+      x: region.x + region.width / 2 - size / 2,
+      y: region.y + region.height / 2 - size / 2,
+      width: size,
+      height: size,
+    };
+  }
+
+  // Create visual indicators for touch controls: small centered affordance pads in
+  // production, or the full-region rectangles when the debug flag is on (debug wins —
+  // it exists precisely to see the real hit-areas).
   function createOrUpdateVisualControls() {
     // Remove existing controls if they exist
     const existingControls = document.querySelectorAll('.touch-control');
     existingControls.forEach(control => control.remove());
-    
-    if (!touchState.showVisualControls) return;
-    
+
+    if (!touchState.showVisualControls && !touchState.showDebugTouchZones) return;
+    const debug = touchState.showDebugTouchZones;
+
     // Helper to create a control element
     const createControlElement = (region: TouchRegion, name: string) => {
+      const visualRegion = debug ? region : shrinkRegionForAffordance(region);
       const element = document.createElement('div');
-      element.className = `touch-control touch-${name}`;
-      element.style.position = 'absolute';
-      element.style.left = `${region.x}px`;
-      element.style.top = `${region.y}px`;
-      element.style.width = `${region.width}px`;
-      element.style.height = `${region.height}px`;
-      element.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-      element.style.border = '2px solid rgba(255, 255, 255, 0.4)';
-      element.style.borderRadius = '8px';
+      element.className = `touch-control touch-${name} ${debug ? 'touch-debug-zone' : 'touch-affordance'}`;
+      element.style.position = 'fixed';
+      element.style.left = `${visualRegion.x}px`;
+      element.style.top = `${visualRegion.y}px`;
+      element.style.width = `${visualRegion.width}px`;
+      element.style.height = `${visualRegion.height}px`;
+      element.style.backgroundColor = debug ? DEBUG_ZONE_IDLE_BG : AFFORDANCE_IDLE_BG;
+      element.style.border = debug ? DEBUG_ZONE_BORDER : AFFORDANCE_BORDER;
+      element.style.borderRadius = debug ? '8px' : '50%';
       element.style.pointerEvents = 'none'; // Don't interfere with touch events
-      element.style.zIndex = '100';
-      
+      element.style.zIndex = debug ? '100' : '90';
+      element.setAttribute('aria-hidden', 'true'); // decorative; the regions are the real input
+
       // Add icon or label based on control type
       const label = document.createElement('div');
       label.style.position = 'absolute';
       label.style.top = '50%';
       label.style.left = '50%';
       label.style.transform = 'translate(-50%, -50%)';
-      label.style.color = 'white';
+      label.style.color = debug ? 'white' : 'rgba(255, 255, 255, 0.75)';
       label.style.fontSize = '24px';
       label.style.textShadow = '1px 1px 2px rgba(0, 0, 0, 0.7)';
       

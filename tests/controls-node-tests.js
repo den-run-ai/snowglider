@@ -68,7 +68,7 @@ function dispatchTouch(type, target, points) {
 }
 
 async function main() {
-  const { Controls, shouldShowTouchZones } = await import('../src/controls.ts');
+  const { Controls, shouldShowTouchZones, shouldShowTouchAffordances } = await import('../src/controls.ts');
 
   console.log('--- module surface ---');
   check('exposes the Controls API',
@@ -120,15 +120,25 @@ async function main() {
   console.log('\n--- touch controls (region mapping) ---');
   const W = window.innerWidth;
   const H = window.innerHeight;
-  // Left region is x:[0, W/3], y:[H/3, 2H/3]; its centre is (W/6, H/2).
-  dispatchTouch('touchstart', document, [{ identifier: 1, clientX: W / 6, clientY: H / 2 }]);
-  check('touch in the left region sets left', controls.left === true);
-  dispatchTouch('touchend', document, [{ identifier: 1, clientX: W / 6, clientY: H / 2 }]);
-  check('lifting the last touch resets all controls', controls.left === false);
-  // Centre region (jump) is x:[W/3, 2W/3], y:[H/3, 2H/3]; centre is (W/2, H/2).
-  dispatchTouch('touchstart', document, [{ identifier: 2, clientX: W / 2, clientY: H / 2 }]);
-  check('touch in the centre region sets jump', controls.jump === true);
-  dispatchTouch('touchend', document, [{ identifier: 2, clientX: W / 2, clientY: H / 2 }]);
+  // Every one of the five regions maps to its control (regression: cover all five, not
+  // just left+jump). Region centres per updateTouchRegions: left/right thirds at mid
+  // height, up/down middles at top/bottom thirds, jump dead centre.
+  const regionCentres = {
+    left: [W / 6, H / 2],
+    right: [(W * 5) / 6, H / 2],
+    up: [W / 2, H / 6],
+    down: [W / 2, (H * 5) / 6],
+    jump: [W / 2, H / 2],
+  };
+  let touchId = 1;
+  for (const [name, [x, y]] of Object.entries(regionCentres)) {
+    Controls.resetControls();
+    dispatchTouch('touchstart', document, [{ identifier: touchId, clientX: x, clientY: y }]);
+    check(`touch in the ${name} region sets ${name}`, controls[name] === true);
+    dispatchTouch('touchend', document, [{ identifier: touchId, clientX: x, clientY: y }]);
+    check(`lifting the ${name} touch clears ${name}`, controls[name] === false);
+    touchId++;
+  }
 
   console.log('\n--- scrollable controls guide: touch passthrough (mobile) ---');
   // A touch that begins inside #controlsContent (the Ski Techniques scroller) must be
@@ -220,15 +230,27 @@ async function main() {
   document.body.removeChild(camTray);
 
   console.log('\n--- visual touch controls (mobile) ---');
-  // The touch-zone overlay rectangles are now OFF by default — drawn every run they read as
-  // big floating white panels over the scene (the reported mobile "snow plates"). The initial
-  // setupControls() above ran with no debug flag set, so NO overlays were drawn, while touch
-  // INPUT (exercised throughout this suite) still works. The ?debugTouchZones=1 opt-in path is
-  // covered end-to-end in tests/e2e/mobile.spec.ts (re-running setupControls() here would
-  // double-bind the reset/camera button handlers checked below).
-  check('mobile setup draws NO touch-zone overlays by default (debug-gated)',
-    document.querySelectorAll('.touch-control').length === 0);
-  // toggleTouchControls(true) still force-creates the overlays regardless of the flag.
+  // REGRESSION GUARD: the touch affordances are gameplay UI and must be ON by default on
+  // mobile — when the zone visuals were debug-gated off entirely (the "snow plates"
+  // over-fix), players reported the touch controls as having disappeared. The initial
+  // setupControls() above ran with no URL flag and no localStorage override, so the five
+  // AFFORDANCE pads (left/right/up/down/jump) must have been drawn — and NOT the
+  // full-region debug rectangles, which would reintroduce the plates. The URL-flag paths
+  // are covered end-to-end in tests/e2e/mobile.spec.ts (re-running setupControls() here
+  // would double-bind the reset/camera button handlers checked below).
+  check('mobile setup draws five visible touch affordances by default (regression: controls disappeared)',
+    document.querySelectorAll('.touch-control.touch-affordance').length === 5);
+  check('default mobile affordances are not debug hit-zone panels',
+    document.querySelectorAll('.touch-control.touch-debug-zone').length === 0);
+  check('touch affordances do not intercept input (pointer-events: none)',
+    [...document.querySelectorAll('.touch-control')]
+      .every(el => /** @type {HTMLElement} */ (el).style.pointerEvents === 'none'));
+  const padEl = /** @type {HTMLElement} */ (document.querySelector('.touch-control.touch-left'));
+  check('affordance pads use the faint idle fill (no "snow plates")',
+    padEl.style.backgroundColor === 'rgba(255, 255, 255, 0.07)');
+  // The pad is a small centered marker, NOT the full screen-third hit region.
+  check('affordance pads are far smaller than the hit region they mark',
+    parseFloat(padEl.style.width) <= 72 && parseFloat(padEl.style.height) <= 72);
   check('toggleTouchControls(false) removes the visual controls and returns false',
     Controls.toggleTouchControls(false) === false &&
     document.querySelectorAll('.touch-control').length === 0);
@@ -236,12 +258,46 @@ async function main() {
     Controls.toggleTouchControls(true) === true &&
     document.querySelectorAll('.touch-control').length === 5);
 
-  console.log('\n--- shouldShowTouchZones (debug-flag gate) ---');
-  // Pure predicate, so drive its three branches directly (no setupControls re-run, which would
+  console.log('\n--- touch affordance visual feedback (press/release repaint) ---');
+  // Pressing a region highlights its pad; releasing must repaint it back to idle (the
+  // repaint used to be gated on isActive, leaving the pad stuck highlighted after the
+  // finger lifted — only visible once the visuals were on by default again).
+  const leftPad = /** @type {HTMLElement} */ (document.querySelector('.touch-control.touch-left'));
+  dispatchTouch('touchstart', document, [{ identifier: 20, clientX: W / 6, clientY: H / 2 }]);
+  check('touching a region paints its pad with the active highlight',
+    leftPad.style.backgroundColor === 'rgba(255, 255, 255, 0.3)');
+  dispatchTouch('touchend', document, [{ identifier: 20, clientX: W / 6, clientY: H / 2 }]);
+  check('releasing the touch repaints the pad back to idle',
+    leftPad.style.backgroundColor === 'rgba(255, 255, 255, 0.07)');
+
+  console.log('\n--- shouldShowTouchAffordances (production visibility gate) ---');
+  // Pure predicate, so drive its branches directly (no setupControls re-run, which would
   // double-bind the button handlers checked below). dom.reconfigure swaps window.location.search.
   dom.reconfigure({ url: 'https://snowglider.ai/' });
+  window.localStorage.removeItem('snowglider.showTouchControls');
+  check('no URL flag and no localStorage key => true (visible by default)',
+    shouldShowTouchAffordances() === true);
+  dom.reconfigure({ url: 'https://snowglider.ai/?hideTouchControls' });
+  check('?hideTouchControls in the URL => false (explicit opt-out)',
+    shouldShowTouchAffordances() === false);
+  dom.reconfigure({ url: 'https://snowglider.ai/' });
+  window.localStorage.setItem('snowglider.showTouchControls', '0');
+  check('persisted localStorage opt-out => false', shouldShowTouchAffordances() === false);
+  window.localStorage.setItem('snowglider.showTouchControls', '1');
+  check('persisted localStorage force-on => true', shouldShowTouchAffordances() === true);
+  window.localStorage.removeItem('snowglider.showTouchControls');
+  // A throwing storage access (private-mode / blocked) is caught and falls back to the
+  // player-facing default: SHOW the controls (hiding them is the regression, not the safe side).
+  const restoreGetItemAff = window.localStorage.getItem.bind(window.localStorage);
+  window.localStorage.getItem = () => { throw new Error('storage blocked'); };
+  check('localStorage access throwing => true (caught, player-facing default)',
+    shouldShowTouchAffordances() === true);
+  window.localStorage.getItem = restoreGetItemAff;
+
+  console.log('\n--- shouldShowTouchZones (debug-flag gate) ---');
+  dom.reconfigure({ url: 'https://snowglider.ai/' });
   window.localStorage.removeItem('snowglider.debugTouchZones');
-  check('no URL flag and no localStorage key => false (default off)',
+  check('no URL flag and no localStorage key => false (debug zones off by default)',
     shouldShowTouchZones() === false);
   dom.reconfigure({ url: 'https://snowglider.ai/?debugTouchZones=1' });
   check('?debugTouchZones in the URL => true', shouldShowTouchZones() === true);
