@@ -269,6 +269,16 @@ async function main() {
   dispatchTouch('touchend', document, [{ identifier: 20, clientX: W / 6, clientY: H / 2 }]);
   check('releasing the touch repaints the pad back to idle',
     leftPad.style.backgroundColor === 'rgba(255, 255, 255, 0.07)');
+  // A press that starts on a control and DRIFTS OUT of its region before lifting: the
+  // release coordinates match no region, so processTouchInput can't clear the original
+  // flag — the zero-touches reset does. The reset must also repaint, or the pad sits
+  // stuck highlighted until the next touch (Codex review, PR #383).
+  dispatchTouch('touchstart', document, [{ identifier: 21, clientX: W / 6, clientY: H / 2 }]);
+  check('drift-out: the press paints the left pad', leftPad.style.backgroundColor === 'rgba(255, 255, 255, 0.3)');
+  dispatchTouch('touchend', document, [{ identifier: 21, clientX: 5, clientY: 5 }]);
+  check('drift-out release still clears the control', controls.left === false);
+  check('drift-out release repaints the pad back to idle (no stuck highlight)',
+    leftPad.style.backgroundColor === 'rgba(255, 255, 255, 0.07)');
 
   console.log('\n--- shouldShowTouchAffordances (production visibility gate) ---');
   // Pure predicate, so drive its branches directly (no setupControls re-run, which would
@@ -287,12 +297,18 @@ async function main() {
   check('persisted localStorage force-on => true', shouldShowTouchAffordances() === true);
   window.localStorage.removeItem('snowglider.showTouchControls');
   // A throwing storage access (private-mode / blocked) is caught and falls back to the
-  // player-facing default: SHOW the controls (hiding them is the regression, not the safe side).
-  const restoreGetItemAff = window.localStorage.getItem.bind(window.localStorage);
-  window.localStorage.getItem = () => { throw new Error('storage blocked'); };
+  // player-facing default: SHOW the controls (hiding them is the regression, not the safe
+  // side). NOTE: the throw must come from the `window.localStorage` ACCESSOR itself —
+  // assigning to `localStorage.getItem` doesn't replace the method (Storage's named
+  // setter just stores a key called "getItem"), so a method mock never actually throws.
+  const origLocalStorage = window.localStorage;
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('storage blocked'); },
+  });
   check('localStorage access throwing => true (caught, player-facing default)',
     shouldShowTouchAffordances() === true);
-  window.localStorage.getItem = restoreGetItemAff;
+  Object.defineProperty(window, 'localStorage', { configurable: true, get: () => origLocalStorage });
 
   console.log('\n--- shouldShowTouchZones (debug-flag gate) ---');
   dom.reconfigure({ url: 'https://snowglider.ai/' });
@@ -305,11 +321,15 @@ async function main() {
   window.localStorage.setItem('snowglider.debugTouchZones', '1');
   check('persisted localStorage flag => true', shouldShowTouchZones() === true);
   window.localStorage.removeItem('snowglider.debugTouchZones');
-  // A throwing storage access (private-mode / blocked) is caught and falls back to false.
-  const restoreGetItem = window.localStorage.getItem.bind(window.localStorage);
-  window.localStorage.getItem = () => { throw new Error('storage blocked'); };
+  // A throwing storage access (private-mode / blocked) is caught and falls back to false
+  // (same accessor-level throw as the affordance test above — a getItem method mock
+  // never fires because Storage's named setter swallows the assignment).
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('storage blocked'); },
+  });
   check('localStorage access throwing => false (caught)', shouldShowTouchZones() === false);
-  window.localStorage.getItem = restoreGetItem;
+  Object.defineProperty(window, 'localStorage', { configurable: true, get: () => origLocalStorage });
 
   console.log('\n--- per-tier jump availability (setJumpEnabled, workstream A) ---');
   // On a no-jump tier (Bunny) the CENTER touch region must be excluded from
@@ -458,6 +478,34 @@ async function main() {
       window.MutationObserver.prototype.observe = realObserve;
       ac2.abort();
     }
+  }
+
+  // --- debug touch zones (?debugTouchZones=1) ---
+  // Re-run setup under the debug flag (with the affordance opt-out alongside, which
+  // also exercises the "affordances off / debug on" halves of the visual gates). A
+  // dedicated AbortController tears this extra listener set down afterwards so it
+  // can't double-process anything later.
+  console.log('\n--- debug touch zones (?debugTouchZones=1) ---');
+  {
+    dom.reconfigure({ url: 'https://snowglider.ai/?debugTouchZones=1&hideTouchControls' });
+    const acDbg = new window.AbortController();
+    Controls.setupControls(acDbg.signal);
+    check('debug flag draws the five full-region debug rectangles',
+      document.querySelectorAll('.touch-control.touch-debug-zone').length === 5);
+    check('?hideTouchControls suppresses the affordances while debug zones render',
+      document.querySelectorAll('.touch-control.touch-affordance').length === 0);
+    const dbgLeft = /** @type {HTMLElement} */ (document.querySelector('.touch-control.touch-left'));
+    check('debug rectangles span the full hit region (not the shrunken pad)',
+      parseFloat(dbgLeft.style.left) === 0 &&
+      Math.round(parseFloat(dbgLeft.style.width)) === Math.round(W / 3));
+    dispatchTouch('touchstart', document, [{ identifier: 40, clientX: W / 6, clientY: H / 2 }]);
+    check('debug zone press paints the debug highlight',
+      dbgLeft.style.backgroundColor === 'rgba(255, 255, 255, 0.4)');
+    dispatchTouch('touchend', document, [{ identifier: 40, clientX: W / 6, clientY: H / 2 }]);
+    check('debug zone release repaints the debug idle fill',
+      dbgLeft.style.backgroundColor === 'rgba(255, 255, 255, 0.16)');
+    acDbg.abort();
+    dom.reconfigure({ url: 'https://snowglider.ai/' });
   }
 
   console.log(`\nCONTROLS TEST TOTAL: ${pass} passed, ${fail} failed`);

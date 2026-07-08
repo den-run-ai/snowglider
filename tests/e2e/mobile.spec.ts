@@ -95,20 +95,25 @@ test.describe('mobile touch', () => {
     await expect(page.locator('.touch-control').first()).toBeVisible();
   });
 
-  test('camera tray collapse does not disturb the touch affordances', async ({ page }) => {
+  test('camera tray auto-collapses on phones and never disturbs the touch affordances', async ({ page }) => {
     await gotoGame(page);
     await startGame(page);
 
-    // The camera tray (bottom-left, collapsible) overlaps the steering surface on
-    // phones; folding/unfolding it must leave the five affordance pads intact — this
-    // pins the suspected-overlap area from the regression report.
+    // The camera tray (bottom-left, collapsible) overlaps the bottom steering surface
+    // on phones — expanded, it sat over the DOWN affordance pad and its touches are
+    // (correctly) excluded from steering. On a small screen it must therefore start
+    // COLLAPSED (Codex review, PR #383), and folding/unfolding it must leave the five
+    // affordance pads intact — this pins the suspected-overlap area from the
+    // regression report.
     const affordances = page.locator('.touch-control.touch-affordance');
+    const tray = page.locator('#cameraControls');
+    await expect(affordances).toHaveCount(5);
+    await expect(tray).toHaveClass(/collapsed/);
+    await page.locator('#toggleCamera').tap();
+    await expect(tray).not.toHaveClass(/collapsed/);
     await expect(affordances).toHaveCount(5);
     await page.locator('#toggleCamera').tap();
-    await expect(page.locator('#cameraControls')).toHaveClass(/collapsed/);
-    await expect(affordances).toHaveCount(5);
-    await page.locator('#toggleCamera').tap();
-    await expect(page.locator('#cameraControls')).not.toHaveClass(/collapsed/);
+    await expect(tray).toHaveClass(/collapsed/);
     await expect(affordances).toHaveCount(5);
   });
 });

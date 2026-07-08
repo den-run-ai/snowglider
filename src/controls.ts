@@ -203,11 +203,11 @@ export function shouldShowTouchAffordances(): boolean {
     if (params.has('hideTouchControls')) return false;
     const stored = window.localStorage.getItem('snowglider.showTouchControls');
     if (stored === '0') return false;
-    if (stored === '1') return true;
+    return true; // '1' or unset: default ON for mobile
   } catch {
     // Keep the controls visible if storage/search access is blocked.
+    return true;
   }
-  return true; // default ON for mobile
 }
 
 // Whether to draw the full-region DEBUG hit-zone rectangles. OFF by default — opt in for
@@ -408,14 +408,20 @@ function setupTouchControls(signal?: AbortSignal) {
       processTouchInput(touch, false);
       delete touchState.touches[touch.identifier];
     }
-    
-    // If no touches remain, reset all controls
+
+    // If no touches remain, reset all controls — then repaint the pads. The release
+    // itself only repaints the region the finger ended in, so a press that started on
+    // a control and drifted OUT of it before lifting leaves the original pad's flag
+    // uncleared by processTouchInput; this reset clears it, and without the repaint
+    // that pad would sit stuck in its highlighted state until the next touch (Codex
+    // review, PR #383).
     if (Object.keys(touchState.touches).length === 0) {
       gameControls.left = false;
       gameControls.right = false;
       gameControls.up = false;
       gameControls.down = false;
       gameControls.jump = false;
+      repaintVisualControls();
     }
   };
   
@@ -445,25 +451,31 @@ function setupTouchControls(signal?: AbortSignal) {
     // gating this on `isActive` left a pad stuck in its highlighted state after the
     // finger lifted (processTouchInput has already cleared the control flag by now, so
     // the release repaint returns it to idle).
-    if (touchState.showVisualControls || touchState.showDebugTouchZones) {
-      const debug = touchState.showDebugTouchZones;
-      const activeBg = debug ? DEBUG_ZONE_ACTIVE_BG : AFFORDANCE_ACTIVE_BG;
-      const idleBg = debug ? DEBUG_ZONE_IDLE_BG : AFFORDANCE_IDLE_BG;
-      const touchControls = document.querySelectorAll('.touch-control');
-      touchControls.forEach(control => {
-        const el = control as HTMLElement;
-        // Highlight the active control
-        if ((control.classList.contains('touch-left') && gameControls.left) ||
-            (control.classList.contains('touch-right') && gameControls.right) ||
-            (control.classList.contains('touch-up') && gameControls.up) ||
-            (control.classList.contains('touch-down') && gameControls.down) ||
-            (control.classList.contains('touch-jump') && gameControls.jump)) {
-          el.style.backgroundColor = activeBg;
-        } else {
-          el.style.backgroundColor = idleBg;
-        }
-      });
-    }
+    repaintVisualControls();
+  };
+
+  // Sync every pad/zone's fill to the CURRENT control state: active controls get the
+  // highlight, everything else returns to idle. Called on every press/release and after
+  // the zero-touches full reset in handleTouchEnd.
+  const repaintVisualControls = () => {
+    if (!touchState.showVisualControls && !touchState.showDebugTouchZones) return;
+    const debug = touchState.showDebugTouchZones;
+    const activeBg = debug ? DEBUG_ZONE_ACTIVE_BG : AFFORDANCE_ACTIVE_BG;
+    const idleBg = debug ? DEBUG_ZONE_IDLE_BG : AFFORDANCE_IDLE_BG;
+    const touchControls = document.querySelectorAll('.touch-control');
+    touchControls.forEach(control => {
+      const el = control as HTMLElement;
+      // Highlight the active control
+      if ((control.classList.contains('touch-left') && gameControls.left) ||
+          (control.classList.contains('touch-right') && gameControls.right) ||
+          (control.classList.contains('touch-up') && gameControls.up) ||
+          (control.classList.contains('touch-down') && gameControls.down) ||
+          (control.classList.contains('touch-jump') && gameControls.jump)) {
+        el.style.backgroundColor = activeBg;
+      } else {
+        el.style.backgroundColor = idleBg;
+      }
+    });
   };
   
   // Helper to check if a point is in a region
