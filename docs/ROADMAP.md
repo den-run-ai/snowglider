@@ -16,7 +16,7 @@ This roadmap began as a feature-gap analysis. Its **top recommendation — the "
 
 **Update (2026-07-02) — the jump system is complete (Finding 4).** The **jump-system completion stack (JP-1…JP-7, tracking issue [#286](https://github.com/den-run-ai/snowglider/issues/286))** turned the #186 first pass into a full risk/reward mechanic, delivering the **#47 headline** and closing out **meaningful-jumps round 2 (#245)**: per-tier jump availability (**JP-1** — ● Bunny has no jumps, a calm grounded learning run; Space/lips inert), **scored obstacle clears** (**JP-2** — a deliberate jump over a tree/rock the run would have hit banks `CLEAR_SCORE = 75`, capped 3/air, `✦ CLEARED!`), the **avalanche-dodge window** (**JP-3**, the #47 headline — jumping the slide front grants air-phase burial immunity, banks `DODGE_SCORE = 250` once per slide, and kicks a forward escape impulse), **impact-consistent landing grading + Expert wipeouts** (**JP-4** — grade now reads `vImpact` into the surface; a hard/over-rotated Expert landing crashes), a **center-of-mass flip pivot + air polish** (**JP-5** — flips rotate about the body's COM so the camera stays steady; grade-keyed landing SFX/snow-burst), **Expert sculpted kickers + lip-consistent launch** (**JP-6** — three shaped ramps on the Black course line launch arcs scaled to the lip actually ridden), and a **style/combo chain** (**JP-7** — consecutive CLEAN landings/clears/dodges compound ×1.25/step up to ×3, shown live in the air toast and the result-screen air score). All reward logic stays **provenance-gated** on `playerJump` (auto-jump/hop/coasting paths byte-identical, invariant harness max-diff `0`) with the combo/dodge/clear decision cores kept **loop-side and kernel-pure** per the #245 discipline (`src/game/combo.ts`, `resolveBurialOutcome`). The only jump thread still open is **physical spins (#244)** — a seam is reserved in `combo.ts` for when heading becomes real kernel state, but is *not* implemented. See [`MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md) (Phases 1 **and** 2 shipped) and [`PHYSICS.md` §4](PHYSICS.md). **Issue #47 is now a candidate to close; #245 is substantially shipped (only #244 remains as a separate seam).**
 
-Status legend used below: **✅ shipped** · **◐ partial** (started, more to do) · **○ open**.
+Status legend used below: **✅ shipped** · **◐ partial** (started, more to do) · **○ open** · **✕ folded** (deliberately not planned — do not re-open).
 
 > The [**GitHub issue tracker**](https://github.com/den-run-ai/snowglider/issues) is the living source of truth for the backlog. This document is a higher-level synthesis and will drift as issues open and close — treat the issue references here as pointers, not a status board.
 
@@ -109,13 +109,16 @@ Jump was a listed control that did little for the player; it is now a full risk/
 - **Remaining (○):** *physical* spins — heading-relative velocity so a spun landing actually rides switch (**#244**). A seam is reserved in `combo.ts` for it, but it awaits heading becoming real kernel state; it is *not* implemented.
 - **Open issues:** jumping should help avoid obstacles and maybe avalanches (**#47** — shipped end-to-end in #186 + JP-2/JP-3, **candidate to close**), freestyle ski tricks (**#32** — first pass shipped, Expert tier), meaningful jumps round 2 (**#245** — clears + dodge + combos shipped; only #244 physical spins remain), heading-relative velocity (**#244**).
 
-### 5. Dynamic hazards and a living world — ○ open
+### 5. Dynamic hazards and a living world — ✕ agents folded; redirected to descent variety on existing systems (#381)
 
-Hazards are static (trees, rocks) plus the single avalanche, so the descent feels static after the first minute.
+The diagnosis stands — hazards are static (trees, rocks) plus the single avalanche, so the descent feels static after the first minute — but the "living world agent layer" answer to it was **folded**: **#366 closed as not planned, PR #373** (background herd + `src/agents/*`) **closed unmerged** (its branch preserves the work). Every payload in that plan either duplicated an existing system or resurrected a removed motif: a peripheral herd was redundant with the ambient birds in `src/scenery`; rival ghost-skier NPCs re-rendered the ghost samples we already ship as replay telegraphy; a SkiFree-style yeti/chaser would compete with the avalanche, the game's signature pressure; and the one idea that touched the real problem (ice/friction patches) never needed an agent layer. **Do not re-open this direction** — no `src/agents` subsystem, no wildlife NPCs, no yeti/chaser, no rival-skier NPCs, no snowball hazards, no power-ups.
 
-- **Add:** moving wildlife (penguins, deer), falling snowballs, breaking ice patches that change friction, rival skiers, and ramps.
-- **The "Yeti factor":** a pursuing antagonist/snow monster (à la SkiFree) that forces the player to speed up adds memorable pressure — the avalanche is a start, but a recurring chaser is stickier.
-- **Power-ups (more arcade-leaning):** invincibility shield (burst through trees), coin magnet, "rocket skis" speed boost with exhaust trails.
+The replacement work is tracked in **#381** — attack the static descent by deepening what already defines the game, zero new subsystems:
+
+- **Slope content first:** ice/friction patches, powder pockets, moguls, kickers, narrow chutes via the existing seeded-placement / collision-array pattern (placed at setup like trees/rocks; physics-touching pieces gate behind tier + the winnability harness).
+- **Avalanche escalation:** phases, player-line-triggered secondary slides, persistent debris fields, routed through the existing pure `resolveBurialOutcome` path.
+- **Weather progression:** tie the wind field (#253) + fog density to descent depth for whiteout stretches — tension via visibility, cosmetic-first so the byte-identical no-input baseline stays safe.
+- **Scoring depth:** near-miss bonuses on trees/rocks/the avalanche edge through the combo system (`src/game/combo.ts`).
 
 ### 6. Progression and replay hooks — ◐ partial (#56, difficulty tiers #247)
 
