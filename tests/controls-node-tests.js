@@ -518,6 +518,63 @@ async function main() {
     dom.reconfigure({ url: 'https://snowglider.ai/' });
   }
 
+  // --- touch-device detection (modernized; follow-up to PR #383) ---
+  // isTouchDevice / the internal setup gate share one isTouchCapableDevice(): legacy
+  // signals (window.orientation, mobile UA sniff) plus the modern pair — a touch
+  // digitizer (navigator.maxTouchPoints > 0) AND a coarse primary pointer
+  // (matchMedia('(pointer: coarse)')). Requiring both keeps touchscreen laptops on
+  // the desktop path while catching UA-less tablets (iPadOS "desktop mode").
+  console.log('\n--- touch-device detection (isTouchDevice) ---');
+  {
+    const setNavigator = (nav) => Object.defineProperty(globalThis, 'navigator', { configurable: true, value: nav });
+    const origNavigatorDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const origMatchMedia = window.matchMedia;
+    // any-cast for the mocks below: lib.dom types window.orientation readonly and
+    // matchMedia as a full MediaQueryList factory; the code under test only reads
+    // `.matches`, and jsdom lets us swap both freely.
+    const w = /** @type {any} */ (window);
+    delete w.orientation; // drop the suite-wide mobile short-circuit
+
+    const DESKTOP_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+    const IPAD_DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+
+    setNavigator({ userAgent: DESKTOP_UA, maxTouchPoints: 0 });
+    w.matchMedia = () => ({ matches: false });
+    check('plain desktop (no touch signals) => false', Controls.isTouchDevice() === false);
+
+    setNavigator({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', maxTouchPoints: 5 });
+    check('mobile UA sniff still detects an iPhone => true', Controls.isTouchDevice() === true);
+
+    // iPadOS Safari "desktop mode": Macintosh UA the sniff misses, but a real touch
+    // digitizer + coarse primary pointer. This is the case the modern clause exists for.
+    setNavigator({ userAgent: IPAD_DESKTOP_UA, maxTouchPoints: 5 });
+    w.matchMedia = (q) => ({ matches: q === '(pointer: coarse)' });
+    check('UA-less tablet (maxTouchPoints + coarse pointer) => true', Controls.isTouchDevice() === true);
+
+    // Touchscreen laptop: touch digitizer present but the PRIMARY pointer is a fine
+    // mouse — must stay on the desktop path (no mobile overlay UI).
+    setNavigator({ userAgent: DESKTOP_UA, maxTouchPoints: 2 });
+    w.matchMedia = () => ({ matches: false });
+    check('touchscreen laptop (fine primary pointer) => false', Controls.isTouchDevice() === false);
+
+    // matchMedia unavailable: the coarse-pointer confirmation can't run, so the
+    // conservative answer is the desktop path.
+    setNavigator({ userAgent: DESKTOP_UA, maxTouchPoints: 5 });
+    w.matchMedia = undefined;
+    check('maxTouchPoints without matchMedia support => false (conservative)', Controls.isTouchDevice() === false);
+
+    // A throwing navigator access (exotic embeds) is caught => desktop path.
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, get() { throw new Error('blocked'); } });
+    check('navigator access throwing => false (caught)', Controls.isTouchDevice() === false);
+
+    // Restore the suite-wide environment.
+    if (origNavigatorDesc) Object.defineProperty(globalThis, 'navigator', origNavigatorDesc);
+    w.matchMedia = origMatchMedia;
+    w.orientation = 0;
+    check('window.orientation restored => true (legacy short-circuit intact)',
+      Controls.isTouchDevice() === true);
+  }
+
   console.log(`\nCONTROLS TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }
