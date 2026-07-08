@@ -22,9 +22,18 @@ export interface CollapsiblePanelOptions {
   resetListeners?: boolean;
   /**
    * Auto-collapse on small / landscape-mobile screens and keep watching resize
-   * (Controls panel only).
+   * (Controls panel and the camera tray).
    */
   autoCollapseOnSmallScreens?: boolean;
+  /**
+   * Teardown signal: aborting it removes every listener this call registered —
+   * including the WINDOW-level resize listener the auto-collapse option adds, which
+   * would otherwise outlive a torn-down panel (the camera tray is recreated each
+   * game, so without this each run would stack another resize listener).
+   * `| undefined` so callers under exactOptionalPropertyTypes can pass their own
+   * optional teardown signal straight through.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 // Wire the collapse toggle, click/touch handlers, optional small-screen
@@ -35,7 +44,13 @@ function wirePanel(
   header: HTMLElement,
   name: string,
   autoCollapseOnSmallScreens: boolean,
+  signal?: AbortSignal,
 ): void {
+  // Listener options threading the optional teardown signal (matches the
+  // listenerOpts/touchOpts pattern in game/lifecycle.ts).
+  const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
+  const passiveOpts: AddEventListenerOptions = signal ? { passive: true, signal } : { passive: true };
+  const activeOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
   const setCollapsed = function(collapsed: boolean) {
     container.classList.toggle('collapsed', collapsed);
     toggleButton.textContent = collapsed ? '▼' : '▲';
@@ -51,12 +66,12 @@ function wirePanel(
     console.log(`${name} toggle button clicked`);
     e.stopPropagation(); // Prevent triggering the header click
     toggle();
-  });
+  }, opts);
 
   header.addEventListener('click', function() {
     console.log(`${name} header clicked`);
     toggle();
-  });
+  }, opts);
 
   // Track whether the active touch became a horizontal swipe. The swipe handler below
   // sets the collapse state directly on touchmove; without this guard the touchend
@@ -70,7 +85,7 @@ function wirePanel(
     e.preventDefault();
     if (swiped) { swiped = false; return; } // a swipe already set the state; don't re-toggle
     toggle();
-  }, { passive: false });
+  }, activeOpts);
 
   // Auto-collapse on small screens and landscape mobile
   if (autoCollapseOnSmallScreens) {
@@ -83,7 +98,7 @@ function wirePanel(
         }
       }
     };
-    window.addEventListener('resize', handleScreenSizeChange);
+    window.addEventListener('resize', handleScreenSizeChange, opts);
     handleScreenSizeChange();
   }
 
@@ -91,7 +106,7 @@ function wirePanel(
   header.addEventListener('touchstart', function(e) {
     touchStartX = e.touches[0]!.clientX;
     swiped = false;
-  }, { passive: true });
+  }, passiveOpts);
 
   header.addEventListener('touchmove', function(e) {
     const diff = e.touches[0]!.clientX - touchStartX;
@@ -102,12 +117,13 @@ function wirePanel(
     swiped = true;
     setCollapsed(diff < 0);
     e.preventDefault();
-  }, { passive: false });
+  }, activeOpts);
 }
 
 // Fallback used when the header clone/refetch path throws: a bare toggle with no
 // touch or swipe support (matches the previous initializeControlsToggle catch path).
-function wireFallback(container: HTMLElement, toggleButton: HTMLElement, header: HTMLElement): void {
+function wireFallback(container: HTMLElement, toggleButton: HTMLElement, header: HTMLElement, signal?: AbortSignal): void {
+  const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
   const toggle = function() {
     if (container.classList.contains('collapsed')) {
       container.classList.remove('collapsed');
@@ -121,9 +137,9 @@ function wireFallback(container: HTMLElement, toggleButton: HTMLElement, header:
   toggleButton.addEventListener('click', function(e) {
     e.stopPropagation();
     toggle();
-  });
+  }, opts);
 
-  header.addEventListener('click', toggle);
+  header.addEventListener('click', toggle, opts);
 }
 
 // Set up a collapsible HUD panel. Idempotent for panels that pass
@@ -148,7 +164,7 @@ export function setupCollapsiblePanel(options: CollapsiblePanelOptions): void {
   console.log(`Setting up ${name} toggle`);
 
   if (!options.resetListeners) {
-    wirePanel(container, toggleButton, header, name, !!options.autoCollapseOnSmallScreens);
+    wirePanel(container, toggleButton, header, name, !!options.autoCollapseOnSmallScreens, options.signal);
     return;
   }
 
@@ -158,9 +174,9 @@ export function setupCollapsiblePanel(options: CollapsiblePanelOptions): void {
     header.replaceWith(header.cloneNode(true));
     const newHeader = document.getElementById(headerId)!;
     const newToggleButton = document.getElementById(toggleButtonId)!;
-    wirePanel(container, newToggleButton, newHeader, name, !!options.autoCollapseOnSmallScreens);
+    wirePanel(container, newToggleButton, newHeader, name, !!options.autoCollapseOnSmallScreens, options.signal);
   } catch (e) {
     console.error(`Error setting up ${name} toggle:`, e);
-    wireFallback(container, toggleButton, header);
+    wireFallback(container, toggleButton, header, options.signal);
   }
 }

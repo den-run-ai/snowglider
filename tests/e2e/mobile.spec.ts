@@ -52,17 +52,36 @@ test.describe('mobile touch', () => {
     expect((await getControls(page))?.jump).toBe(false);
   });
 
-  test('mobile renders the canvas; touch-zone overlays are OFF by default', async ({ page }) => {
+  test('mobile renders the canvas and subtle touch affordances by default (regression)', async ({ page }) => {
     await gotoGame(page);
     await startGame(page);
 
     // The three.js canvas is visible on the mobile viewport.
     await expect(page.locator('#gameCanvas canvas')).toBeVisible();
 
-    // The translucent touch-zone overlay rectangles (controls.ts showVisualControls) are a
-    // DEBUG aid, off by default — otherwise they read as big floating white panels over the
-    // scene. Touch INPUT still works (the region test above proves it); only the VISUALS are
-    // gated behind ?debugTouchZones.
+    // REGRESSION GUARD: the five touch affordance pads (left/right/up/down/jump) are
+    // gameplay UI and must render by default on mobile. Debug-gating all the zone
+    // visuals off (the "snow plates" over-fix) made players report the touch controls
+    // as having disappeared.
+    const affordances = page.locator('.touch-control.touch-affordance');
+    await expect(affordances).toHaveCount(5);
+    for (const name of ['left', 'right', 'up', 'down', 'jump']) {
+      await expect(page.locator(`.touch-${name}`)).toBeVisible();
+    }
+
+    // ...and they must be the small faint pads, NOT the full-region debug rectangles —
+    // reusing those as production UI would reintroduce the "floating white plates".
+    await expect(page.locator('.touch-control.touch-debug-zone')).toHaveCount(0);
+    const idleFill = await affordances.first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(idleFill).toBe('rgba(255, 255, 255, 0.07)');
+  });
+
+  test('touch affordances can be opted out with ?hideTouchControls', async ({ page }) => {
+    await gotoGame(page, '?hideTouchControls');
+    await startGame(page);
+
+    // Explicit opt-out => no visuals; touch INPUT is unaffected (always active).
     await expect(page.locator('.touch-control')).toHaveCount(0);
   });
 
@@ -70,9 +89,32 @@ test.describe('mobile touch', () => {
     await gotoGame(page, '?debugTouchZones=1');
     await startGame(page);
 
-    // Opt-in flag => the five screen-third overlays (left/right/up/down/jump) are drawn.
-    await expect(page.locator('.touch-control')).toHaveCount(5);
+    // Debug flag => the five full-region hit-zone rectangles are drawn (the debug view
+    // exists to inspect the real touch hit-areas).
+    await expect(page.locator('.touch-control.touch-debug-zone')).toHaveCount(5);
     await expect(page.locator('.touch-control').first()).toBeVisible();
+  });
+
+  test('camera tray auto-collapses on phones and never disturbs the touch affordances', async ({ page }) => {
+    await gotoGame(page);
+    await startGame(page);
+
+    // The camera tray (bottom-left, collapsible) overlaps the bottom steering surface
+    // on phones — expanded, it sat over the DOWN affordance pad and its touches are
+    // (correctly) excluded from steering. On a small screen it must therefore start
+    // COLLAPSED (Codex review, PR #383), and folding/unfolding it must leave the five
+    // affordance pads intact — this pins the suspected-overlap area from the
+    // regression report.
+    const affordances = page.locator('.touch-control.touch-affordance');
+    const tray = page.locator('#cameraControls');
+    await expect(affordances).toHaveCount(5);
+    await expect(tray).toHaveClass(/collapsed/);
+    await page.locator('#toggleCamera').tap();
+    await expect(tray).not.toHaveClass(/collapsed/);
+    await expect(affordances).toHaveCount(5);
+    await page.locator('#toggleCamera').tap();
+    await expect(tray).toHaveClass(/collapsed/);
+    await expect(affordances).toHaveCount(5);
   });
 });
 

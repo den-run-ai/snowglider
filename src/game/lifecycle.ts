@@ -385,14 +385,21 @@ export function createLifecycle(deps: LifecycleDeps) {
     document.body.appendChild(tray);
 
     // Wire the collapse toggle / header tap / horizontal swipe, reusing the shared HUD
-    // panel behavior. No resetListeners / small-screen auto-collapse: the tray is a
-    // fresh node each game and its only listeners live on this subtree (header/button),
-    // so teardown's removal of #cameraControls disposes them — no window-level leak.
+    // panel behavior. No resetListeners: the tray is a fresh node each game, so there
+    // are no stale subtree listeners to clone away. Auto-collapse on small screens so
+    // the expanded tray doesn't sit over the bottom steering surface on phones — it
+    // covered the "down" touch affordance and ate the touches that started on it
+    // (tray touches are correctly excluded from steering). That option adds a
+    // WINDOW-level resize listener, so thread the teardown `signal`: aborting it on
+    // disposeGame removes the listener, keeping the no-window-leak property that
+    // previously justified omitting auto-collapse here.
     setupCollapsiblePanel({
       name: 'camera',
       containerId: 'cameraControls',
       toggleButtonId: 'toggleCamera',
       headerId: 'cameraControlsHeader',
+      autoCollapseOnSmallScreens: true,
+      signal,
     });
 
     // These window-level listeners only steer the camera during a LIVE run. Gating on

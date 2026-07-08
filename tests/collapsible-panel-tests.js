@@ -42,6 +42,8 @@ async function main() {
     ${panelHtml('ctrl')}
     ${panelHtml('reset')}
     ${panelHtml('fb')}
+    ${panelHtml('sig')}
+    ${panelHtml('fbs')}
   </body>`, { url: 'https://snowglider.ai/', pretendToBeVisual: true });
   const { window } = dom;
   const g = /** @type {any} */ (globalThis);
@@ -134,6 +136,54 @@ async function main() {
   check('fallback toggle adds the collapsed class', fbC.classList.contains('collapsed') && fbT.textContent === '▼');
   fbT.dispatchEvent(new window.Event('click', { bubbles: true })); // fallback toggle -> expand
   check('fallback toggle removes the collapsed class', !fbC.classList.contains('collapsed') && fbT.textContent === '▲');
+
+  // --- Fallback path WITH a teardown signal: the fallback listeners are removed on
+  // abort just like wirePanel's (covers the signal-present side of its listener opts). ---
+  const fbsHeader = document.getElementById('fbsHeader');
+  fbsHeader.replaceWith = function() { throw new Error('replaceWith blew up'); };
+  const acFbs = new window.AbortController();
+  setupCollapsiblePanel({
+    name: 'FallbackSig', containerId: 'fbsContainer', toggleButtonId: 'fbsToggle',
+    headerId: 'fbsHeader', resetListeners: true, signal: acFbs.signal,
+  });
+  const fbsC = document.getElementById('fbsContainer');
+  const fbsT = document.getElementById('fbsToggle');
+  fbsT.dispatchEvent(new window.Event('click', { bubbles: true }));
+  check('fallback-with-signal toggle collapses while the signal is live',
+    fbsC.classList.contains('collapsed'));
+  acFbs.abort();
+  fbsT.dispatchEvent(new window.Event('click', { bubbles: true }));
+  check('after abort, the fallback listeners are gone',
+    fbsC.classList.contains('collapsed'));
+
+  // --- teardown signal threading (camera tray; PR #383) ---
+  // The camera tray passes `signal` + autoCollapseOnSmallScreens: aborting the signal
+  // must remove EVERY listener this call registered — most importantly the
+  // WINDOW-level auto-collapse resize listener, which would otherwise outlive the
+  // torn-down tray and stack one copy per game.
+  Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
+  Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
+  const acSig = new window.AbortController();
+  setupCollapsiblePanel({
+    name: 'Sig', containerId: 'sigContainer', toggleButtonId: 'sigToggle',
+    headerId: 'sigHeader', autoCollapseOnSmallScreens: true, signal: acSig.signal,
+  });
+  const sigC = document.getElementById('sigContainer');
+  const sigT = document.getElementById('sigToggle');
+  check('wire-up on a large screen leaves the panel expanded', !sigC.classList.contains('collapsed'));
+  Object.defineProperty(window, 'innerWidth', { value: 400, configurable: true });
+  window.dispatchEvent(new window.Event('resize'));
+  check('resize to a small screen auto-collapses the panel (signal live)',
+    sigC.classList.contains('collapsed'));
+  sigT.dispatchEvent(new window.Event('click', { bubbles: true })); // expand again
+  check('toggle still works while the signal is live', !sigC.classList.contains('collapsed'));
+  acSig.abort(); // teardown
+  window.dispatchEvent(new window.Event('resize'));
+  check('after abort, the window-level auto-collapse resize listener is gone',
+    !sigC.classList.contains('collapsed'));
+  sigT.dispatchEvent(new window.Event('click', { bubbles: true }));
+  check('after abort, the toggle/header listeners are gone',
+    !sigC.classList.contains('collapsed'));
 
   console.log(`\nCOLLAPSIBLE-PANEL TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
