@@ -254,6 +254,13 @@ async function main() {
   check('toggleTouchControls(false) removes the visual controls and returns false',
     Controls.toggleTouchControls(false) === false &&
     document.querySelectorAll('.touch-control').length === 0);
+  // With every visual hidden (affordances toggled off, debug zones never enabled),
+  // touch INPUT still drives the shared controls — the repaint helper's "nothing to
+  // paint" early-out is the only visual code that runs.
+  dispatchTouch('touchstart', document, [{ identifier: 22, clientX: W / 6, clientY: H / 2 }]);
+  check('touch input still works with all visuals hidden', controls.left === true);
+  dispatchTouch('touchend', document, [{ identifier: 22, clientX: W / 6, clientY: H / 2 }]);
+  check('touch release still clears the control with all visuals hidden', controls.left === false);
   check('toggleTouchControls(true) recreates the visual controls and returns true',
     Controls.toggleTouchControls(true) === true &&
     document.querySelectorAll('.touch-control').length === 5);

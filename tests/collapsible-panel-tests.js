@@ -43,6 +43,7 @@ async function main() {
     ${panelHtml('reset')}
     ${panelHtml('fb')}
     ${panelHtml('sig')}
+    ${panelHtml('fbs')}
   </body>`, { url: 'https://snowglider.ai/', pretendToBeVisual: true });
   const { window } = dom;
   const g = /** @type {any} */ (globalThis);
@@ -135,6 +136,25 @@ async function main() {
   check('fallback toggle adds the collapsed class', fbC.classList.contains('collapsed') && fbT.textContent === '▼');
   fbT.dispatchEvent(new window.Event('click', { bubbles: true })); // fallback toggle -> expand
   check('fallback toggle removes the collapsed class', !fbC.classList.contains('collapsed') && fbT.textContent === '▲');
+
+  // --- Fallback path WITH a teardown signal: the fallback listeners are removed on
+  // abort just like wirePanel's (covers the signal-present side of its listener opts). ---
+  const fbsHeader = document.getElementById('fbsHeader');
+  fbsHeader.replaceWith = function() { throw new Error('replaceWith blew up'); };
+  const acFbs = new window.AbortController();
+  setupCollapsiblePanel({
+    name: 'FallbackSig', containerId: 'fbsContainer', toggleButtonId: 'fbsToggle',
+    headerId: 'fbsHeader', resetListeners: true, signal: acFbs.signal,
+  });
+  const fbsC = document.getElementById('fbsContainer');
+  const fbsT = document.getElementById('fbsToggle');
+  fbsT.dispatchEvent(new window.Event('click', { bubbles: true }));
+  check('fallback-with-signal toggle collapses while the signal is live',
+    fbsC.classList.contains('collapsed'));
+  acFbs.abort();
+  fbsT.dispatchEvent(new window.Event('click', { bubbles: true }));
+  check('after abort, the fallback listeners are gone',
+    fbsC.classList.contains('collapsed'));
 
   // --- teardown signal threading (camera tray; PR #383) ---
   // The camera tray passes `signal` + autoCollapseOnSmallScreens: aborting the signal
