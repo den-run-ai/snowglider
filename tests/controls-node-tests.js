@@ -258,7 +258,10 @@ async function main() {
   // touch INPUT still drives the shared controls — the repaint helper's "nothing to
   // paint" early-out is the only visual code that runs.
   dispatchTouch('touchstart', document, [{ identifier: 22, clientX: W / 6, clientY: H / 2 }]);
-  check('touch input still works with all visuals hidden', controls.left === true);
+  // Read via getControls(): tsc's flow analysis has narrowed `controls.left` to a
+  // literal `false` from an earlier assignment (it can't see the dispatch side-effects),
+  // so a direct `=== true` comparison is a TS2367 in typecheck:tests.
+  check('touch input still works with all visuals hidden', Controls.getControls().left === true);
   dispatchTouch('touchend', document, [{ identifier: 22, clientX: W / 6, clientY: H / 2 }]);
   check('touch release still clears the control with all visuals hidden', controls.left === false);
   check('toggleTouchControls(true) recreates the visual controls and returns true',
