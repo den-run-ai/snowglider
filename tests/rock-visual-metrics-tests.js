@@ -77,7 +77,12 @@ const UPDATE = process.argv.includes('--update-baseline');
   function buildSample(sample) {
     Math.random = mulberry32((1234 ^ sample.seed) >>> 0);
     try {
-      return createRock(sample.size, { cliff: sample.kind !== 'boulder', seed: sample.seed });
+      return createRock(sample.size, {
+        cliff: sample.kind !== 'boulder',
+        seed: sample.seed,
+        ...(sample.maxHorizontalReach !== undefined
+          ? { maxHorizontalReach: sample.maxHorizontalReach } : {}),
+      });
     } finally {
       Math.random = realRandom;
     }
@@ -157,11 +162,24 @@ const UPDATE = process.argv.includes('--update-baseline');
       assert(m.aabbVolume >= 0.90 * base.aabbVolume - EPS,
         `aabbVolume ${m.aabbVolume.toFixed(4)} < 0.90·baseline (${base.aabbVolume.toFixed(4)})`);
 
-      // Horizontal collision guard (held until #348 / PR 5)
-      assert(m.maxHorizontalRadius <= 1.05 * base.maxHorizontalRadius + EPS,
-        `maxHorizontalRadius ${m.maxHorizontalRadius.toFixed(4)} > 1.05·baseline ` +
-        `(${base.maxHorizontalRadius.toFixed(4)}) — visible mass would outgrow the ` +
-        'size-based hazard radius before height-aware collision lands');
+      // Horizontal collision guard (held until #348 / PR 5): a STATIC per-kind
+      // envelope in ·size units, derived from main's worst case ×1.05 (boulders
+      // peaked at 1.20·size, cliffs at 1.33·size). Static rather than
+      // baseline-relative so a deliberate fixture regen can never silently widen
+      // the footprint the frozen size-based collision has to cover. The warp pass
+      // additionally guards each individual rock to ≤1.05× its own pre-warp
+      // footprint (rocks-shape-tests).
+      // Pinch crags get a TIGHTER cap: their centres sit PINCH_EDGE=8u off the
+      // lane with a 5u clear corridor, so any horizontal reach past 3u
+      // (= 1.3636·size at the fixed 2.2 gate size) would visibly poke into the
+      // advertised safe path (Codex review on #389).
+      const capAbs = sample.maxHorizontalReach !== undefined
+        ? sample.maxHorizontalReach
+        : (sample.kind === 'boulder' ? 1.26 : 1.40) * sample.size;
+      assert(m.maxHorizontalRadius <= capAbs + 1e-6,
+        `maxHorizontalRadius ${m.maxHorizontalRadius.toFixed(4)} > ${capAbs.toFixed(4)} — ` +
+        'visible mass would outgrow the size-based hazard radius before ' +
+        'height-aware collision lands');
 
       // Snow restraint caps (#344 over-white guard)
       assert(m.snowVertexRatio <= base.snowVertexRatio + 0.12 + EPS,
@@ -181,6 +199,18 @@ const UPDATE = process.argv.includes('--update-baseline');
       // Undersides must never get BRIGHTER relative to the sides.
       assert(m.undersideLumRatio <= base.undersideLumRatio + 0.05 + EPS,
         `undersideLumRatio ${m.undersideLumRatio.toFixed(4)} > baseline+0.05 (${base.undersideLumRatio.toFixed(4)})`);
+
+      // Relief ratchet (#385 PR 3): once the silhouette warp raised these, they may
+      // not silently regress below ~the achieved level. Small slack absorbs benign
+      // reshuffles; a real regression (a rounder, more spherical rock) trips them.
+      assert(m.radialVariance >= 0.90 * base.radialVariance - EPS,
+        `radialVariance ${m.radialVariance.toFixed(4)} < 0.90·baseline (${base.radialVariance.toFixed(4)})`);
+      assert(m.radiusP90P10 >= 0.97 * base.radiusP90P10 - EPS,
+        `radiusP90P10 ${m.radiusP90P10.toFixed(4)} < 0.97·baseline (${base.radiusP90P10.toFixed(4)})`);
+      assert(m.normalAreaEntropy >= 0.97 * base.normalAreaEntropy - EPS,
+        `normalAreaEntropy ${m.normalAreaEntropy.toFixed(4)} < 0.97·baseline (${base.normalAreaEntropy.toFixed(4)})`);
+      assert(m.silhouetteAreaCV >= 0.80 * base.silhouetteAreaCV - EPS,
+        `silhouetteAreaCV ${m.silhouetteAreaCV.toFixed(4)} < 0.80·baseline (${base.silhouetteAreaCV.toFixed(4)})`);
     });
   }
 

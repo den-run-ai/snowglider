@@ -85,7 +85,12 @@ export async function initRockGallery(): Promise<NonNullable<Window['__rockGalle
     Math.random = mulberry32((PINNED_STREAM_SEED ^ sample.seed) >>> 0);
     let rock: THREE.Mesh;
     try {
-      rock = createRock(sample.size, { cliff: sample.kind !== 'boulder', seed: sample.seed });
+      rock = createRock(sample.size, {
+        cliff: sample.kind !== 'boulder',
+        seed: sample.seed,
+        ...(sample.maxHorizontalReach !== undefined
+          ? { maxHorizontalReach: sample.maxHorizontalReach } : {}),
+      });
     } finally {
       Math.random = realRandom;
     }

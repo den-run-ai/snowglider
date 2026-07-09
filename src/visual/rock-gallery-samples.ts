@@ -19,6 +19,10 @@ export interface RockGallerySample {
   size: number;
   /** Deterministic scrape-shape seed (createRock opts.seed). */
   seed: number;
+  /** createRock opts.maxHorizontalReach — set on the pinch samples so the gallery
+   *  and metrics build the gate crags under the same reach contract addRocks uses
+   *  (PINCH_EDGE − corridor half-width = 3u). */
+  maxHorizontalReach?: number;
 }
 
 /**
@@ -66,5 +70,7 @@ export const ROCK_GALLERY_SAMPLES: RockGallerySample[] = [
     kind: 'pinch',
     size: 2.2,
     seed: shapeSeedFor(x, z),
+    maxHorizontalReach: 3, // PINCH_EDGE(8) − corridor half-width(5), as addRocks passes
+
   })),
 ];

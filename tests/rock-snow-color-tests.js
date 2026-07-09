@@ -161,10 +161,10 @@ const snowness = (f) => Math.max(0, Math.min(1, (f.minC - 0.60) / (0.97 - 0.60))
   });
 
   runTest('a different seed repatterns the snow on identical geometry', () => {
-    // scrape:false ⇒ geometry depends only on the (pinned) global jitter, so the two
-    // builds differ ONLY through the colour pass's seeded patch hash.
-    const a = buildPinned(2, { seed: 1, scrape: false });
-    const b = buildPinned(2, { seed: 2, scrape: false });
+    // scrape:false + warp:false ⇒ geometry depends only on the (pinned) global
+    // jitter, so the two builds differ ONLY through the colour pass's seeded hash.
+    const a = buildPinned(2, { seed: 1, scrape: false, warp: false });
+    const b = buildPinned(2, { seed: 2, scrape: false, warp: false });
     const pa = a.geometry.attributes.position.array, pb = b.geometry.attributes.position.array;
     for (let i = 0; i < pa.length; i++) assert(pa[i] === pb[i], 'geometry unexpectedly differs');
     const ca = a.geometry.attributes.color.array, cb = b.geometry.attributes.color.array;

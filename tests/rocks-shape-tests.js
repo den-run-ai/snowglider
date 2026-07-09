@@ -41,6 +41,7 @@ function mulberry32(seed) {
 
 (async () => {
   const { createRock } = await import('../src/mountains/rocks.js');
+  const { ROCK_GALLERY_SAMPLES } = await import('../src/visual/rock-gallery-samples.js');
 
   console.log('\n🪨  SNOWGLIDER ROCK-SHAPE TESTS (seeded scrape pass) 🪨');
   console.log('======================================================\n');
@@ -163,6 +164,85 @@ function mulberry32(seed) {
       }
     }
     assert(snowy > 0, 'no vertex reached near-snow colour — the snow band no longer engages');
+  });
+
+  runTest('warp changes the silhouette vs warp: false', () => {
+    const a = positionsOf(buildPinned(2, { seed: 42 }));
+    const b = positionsOf(buildPinned(2, { seed: 42, warp: false }));
+    let differs = false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { differs = true; break; }
+    assert(differs, 'the mass warp left every vertex untouched');
+  });
+
+  runTest('warp preserves mean radius (mass conservation, ≤1.5% drift)', () => {
+    // The warp renormalises to the exact pre-warp mean; the later scrape pass may
+    // shave a whisker more, so compare full builds warp-on vs warp-off.
+    for (const opts of [{ seed: 42 }, { cliff: true, seed: 7 }]) {
+      const meanR = (p) => {
+        let s = 0;
+        for (let i = 0; i < p.length; i += 3) s += Math.hypot(p[i], p[i + 1], p[i + 2]);
+        return s / (p.length / 3);
+      };
+      const on = meanR(positionsOf(buildPinned(3, opts)));
+      const off = meanR(positionsOf(buildPinned(3, { ...opts, warp: false })));
+      assert(Math.abs(on - off) / off < 0.015,
+        `mean radius drifted ${(100 * (on - off) / off).toFixed(2)}% (${on.toFixed(3)} vs ${off.toFixed(3)})`);
+    }
+  });
+
+  runTest('warp holds the horizontal-growth guard on the FINAL shape (scrape included)', () => {
+    // Collision stays the frozen size-based radius until #348 (PR 5), so the warp
+    // must not push visible mass horizontally past +5% of the pre-warp (jittered)
+    // footprint — and the guard must hold AFTER the scrape pass too, because a
+    // scrape pull can grow hypot(x,z) while shrinking 3D radius (Codex on #389).
+    const maxH = (p) => {
+      let m = 0;
+      for (let i = 0; i < p.length; i += 3) m = Math.max(m, Math.hypot(p[i], p[i + 2]));
+      return m;
+    };
+    // Fixed seeds plus EVERY real pinch-gate seed (both sides, every winding tier):
+    // the gate crags sit only 3u outside the clear corridor, so they are exactly
+    // where a footprint overrun becomes player-visible.
+    const pinchSeeds = ROCK_GALLERY_SAMPLES.filter((s) => s.kind === 'pinch').map((s) => s.seed);
+    for (const cliff of [false, true]) {
+      for (const seed of [1, 2, 3, 7, 42, 77, 913, ...pinchSeeds]) {
+        const opts = cliff ? { cliff, seed } : { seed };
+        // Pre-warp footprint = the pinned jitter alone (warp+scrape disabled).
+        const jittered = maxH(positionsOf(buildPinned(2.2, { ...opts, scrape: false, warp: false })));
+        const finalShape = maxH(positionsOf(buildPinned(2.2, opts)));
+        assert(finalShape <= jittered * 1.05 + 1e-6,
+          `cliff=${cliff} seed=${seed}: final footprint ${finalShape.toFixed(3)} grew ` +
+          `${(100 * (finalShape / jittered - 1)).toFixed(2)}% over the jittered ${jittered.toFixed(3)} (> 5%)`);
+      }
+    }
+  });
+
+  runTest('pinch-gate crags never reach into the clear corridor (≤3u horizontal reach)', () => {
+    // addRocks places gate crags at PINCH_EDGE=8 off the lane with a 5u clear
+    // corridor: any vertex reaching past 3u horizontally would visibly intrude
+    // into the advertised safe path regardless of the rock's random yaw.
+    const PINCH_SIZE = 2.2, MARGIN = 8 - 5;
+    for (const s of ROCK_GALLERY_SAMPLES.filter((x) => x.kind === 'pinch')) {
+      const p = positionsOf(buildPinned(PINCH_SIZE,
+        { cliff: true, seed: s.seed, maxHorizontalReach: MARGIN }));
+      for (let i = 0; i < p.length; i += 3) {
+        const h = Math.hypot(p[i], p[i + 2]);
+        assert(h <= MARGIN + 1e-6,
+          `${s.id}: vertex reaches ${h.toFixed(3)}u horizontally (> ${MARGIN}u gate margin)`);
+      }
+    }
+  });
+
+  runTest('warp consumes zero global Math.random() draws (stream neutrality)', () => {
+    function countDraws(opts) {
+      let calls = 0;
+      const stream = mulberry32(999);
+      Math.random = () => { calls++; return stream(); };
+      try { createRock(2, opts); } finally { Math.random = realRandom; }
+      return calls;
+    }
+    assert(countDraws({ seed: 5 }) === countDraws({ seed: 5, warp: false }),
+      'the warp pass drew from the global stream');
   });
 
   runTest('cleanup matcher intact: every rock is tagged userData.isRock', () => {
