@@ -925,12 +925,12 @@ function hazardTopY(rock: THREE.Mesh, terrainHeight: number, size: number, cliff
   // and (top + y) − y is not float-exact — the render-only grounding sink would
   // then perturb hazard tops by ulps and break the grounding-neutrality contract).
   // Also tighter than a rotated-AABB corner expansion. ~144 verts per rock — cheap.
-  const posAttr = (rock.geometry as THREE.BufferGeometry).attributes.position!;
+  const posAttr = rock.geometry.attributes.position!;
   const m = new THREE.Matrix4().makeRotationFromEuler(rock.rotation);
   const v = new THREE.Vector3();
   let top = -Infinity;
   for (let i = 0; i < posAttr.count; i++) {
-    v.fromBufferAttribute(posAttr as THREE.BufferAttribute, i).applyMatrix4(m);
+    v.fromBufferAttribute(posAttr, i).applyMatrix4(m);
     if (v.y > top) top = v.y;
   }
   return terrainHeight - size * (cliff ? 0.28 : 0.3) + top;
