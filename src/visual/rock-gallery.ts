@@ -67,8 +67,10 @@ export function initRockGallery(): NonNullable<Window['__rockGallery']> {
   for (const sample of ROCK_GALLERY_SAMPLES) {
     const slot = slotCounters[sample.kind] ?? 0;
     slotCounters[sample.kind] = slot + 1;
-    const x = SLOT_X[slot]!;
-    const z = ROW_Z[sample.kind]!;
+    // Kinds with more than 4 samples (the 8 pinch crags — both sides of every Black
+    // gate) wrap onto a second sub-row a little further downhill.
+    const x = SLOT_X[slot % SLOT_X.length]!;
+    const z = ROW_Z[sample.kind]! - 11 * Math.floor(slot / SLOT_X.length);
 
     Math.random = mulberry32((PINNED_STREAM_SEED ^ sample.seed) >>> 0);
     let rock: THREE.Mesh;
@@ -110,11 +112,13 @@ export function initRockGallery(): NonNullable<Window['__rockGallery']> {
       camera.lookAt(new THREE.Vector3(0, getTerrainHeight(0, centerZ) + 1.5, centerZ));
       return;
     }
-    // Row close-up: low and near, so side faces and snow shelves are readable.
+    // Row close-up: low and near, so side faces and snow shelves are readable. The
+    // pinch view sits a little higher/farther back to frame both gate sub-rows.
     const rowZ = ROW_Z[view]!;
-    const camZ = rowZ + 11;
-    camera.position.set(2, getTerrainHeight(2, camZ) + 4.5, camZ);
-    camera.lookAt(new THREE.Vector3(0, getTerrainHeight(0, rowZ) + 1.2, rowZ));
+    const twoRows = view === 'pinch';
+    const camZ = rowZ + (twoRows ? 14 : 11);
+    camera.position.set(2, getTerrainHeight(2, camZ) + (twoRows ? 6.5 : 4.5), camZ);
+    camera.lookAt(new THREE.Vector3(0, getTerrainHeight(0, rowZ - (twoRows ? 5.5 : 0)) + 1.2, rowZ - (twoRows ? 5.5 : 0)));
   };
   setView('overview');
 

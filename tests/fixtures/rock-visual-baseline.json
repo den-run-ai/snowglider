@@ -178,6 +178,28 @@
       "facetClusterCount": 36
     },
     "pinch-2.2-1": {
+      "avgRadius": 2.1102840125329467,
+      "aabbVolume": 82.28462308906946,
+      "boundingSphereRadius": 3.1361576629303083,
+      "topYLocal": 2.044343948364258,
+      "topEnvelope": 0.9292472492564807,
+      "maxHorizontalRadius": 2.9118373519916823,
+      "snowVertexRatio": 0.3055555555555556,
+      "areaWeightedSnowRatio": 0.23200168770020224,
+      "largeWhiteFaceRatio": 0.04347359716579251,
+      "topShelfAreaRatio": 0.14464547428358362,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.9417183469662056,
+      "radialVariance": 0.0488966984092449,
+      "radiusP90P10": 1.7416438035984767,
+      "axisRatio": 1.4770811550664509,
+      "largestFaceAreaRatio": 0.0623872348018808,
+      "normalAreaEntropy": 3.4614624728902212,
+      "silhouetteAreaCV": 0.06140907641576269,
+      "triangleCount": 36,
+      "facetClusterCount": 36
+    },
+    "pinch-2.2-2": {
       "avgRadius": 2.0976140929485747,
       "aabbVolume": 80.5189551007022,
       "boundingSphereRadius": 3.197093330120467,
@@ -199,7 +221,7 @@
       "triangleCount": 36,
       "facetClusterCount": 32
     },
-    "pinch-2.2-2": {
+    "pinch-2.2-3": {
       "avgRadius": 2.1563881419116804,
       "aabbVolume": 103.23053374824589,
       "boundingSphereRadius": 3.227638551559839,
@@ -221,7 +243,51 @@
       "triangleCount": 36,
       "facetClusterCount": 35
     },
-    "pinch-2.2-3": {
+    "pinch-2.2-4": {
+      "avgRadius": 2.239974981170032,
+      "aabbVolume": 96.43967160122384,
+      "boundingSphereRadius": 3.484338000712189,
+      "topYLocal": 3.238067150115967,
+      "topEnvelope": 1.4718487045981665,
+      "maxHorizontalRadius": 2.7231123447418213,
+      "snowVertexRatio": 0.16666666666666666,
+      "areaWeightedSnowRatio": 0.1316917678278462,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.020687333474858318,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.7123719280356191,
+      "radialVariance": 0.0613542290132593,
+      "radiusP90P10": 1.8830769906658027,
+      "axisRatio": 2.0090417020705513,
+      "largestFaceAreaRatio": 0.10073963853738357,
+      "normalAreaEntropy": 3.378202143525746,
+      "silhouetteAreaCV": 0.13209357490640256,
+      "triangleCount": 36,
+      "facetClusterCount": 33
+    },
+    "pinch-2.2-5": {
+      "avgRadius": 2.104423342282621,
+      "aabbVolume": 56.809274112424276,
+      "boundingSphereRadius": 2.9876783427241156,
+      "topYLocal": 1.7304943799972534,
+      "topEnvelope": 0.7865883545442061,
+      "maxHorizontalRadius": 2.3411493036632343,
+      "snowVertexRatio": 0.2777777777777778,
+      "areaWeightedSnowRatio": 0.19530105347924467,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.14395260357569326,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.6642021259703084,
+      "radialVariance": 0.03535474333047678,
+      "radiusP90P10": 1.5860148933619798,
+      "axisRatio": 1.521184309396649,
+      "largestFaceAreaRatio": 0.04464286720926744,
+      "normalAreaEntropy": 3.529408047107772,
+      "silhouetteAreaCV": 0.07486308531881257,
+      "triangleCount": 36,
+      "facetClusterCount": 36
+    },
+    "pinch-2.2-6": {
       "avgRadius": 2.315339041436421,
       "aabbVolume": 124.78483412068941,
       "boundingSphereRadius": 3.063666725207921,
@@ -243,7 +309,7 @@
       "triangleCount": 36,
       "facetClusterCount": 34
     },
-    "pinch-2.2-4": {
+    "pinch-2.2-7": {
       "avgRadius": 2.1514604027650157,
       "aabbVolume": 70.1594179323905,
       "boundingSphereRadius": 3.4648815428652897,
@@ -264,6 +330,28 @@
       "silhouetteAreaCV": 0.06084129077723849,
       "triangleCount": 36,
       "facetClusterCount": 32
+    },
+    "pinch-2.2-8": {
+      "avgRadius": 2.1860876333995267,
+      "aabbVolume": 79.43716235041926,
+      "boundingSphereRadius": 3.301760913418407,
+      "topYLocal": 2.0924980640411377,
+      "topEnvelope": 0.9511354836550625,
+      "maxHorizontalRadius": 2.373815579000192,
+      "snowVertexRatio": 0.2222222222222222,
+      "areaWeightedSnowRatio": 0.20172357239782515,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.14646798665445585,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.9221469983790325,
+      "radialVariance": 0.03816138719548753,
+      "radiusP90P10": 1.6158749056135229,
+      "axisRatio": 1.4133963392278515,
+      "largestFaceAreaRatio": 0.05249246206106925,
+      "normalAreaEntropy": 3.4804553113581167,
+      "silhouetteAreaCV": 0.08819272922768936,
+      "triangleCount": 36,
+      "facetClusterCount": 36
     }
   }
 }

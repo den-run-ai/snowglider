@@ -130,8 +130,8 @@ async function run() {
     // Assert the intended path actually rendered BEFORE saving anything.
     const stats = await page.evaluate(() => window.__rockGallery.stats());
     console.log('Gallery stats:', JSON.stringify(stats));
-    if (stats.galleryRocks !== 12) {
-      throw new Error(`Expected 12 gallery rocks, got ${stats.galleryRocks}`);
+    if (stats.galleryRocks !== 16) {
+      throw new Error(`Expected 16 gallery rocks (4 boulders + 4 cliffs + 8 pinch), got ${stats.galleryRocks}`);
     }
     if (!stats.ezBranchesAttached) {
       throw new Error('EZ forest branches are NOT attached — this capture would show the ' +
@@ -155,8 +155,9 @@ async function run() {
       const proj = await page.evaluate(() => window.__rockGallery.projections());
       const row = proj.filter((p) => p.id.startsWith(view));
       const out = row.filter((p) => !p.inFrame);
-      if (row.length !== 4 || out.length > 0) {
-        throw new Error(`Row '${view}' not fully in frame: ${JSON.stringify(row)}`);
+      const expected = view === 'pinch' ? 8 : 4; // both sides of all four Black gates
+      if (row.length !== expected || out.length > 0) {
+        throw new Error(`Row '${view}' not fully in frame (want ${expected}): ${JSON.stringify(row)}`);
       }
     };
     const setPhase = (phase) => page.evaluate((p) => window.__rockGallery.setPhase(p), phase);

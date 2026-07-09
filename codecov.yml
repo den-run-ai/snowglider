@@ -36,3 +36,10 @@ coverage:
 # ungated, matching intent and the existing (uncovered) scripts.
 ignore:
   - "scripts"
+  # The rock review gallery (issue #385 PR 1) is a browser-only REVIEW HARNESS, not
+  # shipped gameplay: it boots only on ?gallery=rocks pages, needs a live WebGL
+  # renderer (setupScene), and is exercised by `npm run test:rocks:gallery` under
+  # real Chrome, outside the folded V8 coverage sessions. The CI gate for rock
+  # visuals is the headless text-metrics harness (tests/rock-visual-metrics-tests.js,
+  # fully covered); the gallery itself sits outside the coverage story like scripts/.
+  - "src/visual/rock-gallery.ts"

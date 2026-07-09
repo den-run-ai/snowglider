@@ -31,16 +31,18 @@ export function shapeSeedFor(x: number, z: number): number {
 }
 
 // Pinch-gate crags on Black are createRock(2.2, { cliff: true, seed: shapeSeed(rx, pz) })
-// placed at the corridor edge — rx = laneX(pz) ± PINCH_EDGE on the REAL Black
+// placed in PAIRS at every station — rx = laneX(pz) ± PINCH_EDGE on the REAL Black
 // centerline (the lane is not centred at these stations). Derive the sample
-// coordinates from that exact line so the gallery and metrics judge the very crag
-// shapes a Black run builds, alternating sides like the gates do. Keep PINCH_Z and
-// PINCH_EDGE in sync with addRocks (mountains/rocks.ts).
+// coordinates from that exact line, BOTH sides per station like addRocks' own
+// `for (const sideSign of [-1, 1])`, so the gallery and metrics cover every
+// collidable gate-crag seed a Black run builds — a seed-specific regression on
+// either side of a gate cannot pass CI unsampled. Keep PINCH_Z and PINCH_EDGE in
+// sync with addRocks (mountains/rocks.ts).
 const PINCH_Z: ReadonlyArray<number> = [-42, -78, -126, -168];
 const PINCH_EDGE = 8;
 const blackLine = courseLineFor(getDifficultyConfig('black'));
-const PINCH_COORDS: ReadonlyArray<readonly [number, number]> = PINCH_Z.map((z, i) =>
-  [blackLine.laneX(z) + (i % 2 === 0 ? PINCH_EDGE : -PINCH_EDGE), z] as const);
+const PINCH_COORDS: ReadonlyArray<readonly [number, number]> = PINCH_Z.flatMap((z) =>
+  [-1, 1].map((sideSign) => [blackLine.laneX(z) + sideSign * PINCH_EDGE, z] as const));
 
 export const ROCK_GALLERY_SAMPLES: RockGallerySample[] = [
   // Row 1: scatter boulders across the placed size range (0.5–3.0; collidable ≥ 1.25).
