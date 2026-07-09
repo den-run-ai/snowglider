@@ -23,7 +23,8 @@ import { getTerrainHeight, getTerrainGradient } from '../mountains/terrain.js';
 import { Sky } from '../sky.js';
 import { ROCK_GALLERY_SAMPLES } from './rock-gallery-samples.js';
 
-// Must match the pinned stream in tests/rock-visual-metrics-tests.js buildSample().
+// Must match the pinned stream in tests/rock-visual-metrics-tests.js buildSample():
+// keyed per sample (1234 ^ seed) so each sample carries its own jitter + stone hue.
 const PINNED_STREAM_SEED = 1234;
 
 function mulberry32(seed: number): () => number {
@@ -69,7 +70,7 @@ export function initRockGallery(): NonNullable<Window['__rockGallery']> {
     const x = SLOT_X[slot]!;
     const z = ROW_Z[sample.kind]!;
 
-    Math.random = mulberry32(PINNED_STREAM_SEED);
+    Math.random = mulberry32((PINNED_STREAM_SEED ^ sample.seed) >>> 0);
     let rock: THREE.Mesh;
     try {
       rock = createRock(sample.size, { cliff: sample.kind !== 'boulder', seed: sample.seed });
@@ -95,7 +96,13 @@ export function initRockGallery(): NonNullable<Window['__rockGallery']> {
   // --- Frame the rows --------------------------------------------------------------
   // Uphill of the first row, high enough to clear the slope, looking at the rows'
   // centroid. The perspective keeps all three rows and the horizon in frame.
+  // The live slope scatters ~150 of its own rocks through the gallery area. The
+  // overview keeps them (rocks in real context); the row close-ups hide them so the
+  // controlled samples are the only rocks on stage and can't be confused with
+  // randomly-placed neighbours. Render-only visibility — nothing is removed.
+  const sceneRocks = scene.children.filter((c) => c.userData.isRock === true);
   const setView = (view: 'overview' | 'boulder' | 'cliff' | 'pinch'): void => {
+    for (const r of sceneRocks) r.visible = view === 'overview';
     if (view === 'overview') {
       const centerZ = (ROW_Z.boulder! + ROW_Z.pinch!) / 2;
       const camZ = ROW_Z.boulder! + 17;

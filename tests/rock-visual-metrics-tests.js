@@ -70,10 +70,12 @@ const UPDATE = process.argv.includes('--update-baseline');
   console.log('=================================================\n');
 
   const realRandom = Math.random;
-  /** Build one gallery sample with the global stream pinned (fresh stream per build,
-   *  so metrics are independent of build order). */
+  /** Build one gallery sample with the global stream pinned — keyed per sample
+   *  (1234 ^ seed) so each sample carries its own jitter + base stone hue like a
+   *  live slope does, while staying independent of build order and bit-identical
+   *  run-to-run. Must match rock-gallery.ts, which renders these exact rocks. */
   function buildSample(sample) {
-    Math.random = mulberry32(1234);
+    Math.random = mulberry32((1234 ^ sample.seed) >>> 0);
     try {
       return createRock(sample.size, { cliff: sample.kind !== 'boulder', seed: sample.seed });
     } finally {
