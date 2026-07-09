@@ -180,31 +180,135 @@ export function resetRockCaches(): void {
   rockNormalTexture = null;
 }
 
+// --- Face-aware snow pass (rock realism recovery PR 2, issue #385) ------------------
+// smoothstep helper (kept local: no THREE.MathUtils dependency on this hot path).
+function smoothstep(lo: number, hi: number, v: number): number {
+  const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo)));
+  return t * t * (3 - 2 * t);
+}
+
+/** NaN-safe clamp to [0,1] (NaN fails `v > 0` and returns 0). */
+function clamp01(v: number): number {
+  return v > 0 ? Math.min(v, 1) : 0;
+}
+
 /**
- * Bake snow accumulation into a rock's vertex colours: upward-facing faces gather
- * snow (toward white), the rest keep the rock's base grey. The deformed
- * dodecahedron is non-indexed, so each vertex carries its own face normal — the
- * snow settles cleanly per-face on top. Multiplied in via `vertexColors`; rocks
- * are scenery (not in any physics/determinism path), so the look is the only
- * contract. Mutates `geometry` in place; call after `computeVertexNormals()`.
+ * Deterministic per-face hash → [0,1). Keyed by the rock's shape seed and the face
+ * index, so the same {seed, size, cliff} bakes byte-identical colours while adjacent
+ * faces stay uncorrelated (the broken, natural snow edge). Zero global Math.random.
  */
-function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Color): void {
-  const normals = geometry.attributes.normal!.array as Float32Array;
+function faceHash01(seed: number, face: number): number {
+  let h = (seed ^ Math.imul(face + 1, 0x9E3779B9)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  return h / 4294967296;
+}
+
+/**
+ * Bake snow + shading into a rock's vertex colours, face by face.
+ *
+ * The old rule was a pure normal band (ny 0.05→0.55 smoothstep): *any* sufficiently
+ * up-facing area saturated to full white — natural top shelf, broad cliff slab, and
+ * low side facet alike. That coupling is what made both prior geometries read as
+ * white ice (#344/#346): the coloring whitened whatever geometry was presented to it.
+ *
+ * The face-aware pass restrains snow to where it would actually gather:
+ *  - FULL snow only on strongly up-facing shelves in the rock's upper half
+ *    (shelf band × height bias), with a per-face seeded threshold jitter so the
+ *    snow line breaks naturally instead of following one clean iso-band;
+ *  - LIGHT dusting (≤ ~0.22 blend — still clearly stone) on moderate side slopes;
+ *  - broad cliff slabs below the cap stay rock even when tilted upward;
+ *  - undersides and low crevices darken ~8–20% so grounded rocks shade into their
+ *    seat instead of glowing.
+ *
+ * Deterministic and RNG-stream-neutral: every per-face variation comes from
+ * faceHash01(seed, face) — zero global Math.random() draws (the 448/340 per-rock
+ * budget is pinned by rock-material-tests.js). Same {seed, size, cliff} ⇒
+ * byte-identical colour buffer (pinned by rock-snow-color-tests.js).
+ *
+ * The deformed dodecahedron is non-indexed (3 verts per face), so colours are
+ * written per face. Mutates `geometry` in place; call after computeVertexNormals().
+ */
+function applyRockSnowColors(
+  geometry: THREE.BufferGeometry,
+  rockColor: THREE.Color,
+  opts: { cliff: boolean; seed: number }
+): void {
+  const positions = geometry.attributes.position!.array as Float32Array;
   const count = geometry.attributes.position!.count;
+  const faceCount = count / 3;
   const colors = new Float32Array(count * 3);
-  // Snow blanket toward the shared snow-cap white (snow-palette.ts) so the cap reads
-  // as snow, not blown highlight — and matches the tree caps/shelves exactly. The
-  // band starts lower and saturates sooner than before so up-facing faces are
-  // convincingly *covered* (the previous 0.25..0.70 band left rocks reading as bare
-  // grey crystals with only a faint dusting).
   const snowCol = SNOW_WHITE;
-  for (let i = 0; i < count; i++) {
-    const ny = normals[i * 3 + 1]!;
-    const t = Math.min(1, Math.max(0, (ny - 0.05) / (0.55 - 0.05)));
-    const snow = t * t * (3 - 2 * t); // smoothstep up-facing band -> snow amount
-    colors[i * 3] = rockColor.r + (snowCol.r - rockColor.r) * snow;
-    colors[i * 3 + 1] = rockColor.g + (snowCol.g - rockColor.g) * snow;
-    colors[i * 3 + 2] = rockColor.b + (snowCol.b - rockColor.b) * snow;
+
+  // Pass 1: face normals/areas/centroid heights + rock height range and mean face
+  // area (the slab test below is relative to this rock's own tessellation).
+  const faceNy = new Float32Array(faceCount);
+  const faceArea = new Float32Array(faceCount);
+  const faceCy = new Float32Array(faceCount);
+  let minY = Infinity, maxY = -Infinity, areaSum = 0;
+  for (let f = 0; f < faceCount; f++) {
+    const i = f * 9;
+    const ax = positions[i]!, ay = positions[i + 1]!, az = positions[i + 2]!;
+    const bx = positions[i + 3]!, by = positions[i + 4]!, bz = positions[i + 5]!;
+    const cx = positions[i + 6]!, cy = positions[i + 7]!, cz = positions[i + 8]!;
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    const nx = uy * vz - uz * vy;
+    const nyc = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, nyc, nz);
+    faceNy[f] = len > 0 ? nyc / len : 0;
+    faceArea[f] = len / 2;
+    areaSum += faceArea[f]!;
+    faceCy[f] = (ay + by + cy) / 3;
+    minY = Math.min(minY, ay, by, cy);
+    maxY = Math.max(maxY, ay, by, cy);
+  }
+  const meanArea = areaSum / faceCount;
+  const ySpan = maxY - minY || 1;
+
+  // Pass 2: per-face snow amount + shading, written to all three face vertices.
+  for (let f = 0; f < faceCount; f++) {
+    const ny = faceNy[f]!;
+    const hy = clamp01((faceCy[f]! - minY) / ySpan);
+    const u = faceHash01(opts.seed, f);
+
+    // Shelf band with a seeded, per-face broken edge: full snow needs a STRONGLY
+    // up-facing face (a rounded boulder's whole upper hemisphere sits above the old
+    // 0.55 threshold, which is exactly how rocks read as all-white domes from the
+    // player's high camera) — the band centre jitters so the snow line is ragged.
+    const shelf = smoothstep(0.66 + (u - 0.5) * 0.20, 0.88 + (u - 0.5) * 0.08, ny);
+    // ...and it must sit high on the rock to hold a shelf at all.
+    const heightBias = smoothstep(0.30, 0.70, hy);
+    let snow = shelf * heightBias;
+    // Wind-scoured breakup: about a quarter of would-be shelves stay mostly bare,
+    // so the cap is broken snow patches over visible stone, not one white lid.
+    if (u < 0.25) snow *= 0.25 + u;
+    // Light dusting on moderate side slopes: visibly stone, never white.
+    const dust = smoothstep(0.35, 0.65, ny) * 0.18 * heightBias;
+    snow = Math.max(snow, dust);
+    // Broad cliff slabs below the cap stay bare rock (the #344 whole-facet-white
+    // failure): a face much larger than this rock's mean facet only keeps full
+    // snow when it is genuinely top-facing.
+    if (opts.cliff && ny < 0.78 && faceArea[f]! > 2.5 * meanArea) {
+      snow = Math.min(snow, 0.30);
+    }
+
+    // Undersides and low crevices darken so the rock shades into its seat.
+    const down = clamp01((0.05 - ny) / 0.65);
+    const cavity = 1 - smoothstep(0.0, 0.35, hy);
+    const shade = 1 - 0.13 * down - 0.07 * cavity;
+
+    const r = rockColor.r * shade + (snowCol.r - rockColor.r * shade) * snow;
+    const g = rockColor.g * shade + (snowCol.g - rockColor.g * shade) * snow;
+    const b = rockColor.b * shade + (snowCol.b - rockColor.b * shade) * snow;
+    for (let k = 0; k < 3; k++) {
+      const ci = (f * 3 + k) * 3;
+      colors[ci] = r;
+      colors[ci + 1] = g;
+      colors[ci + 2] = b;
+    }
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 }
@@ -218,12 +322,18 @@ function applyRockSnowColors(geometry: THREE.BufferGeometry, rockColor: THREE.Co
 // pipeline (ColorManagement disabled), matching the existing tree trunk/foliage
 // colours. Replaces the old uniform grey so the scattered rocks read as varied stone.
 interface RockStone { h: number; s: number; l: number; weight: number; }
+// Lightness is authored for the scene's light rig, not for a neutral viewer: the
+// physically-correct rig (ambient 0.26π + hemi 0.62π + key 0.5π) multiplies albedo by
+// ~1.4 on lit faces, so the old mid-grey values (granite 0.46) rendered as near-white
+// "foil" against the snow (#385 PR 2 gallery). These sit ~0.10 lower so lit stone
+// lands in the photographed-alpine-granite mid-grey band and stays clearly darker
+// than the SNOW_WHITE shelves.
 const ROCK_STONES: RockStone[] = [
-  { h: 0.60, s: 0.05, l: 0.46, weight: 4 }, // cool granite grey
-  { h: 0.62, s: 0.09, l: 0.30, weight: 3 }, // dark slate / charcoal
-  { h: 0.08, s: 0.20, l: 0.40, weight: 3 }, // warm brown / tan
-  { h: 0.04, s: 0.30, l: 0.34, weight: 2 }, // iron-stained reddish
-  { h: 0.22, s: 0.12, l: 0.42, weight: 1 }, // faint olive lichen
+  { h: 0.60, s: 0.05, l: 0.36, weight: 4 }, // cool granite grey
+  { h: 0.62, s: 0.09, l: 0.24, weight: 3 }, // dark slate / charcoal
+  { h: 0.08, s: 0.20, l: 0.32, weight: 3 }, // warm brown / tan
+  { h: 0.04, s: 0.30, l: 0.27, weight: 2 }, // iron-stained reddish
+  { h: 0.22, s: 0.12, l: 0.34, weight: 1 }, // faint olive lichen
 ];
 const ROCK_STONE_WEIGHT = ROCK_STONES.reduce((s, e) => s + e.weight, 0);
 
@@ -341,23 +451,29 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
     }
   }
 
+  // One deterministic shape seed drives BOTH the scrape pass and the face-aware
+  // snow/shading colour pass below (same fallback counter as before — never
+  // Math.random, so createRock stays stream-neutral even seedless).
+  const shapeSeed = opts.seed ?? (rockSeedCounter = (rockSeedCounter + 0x9E3779B9) | 0);
+
   // Seeded scrape pass: flatten a few random planes into the jittered hull so
   // boulders read as faceted rock and cliffs as sheared crag faces instead of
   // inflated dodecahedra. Runs BEFORE computeVertexNormals/applyRockSnowColors,
   // so up-facing scrape planes pick up coherent snow shelves for free.
   if (opts.scrape !== false) {
-    const rng = mulberry32(opts.seed ?? (rockSeedCounter = (rockSeedCounter + 0x9E3779B9) | 0));
+    const rng = mulberry32(shapeSeed);
     const count = opts.scrapeCount ?? (cliff ? 6 + Math.floor(rng() * 4) : 3 + Math.floor(rng() * 3));
     scrapeRock(positions, size, rng, count, opts.scrapeStrength ?? 1, cliff);
   }
   geometry.computeVertexNormals();
 
-  // Snow gathers on the rock's up-facing faces (baked into vertex colours); the base
-  // stone colour rides in the same attribute, so the material colour stays white and
-  // is modulated per-vertex. A shared craggy normal map adds surface roughness without
-  // extra geometry. (issue #17, Stage 2)
+  // Snow gathers on the rock's high up-facing shelves (baked into vertex colours,
+  // face-aware — see applyRockSnowColors); the base stone colour rides in the same
+  // attribute, so the material colour stays white and is modulated per-vertex. A
+  // shared craggy normal map adds surface roughness without extra geometry.
+  // (issue #17 Stage 2; restrained-snow rework in #385 PR 2)
   const rockColor = makeRockColor(cliff ? 1 : 0);
-  applyRockSnowColors(geometry, rockColor);
+  applyRockSnowColors(geometry, rockColor, { cliff, seed: shapeSeed });
 
   const rock = new THREE.Mesh(geometry, getRockMaterial(cliff));
   rock.castShadow = true;
