@@ -117,7 +117,8 @@ export async function initRockGallery(): Promise<NonNullable<Window['__rockGalle
   // overview keeps them (rocks in real context); the row close-ups hide them so the
   // controlled samples are the only rocks on stage and can't be confused with
   // randomly-placed neighbours. Render-only visibility — nothing is removed.
-  const sceneRocks = scene.children.filter((c) => c.userData.isRock === true);
+  const sceneRocks = scene.children.filter(
+    (c) => c.userData.isRock === true || c.userData.isRockGrounding === true);
   const setView = (view: 'overview' | 'boulder' | 'cliff' | 'pinch'): void => {
     for (const r of sceneRocks) r.visible = view === 'overview';
     if (view === 'overview') {
