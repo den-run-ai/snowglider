@@ -391,6 +391,169 @@ export interface RockOptions {
   scrapeCount?: number;
   /** 0..1 plane hardness — how fully vertices flatten onto each plane (default 1). */
   scrapeStrength?: number;
+  /** Disable the mass-preserving silhouette warp (default on; #385 PR 3). */
+  warp?: boolean;
+  /** Hard cap (world units) on the FINAL horizontal vertex reach, applied after
+   *  every shaping pass. Placement contract for rocks with a guaranteed clear
+   *  margin (the corridor pinch gates: PINCH_EDGE − corridor half-width = 3u) —
+   *  the base jitter alone can reach 1.375·size, so without this a gate crag's
+   *  widest rim can visibly poke into the advertised safe path (#389 review). */
+  maxHorizontalReach?: number;
+}
+
+// --- Mass-preserving silhouette warp (rock realism recovery PR 3, issue #385) --------
+// The #344 postmortem's structural lesson: silhouettes must improve WITHOUT losing the
+// dodecahedron's mass. So this pass never replaces the solid — it deforms it under
+// hard conservation rules, applied between the (untouched, global-stream) vertex
+// jitter and the seeded scrape pass, so scrape facets stay flat planes cut into the
+// warped mass.
+//
+// Hard rules, enforced in-code (and pinned by rocks-shape-tests + the metrics gate):
+//  - MEAN RADIUS PRESERVED exactly (a final uniform renormalisation) — no shrinkage.
+//  - HORIZONTAL GUARD: the max horizontal vertex radius may grow ≤5% over the
+//    pre-warp shape. Collision stays the frozen size-based radius until #348 lands
+//    (PR 5), so outward lobes must not push visible mass past what that check
+//    covers — tightest on the Black pinch gates.
+//  - RADIAL ENVELOPES unchanged: boulders stay inside 1.25·size, cliffs 1.8·size
+//    (the grounding envelopes placement's sink depths were tuned against).
+//  - Private seeded stream only — zero global Math.random() draws (the 448/340
+//    budget and downstream tree placement are untouched).
+const WARP_MAX_RADIAL_BOULDER = 1.25;
+const WARP_MAX_RADIAL_CLIFF = 1.8;
+const WARP_MAX_HORIZONTAL_GROWTH = 1.05;
+
+/**
+ * Deform the jittered solid into a bulkier, less spherical mass:
+ *  - a volume-neutral ellipsoid scale (sx·sy·sz = 1) — ovalness without mass change;
+ *    cliffs keep y nearly fixed (their jitter already stretches them tall, and the
+ *    visual top must stay inside the pre-#348 collision envelope);
+ *  - a mild shear (rock strata lean; cliffs lean harder);
+ *  - 2–3 OUTWARD-biased lobes (never inward cuts — that direction is the hull
+ *    failure, #346): each pushes vertices facing its direction out by up to
+ *    ~0.14·size, horizontal-biased on cliffs so they read as shoulders/buttresses.
+ */
+function massWarpRock(
+  positions: Float32Array,
+  size: number,
+  opts: { cliff: boolean; seed: number }
+): number {
+  const cliff = opts.cliff;
+  const rng = mulberry32((opts.seed ^ 0x517CC1B7) >>> 0);
+  const count = positions.length / 3;
+
+  // Pre-warp conservation references.
+  let meanBefore = 0;
+  let maxHBefore = 0;
+  for (let i = 0; i < positions.length; i += 3) {
+    meanBefore += Math.hypot(positions[i]!, positions[i + 1]!, positions[i + 2]!);
+    maxHBefore = Math.max(maxHBefore, Math.hypot(positions[i]!, positions[i + 2]!));
+  }
+  meanBefore /= count;
+
+  // 1) Volume-neutral ellipsoid scale. Cliffs keep y EXACTLY fixed (their jitter
+  // already stretches them tall, the visual top must stay inside the pre-#348
+  // collision envelope, and shrinking y collapses their AABB mass) — their ovalness
+  // lives entirely in the horizontal plane (area-neutral: sx·sz = 1).
+  let sx = 0.90 + rng() * 0.20;
+  let sy = cliff ? 1 : 0.90 + rng() * 0.20;
+  let sz = 0.90 + rng() * 0.20;
+  const norm = cliff ? Math.sqrt(sx * sz) : Math.cbrt(sx * sy * sz);
+  sx /= norm; sz /= norm;
+  if (!cliff) sy /= norm;
+
+  // 2) Mild shear: x/z drift with height (strata lean).
+  const shearX = (rng() - 0.5) * (cliff ? 0.22 : 0.13);
+  const shearZ = (rng() - 0.5) * (cliff ? 0.22 : 0.13);
+
+  // 3) Outward lobes.
+  const lobeCount = 2 + (rng() < 0.5 ? 1 : 0);
+  const lobes: Array<{ x: number; y: number; z: number; amp: number }> = [];
+  for (let l = 0; l < lobeCount; l++) {
+    const az = rng() * Math.PI * 2;
+    // Cliffs: near-horizontal lobe directions (shoulders/buttresses); boulders roam.
+    const el = cliff ? (rng() - 0.4) * 0.5 : (rng() - 0.35) * 1.2;
+    // Cliffs push a little harder: the mean-radius renormalisation below compresses
+    // their jitter spread (outward-only lobes always raise the mean), so the lobes
+    // must add back at least the relief the conservation eats.
+    lobes.push({
+      x: Math.cos(el) * Math.cos(az),
+      y: Math.sin(el),
+      z: Math.cos(el) * Math.sin(az),
+      amp: size * (cliff ? 0.09 + rng() * 0.09 : 0.07 + rng() * 0.07),
+    });
+  }
+
+  for (let i = 0; i < positions.length; i += 3) {
+    let x = positions[i]! * sx;
+    let y = positions[i + 1]! * sy;
+    let z = positions[i + 2]! * sz;
+    x += y * shearX;
+    z += y * shearZ;
+    const r = Math.hypot(x, y, z);
+    if (r > 0) {
+      for (const lobe of lobes) {
+        const d = (x * lobe.x + y * lobe.y + z * lobe.z) / r;
+        if (d > 0) {
+          const push = lobe.amp * d * d;
+          x += lobe.x * push;
+          y += lobe.y * push;
+          z += lobe.z * push;
+        }
+      }
+    }
+    positions[i] = x;
+    positions[i + 1] = y;
+    positions[i + 2] = z;
+  }
+
+  // Mass conservation: renormalise so the mean radius is EXACTLY the pre-warp mean.
+  let meanAfter = 0;
+  for (let i = 0; i < positions.length; i += 3) {
+    meanAfter += Math.hypot(positions[i]!, positions[i + 1]!, positions[i + 2]!);
+  }
+  meanAfter /= count;
+  const renorm = meanAfter > 0 ? meanBefore / meanAfter : 1;
+
+  // Clamps: horizontal-growth guard (#348 freeze) and the grounding envelopes.
+  // The bound is ABSOLUTE vs the pre-warp footprint — deliberately NOT scaled by
+  // `renorm`: when the ellipsoid/shear shrink the mean and renorm > 1, a
+  // renorm-scaled bound would let the footprint outgrow +5% (a size-2.2 pinch
+  // crag reached 3.014u that way, poking past its 3u gate-to-corridor margin —
+  // Codex review on #389). Trimming a couple of rim vertices instead is fine.
+  const maxH = maxHBefore * WARP_MAX_HORIZONTAL_GROWTH;
+  const maxR = size * (cliff ? WARP_MAX_RADIAL_CLIFF : WARP_MAX_RADIAL_BOULDER);
+  for (let i = 0; i < positions.length; i += 3) {
+    let x = positions[i]! * renorm;
+    let y = positions[i + 1]! * renorm;
+    let z = positions[i + 2]! * renorm;
+    const r = Math.hypot(x, y, z);
+    if (r > maxR) {
+      const s = maxR / r;
+      x *= s; y *= s; z *= s;
+    }
+    positions[i] = x;
+    positions[i + 1] = y;
+    positions[i + 2] = z;
+  }
+  clampHorizontal(positions, maxH);
+  return maxH;
+}
+
+/**
+ * Pull any vertex whose horizontal radius exceeds `maxH` straight back to it (y
+ * untouched). Applied inside massWarpRock AND re-applied by createRock after the
+ * scrape pass: a scrape plane pulls vertices along its normal, which can INCREASE
+ * hypot(x,z) while reducing 3D radius (Codex review on #389), so the warp's
+ * horizontal-growth guarantee must be re-asserted on the final shape.
+ */
+function clampHorizontal(positions: Float32Array, maxH: number): void {
+  for (let i = 0; i < positions.length; i += 3) {
+    const h = Math.hypot(positions[i]!, positions[i + 2]!);
+    if (h > maxH) {
+      positions[i]! *= maxH / h;
+      positions[i + 2]! *= maxH / h;
+    }
+  }
 }
 
 /**
@@ -456,6 +619,16 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
   // Math.random, so createRock stays stream-neutral even seedless).
   const shapeSeed = opts.seed ?? (rockSeedCounter = (rockSeedCounter + 0x9E3779B9) | 0);
 
+  // Mass-preserving silhouette warp (#385 PR 3): ellipsoid/shear/outward lobes over
+  // the jittered solid, BEFORE the scrape pass so scrape facets stay flat planes cut
+  // into the warped mass. Private seeded stream; mean radius conserved exactly.
+  // Remember its horizontal bound: the scrape below can push a vertex's hypot(x,z)
+  // back OUT while pulling it toward a plane, so the guard is re-asserted after.
+  let warpHorizontalBound = Infinity;
+  if (opts.warp !== false) {
+    warpHorizontalBound = massWarpRock(positions, size, { cliff, seed: shapeSeed });
+  }
+
   // Seeded scrape pass: flatten a few random planes into the jittered hull so
   // boulders read as faceted rock and cliffs as sheared crag faces instead of
   // inflated dodecahedra. Runs BEFORE computeVertexNormals/applyRockSnowColors,
@@ -464,6 +637,15 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
     const rng = mulberry32(shapeSeed);
     const count = opts.scrapeCount ?? (cliff ? 6 + Math.floor(rng() * 4) : 3 + Math.floor(rng() * 3));
     scrapeRock(positions, size, rng, count, opts.scrapeStrength ?? 1, cliff);
+    // Re-assert the warp's ≤5% horizontal-footprint guarantee on the FINAL shape
+    // (a scrape pull with d_h opposing the vertex's horizontal sign grows
+    // hypot(x,z) while shrinking 3D radius — Codex review on #389).
+    if (warpHorizontalBound !== Infinity) clampHorizontal(positions, warpHorizontalBound);
+  }
+  // Placement reach contract (see RockOptions.maxHorizontalReach): applied last so
+  // it caps the final shape whatever combination of passes ran.
+  if (opts.maxHorizontalReach !== undefined) {
+    clampHorizontal(positions, opts.maxHorizontalReach);
   }
   geometry.computeVertexNormals();
 
@@ -637,12 +819,23 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
       for (const sideSign of [-1, 1]) {
         const rx = lx + sideSign * PINCH_EDGE;
         const ry = getTerrainHeight(rx, pz);
-        const rock = createRock(PINCH_SIZE, { cliff: true, seed: shapeSeed(rx, pz) });
+        // The gate's guaranteed clear margin: crag centres sit PINCH_EDGE off the
+        // lane and the corridor is ROCK_COLLISION_PATH_HALF_WIDTH wide, so the
+        // rendered rock may never reach farther than their difference (3u).
+        const rock = createRock(PINCH_SIZE, {
+          cliff: true,
+          seed: shapeSeed(rx, pz),
+          maxHorizontalReach: PINCH_EDGE - ROCK_COLLISION_PATH_HALF_WIDTH,
+        });
         rock.position.set(rx, ry - PINCH_SIZE * 0.28, pz);
+        // Yaw only — NO slope-alignment pitch/roll for gate crags: a tilt projects
+        // tall local y into world x/z, which would defeat the maxHorizontalReach
+        // corridor contract enforced on the local buffer above (Codex on #389).
+        // Yaw preserves horizontal reach exactly, so local cap ⇒ world cap. The
+        // rotation.y draw MUST stay (global stream position); the gradient tilt
+        // consumed no draws, so dropping it is stream-neutral. Upright crags read
+        // fine — these are deliberate gate monuments, seated by their sink depth.
         rock.rotation.y = Math.random() * Math.PI * 2;
-        const g = getTerrainGradient(rx, pz);
-        rock.rotation.x = Math.atan(g.z) * 0.8;
-        rock.rotation.z = -Math.atan(g.x) * 0.8;
         scene.add(rock);
         collisionRockPositions.push({ x: rx, y: ry, z: pz, size: PINCH_SIZE });
         // Register with the rendered-rock list too (like the scatter + cliff rocks above), so
