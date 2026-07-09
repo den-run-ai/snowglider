@@ -68,8 +68,8 @@ if (typeof window !== 'undefined') {
   // double-boots on a gallery page. Lazy: the gallery chunk loads only here.
   if (/[?&]gallery=rocks\b/.test(window.location.search)) {
     window.__loadSnowGliderOrchestrator = () =>
-      import('./visual/rock-gallery.js').then((m) => {
-        m.initRockGallery();
+      import('./visual/rock-gallery.js').then(async (m) => {
+        await m.initRockGallery();
         return m;
       });
   }

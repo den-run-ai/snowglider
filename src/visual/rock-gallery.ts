@@ -21,6 +21,7 @@ import { setupScene } from '../game/scene-setup.js';
 import { createRock } from '../mountains/rocks.js';
 import { getTerrainHeight, getTerrainGradient } from '../mountains/terrain.js';
 import { Sky } from '../sky.js';
+import { Trees } from '../trees.js';
 import { ROCK_GALLERY_SAMPLES } from './rock-gallery-samples.js';
 
 // Must match the pinned stream in tests/rock-visual-metrics-tests.js buildSample():
@@ -45,8 +46,17 @@ const ROW_Z: Record<string, number> = { boulder: -36, cliff: -48, pinch: -62 };
 const SLOT_X = [-12, -4, 4, 12];
 
 /** Boot the gallery page. Returns the window handle it publishes (for tests). */
-export function initRockGallery(): NonNullable<Window['__rockGallery']> {
+export async function initRockGallery(): Promise<NonNullable<Window['__rockGallery']>> {
   const { scene, renderer, camera } = setupScene();
+
+  // The EZ evergreen forest loads its archetype chunk asynchronously — setupScene
+  // can return before any ezBranches mesh is attached. The runner keys everything
+  // off `__rockGallery.ready`, so readiness must wait for the forest build to
+  // settle or a cold/slow chunk load would flunk the runner's real-player-path
+  // assertion spuriously (Codex review on #387). Resolves immediately on the
+  // stylized path; if the chunk genuinely fails, stats() then honestly reports
+  // ezBranchesAttached=false and the runner aborts — the correct outcome.
+  await Trees.ezForestReady();
 
   // Review page: hide every DOM overlay (start menu, HUD, auth) and show the canvas.
   const style = document.createElement('style');
