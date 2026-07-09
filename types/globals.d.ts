@@ -203,6 +203,19 @@ declare global {
     __loadSnowGliderOrchestrator?: () => Promise<unknown>;
     // Diagnostic handle set by src/main.ts at bundle load (three.js revision probe).
     __SNOWGLIDER_BUNDLE__?: { threeRevision: string };
+    // Rock review-gallery capture API (issue #385 PR 1): published by
+    // src/visual/rock-gallery.ts only on `?gallery=rocks` pages, consumed by the
+    // tests/rock-gallery-runner.js capture harness.
+    __rockGallery?: {
+      ready: boolean;
+      samples: number;
+      sampleIds: string[];
+      setPhase: (phase: 'midday' | 'golden') => string;
+      setView: (view: 'overview' | 'boulder' | 'cliff' | 'pinch') => void;
+      projections: () => Array<{ id: string; ndcX: number; ndcY: number; inFrame: boolean }>;
+      capture: () => string;
+      stats: () => Record<string, unknown>;
+    };
     FIREBASE_MANUAL_INIT?: boolean;
     __FIREBASE_DEFAULTS__?: FirebaseDefaults; // set by auth.js to stop Firebase auto-init 404s
     // Cross-module/test handles published by snowglider.js (docs/ARCHITECTURE.md §3).
