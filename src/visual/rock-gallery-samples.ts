@@ -4,6 +4,11 @@
 // exact rocks the review screenshots show. Pure data + one seed helper — no THREE,
 // no DOM — importable headlessly by Node tests.
 
+// Pure math (no THREE, no DOM): the Black centerline, so the pinch samples below use
+// the EXACT coordinates addRocks derives for the collidable gate crags.
+import { courseLineFor } from '../course-line.js';
+import { getDifficultyConfig } from '../difficulty.js';
+
 export type RockGalleryKind = 'boulder' | 'cliff' | 'pinch';
 
 export interface RockGallerySample {
@@ -26,12 +31,16 @@ export function shapeSeedFor(x: number, z: number): number {
 }
 
 // Pinch-gate crags on Black are createRock(2.2, { cliff: true, seed: shapeSeed(rx, pz) })
-// placed at the corridor edge (±8u off the lane) at the PINCH_Z stations — these four
-// samples use that exact derivation at representative gate coordinates, so the gallery
-// and metrics judge the collidable hazard shapes the player actually threads.
-const PINCH_COORDS: ReadonlyArray<readonly [number, number]> = [
-  [8, -42], [-8, -78], [8, -126], [-8, -168],
-];
+// placed at the corridor edge — rx = laneX(pz) ± PINCH_EDGE on the REAL Black
+// centerline (the lane is not centred at these stations). Derive the sample
+// coordinates from that exact line so the gallery and metrics judge the very crag
+// shapes a Black run builds, alternating sides like the gates do. Keep PINCH_Z and
+// PINCH_EDGE in sync with addRocks (mountains/rocks.ts).
+const PINCH_Z: ReadonlyArray<number> = [-42, -78, -126, -168];
+const PINCH_EDGE = 8;
+const blackLine = courseLineFor(getDifficultyConfig('black'));
+const PINCH_COORDS: ReadonlyArray<readonly [number, number]> = PINCH_Z.map((z, i) =>
+  [blackLine.laneX(z) + (i % 2 === 0 ? PINCH_EDGE : -PINCH_EDGE), z] as const);
 
 export const ROCK_GALLERY_SAMPLES: RockGallerySample[] = [
   // Row 1: scatter boulders across the placed size range (0.5–3.0; collidable ≥ 1.25).
