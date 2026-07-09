@@ -209,6 +209,7 @@ declare global {
     __rockGallery?: {
       ready: boolean;
       samples: number;
+      sampleIds: string[];
       setPhase: (phase: 'midday' | 'golden') => string;
       setView: (view: 'overview' | 'boulder' | 'cliff' | 'pinch') => void;
       projections: () => Array<{ id: string; ndcX: number; ndcY: number; inFrame: boolean }>;

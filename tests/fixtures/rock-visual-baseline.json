@@ -177,7 +177,7 @@
       "triangleCount": 36,
       "facetClusterCount": 36
     },
-    "pinch-2.2-1": {
+    "pinch-2.2-black-1": {
       "avgRadius": 2.1102840125329467,
       "aabbVolume": 82.28462308906946,
       "boundingSphereRadius": 3.1361576629303083,
@@ -199,7 +199,7 @@
       "triangleCount": 36,
       "facetClusterCount": 36
     },
-    "pinch-2.2-2": {
+    "pinch-2.2-black-2": {
       "avgRadius": 2.0976140929485747,
       "aabbVolume": 80.5189551007022,
       "boundingSphereRadius": 3.197093330120467,
@@ -221,7 +221,7 @@
       "triangleCount": 36,
       "facetClusterCount": 32
     },
-    "pinch-2.2-3": {
+    "pinch-2.2-black-3": {
       "avgRadius": 2.1563881419116804,
       "aabbVolume": 103.23053374824589,
       "boundingSphereRadius": 3.227638551559839,
@@ -243,7 +243,7 @@
       "triangleCount": 36,
       "facetClusterCount": 35
     },
-    "pinch-2.2-4": {
+    "pinch-2.2-black-4": {
       "avgRadius": 2.239974981170032,
       "aabbVolume": 96.43967160122384,
       "boundingSphereRadius": 3.484338000712189,
@@ -265,7 +265,7 @@
       "triangleCount": 36,
       "facetClusterCount": 33
     },
-    "pinch-2.2-5": {
+    "pinch-2.2-black-5": {
       "avgRadius": 2.104423342282621,
       "aabbVolume": 56.809274112424276,
       "boundingSphereRadius": 2.9876783427241156,
@@ -287,7 +287,7 @@
       "triangleCount": 36,
       "facetClusterCount": 36
     },
-    "pinch-2.2-6": {
+    "pinch-2.2-black-6": {
       "avgRadius": 2.315339041436421,
       "aabbVolume": 124.78483412068941,
       "boundingSphereRadius": 3.063666725207921,
@@ -309,7 +309,7 @@
       "triangleCount": 36,
       "facetClusterCount": 34
     },
-    "pinch-2.2-7": {
+    "pinch-2.2-black-7": {
       "avgRadius": 2.1514604027650157,
       "aabbVolume": 70.1594179323905,
       "boundingSphereRadius": 3.4648815428652897,
@@ -331,7 +331,7 @@
       "triangleCount": 36,
       "facetClusterCount": 32
     },
-    "pinch-2.2-8": {
+    "pinch-2.2-black-8": {
       "avgRadius": 2.1860876333995267,
       "aabbVolume": 79.43716235041926,
       "boundingSphereRadius": 3.301760913418407,
@@ -350,6 +350,182 @@
       "largestFaceAreaRatio": 0.05249246206106925,
       "normalAreaEntropy": 3.4804553113581167,
       "silhouetteAreaCV": 0.08819272922768936,
+      "triangleCount": 36,
+      "facetClusterCount": 36
+    },
+    "pinch-2.2-expert-1": {
+      "avgRadius": 2.254531934494897,
+      "aabbVolume": 88.43099253433805,
+      "boundingSphereRadius": 3.468064240081484,
+      "topYLocal": 2.147108554840088,
+      "topEnvelope": 0.9759584340182217,
+      "maxHorizontalRadius": 2.89423800175222,
+      "snowVertexRatio": 0.2222222222222222,
+      "areaWeightedSnowRatio": 0.20439431889596696,
+      "largeWhiteFaceRatio": 0.04305972349761268,
+      "topShelfAreaRatio": 0.13512075792220676,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.5874839885390428,
+      "radialVariance": 0.03336754982892462,
+      "radiusP90P10": 1.5938702961432996,
+      "axisRatio": 1.5389876901022148,
+      "largestFaceAreaRatio": 0.04674615798416497,
+      "normalAreaEntropy": 3.5202083586812116,
+      "silhouetteAreaCV": 0.12970067004728267,
+      "triangleCount": 36,
+      "facetClusterCount": 36
+    },
+    "pinch-2.2-expert-2": {
+      "avgRadius": 2.2959765672676675,
+      "aabbVolume": 103.08477212365761,
+      "boundingSphereRadius": 3.1833923697113726,
+      "topYLocal": 1.8140466213226318,
+      "topEnvelope": 0.8245666460557417,
+      "maxHorizontalRadius": 2.85701755404062,
+      "snowVertexRatio": 0.2777777777777778,
+      "areaWeightedSnowRatio": 0.2260478909352561,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.16007701589545714,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.9349188491504195,
+      "radialVariance": 0.03573628197058127,
+      "radiusP90P10": 1.4829920095432074,
+      "axisRatio": 1.3739878945921529,
+      "largestFaceAreaRatio": 0.07189442001613551,
+      "normalAreaEntropy": 3.34941074202299,
+      "silhouetteAreaCV": 0.14279245009733144,
+      "triangleCount": 36,
+      "facetClusterCount": 33
+    },
+    "pinch-2.2-expert-3": {
+      "avgRadius": 2.1612037873808183,
+      "aabbVolume": 88.88471195978204,
+      "boundingSphereRadius": 3.5232585151377838,
+      "topYLocal": 1.551661729812622,
+      "topEnvelope": 0.7053007862784645,
+      "maxHorizontalRadius": 2.8967965284099497,
+      "snowVertexRatio": 0.2777777777777778,
+      "areaWeightedSnowRatio": 0.2203712890181475,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.1640121641677496,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.7665659714673154,
+      "radialVariance": 0.03996946368556252,
+      "radiusP90P10": 1.7869786237006864,
+      "axisRatio": 1.21264849968874,
+      "largestFaceAreaRatio": 0.06543294502538842,
+      "normalAreaEntropy": 3.411749020938807,
+      "silhouetteAreaCV": 0.10217777977975433,
+      "triangleCount": 36,
+      "facetClusterCount": 33
+    },
+    "pinch-2.2-expert-4": {
+      "avgRadius": 2.06605558626243,
+      "aabbVolume": 75.32304404296012,
+      "boundingSphereRadius": 3.113915027185388,
+      "topYLocal": 1.5261640548706055,
+      "topEnvelope": 0.6937109340320934,
+      "maxHorizontalRadius": 2.411023020814265,
+      "snowVertexRatio": 0.3055555555555556,
+      "areaWeightedSnowRatio": 0.18765979919317038,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.13354212743989083,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.9074133701729974,
+      "radialVariance": 0.05090045975809529,
+      "radiusP90P10": 1.9353239169928391,
+      "axisRatio": 1.3444713075715709,
+      "largestFaceAreaRatio": 0.06869330097976693,
+      "normalAreaEntropy": 3.398905467752987,
+      "silhouetteAreaCV": 0.14234557542212242,
+      "triangleCount": 36,
+      "facetClusterCount": 34
+    },
+    "pinch-2.2-expert-5": {
+      "avgRadius": 2.082736939330589,
+      "aabbVolume": 75.9074459594358,
+      "boundingSphereRadius": 3.141212550879333,
+      "topYLocal": 2.311910629272461,
+      "topEnvelope": 1.0508684678511184,
+      "maxHorizontalRadius": 2.3682662523006157,
+      "snowVertexRatio": 0.25,
+      "areaWeightedSnowRatio": 0.19070825339965075,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.12547075228527638,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.8892615157147037,
+      "radialVariance": 0.044507846775172305,
+      "radiusP90P10": 1.6950343361879834,
+      "axisRatio": 1.5631760471710379,
+      "largestFaceAreaRatio": 0.05984567105224795,
+      "normalAreaEntropy": 3.4618569319579175,
+      "silhouetteAreaCV": 0.056753899402169246,
+      "triangleCount": 36,
+      "facetClusterCount": 35
+    },
+    "pinch-2.2-expert-6": {
+      "avgRadius": 2.1566768551060984,
+      "aabbVolume": 116.77211816596741,
+      "boundingSphereRadius": 2.94766981799179,
+      "topYLocal": 1.8858311176300049,
+      "topEnvelope": 0.857195962559093,
+      "maxHorizontalRadius": 2.8648005314402223,
+      "snowVertexRatio": 0.25,
+      "areaWeightedSnowRatio": 0.22297224571364493,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.161963875599971,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.5940033286475782,
+      "radialVariance": 0.045654253336867914,
+      "radiusP90P10": 1.8009153091092143,
+      "axisRatio": 1.1674183023375122,
+      "largestFaceAreaRatio": 0.058576509159972374,
+      "normalAreaEntropy": 3.4786298871521493,
+      "silhouetteAreaCV": 0.0961834076251042,
+      "triangleCount": 36,
+      "facetClusterCount": 36
+    },
+    "pinch-2.2-expert-7": {
+      "avgRadius": 2.1736850757533404,
+      "aabbVolume": 100.23267970311913,
+      "boundingSphereRadius": 2.945338936701777,
+      "topYLocal": 1.5663121938705444,
+      "topEnvelope": 0.7119600881229747,
+      "maxHorizontalRadius": 2.736869199697497,
+      "snowVertexRatio": 0.3055555555555556,
+      "areaWeightedSnowRatio": 0.20595717463450566,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.14604017627099172,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.6042287914461849,
+      "radialVariance": 0.04166486635007702,
+      "radiusP90P10": 1.620927841577301,
+      "axisRatio": 1.1593639094242059,
+      "largestFaceAreaRatio": 0.05207983853465678,
+      "normalAreaEntropy": 3.4675005236482503,
+      "silhouetteAreaCV": 0.12813244483792832,
+      "triangleCount": 36,
+      "facetClusterCount": 35
+    },
+    "pinch-2.2-expert-8": {
+      "avgRadius": 2.0486550040874985,
+      "aabbVolume": 68.66911561988266,
+      "boundingSphereRadius": 3.0743970019067626,
+      "topYLocal": 1.7069498300552368,
+      "topEnvelope": 0.7758862863887439,
+      "maxHorizontalRadius": 2.5481563311070086,
+      "snowVertexRatio": 0.2777777777777778,
+      "areaWeightedSnowRatio": 0.1760309735377874,
+      "largeWhiteFaceRatio": 0,
+      "topShelfAreaRatio": 0.13080771291979315,
+      "sideStoneRatio": 1,
+      "undersideLumRatio": 0.6681014659086698,
+      "radialVariance": 0.04833964619802954,
+      "radiusP90P10": 1.9211137170884662,
+      "axisRatio": 1.4701145970706795,
+      "largestFaceAreaRatio": 0.07424349432762714,
+      "normalAreaEntropy": 3.4608851277518538,
+      "silhouetteAreaCV": 0.07312603300030396,
       "triangleCount": 36,
       "facetClusterCount": 36
     }

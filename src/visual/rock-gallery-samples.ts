@@ -30,19 +30,24 @@ export function shapeSeedFor(x: number, z: number): number {
   return (Math.imul(Math.round(x * 100), 73856093) ^ Math.imul(Math.round(z * 100), 19349663)) >>> 0;
 }
 
-// Pinch-gate crags on Black are createRock(2.2, { cliff: true, seed: shapeSeed(rx, pz) })
-// placed in PAIRS at every station — rx = laneX(pz) ± PINCH_EDGE on the REAL Black
-// centerline (the lane is not centred at these stations). Derive the sample
-// coordinates from that exact line, BOTH sides per station like addRocks' own
-// `for (const sideSign of [-1, 1])`, so the gallery and metrics cover every
-// collidable gate-crag seed a Black run builds — a seed-specific regression on
-// either side of a gate cannot pass CI unsampled. Keep PINCH_Z and PINCH_EDGE in
-// sync with addRocks (mountains/rocks.ts).
+// Pinch-gate crags are createRock(2.2, { cliff: true, seed: shapeSeed(rx, pz) })
+// placed in PAIRS at every station whenever a tier builds a non-null course line —
+// rx = laneX(pz) ± PINCH_EDGE on that tier's REAL centerline (the lane is not
+// centred at these stations, and each curvy tier winds differently from its own
+// seed). Derive the sample coordinates from EVERY winding tier's exact line, BOTH
+// sides per station like addRocks' own `for (const sideSign of [-1, 1])`, so the
+// gallery and metrics cover every collidable gate-crag seed any tier builds — a
+// seed-specific regression on any gate rock cannot pass CI unsampled. Keep PINCH_Z
+// and PINCH_EDGE in sync with addRocks (mountains/rocks.ts).
 const PINCH_Z: ReadonlyArray<number> = [-42, -78, -126, -168];
 const PINCH_EDGE = 8;
-const blackLine = courseLineFor(getDifficultyConfig('black'));
-const PINCH_COORDS: ReadonlyArray<readonly [number, number]> = PINCH_Z.flatMap((z) =>
-  [-1, 1].map((sideSign) => [blackLine.laneX(z) + sideSign * PINCH_EDGE, z] as const));
+const PINCH_TIERS = (['black', 'expert'] as const).filter(
+  (tier) => getDifficultyConfig(tier).line.curviness > 0);
+const PINCH_COORDS: ReadonlyArray<readonly [string, number, number]> = PINCH_TIERS.flatMap((tier) => {
+  const line = courseLineFor(getDifficultyConfig(tier));
+  return PINCH_Z.flatMap((z) =>
+    [-1, 1].map((sideSign) => [tier, line.laneX(z) + sideSign * PINCH_EDGE, z] as const));
+});
 
 export const ROCK_GALLERY_SAMPLES: RockGallerySample[] = [
   // Row 1: scatter boulders across the placed size range (0.5–3.0; collidable ≥ 1.25).
@@ -55,9 +60,9 @@ export const ROCK_GALLERY_SAMPLES: RockGallerySample[] = [
   { id: 'cliff-3.0', kind: 'cliff', size: 3.0, seed: 2202 },
   { id: 'cliff-4.0', kind: 'cliff', size: 4.0, seed: 2203 },
   { id: 'cliff-5.0', kind: 'cliff', size: 5.0, seed: 2204 },
-  // Row 3: Black-tier pinch-gate crags (size fixed at 2.2 by addRocks).
-  ...PINCH_COORDS.map(([x, z], i): RockGallerySample => ({
-    id: `pinch-2.2-${i + 1}`,
+  // Row 3+: pinch-gate crags for every winding tier (size fixed at 2.2 by addRocks).
+  ...PINCH_COORDS.map(([tier, x, z], i): RockGallerySample => ({
+    id: `pinch-2.2-${tier}-${(i % (PINCH_Z.length * 2)) + 1}`,
     kind: 'pinch',
     size: 2.2,
     seed: shapeSeedFor(x, z),

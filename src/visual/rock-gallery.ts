@@ -122,13 +122,17 @@ export async function initRockGallery(): Promise<NonNullable<Window['__rockGalle
       camera.lookAt(new THREE.Vector3(0, getTerrainHeight(0, centerZ) + 1.5, centerZ));
       return;
     }
-    // Row close-up: low and near, so side faces and snow shelves are readable. The
-    // pinch view sits a little higher/farther back to frame both gate sub-rows.
+    // Row close-up: low and near, so side faces and snow shelves are readable.
+    // Kinds that wrapped onto several sub-rows (the pinch crags: both sides of
+    // every gate on every winding tier) get a higher/farther camera aimed at the
+    // sub-row band's centre so every sample stays in frame.
     const rowZ = ROW_Z[view]!;
-    const twoRows = view === 'pinch';
-    const camZ = rowZ + (twoRows ? 14 : 11);
-    camera.position.set(2, getTerrainHeight(2, camZ) + (twoRows ? 6.5 : 4.5), camZ);
-    camera.lookAt(new THREE.Vector3(0, getTerrainHeight(0, rowZ - (twoRows ? 5.5 : 0)) + 1.2, rowZ - (twoRows ? 5.5 : 0)));
+    const kindCount = ROCK_GALLERY_SAMPLES.filter((s) => s.kind === view).length;
+    const subRows = Math.ceil(kindCount / SLOT_X.length);
+    const bandCenterZ = rowZ - (11 * (subRows - 1)) / 2;
+    const camZ = rowZ + 11 + subRows * 2.5;
+    camera.position.set(2, getTerrainHeight(2, camZ) + 3.5 + subRows * 2.2, camZ);
+    camera.lookAt(new THREE.Vector3(0, getTerrainHeight(0, bandCenterZ) + 1.2, bandCenterZ));
   };
   setView('overview');
 
@@ -141,6 +145,7 @@ export async function initRockGallery(): Promise<NonNullable<Window['__rockGalle
   const handle: NonNullable<Window['__rockGallery']> = {
     ready: true,
     samples: galleryGroup.children.length,
+    sampleIds: ROCK_GALLERY_SAMPLES.map((s) => s.id),
     /** Set the sun-cycle phase. Golden hour = Sky.update(45): halfway through the
      *  90 s cycle, where shading differences are most visible. One-way (the cycle
      *  only advances), so the runner captures midday first. */
