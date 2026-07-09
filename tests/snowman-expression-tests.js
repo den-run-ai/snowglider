@@ -437,6 +437,34 @@ async function main() {
       pa.mouthBead0.position.y === pb.mouthBead0.position.y && pa.leftEye.scale.y === pb.leftEye.scale.y && pa.leftArmGroup.rotation.z === pb.leftArmGroup.rotation.z);
   }
 
+  // 23) Finish celebration (the reserved `finished` level signal): while it holds, the
+  //     reserved finish pose drives — big grin, brows up, both arms thrown up — it wins
+  //     the reaction priority (finish > sketchy: no wince crook even with a sketchy
+  //     landing active), and it clears once the signal drops (it is a LEVEL signal,
+  //     like avalancheDistance, not an edge timer).
+  {
+    const sm = makeSnowman();
+    const base = sm.userData.partBaseTransforms;
+    // Kick a sketchy landing on the same frame the finish signal starts: finish outranks it.
+    Expression.update(sm, 1 / 60, { speed: 10, technique: 'glide', turnRate: 0, isInAir: false, justLanded: true, landingQuality: 'sketchy', finished: true });
+    runFor(sm, Expression, 40, { speed: 10, technique: 'glide', turnRate: 0, isInAir: false, finished: true });
+    const p = sm.userData.parts;
+    check('finished → celebration grin (mouth corners well above the centre)',
+      p.mouthBead0.position.y > p.mouthBead3.position.y + 0.1);
+    check('finished → brows raised (position.y above base)',
+      p.leftBrow.position.y > base.leftBrow.position.y + 1e-3 && p.rightBrow.position.y > base.rightBrow.position.y + 1e-3);
+    check('finished → both arms thrown up (rotation.z well off the neutral pose)',
+      Math.abs(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) > 0.1 &&
+      Math.abs(p.rightArmGroup.rotation.z - base.rightArmGroup.rotation.z) > 0.1);
+    check('finished outranks a sketchy landing (no wince: mouth stays uncrooked)',
+      Math.abs(p.mouth.rotation.z - base.mouth.rotation.z) < 1e-6);
+    // Drop the level signal: the celebration eases back to the plain idle face.
+    runFor(sm, Expression, 150, { speed: 10, technique: 'glide', turnRate: 0, isInAir: false });
+    check('finished cleared → celebration releases (brows and arms return near neutral)',
+      Math.abs(p.leftBrow.position.y - base.leftBrow.position.y) < 0.05 &&
+      Math.abs(p.leftArmGroup.rotation.z - base.leftArmGroup.rotation.z) < 0.05);
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
