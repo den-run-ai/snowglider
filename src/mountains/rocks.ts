@@ -8,7 +8,15 @@
 // analytic terrain samplers from terrain.js. Extracted from the mountains hub
 // (Stage R-mountains, issue #34).
 import * as THREE from 'three';
-import { getTerrainHeight, getTerrainGradient } from './terrain.js';
+import {
+  getTerrainHeight, getTerrainGradient,
+  // Cache-neutral samplers for the RENDER-ONLY grounding layer (#385 PR 4): the
+  // cached samplers memoize every ad-hoc query into the shared heightMap that
+  // later tree placement and live physics read, so the collar/chip vertex
+  // sampling must bypass the cache or grounding would perturb downstream
+  // terrain samples (Codex review on #390).
+  getTerrainHeightUncached, getTerrainGradientUncached,
+} from './terrain.js';
 // Guards the shared material's THREE UUID draw so it cannot perturb the caller's seeded
 // global Math.random stream (same guard trees.ts uses for its pooled materials).
 import { withPrivateThreeRandom } from '../scenery/scenery-rng.js';
@@ -174,10 +182,222 @@ export function resetRockCaches(): void {
   };
   free(boulderMaterial);
   free(cliffMaterial);
+  free(collarMaterial);
   free(rockNormalTexture);
   boulderMaterial = null;
   cliffMaterial = null;
+  collarMaterial = null;
   rockNormalTexture = null;
+}
+
+// Shared snow-collar material (rock grounding, #385 PR 4): ONE colour-only
+// MeshStandardMaterial for the merged collar mesh. Plain (no vertexColors, no
+// normalMap, smooth shading), so it reuses an already-compiled standard program
+// (+0 programs — same reasoning as the snowman face materials). Lazily created and
+// cached; nulled by resetRockCaches on teardown. The pebble chips need no material
+// of their own: their merged geometry bakes uv + vertex colours and reuses the
+// shared boulder material (+0 materials, +0 programs).
+let collarMaterial: THREE.MeshStandardMaterial | null = null;
+function getCollarMaterial(): THREE.MeshStandardMaterial {
+  if (collarMaterial) return collarMaterial;
+  collarMaterial = withPrivateThreeRandom(() => new THREE.MeshStandardMaterial({
+    // A whisper below the terrain's snow white so the drift reads as a soft mound,
+    // not a glowing decal (tinted from the shared snow palette's SNOW_WHITE).
+    color: new THREE.Color(SNOW_WHITE.r * 0.985, SNOW_WHITE.g * 0.99, SNOW_WHITE.b),
+    roughness: 0.96,
+    metalness: 0.0,
+  }));
+  return collarMaterial;
+}
+
+// --- Grounding: slope-aware sink, snow collars, pebble chips (#385 PR 4) ------------
+// Render-only integration: rocks must sit IN the snow, not pasted onto it. Nothing
+// here touches rockPositions, outAllRendered, collision, or the global Math.random
+// stream (all variation is private-seeded; every THREE construction is wrapped in
+// withPrivateThreeRandom so UUID draws cannot shift the downstream tree placement —
+// addRocks runs BEFORE Trees.addTrees on the seeded global stream).
+
+/**
+ * How deep a placed rock's mesh sinks below the terrain sample (world units).
+ * Boulders sink slightly deeper on steep pitches (drifted-in look); cliffs keep
+ * their fixed 0.28·size seat — their tops are the #348 collision story and must
+ * not move until PR 5. Pure + NaN-safe (a non-finite steepness gets the flat
+ * sink); exported for the grounding tests. Deeper sinking is collision-conservative
+ * (the frozen size-based check registers hits above the visible top).
+ */
+export function rockSinkDepth(size: number, steepness: number, cliff: boolean): number {
+  if (cliff) return size * 0.28;
+  const extra = steepness > 0 ? Math.min(0.08, steepness * 0.12) : 0;
+  return size * (0.3 + extra);
+}
+
+/** Grounding entry recorded during placement (private-seeded decoration inputs). */
+interface GroundingEntry { x: number; z: number; size: number; seed: number; }
+
+const COLLAR_MIN_SIZE = 1.6;     // collars only around rocks big enough to drift against
+const CHIP_MIN_CLIFF_SIZE = 3.2; // pebble chips only near genuinely large cliff blocks
+
+/**
+ * Uphill-biased collar centre for a rock at (x, z): snow drifts pile against the
+ * UPHILL face of an obstacle, so the mound centre shifts along +gradient. Pure;
+ * exported for the grounding tests (the #317 anti-pattern regression suite).
+ */
+export function collarCenterFor(x: number, z: number, size: number): { x: number; z: number } {
+  const g = getTerrainGradientUncached(x, z);
+  const len = Math.hypot(g.x, g.z);
+  if (!(len > 1e-6)) return { x, z };
+  return { x: x + (g.x / len) * 0.25 * size, z: z + (g.z / len) * 0.25 * size };
+}
+
+/**
+ * Build ONE merged, indexed dome-field geometry for every snow collar. Each collar
+ * is DRAPED onto the terrain: every vertex's y is `getTerrainHeight(x, z)` plus a
+ * radial mound profile (minus a small tuck-under sink) — terrain-conforming by
+ * construction, so a collar can never float off a slope or mogul (the #317
+ * floating-disc anti-pattern is impossible by shape, not merely discouraged). The
+ * rim radius is elongated uphill and noised per spoke so the edge reads as a
+ * wind-drifted irregular mound, not a stamped disc.
+ */
+function buildCollarGeometry(entries: GroundingEntry[]): THREE.BufferGeometry {
+  const RINGS = 4, SEGS = 12;
+  const vertsPer = (RINGS + 1) * SEGS;
+  const positions = new Float32Array(entries.length * vertsPer * 3);
+  const indices: number[] = [];
+  let vBase = 0, p = 0;
+  for (const e of entries) {
+    const rng = mulberry32((e.seed ^ 0x0C011A9) >>> 0);
+    const R0 = e.size * (1.25 + rng() * 0.35);
+    const H = e.size * (0.15 + rng() * 0.08);
+    const sink = 0.05 * e.size;
+    const c = collarCenterFor(e.x, e.z, e.size);
+    const g = getTerrainGradientUncached(e.x, e.z);
+    const gLen = Math.hypot(g.x, g.z);
+    const ux = gLen > 1e-6 ? g.x / gLen : 0;
+    const uz = gLen > 1e-6 ? g.z / gLen : 0;
+    // Per-spoke rim noise, fixed per collar so all rings share the same outline.
+    const spokeNoise: number[] = [];
+    for (let j = 0; j < SEGS; j++) spokeNoise.push(0.85 + rng() * 0.3);
+    for (let i = 0; i <= RINGS; i++) {
+      const t = i / RINGS;
+      const profile = H * (1 - t * t) ** 2;
+      for (let j = 0; j < SEGS; j++) {
+        const th = (j / SEGS) * Math.PI * 2;
+        const dx = Math.cos(th), dz = Math.sin(th);
+        // Rim stretched toward uphill (dot(dir, uphill)) + per-spoke noise.
+        const R = R0 * (1 + 0.22 * (dx * ux + dz * uz)) * spokeNoise[j]!;
+        const x = c.x + dx * R * t;
+        const z = c.z + dz * R * t;
+        positions[p++] = x;
+        positions[p++] = getTerrainHeightUncached(x, z) + profile - sink;
+        positions[p++] = z;
+      }
+    }
+    for (let i = 0; i < RINGS; i++) {
+      for (let j = 0; j < SEGS; j++) {
+        const j2 = (j + 1) % SEGS;
+        const a = vBase + i * SEGS + j;
+        const b = vBase + i * SEGS + j2;
+        const cIdx = vBase + (i + 1) * SEGS + j;
+        const d = vBase + (i + 1) * SEGS + j2;
+        indices.push(a, cIdx, b, b, cIdx, d);
+      }
+    }
+    vBase += vertsPer;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Build ONE merged pebble-chip geometry: a few tiny tumbled dodecahedra scattered
+ * around each large cliff block (rockfall debris at the foot of a crag). Mostly
+ * buried, never collidable, never in rockPositions/outAllRendered. Bakes uv +
+ * per-chip stone vertex colours so the mesh reuses the shared boulder material.
+ */
+function buildChipGeometry(anchors: GroundingEntry[]): THREE.BufferGeometry {
+  const template = new THREE.DodecahedronGeometry(1, 0);
+  const tPos = template.attributes.position!.array as Float32Array;
+  const tUv = template.attributes.uv!.array as Float32Array;
+  const vertsPer = template.attributes.position!.count;
+  const chunks: Array<{ px: Float32Array; col: Float32Array }> = [];
+  const m = new THREE.Matrix4();
+  const eu = new THREE.Euler();
+  const v = new THREE.Vector3();
+  const color = new THREE.Color();
+  for (const a of anchors) {
+    const rng = mulberry32((a.seed ^ 0x9D2C562) >>> 0);
+    const n = 4 + Math.floor(rng() * 4);
+    for (let k = 0; k < n; k++) {
+      const s = Math.min(0.5, a.size * (0.06 + rng() * 0.05));
+      const th = rng() * Math.PI * 2;
+      const dist = a.size * (1.15 + rng() * 0.8);
+      const cx = a.x + Math.cos(th) * dist;
+      const cz = a.z + Math.sin(th) * dist;
+      const cy = getTerrainHeightUncached(cx, cz) + s * 0.15; // mostly buried pebble
+      eu.set((rng() - 0.5) * 0.9, rng() * Math.PI * 2, (rng() - 0.5) * 0.9);
+      m.makeRotationFromEuler(eu);
+      // Chip colour: a stone tone from the shared palette via the private stream
+      // (the global makeRockColor path is never touched).
+      const pick = ROCK_STONES[Math.floor(rng() * ROCK_STONES.length)]!;
+      color.setHSL(pick.h, pick.s, Math.max(0.14, pick.l - 0.04));
+      const px = new Float32Array(vertsPer * 3);
+      const col = new Float32Array(vertsPer * 3);
+      for (let i = 0; i < vertsPer; i++) {
+        v.set(tPos[i * 3]!, tPos[i * 3 + 1]!, tPos[i * 3 + 2]!)
+          .applyMatrix4(m).multiplyScalar(s);
+        px[i * 3] = v.x + cx;
+        px[i * 3 + 1] = v.y + cy;
+        px[i * 3 + 2] = v.z + cz;
+        col[i * 3] = color.r; col[i * 3 + 1] = color.g; col[i * 3 + 2] = color.b;
+      }
+      chunks.push({ px, col });
+    }
+  }
+  template.dispose();
+  const total = chunks.length * vertsPer;
+  const positions = new Float32Array(total * 3);
+  const colors = new Float32Array(total * 3);
+  const uvs = new Float32Array(total * 2);
+  chunks.forEach((chunk, i) => {
+    positions.set(chunk.px, i * vertsPer * 3);
+    colors.set(chunk.col, i * vertsPer * 3);
+    uvs.set(tUv, i * vertsPer * 2);
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/**
+ * Attach the grounding decoration meshes (one merged collar mesh + one merged chip
+ * mesh — two draw calls total, zero new shader programs). Tagged for the re-run
+ * de-dup sweep in addRocks.
+ */
+function addRockGrounding(
+  scene: THREE.Scene, collars: GroundingEntry[], chips: GroundingEntry[]
+): void {
+  withPrivateThreeRandom(() => {
+    if (collars.length > 0) {
+      const mesh = new THREE.Mesh(buildCollarGeometry(collars), getCollarMaterial());
+      mesh.receiveShadow = true;
+      mesh.userData.isRockGrounding = true;
+      mesh.userData.isRockSnowCollar = true;
+      scene.add(mesh);
+    }
+    if (chips.length > 0) {
+      const mesh = new THREE.Mesh(buildChipGeometry(chips), getRockMaterial(false));
+      mesh.receiveShadow = true;
+      mesh.userData.isRockGrounding = true;
+      mesh.userData.isRockChips = true;
+      scene.add(mesh);
+    }
+  });
 }
 
 // --- Face-aware snow pass (rock realism recovery PR 2, issue #385) ------------------
@@ -683,14 +903,29 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
 // (mountains/contact-shadows.ts) need the full rendered set so decorative rocks — and
 // large rocks filtered out of the hazard list by the ski-lane/spawn safety checks — still
 // get a grounding blob (Codex review #243). Optional, so existing callers are unchanged.
-export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): RockPosition[] {
+export function addRocks(
+  scene: THREE.Scene,
+  outAllRendered?: RockPosition[],
+  opts?: {
+    /** Disable the render-only grounding decorations (collars/chips/deep sinks) —
+     *  a TEST seam so suites can prove placement + the hazard list are byte-identical
+     *  with the decorations on and off (#385 PR 4). Default on. */
+    grounding?: boolean;
+  }
+): RockPosition[] {
+  const grounding = opts?.grounding !== false;
   // Remove any existing rocks from the scene to prevent duplicates. Rocks are tagged
-  // `userData.isRock` in createRock, so the sweep is geometry-agnostic — it keeps
-  // working if the rock geometry ever changes away from a dodecahedron.
+  // `userData.isRock` in createRock (and the merged grounding meshes
+  // `userData.isRockGrounding`), so the sweep is geometry-agnostic — it keeps
+  // working if the rock geometry ever changes away from a dodecahedron. The merged
+  // grounding geometries are one-per-build (not shared), so dispose them here.
   for (let i = scene.children.length - 1; i >= 0; i--) {
     const child = scene.children[i]!;
-    if (child.userData && child.userData.isRock === true) {
+    if (child.userData && (child.userData.isRock === true || child.userData.isRockGrounding === true)) {
       scene.remove(child);
+      if (child.userData.isRockGrounding === true && child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+      }
     }
   }
 
@@ -721,6 +956,12 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
 
   const collisionRockPositions: RockPosition[] = [];
 
+  // Grounding decoration inputs (#385 PR 4), collected during placement and built
+  // at the end: snow collars around every large rendered rock, pebble chips at the
+  // foot of big cliff blocks. Render-only — never hazards, never in the out lists.
+  const collarEntries: GroundingEntry[] = [];
+  const chipEntries: GroundingEntry[] = [];
+
   // Deterministic per-placement scrape seed: derived from the (already
   // stream-stable) placement coordinates, so a given run re-creates identical
   // rock shapes without consuming any global Math.random() draws.
@@ -734,17 +975,25 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
 
     const rock = createRock(pos.size, { seed: shapeSeed(pos.x, pos.z) });
 
-    // Sink the rock deeper into the terrain for better anchoring
-    rock.position.set(pos.x, terrainHeight - pos.size * 0.3, pos.z);
+    // Sink the rock into the terrain for anchoring — slightly deeper on steep
+    // pitches when grounding is on (#385 PR 4; render-only, RockPosition.y keeps
+    // its terrain-height semantics and the hazard list is untouched).
+    const gradient = getTerrainGradient(pos.x, pos.z);
+    const steepness = Math.sqrt(gradient.x * gradient.x + gradient.z * gradient.z);
+    const sink = grounding ? rockSinkDepth(pos.size, steepness, false) : pos.size * 0.3;
+    rock.position.set(pos.x, terrainHeight - sink, pos.z);
 
     // Random rotation for natural look
     rock.rotation.y = Math.random() * Math.PI * 2;
     rock.rotation.z = Math.random() * 0.3;
 
     // Align rock to terrain slope for better anchoring
-    const gradient = getTerrainGradient(pos.x, pos.z);
     rock.rotation.x = Math.atan(gradient.z) * 0.8;
     rock.rotation.z = -Math.atan(gradient.x) * 0.8;
+
+    if (grounding && pos.size >= COLLAR_MIN_SIZE) {
+      collarEntries.push({ x: pos.x, z: pos.z, size: pos.size, seed: shapeSeed(pos.x, pos.z) });
+    }
 
     scene.add(rock);
     outAllRendered?.push({ x: pos.x, y: terrainHeight, z: pos.z, size: pos.size });
@@ -795,6 +1044,13 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
         scene.add(rock);
         outAllRendered?.push({ x: bx, y: bHeight, z: bz, size: bSize });
 
+        if (grounding && bSize >= COLLAR_MIN_SIZE) {
+          collarEntries.push({ x: bx, z: bz, size: bSize, seed: shapeSeed(bx, bz) });
+        }
+        if (grounding && bSize >= CHIP_MIN_CLIFF_SIZE) {
+          chipEntries.push({ x: bx, z: bz, size: bSize, seed: shapeSeed(bx, bz) });
+        }
+
         if (rockIsCollisionHazard(bx, bz, bSize)) {
           collisionRockPositions.push({ x: bx, y: bHeight, z: bz, size: bSize });
         }
@@ -837,12 +1093,22 @@ export function addRocks(scene: THREE.Scene, outAllRendered?: RockPosition[]): R
         // fine — these are deliberate gate monuments, seated by their sink depth.
         rock.rotation.y = Math.random() * Math.PI * 2;
         scene.add(rock);
+        if (grounding) {
+          collarEntries.push({ x: rx, z: pz, size: PINCH_SIZE, seed: shapeSeed(rx, pz) });
+        }
         collisionRockPositions.push({ x: rx, y: ry, z: pz, size: PINCH_SIZE });
         // Register with the rendered-rock list too (like the scatter + cliff rocks above), so
         // these collidable pinch hazards get the grounding contact-AO blob addContactShadows draws.
         outAllRendered?.push({ x: rx, y: ry, z: pz, size: PINCH_SIZE });
       }
     }
+  }
+
+  // Build the merged grounding meshes LAST — after every placement loop has
+  // finished with the global stream (this consumes zero global draws; UUID draws
+  // are guarded inside).
+  if (grounding) {
+    addRockGrounding(scene, collarEntries, chipEntries);
   }
 
   console.log(`Mountains.addRocks: Created ${collisionRockPositions.length} rock positions for collision detection`);

@@ -189,7 +189,23 @@ export function getTerrainHeight(x: number, z: number): number {
   if (heightMap[key] !== undefined) {
     return heightMap[key];
   }
+  const y = getTerrainHeightUncached(x, z);
+  // Store in height map for future lookups
+  heightMap[key] = y;
+  return y;
+}
 
+/**
+ * The pure terrain-height evaluation behind getTerrainHeight — identical formula
+ * (it IS getTerrainHeight's cache-miss path), but it neither reads nor writes the
+ * shared heightMap. For RENDER-ONLY consumers that sample many ad-hoc coordinates
+ * (the rock grounding collars/chips, #385 PR 4): getTerrainHeight memoizes every
+ * query into 0.1-unit cells that later tree placement and live physics read, so a
+ * cosmetic layer sampling through the cached path would change what those
+ * downstream callers see (Codex review on #390). Gameplay/physics callers should
+ * keep using getTerrainHeight — the cache is their shared source of truth.
+ */
+export function getTerrainHeightUncached(x: number, z: number): number {
   const distance = Math.sqrt(x * x + z * z);
 
   // Use EXACTLY the same formula as in terrain mesh creation
@@ -224,8 +240,6 @@ export function getTerrainHeight(x: number, z: number): number {
     y += kickerRampHeight(x, z);
   }
 
-  // Store in height map for future lookups
-  heightMap[key] = y;
   return y;
 }
 
@@ -235,6 +249,16 @@ export function getTerrainGradient(x: number, z: number): TerrainVec2 {
   const h = getTerrainHeight(x, z);
   const hX = getTerrainHeight(x + eps, z);
   const hZ = getTerrainHeight(x, z + eps);
+  return { x: (hX - h) / eps, z: (hZ - h) / eps };
+}
+
+/** Cache-neutral twin of getTerrainGradient (same eps/differencing) for render-only
+ *  consumers — see getTerrainHeightUncached for why. */
+export function getTerrainGradientUncached(x: number, z: number): TerrainVec2 {
+  const eps = 0.1;
+  const h = getTerrainHeightUncached(x, z);
+  const hX = getTerrainHeightUncached(x + eps, z);
+  const hZ = getTerrainHeightUncached(x, z + eps);
   return { x: (hX - h) / eps, z: (hZ - h) / eps };
 }
 
