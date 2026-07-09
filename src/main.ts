@@ -60,6 +60,20 @@ if (typeof window !== 'undefined') {
   // request the puppeteer start-menu regression intercepts).
   window.__loadSnowGliderOrchestrator = () => import('./snowglider.js');
 
+  // Rock review gallery (issue #385 PR 1): `?gallery=rocks` swaps the deferred
+  // orchestrator import for the gallery module, so the page boots the real scene
+  // pipeline (same setupScene, lights, terrain, sky) laid out with the fixed rock
+  // samples instead of starting the game. A review harness only — the classic
+  // script-loader awaits whichever module this hook returns, so the game never
+  // double-boots on a gallery page. Lazy: the gallery chunk loads only here.
+  if (/[?&]gallery=rocks\b/.test(window.location.search)) {
+    window.__loadSnowGliderOrchestrator = () =>
+      import('./visual/rock-gallery.js').then((m) => {
+        m.initRockGallery();
+        return m;
+      });
+  }
+
   // Register the offline service worker (issue #358, PR 3). Self-gating: it no-ops
   // under ?test= / auth.html / insecure origins and runs the ?sw=reset hatch instead
   // of registering when asked. A waiting update surfaces the "New version available"
