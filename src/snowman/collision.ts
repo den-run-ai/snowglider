@@ -165,7 +165,12 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     // ski lane/spawn pocket. Duplicated inline (rather than imported) to keep the
     // snowman/collision layer independent of mountain placement helpers during R3.
     const rockRadius = Math.max(1.25, Math.min(3.0, rockPos.size * 0.75 + 0.75));
-    const exposedRockTop = rockPos.y + rockPos.size * 0.7;
+    // Height-aware clearance (#348): every hazard from mountains/rocks.ts carries
+    // the world-space top of its actual placed mesh, so "jumping over" requires
+    // clearing what the player SEES — a tall crag or pinch gate can no longer be
+    // sailed through at the old flat 0.7·size height. The legacy model remains as
+    // the fallback for synthetic fixtures without topY.
+    const exposedRockTop = rockPos.topY ?? (rockPos.y + rockPos.size * 0.7);
     // Clearance is height-based: once the snowman is airborne and above the rock
     // top it clears the hazard whether it is still rising or already descending past
     // the jump apex. (Requiring upward motion made descending-but-high jumps crash.)

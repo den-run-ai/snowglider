@@ -26,13 +26,26 @@ import { withPrivateThreeRandom } from '../scenery/scenery-rng.js';
 import { activeLaneX, getActiveCourseLine } from '../course-line.js';
 import { SNOW_WHITE } from './snow-palette.js';
 
-/** A placed rock's world position and size. */
-export interface RockPosition {
+/** A rendered rock's world position and size — the render-only bookkeeping shape
+ *  (contact shadows read the full rendered set via addRocks' outAllRendered). */
+export interface RenderedRockPosition {
   x: number;
   y: number;
   z: number;
   size: number;
 }
+
+/** A COLLIDABLE rock hazard (#348, #385 PR 5): extends the rendered shape with the
+ *  world-space top of the actual placed mesh, so the in-game jump-clearance check
+ *  can track what the player sees instead of the old flat `y + 0.7·size` model.
+ *  `topY` is computed from the post-rotation bounding box over the CANONICAL sink
+ *  depth (see hazardTopY) and is REQUIRED on every hazard addRocks returns. */
+export interface RockHazardPosition extends RenderedRockPosition {
+  topY: number;
+}
+
+/** Back-compat alias (the pre-#348 name most callers import). */
+export type RockPosition = RenderedRockPosition;
 
 export const ROCK_COLLISION_MIN_SIZE = 1.25;
 
@@ -896,6 +909,33 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
   return rock;
 }
 
+/**
+ * World-space collision top for a placed rock mesh (#348): the rotated-local
+ * bounding-box top over the CANONICAL sink depth (boulder 0.3·size, cliff
+ * 0.28·size) — deliberately NOT the grounding layer's slope-aware deeper sink
+ * (PR 4, render-only), so a cosmetic sink change can never move a collision top.
+ * A deeper-sunk mesh only puts its visible top at-or-below the collision top,
+ * which errs on the conservative side (hits register above the visible rock,
+ * never through it). Box3 math draws no THREE UUIDs, so the seeded global
+ * stream is untouched.
+ */
+function hazardTopY(rock: THREE.Mesh, terrainHeight: number, size: number, cliff: boolean): number {
+  // Exact rotated-local top: rotate every vertex and take max y. Deliberately
+  // position-INDEPENDENT (a Box3.setFromObject world box would bake position.y in,
+  // and (top + y) − y is not float-exact — the render-only grounding sink would
+  // then perturb hazard tops by ulps and break the grounding-neutrality contract).
+  // Also tighter than a rotated-AABB corner expansion. ~144 verts per rock — cheap.
+  const posAttr = (rock.geometry as THREE.BufferGeometry).attributes.position!;
+  const m = new THREE.Matrix4().makeRotationFromEuler(rock.rotation);
+  const v = new THREE.Vector3();
+  let top = -Infinity;
+  for (let i = 0; i < posAttr.count; i++) {
+    v.fromBufferAttribute(posAttr as THREE.BufferAttribute, i).applyMatrix4(m);
+    if (v.y > top) top = v.y;
+  }
+  return terrainHeight - size * (cliff ? 0.28 : 0.3) + top;
+}
+
 // Add rocks to create a more realistic mountain environment.
 //
 // `outAllRendered`, when supplied, is filled with EVERY rendered rock (scatter boulders
@@ -905,14 +945,14 @@ export function createRock(size: number, opts: RockOptions = {}): THREE.Mesh {
 // get a grounding blob (Codex review #243). Optional, so existing callers are unchanged.
 export function addRocks(
   scene: THREE.Scene,
-  outAllRendered?: RockPosition[],
+  outAllRendered?: RenderedRockPosition[],
   opts?: {
     /** Disable the render-only grounding decorations (collars/chips/deep sinks) —
      *  a TEST seam so suites can prove placement + the hazard list are byte-identical
      *  with the decorations on and off (#385 PR 4). Default on. */
     grounding?: boolean;
   }
-): RockPosition[] {
+): RockHazardPosition[] {
   const grounding = opts?.grounding !== false;
   // Remove any existing rocks from the scene to prevent duplicates. Rocks are tagged
   // `userData.isRock` in createRock (and the merged grounding meshes
@@ -954,7 +994,7 @@ export function addRocks(
     }
   }
 
-  const collisionRockPositions: RockPosition[] = [];
+  const collisionRockPositions: RockHazardPosition[] = [];
 
   // Grounding decoration inputs (#385 PR 4), collected during placement and built
   // at the end: snow collars around every large rendered rock, pebble chips at the
@@ -999,7 +1039,10 @@ export function addRocks(
     outAllRendered?.push({ x: pos.x, y: terrainHeight, z: pos.z, size: pos.size });
 
     if (rockIsCollisionHazard(pos.x, pos.z, pos.size)) {
-      collisionRockPositions.push({ x: pos.x, y: terrainHeight, z: pos.z, size: pos.size });
+      collisionRockPositions.push({
+        x: pos.x, y: terrainHeight, z: pos.z, size: pos.size,
+        topY: hazardTopY(rock, terrainHeight, pos.size, false),
+      });
     }
   });
 
@@ -1052,7 +1095,10 @@ export function addRocks(
         }
 
         if (rockIsCollisionHazard(bx, bz, bSize)) {
-          collisionRockPositions.push({ x: bx, y: bHeight, z: bz, size: bSize });
+          collisionRockPositions.push({
+            x: bx, y: bHeight, z: bz, size: bSize,
+            topY: hazardTopY(rock, bHeight, bSize, true),
+          });
         }
       }
     }
@@ -1096,7 +1142,10 @@ export function addRocks(
         if (grounding) {
           collarEntries.push({ x: rx, z: pz, size: PINCH_SIZE, seed: shapeSeed(rx, pz) });
         }
-        collisionRockPositions.push({ x: rx, y: ry, z: pz, size: PINCH_SIZE });
+        collisionRockPositions.push({
+          x: rx, y: ry, z: pz, size: PINCH_SIZE,
+          topY: hazardTopY(rock, ry, PINCH_SIZE, true),
+        });
         // Register with the rendered-rock list too (like the scatter + cliff rocks above), so
         // these collidable pinch hazards get the grounding contact-AO blob addContactShadows draws.
         outAllRendered?.push({ x: rx, y: ry, z: pz, size: PINCH_SIZE });
