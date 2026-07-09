@@ -67,12 +67,17 @@ export interface TreePos {
   z: number;
 }
 
-/** Minimal rock-position shape the collision check reads. */
+/** Minimal rock-position shape the collision check reads. `topY` is the
+ *  world-space top of the placed rock mesh (#348) — required on every hazard
+ *  mountains/rocks.ts produces; optional HERE so the collision layer (which must
+ *  stay import-free of mountain helpers) degrades to the legacy `y + 0.7·size`
+ *  model for any synthetic fixture that omits it. */
 export interface RockPos {
   x: number;
   y: number;
   z: number;
   size: number;
+  topY?: number;
 }
 
 /** The camera-manager seam resetSnowman drives (satisfied by the Camera class). */
