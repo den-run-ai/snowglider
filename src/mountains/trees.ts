@@ -969,9 +969,22 @@ function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
       // littered with invisible obstacles once colliders re-arm.
       console.error('EzForest: archetype load failed — building the stylized fallback forest', err);
       if (stale()) return; // superseded by a re-init, torn down, or abandoned
-      const buckets = createBuckets();
-      placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
-      buildForest(scene, buckets);
+      buildFallbackForest(scene, placements);
+      // A failed hashed-chunk fetch on a controlled page is the stale-shell smell
+      // (an old precached index.html requesting a chunk hash the deploy no longer
+      // serves): nudge the service worker's update check so the shell refresh
+      // flow (register-sw.ts) can run at the next safe screen. Best-effort.
+      if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+        void navigator.serviceWorker.getRegistration()
+          .then((reg) => reg?.update()).catch(() => {});
+      }
+      // Recovery watcher — real browsers only: after a FAILED load the archetype
+      // memo is cleared, so attempt 0 starts a FRESH import, and in a document-
+      // less Node run that would hold loadEzTreeModule's global document shim for
+      // the import's whole lifetime (a test's never-settling importer = forever),
+      // corrupting unrelated headless work. Untracked (see scheduleEzUpgrade): a
+      // pending retry ladder must not wedge ezForestReady() awaiters.
+      if (typeof document !== 'undefined') scheduleEzUpgrade(scene, placements, 0, false);
     })
     .finally(() => {
       pendingEzBuilds.delete(thisBuild);
@@ -979,11 +992,86 @@ function scheduleEzForest(scene: THREE.Scene, placements: EzPlacement[]): void {
     });
 }
 
+/** Build the tagged stylized stand for placements whose EZ build failed or was
+ *  abandoned. The tag is what lets a later {@link scheduleEzUpgrade} remove exactly
+ *  these meshes — the collar-only snowPatch mesh addTrees built synchronously (and
+ *  any other scene's forest) must survive the swap. */
+function buildFallbackForest(scene: THREE.Scene, placements: EzPlacement[]): void {
+  const buckets = createBuckets();
+  placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
+  for (const mesh of buildForest(scene, buckets)) mesh.userData.ezFallbackTree = true;
+}
+
+// A fallback forest is a downgrade the session should recover from (issue #282
+// follow-up, "EZ trees missing on mobile"): the ~4 MB archetype chunk routinely
+// outlives the 6s run-start hold on a slow cellular first visit, and a transient
+// fetch error must not commit the player to cone trees until the next full reload.
+// After every fallback build the session keeps listening: as soon as an archetype
+// (re)load succeeds, the tagged stylized stand is swapped in place for the EZ
+// evergreens — same placements, same collision positions (treePositions never
+// change), hash-driven visuals, no RNG draws — so the swap is safe mid-run and the
+// shed system resyncs off the bumped registry version. Failed loads retry with
+// exponential backoff a few times, then give up for the session.
+const EZ_UPGRADE_MAX_ATTEMPTS = 4;
+const EZ_UPGRADE_RETRY_BASE_MS = 8000;
+
+function scheduleEzUpgrade(scene: THREE.Scene, placements: EzPlacement[], attempt: number, trackPromise: boolean): void {
+  // Adopt the CURRENT token (abandonPendingEzBuild bumps it before the fallback is
+  // built): a later addTrees or teardown bumps token/epoch again and stales this.
+  const token = ezBuildTokens.get(scene) ?? 0;
+  const epoch = ezBuildEpoch;
+  const stale = (): boolean => ezBuildTokens.get(scene) !== token || epoch !== ezBuildEpoch;
+  const upgrading = ensureEzArchetypes()
+    .then((archetypes) => {
+      // archetypes === [] means a reset cancelled the generation mid-load — that
+      // reset also bumped the epoch, so the stale() guard already covers it.
+      if (stale() || archetypes.length === 0) return;
+      // Remove + dispose ONLY the tagged fallback meshes (scene-local, same
+      // dispose rules as the addTrees re-init sweep).
+      for (let i = scene.children.length - 1; i >= 0; i--) {
+        const child = scene.children[i]!;
+        if (child.name === 'forestInstanced' && child.userData.ezFallbackTree) {
+          scene.remove(child);
+          const im = child as THREE.InstancedMesh;
+          if (im.userData.ownsGeometry && im.geometry) im.geometry.dispose();
+          im.dispose();
+        }
+      }
+      // Fresh load-registry epoch for the swapped forest: buildEzForest registers
+      // every tree's bindings/base loads, and the version bump makes tree-shed
+      // resync on its next update.
+      resetTreeLoadRegistry();
+      buildEzForest(scene, placements, archetypes);
+      console.info('EzForest: archetype chunk arrived late — upgraded the fallback forest to the EZ evergreens');
+    })
+    .catch(() => {
+      // Still failing (ensureEzArchetypes clears its memo on rejection, so each
+      // attempt is a real re-fetch). Back off and retry a bounded number of times —
+      // but only in a real browser: a document-less Node run installs a global
+      // document shim for the import's duration (see loadEzTreeModule), and a
+      // deferred retry firing mid-suite would leak that shim window into
+      // unrelated headless work. The upgrade itself (attempt 0) stays headless-
+      // testable; only the timer ladder is browser-only.
+      if (stale() || attempt + 1 >= EZ_UPGRADE_MAX_ATTEMPTS || typeof document === 'undefined') return;
+      setTimeout(() => {
+        if (!stale()) scheduleEzUpgrade(scene, placements, attempt + 1, false);
+      }, EZ_UPGRADE_RETRY_BASE_MS * Math.pow(2, attempt));
+    });
+  // Only the ABANDONMENT upgrade parks itself on ezForestReady(): it rides the
+  // already-pending chunk load, so it settles exactly when that fetch does — what
+  // tests and the capture tooling want to await. Failure-path upgrades re-fetch on
+  // their own retry ladder and stay untracked, so a machine whose chunk keeps
+  // failing can't wedge an ezForestReady() awaiter (e.g. the rock gallery's init).
+  if (trackPromise) ezForestBuildPromise = upgrading;
+}
+
 /** Give up on the EZ builds still awaiting their chunk (stalled fetch at run
  *  start): settle the already-superseded ones, then stale each live build and
  *  construct the stylized forest for its placements NOW, synchronously — the
  *  collision positions get visible trees and the collider gate re-arms before
- *  this returns. Returns false when no live build was pending. */
+ *  this returns. The abandoned chunk load keeps going in the background, and the
+ *  fallback upgrades itself to the EZ forest when it lands (scheduleEzUpgrade).
+ *  Returns false when no live build was pending. */
 function abandonPendingEzBuild(): boolean {
   settleStaleEzBuilds();
   let abandoned = false;
@@ -991,10 +1079,9 @@ function abandonPendingEzBuild(): boolean {
     pendingEzBuilds.delete(pending);
     ezBuildTokens.set(pending.scene, pending.token + 1); // stale the in-flight build
     console.warn('EzForest: archetype chunk still loading at run start — building the stylized forest instead');
-    const buckets = createBuckets();
-    pending.placements.forEach((p) => collectTree(p.scale, p.matrix, buckets));
-    buildForest(pending.scene, buckets);
+    buildFallbackForest(pending.scene, pending.placements);
     pending.settle(); // colliders re-arm now; the build's own finally won't double-count
+    scheduleEzUpgrade(pending.scene, pending.placements, 0, true);
     abandoned = true;
   }
   return abandoned;

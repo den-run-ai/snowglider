@@ -13,6 +13,27 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fix: EZ forest self-upgrades after a slow or failed chunk load (mobile cone-trees regression)
+- On a slow first visit (cellular), the ~4 MB EZ archetype chunk routinely outlives the
+  6s run-start hold: the run correctly starts on the stylized fallback forest, but the
+  session then kept cone trees FOREVER — even though the abandoned chunk load finished
+  seconds later. Real-device report: realistic pines "disappeared" on iPhone while the
+  desktop path was fine.
+- The fallback is now tagged and **recoverable**: `abandonPendingEzBuild` and the
+  failed-load path both schedule an upgrade watcher — the moment an archetype (re)load
+  succeeds, the tagged stylized stand is swapped in place for the EZ evergreens on the
+  SAME placements (collision `treePositions` never change; visuals are hash-driven with
+  zero RNG draws; the ground snow collars survive; the load registry re-registers and
+  its version bump makes the shed system resync). Failed loads retry with exponential
+  backoff (4 attempts), and a failed hashed-chunk fetch nudges the service worker's
+  update check (the stale-precached-shell case). Guarded by the same token/epoch
+  staleness as the build itself, so re-inits and teardown cancel pending upgrades.
+- Headless-tested end-to-end via the injectable importer seam:
+  `tests/ez-fallback-upgrade-tests.js` (abandon → fallback → late chunk → EZ swap;
+  teardown staleness), plus a puppeteer repro with the chunk request delayed past the
+  run-start hold.
+
+
 ### Fix: EZ pines crumpled into scraggle by the widened wind sway (foreground-tree regression)
 - The widened sway band (#253 follow-up: `TREE_SWAY_MAX_AMP` 0.35 → 0.9) exposed two
   scale traps in the GPU sway shader that visually destroyed the EZ-Tree evergreens —
