@@ -13,6 +13,28 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Fix: EZ pines crumpled into scraggle by the widened wind sway (foreground-tree regression)
+- The widened sway band (#253 follow-up: `TREE_SWAY_MAX_AMP` 0.35 → 0.9) exposed two
+  scale traps in the GPU sway shader that visually destroyed the EZ-Tree evergreens —
+  players saw the realistic pines "disappear" from the run corridor, replaced by bent,
+  sparse diagonal scraggle:
+  - the sway **phase** was derived from each **vertex's world x/z** (period ~2.5u), so
+    different parts of ONE tree leaned by up to the full amplitude in different
+    directions — invisible at 0.35u, a crumple at 0.9u. The phase now comes from the
+    tree's **instance origin** (`instanceMatrix[3].xz`): neighbouring trees stay
+    desynchronized (the phase's purpose) while every vertex of a tree swings coherently,
+    the intra-tree variation left to the height-rooted `swayWeight` (a natural
+    base-anchored bend).
+  - the needle **flutter** keyed its variation off raw **local-space** vertex positions
+    (`position.y*2.0`/`position.x*3.0`), tuned for the small stylized cones; the EZ
+    archetype geometries are ~5x their world size in local units, so the flutter flipped
+    sign every ~0.3 world units and shredded each needle card into its own phase. It now
+    keys off the scale-independent `swayWeight`.
+- Shader-only (visible + shadow-depth materials share the injected chunk; program cache
+  key bumped v4 → v5). No placement, RNG, physics, or collision change — `test:verify`
+  byte-identical; `tests/trees-tests.js` now pins the per-instance phase and the
+  scale-independent flutter (fails against the old shader).
+
 ### Procedural snowman expression rig (face + body personality) — issue #364
 - The snowman now **emotes**. A new procedural face rig (`src/snowman/face.ts`) adds a
   coal-bead mouth, twig eyebrows, frosty cheeks, and white eye-highlight dots, and a new

@@ -267,6 +267,25 @@ async function main() {
     assert(/TREE_SWAY_FLUTTER/.test(foliageShader.vertexShader),
       'the foliage material defines TREE_SWAY_FLUTTER (needle layers flex in gusts)');
 
+    // Intra-tree coherence (the "realistic trees disappeared" regression): the sway
+    // phase must come from the INSTANCE origin (instanceMatrix[3]) so every vertex of
+    // one tree swings together — a per-vertex world-position phase (the old
+    // `dot( mvPosition.xz, ... )`) makes different parts of ONE tree lean by up to the
+    // full amplitude in different directions, which at the widened 0.9u band crumpled
+    // the EZ archetype pines into diagonal scraggle.
+    assert(/swayPhase = dot\( instanceMatrix\[3\]\.xz/.test(trunkShader.vertexShader),
+      'sway phase derives from the tree instance origin (per-tree coherent swing)');
+    assert(!/swayPhase = dot\( mvPosition\.xz/.test(trunkShader.vertexShader),
+      'sway phase does NOT vary per vertex across a single tree');
+    // Same trap in the flutter: raw LOCAL-space frequencies (position.y*k) flip sign
+    // every fraction of a world unit on the EZ archetypes (local units are ~5x world),
+    // shredding each needle card into its own phase. The along-tree variation must key
+    // off the scale-independent swayWeight instead.
+    const flutterBlock = foliageShader.vertexShader.match(/float flutter[\s\S]*?#endif/);
+    assert(!!flutterBlock && !/position\.[xyz]/.test(flutterBlock[0]),
+      'flutter phase is scale-independent (no raw local-position frequencies)',
+      flutterBlock ? flutterBlock[0].slice(0, 120) : 'no flutter block');
+
     // The injection wires the SHARED uniform objects, so one update drives every material:
     // the stub shaders captured the same uWindAmp reference the trunk + foliage share.
     assert(trunkShader.uniforms.uWindAmp === foliageShader.uniforms.uWindAmp,
