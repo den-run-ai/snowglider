@@ -267,6 +267,34 @@ async function main() {
     assert(/TREE_SWAY_FLUTTER/.test(foliageShader.vertexShader),
       'the foliage material defines TREE_SWAY_FLUTTER (needle layers flex in gusts)');
 
+    // Intra-tree coherence (the "realistic trees disappeared" regression): the sway
+    // phase must come from the INSTANCE origin (instanceMatrix[3]) so every vertex of
+    // one tree swings together — a per-vertex world-position phase (the old
+    // `dot( mvPosition.xz, ... )`) makes different parts of ONE tree lean by up to the
+    // full amplitude in different directions, which at the widened 0.9u band crumpled
+    // the EZ archetype pines into diagonal scraggle.
+    assert(/swayPhase = dot\( instanceMatrix\[3\]\.xz/.test(trunkShader.vertexShader),
+      'sway phase derives from the tree instance origin (per-tree coherent swing)');
+    assert(!/swayPhase = dot\( mvPosition\.xz/.test(trunkShader.vertexShader),
+      'sway phase does NOT vary per vertex across a single tree');
+    // Same trap in the flutter: raw LOCAL-space frequencies (position.y*k) flip sign
+    // every fraction of a world unit on the EZ archetypes (local units are ~5x world),
+    // shredding each needle card into its own phase. On height-rooted geometry the
+    // along-tree variation must key off the scale-independent swayWeight (positive
+    // requirement); the raw local-position frequencies may survive ONLY inside the
+    // classic-fallback #else branch (no root height ⇒ swayWeight is constant 1.0
+    // there, and its ~1-4 local-unit cones need them for the within-cone shimmer).
+    const flutterMatch = foliageShader.vertexShader.match(/#ifdef TREE_SWAY_FLUTTER[\s\S]*?flutter;\s*\n\s*#endif/);
+    assert(!!flutterMatch, 'the flutter block is present in the injected chunk');
+    const flutterBlock = flutterMatch ? flutterMatch[0] : '';
+    assert(/#if defined\( TREE_SWAY_ROOT_HEIGHT \) \|\| defined\( TREE_SWAY_INSTANCE_WEIGHT \)[\s\S]*?swayWeight \* 6\.0[\s\S]*?swayWeight \* 11\.0[\s\S]*?#else/.test(flutterBlock),
+      'rooted/anchored flutter keys off the scale-independent swayWeight (positive requirement)');
+    const stripComments = (glsl) => glsl.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    const elseSplit = flutterBlock.split('#else');
+    assert(elseSplit.length === 2 && !/position\.[xyz]/.test(stripComments(elseSplit[0])),
+      'raw local-position flutter frequencies are confined to the classic-fallback #else branch',
+      elseSplit[0] ? stripComments(elseSplit[0]).slice(-160) : 'no pre-#else segment');
+
     // The injection wires the SHARED uniform objects, so one update drives every material:
     // the stub shaders captured the same uWindAmp reference the trunk + foliage share.
     assert(trunkShader.uniforms.uWindAmp === foliageShader.uniforms.uWindAmp,

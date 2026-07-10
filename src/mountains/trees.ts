@@ -372,8 +372,12 @@ function getSnowMaterial(): THREE.MeshStandardMaterial {
 // and 1 at its top, so the tree pivots at the ground — while snow-laden parts use a
 // damped "canopy" lean. Live foliage uses the same canopy lean plus a small
 // crosswind flutter so needle layers flex under gusts. A spatial phase from each
-// vertex's world x/z desyncs neighbouring trees so the stand doesn't wave in
-// lockstep. One shared uniform set drives every material.
+// INSTANCE's origin (instanceMatrix's translation) desyncs neighbouring trees so
+// the stand doesn't wave in lockstep, while every vertex of one tree swings
+// coherently. One shared uniform set drives every material.
+// NOTE: tests/ez-sway-deformation-tests.js mirrors the lean/flutter formula below
+// in JS to bound intra-tree deformation on the real EZ archetypes — update that
+// mirror in lockstep with any change to TREE_SWAY_PROJECT_VERTEX.
 const treeWindUniforms = {
   uWindDir: { value: new THREE.Vector2(1, 0) }, // unit downwind direction (world x, z)
   uWindAmp: { value: 0 },                        // world-unit lean at full weight; 0 = calm
@@ -460,7 +464,19 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
     #else
       float swayWeight = 1.0;
     #endif
-    float swayPhase = dot( mvPosition.xz, vec2( 0.35, 0.27 ) );
+    // Per-INSTANCE phase — the tree's planted origin, NOT the vertex's own world
+    // position. The phase exists to desynchronize NEIGHBOURING trees; deriving it
+    // per vertex made different parts of ONE tree lean at different magnitudes and
+    // phases — the lean factor stays positive (always downwind), but ampVar's world
+    // period is ~2.5u, smaller than a canopy, so the spread reached most of the
+    // full amplitude. That was invisible at the original 0.35u amplitude, but the
+    // widened 0.9u band (#253 sway-visibility follow-up) crumpled the EZ
+    // archetypes' needle cards and branch tubes into diagonal scraggle — the
+    // "realistic trees disappeared from the foreground" regression. With the phase
+    // anchored to instanceMatrix's translation every vertex of a tree swings
+    // coherently, and the only intra-tree variation left is the height-rooted
+    // swayWeight — the natural base-anchored bend.
+    float swayPhase = dot( instanceMatrix[3].xz, vec2( 0.35, 0.27 ) );
     float swayOsc = sin( uWindSwayTime * TREE_SWAY_RATE + swayPhase )
                   + 0.3 * sin( uWindSwayTime * TREE_SWAY_RATE * 2.1 + swayPhase * 1.7 );
     float ampVar = 0.82 + 0.18 * sin( swayPhase * 5.7 + 2.1 );
@@ -473,9 +489,27 @@ const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
     mvPosition.z += uWindDir.y * lean;
     mvPosition.y -= TREE_LOAD_DROOP * snowLoad * swayWeight;
     #ifdef TREE_SWAY_FLUTTER
+      // Needle shimmer. On height-rooted geometry the along-tree variation keys off
+      // the SCALE-INDEPENDENT swayWeight (0 at the base, 1 at the crown) instead of
+      // the raw LOCAL vertex position: the EZ archetype geometries are ~5x their
+      // world size in local units (a ~10u tree spans local y 0..65), so the old
+      // position.y*2.0 / position.x*3.0 frequencies — tuned for the small stylized
+      // cones — flipped sign every ~0.3 world units and shredded each needle card
+      // into its own phase (per-card crumple, same regression as the lean above).
+      // The classic fallback foliage carries no root height (swayWeight is a
+      // constant 1.0 there), so it keeps the original local-space frequencies —
+      // safe on its ~1-4 local-unit cones and what preserves its within-cone
+      // shimmer instead of a rigid per-cone shift.
+      #if defined( TREE_SWAY_ROOT_HEIGHT ) || defined( TREE_SWAY_INSTANCE_WEIGHT )
+        float flutterAlong = swayWeight * 6.0;
+        float flutterAcross = swayWeight * 11.0;
+      #else
+        float flutterAlong = position.y * 2.0;
+        float flutterAcross = position.x * 3.0;
+      #endif
       float flutter = uWindAmp * swayWeight * loadEase
-                    * ( 0.10 * sin( uWindSwayTime * 5.3 + swayPhase * 3.9 + position.y * 2.0 )
-                      + 0.06 * sin( uWindSwayTime * 8.9 + swayPhase * 7.1 + position.x * 3.0 ) );
+                    * ( 0.10 * sin( uWindSwayTime * 5.3 + swayPhase * 3.9 + flutterAlong )
+                      + 0.06 * sin( uWindSwayTime * 8.9 + swayPhase * 7.1 + flutterAcross ) );
       mvPosition.x -= uWindDir.y * flutter;
       mvPosition.z += uWindDir.x * flutter;
     #endif
@@ -525,7 +559,7 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeigh
   // with an unswayed build or a differently-rooted/loaded variant.
   const heightTag = rootHeight !== undefined && rootHeight > 0 ? `-h${rootHeight.toFixed(2)}` : '';
   const loadTag = loadMode ? `-${loadMode}` : '';
-  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}${loadTag}-v4`;
+  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}${loadTag}-v5`;
 }
 
 /** Advance the forest's wind sway one render frame. Reads the shared Wind field (downwind

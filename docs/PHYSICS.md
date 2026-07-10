@@ -862,7 +862,13 @@ of each faking its own (issue #253).
   sway — an `onBeforeCompile` injection on the instanced tree materials, driven by a shared
   uniform set the main loop refreshes once per frame from `Wind.dir()`/`strength()`. The
   trunk material is "rooted" so the bend is planted at the base while the canopy above it
-  sways as a unit; a spatial phase from each vertex's world x/z desyncs neighbouring trees.
+  sways as a unit; a spatial phase from each tree's INSTANCE origin (`instanceMatrix[3]`)
+  desyncs neighbouring trees while keeping every vertex of one tree in the same swing —
+  a per-vertex world-x/z phase (the first cut) made parts of one tree lean independently,
+  which at the widened amplitude crumpled the EZ archetype pines into diagonal scraggle
+  (the "realistic trees disappeared from the foreground" regression). The needle flutter's
+  along-tree variation likewise keys off the scale-independent `swayWeight`, not raw
+  local-space frequencies (the EZ geometries are ~5x their world size in local units).
   The amplitude band (`TREE_SWAY_MIN_AMP`..`TREE_SWAY_MAX_AMP` = 0.06..0.9 world units at
   full canopy weight) and the 0.6-static / 0.4-oscillating split are tuned so a gust visibly
   whips the ~8-14u trees (~5° treetop swing) and a lull relaxes them — the first cut capped
