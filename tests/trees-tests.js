@@ -279,12 +279,21 @@ async function main() {
       'sway phase does NOT vary per vertex across a single tree');
     // Same trap in the flutter: raw LOCAL-space frequencies (position.y*k) flip sign
     // every fraction of a world unit on the EZ archetypes (local units are ~5x world),
-    // shredding each needle card into its own phase. The along-tree variation must key
-    // off the scale-independent swayWeight instead.
-    const flutterBlock = foliageShader.vertexShader.match(/float flutter[\s\S]*?#endif/);
-    assert(!!flutterBlock && !/position\.[xyz]/.test(flutterBlock[0]),
-      'flutter phase is scale-independent (no raw local-position frequencies)',
-      flutterBlock ? flutterBlock[0].slice(0, 120) : 'no flutter block');
+    // shredding each needle card into its own phase. On height-rooted geometry the
+    // along-tree variation must key off the scale-independent swayWeight (positive
+    // requirement); the raw local-position frequencies may survive ONLY inside the
+    // classic-fallback #else branch (no root height ⇒ swayWeight is constant 1.0
+    // there, and its ~1-4 local-unit cones need them for the within-cone shimmer).
+    const flutterMatch = foliageShader.vertexShader.match(/#ifdef TREE_SWAY_FLUTTER[\s\S]*?flutter;\s*\n\s*#endif/);
+    assert(!!flutterMatch, 'the flutter block is present in the injected chunk');
+    const flutterBlock = flutterMatch ? flutterMatch[0] : '';
+    assert(/#if defined\( TREE_SWAY_ROOT_HEIGHT \) \|\| defined\( TREE_SWAY_INSTANCE_WEIGHT \)[\s\S]*?swayWeight \* 6\.0[\s\S]*?swayWeight \* 11\.0[\s\S]*?#else/.test(flutterBlock),
+      'rooted/anchored flutter keys off the scale-independent swayWeight (positive requirement)');
+    const stripComments = (glsl) => glsl.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    const elseSplit = flutterBlock.split('#else');
+    assert(elseSplit.length === 2 && !/position\.[xyz]/.test(stripComments(elseSplit[0])),
+      'raw local-position flutter frequencies are confined to the classic-fallback #else branch',
+      elseSplit[0] ? stripComments(elseSplit[0]).slice(-160) : 'no pre-#else segment');
 
     // The injection wires the SHARED uniform objects, so one update drives every material:
     // the stub shaders captured the same uWindAmp reference the trunk + foliage share.
