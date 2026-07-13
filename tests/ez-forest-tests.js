@@ -468,14 +468,19 @@ async function main() {
     assert(Trees.abandonPendingEzBuild() === false,
       'abandoning twice is a no-op');
 
-    // The hung fetch finally settles: the abandoned build must NOT append EZ
-    // meshes on top, and the collider count must not double-decrement.
+    // The hung fetch finally settles: the abandoned BUILD stays inert (no double
+    // append, no double collider decrement) — but the tagged fallback UPGRADES in
+    // place to the EZ forest (the mobile cone-trees fix): exactly one forest, the
+    // cones gone, colliders still armed.
     resolveImport(await import('@dgreenheck/ez-tree'));
     await Trees.ezForestReady();
     const after = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(!after.some(m => m.userData.forestPart === 'ezBranches') &&
+    const afterParts = new Set(after.map(m => m.userData.forestPart));
+    assert(afterParts.has('ezBranches') && !afterParts.has('cone') && !afterParts.has('trunk') &&
+      !after.some(m => m.userData.ezFallbackTree) &&
       Trees.treeCollidersReady() === true,
-      'the abandoned build stays abandoned when its chunk finally lands');
+      'the late chunk upgrades the fallback to ONE EZ forest (abandoned build itself stays inert)',
+      [...afterParts].sort().join(', '));
 
     EzForest.__setEzModuleImporterForTests(null);
     EzForest.resetEzForest();
@@ -512,14 +517,21 @@ async function main() {
       'the stylized fallback forest is visible after the double-schedule abandon',
       [...parts].sort().join(', '));
 
-    // The hung fetch finally lands: neither build may append EZ meshes over the
-    // fallback, and the collider accounting must not double-decrement.
+    // The hung fetch finally lands: neither stalled BUILD may append over the
+    // fallback (no double forest, no double collider decrement) — the single
+    // upgrade path swaps the fallback for exactly one EZ forest.
     resolveImport(await import('@dgreenheck/ez-tree'));
     await Trees.ezForestReady();
     const after = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(!after.some(m => m.userData.forestPart === 'ezBranches') &&
+    const afterParts = new Set(after.map(m => m.userData.forestPart));
+    const ezBranchMeshCount = after.filter(m => m.userData.forestPart === 'ezBranches')
+      .reduce((n, m) => n + m.count, 0);
+    assert(afterParts.has('ezBranches') && !afterParts.has('cone') && !afterParts.has('trunk') &&
+      !after.some(m => m.userData.ezFallbackTree) &&
+      ezBranchMeshCount === Trees.getTreeLoadState().count &&
       Trees.treeCollidersReady() === true,
-      'both stalled builds stay abandoned when the chunk finally lands');
+      'the late chunk upgrades to ONE EZ forest (stalled builds stay inert, instance count matches the registry)',
+      `${ezBranchMeshCount} EZ instances, parts: ${[...afterParts].sort().join(', ')}`);
 
     EzForest.__setEzModuleImporterForTests(null);
     EzForest.resetEzForest();
