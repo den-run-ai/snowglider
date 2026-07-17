@@ -96,10 +96,21 @@ function controlAtPoint(x: number, y: number): ControlName | null {
 
 const CONTROL_NAMES: readonly ControlName[] = ['left', 'right', 'up', 'down', 'jump'];
 
+// Which controls a physical KEY is currently holding. The shared gameControls bit
+// is the OR of this ledger and touchState.touchHeld, so on hybrid/touchscreen
+// devices (or with a Bluetooth keyboard) the two input sources subtract only their
+// own contribution: a touch sliding away or lifting cannot clear a control a held
+// key is still asserting, and a keyup cannot clear one a finger is still pressing
+// (Codex review, PR #404).
+const keyboardHeld: Record<ControlName, boolean> = {
+  left: false, right: false, up: false, down: false, jump: false
+};
+
 /** Recompute the touch contribution to the shared control state from ALL live
  *  touches (#399): a control is touch-held iff at least one live touch owns it.
- *  Releases only controls the previous pass was asserting, so a keyboard-held
- *  control is never clobbered by a touch ending elsewhere. */
+ *  When no touch holds a control the shared bit falls back to the keyboard
+ *  ledger, so a keyboard-held control is never clobbered by a touch ending or
+ *  sliding elsewhere — touch subtracts only its own contribution. */
 function applyTouchOwnership(): void {
   for (const name of CONTROL_NAMES) {
     let held = false;
@@ -110,7 +121,7 @@ function applyTouchOwnership(): void {
       gameControls[name] = true;
       touchState.touchHeld[name] = true;
     } else if (touchState.touchHeld[name]) {
-      gameControls[name] = false;
+      gameControls[name] = keyboardHeld[name];
       touchState.touchHeld[name] = false;
     }
   }
@@ -146,31 +157,44 @@ function setupControls(signal?: AbortSignal): ControlState {
 
 // Setup keyboard control handlers
 function setupKeyboardControls(signal?: AbortSignal) {
+  // Press/release a control on behalf of the keyboard: the ledger records the
+  // keyboard's own contribution, and a release falls back to the touch-held state
+  // so lifting a key never clears a control a finger is still pressing (the mirror
+  // of applyTouchOwnership's keyboard fallback; Codex review, PR #404).
+  const keyPress = (name: ControlName) => {
+    keyboardHeld[name] = true;
+    gameControls[name] = true;
+  };
+  const keyRelease = (name: ControlName) => {
+    keyboardHeld[name] = false;
+    gameControls[name] = touchState.touchHeld[name];
+  };
+
   // Handle keyboard down events
   const handleKeyDown = (event: KeyboardEvent) => {
     switch(event.key) {
       case 'ArrowLeft':
       case 'a':
       case 'A':
-        gameControls.left = true;
+        keyPress('left');
         break;
       case 'ArrowRight':
       case 'd':
       case 'D':
-        gameControls.right = true;
+        keyPress('right');
         break;
       case 'ArrowUp':
       case 'w':
       case 'W':
-        gameControls.up = true;
+        keyPress('up');
         break;
       case 'ArrowDown':
       case 's':
       case 'S':
-        gameControls.down = true;
+        keyPress('down');
         break;
       case ' ':  // Spacebar
-        gameControls.jump = true;
+        keyPress('jump');
         break;
       case 'v':  // Toggle camera view (edge-triggered: once per physical press)
       case 'V':
@@ -191,25 +215,25 @@ function setupKeyboardControls(signal?: AbortSignal) {
       case 'ArrowLeft':
       case 'a':
       case 'A':
-        gameControls.left = false;
+        keyRelease('left');
         break;
       case 'ArrowRight':
       case 'd':
       case 'D':
-        gameControls.right = false;
+        keyRelease('right');
         break;
       case 'ArrowUp':
       case 'w':
       case 'W':
-        gameControls.up = false;
+        keyRelease('up');
         break;
       case 'ArrowDown':
       case 's':
       case 'S':
-        gameControls.down = false;
+        keyRelease('down');
         break;
       case ' ':  // Spacebar
-        gameControls.jump = false;
+        keyRelease('jump');
         break;
     }
   };
@@ -632,11 +656,13 @@ function resetControls(): ControlState {
   gameControls.down = false;
   gameControls.jump = false;
 
-  // Clear all tracked touches, their control ownership, and the touch-held ledger
-  // (#399) — a stale owner would re-assert its control on the next touch event.
+  // Clear all tracked touches, their control ownership, and both held ledgers
+  // (#399) — a stale owner or ledger entry would re-assert its control on the
+  // next touch event / key release.
   touchState.touches = {};
   touchState.owners = {};
   touchState.touchHeld = { left: false, right: false, up: false, down: false, jump: false };
+  for (const name of CONTROL_NAMES) keyboardHeld[name] = false;
 
   return gameControls;
 }

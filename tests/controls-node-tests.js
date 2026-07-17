@@ -195,6 +195,30 @@ async function main() {
   keyup('ArrowLeft');
   Controls.resetControls();
 
+  // Hybrid input on the SAME control (Codex review, PR #404): keyboard and touch
+  // each subtract only their own contribution. A touch that also owned a
+  // keyboard-held control sliding away (or lifting) must fall back to the keyboard
+  // ledger, not clear the shared bit until the next keydown/auto-repeat.
+  keydown('ArrowLeft');
+  dispatchTouch('touchstart', document, [{ identifier: 67, clientX: L[0], clientY: L[1] }]);
+  check('keyboard and touch can hold the same control together', controls.left === true);
+  dispatchTouch('touchmove', document, [{ identifier: 67, clientX: R[0], clientY: R[1] }]);
+  check('touch sliding away keeps the keyboard-held control pressed',
+    controls.left === true && controls.right === true);
+  dispatchTouch('touchend', document, [{ identifier: 67, clientX: R[0], clientY: R[1] }]);
+  check('touch lifting keeps the keyboard-held control pressed', controls.left === true);
+  keyup('ArrowLeft');
+  check('keyup finally releases the keyboard-held control', controls.left === false);
+
+  // ... and the mirror: a keyup must not clear a control a finger still presses.
+  dispatchTouch('touchstart', document, [{ identifier: 68, clientX: L[0], clientY: L[1] }]);
+  keydown('ArrowLeft');
+  keyup('ArrowLeft');
+  check('keyup does not clear a control a live touch still holds', controls.left === true);
+  dispatchTouch('touchend', document, [{ identifier: 68, clientX: L[0], clientY: L[1] }]);
+  check('lifting the touch after the keyup releases the control', controls.left === false);
+  Controls.resetControls();
+
   console.log('\n--- scrollable controls guide: touch passthrough (mobile) ---');
   // A touch that begins inside #controlsContent (the Ski Techniques scroller) must be
   // left to the browser: NOT preventDefaulted (so the panel scrolls natively) and NOT
@@ -513,6 +537,10 @@ async function main() {
       keydown('ArrowLeft');
       return firedWhileLive === 1 && hits === 1; // fired once live, not after abort
     })());
+  // Balance the keydowns above (they also hit the suite's original no-signal
+  // handler): with the keyboard-held ledger (PR #404) an unreleased key would
+  // otherwise keep its control asserted through the touch tests below.
+  keyup('ArrowLeft');
 
   // --- delayed overlay-observer abort guard (Codex review #226) ---
   // On mobile setupControls() runs before setupScene() creates #gameOverOverlay, so
