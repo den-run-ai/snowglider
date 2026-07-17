@@ -17,6 +17,7 @@
 // (Vite/tsc resolve them to the `.ts` files; the Node terrain/regression tests use
 // the `.js`->`.ts` resolve hook added in PR 3.3).
 import * as THREE from 'three';
+import { cosmeticRandom } from './run-context.js';
 import { Mountains } from './mountains.js';
 import { Trees } from './trees.js';
 import { Wind } from './wind.js';
@@ -136,7 +137,7 @@ function createSnowflakes(scene: THREE.Scene) {
     const snowflake = new THREE.Sprite(materials[i % materials.length]);
 
     // More varied size range for realistic snow
-    const size = 0.1 + Math.random() * 0.4; // Wider range for more varied flakes
+    const size = 0.1 + cosmeticRandom('snowParticles') * 0.4; // Wider range for more varied flakes
     snowflake.scale.set(size, size, size);
 
     // Wind susceptibility (issue #253): lighter (smaller) flakes are carried further by
@@ -149,10 +150,10 @@ function createSnowflakes(scene: THREE.Scene) {
 
     // Movement state (typed — see FlakeState) for realistic snow behaviour.
     const flake: FlakeState = {
-      speed: (0.5 + Math.random() * 1.0) * snowflakeFallSpeed,
-      wobble: 0.05 + Math.random() * 0.15,      // More natural wobble
-      wobbleSpeed: 0.3 + Math.random() * 2.0,   // Varied wobble speeds
-      wobblePos: Math.random() * Math.PI * 2,
+      speed: (0.5 + cosmeticRandom('snowParticles') * 1.0) * snowflakeFallSpeed,
+      wobble: 0.05 + cosmeticRandom('snowParticles') * 0.15,      // More natural wobble
+      wobbleSpeed: 0.3 + cosmeticRandom('snowParticles') * 2.0,   // Varied wobble speeds
+      wobblePos: cosmeticRandom('snowParticles') * Math.PI * 2,
       windFactor: 0.12 + 0.28 * (1 - sizeNorm)
     };
     snowflake.userData = flake;
@@ -186,9 +187,9 @@ function teardownSnowflakes(): void {
 
 function resetSnowflakePosition(snowflake: THREE.Sprite, playerPos: Vec3Like) {
   // Position snowflakes randomly in a box above the player
-  snowflake.position.x = playerPos.x + (Math.random() * snowflakeSpread - snowflakeSpread/2);
-  snowflake.position.z = playerPos.z + (Math.random() * snowflakeSpread - snowflakeSpread/2);
-  snowflake.position.y = playerPos.y + Math.random() * snowflakeHeight;
+  snowflake.position.x = playerPos.x + (cosmeticRandom('snowParticles') * snowflakeSpread - snowflakeSpread/2);
+  snowflake.position.z = playerPos.z + (cosmeticRandom('snowParticles') * snowflakeSpread - snowflakeSpread/2);
+  snowflake.position.y = playerPos.y + cosmeticRandom('snowParticles') * snowflakeHeight;
 }
 
 function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scene) {
@@ -305,7 +306,7 @@ function createSnowSplash(): SnowSplash {
   // Create individual particles
   for (let i = 0; i < particleCount; i++) {
     // Randomly choose between the two texture types
-    const materialIndex = Math.random() > 0.3 ? 0 : 1;
+    const materialIndex = cosmeticRandom('snowParticles') > 0.3 ? 0 : 1;
     const particle = new THREE.Sprite(materials[materialIndex]!.clone());
     
     // Start with zero size (invisible)
@@ -320,7 +321,7 @@ function createSnowSplash(): SnowSplash {
       ySpeed: 0,
       zSpeed: 0,
       size: 0, // Store base size
-      rotationSpeed: (Math.random() - 0.5) * 0.8, // Add rotation for some particles
+      rotationSpeed: (cosmeticRandom('snowParticles') - 0.5) * 0.8, // Add rotation for some particles
       type: materialIndex // Remember texture type
     };
     
@@ -341,6 +342,10 @@ function createSnowSplash(): SnowSplash {
 // wide skidding ring of spray at the skis scaled by the intensity (the loop maps
 // CLEAN → a crisp small puff, SKETCHY → a wide wash), independent of the grounded
 // speed-gated emission below.
+// 60 Hz-referenced accumulator for the ski-spray emission roll (#400) — see the
+// emission block below. Module-level like the splash pool itself.
+let splashEmitAccum = 0;
+
 function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THREE.Object3D, velocity: PlanarVelocity, isInAir: boolean, scene: THREE.Scene, landingBurst?: number) {
   // Early return if not initialized
   if (!splash || !splash.particles) return;
@@ -376,7 +381,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
     particle.position.z += wind.z * SPLASH_WIND * delta;
 
     // Apply gravity with slight random variation
-    particle.userData.ySpeed -= (11 + Math.random() * 2) * delta;
+    particle.userData.ySpeed -= (11 + cosmeticRandom('snowParticles') * 2) * delta;
     
     // Apply slight air resistance/drag
     particle.userData.xSpeed *= (1 - 0.2 * delta);
@@ -406,8 +411,16 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
     
     // Emit chance increases with speed and turning
     const emissionChance = Math.min(1, 0.7 + (speed / 16) + (turnFactor * 0.8));
-    
-    if (Math.random() < emissionChance) {
+
+    // Frame-rate-independent emission (#400): the old per-render-frame roll made a
+    // 144 Hz panel spray ~2.4x the particles of a 60 Hz one (and at the common
+    // chance=1 it emitted every frame unconditionally). The accumulator rolls the
+    // SAME chance at the 60 Hz reference cadence — identical expected particles
+    // per second at any render rate. Catch-up after a stall is capped.
+    splashEmitAccum = Math.min(splashEmitAccum + delta * 60, 4);
+    while (splashEmitAccum >= 1) {
+      splashEmitAccum -= 1;
+      if (cosmeticRandom('snowParticles') >= emissionChance) continue;
       // Get ski positions (left and right of snowman)
       const skiOffsetLeft = new THREE.Vector3(-1.1, 0.1, 1);
       const skiOffsetRight = new THREE.Vector3(1.1, 0.1, 1);
@@ -417,8 +430,8 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
       skiOffsetRight.applyAxisAngle(new THREE.Vector3(0, 1, 0), snowman.rotation.y);
       
       // Choose which ski to emit from (or both at high speeds)
-      const emitBoth = speed > 7 || Math.random() < 0.8; // Increased chance for both
-      const emitLeft = emitBoth || Math.random() < 0.5;
+      const emitBoth = speed > 7 || cosmeticRandom('snowParticles') < 0.8; // Increased chance for both
+      const emitLeft = emitBoth || cosmeticRandom('snowParticles') < 0.5;
       const emitRight = emitBoth || !emitLeft;
       
       // Calculate particle count based on speed and turning
@@ -452,9 +465,9 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
           : (emitLeft ? skiOffsetLeft : skiOffsetRight);
         
         // Create randomness for more natural effect
-        const randomX = (Math.random() - 0.5) * 1.2;
-        const randomY = Math.random() * 0.3;
-        const randomZ = (Math.random() - 0.5) * 1.2;
+        const randomX = (cosmeticRandom('snowParticles') - 0.5) * 1.2;
+        const randomY = cosmeticRandom('snowParticles') * 0.3;
+        const randomZ = (cosmeticRandom('snowParticles') - 0.5) * 1.2;
         
         // Position at ski
         const snowmanPos = new THREE.Vector3(
@@ -469,9 +482,9 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         // Generate random speed components with more realistic spread
         // Side velocity depends on turn factor
         const sideBase = 2 + turnFactor * 4;
-        const sideVelocity = sideBase + Math.random() * 3 * speed / 8;
-        const upVelocity = 1.5 + Math.random() * 3 * speed / 10;
-        const forwardVelocity = 0.8 + Math.random() * 2.0;
+        const sideVelocity = sideBase + cosmeticRandom('snowParticles') * 3 * speed / 8;
+        const upVelocity = 1.5 + cosmeticRandom('snowParticles') * 3 * speed / 10;
+        const forwardVelocity = 0.8 + cosmeticRandom('snowParticles') * 2.0;
         
         // Set velocities - direction depending on which ski
         particle.userData.xSpeed = (skiOffset === skiOffsetLeft ? -1 : 1) * sideVelocity;
@@ -484,7 +497,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         
         // Set larger base size for better visibility
         const baseSize = 1.3 + (speed / 16); // Increased base size
-        particle.userData.size = baseSize + Math.random() * baseSize * 0.7;
+        particle.userData.size = baseSize + cosmeticRandom('snowParticles') * baseSize * 0.7;
         
         // Set initial scale
         particle.scale.set(
@@ -494,11 +507,11 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         );
         
         // Set higher opacity for better visibility
-        particle.material.opacity = 0.9 + Math.random() * 0.1;
+        particle.material.opacity = 0.9 + cosmeticRandom('snowParticles') * 0.1;
         
         // Set lifetime and activate with more variation
         const speedFactor = Math.min(1, speed / 15);
-        particle.userData.maxLifetime = 0.7 + Math.random() * 0.9 * (1 + speedFactor * 0.5);
+        particle.userData.maxLifetime = 0.7 + cosmeticRandom('snowParticles') * 0.9 * (1 + speedFactor * 0.5);
         particle.userData.lifetime = particle.userData.maxLifetime;
         particle.userData.active = true;
         
@@ -508,6 +521,10 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         }
       }
     }
+  } else {
+    // Not grounded-and-moving: drop any banked emission ticks so touchdown doesn't
+    // fire a phantom backlog on top of the explicit landing burst below (#400).
+    splashEmitAccum = 0;
   }
 
   // Touchdown burst (JP-5): a one-shot radial puff on a graded manual-jump landing,
@@ -527,21 +544,21 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
       const particle = splash.particles[nextIdx]!;
 
       // A ring around the skis: spray kicked outward + up on impact.
-      const ang = (i / burstCount) * Math.PI * 2 + Math.random() * 0.5;
-      const ringR = 0.6 + Math.random() * 0.9;
+      const ang = (i / burstCount) * Math.PI * 2 + cosmeticRandom('snowParticles') * 0.5;
+      const ringR = 0.6 + cosmeticRandom('snowParticles') * 0.9;
       particle.position.x = snowman.position.x + Math.cos(ang) * ringR;
-      particle.position.y = snowman.position.y + 0.15 + Math.random() * 0.2;
+      particle.position.y = snowman.position.y + 0.15 + cosmeticRandom('snowParticles') * 0.2;
       particle.position.z = snowman.position.z + Math.sin(ang) * ringR;
 
       const kick = 2.5 + landingBurst * 5;
-      particle.userData.xSpeed = Math.cos(ang) * kick * (0.6 + Math.random() * 0.6) + velocity.x * 0.25;
-      particle.userData.ySpeed = 2 + landingBurst * 3 * Math.random();
-      particle.userData.zSpeed = Math.sin(ang) * kick * (0.6 + Math.random() * 0.6) + velocity.z * 0.25;
+      particle.userData.xSpeed = Math.cos(ang) * kick * (0.6 + cosmeticRandom('snowParticles') * 0.6) + velocity.x * 0.25;
+      particle.userData.ySpeed = 2 + landingBurst * 3 * cosmeticRandom('snowParticles');
+      particle.userData.zSpeed = Math.sin(ang) * kick * (0.6 + cosmeticRandom('snowParticles') * 0.6) + velocity.z * 0.25;
 
-      particle.userData.size = 1.1 + landingBurst * 1.2 * Math.random();
+      particle.userData.size = 1.1 + landingBurst * 1.2 * cosmeticRandom('snowParticles');
       particle.scale.set(particle.userData.size, particle.userData.size, particle.userData.size);
-      particle.material.opacity = 0.85 + Math.random() * 0.15;
-      particle.userData.maxLifetime = 0.5 + landingBurst * 0.6 + Math.random() * 0.3;
+      particle.material.opacity = 0.85 + cosmeticRandom('snowParticles') * 0.15;
+      particle.userData.maxLifetime = 0.5 + landingBurst * 0.6 + cosmeticRandom('snowParticles') * 0.3;
       particle.userData.lifetime = particle.userData.maxLifetime;
       particle.userData.active = true;
       if (!particle.parent) scene.add(particle);

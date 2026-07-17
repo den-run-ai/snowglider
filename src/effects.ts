@@ -25,6 +25,8 @@
 // native type-stripping both run it exactly as before.
 
 /** Per-frame camera shake offset returned by {@link EffectsModule.tickCamera}. */
+import { cosmeticRandom } from './run-context.js';
+
 export interface ShakeOffset {
   x: number;
   y: number;
@@ -203,9 +205,9 @@ export const EffectsModule = (function () {
     if (intensity <= 0.0001) return { x: 0, y: 0, z: 0 };
 
     const offset = {
-      x: (Math.random() - 0.5) * intensity,
-      y: (Math.random() - 0.5) * intensity,
-      z: (Math.random() - 0.5) * intensity * 0.5
+      x: (cosmeticRandom('cameraEffects') - 0.5) * intensity,
+      y: (cosmeticRandom('cameraEffects') - 0.5) * intensity,
+      z: (cosmeticRandom('cameraEffects') - 0.5) * intensity * 0.5
     };
     camera.position.x += offset.x;
     camera.position.y += offset.y;

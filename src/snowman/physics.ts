@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 
 import { BLUE_PHYSICS_TUNING, type SnowmanPhysicsTuning } from '../difficulty.js';
+import { gameplayRandom } from '../run-context.js';
 import type {
   CameraManagerLike,
   LandingQuality,
@@ -808,8 +809,12 @@ export function stepSnowmanPhysics(
       if (turnChangeCooldown <= 0) {
         // Instead of completely random direction, bias toward centered movement
         // Higher probability of returning to center line when far from center
+        // The draws go through the 'physics' gameplay stream (#400): an unseeded
+        // run is a pure Math.random() passthrough (byte-identical to the frozen
+        // baseline + the seeded harnesses); a seeded run replays the same
+        // auto-turn decisions regardless of render rate or particle activity.
         const centeringBias = Math.min(1, Math.abs(pos.x) / 20) * 0.7;
-        const randomFactor = Math.random();
+        const randomFactor = gameplayRandom('physics');
         
         if (pos.x > 5 && randomFactor < (0.6 + centeringBias)) {
           // If we're right of center, bias toward turning left
@@ -819,11 +824,11 @@ export function stepSnowmanPhysics(
           currentTurnDirection = 1;
         } else {
           // Otherwise random direction with smooth transition
-          currentTurnDirection = Math.random() > 0.5 ? 1 : -1;
+          currentTurnDirection = gameplayRandom('physics') > 0.5 ? 1 : -1;
         }
-        
+
         // Longer cooldown for smoother movement
-        turnChangeCooldown = 3 + Math.random() * 2;
+        turnChangeCooldown = 3 + gameplayRandom('physics') * 2;
       }
       
       // Scale turn intensity with speed, but with much gentler effect at low speeds
