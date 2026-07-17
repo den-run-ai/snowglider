@@ -140,6 +140,61 @@ async function main() {
     touchId++;
   }
 
+  console.log('\n--- multitouch ownership (#399) ---');
+  // The control state is recomputed from ALL live touches (identifier -> owned
+  // control), not from each event in isolation. Old behavior failed all of these:
+  // moving a touch left its previous action latched, and lifting one finger cleared
+  // an action another finger still held.
+  const L = /** @type {[number, number]} */ ([W / 6, H / 2]);
+  const R = /** @type {[number, number]} */ ([(W * 5) / 6, H / 2]);
+  Controls.resetControls();
+
+  // Two fingers in the SAME region: lifting one must not release the other's hold.
+  dispatchTouch('touchstart', document, [{ identifier: 60, clientX: L[0], clientY: L[1] }]);
+  dispatchTouch('touchstart', document, [{ identifier: 61, clientX: L[0] + 10, clientY: L[1] }]);
+  check('two fingers in the left region hold left', controls.left === true);
+  dispatchTouch('touchend', document, [{ identifier: 60, clientX: L[0], clientY: L[1] }]);
+  check('lifting ONE of two fingers keeps left held (second finger still owns it)',
+    controls.left === true);
+  dispatchTouch('touchend', document, [{ identifier: 61, clientX: L[0] + 10, clientY: L[1] }]);
+  check('lifting the last finger releases left', controls.left === false);
+
+  // A finger sliding from one region into another hands ownership over: the old
+  // region must release, the new one press — no both-held "steer both ways" state.
+  dispatchTouch('touchstart', document, [{ identifier: 62, clientX: L[0], clientY: L[1] }]);
+  check('slide: press in left sets left', controls.left === true);
+  dispatchTouch('touchmove', document, [{ identifier: 62, clientX: R[0], clientY: R[1] }]);
+  check('slide into right releases left (no latched old action)', controls.left === false);
+  check('slide into right presses right', controls.right === true);
+  dispatchTouch('touchend', document, [{ identifier: 62, clientX: R[0], clientY: R[1] }]);
+  check('lifting the slid finger releases right', controls.right === false);
+
+  // Two fingers in DIFFERENT regions: lifting one releases only its own control.
+  dispatchTouch('touchstart', document, [{ identifier: 63, clientX: L[0], clientY: L[1] }]);
+  dispatchTouch('touchstart', document, [{ identifier: 64, clientX: R[0], clientY: R[1] }]);
+  check('two fingers hold left and right together', controls.left === true && controls.right === true);
+  dispatchTouch('touchend', document, [{ identifier: 63, clientX: L[0], clientY: L[1] }]);
+  check('lifting the left finger releases left only', controls.left === false && controls.right === true);
+  dispatchTouch('touchend', document, [{ identifier: 64, clientX: R[0], clientY: R[1] }]);
+  check('lifting the right finger releases right', controls.right === false);
+
+  // Sliding out of every region (dead corner) releases the control WHILE the finger
+  // is still down — not only at lift.
+  dispatchTouch('touchstart', document, [{ identifier: 65, clientX: L[0], clientY: L[1] }]);
+  dispatchTouch('touchmove', document, [{ identifier: 65, clientX: 5, clientY: 5 }]);
+  check('sliding into a dead zone releases the control mid-gesture', controls.left === false);
+  dispatchTouch('touchend', document, [{ identifier: 65, clientX: 5, clientY: 5 }]);
+
+  // A touch release must not clobber a control the KEYBOARD is holding (the old
+  // zero-touches blanket reset cleared every control, keyboard-held ones included).
+  keydown('ArrowLeft');
+  dispatchTouch('touchstart', document, [{ identifier: 66, clientX: R[0], clientY: R[1] }]);
+  dispatchTouch('touchend', document, [{ identifier: 66, clientX: R[0], clientY: R[1] }]);
+  check('releasing the last touch leaves a keyboard-held control pressed',
+    controls.left === true && controls.right === false);
+  keyup('ArrowLeft');
+  Controls.resetControls();
+
   console.log('\n--- scrollable controls guide: touch passthrough (mobile) ---');
   // A touch that begins inside #controlsContent (the Ski Techniques scroller) must be
   // left to the browser: NOT preventDefaulted (so the panel scrolls natively) and NOT
