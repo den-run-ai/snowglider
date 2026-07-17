@@ -59,6 +59,29 @@ async function run() {
     return reason;
   }
 
+  /**
+   * Like frame(), but also captures this frame's airborne obstacle clears (JP-2).
+   * @param {{x:number,y:number,z:number}} pos
+   * @param {boolean} isInAir
+   */
+  function frameWithClears(pos, isInAir) {
+    /** @type {string|null} */
+    let reason = null;
+    /** @type {{type:string,key:string}[]} */
+    let clears = [];
+    detectCollisionsAndFinish({
+      pos,
+      isInAir,
+      terrainHeightAtPosition: 0,
+      treePositions: [tree],
+      rockPositions: [],
+      gameActive: true,
+      showGameOver: (r) => { reason = r; },
+      onObstaclesCleared: (c) => { clears = clears.concat(c); }
+    });
+    return { reason, clears };
+  }
+
   // Player horizontally inside the trunk radius (dist 1 < 2.5) for the airborne cases.
   const inside = (y) => ({ x: 1, y, z: 0 });
 
@@ -85,6 +108,29 @@ async function run() {
   //    no tree collision — the core "land clear of the trunk" guarantee.
   check('descending clear of the trunk radius does not crash',
     frame({ x: 3, y: 0, z: 0 }, false) === null);
+
+  // --- Exact-center clearance (#398) -------------------------------------------
+  // The exact x/z match used to return a hit BEFORE the airborne clearance check,
+  // so a jump arcing directly over the trunk center crashed despite clearing the
+  // tree — the one horizontal line the height-based clearance didn't cover.
+
+  // 6) Directly above the trunk center, airborne and high: clears (old code crashed).
+  const overCenter = frameWithClears({ x: 0, y: 10, z: 0 }, true);
+  check('exact-center pass high above the tree clears it (no crash)',
+    overCenter.reason === null);
+
+  // 7) ... and the suppressed pass is a scored clear, recorded exactly once.
+  check('exact-center airborne clear is recorded once (JP-2)',
+    overCenter.clears.length === 1 &&
+    overCenter.clears[0]?.type === 'tree' && overCenter.clears[0]?.key === 't0');
+
+  // 8) Exact-center but airborne BELOW the clearance height: still a crash.
+  check('exact-center airborne but too low still crashes',
+    /tree/i.test(String(frame({ x: 0, y: 3, z: 0 }, true))));
+
+  // 9) Exact-center on the ground: still a crash (the direct-hit fast path).
+  check('exact-center grounded hit still crashes',
+    /tree/i.test(String(frame({ x: 0, y: 0, z: 0 }, false))));
 
   console.log('\n================================================');
   console.log(`Summary: ${passed} passed, ${failed} failed`);
