@@ -92,13 +92,6 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
       Math.abs(pos.x - treePos.x) < epsilon &&
       Math.abs(pos.z - treePos.z) < epsilon;
 
-    if (exactMatch) {
-      if (window.location.search.includes('test=true')) {
-        console.log(`DIRECT TREE HIT at (${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`);
-      }
-      return true;
-    }
-
     // Check horizontal distance for collision (2D distance ignoring height)
     const dx = pos.x - treePos.x;
     const dz = pos.z - treePos.z;
@@ -117,6 +110,24 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     // still overlapped the trunk radius (i.e. most real jumps over a tree) crashed even
     // though the snowman was well above the tree. (Same bug already fixed for rocks.)
     const isJumpingHighAboveTrees = isInAir && pos.y > (treePos.y + 5);
+
+    // The exact-center match must respect the SAME airborne clearance as the radius
+    // path (#398): it used to return a hit unconditionally, so a jump arcing directly
+    // over a trunk center crashed even while the snowman was well above the tree —
+    // the one horizontal line the height-based clearance above didn't cover. An
+    // exact-center pass that the clearance suppresses is still a scored clear (JP-2);
+    // the radius branch below would push the same key, but `return false` here exits
+    // this tree's walk before it runs, so the clear is recorded exactly once.
+    if (exactMatch) {
+      if (isJumpingHighAboveTrees) {
+        clears.push({ type: 'tree', key: `t${treeIndex}` });
+        return false;
+      }
+      if (window.location.search.includes('test=true')) {
+        console.log(`DIRECT TREE HIT at (${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`);
+      }
+      return true;
+    }
 
     // Airborne clear (JP-2): this frame WOULD have hit the tree but the suppression
     // branch is letting the player sail over — record it (index keys the obstacle for

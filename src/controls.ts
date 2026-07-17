@@ -33,9 +33,20 @@ interface TouchPoint {
   y: number;
 }
 
-/** Touch tracking state: live touches, the screen regions, and the visual flags. */
+/** Touch tracking state: live touches, per-touch control ownership, the screen
+ *  regions, and the visual flags. */
 interface TouchState {
   touches: Record<string, TouchPoint>;
+  /** identifier -> the control this live touch currently owns (null: in no region).
+   *  Multitouch correctness (#399) hangs off this map: the control state is
+   *  recomputed from ALL live owners on every touch event, so a finger sliding
+   *  between regions releases its old control, and lifting one finger cannot
+   *  clear a control another finger still holds. */
+  owners: Record<string, ControlName | null>;
+  /** Which controls the ownership pass is currently asserting. Lets the recompute
+   *  release exactly the controls TOUCH was holding, without clobbering a control
+   *  a keyboard key is holding at the same time. */
+  touchHeld: Record<ControlName, boolean>;
   controlRegions: Partial<Record<ControlName, TouchRegion>>;
   showVisualControls: boolean;   // production affordances (small faint pads, default ON on mobile)
   showDebugTouchZones: boolean;  // full-region debug rectangles (?debugTouchZones=1 only)
@@ -53,10 +64,68 @@ const gameControls: ControlState = {
 // Touch state tracking
 const touchState: TouchState = {
   touches: {},         // Store active touch points
+  owners: {},          // identifier -> owned control (see TouchState.owners)
+  touchHeld: { left: false, right: false, up: false, down: false, jump: false },
   controlRegions: {},  // Regions for touch controls on screen
   showVisualControls: false,  // Production affordances; set from shouldShowTouchAffordances() on mobile
   showDebugTouchZones: false  // Debug hit-area rectangles; set from shouldShowTouchZones() on mobile
 };
+
+// Helper to check if a point is in a region (module-scope: the ownership resolver
+// below and the region handlers both use it).
+function isPointInRegion(x: number, y: number, region: TouchRegion | undefined): boolean {
+  if (!region) return false;
+  return (
+    x >= region.x &&
+    x <= region.x + region.width &&
+    y >= region.y &&
+    y <= region.y + region.height
+  );
+}
+
+/** Which control (if any) a touch at (x, y) owns right now. The center jump
+ *  region is excluded while the tier has no jump verb (setJumpEnabled). */
+function controlAtPoint(x: number, y: number): ControlName | null {
+  if (isPointInRegion(x, y, touchState.controlRegions.left)) return 'left';
+  if (isPointInRegion(x, y, touchState.controlRegions.right)) return 'right';
+  if (isPointInRegion(x, y, touchState.controlRegions.up)) return 'up';
+  if (isPointInRegion(x, y, touchState.controlRegions.down)) return 'down';
+  if (jumpEnabled && isPointInRegion(x, y, touchState.controlRegions.jump)) return 'jump';
+  return null;
+}
+
+const CONTROL_NAMES: readonly ControlName[] = ['left', 'right', 'up', 'down', 'jump'];
+
+// Which controls a physical KEY is currently holding. The shared gameControls bit
+// is the OR of this ledger and touchState.touchHeld, so on hybrid/touchscreen
+// devices (or with a Bluetooth keyboard) the two input sources subtract only their
+// own contribution: a touch sliding away or lifting cannot clear a control a held
+// key is still asserting, and a keyup cannot clear one a finger is still pressing
+// (Codex review, PR #404).
+const keyboardHeld: Record<ControlName, boolean> = {
+  left: false, right: false, up: false, down: false, jump: false
+};
+
+/** Recompute the touch contribution to the shared control state from ALL live
+ *  touches (#399): a control is touch-held iff at least one live touch owns it.
+ *  When no touch holds a control the shared bit falls back to the keyboard
+ *  ledger, so a keyboard-held control is never clobbered by a touch ending or
+ *  sliding elsewhere — touch subtracts only its own contribution. */
+function applyTouchOwnership(): void {
+  for (const name of CONTROL_NAMES) {
+    let held = false;
+    for (const id in touchState.owners) {
+      if (touchState.owners[id] === name) { held = true; break; }
+    }
+    if (held) {
+      gameControls[name] = true;
+      touchState.touchHeld[name] = true;
+    } else if (touchState.touchHeld[name]) {
+      gameControls[name] = keyboardHeld[name];
+      touchState.touchHeld[name] = false;
+    }
+  }
+}
 
 // Per-tier jump availability (jump-system completion, workstream A). When false —
 // set at run start from the tier's `ski.manualJump` via setJumpEnabled — the CENTER
@@ -88,31 +157,44 @@ function setupControls(signal?: AbortSignal): ControlState {
 
 // Setup keyboard control handlers
 function setupKeyboardControls(signal?: AbortSignal) {
+  // Press/release a control on behalf of the keyboard: the ledger records the
+  // keyboard's own contribution, and a release falls back to the touch-held state
+  // so lifting a key never clears a control a finger is still pressing (the mirror
+  // of applyTouchOwnership's keyboard fallback; Codex review, PR #404).
+  const keyPress = (name: ControlName) => {
+    keyboardHeld[name] = true;
+    gameControls[name] = true;
+  };
+  const keyRelease = (name: ControlName) => {
+    keyboardHeld[name] = false;
+    gameControls[name] = touchState.touchHeld[name];
+  };
+
   // Handle keyboard down events
   const handleKeyDown = (event: KeyboardEvent) => {
     switch(event.key) {
       case 'ArrowLeft':
       case 'a':
       case 'A':
-        gameControls.left = true;
+        keyPress('left');
         break;
       case 'ArrowRight':
       case 'd':
       case 'D':
-        gameControls.right = true;
+        keyPress('right');
         break;
       case 'ArrowUp':
       case 'w':
       case 'W':
-        gameControls.up = true;
+        keyPress('up');
         break;
       case 'ArrowDown':
       case 's':
       case 'S':
-        gameControls.down = true;
+        keyPress('down');
         break;
       case ' ':  // Spacebar
-        gameControls.jump = true;
+        keyPress('jump');
         break;
       case 'v':  // Toggle camera view (edge-triggered: once per physical press)
       case 'V':
@@ -133,25 +215,25 @@ function setupKeyboardControls(signal?: AbortSignal) {
       case 'ArrowLeft':
       case 'a':
       case 'A':
-        gameControls.left = false;
+        keyRelease('left');
         break;
       case 'ArrowRight':
       case 'd':
       case 'D':
-        gameControls.right = false;
+        keyRelease('right');
         break;
       case 'ArrowUp':
       case 'w':
       case 'W':
-        gameControls.up = false;
+        keyRelease('up');
         break;
       case 'ArrowDown':
       case 's':
       case 'S':
-        gameControls.down = false;
+        keyRelease('down');
         break;
       case ' ':  // Spacebar
-        gameControls.jump = false;
+        keyRelease('jump');
         break;
     }
   };
@@ -371,6 +453,17 @@ function setupTouchControls(signal?: AbortSignal) {
   const isNonGameplayTouch = (event: TouchEvent): boolean =>
     isScrollableUiTouch(event) || isInteractiveUiTouch(event);
 
+  // Touch handlers (#399): every event re-registers the changed touches' ownership
+  // (identifier -> control) and then recomputes the whole touch contribution from ALL
+  // live touches via applyTouchOwnership(). The old per-event `processTouchInput`
+  // wrote only the region the changed touch was in NOW, which broke multitouch two
+  // ways: a finger sliding from `left` into `right` set `right` but never released
+  // `left` (both steered until every finger lifted), and lifting one finger cleared a
+  // region that a SECOND finger was still holding. The recompute also subsumes the
+  // old zero-touches full reset (Codex review, PR #383): a press that drifts out of
+  // its region before lifting releases its control because its owner entry is gone,
+  // not because a blanket reset clobbered every control (including keyboard-held ones).
+
   // Handle touch start
   const handleTouchStart = (event: TouchEvent) => {
     if (isNonGameplayTouch(event)) return; // let UI controls + scrollable guides own their touch
@@ -379,16 +472,20 @@ function setupTouchControls(signal?: AbortSignal) {
       event.preventDefault();
     }
 
-    // Process each touch point
+    // Register each new touch point and the control it lands on
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
       if (!touch) continue;
-      processTouchInput(touch, true);
       touchState.touches[touch.identifier] = {
         x: touch.clientX,
         y: touch.clientY
       };
+      touchState.owners[touch.identifier] = controlAtPoint(touch.clientX, touch.clientY);
     }
+    applyTouchOwnership();
+    // Repaint on every press/move/release so pads track the recomputed state (a pad
+    // gated on the raw event used to sit stuck highlighted after a drift-out lift).
+    repaintVisualControls();
   };
 
   // Handle touch move
@@ -399,16 +496,19 @@ function setupTouchControls(signal?: AbortSignal) {
       event.preventDefault();
     }
 
-    // Process each touch point
+    // Re-resolve ownership for each moved touch: entering a new region hands the
+    // touch to that control, and applyTouchOwnership releases the one it left.
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
       if (!touch) continue;
-      processTouchInput(touch, true);
       touchState.touches[touch.identifier] = {
         x: touch.clientX,
         y: touch.clientY
       };
+      touchState.owners[touch.identifier] = controlAtPoint(touch.clientX, touch.clientY);
     }
+    applyTouchOwnership();
+    repaintVisualControls();
   };
 
   // Handle touch end
@@ -419,56 +519,16 @@ function setupTouchControls(signal?: AbortSignal) {
       event.preventDefault();
     }
 
-    // Process each touch point being removed
+    // Drop each lifted touch and its ownership; the recompute below releases only
+    // controls no remaining touch holds (a second finger still in the region keeps
+    // its control pressed).
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
       if (!touch) continue;
-      processTouchInput(touch, false);
       delete touchState.touches[touch.identifier];
+      delete touchState.owners[touch.identifier];
     }
-
-    // If no touches remain, reset all controls — then repaint the pads. The release
-    // itself only repaints the region the finger ended in, so a press that started on
-    // a control and drifted OUT of it before lifting leaves the original pad's flag
-    // uncleared by processTouchInput; this reset clears it, and without the repaint
-    // that pad would sit stuck in its highlighted state until the next touch (Codex
-    // review, PR #383).
-    if (Object.keys(touchState.touches).length === 0) {
-      gameControls.left = false;
-      gameControls.right = false;
-      gameControls.up = false;
-      gameControls.down = false;
-      gameControls.jump = false;
-      repaintVisualControls();
-    }
-  };
-  
-  // Process touch input based on screen position
-  const processTouchInput = (touch: Touch, isActive: boolean) => {
-    const x = touch.clientX;
-    const y = touch.clientY;
-    
-    // Check which region the touch is in and update controls
-    if (isPointInRegion(x, y, touchState.controlRegions.left)) {
-      gameControls.left = isActive;
-    }
-    else if (isPointInRegion(x, y, touchState.controlRegions.right)) {
-      gameControls.right = isActive;
-    }
-    else if (isPointInRegion(x, y, touchState.controlRegions.up)) {
-      gameControls.up = isActive;
-    }
-    else if (isPointInRegion(x, y, touchState.controlRegions.down)) {
-      gameControls.down = isActive;
-    }
-    else if (jumpEnabled && isPointInRegion(x, y, touchState.controlRegions.jump)) {
-      gameControls.jump = isActive;
-    }
-    
-    // Visual feedback on the touch overlays. Repaint on BOTH press and release —
-    // gating this on `isActive` left a pad stuck in its highlighted state after the
-    // finger lifted (processTouchInput has already cleared the control flag by now, so
-    // the release repaint returns it to idle).
+    applyTouchOwnership();
     repaintVisualControls();
   };
 
@@ -495,18 +555,7 @@ function setupTouchControls(signal?: AbortSignal) {
       }
     });
   };
-  
-  // Helper to check if a point is in a region
-  const isPointInRegion = (x: number, y: number, region: TouchRegion | undefined) => {
-    if (!region) return false;
-    return (
-      x >= region.x &&
-      x <= region.x + region.width && 
-      y >= region.y && 
-      y <= region.y + region.height
-    );
-  };
-  
+
   // Add touch event listeners
   document.addEventListener('touchstart', handleTouchStart, touchOpts);
   document.addEventListener('touchmove', handleTouchMove, touchOpts);
@@ -606,10 +655,15 @@ function resetControls(): ControlState {
   gameControls.up = false;
   gameControls.down = false;
   gameControls.jump = false;
-  
-  // Clear all tracked touches
+
+  // Clear all tracked touches, their control ownership, and both held ledgers
+  // (#399) — a stale owner or ledger entry would re-assert its control on the
+  // next touch event / key release.
   touchState.touches = {};
-  
+  touchState.owners = {};
+  touchState.touchHeld = { left: false, right: false, up: false, down: false, jump: false };
+  for (const name of CONTROL_NAMES) keyboardHeld[name] = false;
+
   return gameControls;
 }
 
@@ -624,7 +678,16 @@ export const Controls = {
   // disabling so a held press can't carry across the toggle.
   setJumpEnabled: (enabled: boolean): void => {
     jumpEnabled = enabled;
-    if (!enabled) gameControls.jump = false;
+    if (!enabled) {
+      gameControls.jump = false;
+      // Drop jump ownership from any live touch (#399): controlAtPoint stops
+      // resolving the center region while disabled, but a touch that grabbed jump
+      // BEFORE the toggle would otherwise re-assert it on its next recompute.
+      touchState.touchHeld.jump = false;
+      for (const id in touchState.owners) {
+        if (touchState.owners[id] === 'jump') touchState.owners[id] = null;
+      }
+    }
     // Typed query rather than `instanceof HTMLElement`: the headless (jsdom) harness
     // only exposes window/document globals, and '.touch-jump' can only match the
     // HTMLElement the visual-controls builder created.

@@ -393,9 +393,9 @@ Based on git history analysis, the tree collision detection issue stems from:
 
 The tree collision detection issue has been fixed by:
 
-1. **Eliminating Code Duplication**: The `addTreesWithPositions()` function in `snowglider.js` now directly calls `Snow.addTrees()` instead of duplicating the logic with different parameters.
+1. **Eliminating Code Duplication**: The `addTreesWithPositions()` function was first changed to call `Snow.addTrees()` instead of duplicating the placement logic with different parameters; #397 then removed that second build entirely — scene setup now consumes the `treePositions` returned by `createTerrain`'s single forest build.
 
-2. **Using a Single Source of Truth**: Instead of maintaining separate tree position arrays for visuals and collision detection, we now use the tree positions returned by `Snow.addTrees()` for both purposes.
+2. **Using a Single Source of Truth**: Instead of maintaining separate tree position arrays for visuals and collision detection, the ONE forest built by `createTerrain` supplies the rendered trees, the collision positions, and the baked contact shadows.
 
 3. **Ensuring Complete Coverage**: All visible trees now have proper collision detection, including trees in the extended ski run (z < -80) and wider terrain (beyond x=±60).
 

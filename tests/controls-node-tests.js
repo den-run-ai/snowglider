@@ -140,6 +140,85 @@ async function main() {
     touchId++;
   }
 
+  console.log('\n--- multitouch ownership (#399) ---');
+  // The control state is recomputed from ALL live touches (identifier -> owned
+  // control), not from each event in isolation. Old behavior failed all of these:
+  // moving a touch left its previous action latched, and lifting one finger cleared
+  // an action another finger still held.
+  const L = /** @type {[number, number]} */ ([W / 6, H / 2]);
+  const R = /** @type {[number, number]} */ ([(W * 5) / 6, H / 2]);
+  Controls.resetControls();
+
+  // Two fingers in the SAME region: lifting one must not release the other's hold.
+  dispatchTouch('touchstart', document, [{ identifier: 60, clientX: L[0], clientY: L[1] }]);
+  dispatchTouch('touchstart', document, [{ identifier: 61, clientX: L[0] + 10, clientY: L[1] }]);
+  check('two fingers in the left region hold left', controls.left === true);
+  dispatchTouch('touchend', document, [{ identifier: 60, clientX: L[0], clientY: L[1] }]);
+  check('lifting ONE of two fingers keeps left held (second finger still owns it)',
+    controls.left === true);
+  dispatchTouch('touchend', document, [{ identifier: 61, clientX: L[0] + 10, clientY: L[1] }]);
+  check('lifting the last finger releases left', controls.left === false);
+
+  // A finger sliding from one region into another hands ownership over: the old
+  // region must release, the new one press — no both-held "steer both ways" state.
+  dispatchTouch('touchstart', document, [{ identifier: 62, clientX: L[0], clientY: L[1] }]);
+  check('slide: press in left sets left', controls.left === true);
+  dispatchTouch('touchmove', document, [{ identifier: 62, clientX: R[0], clientY: R[1] }]);
+  check('slide into right releases left (no latched old action)', controls.left === false);
+  check('slide into right presses right', controls.right === true);
+  dispatchTouch('touchend', document, [{ identifier: 62, clientX: R[0], clientY: R[1] }]);
+  check('lifting the slid finger releases right', controls.right === false);
+
+  // Two fingers in DIFFERENT regions: lifting one releases only its own control.
+  dispatchTouch('touchstart', document, [{ identifier: 63, clientX: L[0], clientY: L[1] }]);
+  dispatchTouch('touchstart', document, [{ identifier: 64, clientX: R[0], clientY: R[1] }]);
+  check('two fingers hold left and right together', controls.left === true && controls.right === true);
+  dispatchTouch('touchend', document, [{ identifier: 63, clientX: L[0], clientY: L[1] }]);
+  check('lifting the left finger releases left only', controls.left === false && controls.right === true);
+  dispatchTouch('touchend', document, [{ identifier: 64, clientX: R[0], clientY: R[1] }]);
+  check('lifting the right finger releases right', controls.right === false);
+
+  // Sliding out of every region (dead corner) releases the control WHILE the finger
+  // is still down — not only at lift.
+  dispatchTouch('touchstart', document, [{ identifier: 65, clientX: L[0], clientY: L[1] }]);
+  dispatchTouch('touchmove', document, [{ identifier: 65, clientX: 5, clientY: 5 }]);
+  check('sliding into a dead zone releases the control mid-gesture', controls.left === false);
+  dispatchTouch('touchend', document, [{ identifier: 65, clientX: 5, clientY: 5 }]);
+
+  // A touch release must not clobber a control the KEYBOARD is holding (the old
+  // zero-touches blanket reset cleared every control, keyboard-held ones included).
+  keydown('ArrowLeft');
+  dispatchTouch('touchstart', document, [{ identifier: 66, clientX: R[0], clientY: R[1] }]);
+  dispatchTouch('touchend', document, [{ identifier: 66, clientX: R[0], clientY: R[1] }]);
+  check('releasing the last touch leaves a keyboard-held control pressed',
+    controls.left === true && controls.right === false);
+  keyup('ArrowLeft');
+  Controls.resetControls();
+
+  // Hybrid input on the SAME control (Codex review, PR #404): keyboard and touch
+  // each subtract only their own contribution. A touch that also owned a
+  // keyboard-held control sliding away (or lifting) must fall back to the keyboard
+  // ledger, not clear the shared bit until the next keydown/auto-repeat.
+  keydown('ArrowLeft');
+  dispatchTouch('touchstart', document, [{ identifier: 67, clientX: L[0], clientY: L[1] }]);
+  check('keyboard and touch can hold the same control together', controls.left === true);
+  dispatchTouch('touchmove', document, [{ identifier: 67, clientX: R[0], clientY: R[1] }]);
+  check('touch sliding away keeps the keyboard-held control pressed',
+    controls.left === true && controls.right === true);
+  dispatchTouch('touchend', document, [{ identifier: 67, clientX: R[0], clientY: R[1] }]);
+  check('touch lifting keeps the keyboard-held control pressed', controls.left === true);
+  keyup('ArrowLeft');
+  check('keyup finally releases the keyboard-held control', controls.left === false);
+
+  // ... and the mirror: a keyup must not clear a control a finger still presses.
+  dispatchTouch('touchstart', document, [{ identifier: 68, clientX: L[0], clientY: L[1] }]);
+  keydown('ArrowLeft');
+  keyup('ArrowLeft');
+  check('keyup does not clear a control a live touch still holds', controls.left === true);
+  dispatchTouch('touchend', document, [{ identifier: 68, clientX: L[0], clientY: L[1] }]);
+  check('lifting the touch after the keyup releases the control', controls.left === false);
+  Controls.resetControls();
+
   console.log('\n--- scrollable controls guide: touch passthrough (mobile) ---');
   // A touch that begins inside #controlsContent (the Ski Techniques scroller) must be
   // left to the browser: NOT preventDefaulted (so the panel scrolls natively) and NOT
@@ -367,6 +446,18 @@ async function main() {
   dispatchTouch('touchend', document, [{ identifier: 12, clientX: W / 2, clientY: H / 2 }]);
   check('re-enabling un-hides the touch-jump indicator',
     !!jumpIndicator && jumpIndicator.style.display !== 'none');
+  // A live touch that grabbed jump BEFORE the tier toggle: disabling must strip its
+  // ownership (not just the flag), or the touch's next move event would recompute
+  // ownership and re-assert the disabled verb (#399 / PR #404).
+  dispatchTouch('touchstart', document, [{ identifier: 70, clientX: W / 2, clientY: H / 2 }]);
+  check('precondition: a live touch owns jump', controls.jump === true);
+  Controls.setJumpEnabled(false);
+  check('disabling clears a touch-held jump', controls.jump === false);
+  dispatchTouch('touchmove', document, [{ identifier: 70, clientX: W / 2 + 1, clientY: H / 2 }]);
+  check('the touch moving after the toggle does NOT re-assert jump (ownership stripped)',
+    controls.jump === false);
+  dispatchTouch('touchend', document, [{ identifier: 70, clientX: W / 2 + 1, clientY: H / 2 }]);
+  Controls.setJumpEnabled(true);
   // Rebuilding the visual controls while disabled creates the indicator hidden.
   Controls.setJumpEnabled(false);
   Controls.toggleTouchControls(false);
@@ -458,6 +549,10 @@ async function main() {
       keydown('ArrowLeft');
       return firedWhileLive === 1 && hits === 1; // fired once live, not after abort
     })());
+  // Balance the keydowns above (they also hit the suite's original no-signal
+  // handler): with the keyboard-held ledger (PR #404) an unreleased key would
+  // otherwise keep its control asserted through the touch tests below.
+  keyup('ArrowLeft');
 
   // --- delayed overlay-observer abort guard (Codex review #226) ---
   // On mobile setupControls() runs before setupScene() creates #gameOverOverlay, so
