@@ -203,6 +203,32 @@ async function main() {
       Math.abs(at30 - at144) <= 7, `30Hz=${at30} 144Hz=${at144}`);
     check('the old per-render-frame behavior (~4.8x more puffs at 144 Hz) is gone',
       at144 < at30 * 2, `30Hz=${at30} 144Hz=${at144}`);
+
+    // Long-lived slide: the pool saturates (the round-robin emission bail) and
+    // individual puffs live out their maxLife and are reclaimed (the expiry
+    // branch) — the cloud keeps rolling instead of freezing once full.
+    {
+      RC.resetRunStreams();
+      const av = new AvalancheSystem(new THREE.Scene(), 30);
+      av.setTerrainFunction(() => 0);
+      Math.random = () => 0.5;
+      av.trigger({ x: 0, y: 12, z: -50 });
+      Math.random = realRandom;
+      let sawSaturated = false, sawExpiry = false;
+      let prevActive = av.powder.map(() => false);
+      for (let f = 0; f < 60 * 3; f++) { // 3 simulated seconds at 60 Hz
+        av.update(1 / 60);
+        const nowActive = av.powder.map(p => p.userData.active === true);
+        if (nowActive.every(Boolean)) sawSaturated = true;
+        if (nowActive.some((a, i) => !a && prevActive[i])) sawExpiry = true;
+        prevActive = nowActive;
+      }
+      check('a sustained slide saturates the puff pool (round-robin bail exercised)',
+        sawSaturated);
+      check('puffs expire and are reclaimed while the slide is live',
+        sawExpiry);
+      av.dispose();
+    }
   }
 
   // Ski spray: same double-run comparison. The accumulator is module-level, so
