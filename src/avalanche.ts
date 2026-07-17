@@ -18,6 +18,18 @@ import { gameplayRandom, cosmeticRandom } from './run-context.js';
 // `powder` field below). Sized like the ski snow-splash pool in snow.ts.
 const POWDER_COUNT = 260;
 
+/** Per-puff animation state stored on each powder sprite's userData. Typed so the
+ *  per-frame integration/emission code stays off the `any` chain (reviewdog). */
+interface PowderPuffData {
+  active: boolean;
+  life: number;
+  maxLife: number;
+  vx: number; vy: number; vz: number;
+  size: number;
+  opacity0: number;
+  rotSpeed: number;
+}
+
 /**
  * Minimal positional shape the avalanche reads. Accepts both a real
  * `THREE.Vector3` (the live game passes `snowman.position`) and the plain
@@ -181,7 +193,7 @@ export class AvalancheSystem {
       const sprite = new THREE.Sprite(base.clone());
       sprite.scale.set(0, 0, 0);
       sprite.visible = false; // skip render traversal/sort until emitted
-      sprite.userData = {
+      const puff: PowderPuffData = {
         active: false,
         life: 0,
         maxLife: 0,
@@ -190,6 +202,7 @@ export class AvalancheSystem {
         opacity0: 0,
         rotSpeed: (cosmeticRandom('avalanchePowder') - 0.5) * 1.2
       };
+      sprite.userData = puff;
       this.scene.add(sprite);
       this.powder.push(sprite);
     }
@@ -331,7 +344,7 @@ export class AvalancheSystem {
 
     // 1) Integrate active puffs: drift, light gravity, air drag, expand + fade.
     for (const sprite of this.powder) {
-      const ud = sprite.userData;
+      const ud = sprite.userData as PowderPuffData;
       if (!ud.active) continue;
 
       ud.life -= dt;
@@ -376,7 +389,7 @@ export class AvalancheSystem {
         // Find the next inactive puff (round-robin); bail this tick if all in use.
         let n = this.powderNext;
         let tries = 0;
-        while (this.powder[n]!.userData.active && tries < this.powder.length) {
+        while ((this.powder[n]!.userData as PowderPuffData).active && tries < this.powder.length) {
           n = (n + 1) % this.powder.length;
           tries++;
         }
@@ -394,7 +407,7 @@ export class AvalancheSystem {
           this.positions[bidx + 2]! + (cosmeticRandom('avalanchePowder') - 0.5) * (1.5 + r)
         );
 
-        const ud = sprite.userData;
+        const ud = sprite.userData as PowderPuffData;
         ud.vx = this.velocities[bidx]! * 0.25 + (cosmeticRandom('avalanchePowder') - 0.5) * 4;
         ud.vy = 2 + cosmeticRandom('avalanchePowder') * 4;                           // loft upward
         ud.vz = this.velocities[bidx + 2]! * 0.35 - cosmeticRandom('avalanchePowder') * 1.5; // carried downhill
