@@ -132,6 +132,13 @@ async function run() {
   check('exact-center grounded hit still crashes',
     /tree/i.test(String(frame({ x: 0, y: 0, z: 0 }, false))));
 
+  // 10) The same grounded direct hit under a ?test=true URL exercises the widened
+  //     test epsilon and the DIRECT TREE HIT logging branch — same outcome.
+  window.location.search = '?test=true';
+  check('exact-center grounded hit still crashes under ?test=true (direct-hit log path)',
+    /tree/i.test(String(frame({ x: 0, y: 0, z: 0 }, false))));
+  window.location.search = '';
+
   console.log('\n================================================');
   console.log(`Summary: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);

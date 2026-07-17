@@ -446,6 +446,18 @@ async function main() {
   dispatchTouch('touchend', document, [{ identifier: 12, clientX: W / 2, clientY: H / 2 }]);
   check('re-enabling un-hides the touch-jump indicator',
     !!jumpIndicator && jumpIndicator.style.display !== 'none');
+  // A live touch that grabbed jump BEFORE the tier toggle: disabling must strip its
+  // ownership (not just the flag), or the touch's next move event would recompute
+  // ownership and re-assert the disabled verb (#399 / PR #404).
+  dispatchTouch('touchstart', document, [{ identifier: 70, clientX: W / 2, clientY: H / 2 }]);
+  check('precondition: a live touch owns jump', controls.jump === true);
+  Controls.setJumpEnabled(false);
+  check('disabling clears a touch-held jump', controls.jump === false);
+  dispatchTouch('touchmove', document, [{ identifier: 70, clientX: W / 2 + 1, clientY: H / 2 }]);
+  check('the touch moving after the toggle does NOT re-assert jump (ownership stripped)',
+    controls.jump === false);
+  dispatchTouch('touchend', document, [{ identifier: 70, clientX: W / 2 + 1, clientY: H / 2 }]);
+  Controls.setJumpEnabled(true);
   // Rebuilding the visual controls while disabled creates the indicator hidden.
   Controls.setJumpEnabled(false);
   Controls.toggleTouchControls(false);
