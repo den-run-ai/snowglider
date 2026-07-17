@@ -80,6 +80,34 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
  - Avalanche tests: `http://localhost:8080/?test=avalanche`
  - Regression tests: `http://localhost:8080/?test=regression`
 
+## Agent Autonomy (for AI agents)
+Work fully autonomously, end to end: verify the claim against the code, implement, test, commit,
+push, open the PR, and respond to review/CI feedback — without pausing mid-task for confirmation.
+The maintainer reviews *outcomes* (PRs, issues, review replies), not intermediate questions.
+
+- **Do NOT use interactive or approval-gated tools.** No mid-task question prompts
+  (`AskUserQuestion` or equivalents), and no tool calls that block on a user approval dialog
+  (e.g. approval-gated MCP scheduling calls). If a tool call unexpectedly requires interactive
+  approval, do not retry it — pick a non-blocking alternative (event subscriptions over
+  approval-gated schedulers, direct API calls over interactive CLIs) and note the substitution
+  in your final summary.
+- **Decide, then document.** When a judgement call comes up (naming, scope of a comment update,
+  which suite a test belongs in, how to sequence commits), make the reasonable choice and record
+  the rationale where the maintainer will see it: the commit message, PR body, or issue thread.
+  The review round — Codex and the maintainer — is where course corrections happen.
+- **The only stop-and-ask cases** are destructive/irreversible operations (force-pushing over
+  someone else's work, deleting branches/issues/data, rewriting `main` history, publishing
+  secrets) and genuine scope changes that alter what was asked for. Everything reversible that
+  follows from the request: just do it.
+- **Monitoring is event-driven.** Watch PRs via the PR-activity subscription (webhook events),
+  not by polling loops or sleep timers. Follow through on every event until the PR is merged
+  or closed: fix + push if confident, reply on the thread with the fixing commit, resolve the
+  thread. Report a diagnosis instead of going quiet when something is out of scope or stuck.
+- **Blocked ≠ done.** If one path is blocked (a missing CLI, a denied call, a failing sandbox),
+  find the supported alternative (see the token/REST recipe below) rather than reporting the
+  task as impossible — and never end a turn with unexecuted "next steps" that you could have
+  executed yourself.
+
 ## GitHub & Pull Requests (for AI agents)
 - The `gh` CLI is **not installed** here and there is no `GITHUB_TOKEN`/`GH_TOKEN` env var, so `gh pr create` will fail. Do not assume you cannot open a PR.
 - `git push` works because GitHub credentials are stored in git's credential helper (`osxkeychain` + `store`). Reuse that token to drive the GitHub REST API directly.
