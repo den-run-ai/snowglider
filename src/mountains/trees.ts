@@ -906,12 +906,13 @@ function treeCollidersReady(): boolean {
 
 // Every scheduled build still awaiting its chunk, so a caller that cannot wait
 // any longer (the run-start timeout in snowglider.ts) can abandon them and get
-// the stylized forest NOW. A Set, not a single slot: a normal scene setup
-// schedules TWO builds for the same scene back-to-back (createTerrain's addTrees,
-// then the collision addTrees in scene-setup.ts), and the superseded one cannot
-// run its own finally until the shared chunk import settles — so staling must
-// settle its collider accounting eagerly (settleStaleEzBuilds) or the stale build
-// would hold treeCollidersReady() false past the run-start timeout.
+// the stylized forest NOW. A Set, not a single slot: back-to-back addTrees calls
+// on the same scene (a restart / re-init — and, before #397 removed it, the
+// second collision build scene-setup.ts used to run after createTerrain's) leave
+// the superseded build unable to run its own finally until the shared chunk
+// import settles — so staling must settle its collider accounting eagerly
+// (settleStaleEzBuilds) or the stale build would hold treeCollidersReady() false
+// past the run-start timeout.
 interface PendingEzBuild {
   scene: THREE.Scene;
   placements: EzPlacement[];

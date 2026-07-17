@@ -488,9 +488,9 @@ async function main() {
   }
 
   // --- Double-schedule + stalled chunk: the superseded build must not hold the gate
-  // A normal scene setup schedules TWO EZ builds on the same scene back-to-back
-  // (createTerrain's addTrees, then the collision addTrees in scene-setup.ts). The
-  // first is staled by the second's re-init token bump, but its own finally can't
+  // Back-to-back addTrees calls on one scene (a restart / re-init — and, before
+  // #397 removed the second collision build, every normal scene setup) stale the
+  // first build via the second's re-init token bump, but its own finally can't
   // run while the chunk import hangs — its collider accounting must settle eagerly,
   // or abandonPendingEzBuild would re-arm only the latest build and the run-start
   // timeout would begin the run with tree collision disabled (#282 PR 3 review, P1).

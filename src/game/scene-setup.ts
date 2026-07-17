@@ -405,26 +405,13 @@ export function setupScene(signal?: AbortSignal) {
   debris.setTerrainFunction(Snow.getTerrainHeight);
   state.debris = debris;
 
-  // We can't call Snow.addTrees directly, so let's create a global array
-  let treePositions: TreePosition[] = [];
-
-  // Instead of duplicating the tree placement logic, use Snow.addTrees
-  // and store its returned positions for collision detection
-  function addTreesWithPositions(scene: THREE.Scene) {
-    // The addTrees function in Snow now handles all tree placement and rendering
-    // It returns an array of all tree positions that we can use for collision detection
-
-    // Extended range to match mountains.js implementation
-    // Using the same ranges as in mountains.js:
-    // - Z range from -180 to 80 (extended run)
-    // - X range from -100 to 100 (wider area)
-
-    // Let Snow.addTrees handle the actual tree creation and return positions
-    return Snow.addTrees(scene);
-  }
-
-  // Call it and store the positions
-  treePositions = addTreesWithPositions(scene);
+  // Tree collision positions come from the ONE forest createTerrain already built —
+  // the same build the baked contact shadows were derived from (#397). Building a
+  // second forest here (the old Snow.addTrees call) replaced the visible trees and
+  // collision layout with a fresh random one, so the contact-AO blobs stayed keyed
+  // to the discarded first forest, placement/geometry/global-RNG work was doubled,
+  // and two async EZ-tree builds raced back-to-back.
+  const treePositions: TreePosition[] = terrainResult.treePositions;
 
   // Ensure all tree positions are included in collision detection by logging the range
   console.log(`Tree positions array has ${treePositions.length} trees for collision detection`);
