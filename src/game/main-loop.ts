@@ -281,9 +281,65 @@ export function createMainLoop(deps: MainLoopDeps) {
       CourseModule.update(pos, simTime, snowman);
     }
 
-    // (Avalanche burial is checked once per RENDER frame — after the player's substeps and
-    // this frame's boulder advance, before hasPassed()/reset — so it still runs on a
-    // no-step >60 Hz frame. See the avalanche block in animate().)
+    // --- Avalanche OUTCOME resolution: ON THE FIXED GRID (#403 review) --------
+    // Burial, the dodge window, hasPassed()/reset and the re-arm all resolve here,
+    // per substep, against the kernel `pos` this step just produced — not once per
+    // render frame against the (render-interpolated, one-frame-lagged) mesh
+    // position. At low frame rates multiple substeps can no longer pass between
+    // collision decisions, so survival outcomes are the same at every render rate
+    // given the same boulder/player trajectories. The `state.gameActive` guard
+    // enforces EXACTLY ONE terminal event: if this substep's kernel step already
+    // ended the run (tree/rock crash or finish — showGameOver runs synchronously
+    // inside stepPhysics), burial cannot fire afterwards and replace the
+    // already-built result; and once any terminal event fires, the substep loop
+    // itself stops. Only the powder cosmetics, warning UI and audio remain on the
+    // render frame (see animate()).
+    if (avalanche && state.gameActive) {
+      // Avalanche-dodge window (JP-3, #47): an overlap only buries the player when
+      // they are NOT airborne on a deliberate jump. resolveBurialOutcome holds the
+      // provenance / once-per-slide guards; the kernel is never involved (#245).
+      const burialOutcome = resolveBurialOutcome(
+        avalanche.checkBurial(pos),
+        player.isInAir,
+        !!(snowman.userData && snowman.userData.playerJump),
+        state.dodgeAwarded
+      );
+      if (burialOutcome === 'buried') {
+        const activeShowGameOver = typeof window.showGameOver === 'function'
+          ? window.showGameOver
+          : showGameOver;
+        activeShowGameOver("Buried by avalanche!");
+      } else if (burialOutcome === 'dodgedFirst') {
+        // First dodging substep of this slide: bank the bonus (same air-score
+        // channel the result screen reads), toast it, and kick the escape impulse
+        // so a stomped landing can outrun the front. Later overlap substeps of the
+        // same jump resolve to 'dodged' (immune, no re-award). The enclosing
+        // gameActive guard keeps a finish-frame dodge from mutating a result the
+        // kernel already built (Codex review on #289).
+        state.dodgeAwarded = true;
+        if (CourseModule) {
+          // JP-7: the dodge banks through the chain like everything else (its own
+          // points ride the multiplier built before it), then builds the chain.
+          CourseModule.addAirScore(Math.round(DODGE_SCORE * comboMultiplier(comboStep)));
+          CourseModule.flashDodge();
+        }
+        comboStep = nextComboStep(comboStep, 'dodge');
+        velocity.x *= DODGE_ESCAPE_BOOST;
+        velocity.z *= DODGE_ESCAPE_BOOST;
+      }
+
+      // Reset avalanche if it has passed the player (survived!) — on the same
+      // grid, AFTER this substep's burial test, so a boulder overlapping the
+      // player is always tested before the slide can deactivate.
+      if (state.avalancheTriggered && avalanche.hasPassed(pos)) {
+        console.log("Avalanche passed - player survived!");
+        avalanche.reset();
+        state.avalancheTriggered = false;
+        state.lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
+        state.dodgeAwarded = false;   // the next slide re-arms the once-per-slide bonus
+      }
+    }
+
     return result;
   }
 
@@ -670,71 +726,16 @@ export function createMainLoop(deps: MainLoopDeps) {
         windGust: Wind.gust(),
       });
 
-      // --- Avalanche burial + survival check + warning UI -----------------------
-      // Burial is checked ONCE PER RENDER FRAME here — after the player's substeps and
-      // after this frame's avalanche.update (above) — and BEFORE hasPassed()/reset. So a
-      // boulder overlapping the player is always tested before the slide can deactivate,
-      // including on a no-step (>60 Hz) frame where the substep loop didn't run. Per-frame
-      // is sufficient: bounded speed × the broad 120-boulder slide means the player can't
-      // traverse a boulder between frames, so the final-position check can't miss one.
-      // checkBurial() self-guards when inactive.
-      if (avalanche) {
-        // Avalanche-dodge window (JP-3, #47): an overlap only buries the player when
-        // they are NOT airborne on a deliberate jump. resolveBurialOutcome holds the
-        // provenance / once-per-slide guards; the kernel is never involved (#245).
-        const burialOutcome = resolveBurialOutcome(
-          avalanche.checkBurial(snowman.position),
-          player.isInAir,
-          !!(snowman.userData && snowman.userData.playerJump),
-          state.dodgeAwarded
-        );
-        if (burialOutcome === 'buried') {
-          const activeShowGameOver = typeof window.showGameOver === 'function'
-            ? window.showGameOver
-            : showGameOver;
-          activeShowGameOver("Buried by avalanche!");
-        } else if (burialOutcome === 'dodgedFirst' && state.gameActive) {
-          // First dodging frame of this slide: bank the bonus (same air-score channel
-          // the result screen reads), toast it, and kick the escape impulse so a
-          // stomped landing can outrun the front. Later overlap frames of the same
-          // jump resolve to 'dodged' (immune, no re-award).
-          //
-          // Gated on state.gameActive: this block runs AFTER the frame's physics
-          // substeps, so if one of them already ended the run — crossing FINISH_Z
-          // builds the result screen synchronously inside the kernel step — the run
-          // total has been read and rendered. Banking here would mutate it after the
-          // fact (and impulse a finished run), so a dodge coinciding with the finish
-          // frame simply doesn't award: the run is over, the slide no longer matters.
-          // (Codex review on #289.)
-          state.dodgeAwarded = true;
-          if (CourseModule) {
-            // JP-7: the dodge banks through the chain like everything else (its own
-            // points ride the multiplier built before it), then builds the chain.
-            CourseModule.addAirScore(Math.round(DODGE_SCORE * comboMultiplier(comboStep)));
-            CourseModule.flashDodge();
-          }
-          comboStep = nextComboStep(comboStep, 'dodge');
-          velocity.x *= DODGE_ESCAPE_BOOST;
-          velocity.z *= DODGE_ESCAPE_BOOST;
-        }
-
-        // Reset avalanche if it has passed the player (survived!)
-        if (state.avalancheTriggered && avalanche.hasPassed(snowman.position)) {
-          console.log("Avalanche passed - player survived!");
-          avalanche.reset();
-          state.avalancheTriggered = false;
-          state.lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
-          state.dodgeAwarded = false;   // the next slide re-arms the once-per-slide bonus
-        }
-
-        // Telegraph the threat: banner, "distance behind you" meter, vignette, shake.
-        if (EffectsModule) {
-          const avActive = state.avalancheTriggered && avalanche.active;
-          const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
-          EffectsModule.updateAvalanche(avActive, avDist);
-          // Avalanche rumble crescendos with the same proximity the banner uses (#158).
-          Sfx.setAvalanche(avActive, avDist);
-        }
+      // --- Avalanche warning UI + audio — render frame only (#403 review) -------
+      // Every GAMEPLAY decision (burial, dodge, hasPassed/reset/re-arm) resolves
+      // per fixed substep inside stepFixed; this render-side block only telegraphs
+      // the threat off the render-facing mesh position.
+      if (avalanche && EffectsModule) {
+        const avActive = state.avalancheTriggered && avalanche.active;
+        const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
+        EffectsModule.updateAvalanche(avActive, avDist);
+        // Avalanche rumble crescendos with the same proximity the banner uses (#158).
+        Sfx.setAvalanche(avActive, avDist);
       }
 
       // Save player position before snow splash effect updates
