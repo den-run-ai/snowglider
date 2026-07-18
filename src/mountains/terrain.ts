@@ -208,7 +208,10 @@ export function getTerrainHeight(x: number, z: number): number {
 export function getTerrainHeightUncached(x: number, z: number): number {
   const distance = Math.sqrt(x * x + z * z);
 
-  // Use EXACTLY the same formula as in terrain mesh creation
+  // THE height formula (#401): since the mesh builder samples this function per
+  // vertex, this is the single source of truth for the mountain — rendered,
+  // simulated, and placed against. (The old separately-maintained mesh copy had
+  // drifted; there is no second formula to keep in sync any more.)
   // Base mountain shape
   let y = 40 * Math.exp(-distance / 40);
 

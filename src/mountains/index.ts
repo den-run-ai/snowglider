@@ -29,6 +29,7 @@ import {
   type KickerSpec,
   heightMap,
   getTerrainHeight,
+  getTerrainHeightUncached,
   getTerrainGradient,
   getDownhillDirection,
   debugHeightMap,
@@ -52,12 +53,14 @@ import {
 // on the facade so `import { rockCollisionRadius } from './mountains.js'` still works.
 export { terrainRidgeField, forestDensityField, rockCollisionRadius, ROCK_COLLISION_MIN_SIZE };
 export { setTerrainCorridor, setTerrainKickers };
+export { getTerrainHeightUncached };
 export type { TerrainVec2, TerrainCorridorParams, TerrainCorridor, KickerSpec, RockPosition };
 
 // Export all mountain-related functions and classes
 export const Mountains = {
   SimplexNoise,
   getTerrainHeight,
+  getTerrainHeightUncached,
   getTerrainGradient,
   getDownhillDirection,
   terrainRidgeField,
