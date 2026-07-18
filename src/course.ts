@@ -674,6 +674,14 @@ export const CourseModule = (function () {
       } catch { /* storage may be unavailable; ignore */ }
     }
 
+    // A practice world's panel makes no competitive claims (Codex review PR
+    // #407): nothing was persisted, so "record"/"first descent"/medal labels
+    // would promise state that does not exist. buildResultPanel renders the
+    // practice note instead.
+    if (getRunStamp().practice) {
+      return buildResultPanel(totalTime, previousBest, false, false,
+        { key: 'finish', icon: '\u{1F9EA}', label: 'Practice run \u2014 seeded world (not ranked)' });
+    }
     const medal = medalFor(totalTime, previousBest, isFirst);
     return buildResultPanel(totalTime, previousBest, isBest, isFirst, medal);
   }

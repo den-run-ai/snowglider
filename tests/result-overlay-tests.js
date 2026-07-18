@@ -122,6 +122,10 @@ async function main() {
       !/New Best Time/.test(deps.bestTimeDisplay.textContent));
     check('practice finish still shows the overlay/result',
       deps.gameOverOverlay.style.display === 'flex');
+    // The WHOLE overlay reads as unranked on a practice world (Codex PR #407):
+    // no sign-in-to-save prompt, no leaderboard render.
+    check('practice finish shows no login prompt', !document.getElementById('loginPrompt'));
+    check('practice finish never renders the leaderboard', leaderboardShown === 0);
     RC.setRunSeed(null);
   }
 

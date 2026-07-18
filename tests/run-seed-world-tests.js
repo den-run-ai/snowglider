@@ -183,6 +183,9 @@ async function main() {
     RC.setWorldContext(1234, true);
     check('?seed= world is a practice run', RC.isPracticeRun() === true);
     check('the stamp carries the practice flag', RC.getRunStamp().practice === true);
+    RC.rewindRunStreams(0xBEEF);
+    check('the stamp carries the run nonce (full reproducibility — Codex PR #407 P1)',
+      RC.getRunStamp().nonce === 0xBEEF);
 
     // Run-scoped streams: same world + same nonce => same physics sequence;
     // a different nonce varies physics/avalanche but NOT the world streams.

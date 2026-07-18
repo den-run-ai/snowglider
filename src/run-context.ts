@@ -224,8 +224,12 @@ export function withGameplayStream<T>(name: GameplayStreamName, fn: () => T): T 
 
 /** The provenance stamp future score/ghost records carry (#400): which seed (if
  *  any) and which physics behavior produced the run. */
-export function getRunStamp(): { seed: number | null; practice: boolean; physicsVersion: number } {
-  return { seed: runSeed, practice: practiceRun, physicsVersion: PHYSICS_VERSION };
+export function getRunStamp(): { seed: number | null; practice: boolean; nonce: number; physicsVersion: number } {
+  // `nonce` completes reproducibility (Codex review PR #407 P1): two canonical
+  // records share {seed, physicsVersion} but their run-scoped streams (physics
+  // auto-turns, avalanche boulders) derive from worldSeed^nonce — without the
+  // nonce the stamp could not reproduce the exact run that set the record.
+  return { seed: runSeed, practice: practiceRun, nonce: runStreamNonce, physicsVersion: PHYSICS_VERSION };
 }
 
 /** Parse a `?seed=<uint>` run seed from a URL search string (the ranked/replay

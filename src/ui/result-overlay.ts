@@ -125,7 +125,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     const tier: Difficulty = getDifficulty ? getDifficulty() : readStoredDifficulty();
     // Unranked tiers (Bunny/Black for now) are practice-only: local best/ghost still
     // work, but nothing is submitted to the global board until their floors are measured.
-    const tierRanked = getDifficultyConfig(tier).ranked;
+    // Ranked-eligibility for THIS run: the tier must be ranked AND the world must
+    // be canonical — a ?seed= practice world reads as unranked through the WHOLE
+    // overlay (Codex review PR #407): no login prompt, no "saved" status copy,
+    // no leaderboard render, and the practice result panel makes no PB promises.
+    const tierRanked = getDifficultyConfig(tier).ranked && !getRunStamp().practice;
     // Allow tests to intercept showGameOver calls
     if (window._testShowGameOverOverride) {
       window._testShowGameOverOverride(reason);
@@ -204,8 +208,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // are ranked. The result panel still renders (CourseModule.onFinish).
       const practice = getRunStamp().practice;
       const isNewBestTime = !practice && currentTime < state.bestTime;
-      const canRecordScore = !practice &&
-        window.AuthModule && typeof window.AuthModule.recordScore === 'function';
+      const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
 
       // Record the score whenever the leaderboard API is available (it handles its own
       // auth + persistence); otherwise fall back to persisting a new local best.
