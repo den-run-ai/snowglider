@@ -139,6 +139,30 @@ async function main() {
   ScoresModule.recordScore(25);
   check('slower valid runs do not replace the local best',
     localStorage.getItem('snowgliderBestTime') === '21.5');
+
+  // Run-provenance stamp (#400): a new local best writes a SIDECAR meta record
+  // ({seed, physicsVersion}) without touching the legacy bare-number value; a
+  // slower run leaves the existing stamp alone.
+  {
+    const RC = await import('../src/run-context.ts');
+    const { readLocalBestMeta } = await import('../src/scores.ts');
+    const rawMeta = localStorage.getItem('snowgliderBestTime_meta');
+    check('a new local best stamps the sidecar meta record', rawMeta !== null);
+    const meta = readLocalBestMeta();
+    check('the stamp carries the physics version and the (unseeded) null seed',
+      !!meta && meta.physicsVersion === RC.PHYSICS_VERSION && meta.seed === null);
+    // A SEEDED run's best carries its seed.
+    RC.setRunSeed(777);
+    ScoresModule.recordScore(20.5);
+    const seededMeta = readLocalBestMeta();
+    check('a seeded run\'s best is stamped with its seed',
+      !!seededMeta && seededMeta.seed === 777 && seededMeta.physicsVersion === RC.PHYSICS_VERSION);
+    RC.setRunSeed(null);
+    // Corrupt sidecars read as null, never throw.
+    localStorage.setItem('snowgliderBestTime_meta', '{not json');
+    check('a corrupt meta sidecar reads as null', readLocalBestMeta() === null);
+    localStorage.removeItem('snowgliderBestTime_meta');
+  }
   check('unauthenticated local scoring does not write Firestore',
     calls.setDoc.length === 0);
 
