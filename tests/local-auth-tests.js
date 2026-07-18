@@ -127,10 +127,15 @@ function main() {
   // boot), recording still works and simply leaves no stamp.
   a.window.__snowgliderGetRunStamp = () => ({ seed: 777, physicsVersion: 1 });
   Scores.recordScore(30);
+  // With the seam present the key derives from the stamp's version (#403 review):
+  // the write lands in that version's namespace, stamped alongside.
+  check('local-auth writes the stamp-versioned competitive key via the seam',
+    a.localStorage.getItem('snowgliderBestTime_v1') === '30');
   check('local-auth stamps a new best via the window seam',
-    a.localStorage.getItem('snowgliderBestTime_meta') === JSON.stringify({ seed: 777, physicsVersion: 1 }));
+    a.localStorage.getItem('snowgliderBestTime_v1_meta') === JSON.stringify({ seed: 777, physicsVersion: 1 }));
   delete a.window.__snowgliderGetRunStamp;
-  a.localStorage.removeItem('snowgliderBestTime_meta');
+  a.localStorage.removeItem('snowgliderBestTime_v1');
+  a.localStorage.removeItem('snowgliderBestTime_v1_meta');
   Scores.recordScore(25);
   check('an absent seam degrades gracefully (best still recorded, no stamp)',
     a.localStorage.getItem('snowgliderBestTime') === '25' &&

@@ -77,7 +77,11 @@ let pass = 0, fail = 0;
 function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: ${name}`); cond ? pass++ : fail++; }
 const flush = () => new Promise(r => setTimeout(r, 0)); // let queued promise callbacks run
 
+// Versioned competitive best-time key builders (#403 review), bound in main().
+let BTK, BTMK;
 async function main() {
+  ({ localBestTimeKey: BTK, localBestMetaKey: BTMK } = await import('../src/difficulty.ts'));
+
   console.log('--- AuthModule load & init ---');
   const { AuthModule, fb } = await loadAuthModule();
   check('module exposes the expected public surface',
@@ -378,11 +382,11 @@ async function main() {
   const RCa = await import('../src/run-context.ts');
   const stampCompatible = (key) => localStorage.setItem(`${key}_meta`,
     JSON.stringify({ seed: RCa.getRunStamp().seed, nonce: 0, physicsVersion: RCa.PHYSICS_VERSION }));
-  localStorage.setItem('snowgliderBestTime', '19.5');
-  stampCompatible('snowgliderBestTime');
+  localStorage.setItem(BTK('blue'), '19.5');
+  stampCompatible(BTK('blue'));
   // An unranked tier's local best must NOT be published to the global board on sign-in.
-  localStorage.setItem('snowgliderBestTime_bunny', '40');
-  stampCompatible('snowgliderBestTime_bunny');
+  localStorage.setItem(BTK('bunny'), '40');
+  stampCompatible(BTK('bunny'));
   fb.setNextPopupResult(null);
   fb.emitAuthState({ uid: 'sync1', email: 's@g.ai', displayName: 'Sync', photoURL: null });
   // syncUserData is scheduled 100ms after sign-in; wait past it with margin, then let
@@ -400,8 +404,8 @@ async function main() {
 
   // PROVENANCE GATE (Codex review PR #407): an UNSTAMPED (legacy/other-world) local
   // best is kept local — neither backfilled to the board nor queued for retry.
-  localStorage.setItem('snowgliderBestTime', '19.2');
-  localStorage.removeItem('snowgliderBestTime_meta');
+  localStorage.setItem(BTK('blue'), '19.2');
+  localStorage.removeItem(`${BTK('blue')}_meta`);
   localStorage.removeItem('snowgliderPendingSync');
   fb.emitAuthState({ uid: 'unstamped1', email: 'u@g.ai', displayName: 'Unstamped', photoURL: null });
   await new Promise(r => setTimeout(r, 250));
@@ -412,7 +416,7 @@ async function main() {
       !fb.read('leaderboard', 'unstamped1') &&
       !storeEarly.getPendingSync('unstamped1', 'blue', localStorage));
     check('the unstamped legacy best itself is preserved locally',
-      localStorage.getItem('snowgliderBestTime') === '19.2');
+      localStorage.getItem(BTK('blue')) === '19.2');
   }
 
   // --- Codex #362: score backfill is DECOUPLED from profile persistence ---
@@ -444,8 +448,8 @@ async function main() {
   // through) OR queued (it didn't) — never lost. Assert the confirm-OR-queue invariant
   // directly so it's race-independent.
   localStorage.removeItem('snowgliderPendingSync');
-  localStorage.setItem('snowgliderBestTime', '20.5'); // a fresh local-only best (ranked Blue)
-  stampCompatible('snowgliderBestTime');
+  localStorage.setItem(BTK('blue'), '20.5'); // a fresh local-only best (ranked Blue)
+  stampCompatible(BTK('blue'));
   fb.setNextSetDocError('users/syncfail1', { code: 'unavailable' }); // a user-doc write fails
   fb.emitAuthState({ uid: 'syncfail1', email: 'f@g.ai', displayName: 'Fail', photoURL: null });
   await new Promise(r => setTimeout(r, 250)); // past the 100ms syncUserData timer
@@ -458,14 +462,14 @@ async function main() {
   // handleSignedInUser now always calls syncUserData, and backfill runs even without a live
   // Firestore. First drive Firestore to null via a failed profile write for a user with NO
   // local best (so nothing is queued for them), then sign in a user who does have one.
-  localStorage.removeItem('snowgliderBestTime');
+  localStorage.removeItem(BTK('blue'));
   localStorage.removeItem('snowgliderPendingSync');
   fb.setNextSetDocError('users/nullfs0', { code: 'unavailable' }); // profile write fails -> Firestore nulled
   fb.emitAuthState({ uid: 'nullfs0', email: 'z@g.ai', displayName: 'Z', photoURL: null });
   await new Promise(r => setTimeout(r, 250));
   await flush(); await flush(); await flush();
-  localStorage.setItem('snowgliderBestTime', '21'); // a fresh local ranked best
-  stampCompatible('snowgliderBestTime');
+  localStorage.setItem(BTK('blue'), '21'); // a fresh local ranked best
+  stampCompatible(BTK('blue'));
   fb.emitAuthState({ uid: 'nullfs1', email: 'n@g.ai', displayName: 'NoFs', photoURL: null });
   await new Promise(r => setTimeout(r, 250));
   await flush(); await flush(); await flush();
@@ -473,7 +477,7 @@ async function main() {
     store.getPendingSync('nullfs1', 'blue', localStorage)?.time === 21);
 
   // (D) An anonymous guest sign-in never routes a local best to the global leaderboard.
-  localStorage.setItem('snowgliderBestTime', '22');
+  localStorage.setItem(BTK('blue'), '22');
   fb.emitAuthState({ uid: 'guestX', email: null, displayName: null, photoURL: null, isAnonymous: true });
   await new Promise(r => setTimeout(r, 250));
   await flush(); await flush(); await flush();

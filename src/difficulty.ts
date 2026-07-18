@@ -15,7 +15,7 @@
 // This module is intentionally dependency-free (it only reads the score-limits
 // floor), so it can be imported by the physics kernel without pulling in THREE.
 import { MIN_VALID_SCORE_TIME } from './score-limits.js';
-import { getRunStamp, CANONICAL_WORLD_SEED } from './run-context.js';
+import { getRunStamp, PHYSICS_VERSION, CANONICAL_WORLD_SEED } from './run-context.js';
 // Type-only import: the lane shape lives next to the centerline primitive it feeds
 // (course-line.ts, also THREE-free), and `import type` erases at build time so this
 // stays a runtime-dependency-free module.
@@ -454,7 +454,20 @@ export function localBestProvenanceCompatible(tier: Difficulty = DEFAULT_DIFFICU
   return meta.seed === CANONICAL_WORLD_SEED || meta.seed === stamp.seed;
 }
 
+/** The ACTIVE (competitive) per-tier best-time key, namespaced by the physics/
+ *  world version (#403 review): a PHYSICS_VERSION bump changes the surface or
+ *  the seeded obstacle field, so times across versions are not comparable — the
+ *  current-ruleset PB, the leaderboard-eligible effectiveBestTime, and the
+ *  sign-in backfill all read THIS key and start fresh on a bump. */
 export function localBestTimeKey(tier: Difficulty): string {
+  const base = `snowgliderBestTime_v${PHYSICS_VERSION}`;
+  return tier === 'blue' ? base : `${base}_${tier}`;
+}
+
+/** The pre-versioning key: retained, read-only, as the player's HISTORICAL
+ *  all-time record (never resubmitted to a current-version leaderboard; an
+ *  all-time display can surface it later — #247). */
+export function legacyBestTimeKey(tier: Difficulty): string {
   return tier === 'blue' ? 'snowgliderBestTime' : `snowgliderBestTime_${tier}`;
 }
 

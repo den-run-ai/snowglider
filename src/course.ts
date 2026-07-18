@@ -439,6 +439,11 @@ export const CourseModule = (function () {
   // within a session (the split flash + result table compare against this).
   function loadBests() {
     try {
+      // Best splits commit ATOMICALLY with the ghost + its provenance stamp, so
+      // they inherit the same world-compatibility gate (#403 review): splits
+      // from another physics version / another world are not a valid delta
+      // baseline — the first run on the current world re-seeds both.
+      if (!ghostStampCompatible()) { bestSplits = null; return; }
       const raw = localStorage.getItem(splitsKey());
       bestSplits = raw ? JSON.parse(raw) : null;
     } catch {

@@ -33,8 +33,11 @@ async function main() {
   const MAX = limits.MAX_VALID_SCORE_TIME;
 
   // --- Key contract: reused builders must match course.ts's `${base}_${tier}` scheme ---
-  check('localBestTimeKey(blue) is the legacy un-suffixed key', store.localBestTimeKey('blue') === 'snowgliderBestTime');
-  check('localBestTimeKey(black) is suffixed', store.localBestTimeKey('black') === 'snowgliderBestTime_black');
+  const PV = (await import('../src/run-context.ts')).PHYSICS_VERSION;
+  check('localBestTimeKey(blue) is the versioned base key (#403 review)',
+    store.localBestTimeKey('blue') === `snowgliderBestTime_v${PV}`);
+  check('localBestTimeKey(black) is suffixed within the version namespace',
+    store.localBestTimeKey('black') === `snowgliderBestTime_v${PV}_black`);
   check('localBestSplitsKey(blue) is suffixed for blue too', store.localBestSplitsKey('blue') === 'snowgliderBestSplits_blue');
   check('localGhostKey(bunny) matches the course.ts scheme', store.localGhostKey('bunny') === 'snowgliderGhost_bunny');
 
@@ -64,19 +67,19 @@ async function main() {
   // --- readLocalBest: valid / absent / corrupt ---
   const ls = createLocalStorageMock();
   check('readLocalBest null when absent', store.readLocalBest('blue', ls) === null);
-  ls.setItem('snowgliderBestTime', '42.5');
+  ls.setItem(store.localBestTimeKey('blue'), '42.5');
   check('readLocalBest returns a valid stored best', store.readLocalBest('blue', ls) === 42.5);
-  ls.setItem('snowgliderBestTime', 'not-a-number');
+  ls.setItem(store.localBestTimeKey('blue'), 'not-a-number');
   check('readLocalBest null on corrupt value', store.readLocalBest('blue', ls) === null);
-  check('readLocalBest purged the corrupt value', ls.getItem('snowgliderBestTime') === null);
-  ls.setItem('snowgliderBestTime', String(MIN - 5)); // implausible / sub-floor for BLUE
+  check('readLocalBest purged the corrupt value', ls.getItem(store.localBestTimeKey('blue')) === null);
+  ls.setItem(store.localBestTimeKey('blue'), String(MIN - 5)); // implausible / sub-floor for BLUE
   check('readLocalBest null on implausible value', store.readLocalBest('blue', ls) === null);
-  check('readLocalBest purged the implausible value', ls.getItem('snowgliderBestTime') === null);
+  check('readLocalBest purged the implausible value', ls.getItem(store.localBestTimeKey('blue')) === null);
   // The SAME 13 s value is a VALID Black best (Black's floor is 13 s) — must be preserved,
   // not purged (Codex #359: tier-aware local-best validation).
-  ls.setItem('snowgliderBestTime_black', '15');
+  ls.setItem(store.localBestTimeKey('black'), '15');
   check('readLocalBest preserves a valid fast Black best (15 s)', store.readLocalBest('black', ls) === 15);
-  check('valid Black best not purged', ls.getItem('snowgliderBestTime_black') === '15');
+  check('valid Black best not purged', ls.getItem(store.localBestTimeKey('black')) === '15');
   check('saveLocalBestIfBetter accepts a sub-18 s Black best', store.saveLocalBestIfBetter('black', 14, ls) === true);
   check('Black best updated to 14', store.readLocalBest('black', ls) === 14);
 

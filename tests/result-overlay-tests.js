@@ -57,6 +57,9 @@ async function main() {
   local = env.localStorage;
 
   const mod = await import('../src/ui/result-overlay.ts');
+  // Versioned competitive best-time keys (#403 review): assert against the
+  // REAL key builders so the suite tracks the active ruleset namespace.
+  const { localBestTimeKey: BTK, localBestMetaKey: BTMK } = await import('../src/difficulty.ts');
   const { createShowGameOver, isValidScoreTime, readStoredBestTime } = mod;
 
   // --- isValidScoreTime: fallback computation + delegation to ScoresModule ---
@@ -70,10 +73,10 @@ async function main() {
   // --- readStoredBestTime: empty / valid / invalid stored values ---
   local.clear();
   check('readStoredBestTime returns Infinity with no stored time', readStoredBestTime() === Infinity);
-  local.clear(); local.setItem('snowgliderBestTime', '22.5');
+  local.clear(); local.setItem(BTK('blue'), '22.5');
   check('readStoredBestTime parses a valid stored time', readStoredBestTime() === 22.5);
-  local.clear(); local.setItem('snowgliderBestTime', '0.1');
-  check('readStoredBestTime drops an invalid stored time', readStoredBestTime() === Infinity && local.getItem('snowgliderBestTime') === null);
+  local.clear(); local.setItem(BTK('blue'), '0.1');
+  check('readStoredBestTime drops an invalid stored time', readStoredBestTime() === Infinity && local.getItem(BTK('blue')) === null);
 
   // --- showGameOver: test override short-circuit ---
   let overrode = null;
@@ -117,7 +120,7 @@ async function main() {
     createShowGameOver(deps)(FINISH);
     check('practice finish does NOT submit to the leaderboard', recorded === null);
     check('practice finish writes NO local best',
-      local.getItem('snowgliderBestTime') === null);
+      local.getItem(BTK('blue')) === null);
     check('practice finish does not claim a new best time',
       !/New Best Time/.test(deps.bestTimeDisplay.textContent));
     check('practice finish still shows the overlay/result',
@@ -153,12 +156,12 @@ async function main() {
     check('unranked finish still emits the canonical complete_run event',
       analyticsEvents.some(e => e[0] === 'complete_run'));
     check('unranked tier still saves the per-tier local best',
-      typeof local.getItem('snowgliderBestTime_bunny') === 'string'
-      && local.getItem('snowgliderBestTime') === null);
+      typeof local.getItem(BTK('bunny')) === 'string'
+      && local.getItem(BTK('blue')) === null);
     // The fallback write carries the same run-provenance stamp every other
     // local-best path writes (#400; Codex review PR #407).
     check('unranked local best is stamped with the sidecar provenance meta',
-      typeof local.getItem('snowgliderBestTime_bunny_meta') === 'string');
+      typeof local.getItem(BTMK('bunny')) === 'string');
     check('unranked tier omits the sign-in-to-save login prompt',
       !document.getElementById('loginPrompt'));
   }
@@ -172,7 +175,7 @@ async function main() {
     const deps = makeDeps({ bestTime: Infinity, startTime: performance.now() - 15000, getDifficulty: () => 'black' });
     createShowGameOver(deps)(FINISH);
     check('fast Black finish (15s < Blue floor) is treated as a valid finish, saves its local best',
-      typeof local.getItem('snowgliderBestTime_black') === 'string'
+      typeof local.getItem(BTK('black')) === 'string'
       && /New Best Time/.test(deps.bestTimeDisplay.textContent));
   }
 
@@ -276,7 +279,7 @@ async function main() {
     local.clear();
     const deps = makeDeps({ bestTime: Infinity });
     createShowGameOver(deps)(FINISH);
-    check('finish without recordScore persists a local best', typeof local.getItem('snowgliderBestTime') === 'string');
+    check('finish without recordScore persists a local best', typeof local.getItem(BTK('blue')) === 'string');
   }
 
   // --- Finish with an INVALID elapsed time -> warn branch, no score ---
