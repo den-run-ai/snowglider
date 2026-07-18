@@ -153,6 +153,7 @@ export function setTerrainCorridor(corridor: TerrainCorridor | null): void {
 /** Empty the shared heightMap cache in place (it is an imported singleton, not reassigned). */
 export function resetHeightMap(): void {
   for (const key in heightMap) delete heightMap[key];
+  resetGridCorners(); // the render-grid corner cache keys off the same surface recipe
 }
 
 /** Whether a corridor is active. Lets the mesh builder skip the wall add entirely for
@@ -205,13 +206,19 @@ export function getTerrainHeight(x: number, z: number): number {
  * downstream callers see (Codex review on #390). Gameplay/physics callers should
  * keep using getTerrainHeight — the cache is their shared source of truth.
  */
-export function getTerrainHeightUncached(x: number, z: number): number {
+/** The pure ANALYTIC height field: the function the render grid is built from.
+ *  Everything else — physics, collision, placement — reads the TRIANGLE-
+ *  INTERPOLATED form below (getTerrainHeightUncached), which samples this only
+ *  at render-grid corners, so the simulated surface IS the rendered surface
+ *  even across discontinuities like the kicker lip (#403 review: the analytic
+ *  lip drop diverged from the 2-unit mesh interpolation by up to ~3 units).
+ *  Exported for the parity tests. */
+export function analyticTerrainHeight(x: number, z: number): number {
   const distance = Math.sqrt(x * x + z * z);
 
-  // THE height formula (#401): since the mesh builder samples this function per
-  // vertex, this is the single source of truth for the mountain — rendered,
-  // simulated, and placed against. (The old separately-maintained mesh copy had
-  // drifted; there is no second formula to keep in sync any more.)
+  // THE height formula (#401): the mesh builder rasterizes this per vertex,
+  // and the interpolated sampler below reads the same grid — one source of
+  // truth for the mountain, rendered, simulated, and placed against.
   // Base mountain shape
   let y = 40 * Math.exp(-distance / 40);
 
@@ -244,6 +251,61 @@ export function getTerrainHeightUncached(x: number, z: number): number {
   }
 
   return y;
+}
+
+// --- Render-grid sampling (#403 review): physics samples the rendered triangles.
+// The terrain mesh is a PlaneGeometry(300, 400, 150, 200) rotated -90° about X:
+// vertices at x = -150 + 2i (i in 0..150) and z = -200 + 2j (j in 0..200), each
+// 2x2 cell split into the triangles (a,b,d) and (b,c,d) with a=(i,j), b=(i,j+1),
+// c=(i+1,j+1), d=(i+1,j) — i.e. the diagonal from (x0, z0+2) to (x0+2, z0).
+// getTerrainHeightUncached evaluates the SAME piecewise-linear surface the GPU
+// rasterizes, so rendered and simulated heights agree everywhere — including
+// off-vertex points across the kicker-lip discontinuity, where the analytic
+// formula and the interpolated mesh used to diverge by up to ~3 units.
+const GRID_X0 = -150, GRID_Z0 = -200, GRID_STEP = 2;
+const GRID_NX = 151, GRID_NZ = 201; // vertices per axis
+// Lazy corner cache for analytic evaluations at grid vertices (NaN = unfilled).
+// Cleared whenever the surface recipe changes (resetHeightMap: corridor/kickers).
+let gridCorner = new Float64Array(GRID_NX * GRID_NZ).fill(NaN);
+
+function cornerHeight(i: number, j: number): number {
+  const idx = i + j * GRID_NX;
+  let h = gridCorner[idx]!;
+  if (Number.isNaN(h)) {
+    h = analyticTerrainHeight(GRID_X0 + i * GRID_STEP, GRID_Z0 + j * GRID_STEP);
+    gridCorner[idx] = h;
+  }
+  return h;
+}
+
+/** Reset the lazy render-grid corner cache (called with the heightMap reset). */
+function resetGridCorners(): void {
+  gridCorner = new Float64Array(GRID_NX * GRID_NZ).fill(NaN);
+}
+
+export function getTerrainHeightUncached(x: number, z: number): number {
+  // Off the rendered grid (nothing is rasterized there; gameplay is bounded at
+  // |x| <= 120 and z in [-195, ...]) fall back to the analytic field.
+  if (x <= GRID_X0 || x >= GRID_X0 + (GRID_NX - 1) * GRID_STEP ||
+      z <= GRID_Z0 || z >= GRID_Z0 + (GRID_NZ - 1) * GRID_STEP) {
+    return analyticTerrainHeight(x, z);
+  }
+  const fx = (x - GRID_X0) / GRID_STEP;
+  const fz = (z - GRID_Z0) / GRID_STEP;
+  const i = Math.min(GRID_NX - 2, Math.floor(fx));
+  const j = Math.min(GRID_NZ - 2, Math.floor(fz));
+  const u = fx - i;
+  const v = fz - j;
+  const ha = cornerHeight(i, j);        // (x0,     z0)
+  const hb = cornerHeight(i, j + 1);    // (x0,     z0 + 2)
+  const hc = cornerHeight(i + 1, j + 1);// (x0 + 2, z0 + 2)
+  const hd = cornerHeight(i + 1, j);    // (x0 + 2, z0)
+  // Triangle (a,b,d) below the b->d diagonal (u + v <= 1), (b,c,d) above — the
+  // exact PlaneGeometry split. Linear (barycentric) interpolation per triangle.
+  if (u + v <= 1) {
+    return ha + u * (hd - ha) + v * (hb - ha);
+  }
+  return hc + (1 - u) * (hb - hc) + (1 - v) * (hd - hc);
 }
 
 // Calculate terrain gradient for physics and tree placement

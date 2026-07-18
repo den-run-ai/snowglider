@@ -156,6 +156,71 @@ async function main() {
       maxDiff < 0.5, `max abs diff ${maxDiff.toFixed(4)}`);
   }
 
+  // ---------- 6) KICKERS: off-vertex parity across the lip discontinuity ----------
+  // The maintainer-measured #408 blocker: expert kickers drop ~3 units abruptly at
+  // the lip, the 2-unit mesh grid interpolates across that discontinuity, and the
+  // old analytic physics sampler diverged from the rendered surface by ~1.49 units
+  // at z=-71 (approaching ~2.99 right below the lip). Physics now samples the SAME
+  // piecewise-linear triangles the GPU rasterizes, so the gap must be gone at
+  // every off-vertex point around every lip and lateral edge.
+  console.log('\n--- kicker-lip off-vertex parity (active expert kickers) ---');
+  {
+    const { getDifficultyConfig } = await import('../src/difficulty.ts');
+    const { courseLineFor } = await import('../src/course-line.ts');
+    const cfg = getDifficultyConfig('expert');
+    const line = courseLineFor(cfg);
+    terrain.setTerrainCorridor(cfg.terrain ? { line, params: cfg.terrain } : null);
+    terrain.setTerrainKickers(cfg.features ?? null, line);
+
+    const kBuilt = quiet(() => createTerrain(new THREE.Scene()));
+    const kVerts = /** @type {Float32Array} */ (kBuilt.terrain.geometry.attributes.position.array);
+    // Sample the RENDERED surface: the exact PlaneGeometry triangle split, from
+    // the float32 vertex buffer (i = (x+150)/2 col, j = (z+200)/2 row).
+    const meshHeight = (x, z) => {
+      const fx = (x + 150) / 2, fz = (z + 200) / 2;
+      const i = Math.min(149, Math.floor(fx)), j = Math.min(199, Math.floor(fz));
+      const u = fx - i, v = fz - j;
+      const h = (ii, jj) => kVerts[(ii + 151 * jj) * 3 + 1];
+      const ha = h(i, j), hb = h(i, j + 1), hc = h(i + 1, j + 1), hd = h(i + 1, j);
+      return (u + v <= 1)
+        ? ha + u * (hd - ha) + v * (hb - ha)
+        : hc + (1 - u) * (hb - hc) + (1 - v) * (hd - hc);
+    };
+
+    let maxPhysVsMesh = 0, maxAnalyticVsMesh = 0, points = 0;
+    for (const spec of cfg.features ?? []) {
+      for (let z = spec.z - 2.5; z <= spec.z + spec.length + 2.5; z += 0.31) {
+        const xc = line.laneX(z);
+        for (let dx = -spec.halfWidth - 2.5; dx <= spec.halfWidth + 2.5; dx += 0.47) {
+          const x = xc + dx;
+          const m = meshHeight(x, z);
+          maxPhysVsMesh = Math.max(maxPhysVsMesh, Math.abs(terrain.getTerrainHeightUncached(x, z) - m));
+          maxAnalyticVsMesh = Math.max(maxAnalyticVsMesh, Math.abs(terrain.analyticTerrainHeight(x, z) - m));
+          points++;
+        }
+      }
+    }
+    check(`physics == rendered surface at ${points} off-vertex points around every kicker lip/edge`,
+      maxPhysVsMesh < 1e-3, `max abs diff ${maxPhysVsMesh.toExponential(3)}`);
+    check('the OLD analytic sampler genuinely diverged from the rendered lip (the closed gap)',
+      maxAnalyticVsMesh > 1.0, `analytic-vs-mesh max ${maxAnalyticVsMesh.toFixed(3)} units`);
+
+    // Random off-vertex parity across the whole playable field, kickers active.
+    const rng = makeRng(0xF00D);
+    let maxGlobal = 0;
+    for (let k = 0; k < 500; k++) {
+      const x = (rng() - 0.5) * 240;
+      const z = -195 + rng() * 250;
+      maxGlobal = Math.max(maxGlobal, Math.abs(terrain.getTerrainHeightUncached(x, z) - meshHeight(x, z)));
+    }
+    check('physics == rendered surface at 500 random off-vertex points (kickers active)',
+      maxGlobal < 1e-3, `max abs diff ${maxGlobal.toExponential(3)}`);
+
+    // Leave the module clean for any later consumer.
+    terrain.setTerrainKickers(null, null);
+    terrain.setTerrainCorridor(null);
+  }
+
   console.log('\n=========================================');
   console.log(`Summary: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
