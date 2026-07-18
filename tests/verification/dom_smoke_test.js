@@ -236,6 +236,40 @@ async function main() {
     !!global.localStorage.getItem('snowgliderGhost_black')
     && !!global.localStorage.getItem('snowgliderBestSplits_black'));
 
+  // Ghost world-compatibility gate (#401/#408): a ghost stamped with a DIFFERENT
+  // PHYSICS_VERSION (or unstamped — recorded before provenance existed) is a
+  // physical trajectory over a different terrain and must NOT load. Observable via
+  // the tier-best baseline: with the stale ghost ignored, a SLOWER later run still
+  // re-seeds the ghost + meta with current-world data (if the stale ghost had
+  // loaded, its faster time would have blocked the commit).
+  {
+    const staleGhost = global.localStorage.getItem('snowgliderGhost_black');
+    global.localStorage.setItem('snowgliderGhost_black_meta', JSON.stringify({ seed: null, physicsVersion: -1 }));
+    Course.reset(); // stale-stamped ghost must be left unloaded
+    let t4 = 0;
+    for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
+      t4 += 0.3; // even slower than run t3
+      Course.update({ x: 1.5, y: terrain(1.5, z), z }, t4, snowmanMock);
+    }
+    Course.onFinish(t4, 0.001);
+    const meta4 = JSON.parse(global.localStorage.getItem('snowgliderGhost_black_meta'));
+    check('a version-mismatched ghost is ignored: a slower run re-seeds the tier baseline (#408)',
+      global.localStorage.getItem('snowgliderGhost_black') !== staleGhost);
+    check('the re-seeded ghost is stamped with the CURRENT physics version (#408)',
+      !!meta4 && meta4.physicsVersion !== -1);
+    // And an UNSTAMPED ghost (pre-provenance record) is incompatible by definition.
+    global.localStorage.removeItem('snowgliderGhost_black_meta');
+    Course.reset();
+    let t5 = 0;
+    for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
+      t5 += 0.35; // slower still
+      Course.update({ x: 1.5, y: terrain(1.5, z), z }, t5, snowmanMock);
+    }
+    Course.onFinish(t5, 0.001);
+    check('an unstamped (pre-provenance) ghost is also ignored and re-seeded (#408)',
+      !!global.localStorage.getItem('snowgliderGhost_black_meta'));
+  }
+
   // flashAir (meaningful jumps #47): the on-slope air toast routes through the shared
   // #courseFlash element with the air time + grade label.
   Course.flashAir('clean', 1.234);

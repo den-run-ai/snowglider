@@ -28,7 +28,7 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
-import { getRunStamp } from './run-context.js';
+import { getRunStamp, PHYSICS_VERSION } from './run-context.js';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
@@ -384,10 +384,34 @@ export const CourseModule = (function () {
   // ---------------------------------------------------------------------------
   // Ghost
   // ---------------------------------------------------------------------------
+  /** A stored ghost is only replayable against the WORLD that recorded it: the
+   *  ghost is a physical trajectory over the terrain surface, so after a
+   *  PHYSICS_VERSION bump (e.g. the #401 one-height-field change) a stale ghost
+   *  would clip through / float above the new surface and race an unfair time.
+   *  Compatible == stamped with the CURRENT version; an unstamped ghost
+   *  (recorded before provenance stamping existed, i.e. against a pre-#401
+   *  surface) is incompatible by definition. Skipping the load also resets the
+   *  tier-best commit baseline, so the FIRST run on the new world re-seeds the
+   *  ghost + best splits with replayable v-current data. Local BEST TIMES are
+   *  deliberately NOT invalidated: they are historical records, not physical
+   *  replays (see the run-context version-anchor doc / PR #408 review). */
+  function ghostStampCompatible(): boolean {
+    try {
+      const raw = localStorage.getItem(ghostMetaKey());
+      if (!raw) return false;
+      const meta: unknown = JSON.parse(raw);
+      return typeof meta === 'object' && meta !== null &&
+        (meta as { physicsVersion?: unknown }).physicsVersion === PHYSICS_VERSION;
+    } catch {
+      return false;
+    }
+  }
+
   function loadGhost() {
     ghostSamples = null;
     ghostTotalTime = 0;
     try {
+      if (!ghostStampCompatible()) return; // stale-world ghost: leave unloaded (#401/#408)
       const raw = localStorage.getItem(ghostKey());
       if (raw) {
         const data = JSON.parse(raw);
