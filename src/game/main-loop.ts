@@ -129,6 +129,14 @@ export function createMainLoop(deps: MainLoopDeps) {
   // its banking ran — so an event's points ride the chain built BEFORE it. Reset
   // per run in resetLoopState; a SKETCHY/wipeout landing breaks it (combo.ts).
   let comboStep = 0;
+  // THE simulation clock (#402): seconds of ACCUMULATED FIXED STEPS this run.
+  // Course/split/ghost timing keys off this — not performance.now — so ranked
+  // time can no longer advance while physics time is being dropped (the
+  // MAX_SUBSTEPS spiral guard discards surplus accumulator time on a stall: the
+  // game slows down, and now the clock slows down WITH it), and a hidden-tab
+  // pause freezes it naturally (no substeps run). Wall clock remains only for
+  // the cosmetic HUD readout (updateTimerDisplay) and analytics.
+  let simTime = 0;
   // The latest per-step physics result, retained so a render frame that ran ZERO
   // substeps (a >60 Hz panel) can still repaint the HUD / advance cosmetics from the
   // last known state instead of going blank.
@@ -232,14 +240,42 @@ export function createMainLoop(deps: MainLoopDeps) {
   // that live in the loop (not the kernel) and so must also run on the fixed grid, so a
   // fast render frame can't carry the player past them between samples. Runs at FIXED_DT.
   function stepFixed(dt: number): UpdateResult {
+    // --- Avalanche trigger + boulder physics: ON THE FIXED GRID (#402) ---------
+    // Boulders advance in the same 1/60 substeps as the player (boulders first,
+    // then the player — the same within-frame order the old per-render-frame
+    // advance had), so player/boulder RELATIVE motion no longer varies with the
+    // render rate, and the live slide finally matches the winnability harness,
+    // which always stepped the avalanche at a fixed 1/60. The trigger's
+    // distance check moves with it, so arming can't skew by frame timing.
+    // Powder cosmetics stay on the render frame (see animate()).
+    const avalanche = state.avalanche;
+    if (avalanche) {
+      const distanceTraveled = state.lastAvalancheZ - pos.z;
+      if (avalanche.enabled && !state.avalancheTriggered && distanceTraveled > avalanche.triggerDistance) {
+        avalanche.trigger(snowman.position);
+        state.avalancheTriggered = true;
+        console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
+      }
+      avalanche.updatePhysics(dt);
+    }
+
     const result = stepPhysics(dt);
 
+    // --- The simulation clock (#402) -----------------------------------------
+    // Advances ONLY when a fixed step completes, after this step's physics — so
+    // the elapsed value the course reads includes the step it is being asked to
+    // evaluate. Dropped accumulator time (the spiral guard) and hidden-tab
+    // pauses simply don't advance it.
+    simTime += dt;
+
     // --- Course progress: split timing, progress HUD, ghost racing ---
-    // On the fixed grid so a fast render frame can't carry the player past a split gate
-    // between samples; the split/ghost readouts still key off wall-clock elapsed.
+    // On the fixed grid so a fast render frame can't carry the player past a split
+    // gate between samples. Splits, the ghost, and the FINAL COURSE TIME key off
+    // the simulation clock (#402): sim time == wall time on a healthy run, but a
+    // stall that drops physics time no longer inflates the ranked time (and a
+    // ranked run can no longer bank wall-clock while frozen).
     if (CourseModule) {
-      const elapsed = (performance.now() - state.startTime) / 1000;
-      CourseModule.update(pos, elapsed, snowman);
+      CourseModule.update(pos, simTime, snowman);
     }
 
     // (Avalanche burial is checked once per RENDER frame — after the player's substeps and
@@ -521,26 +557,16 @@ export function createMainLoop(deps: MainLoopDeps) {
         Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
       }
 
-      // --- Avalanche advance (boulder physics) — BEFORE the substeps ------------
-      // Advance the boulders FIRST (trigger + update), then the player substeps, then the
-      // per-frame burial check + hasPassed()/reset + warning UI (after the physics core,
-      // below) — so burial always tests this frame's boulder AND player positions before
-      // the slide can deactivate. Boulder physics stays on the render delta (its own
-      // frame-rate fix lives in avalanche.ts).
+      // --- Avalanche powder cosmetics — render frame only (#402) ----------------
+      // The gameplay half (trigger + boulder physics) moved into stepFixed's
+      // 1/60 substeps, so a run's slide is frame-rate independent; only the
+      // render-only powder cloud stays on the render delta (its 60 Hz-referenced
+      // emission accumulator keeps the budget-per-second rate-independent, #400).
+      // Burial stays checked once per render frame below — after the substeps and
+      // this frame's boulder advance, before hasPassed()/reset.
       const avalanche = state.avalanche;
       if (avalanche) {
-        // Trigger based on distance traveled (player starts at z=-15, skis toward -Z).
-        // Per-tier (D3.2d): `enabled` is false for Bunny (never fires); `triggerDistance` is
-        // the active tier's arm distance (Black arms sooner than Blue). Both come from the
-        // system's own fields, set from the tier's `avalanche` block in scene-setup.
-        const distanceTraveled = state.lastAvalancheZ - pos.z;
-        if (avalanche.enabled && !state.avalancheTriggered && distanceTraveled > avalanche.triggerDistance) {
-          avalanche.trigger(snowman.position);
-          state.avalancheTriggered = true;
-          console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
-        }
-        // Update avalanche physics (boulder tumble advances on the render delta).
-        avalanche.update(frameDelta);
+        avalanche.updateCosmetics(frameDelta);
       }
 
       // --- Fixed-step physics core ---------------------------------------------
@@ -778,6 +804,7 @@ export function createMainLoop(deps: MainLoopDeps) {
   // diagnostics step (a huge maxSubstepStep false tunnel-risk sample). Idempotent.
   function resetLoopState() {
     accumulator = 0;
+    simTime = 0; // a new run starts its simulation clock (#402) from zero
     lastResult = null;
     prevInAir = false;
     comboStep = 0; // a new run starts its style chain from ×1 (JP-7)

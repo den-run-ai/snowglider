@@ -84,6 +84,10 @@ async function main() {
       triggerDistance: 50,
       trigger() {},
       update() {},
+      // #402 split: the live loop drives boulder physics per fixed substep and
+      // powder cosmetics per render frame via these halves.
+      updatePhysics() {},
+      updateCosmetics() {},
       checkBurial: () => false,
       hasPassed: () => false,
       reset() { resetCalls++; },
