@@ -650,8 +650,12 @@ export const CourseModule = (function () {
     const tierBestTime = ghostSamples ? ghostTotalTime : Infinity;
     const isTierBest = totalTime < tierBestTime;
 
-    // Commit best splits + ghost if this run is the tier's best so far.
-    if (isTierBest) {
+    // Commit best splits + ghost if this run is the tier's best so far — and the
+    // run is on a REAL world: practice (?seed=) runs never overwrite the
+    // canonical-world ghost/splits records (#403 review; the shared ghost key
+    // holds ONE record per tier, and a practice commit would both lose the
+    // canonical ghost and leave a stamp the canonical world rejects).
+    if (isTierBest && !getRunStamp().practice) {
       try {
         localStorage.setItem(splitsKey(), JSON.stringify(runSplits));
         // Ensure the final sample lands exactly on the finish time, but keep the

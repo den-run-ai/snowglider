@@ -15,6 +15,7 @@ import { EffectsModule } from '../effects.js';
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
 import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, stampLocalBestMeta, type Difficulty } from '../difficulty.js';
+import { getRunStamp } from '../run-context.js';
 import { resultSyncStatusCopy } from '../offline/sync-manager.js';
 import { isOnline } from '../offline/offline-state.js';
 
@@ -196,8 +197,15 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // Only update times if player reached the end successfully
     if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
       const currentTime = finishTime;
-      const isNewBestTime = currentTime < state.bestTime;
-      const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
+      // Practice worlds (?seed=..., #403 review) show their time but record
+      // NOTHING competitive: no leaderboard submit, no local best, no
+      // state.bestTime update — a freely chosen seed could cherry-pick an easy
+      // obstacle/avalanche field (seed-shopping), so only canonical-world runs
+      // are ranked. The result panel still renders (CourseModule.onFinish).
+      const practice = getRunStamp().practice;
+      const isNewBestTime = !practice && currentTime < state.bestTime;
+      const canRecordScore = !practice &&
+        window.AuthModule && typeof window.AuthModule.recordScore === 'function';
 
       // Record the score whenever the leaderboard API is available (it handles its own
       // auth + persistence); otherwise fall back to persisting a new local best.
@@ -206,7 +214,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       } else if (isNewBestTime) {
         // Unranked tier (or no leaderboard API): keep the local per-tier best only —
         // stamped with the same run provenance every other local-best write carries
-        // (#400; Codex review PR #407).
+        // (#400; Codex review PR #407). Practice runs never reach here
+        // (isNewBestTime is force-false above).
         localStorage.setItem(localBestTimeKey(tier), String(currentTime));
         stampLocalBestMeta(tier);
       }

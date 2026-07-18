@@ -12,7 +12,7 @@ import { Expression } from '../snowman-expression.js';
 import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
-import { setRunSeed, getRunSeed } from '../run-context.js';
+import { rewindRunStreams, isPracticeRun } from '../run-context.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
@@ -59,13 +59,15 @@ export function createLifecycle(deps: LifecycleDeps) {
   const touchOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
 
   function resetSnowman() {
-    // Rewind the run's RNG streams to their tops (#400): on a SEEDED run
-    // (?seed=…, applied in setupScene before the world build) every restart
-    // replays the same auto-turn/boulder sequences — that is what makes the
-    // seed a replay. Unseeded (production default) the gameplay streams are
-    // passthroughs, so this only re-derives the private cosmetic streams —
-    // a per-run reproducibility nicety with no gameplay effect.
-    setRunSeed(getRunSeed());
+    // Rewind the run's RNG streams for the new run (#400/#403 review). WORLD
+    // streams (hazards/course) replay from the world seed. The RUN-scoped
+    // streams (physics auto-turns, avalanche boulders) re-derive from
+    // worldSeed^nonce: canonical-world runs draw a FRESH nonce so restarts keep
+    // their run-to-run variety on the one shared world, while a ?seed= practice
+    // run pins the nonce to 0 — the same seed is a full deterministic replay.
+    // (The nonce draw is plain Math.random: it SEEDS private streams and sits
+    // outside every kernel; harness passthrough mode ignores it entirely.)
+    rewindRunStreams(isPracticeRun() ? 0 : (Math.random() * 0x1_0000_0000) >>> 0);
 
     // Reset the snowman + player physics state (position, velocity, camera, and the
     // air/auto-turn scalars) to the start of a run.

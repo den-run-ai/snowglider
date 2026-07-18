@@ -25,7 +25,7 @@ import { readStoredDifficulty, getDifficultyConfig, BLUE_AVALANCHE, type Difficu
 import { courseLineFor, setActiveCourseLine } from '../course-line.js';
 import { createScenery, type ScenerySystem } from '../scenery/scenery.js';
 import { scenerySeedFor } from '../scenery/scenery-budget.js';
-import { setRunSeed, parseRunSeedParam, getRunStamp } from '../run-context.js';
+import { setWorldContext, parseRunSeedParam, CANONICAL_WORLD_SEED, getRunStamp } from '../run-context.js';
 
 // The shipped Blue avalanche numbers, re-exported from the difficulty spine so there is
 // ONE source of truth (difficulty.ts BLUE_AVALANCHE). The winnability harness reads these
@@ -111,12 +111,16 @@ export function setupScene(signal?: AbortSignal) {
   // old home further down) would hand those suites the player default instead.
   window.isTestMode = window.location.search.includes('test');
 
-  // Ranked/replay seed seam (#400): apply `?seed=<uint>` BEFORE anything that
-  // draws from a gameplay stream is built — the world build below runs inside
-  // withGameplayStream('hazards'), so a seeded page gets a seed-deterministic
-  // obstacle field. Absent/invalid => null => unseeded passthrough (today's
-  // default, byte-identical).
-  setRunSeed(parseRunSeedParam(window.location.search));
+  // World selection (#400/#403 review), BEFORE anything that draws from a
+  // gameplay stream is built: the live game ALWAYS runs a concrete world seed.
+  // Default = the CANONICAL world (one shared layout for every player and load:
+  // leaderboard comparability, stable ghost world id, and gameplay streams that
+  // are private — SFX init's tens of thousands of global Math.random draws can
+  // no longer make the default run device/order dependent). An explicit ?seed=
+  // selects a PRACTICE world instead: freely chosen seeds are not
+  // leaderboard-eligible (seed-shopping) and never touch canonical records.
+  const urlSeed = parseRunSeedParam(window.location.search);
+  setWorldContext(urlSeed ?? CANONICAL_WORLD_SEED, urlSeed !== null);
   // Deliberate boot seam (#400; ARCHITECTURE.md §3): the classic-script local-auth
   // fallback (src/boot/local-auth.js) cannot import ES modules but must stamp the
   // local bests it records with the same {seed, physicsVersion} provenance the

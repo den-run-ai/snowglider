@@ -74,7 +74,24 @@ function normalizeSeed(seed: unknown): number | null {
   return Math.floor(seed) >>> 0;
 }
 
+/** THE canonical world seed (#403 review): the world every player rides by
+ *  default — one shared, fixed layout, so leaderboard times compare the same
+ *  obstacle field and a stored ghost's world id is stable across page loads.
+ *  Changing this constant is a WORLD change (pair it with a PHYSICS_VERSION
+ *  bump); per-season/server-selected worlds are the #247 follow-up. */
+export const CANONICAL_WORLD_SEED = 0x5310_60D5;
+
 let runSeed: number | null = null;
+/** True when the world came from an explicit ?seed= (a PRACTICE world): freely
+ *  chosen seeds must never submit to the shared leaderboard or overwrite the
+ *  canonical-world records (seed-shopping). */
+let practiceRun = false;
+/** Per-run lane for the RUN-SCOPED gameplay streams (physics/avalanche): mixed
+ *  into their derivation so canonical-world runs still vary run to run (fresh
+ *  nonce each run start) while the WORLD streams (hazards/course) stay pinned
+ *  to the world seed. Practice replays pin the nonce to 0 => full determinism. */
+let runStreamNonce = 0;
+const RUN_SCOPED_STREAMS: ReadonlySet<GameplayStreamName> = new Set(['physics', 'avalanche']);
 const gameplayStreams = new Map<GameplayStreamName, () => number>();
 const cosmeticStreams = new Map<CosmeticStreamName, () => number>();
 
@@ -96,10 +113,44 @@ export function resetRunStreams(): void {
 }
 
 /** Set (or clear, with null) the run seed. Non-finite input is treated as null
- *  — an unseeded run — never as a poisoned stream. Always resets every stream,
- *  so calling it at run start makes the run replayable from the top. */
+ *  — passthrough mode, the harness default — never as a poisoned stream. Always
+ *  resets every stream, so calling it at run start makes the run replayable
+ *  from the top. (The live game always runs SEEDED via setWorldContext; null
+ *  passthrough exists for the `Math.random = makeRng(seed)` harnesses.) */
 export function setRunSeed(seed: number | null): void {
   runSeed = normalizeSeed(seed);
+  practiceRun = false;
+  runStreamNonce = 0;
+  resetRunStreams();
+}
+
+/** The live game's world selection (#403 review), called once by setupScene
+ *  BEFORE the world build: a concrete world seed ALWAYS (canonical by default,
+ *  the ?seed= override for practice), so production gameplay streams are never
+ *  the global-Math.random passthrough — SFX init or any other global consumer
+ *  cannot perturb gameplay, and the default world is the same for every player
+ *  and every load (leaderboard comparability + a stable ghost world id). */
+export function setWorldContext(worldSeed: number, practice: boolean): void {
+  runSeed = normalizeSeed(worldSeed) ?? CANONICAL_WORLD_SEED;
+  practiceRun = practice;
+  runStreamNonce = 0;
+  resetRunStreams();
+}
+
+/** True while the active world came from an explicit ?seed= (practice-only:
+ *  no leaderboard submit, no canonical-record writes). */
+export function isPracticeRun(): boolean {
+  return practiceRun;
+}
+
+/** Rewind the streams for a NEW RUN on the current world: world streams
+ *  (hazards/course) replay from the world seed; the run-scoped streams
+ *  (physics/avalanche) re-derive from worldSeed^nonce. Canonical runs pass a
+ *  fresh nonce for run-to-run variety on the shared world; practice replays
+ *  pass 0 so the same ?seed= is a full deterministic replay. No-op-safe in
+ *  harness passthrough mode (streams stay passthrough). */
+export function rewindRunStreams(nonce: number): void {
+  runStreamNonce = normalizeSeed(nonce) ?? 0;
   resetRunStreams();
 }
 
@@ -117,7 +168,8 @@ export function gameplayRandom(name: GameplayStreamName): number {
   if (runSeed === null) return Math.random();
   let stream = gameplayStreams.get(name);
   if (!stream) {
-    stream = deriveStream(name, runSeed);
+    const base = RUN_SCOPED_STREAMS.has(name) ? (runSeed ^ runStreamNonce) >>> 0 : runSeed;
+    stream = deriveStream(name, base);
     gameplayStreams.set(name, stream);
   }
   return stream();
@@ -172,8 +224,8 @@ export function withGameplayStream<T>(name: GameplayStreamName, fn: () => T): T 
 
 /** The provenance stamp future score/ghost records carry (#400): which seed (if
  *  any) and which physics behavior produced the run. */
-export function getRunStamp(): { seed: number | null; physicsVersion: number } {
-  return { seed: runSeed, physicsVersion: PHYSICS_VERSION };
+export function getRunStamp(): { seed: number | null; practice: boolean; physicsVersion: number } {
+  return { seed: runSeed, practice: practiceRun, physicsVersion: PHYSICS_VERSION };
 }
 
 /** Parse a `?seed=<uint>` run seed from a URL search string (the ranked/replay

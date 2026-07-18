@@ -107,6 +107,24 @@ async function main() {
     check('overlay is shown', deps.gameOverOverlay.style.display === 'flex');
   }
 
+  // --- Practice world (?seed=, #403 review): shows the time, records NOTHING ---
+  {
+    local.clear();
+    recorded = null;
+    const RC = await import('../src/run-context.ts');
+    RC.setWorldContext(424242, true); // an explicit ?seed= world => practice
+    const deps = makeDeps({ bestTime: Infinity });
+    createShowGameOver(deps)(FINISH);
+    check('practice finish does NOT submit to the leaderboard', recorded === null);
+    check('practice finish writes NO local best',
+      local.getItem('snowgliderBestTime') === null);
+    check('practice finish does not claim a new best time',
+      !/New Best Time/.test(deps.bestTimeDisplay.textContent));
+    check('practice finish still shows the overlay/result',
+      deps.gameOverOverlay.style.display === 'flex');
+    RC.setRunSeed(null);
+  }
+
   // --- Unranked tier (D3): finish records NO Firestore score, keeps the per-tier local best ---
   {
     local.clear();

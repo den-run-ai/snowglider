@@ -167,13 +167,50 @@ async function main() {
       posKey(a.rockPositions) === posKey(b.rockPositions));
   }
 
+  // ---------- canonical world / practice / run nonce (#403 review) ----------
+  console.log('\n--- canonical world, practice flag, run-stream nonce ---');
+  {
+    // Canonical world: concrete seed, NOT practice; gameplay streams private.
+    RC.setWorldContext(RC.CANONICAL_WORLD_SEED, false);
+    check('canonical world is not a practice run', RC.isPracticeRun() === false);
+    Math.random = () => { throw new Error('canonical-world gameplay draw touched global'); };
+    let threw = false;
+    try { RC.gameplayRandom('physics'); RC.gameplayRandom('hazards'); } catch { threw = true; }
+    Math.random = realRandom;
+    check('canonical-world gameplay streams are PRIVATE (never global Math.random)', !threw);
+
+    // ?seed= world: practice.
+    RC.setWorldContext(1234, true);
+    check('?seed= world is a practice run', RC.isPracticeRun() === true);
+    check('the stamp carries the practice flag', RC.getRunStamp().practice === true);
+
+    // Run-scoped streams: same world + same nonce => same physics sequence;
+    // a different nonce varies physics/avalanche but NOT the world streams.
+    RC.setWorldContext(RC.CANONICAL_WORLD_SEED, false);
+    RC.rewindRunStreams(1111);
+    const phys1 = [RC.gameplayRandom('physics'), RC.gameplayRandom('physics')];
+    const haz1 = [RC.gameplayRandom('hazards'), RC.gameplayRandom('hazards')];
+    RC.rewindRunStreams(1111);
+    const phys1b = [RC.gameplayRandom('physics'), RC.gameplayRandom('physics')];
+    RC.rewindRunStreams(2222);
+    const phys2 = [RC.gameplayRandom('physics'), RC.gameplayRandom('physics')];
+    const haz2 = [RC.gameplayRandom('hazards'), RC.gameplayRandom('hazards')];
+    check('same world + same nonce replays the same physics sequence',
+      JSON.stringify(phys1) === JSON.stringify(phys1b));
+    check('a fresh nonce varies the run-scoped physics stream',
+      JSON.stringify(phys1) !== JSON.stringify(phys2));
+    check('the WORLD streams (hazards) are pinned to the world seed across nonces',
+      JSON.stringify(haz1) === JSON.stringify(haz2));
+    RC.setRunSeed(null);
+  }
+
   // ---------- wiring contracts ----------
   console.log('\n--- wiring contracts (source level) ---');
   const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
-  check('setupScene applies ?seed= before the world build',
-    /setRunSeed\(parseRunSeedParam\(window\.location\.search\)\)/.test(read('src/game/scene-setup.ts')));
-  check('lifecycle rewinds the run streams at every run start',
-    /setRunSeed\(getRunSeed\(\)\)/.test(read('src/game/lifecycle.ts')));
+  check('setupScene selects a CONCRETE world before the build (canonical unless ?seed=)',
+    /setWorldContext\(urlSeed \?\? CANONICAL_WORLD_SEED, urlSeed !== null\)/.test(read('src/game/scene-setup.ts')));
+  check('lifecycle rewinds the run streams at every run start (fresh nonce unless practice)',
+    /rewindRunStreams\(isPracticeRun\(\) \? 0 :/.test(read('src/game/lifecycle.ts')));
   check('createTerrain wraps the world build in the hazards stream',
     /withGameplayStream\('hazards'/.test(read('src/mountains/terrain-mesh.ts')));
   check('course.ts stamps the committed ghost with the run provenance',
