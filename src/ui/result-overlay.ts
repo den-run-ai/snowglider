@@ -88,6 +88,9 @@ export interface ResultOverlayState {
   gameActive: boolean;
   bestTime: number;
   startTime: number;
+  /** The loop's simulation clock (#402): accumulated fixed-step seconds this
+   *  run. Optional so legacy fixtures without it fall back to wall clock. */
+  simElapsed?: number;
 }
 
 // Overlay DOM the result screen writes into. Owned by the coordinator for now.
@@ -161,12 +164,16 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // screen can report the delta and whether this run set a new record.
     const previousBest = state.bestTime;
 
-    // Measure the finish elapsed ONCE and reuse it for both the best-time/score path
-    // and CourseModule.onFinish(). Otherwise a second performance.now() taken after the
-    // DOM/localStorage/score work could read later: a sub-millisecond personal best
-    // would be saved as a new record while the course screen sees elapsed >= previousBest,
-    // skips persisting the new ghost/splits, and shows a time that disagrees with the score.
-    const finishTime = (performance.now() - state.startTime) / 1000;
+    // The finish time IS the simulation clock (#402): the loop accumulates it in
+    // fixed steps and publishes it as state.simElapsed, so a stalled run records
+    // the time the simulation actually ran — wall clock can no longer inflate a
+    // ranked score (and it matches the splits/ghost, which read the same clock).
+    // Snapshotted ONCE and reused for the best-time/score path and
+    // CourseModule.onFinish() so every consumer sees the same value. Wall-clock
+    // fallback only for legacy callers whose state predates simElapsed.
+    const finishTime = typeof state.simElapsed === 'number'
+      ? state.simElapsed
+      : (performance.now() - state.startTime) / 1000;
     // Validate against the RUN's tier floor, not the global Blue floor — otherwise a
     // legitimately fast Black finish (below Blue's 18 s) would be treated as invalid and
     // lose its local best/ghost/result panel. Blue's floor == the global floor, unchanged.

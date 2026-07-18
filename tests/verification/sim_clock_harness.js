@@ -192,6 +192,17 @@ function makeRng(seed) {
       Math.abs(stallElapsedGain - stallSteps * LOOP_DT) < 1e-9 && stallElapsedGain < 1.0,
       `clock +${stallElapsedGain.toFixed(4)}s for 2.0s of wall stall`);
 
+    // The published run clock the FINISH/SCORE path reads (result-overlay's
+    // finishTime) must be the same sim clock the course just saw — the final
+    // recorded score pays sim time, not wall time (Codex review PR #409 P1).
+    check(true, 'state.simElapsed (the finish/score clock) equals the course clock exactly',
+      Math.abs(state.simElapsed - elapsedSeen[elapsedSeen.length - 1]) < 1e-12,
+      `simElapsed ${state.simElapsed.toFixed(4)}`);
+    const fs = require('fs');
+    const overlaySrc = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ui', 'result-overlay.ts'), 'utf8');
+    check(true, 'result-overlay computes finishTime from state.simElapsed (not wall clock)',
+      /finishTime = typeof state\.simElapsed === 'number'/.test(overlaySrc));
+
     CourseModule.update = realUpdate;
   }
 

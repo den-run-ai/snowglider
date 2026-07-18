@@ -192,10 +192,12 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
   }
 }
 
-// Update the live run timer during gameplay.
-export function updateTimerDisplay(gameActive: boolean, startTime: number): void {
+// Update the live run timer during gameplay. `elapsed` is the loop's SIMULATION
+// clock (#402) — accumulated fixed steps, the same value the finish records —
+// so the running readout and the final score can never disagree under a stall.
+export function updateTimerDisplay(gameActive: boolean, elapsed: number): void {
   if (gameActive) {
-    const currentTime = (performance.now() - startTime) / 1000;
+    const currentTime = elapsed;
 
     // Update the current time element in game stats
     const currentTimeElement = document.getElementById('currentTime');

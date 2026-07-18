@@ -259,14 +259,17 @@ export function createMainLoop(deps: MainLoopDeps) {
       avalanche.updatePhysics(dt);
     }
 
-    const result = stepPhysics(dt);
-
     // --- The simulation clock (#402) -----------------------------------------
-    // Advances ONLY when a fixed step completes, after this step's physics — so
-    // the elapsed value the course reads includes the step it is being asked to
-    // evaluate. Dropped accumulator time (the spiral guard) and hidden-tab
-    // pauses simply don't advance it.
+    // Advance and PUBLISH the clock BEFORE executing the step: the step being
+    // run occupies (simTime, simTime + dt], and the kernel can end the run
+    // SYNCHRONOUSLY inside stepPhysics (crossing FINISH_Z calls showGameOver,
+    // whose finishTime reads state.simElapsed) — stamping afterwards would
+    // record the finishing run one substep (1/60 s) short. Dropped accumulator
+    // time (the spiral guard) and hidden-tab pauses simply don't advance it.
     simTime += dt;
+    state.simElapsed = simTime;
+
+    const result = stepPhysics(dt);
 
     // --- Course progress: split timing, progress HUD, ghost racing ---
     // On the fixed grid so a fast render frame can't carry the player past a split
@@ -768,7 +771,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       compensateShadowBiasForElevation(directionalLight, sunDirScratch.y, Sky.getMiddaySunElevationSin());
 
       updateCamera(frameDelta);
-      updateTimerDisplay(state.gameActive, state.startTime); // Update the timer display
+      updateTimerDisplay(state.gameActive, state.simElapsed); // HUD shows the SIM clock (#402) — matches the recorded finish time
 
       // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
       // the positional offset so the camera manager's own smoothing stays clean.
@@ -805,6 +808,7 @@ export function createMainLoop(deps: MainLoopDeps) {
   function resetLoopState() {
     accumulator = 0;
     simTime = 0; // a new run starts its simulation clock (#402) from zero
+    state.simElapsed = 0;
     lastResult = null;
     prevInAir = false;
     comboStep = 0; // a new run starts its style chain from ×1 (JP-7)

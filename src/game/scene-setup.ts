@@ -59,7 +59,10 @@ export interface GameState {
   avalancheTriggered: boolean;       // whether this run's avalanche has fired
   lastAvalancheZ: number;            // z the trigger distance is measured from
   dodgeAwarded: boolean;             // this slide's once-only dodge bonus already paid (JP-3)
-  startTime: number;                 // performance.now() at run start (timer origin)
+  startTime: number;                 // performance.now() at run start (cosmetic wall-clock origin)
+  simElapsed: number;                // THE run clock (#402): seconds of accumulated fixed steps —
+                                     // written by the loop each substep; the finish/score path and
+                                     // the HUD timer read THIS, never wall clock
   bestTime: number;                  // best finish time in seconds (Infinity = none yet)
   gameActive: boolean;               // true while a run is live (drives the loop + input)
   animationRunning: boolean;         // true while the requestAnimationFrame loop is running
@@ -358,6 +361,7 @@ export function setupScene(signal?: AbortSignal) {
     lastAvalancheZ: 0,
     dodgeAwarded: false,
     startTime: 0,
+    simElapsed: 0,
     bestTime: Infinity, // overwritten by readStoredBestTime() in the coordinator, before any read
     gameActive: false,       // start inactive until the user clicks the start button
     animationRunning: false,
