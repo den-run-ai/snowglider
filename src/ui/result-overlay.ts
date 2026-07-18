@@ -91,6 +91,11 @@ export interface ResultOverlayState {
   /** The loop's simulation clock (#402): accumulated fixed-step seconds this
    *  run. Optional so legacy fixtures without it fall back to wall clock. */
   simElapsed?: number;
+  /** Set by the loop when this run dropped enough stalled wall time that its sim
+   *  clock ran materially slower than real time (#403 review). A compromised run
+   *  still finishes and shows its time, but is never ranked (no PB, no
+   *  leaderboard, no ghost commit). Optional for legacy fixtures. */
+  timingCompromised?: boolean;
 }
 
 // Overlay DOM the result screen writes into. Owned by the coordinator for now.
@@ -132,7 +137,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // be canonical — a ?seed= practice world reads as unranked through the WHOLE
     // overlay (Codex review PR #407): no login prompt, no "saved" status copy,
     // no leaderboard render, and the practice result panel makes no PB promises.
-    const tierRanked = getDifficultyConfig(tier).ranked && !getRunStamp().practice;
+    // ... AND the run's timing must be intact: a stall-heavy run played in slow
+    // motion against its own ranked clock (free reaction time), so it records
+    // nothing competitive either (#403 review).
+    const tierRanked = getDifficultyConfig(tier).ranked && !getRunStamp().practice
+      && state.timingCompromised !== true;
     // Allow tests to intercept showGameOver calls
     if (window._testShowGameOverOverride) {
       window._testShowGameOverOverride(reason);
@@ -214,7 +223,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // obstacle/avalanche field (seed-shopping), so only canonical-world runs
       // are ranked. The result panel still renders (CourseModule.onFinish).
       const practice = getRunStamp().practice;
-      const isNewBestTime = !practice && currentTime < state.bestTime;
+      const isNewBestTime = !practice && state.timingCompromised !== true
+        && currentTime < state.bestTime;
       const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
 
       // Record the score whenever the leaderboard API is available (it handles its own
@@ -381,7 +391,10 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
 
       if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
         try {
-          const panel = CourseModule.onFinish(finishTime, previousBest);
+          // A timing-compromised run may not commit ghost/splits either — its
+          // slow-motion trajectory is as non-comparable as its time (#403 review).
+          const panel = CourseModule.onFinish(finishTime, previousBest,
+            state.timingCompromised !== true);
           if (panel) gameOverOverlay.insertBefore(panel, restartButton);
         } catch (e) {
           console.warn("Result screen failed:", (e as Error).message);

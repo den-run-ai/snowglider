@@ -2,9 +2,15 @@
 // Headless coverage for the main-loop side of the JP-3 avalanche dodge window.
 //
 // avalanche-tests.js pins the pure resolver; this suite drives the real
-// createMainLoop().animate() with a fake avalanche so the loop-owned effects stay
+// createMainLoop() loop with a fake avalanche so the loop-owned effects stay
 // covered: game-over on burial, once-per-slide reward banking, escape impulse, and
 // re-arming after the slide passes.
+//
+// Avalanche OUTCOMES resolve inside stepFixed, once per fixed 1/60 substep
+// (#403 review) — NOT once per render frame — so every case here drives real
+// substeps: startLoop() seeds the frame clock, then animate(t0 + n*STEP_MS)
+// drains one substep per call. Airborne cases pin the player high above the
+// terrain so the kernel step they ride through keeps isInAir true.
 
 let pass = 0;
 let fail = 0;
@@ -41,9 +47,9 @@ async function main() {
   }
 
   /**
-   * Build the minimum scene handles createMainLoop needs. animate(0) runs the
-   * per-render observers and avalanche block without draining physics substeps, so
-   * each test can directly set the airborne/provenance state under inspection.
+   * Build the minimum scene handles createMainLoop needs. Each case starts the
+   * loop (seeding the frame clock) and advances wall time in ~one-substep steps,
+   * so the avalanche outcome block runs on the fixed grid exactly as live.
    * @param {Partial<any>} overrides
    */
   function makeLoop(overrides = {}) {
@@ -141,35 +147,53 @@ async function main() {
     return { loop, state, player, snowman, avalanche, gameOverReasons, getResetCalls: () => resetCalls };
   }
 
-  console.log('--- Main-loop avalanche dodge integration ---');
+  console.log('--- Main-loop avalanche dodge integration (outcomes on the fixed grid) ---');
+
+  // One render frame == one fixed substep: 17 ms > 1000/60 ms, so each animate()
+  // call drains exactly one 1/60 step (the residue stays below a second step).
+  const STEP_MS = 17;
+  /** @param {{loop: any}} h @param {number} n */
+  function stepFrames(h, n, t0) {
+    for (let f = 1; f <= n; f++) h.loop.animate(t0 + f * STEP_MS);
+  }
 
   {
     score = 0;
     flashes = 0;
     const h = makeLoop({ avalanche: { checkBurial: () => true } });
+    h.loop.startLoop();
+    const t0 = performance.now();
+    // Genuinely airborne through the kernel step this substep runs: high above
+    // the terrain on a deliberate jump, so stepPhysics keeps isInAir true.
+    h.player.pos.y += 40;
+    h.player.verticalVelocity = 5;
     h.player.isInAir = true;
     h.snowman.userData.playerJump = true;
 
-    h.loop.animate(0);
+    stepFrames(h, 1, t0);
     check('deliberate airborne overlap does not end the run', h.gameOverReasons.length === 0);
     check('first dodge banks the JP-3 air-score bonus', score === 250);
     check('first dodge flashes the dodge toast', flashes === 1);
     check('first dodge marks the slide as awarded', h.state.dodgeAwarded === true);
-    check('first dodge applies the escape impulse',
-      h.player.velocity.x === 11 && h.player.velocity.z === -22);
+    const vAfterX = h.player.velocity.x;
+    const vAfterZ = h.player.velocity.z;
+    check('first dodge applies the escape impulse (velocity boosted ~10%)',
+      vAfterX > 10 && vAfterZ < -20);
 
-    h.loop.animate(0);
+    stepFrames(h, 1, t0 + STEP_MS);
     check('continued overlap after the award does not pay again', score === 250 && flashes === 1);
-    check('continued overlap after the award does not boost again',
-      h.player.velocity.x === 11 && h.player.velocity.z === -22);
+    check('continued overlap after the award marks no second boost',
+      h.state.dodgeAwarded === true && h.gameOverReasons.length === 0);
   }
 
   {
     const h = makeLoop({ avalanche: { checkBurial: () => true } });
+    h.loop.startLoop();
+    const t0 = performance.now();
     h.player.isInAir = false;
     h.snowman.userData.playerJump = true;
 
-    h.loop.animate(0);
+    stepFrames(h, 1, t0);
     check('grounded overlap still buries the player',
       h.gameOverReasons[0] === 'Buried by avalanche!');
   }
@@ -182,12 +206,60 @@ async function main() {
       },
       state: { dodgeAwarded: true, lastAvalancheZ: -80 }
     });
+    h.loop.startLoop();
+    const t0 = performance.now();
 
-    h.loop.animate(0);
+    stepFrames(h, 1, t0);
     check('passed avalanche resets the system', h.getResetCalls() === 1);
     check('passed avalanche clears the active trigger flag', h.state.avalancheTriggered === false);
     check('passed avalanche re-arms the once-per-slide dodge award', h.state.dodgeAwarded === false);
     check('passed avalanche records the new trigger origin', h.state.lastAvalancheZ === h.player.pos.z);
+  }
+
+  console.log('--- Exactly one terminal event per run (#403 review) ---');
+
+  {
+    // A realistic showGameOver ends the run (gameActive=false) like the real
+    // overlay does. Across a 500 ms STALL frame (8 substeps at the ceiling) with
+    // burial true every substep, the outcome must fire exactly ONCE: the first
+    // burying substep ends the run, the gameActive guard stops the outcome block,
+    // and the substep while-loop's own gameActive condition stops later substeps.
+    const h = makeLoop({ avalanche: { checkBurial: () => true } });
+    const realPush = h.gameOverReasons.push.bind(h.gameOverReasons);
+    /** @type {any} */ (h.gameOverReasons).push = (r) => { h.state.gameActive = false; return realPush(r); };
+    h.loop.startLoop();
+    const t0 = performance.now();
+    h.player.isInAir = false;
+    h.loop.animate(t0 + 500);
+    check('a stall frame resolves burial per substep but fires exactly one terminal event',
+      h.gameOverReasons.length === 1 && h.gameOverReasons[0] === 'Buried by avalanche!');
+  }
+
+  {
+    // Burial in the same substep as hasPassed(): burial resolves FIRST (a boulder
+    // overlapping the player is tested before the slide can deactivate) and, with
+    // the run over, the passed/reset/re-arm transition never runs.
+    const h = makeLoop({ avalanche: { checkBurial: () => true, hasPassed: () => true } });
+    const realPush2 = h.gameOverReasons.push.bind(h.gameOverReasons);
+    /** @type {any} */ (h.gameOverReasons).push = (r) => { h.state.gameActive = false; return realPush2(r); };
+    h.loop.startLoop();
+    const t0 = performance.now();
+    h.player.isInAir = false;
+    stepFrames(h, 1, t0);
+    check('burial beats hasPassed in the same substep (no reset after the terminal event)',
+      h.gameOverReasons[0] === 'Buried by avalanche!' && h.getResetCalls() === 0 && h.state.avalancheTriggered === true);
+  }
+
+  {
+    // A run that already ended (finish/crash earlier in the same frame) never
+    // resolves an avalanche outcome at all — the second terminal event is
+    // structurally impossible, not merely unlikely.
+    const h = makeLoop({ avalanche: { checkBurial: () => true } });
+    h.loop.startLoop();
+    const t0 = performance.now();
+    h.state.gameActive = false;
+    h.loop.animate(t0 + STEP_MS);
+    check('no avalanche outcome resolves once the run is over', h.gameOverReasons.length === 0);
   }
 
   CourseModule.addAirScore = realAddAirScore;

@@ -50,6 +50,13 @@ import { type RunClockGuard } from './run-clock.js';
 export const FIXED_DT = 1 / 60;
 export const MAX_SUBSTEPS = 8;
 
+// Total wall-clock seconds of dropped (stall-guarded) physics time a run may absorb
+// and still count as ranked. Generous for real machines — a healthy run drops zero;
+// an occasional GC hiccup drops tens of milliseconds — but a sustained slow-motion
+// stall (the exploit: throttle the tab, gain reaction time against a slowed clock)
+// crosses it within a couple of seconds of wall time (#403 review).
+export const DROPPED_TIME_RANKED_LIMIT = 0.25;
+
 // Apparent-wind normalization for the scarf (#253): the local-frame apparent wind is
 // divided by this reference speed and clamped to [-1,1] before it reaches the cosmetic
 // flex layer. ~16 ≈ a brisk run, so a strong gust or fast straight-line saturates the
@@ -330,8 +337,11 @@ export function createMainLoop(deps: MainLoopDeps) {
 
       // Reset avalanche if it has passed the player (survived!) — on the same
       // grid, AFTER this substep's burial test, so a boulder overlapping the
-      // player is always tested before the slide can deactivate.
-      if (state.avalancheTriggered && avalanche.hasPassed(pos)) {
+      // player is always tested before the slide can deactivate. Re-checks
+      // gameActive: if THIS substep's burial (or a kernel crash/finish) just
+      // ended the run, the passed/re-arm transition must not fire after the
+      // terminal event and clear the very slide that ended the run.
+      if (state.gameActive && state.avalancheTriggered && avalanche.hasPassed(pos)) {
         console.log("Avalanche passed - player survived!");
         avalanche.reset();
         state.avalancheTriggered = false;
@@ -556,6 +566,16 @@ export function createMainLoop(deps: MainLoopDeps) {
   // --- Animation Loop (fixed-timestep accumulator) ---
   let lastTime = 0;
   let accumulator = 0;
+  // Wall-clock seconds of THIS RUN's physics time discarded by the stall guards
+  // (the frame-delta ceiling + the spiral-guard accumulator drop). Dropping time
+  // is the right anti-tunnel behavior, but it slows the SIM relative to real
+  // time — a stall-heavy (or artificially stalled) run plays in slow motion
+  // while paying a proportionally small ranked clock, which is free reaction
+  // time. Past DROPPED_TIME_RANKED_LIMIT the run is flagged timing-compromised:
+  // it still finishes and shows its time, but records nothing competitive
+  // (#403 review: ranked integrity). Hidden-tab pauses do NOT count — the run
+  // clock guard freezes sim AND timer together there, so no advantage exists.
+  let droppedSimTime = 0;
   // Set once a frame throws an uncaught error: the loop hard-stops (no reschedule) and
   // the recovery overlay is shown, instead of spinning rAF and re-throwing on a frozen
   // frame forever. animate() reschedules at the TOP of the frame, so without this guard
@@ -615,7 +635,9 @@ export function createMainLoop(deps: MainLoopDeps) {
       try {
       // Ceiling the frame delta at the spiral guard (MAX_SUBSTEPS * FIXED_DT) so a long
       // stall (tab restore, GC pause) can't pour an unbounded backlog into the accumulator.
-      const frameDelta = Math.min((time - lastTime) / 1000, MAX_SUBSTEPS * FIXED_DT);
+      const rawDelta = (time - lastTime) / 1000;
+      const frameDelta = Math.min(rawDelta, MAX_SUBSTEPS * FIXED_DT);
+      if (rawDelta > frameDelta) droppedSimTime += rawDelta - frameDelta;
       lastTime = time;
 
       // Only set up test hooks if they're missing
@@ -628,12 +650,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       }
 
       // --- Avalanche powder cosmetics — render frame only (#402) ----------------
-      // The gameplay half (trigger + boulder physics) moved into stepFixed's
-      // 1/60 substeps, so a run's slide is frame-rate independent; only the
-      // render-only powder cloud stays on the render delta (its 60 Hz-referenced
-      // emission accumulator keeps the budget-per-second rate-independent, #400).
-      // Burial stays checked once per render frame below — after the substeps and
-      // this frame's boulder advance, before hasPassed()/reset.
+      // The gameplay half (trigger, boulder physics, AND the burial/dodge/
+      // passed outcomes) lives in stepFixed's 1/60 substeps, so a run's slide is
+      // frame-rate independent; only the render-only powder cloud stays on the
+      // render delta (its 60 Hz-referenced emission accumulator keeps the
+      // budget-per-second rate-independent, #400).
       const avalanche = state.avalanche;
       if (avalanche) {
         avalanche.updateCosmetics(frameDelta);
@@ -664,7 +685,16 @@ export function createMainLoop(deps: MainLoopDeps) {
       }
       // Spiral-of-death guard: if we hit the substep ceiling with time still owed, drop
       // the surplus (the game slows down rather than tunnelling) and keep alpha in [0,1).
-      if (substeps >= MAX_SUBSTEPS && accumulator >= FIXED_DT) accumulator = 0;
+      if (substeps >= MAX_SUBSTEPS && accumulator >= FIXED_DT) {
+        droppedSimTime += accumulator;
+        accumulator = 0;
+      }
+      // Ranked-integrity flag (#403 review): enough dropped time means this run's sim
+      // clock ran materially slower than wall time (slow-motion reaction advantage) —
+      // flag it once; the finish path reads the flag and declines to rank the run.
+      if (!state.timingCompromised && droppedSimTime > DROPPED_TIME_RANKED_LIMIT) {
+        state.timingCompromised = true;
+      }
       const alpha = accumulator / FIXED_DT;
       if (result) lastResult = result;
 
@@ -821,6 +851,8 @@ export function createMainLoop(deps: MainLoopDeps) {
     accumulator = 0;
     simTime = 0; // a new run starts its simulation clock (#402) from zero
     state.simElapsed = 0;
+    droppedSimTime = 0;
+    state.timingCompromised = false; // each run earns (or loses) ranked status fresh
     lastResult = null;
     prevInAir = false;
     comboStep = 0; // a new run starts its style chain from ×1 (JP-7)

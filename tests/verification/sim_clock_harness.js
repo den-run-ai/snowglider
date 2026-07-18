@@ -182,6 +182,9 @@ function makeRng(seed) {
       Math.abs(healthyElapsed - healthySteps * LOOP_DT) < 1e-12,
       `elapsed ${healthyElapsed.toFixed(4)} vs ${healthySteps} steps`);
 
+    check(true, 'a healthy run is not flagged timing-compromised',
+      state.timingCompromised === false);
+
     const stepsBeforeStall = elapsedSeen.length;
     for (let s = 0; s < 4; s++) { t += 500; loop.animate(t); }
     const stallSteps = elapsedSeen.length - stepsBeforeStall;
@@ -191,6 +194,28 @@ function makeRng(seed) {
     check(true, 'stalled frames advance the ranked clock by SIM time, not wall time',
       Math.abs(stallElapsedGain - stallSteps * LOOP_DT) < 1e-9 && stallElapsedGain < 1.0,
       `clock +${stallElapsedGain.toFixed(4)}s for 2.0s of wall stall`);
+
+    // Ranked-integrity flag (#403 review): dropping wall time is the right
+    // anti-tunnel behavior, but it hands the player slow motion against their
+    // own ranked clock — so a run that drops materially (here ~1.47 s across the
+    // stall burst, far past DROPPED_TIME_RANKED_LIMIT) must be flagged, and the
+    // finish path declines to rank it (no PB, no leaderboard, no ghost).
+    check(true, 'a stall-heavy run is flagged timing-compromised (slow-motion is not ranked)',
+      state.timingCompromised === true);
+    const overlaySrc2 = require('fs').readFileSync(path.join(__dirname, '..', '..', 'src', 'ui', 'result-overlay.ts'), 'utf8');
+    check(true, 'result-overlay folds the timing flag into ranked eligibility',
+      /state\.timingCompromised !== true/.test(overlaySrc2));
+
+    // Wiring contract (#403 review): EVERY avalanche gameplay decision (burial,
+    // dodge, hasPassed/reset/re-arm) resolves inside stepFixed on the fixed grid;
+    // the render section keeps only cosmetics (powder, warning UI, audio).
+    const loopSrc = require('fs').readFileSync(path.join(__dirname, '..', '..', 'src', 'game', 'main-loop.ts'), 'utf8');
+    const stepFixedBody = loopSrc.split('function stepFixed')[1].split('function renderObservers')[0];
+    const renderSection = loopSrc.split('function animate(')[1];
+    check(true, 'burial/dodge/passed all resolve inside stepFixed (the fixed grid)',
+      /resolveBurialOutcome/.test(stepFixedBody) && /hasPassed\(pos\)/.test(stepFixedBody));
+    check(true, 'the render frame keeps NO avalanche gameplay (cosmetics/telegraph only)',
+      !/resolveBurialOutcome|checkBurial|hasPassed\(/.test(renderSection));
 
     // The published run clock the FINISH/SCORE path reads (result-overlay's
     // finishTime) must be the same sim clock the course just saw — the final
