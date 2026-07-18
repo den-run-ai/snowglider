@@ -268,6 +268,24 @@ async function main() {
     Course.onFinish(t5, 0.001);
     check('an unstamped (pre-provenance) ghost is also ignored and re-seeded (#408)',
       !!global.localStorage.getItem('snowgliderGhost_black_meta'));
+
+    // Same version but a DIFFERENT seed is a different obstacle field: the ghost
+    // threaded rocks/trees that don't exist in this world, so it must not load
+    // (and must not block this world's first-run baseline). This run is unseeded
+    // (seed null), so a seeded stamp mismatches.
+    const currentMeta = JSON.parse(global.localStorage.getItem('snowgliderGhost_black_meta'));
+    global.localStorage.setItem('snowgliderGhost_black_meta',
+      JSON.stringify({ seed: 123456, physicsVersion: currentMeta.physicsVersion }));
+    const seededGhost = global.localStorage.getItem('snowgliderGhost_black');
+    Course.reset();
+    let t6 = 0;
+    for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
+      t6 += 0.4; // slower than every prior run
+      Course.update({ x: 1.5, y: terrain(1.5, z), z }, t6, snowmanMock);
+    }
+    Course.onFinish(t6, 0.001);
+    check('a seed-mismatched ghost is ignored: this world\'s run re-seeds the baseline (#408)',
+      global.localStorage.getItem('snowgliderGhost_black') !== seededGhost);
   }
 
   // flashAir (meaningful jumps #47): the on-slope air toast routes through the shared

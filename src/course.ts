@@ -400,8 +400,17 @@ export const CourseModule = (function () {
       const raw = localStorage.getItem(ghostMetaKey());
       if (!raw) return false;
       const meta: unknown = JSON.parse(raw);
-      return typeof meta === 'object' && meta !== null &&
-        (meta as { physicsVersion?: unknown }).physicsVersion === PHYSICS_VERSION;
+      if (typeof meta !== 'object' || meta === null) return false;
+      const rec = meta as { physicsVersion?: unknown; seed?: unknown };
+      // Same WORLD means same version AND same seed (Codex review PR #408): the
+      // hazards stream places different rocks/trees per seed, so a ghost from
+      // another seed threads an obstacle field that doesn't exist here — it
+      // would replay an impossible line and its time would block this seed's
+      // first run from committing its own baseline. Unseeded records carry
+      // seed null and only match unseeded runs (strict equality both ways).
+      const currentSeed = getRunStamp().seed;
+      const stampedSeed = typeof rec.seed === 'number' ? rec.seed : null;
+      return rec.physicsVersion === PHYSICS_VERSION && stampedSeed === currentSeed;
     } catch {
       return false;
     }
