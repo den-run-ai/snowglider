@@ -38,10 +38,17 @@ export type GameplayStreamName = 'physics' | 'avalanche' | 'hazards' | 'course';
 export type CosmeticStreamName = 'snowParticles' | 'avalanchePowder' | 'cameraEffects';
 
 /** Physics/behavior versioning anchor (#400): stored alongside a run seed by
- *  future score/ghost records so a replay knows which kernel produced it. Bump
- *  ONLY on an intentional physics-behavior change (the same events that would
- *  justify regenerating the frozen invariant baseline). */
-export const PHYSICS_VERSION = 1;
+ *  score/ghost records so a replay knows which world/kernel produced it. Bump
+ *  ONLY on an intentional gameplay-surface change: a physics-behavior change
+ *  (the events that would justify regenerating the frozen invariant baseline),
+ *  OR a world-generation change that alters the surface / the seeded hazards
+ *  sequence for the same seed.
+ *
+ *  v2 (#401): the terrain mesh now samples the analytic height field directly —
+ *  the live surface players ride changed (the drifted mesh formula + its cache
+ *  are gone) and the mesh's RNG draws left the hazards stream, so a ?seed=
+ *  world and any stamped best/ghost from v1 are not comparable to v2 runs. */
+export const PHYSICS_VERSION = 2;
 
 /** Small, fast, well-distributed deterministic PRNG (same family the test
  *  fixtures use). Never global: each stream owns one instance. */
