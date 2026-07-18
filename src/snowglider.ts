@@ -635,12 +635,12 @@ window.initializeGameWithAudio = function() {
     // SIMULATION clock, so the seam's setter derives state.simElapsed from the
     // backdate — every existing "startTime = now - X" fixture keeps meaning
     // "the run has been going X seconds" without modification.
-    startTime:          { get: () => state.startTime,          set: (v) => {
+    startTime:          { get: () => state.startTime,          set: (v: number) => {
       state.startTime = v;
       const derived = (performance.now() - v) / 1000;
       if (Number.isFinite(derived) && derived > 0) state.simElapsed = derived;
     } },
-    simElapsed:         { get: () => state.simElapsed,         set: (v) => { state.simElapsed = v; } },
+    simElapsed:         { get: () => state.simElapsed,         set: (v: number) => { state.simElapsed = v; } },
     avalancheTriggered: { get: () => state.avalancheTriggered, set: (v) => { state.avalancheTriggered = v; } },
     lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v) => { state.lastAvalancheZ = v; } },
     // Object/function refs the tests read or mutate (never reassign) — get-only.
