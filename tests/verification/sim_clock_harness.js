@@ -203,6 +203,16 @@ function makeRng(seed) {
     check(true, 'result-overlay computes finishTime from state.simElapsed (not wall clock)',
       /finishTime = typeof state\.simElapsed === 'number'/.test(overlaySrc));
 
+    // Legacy updateSnowman(delta) seam (#402, Codex round 3): the browser/
+    // regression harnesses drive whole runs through it, so it must advance the
+    // published clock too — additively, preserving any seam-preset offset.
+    const before = state.simElapsed;
+    loop.updateSnowman(0.1);
+    loop.updateSnowman(0.1);
+    check(true, 'legacy updateSnowman(delta) advances the published sim clock additively',
+      Math.abs(state.simElapsed - (before + 0.2)) < 1e-9,
+      `+${(state.simElapsed - before).toFixed(3)}s over two 0.1s steps`);
+
     CourseModule.update = realUpdate;
   }
 

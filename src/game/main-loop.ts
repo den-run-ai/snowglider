@@ -408,6 +408,17 @@ export function createMainLoop(deps: MainLoopDeps) {
   // (those lived in `animate`, not `updateSnowman`). The live rAF loop does NOT call
   // this; it runs the fixed-step accumulator below.
   function updateSnowman(delta: number) {
+    // Advance the PUBLISHED sim clock for this legacy fixed-step seam too (#402):
+    // the kernel can end the run synchronously inside this step (FINISH_Z calls
+    // showGameOver, whose finishTime reads state.simElapsed), so a harness that
+    // drives a whole run through repeated updateSnowman(...) must accumulate a
+    // real elapsed — not finish at 0 s and be discarded as implausible. ADDITIVE
+    // on state.simElapsed (never overwritten from the live loop's private
+    // simTime): a harness that pre-set the clock through the startTime/simElapsed
+    // window seam keeps its offset, and the live rAF loop — which never calls
+    // this — keeps its own accumulator authority.
+    state.simElapsed += delta;
+
     // We no longer need to add test hooks every frame as they're set up at initialization
     // and after resets. This improves performance.
     const result = stepPhysics(delta);
