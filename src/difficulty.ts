@@ -15,6 +15,7 @@
 // This module is intentionally dependency-free (it only reads the score-limits
 // floor), so it can be imported by the physics kernel without pulling in THREE.
 import { MIN_VALID_SCORE_TIME } from './score-limits.js';
+import { getRunStamp } from './run-context.js';
 // Type-only import: the lane shape lives next to the centerline primitive it feeds
 // (course-line.ts, also THREE-free), and `import type` erases at build time so this
 // stays a runtime-dependency-free module.
@@ -372,6 +373,47 @@ export function getDifficultyConfig(id: unknown): DifficultyConfig {
 // working untouched — no migration of live Blue scores. Bunny/Black get sibling names.
 
 /** localStorage key for a tier's best time. */
+/** Sidecar key for the run-provenance stamp next to a tier's local best time. */
+export function localBestMetaKey(tier: Difficulty = DEFAULT_DIFFICULTY): string {
+  return `${localBestTimeKey(tier)}_meta`;
+}
+
+/** Stamp the just-recorded local best with its run provenance (#400): the run
+ *  seed (null while unseeded) and the PHYSICS_VERSION that produced the time,
+ *  so a future replay/ranked mode knows whether the record is reproducible and
+ *  against which kernel. A SIDECAR key: the legacy bare-number best-time value
+ *  and every existing reader stay byte-for-byte unchanged. Best-effort — a
+ *  blocked storage write must never break score recording.
+ *
+ *  Lives HERE (not scores.ts) so every local-best write path can stamp without
+ *  pulling the Firebase SDK into its module graph: scores.ts imports the
+ *  gstatic CDN modules, and result-overlay.ts is part of the game orchestrator
+ *  graph that must still boot when the CDN is blocked and the local fallback is
+ *  installed (Codex review, PR #407 P1). */
+export function stampLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): void {
+  try {
+    localStorage.setItem(localBestMetaKey(tier), JSON.stringify(getRunStamp()));
+  } catch { /* storage may be unavailable; the time itself already saved */ }
+}
+
+/** Read a tier's run-provenance stamp ({seed, physicsVersion}) or null. */
+export function readLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): { seed: number | null; physicsVersion: number } | null {
+  try {
+    const raw = localStorage.getItem(localBestMetaKey(tier));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const rec = parsed as { seed?: unknown; physicsVersion?: unknown };
+    if (typeof rec.physicsVersion !== 'number') return null;
+    return {
+      seed: typeof rec.seed === 'number' ? rec.seed : null,
+      physicsVersion: rec.physicsVersion,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function localBestTimeKey(tier: Difficulty): string {
   return tier === 'blue' ? 'snowgliderBestTime' : `snowgliderBestTime_${tier}`;
 }

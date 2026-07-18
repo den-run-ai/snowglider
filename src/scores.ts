@@ -54,9 +54,12 @@ import {
   localBestTimeKey,
   leaderboardCollectionName,
   userBestTimeField,
+  stampLocalBestMeta,
   type Difficulty
 } from './difficulty.js';
-import { getRunStamp } from './run-context.js';
+// Re-export for existing consumers/tests: the implementation lives in the
+// Firebase-free difficulty.ts so non-Firebase modules can read stamps too.
+export { readLocalBestMeta } from './difficulty.js';
 // Local-first offline sync (issue #358, PR 4): queue an eligible best that couldn't
 // sync now, and flush the queue on reconnect. The pending marker is durable across a
 // tab close (localStorage) — it fills the gap where Firestore was not initialized at
@@ -79,44 +82,6 @@ function isValidScoreTime(time: unknown): time is number {
     time <= MAX_VALID_SCORE_TIME;
 }
 
-
-/** Sidecar key for the run-provenance stamp next to a tier's local best time. */
-function localBestMetaKey(tier: Difficulty = DEFAULT_DIFFICULTY): string {
-  return `${localBestTimeKey(tier)}_meta`;
-}
-
-/** Stamp the just-recorded local best with its run provenance (#400): the run
- *  seed (null while unseeded) and the PHYSICS_VERSION that produced the time,
- *  so a future replay/ranked mode knows whether the record is reproducible and
- *  against which kernel. A SIDECAR key: the legacy bare-number best-time value
- *  and every existing reader stay byte-for-byte unchanged. Best-effort — a
- *  blocked storage write must never break score recording. Exported so EVERY
- *  local-best write path stamps consistently — result-overlay.ts's unranked /
- *  no-leaderboard-API fallback writes the same key and must carry the same
- *  provenance (Codex review, PR #407). */
-export function stampLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): void {
-  try {
-    localStorage.setItem(localBestMetaKey(tier), JSON.stringify(getRunStamp()));
-  } catch { /* storage may be unavailable; the time itself already saved */ }
-}
-
-/** Read a tier's run-provenance stamp ({seed, physicsVersion}) or null. */
-export function readLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): { seed: number | null; physicsVersion: number } | null {
-  try {
-    const raw = localStorage.getItem(localBestMetaKey(tier));
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    const rec = parsed as { seed?: unknown; physicsVersion?: unknown };
-    if (typeof rec.physicsVersion !== 'number') return null;
-    return {
-      seed: typeof rec.seed === 'number' ? rec.seed : null,
-      physicsVersion: rec.physicsVersion,
-    };
-  } catch {
-    return null;
-  }
-}
 
 function readLocalBestTime(tier: Difficulty = DEFAULT_DIFFICULTY) {
   const key = localBestTimeKey(tier);
