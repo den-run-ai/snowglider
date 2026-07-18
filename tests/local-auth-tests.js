@@ -120,6 +120,22 @@ function main() {
   Scores.recordScore(33);
   check('recordScore replaces an invalid stored best', a.localStorage.getItem('snowgliderBestTime') === '33');
 
+  // --- Run-provenance stamp via the boot seam (#400; Codex review PR #407) ---
+  // The classic script cannot import run-context, so it reads the deliberate
+  // window seam scene-setup publishes. With the seam present, a new best writes
+  // the same _meta sidecar the module-graph paths write; without it (degraded
+  // boot), recording still works and simply leaves no stamp.
+  a.window.__snowgliderGetRunStamp = () => ({ seed: 777, physicsVersion: 1 });
+  Scores.recordScore(30);
+  check('local-auth stamps a new best via the window seam',
+    a.localStorage.getItem('snowgliderBestTime_meta') === JSON.stringify({ seed: 777, physicsVersion: 1 }));
+  delete a.window.__snowgliderGetRunStamp;
+  a.localStorage.removeItem('snowgliderBestTime_meta');
+  Scores.recordScore(25);
+  check('an absent seam degrades gracefully (best still recorded, no stamp)',
+    a.localStorage.getItem('snowgliderBestTime') === '25' &&
+    a.localStorage.getItem('snowgliderBestTime_meta') === null);
+
   // --- Per-tier local best (D2): a tiered finish uses the per-tier key, not Blue ---
   a.localStorage.removeItem('snowgliderBestTime');
   Scores.recordScore(40, 'bunny');

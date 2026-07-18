@@ -25,7 +25,7 @@ import { readStoredDifficulty, getDifficultyConfig, BLUE_AVALANCHE, type Difficu
 import { courseLineFor, setActiveCourseLine } from '../course-line.js';
 import { createScenery, type ScenerySystem } from '../scenery/scenery.js';
 import { scenerySeedFor } from '../scenery/scenery-budget.js';
-import { setRunSeed, parseRunSeedParam } from '../run-context.js';
+import { setRunSeed, parseRunSeedParam, getRunStamp } from '../run-context.js';
 
 // The shipped Blue avalanche numbers, re-exported from the difficulty spine so there is
 // ONE source of truth (difficulty.ts BLUE_AVALANCHE). The winnability harness reads these
@@ -117,6 +117,12 @@ export function setupScene(signal?: AbortSignal) {
   // obstacle field. Absent/invalid => null => unseeded passthrough (today's
   // default, byte-identical).
   setRunSeed(parseRunSeedParam(window.location.search));
+  // Deliberate boot seam (#400; ARCHITECTURE.md §3): the classic-script local-auth
+  // fallback (src/boot/local-auth.js) cannot import ES modules but must stamp the
+  // local bests it records with the same {seed, physicsVersion} provenance the
+  // module-graph write paths use. It reads this at recordScore time (long after
+  // this assignment), so publishing here covers every finish.
+  window.__snowgliderGetRunStamp = getRunStamp;
 
   // Listener options that wire game-lifetime handlers to the teardown AbortSignal
   // when one is supplied (undefined => the listener simply lives for the page).
