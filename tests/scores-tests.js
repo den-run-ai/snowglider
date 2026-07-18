@@ -187,24 +187,24 @@ async function main() {
     // CANONICAL-stamped best must stay sync-eligible there — it's the
     // production-default world — while any other seed still fails closed.
     const { localBestProvenanceCompatible } = await import('../src/difficulty.ts');
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RC.CANONICAL_WORLD_SEED, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     check('a canonical-stamped best is sync-eligible before the world context installs',
       localBestProvenanceCompatible() === true);
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: 12345, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     check('a non-canonical stamp is still rejected while unseeded',
       localBestProvenanceCompatible() === false);
     // ...and an active ?seed= PRACTICE world must not reject a canonical best
     // either (Codex review PR #407 round 6): the record is a canonical-world
     // record regardless of what world this session happens to be riding.
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RC.CANONICAL_WORLD_SEED, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     RC.setWorldContext(424242, true);
     check('a canonical-stamped best stays sync-eligible during a practice session',
       localBestProvenanceCompatible() === true);
     RC.setRunSeed(null);
-    localStorage.removeItem('snowgliderBestTime_meta');
+    localStorage.removeItem(BTMK('blue'));
   }
   check('unauthenticated local scoring does not write Firestore',
     calls.setDoc.length === 0);

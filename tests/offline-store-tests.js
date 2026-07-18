@@ -103,6 +103,20 @@ async function main() {
   check('markPendingSync writes a valid entry', store.markPendingSync('black', 25, 'u1', { recordedAt: 111, storage: ls }) === true);
   const p1 = store.getPendingSync('u1', 'black', ls);
   check('pending entry has tier/time/uid/recordedAt', !!p1 && p1.tier === 'black' && p1.time === 25 && p1.uid === 'u1' && p1.recordedAt === 111);
+  // Version gate (Codex review PR #408): a queued score is only comparable within the
+  // physics version that produced it. New marks stamp the CURRENT version; an entry
+  // from another version — or a pre-stamp legacy entry with none — is dropped on read,
+  // so a reconnect flush can never republish it into the current leaderboard.
+  check('markPendingSync stamps the current physics version', p1.physicsVersion === PV);
+  {
+    const raw = JSON.parse(ls.getItem('snowgliderPendingSync'));
+    raw[pk('vold', 'black')] = { tier: 'black', time: 21, uid: 'vold', recordedAt: 1, physicsVersion: PV - 1 };
+    raw[pk('vnone', 'black')] = { tier: 'black', time: 21, uid: 'vnone', recordedAt: 1 };
+    ls.setItem('snowgliderPendingSync', JSON.stringify(raw));
+    check('an old-version pending entry is dropped on read', store.getPendingSync('vold', 'black', ls) === null);
+    check('a pre-stamp legacy pending entry is dropped on read', store.getPendingSync('vnone', 'black', ls) === null);
+    check('the current-version entry survives the same read', store.getPendingSync('u1', 'black', ls)?.time === 25);
+  }
   check('markPendingSync keeps the BEST (lower) time for the same owner', store.markPendingSync('black', 30, 'u1', { recordedAt: 222, storage: ls }) === false);
   check('pending time unchanged after slower mark', store.getPendingSync('u1', 'black', ls).time === 25);
   check('faster pending time replaces', store.markPendingSync('black', 20, 'u1', { recordedAt: 333, storage: ls }) === true);
@@ -171,7 +185,8 @@ async function main() {
   ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ blue: { tier: 'blue', time: 30, uid: 'u1', recordedAt: 1 } }));
   check('legacy bare-tier key (no uid) dropped', Object.keys(store.readPendingSync(ls)).length === 0);
   // A valid entry with a non-number recordedAt reads back with recordedAt null.
-  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ [pk('u1', 'blue')]: { tier: 'blue', time: 30, uid: 'u1', recordedAt: 'oops' } }));
+  // (Raw entries need the current physics-version stamp to pass the read gate.)
+  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ [pk('u1', 'blue')]: { tier: 'blue', time: 30, uid: 'u1', recordedAt: 'oops', physicsVersion: PV } }));
   check('non-number stored recordedAt reads as null', store.getPendingSync('u1', 'blue', ls).recordedAt === null);
 
   console.log(`\nOFFLINE-STORE TEST TOTAL: ${pass} passed, ${fail} failed`);
