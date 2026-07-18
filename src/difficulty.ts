@@ -443,14 +443,15 @@ export function localBestProvenanceCompatible(tier: Difficulty = DEFAULT_DIFFICU
   if (!meta) return false;
   const stamp = getRunStamp();
   if (meta.physicsVersion !== stamp.physicsVersion) return false;
-  // A canonical-world stamp is ALSO accepted while no world context is installed
-  // yet (stamp.seed === null): auth can restore and run its sign-in backfill
-  // before the deferred game chunk reaches setupScene/setWorldContext, and
-  // rejecting the (production-default) canonical stamp there would strand a
-  // legitimate best unsynced with no retry (Codex review PR #407). Harness
-  // passthrough stamps (seed null) still match via strict equality.
-  return meta.seed === stamp.seed
-    || (stamp.seed === null && meta.seed === CANONICAL_WORLD_SEED);
+  // Ranked local bests are CANONICAL-world records by construction (practice
+  // finishes never write one), so eligibility compares the stamp against the
+  // canonical seed — NOT the active session's world, which is startup-timing
+  // and URL dependent: auth can restore before setupScene installs any world
+  // (stamp seed null) or while a ?seed= practice world is active, and neither
+  // must reject a valid canonical best (Codex review PR #407, two rounds).
+  // Harness stamps (whatever seed the suite set, incl. null) keep matching via
+  // the stamp-equality clause.
+  return meta.seed === CANONICAL_WORLD_SEED || meta.seed === stamp.seed;
 }
 
 export function localBestTimeKey(tier: Difficulty): string {

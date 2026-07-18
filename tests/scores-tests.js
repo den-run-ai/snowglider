@@ -191,6 +191,15 @@ async function main() {
       JSON.stringify({ seed: 12345, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     check('a non-canonical stamp is still rejected while unseeded',
       localBestProvenanceCompatible() === false);
+    // ...and an active ?seed= PRACTICE world must not reject a canonical best
+    // either (Codex review PR #407 round 6): the record is a canonical-world
+    // record regardless of what world this session happens to be riding.
+    localStorage.setItem('snowgliderBestTime_meta',
+      JSON.stringify({ seed: RC.CANONICAL_WORLD_SEED, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
+    RC.setWorldContext(424242, true);
+    check('a canonical-stamped best stays sync-eligible during a practice session',
+      localBestProvenanceCompatible() === true);
+    RC.setRunSeed(null);
     localStorage.removeItem('snowgliderBestTime_meta');
   }
   check('unauthenticated local scoring does not write Firestore',
