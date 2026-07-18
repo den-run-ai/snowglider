@@ -217,7 +217,12 @@ function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scen
 
 
     // Check if snowflake has fallen below the terrain or is too far from player
-    const terrainHeight = Mountains.getTerrainHeight(snowflake.position.x, snowflake.position.z);
+    // Cache-NEUTRAL sampler (#401): up to 1000 falling flakes query moving ad-hoc
+    // coordinates every frame — routing them through the memoizing getTerrainHeight
+    // grew and contaminated the gameplay-owned heightMap cache (whichever query
+    // first lands in a 0.1-unit cell fixes that cell for later physics/placement
+    // reads). Same rationale as the rock collars (#390 review).
+    const terrainHeight = Mountains.getTerrainHeightUncached(snowflake.position.x, snowflake.position.z);
     const distanceToPlayer = Math.sqrt(
       Math.pow(snowflake.position.x - playerPos.x, 2) + 
       Math.pow(snowflake.position.z - playerPos.z, 2)

@@ -315,11 +315,17 @@ function maxTrajDiff(a, b) {
     && expertAv.slideSpeedJitter === blackAv.slideSpeedJitter);
 
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
-  check('localBestTimeKey: Blue keeps the original key; others are suffixed',
-    D.localBestTimeKey('blue') === 'snowgliderBestTime'
-    && D.localBestTimeKey('bunny') === 'snowgliderBestTime_bunny'
-    && D.localBestTimeKey('black') === 'snowgliderBestTime_black'
-    && D.localBestTimeKey('expert') === 'snowgliderBestTime_expert');
+  // The ACTIVE key is namespaced by physics/world version (#403 review); the
+  // legacy unversioned key is retained read-only as the historical record.
+  const PV = (await import('../src/run-context.ts')).PHYSICS_VERSION;
+  check('localBestTimeKey: versioned base; Blue un-suffixed within it; others suffixed',
+    D.localBestTimeKey('blue') === `snowgliderBestTime_v${PV}`
+    && D.localBestTimeKey('bunny') === `snowgliderBestTime_v${PV}_bunny`
+    && D.localBestTimeKey('black') === `snowgliderBestTime_v${PV}_black`
+    && D.localBestTimeKey('expert') === `snowgliderBestTime_v${PV}_expert`);
+  check('legacyBestTimeKey keeps the pre-versioning shapes (historical record)',
+    D.legacyBestTimeKey('blue') === 'snowgliderBestTime'
+    && D.legacyBestTimeKey('bunny') === 'snowgliderBestTime_bunny');
   check('leaderboardCollectionName: Blue == leaderboard; others are siblings',
     D.leaderboardCollectionName('blue') === 'leaderboard'
     && D.leaderboardCollectionName('bunny') === 'leaderboard_bunny'

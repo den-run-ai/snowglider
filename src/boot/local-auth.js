@@ -20,7 +20,17 @@
   // bootstrap script can't import the ES module.
   /** @param {string=} tier */
   function localBestTimeKey(tier) {
-    return (!tier || tier === 'blue') ? 'snowgliderBestTime' : 'snowgliderBestTime_' + tier;
+    // Version-namespaced competitive key (#403 review), mirroring difficulty.ts.
+    // The physics version comes from the boot seam the module graph publishes;
+    // in a fully degraded boot (seam absent) fall back to the legacy unversioned
+    // key — a historical record, never leaderboard-synced from local mode.
+    var base = 'snowgliderBestTime';
+    try {
+      if (typeof window.__snowgliderGetRunStamp === 'function') {
+        base += '_v' + window.__snowgliderGetRunStamp().physicsVersion;
+      }
+    } catch (e) { /* seam is best-effort */ }
+    return (!tier || tier === 'blue') ? base : base + '_' + tier;
   }
 
   function installScoresModule() {

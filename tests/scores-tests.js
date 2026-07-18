@@ -99,7 +99,11 @@ async function flushAll() {
   await flush();
 }
 
+// Versioned competitive best-time key builders (#403 review), bound in main().
+let BTK, BTMK;
 async function main() {
+  ({ localBestTimeKey: BTK, localBestMetaKey: BTMK } = await import('../src/difficulty.ts'));
+
   const ScoresModule = await loadScoresModule();
   // The pending-sync store is keyed by uid+tier (Codex #362); seed/read markers through it
   // rather than hand-building the composite localStorage keys.
@@ -128,17 +132,17 @@ async function main() {
   resetState(ScoresModule);
   ScoresModule.recordScore(0.01);
   check('invalid runs are not stored locally',
-    localStorage.getItem('snowgliderBestTime') === null);
+    localStorage.getItem(BTK('blue')) === null);
   ScoresModule.recordScore(600.01);
   check('over-cap runs are not stored locally',
-    localStorage.getItem('snowgliderBestTime') === null);
-  localStorage.setItem('snowgliderBestTime', 'bogus');
+    localStorage.getItem(BTK('blue')) === null);
+  localStorage.setItem(BTK('blue'), 'bogus');
   ScoresModule.recordScore(21.5);
   check('invalid stored local best is replaced by a valid run',
-    localStorage.getItem('snowgliderBestTime') === '21.5');
+    localStorage.getItem(BTK('blue')) === '21.5');
   ScoresModule.recordScore(25);
   check('slower valid runs do not replace the local best',
-    localStorage.getItem('snowgliderBestTime') === '21.5');
+    localStorage.getItem(BTK('blue')) === '21.5');
 
   // Run-provenance stamp (#400): a new local best writes a SIDECAR meta record
   // ({seed, physicsVersion}) without touching the legacy bare-number value; a
@@ -146,7 +150,7 @@ async function main() {
   {
     const RC = await import('../src/run-context.ts');
     const { readLocalBestMeta } = await import('../src/scores.ts');
-    const rawMeta = localStorage.getItem('snowgliderBestTime_meta');
+    const rawMeta = localStorage.getItem(BTMK('blue'));
     check('a new local best stamps the sidecar meta record', rawMeta !== null);
     const meta = readLocalBestMeta();
     check('the stamp carries the physics version and the (unseeded) null seed',
@@ -161,18 +165,18 @@ async function main() {
     // run-scoped streams), so the reader must hand it back (Codex review PR #407);
     // pre-nonce stamps read as the pinned practice value 0.
     check('the reader returns the stamped nonce', !!seededMeta && seededMeta.nonce === RC.getRunStamp().nonce);
-    localStorage.setItem('snowgliderBestTime_meta', JSON.stringify({ seed: 5, physicsVersion: 1 }));
+    localStorage.setItem(BTMK('blue'), JSON.stringify({ seed: 5, physicsVersion: 1 }));
     check('a pre-nonce stamp reads with nonce 0', readLocalBestMeta()?.nonce === 0);
     RC.setRunSeed(null);
     // Corrupt sidecars read as null, never throw.
-    localStorage.setItem('snowgliderBestTime_meta', '{not json');
+    localStorage.setItem(BTMK('blue'), '{not json');
     check('a corrupt meta sidecar reads as null', readLocalBestMeta() === null);
-    localStorage.removeItem('snowgliderBestTime_meta');
+    localStorage.removeItem(BTMK('blue'));
     // Stamp-failure invalidation (Codex review PR #407): when the sidecar WRITE
     // fails (quota), a PREVIOUS run's stamp must not survive to be falsely
     // attributed to the newly recorded time — better unstamped than mis-stamped.
     const { stampLocalBestMeta } = await import('../src/difficulty.ts');
-    localStorage.setItem('snowgliderBestTime_meta', JSON.stringify({ seed: 999, nonce: 1, physicsVersion: RC.PHYSICS_VERSION }));
+    localStorage.setItem(BTMK('blue'), JSON.stringify({ seed: 999, nonce: 1, physicsVersion: RC.PHYSICS_VERSION }));
     const realSetItem = localStorage.setItem;
     localStorage.setItem = (k, v) => { if (String(k).endsWith('_meta')) throw new Error('quota'); realSetItem(k, v); };
     stampLocalBestMeta();
@@ -183,24 +187,24 @@ async function main() {
     // CANONICAL-stamped best must stay sync-eligible there — it's the
     // production-default world — while any other seed still fails closed.
     const { localBestProvenanceCompatible } = await import('../src/difficulty.ts');
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RC.CANONICAL_WORLD_SEED, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     check('a canonical-stamped best is sync-eligible before the world context installs',
       localBestProvenanceCompatible() === true);
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: 12345, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     check('a non-canonical stamp is still rejected while unseeded',
       localBestProvenanceCompatible() === false);
     // ...and an active ?seed= PRACTICE world must not reject a canonical best
     // either (Codex review PR #407 round 6): the record is a canonical-world
     // record regardless of what world this session happens to be riding.
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RC.CANONICAL_WORLD_SEED, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     RC.setWorldContext(424242, true);
     check('a canonical-stamped best stays sync-eligible during a practice session',
       localBestProvenanceCompatible() === true);
     RC.setRunSeed(null);
-    localStorage.removeItem('snowgliderBestTime_meta');
+    localStorage.removeItem(BTMK('blue'));
   }
   check('unauthenticated local scoring does not write Firestore',
     calls.setDoc.length === 0);
@@ -212,10 +216,10 @@ async function main() {
   ScoresModule.setCurrentUser(currentAuthUser);
   // The stored best carries a CURRENT-world provenance stamp: only a compatible
   // stamp lets the backfill promote it to the board (Codex review PR #407).
-  localStorage.setItem('snowgliderBestTime', '19.43');
+  localStorage.setItem(BTK('blue'), '19.43');
   {
     const RCv = await import('../src/run-context.ts');
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RCv.getRunStamp().seed, nonce: 0, physicsVersion: RCv.PHYSICS_VERSION }));
   }
   ScoresModule.recordScore(22);
@@ -229,17 +233,17 @@ async function main() {
   // the faster-but-unprovenanced 19.01 never reaches the user doc or the board.
   // (19.01: plausible for Blue — above its 18 s floor — but faster than the
   // synced 19.43, so promotion WOULD improve the board if the gate leaked.)
-  localStorage.setItem('snowgliderBestTime', '19.01');
-  localStorage.removeItem('snowgliderBestTime_meta');
+  localStorage.setItem(BTK('blue'), '19.01');
+  localStorage.removeItem(BTMK('blue'));
   ScoresModule.recordScore(22);
   await flushAll();
   check('an unstamped legacy stored best is NOT promoted to the board (run time syncs instead)',
     read('users', 'u1')?.bestTime === 19.43 && read('leaderboard', 'u1')?.time === 19.43);
   // Restore the compatible stamped best for the cases below.
-  localStorage.setItem('snowgliderBestTime', '19.43');
+  localStorage.setItem(BTK('blue'), '19.43');
   {
     const RCv = await import('../src/run-context.ts');
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RCv.getRunStamp().seed, nonce: 0, physicsVersion: RCv.PHYSICS_VERSION }));
   }
   check('leaderboard write denormalizes the signed-in display name onto the entry',
@@ -258,8 +262,8 @@ async function main() {
   ScoresModule.recordScore(22, 'bunny');
   await flushAll();
   check('bunny finish stores the local best under the per-tier key only',
-    localStorage.getItem('snowgliderBestTime_bunny') === '22' &&
-    localStorage.getItem('snowgliderBestTime') === null);
+    localStorage.getItem(BTK('bunny')) === '22' &&
+    localStorage.getItem(BTK('blue')) === null);
   check('bunny finish writes users.bestTimeBunny, not bestTime',
     read('users', 'pt')?.bestTimeBunny === 22 && read('users', 'pt')?.bestTime === undefined);
   check('bunny finish writes the leaderboard_bunny collection, not leaderboard',
@@ -281,7 +285,7 @@ async function main() {
   ScoresModule.recordScore(25); // no tier => Blue, the original names (back-compat)
   await flushAll();
   check('default (Blue) finish still uses the original key/collection/field',
-    localStorage.getItem('snowgliderBestTime') === '25' &&
+    localStorage.getItem(BTK('blue')) === '25' &&
     read('leaderboard', 'pt')?.time === 25 && read('users', 'pt')?.bestTime === 25);
 
   console.log('\n--- Authoritative best reconciliation ---');

@@ -38,6 +38,7 @@ async function main() {
 
   const THREE = await import('three');
   const { CourseModule } = await import('../src/course.ts');
+  const RC = await import('../src/run-context.ts');
 
   // A stale ghost recorded on OLD terrain: it skied straight down the fall line at a
   // low surface height (y ~ 0). The samples are stored under the Black tier's key.
@@ -48,6 +49,10 @@ async function main() {
     { t: 2.0, x: 0, y: 0, z: START_Z - 40, rot: 0 },
   ];
   local.setItem('snowgliderGhost_black', JSON.stringify(staleGhost));
+  // World-compatibility stamp (#408): loadGhost only replays a ghost stamped with
+  // the CURRENT PHYSICS_VERSION; this fixture ghost is recorded "for" this world.
+  local.setItem('snowgliderGhost_black_meta', JSON.stringify({ seed: null, physicsVersion: RC.PHYSICS_VERSION }));
+
 
   // The CURRENT terrain has since risen to +30 everywhere the old ghost travelled
   // (simulating the corridor walls raising the flanks the straight ghost sat on).
@@ -106,6 +111,10 @@ async function main() {
     { t: 2.0, x: 0, y: RAISED_SURFACE, z: START_Z - 40, rot: 0 },
   ];
   local.setItem('snowgliderGhost_black', JSON.stringify(jumpGhost));
+  // World-compatibility stamp (#408): loadGhost only replays a ghost stamped with
+  // the CURRENT PHYSICS_VERSION; this fixture ghost is recorded "for" this world.
+  local.setItem('snowgliderGhost_black_meta', JSON.stringify({ seed: null, physicsVersion: RC.PHYSICS_VERSION }));
+
   CourseModule.reset();
   CourseModule.update({ x: 0, y: RAISED_SURFACE, z: START_Z - 20 }, 1.0);
   const ghost2 = findGhost();
