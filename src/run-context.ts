@@ -137,3 +137,54 @@ export function cosmeticRandom(name: CosmeticStreamName): number {
   }
   return stream();
 }
+
+/**
+ * Run `fn` with every `Math.random()` inside it drawing from the named GAMEPLAY
+ * stream — the world-build bridge (#400): wrapping a placement pass (trees,
+ * rocks, terrain-mesh noise/bumps) in `withGameplayStream('hazards', ...)`
+ * makes the ~120 legacy draw sites seed-deterministic without touching one of
+ * them.
+ *
+ * UNSEEDED this is a pure no-op — `fn()` runs against the untouched global
+ * Math.random, so today's production build and every harness that assigns
+ * `Math.random = makeRng(seed)` before placement are byte-identical. SEEDED it
+ * swaps global Math.random for the stream draw for the DURATION OF THE
+ * SYNCHRONOUS CALL and restores it in a finally (same shape as scenery-rng's
+ * withPrivateThreeRandom). `fn` must be synchronous — never hold the swap
+ * across an await (the async-gap bug class).
+ *
+ * Determinism scope: "same seed => same world" is a cross-PAGE-LOAD contract.
+ * The first build of a page also constructs the one-time material/texture pools
+ * inside the stream (deterministic, since it is always the first build); a
+ * hypothetical second same-process build would skip those draws — which never
+ * happens live, because a tier switch reloads the page.
+ */
+export function withGameplayStream<T>(name: GameplayStreamName, fn: () => T): T {
+  if (runSeed === null) return fn();
+  const realRandom = Math.random;
+  Math.random = () => gameplayRandom(name);
+  try {
+    return fn();
+  } finally {
+    Math.random = realRandom;
+  }
+}
+
+/** The provenance stamp future score/ghost records carry (#400): which seed (if
+ *  any) and which physics behavior produced the run. */
+export function getRunStamp(): { seed: number | null; physicsVersion: number } {
+  return { seed: runSeed, physicsVersion: PHYSICS_VERSION };
+}
+
+/** Parse a `?seed=<uint>` run seed from a URL search string (the ranked/replay
+ *  opt-in seam). Absent / empty / non-finite ⇒ null (unseeded — today's
+ *  default). Kept pure so the node harnesses can cover it without a window. */
+export function parseRunSeedParam(search: string): number | null {
+  try {
+    const raw = new URLSearchParams(search).get('seed');
+    if (raw === null || raw.trim() === '') return null;
+    return normalizeSeed(Number(raw));
+  } catch {
+    return null;
+  }
+}

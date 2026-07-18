@@ -28,6 +28,7 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
+import { getRunStamp } from './run-context.js';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
@@ -361,6 +362,10 @@ export const CourseModule = (function () {
   }
   function splitsKey(): string { return `${LS_SPLITS_BASE}_${activeTier()}`; }
   function ghostKey(): string { return `${LS_GHOST_BASE}_${activeTier()}`; }
+  // Sidecar run-provenance stamp for the stored ghost (#400): seed + physics
+  // version of the run that set it, so replay/ranked modes know if the ghost is
+  // reproducible. Sidecar keeps the legacy raw-array ghost format untouched.
+  function ghostMetaKey(): string { return `${ghostKey()}_meta`; }
 
   // One-time migration: the pre-tier un-suffixed keys become the Blue tier's keys, so a
   // returning player keeps their existing best splits + ghost on the (default) Blue tier.
@@ -661,6 +666,7 @@ export const CourseModule = (function () {
           rot: lastReal ? lastReal.rot : Math.PI
         });
         localStorage.setItem(ghostKey(), JSON.stringify(recordSamples));
+        localStorage.setItem(ghostMetaKey(), JSON.stringify(getRunStamp()));
       } catch { /* storage may be unavailable; ignore */ }
     }
 

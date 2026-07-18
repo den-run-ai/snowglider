@@ -12,6 +12,7 @@ import { Expression } from '../snowman-expression.js';
 import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
+import { setRunSeed, getRunSeed } from '../run-context.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
@@ -58,6 +59,14 @@ export function createLifecycle(deps: LifecycleDeps) {
   const touchOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
 
   function resetSnowman() {
+    // Rewind the run's RNG streams to their tops (#400): on a SEEDED run
+    // (?seed=…, applied in setupScene before the world build) every restart
+    // replays the same auto-turn/boulder sequences — that is what makes the
+    // seed a replay. Unseeded (production default) the gameplay streams are
+    // passthroughs, so this only re-derives the private cosmetic streams —
+    // a per-run reproducibility nicety with no gameplay effect.
+    setRunSeed(getRunSeed());
+
     // Reset the snowman + player physics state (position, velocity, camera, and the
     // air/auto-turn scalars) to the start of a run.
     Physics.resetPlayer(player, snowman, Snow.getTerrainHeight, cameraManager);

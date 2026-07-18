@@ -56,6 +56,7 @@ import {
   userBestTimeField,
   type Difficulty
 } from './difficulty.js';
+import { getRunStamp } from './run-context.js';
 // Local-first offline sync (issue #358, PR 4): queue an eligible best that couldn't
 // sync now, and flush the queue on reconnect. The pending marker is durable across a
 // tab close (localStorage) — it fills the gap where Firestore was not initialized at
@@ -76,6 +77,42 @@ function isValidScoreTime(time: unknown): time is number {
     Number.isFinite(time) &&
     time >= MIN_VALID_SCORE_TIME &&
     time <= MAX_VALID_SCORE_TIME;
+}
+
+
+/** Sidecar key for the run-provenance stamp next to a tier's local best time. */
+function localBestMetaKey(tier: Difficulty = DEFAULT_DIFFICULTY): string {
+  return `${localBestTimeKey(tier)}_meta`;
+}
+
+/** Stamp the just-recorded local best with its run provenance (#400): the run
+ *  seed (null while unseeded) and the PHYSICS_VERSION that produced the time,
+ *  so a future replay/ranked mode knows whether the record is reproducible and
+ *  against which kernel. A SIDECAR key: the legacy bare-number best-time value
+ *  and every existing reader stay byte-for-byte unchanged. Best-effort — a
+ *  blocked storage write must never break score recording. */
+function stampLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): void {
+  try {
+    localStorage.setItem(localBestMetaKey(tier), JSON.stringify(getRunStamp()));
+  } catch { /* storage may be unavailable; the time itself already saved */ }
+}
+
+/** Read a tier's run-provenance stamp ({seed, physicsVersion}) or null. */
+export function readLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): { seed: number | null; physicsVersion: number } | null {
+  try {
+    const raw = localStorage.getItem(localBestMetaKey(tier));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const rec = parsed as { seed?: unknown; physicsVersion?: unknown };
+    if (typeof rec.physicsVersion !== 'number') return null;
+    return {
+      seed: typeof rec.seed === 'number' ? rec.seed : null,
+      physicsVersion: rec.physicsVersion,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function readLocalBestTime(tier: Difficulty = DEFAULT_DIFFICULTY) {
@@ -754,6 +791,7 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
 
     if (isNewLocalBest) {
       localStorage.setItem(localBestTimeKey(tier), time.toString());
+      stampLocalBestMeta(tier);
       console.log("New local best time recorded:", time);
     } else {
       console.log("Score recorded, but not a new local best time:", time);
@@ -824,6 +862,7 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
     try {
       if (isValidScoreTime(time)) {
         localStorage.setItem(localBestTimeKey(tier), time.toString());
+        stampLocalBestMeta(tier);
       }
     } catch (e) {
       console.error("LocalStorage error during fallback save:", e);

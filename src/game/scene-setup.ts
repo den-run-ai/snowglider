@@ -25,6 +25,7 @@ import { readStoredDifficulty, getDifficultyConfig, BLUE_AVALANCHE, type Difficu
 import { courseLineFor, setActiveCourseLine } from '../course-line.js';
 import { createScenery, type ScenerySystem } from '../scenery/scenery.js';
 import { scenerySeedFor } from '../scenery/scenery-budget.js';
+import { setRunSeed, parseRunSeedParam } from '../run-context.js';
 
 // The shipped Blue avalanche numbers, re-exported from the difficulty spine so there is
 // ONE source of truth (difficulty.ts BLUE_AVALANCHE). The winnability harness reads these
@@ -109,6 +110,13 @@ export function setupScene(signal?: AbortSignal) {
   // browser suites — issue #282 PR 3), so assigning it after tree creation (its
   // old home further down) would hand those suites the player default instead.
   window.isTestMode = window.location.search.includes('test');
+
+  // Ranked/replay seed seam (#400): apply `?seed=<uint>` BEFORE anything that
+  // draws from a gameplay stream is built — the world build below runs inside
+  // withGameplayStream('hazards'), so a seeded page gets a seed-deterministic
+  // obstacle field. Absent/invalid => null => unseeded passthrough (today's
+  // default, byte-identical).
+  setRunSeed(parseRunSeedParam(window.location.search));
 
   // Listener options that wire game-lifetime handlers to the teardown AbortSignal
   // when one is supplied (undefined => the listener simply lives for the page).
