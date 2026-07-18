@@ -228,6 +228,13 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         state.bestTime = currentTime;
         bestTimeDisplay.textContent = `New Best Time: ${state.bestTime.toFixed(2)}s`;
         bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
+      } else if (practice) {
+        // A seeded practice world records nothing and its times are not comparable
+        // with the canonical-world best — showing that best here would juxtapose two
+        // different worlds (or print 'Best: Infinitys' for a new player). Render the
+        // practice time alone (Codex review PR #407).
+        bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s`;
+        bestTimeDisplay.style.color = 'white';
       } else {
         bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${state.bestTime.toFixed(2)}s)`;
         bestTimeDisplay.style.color = 'white';

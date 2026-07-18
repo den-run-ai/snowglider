@@ -149,6 +149,24 @@ export function isPracticeRun(): boolean {
  *  fresh nonce for run-to-run variety on the shared world; practice replays
  *  pass 0 so the same ?seed= is a full deterministic replay. No-op-safe in
  *  harness passthrough mode (streams stay passthrough). */
+/** Draw a fresh run nonce WITHOUT consuming global Math.random. Cosmetic
+ *  subsystems (the Sfx noise buffers alone burn tens of thousands of global
+ *  draws when Web Audio unlocks) advance Math.random by machine-dependent
+ *  amounts, so sourcing the nonce there would let sound availability change
+ *  the physics/avalanche streams derived from worldSeed^nonce (Codex review
+ *  PR #407). crypto.getRandomValues exists in every target browser and in
+ *  Node; the Math.random fallback only runs in stripped-down harness DOMs,
+ *  which never reach this call with a concrete world seed anyway. */
+export function drawRunNonce(): number {
+  const cryptoObj = (globalThis as { crypto?: { getRandomValues?: (a: Uint32Array) => Uint32Array } }).crypto;
+  if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+    const buf = new Uint32Array(1);
+    cryptoObj.getRandomValues(buf);
+    return (buf[0] ?? 0) >>> 0;
+  }
+  return (Math.random() * 0x1_0000_0000) >>> 0;
+}
+
 export function rewindRunStreams(nonce: number): void {
   runStreamNonce = normalizeSeed(nonce) ?? 0;
   resetRunStreams();

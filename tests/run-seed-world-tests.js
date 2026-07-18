@@ -202,6 +202,20 @@ async function main() {
       JSON.stringify(phys1) === JSON.stringify(phys1b));
     check('a fresh nonce varies the run-scoped physics stream',
       JSON.stringify(phys1) !== JSON.stringify(phys2));
+    // The lifecycle nonce draw must NOT touch global Math.random: cosmetic
+    // subsystems (Sfx noise buffers) advance the global stream by
+    // machine-dependent amounts, so a Math.random-sourced nonce would let sound
+    // availability change gameplay streams (Codex review PR #407).
+    {
+      const realRandom = Math.random;
+      Math.random = () => { throw new Error('drawRunNonce must not consume global Math.random'); };
+      let nonceOk = true;
+      let a = 0, b = 0;
+      try { a = RC.drawRunNonce(); b = RC.drawRunNonce(); } catch { nonceOk = false; }
+      Math.random = realRandom;
+      check('drawRunNonce never consumes global Math.random (crypto-backed)',
+        nonceOk && Number.isInteger(a) && a >= 0 && a <= 0xFFFFFFFF && Number.isInteger(b));
+    }
     check('the WORLD streams (hazards) are pinned to the world seed across nonces',
       JSON.stringify(haz1) === JSON.stringify(haz2));
     RC.setRunSeed(null);

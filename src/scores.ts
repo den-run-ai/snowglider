@@ -55,6 +55,7 @@ import {
   leaderboardCollectionName,
   userBestTimeField,
   stampLocalBestMeta,
+  localBestProvenanceCompatible,
   type Difficulty
 } from './difficulty.js';
 // Re-export for existing consumers/tests: the implementation lives in the
@@ -770,7 +771,14 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
     // current run) lets us backfill a best time that was recorded but never made it
     // to Firestore — e.g. a best set before sign-in or under an earlier bug. Without
     // this, a stored best could only reach the leaderboard by being beaten again.
-    const effectiveBestTime = isNewLocalBest ? time : localBestTime;
+    // PROVENANCE GATE (Codex review PR #407): the stored best is only promotable
+    // when its sidecar stamp matches the current world (same seed + physics
+    // version) — a pre-canonical/unstamped best was earned on a different
+    // obstacle field and must not contaminate the comparable board. The run's
+    // OWN time needs no check: it was just earned in the current world.
+    const effectiveBestTime = isNewLocalBest || !localBestProvenanceCompatible(tier)
+      ? time
+      : localBestTime;
 
     // Track completion in Analytics (if available)
     if (analytics) {

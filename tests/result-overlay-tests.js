@@ -126,6 +126,15 @@ async function main() {
     // no sign-in-to-save prompt, no leaderboard render.
     check('practice finish shows no login prompt', !document.getElementById('loginPrompt'));
     check('practice finish never renders the leaderboard', leaderboardShown === 0);
+    // The best-time line renders the practice time ALONE (Codex review PR #407):
+    // the canonical best is a different world's record — and a new player would
+    // otherwise see 'Best: Infinitys'.
+    check('practice finish shows only the run time (no cross-world Best comparison)',
+      /^Your Time: \d+\.\d{2}s$/.test(deps.bestTimeDisplay.textContent));
+    // And the sync-status line must say nothing is saved (not the unranked-tier copy).
+    const syncLine = document.getElementById('syncStatus');
+    check('practice finish status copy says nothing is saved',
+      !!syncLine && /nothing is saved/i.test(syncLine.textContent));
     RC.setRunSeed(null);
   }
 

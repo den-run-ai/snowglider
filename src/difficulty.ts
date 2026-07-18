@@ -427,6 +427,24 @@ export function readLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): { seed
   }
 }
 
+/** Is a tier's stored local best provenance-compatible with the CURRENT world —
+ *  same physics version AND same world seed as this session's run stamp?
+ *
+ *  The automatic leaderboard-sync paths (recordScore's stored-best backfill and
+ *  the sign-in backfill) must consult this before promoting an EXISTING local
+ *  best to the global board: a best carried over from a different world/kernel
+ *  (a pre-canonical unstamped record, or a stamp from another physics version)
+ *  was earned on a different obstacle field and would contaminate the
+ *  supposedly comparable board (Codex review PR #407). An unstamped best reads
+ *  as incompatible. The just-finished run's OWN time never needs this check —
+ *  it was earned in the current world by construction. */
+export function localBestProvenanceCompatible(tier: Difficulty = DEFAULT_DIFFICULTY): boolean {
+  const meta = readLocalBestMeta(tier);
+  if (!meta) return false;
+  const stamp = getRunStamp();
+  return meta.physicsVersion === stamp.physicsVersion && meta.seed === stamp.seed;
+}
+
 export function localBestTimeKey(tier: Difficulty): string {
   return tier === 'blue' ? 'snowgliderBestTime' : `snowgliderBestTime_${tier}`;
 }

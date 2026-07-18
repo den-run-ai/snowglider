@@ -187,13 +187,38 @@ async function main() {
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
   currentAuthUser = { uid: 'u1', displayName: 'Snow' };
   ScoresModule.setCurrentUser(currentAuthUser);
+  // The stored best carries a CURRENT-world provenance stamp: only a compatible
+  // stamp lets the backfill promote it to the board (Codex review PR #407).
   localStorage.setItem('snowgliderBestTime', '19.43');
+  {
+    const RCv = await import('../src/run-context.ts');
+    localStorage.setItem('snowgliderBestTime_meta',
+      JSON.stringify({ seed: RCv.getRunStamp().seed, nonce: 0, physicsVersion: RCv.PHYSICS_VERSION }));
+  }
   ScoresModule.recordScore(22);
   await flushAll();
   check('slower authenticated finish syncs the stored local best to the user doc',
     read('users', 'u1')?.bestTime === 19.43);
   check('slower authenticated finish backfills the leaderboard with the stored best',
     read('leaderboard', 'u1')?.time === 19.43);
+  // PROVENANCE GATE (Codex review PR #407): an UNSTAMPED (or other-world) stored
+  // best must NOT be promoted by the sync — the run's own time syncs instead, so
+  // the faster-but-unprovenanced 19.01 never reaches the user doc or the board.
+  // (19.01: plausible for Blue — above its 18 s floor — but faster than the
+  // synced 19.43, so promotion WOULD improve the board if the gate leaked.)
+  localStorage.setItem('snowgliderBestTime', '19.01');
+  localStorage.removeItem('snowgliderBestTime_meta');
+  ScoresModule.recordScore(22);
+  await flushAll();
+  check('an unstamped legacy stored best is NOT promoted to the board (run time syncs instead)',
+    read('users', 'u1')?.bestTime === 19.43 && read('leaderboard', 'u1')?.time === 19.43);
+  // Restore the compatible stamped best for the cases below.
+  localStorage.setItem('snowgliderBestTime', '19.43');
+  {
+    const RCv = await import('../src/run-context.ts');
+    localStorage.setItem('snowgliderBestTime_meta',
+      JSON.stringify({ seed: RCv.getRunStamp().seed, nonce: 0, physicsVersion: RCv.PHYSICS_VERSION }));
+  }
   check('leaderboard write denormalizes the signed-in display name onto the entry',
     read('leaderboard', 'u1')?.displayName === 'Snow');
   check('score completion analytics are logged',

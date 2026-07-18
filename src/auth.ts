@@ -71,7 +71,7 @@ import {
 import { getAnalytics, logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import { initializeApp, type FirebaseApp, type FirebaseOptions } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import ScoresModule from "./scores.js";
-import { DIFFICULTIES, localBestTimeKey, type Difficulty } from "./difficulty.js";
+import { DIFFICULTIES, localBestTimeKey, localBestProvenanceCompatible, type Difficulty } from "./difficulty.js";
 import { safeGetItem, safeRemoveItem } from "./offline/offline-store.js";
 import { withTrafficTag } from "./analytics-env.js";
 
@@ -679,6 +679,15 @@ function backfillRankedLocalBestsWithRetry(user: User): void {
     if (!ScoresModule.isValidScoreTime(bestTime)) {
       console.warn(`Ignoring invalid local best time (${cfg.id}) during sign-in sync:`, raw);
       safeRemoveItem(key);
+      continue;
+    }
+    // PROVENANCE GATE (Codex review PR #407): only backfill a best whose sidecar
+    // stamp matches the current world (seed + physics version). An unstamped or
+    // other-world best stays a local/historical record — it was earned on a
+    // different obstacle field and would contaminate the comparable board. (The
+    // record is NOT deleted: it remains visible locally as a historical best.)
+    if (!localBestProvenanceCompatible(cfg.id)) {
+      console.log(`Local best time (${cfg.id}) has no compatible world stamp; keeping it local, not syncing.`);
       continue;
     }
     console.log(`Found local best time (${cfg.id}), attempting to sync:`, bestTime);
