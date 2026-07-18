@@ -247,6 +247,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         ranked: tierRanked,
         signedIn: !!signedInUser,
         anonymous: !!(signedInUser && signedInUser.isAnonymous),
+        // A ?seed= practice WORLD saves nothing at all (no local best, no ghost),
+        // which needs different copy than an unranked TIER (Codex review PR #407).
+        practiceWorld: getRunStamp().practice,
       });
       if (syncCopy && !document.getElementById('syncStatus')) {
         const syncStatus = document.createElement('p');

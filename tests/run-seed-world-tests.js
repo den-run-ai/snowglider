@@ -212,8 +212,12 @@ async function main() {
   const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
   check('setupScene selects a CONCRETE world before the build (canonical unless ?seed=)',
     /setWorldContext\(urlSeed \?\? CANONICAL_WORLD_SEED, urlSeed !== null\)/.test(read('src/game/scene-setup.ts')));
-  check('lifecycle rewinds the run streams at every run start (fresh nonce unless practice)',
-    /rewindRunStreams\(isPracticeRun\(\) \? 0 :/.test(read('src/game/lifecycle.ts')));
+  // The nonce draw must be gated on a CONCRETE world seed: with runSeed null the
+  // gameplay streams are Math.random passthroughs (the frozen-baseline and
+  // seeded-harness mode), so an unconditional draw would consume a global value
+  // every reset and shift the auto-turn/avalanche sequence (Codex review PR #407).
+  check('lifecycle draws a fresh run nonce ONLY on a concrete non-practice world',
+    /rewindRunStreams\(runStamp\.seed !== null && !isPracticeRun\(\)/.test(read('src/game/lifecycle.ts')));
   check('createTerrain wraps the world build in the hazards stream',
     /withGameplayStream\('hazards'/.test(read('src/mountains/terrain-mesh.ts')));
   check('course.ts stamps the committed ghost with the run provenance',

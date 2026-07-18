@@ -157,11 +157,27 @@ async function main() {
     const seededMeta = readLocalBestMeta();
     check('a seeded run\'s best is stamped with its seed',
       !!seededMeta && seededMeta.seed === 777 && seededMeta.physicsVersion === RC.PHYSICS_VERSION);
+    // The nonce is part of the replay identity (worldSeed^nonce derives the
+    // run-scoped streams), so the reader must hand it back (Codex review PR #407);
+    // pre-nonce stamps read as the pinned practice value 0.
+    check('the reader returns the stamped nonce', !!seededMeta && seededMeta.nonce === RC.getRunStamp().nonce);
+    localStorage.setItem('snowgliderBestTime_meta', JSON.stringify({ seed: 5, physicsVersion: 1 }));
+    check('a pre-nonce stamp reads with nonce 0', readLocalBestMeta()?.nonce === 0);
     RC.setRunSeed(null);
     // Corrupt sidecars read as null, never throw.
     localStorage.setItem('snowgliderBestTime_meta', '{not json');
     check('a corrupt meta sidecar reads as null', readLocalBestMeta() === null);
     localStorage.removeItem('snowgliderBestTime_meta');
+    // Stamp-failure invalidation (Codex review PR #407): when the sidecar WRITE
+    // fails (quota), a PREVIOUS run's stamp must not survive to be falsely
+    // attributed to the newly recorded time — better unstamped than mis-stamped.
+    const { stampLocalBestMeta } = await import('../src/difficulty.ts');
+    localStorage.setItem('snowgliderBestTime_meta', JSON.stringify({ seed: 999, nonce: 1, physicsVersion: RC.PHYSICS_VERSION }));
+    const realSetItem = localStorage.setItem;
+    localStorage.setItem = (k, v) => { if (String(k).endsWith('_meta')) throw new Error('quota'); realSetItem(k, v); };
+    stampLocalBestMeta();
+    localStorage.setItem = realSetItem;
+    check('a failed stamp write clears the stale sidecar instead of leaving it', readLocalBestMeta() === null);
   }
   check('unauthenticated local scoring does not write Firestore',
     calls.setDoc.length === 0);

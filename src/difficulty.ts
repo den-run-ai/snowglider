@@ -393,20 +393,33 @@ export function localBestMetaKey(tier: Difficulty = DEFAULT_DIFFICULTY): string 
 export function stampLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): void {
   try {
     localStorage.setItem(localBestMetaKey(tier), JSON.stringify(getRunStamp()));
-  } catch { /* storage may be unavailable; the time itself already saved */ }
+  } catch {
+    // Storage write failed (quota, private mode): the time itself already saved,
+    // but a PREVIOUS run's sidecar may still sit under this key — leaving it
+    // would falsely attribute the new time to the old seed/nonce. Better an
+    // unstamped (non-replayable) record than a mis-stamped one (Codex review
+    // PR #407).
+    try { localStorage.removeItem(localBestMetaKey(tier)); } catch { /* unreachable storage; nothing to invalidate */ }
+  }
 }
 
-/** Read a tier's run-provenance stamp ({seed, physicsVersion}) or null. */
-export function readLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): { seed: number | null; physicsVersion: number } | null {
+/** Read a tier's run-provenance stamp ({seed, nonce, physicsVersion}) or null.
+ *  The nonce is part of the replay identity: two runs on the SAME world seed use
+ *  different run-scoped streams (physics auto-turns, avalanche spawns) unless
+ *  their nonces match, so a replay consumer needs it back out of the stamp
+ *  (Codex review PR #407). Stamps written before the nonce existed read as 0 —
+ *  the pinned practice-world value. */
+export function readLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): { seed: number | null; nonce: number; physicsVersion: number } | null {
   try {
     const raw = localStorage.getItem(localBestMetaKey(tier));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null) return null;
-    const rec = parsed as { seed?: unknown; physicsVersion?: unknown };
+    const rec = parsed as { seed?: unknown; nonce?: unknown; physicsVersion?: unknown };
     if (typeof rec.physicsVersion !== 'number') return null;
     return {
       seed: typeof rec.seed === 'number' ? rec.seed : null,
+      nonce: typeof rec.nonce === 'number' ? rec.nonce : 0,
       physicsVersion: rec.physicsVersion,
     };
   } catch {

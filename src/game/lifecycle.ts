@@ -12,7 +12,7 @@ import { Expression } from '../snowman-expression.js';
 import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
-import { rewindRunStreams, isPracticeRun } from '../run-context.js';
+import { rewindRunStreams, isPracticeRun, getRunStamp } from '../run-context.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
@@ -66,8 +66,15 @@ export function createLifecycle(deps: LifecycleDeps) {
     // their run-to-run variety on the one shared world, while a ?seed= practice
     // run pins the nonce to 0 — the same seed is a full deterministic replay.
     // (The nonce draw is plain Math.random: it SEEDS private streams and sits
-    // outside every kernel; harness passthrough mode ignores it entirely.)
-    rewindRunStreams(isPracticeRun() ? 0 : (Math.random() * 0x1_0000_0000) >>> 0);
+    // outside every kernel.) The draw happens ONLY when a concrete world seed is
+    // active: with no seed the streams are Math.random passthroughs (the frozen-
+    // baseline and seeded-harness mode), so consuming a global draw here would
+    // shift the auto-turn/avalanche sequence and break the documented
+    // byte-identical passthrough contract (Codex review PR #407).
+    const runStamp = getRunStamp();
+    rewindRunStreams(runStamp.seed !== null && !isPracticeRun()
+      ? (Math.random() * 0x1_0000_0000) >>> 0
+      : 0);
 
     // Reset the snowman + player physics state (position, velocity, camera, and the
     // air/auto-turn scalars) to the start of a run.
