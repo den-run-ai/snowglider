@@ -236,6 +236,11 @@ async function main() {
     /withGameplayStream\('hazards'/.test(read('src/mountains/terrain-mesh.ts')));
   check('course.ts stamps the committed ghost with the run provenance',
     /ghostMetaKey\(\), JSON\.stringify\(getRunStamp\(\)\)/.test(read('src/course.ts')));
+  // A partial ghost commit (ghost wrote, stamp hit quota) must clear the stale
+  // sidecar instead of leaving the OLD run's seed/nonce attached to the NEW
+  // trajectory (Codex review PR #407).
+  check('a failed ghost commit clears the stale stamp sidecar (never mis-stamped)',
+    /removeItem\(ghostMetaKey\(\)\)/.test(read('src/course.ts')));
 
   console.log('\n===========================================');
   console.log(`Summary: ${passed} passed, ${failed} failed`);

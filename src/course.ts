@@ -671,7 +671,14 @@ export const CourseModule = (function () {
         });
         localStorage.setItem(ghostKey(), JSON.stringify(recordSamples));
         localStorage.setItem(ghostMetaKey(), JSON.stringify(getRunStamp()));
-      } catch { /* storage may be unavailable; ignore */ }
+      } catch {
+        // Partial commit (e.g. the ghost wrote but the stamp hit quota): a stale
+        // sidecar from the PREVIOUS record would attribute the new trajectory to
+        // the old seed/nonce and a provenance-aware loader could falsely accept
+        // it (Codex review PR #407). Better an unstamped (rejected) ghost than a
+        // mis-stamped one.
+        try { localStorage.removeItem(ghostMetaKey()); } catch { /* unreachable storage; nothing to invalidate */ }
+      }
     }
 
     // A practice world's panel makes no competitive claims (Codex review PR

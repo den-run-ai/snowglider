@@ -136,6 +136,29 @@ function main() {
     a.localStorage.getItem('snowgliderBestTime') === '25' &&
     a.localStorage.getItem('snowgliderBestTime_meta') === null);
 
+  // Stale-sidecar invalidation (Codex review PR #407): a PREVIOUS run's stamp
+  // must never survive to describe a NEW best. With the seam ABSENT, a new best
+  // clears any existing sidecar rather than leaving the old attribution.
+  a.window.__snowgliderGetRunStamp = () => ({ seed: 111, physicsVersion: 1 });
+  Scores.recordScore(20);
+  delete a.window.__snowgliderGetRunStamp;
+  Scores.recordScore(19.5); // new best with NO seam -> the old seed-111 stamp must go
+  check('a seam-less new best clears the previous run\'s stale stamp',
+    a.localStorage.getItem('snowgliderBestTime') === '19.5' &&
+    a.localStorage.getItem('snowgliderBestTime_meta') === null);
+  // And with the seam present but the META write failing, the old sidecar is
+  // cleared first — the record ends up unstamped, never mis-stamped.
+  a.window.__snowgliderGetRunStamp = () => ({ seed: 222, physicsVersion: 1 });
+  Scores.recordScore(19);
+  const realLsSet = a.localStorage.setItem;
+  a.localStorage.setItem = (k, v) => { if (String(k).endsWith('_meta')) throw new Error('quota'); return realLsSet(k, v); };
+  Scores.recordScore(18.5);
+  a.localStorage.setItem = realLsSet;
+  delete a.window.__snowgliderGetRunStamp;
+  check('a failed stamp write leaves the new best unstamped (stale sidecar cleared)',
+    a.localStorage.getItem('snowgliderBestTime') === '18.5' &&
+    a.localStorage.getItem('snowgliderBestTime_meta') === null);
+
   // --- Per-tier local best (D2): a tiered finish uses the per-tier key, not Blue ---
   a.localStorage.removeItem('snowgliderBestTime');
   Scores.recordScore(40, 'bunny');

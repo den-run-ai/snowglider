@@ -15,7 +15,7 @@
 // This module is intentionally dependency-free (it only reads the score-limits
 // floor), so it can be imported by the physics kernel without pulling in THREE.
 import { MIN_VALID_SCORE_TIME } from './score-limits.js';
-import { getRunStamp } from './run-context.js';
+import { getRunStamp, CANONICAL_WORLD_SEED } from './run-context.js';
 // Type-only import: the lane shape lives next to the centerline primitive it feeds
 // (course-line.ts, also THREE-free), and `import type` erases at build time so this
 // stays a runtime-dependency-free module.
@@ -442,7 +442,15 @@ export function localBestProvenanceCompatible(tier: Difficulty = DEFAULT_DIFFICU
   const meta = readLocalBestMeta(tier);
   if (!meta) return false;
   const stamp = getRunStamp();
-  return meta.physicsVersion === stamp.physicsVersion && meta.seed === stamp.seed;
+  if (meta.physicsVersion !== stamp.physicsVersion) return false;
+  // A canonical-world stamp is ALSO accepted while no world context is installed
+  // yet (stamp.seed === null): auth can restore and run its sign-in backfill
+  // before the deferred game chunk reaches setupScene/setWorldContext, and
+  // rejecting the (production-default) canonical stamp there would strand a
+  // legitimate best unsynced with no retry (Codex review PR #407). Harness
+  // passthrough stamps (seed null) still match via strict equality.
+  return meta.seed === stamp.seed
+    || (stamp.seed === null && meta.seed === CANONICAL_WORLD_SEED);
 }
 
 export function localBestTimeKey(tier: Difficulty): string {
