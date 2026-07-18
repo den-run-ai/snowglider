@@ -673,8 +673,11 @@ export const CourseModule = (function () {
   function onFinish(totalTime: number, previousBest: number, recordEligible = true): HTMLDivElement {
     hideHud();
 
-    const isFirst = !(previousBest < Infinity);
-    const isBest = isFirst || totalTime < previousBest;
+    // A record-ineligible finish (timing-compromised, #403 review) saved nothing,
+    // so it must not CLAIM a record either: no "First descent!"/"New record!"
+    // medal copy for a time that was deliberately not kept.
+    const isFirst = recordEligible && !(previousBest < Infinity);
+    const isBest = recordEligible && (isFirst || totalTime < previousBest);
 
     // Record the finish split.
     runSplits[splitPoints.length - 1] = totalTime;

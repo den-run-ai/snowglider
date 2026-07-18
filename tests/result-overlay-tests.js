@@ -141,6 +141,22 @@ async function main() {
     RC.setRunSeed(null);
   }
 
+  // --- Timing-compromised run (#403 review): shows the time, records NOTHING ---
+  {
+    local.clear();
+    recorded = null;
+    const deps = makeDeps({ bestTime: 40 });
+    /** @type {any} */ (deps.state).timingCompromised = true;
+    createShowGameOver(deps)(FINISH);
+    check('compromised finish does NOT submit to the leaderboard', recorded === null);
+    check('compromised finish writes NO local best', local.getItem(BTK('blue')) === null);
+    check('compromised finish does not claim a new best time',
+      !/New Best Time/.test(deps.bestTimeDisplay.textContent));
+    const syncLine = document.getElementById('syncStatus');
+    check('compromised finish status copy says the run was not recorded',
+      !!syncLine && /not recorded/i.test(syncLine.textContent));
+  }
+
   // --- Unranked tier (D3): finish records NO Firestore score, keeps the per-tier local best ---
   {
     local.clear();

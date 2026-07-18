@@ -125,8 +125,12 @@ function makeRng(seed) {
     const { Snow } = await import('../../src/snow.ts');
 
     const elapsedSeen = [];
+    /** Whether the run was already flagged timing-compromised when each substep's
+     *  course update ran — the finish records synchronously inside a substep, so
+     *  the flag must be set BEFORE the crossing frame's substeps (Codex PR #409). */
+    const flagSeen = [];
     const realUpdate = CourseModule.update;
-    CourseModule.update = (pos, elapsed) => { elapsedSeen.push(elapsed); };
+    CourseModule.update = (pos, elapsed) => { elapsedSeen.push(elapsed); flagSeen.push(state.timingCompromised === true); };
 
     const ski = () => ({ position: { x: 0 }, rotation: { x: 0, y: 0, z: 0 } });
     const player = Physics.createPlayerState(Snow.getTerrainHeight);
@@ -202,6 +206,11 @@ function makeRng(seed) {
     // finish path declines to rank it (no PB, no leaderboard, no ghost).
     check(true, 'a stall-heavy run is flagged timing-compromised (slow-motion is not ranked)',
       state.timingCompromised === true);
+    // The FIRST stall frame alone drops ~0.37 s (> the 0.25 s limit), so its own
+    // substeps must already see the flag: a finish crossing inside that very
+    // frame records as compromised, not as a PB (Codex review PR #409 P1).
+    check(true, 'the flag is set BEFORE the crossing stall frame\'s substeps run',
+      flagSeen[stepsBeforeStall] === true);
     const overlaySrc2 = require('fs').readFileSync(path.join(__dirname, '..', '..', 'src', 'ui', 'result-overlay.ts'), 'utf8');
     check(true, 'result-overlay folds the timing flag into ranked eligibility',
       /state\.timingCompromised !== true/.test(overlaySrc2));

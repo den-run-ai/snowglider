@@ -638,6 +638,13 @@ export function createMainLoop(deps: MainLoopDeps) {
       const rawDelta = (time - lastTime) / 1000;
       const frameDelta = Math.min(rawDelta, MAX_SUBSTEPS * FIXED_DT);
       if (rawDelta > frameDelta) droppedSimTime += rawDelta - frameDelta;
+      // Flag BEFORE this frame's substeps run (Codex review PR #409): a substep
+      // of this very frame can cross the finish and record synchronously — if the
+      // stall that crossed the limit is THIS frame's, the finish must already see
+      // the run as compromised.
+      if (!state.timingCompromised && droppedSimTime > DROPPED_TIME_RANKED_LIMIT) {
+        state.timingCompromised = true;
+      }
       lastTime = time;
 
       // Only set up test hooks if they're missing
@@ -692,6 +699,8 @@ export function createMainLoop(deps: MainLoopDeps) {
       // Ranked-integrity flag (#403 review): enough dropped time means this run's sim
       // clock ran materially slower than wall time (slow-motion reaction advantage) —
       // flag it once; the finish path reads the flag and declines to rank the run.
+      // (Also checked BEFORE the substeps above; this catches the spiral-guard
+      // accumulator drop for the NEXT frame's substeps.)
       if (!state.timingCompromised && droppedSimTime > DROPPED_TIME_RANKED_LIMIT) {
         state.timingCompromised = true;
       }
