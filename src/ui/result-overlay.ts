@@ -15,6 +15,7 @@ import { EffectsModule } from '../effects.js';
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
 import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, type Difficulty } from '../difficulty.js';
+import { stampLocalBestMeta } from '../scores.js';
 import { resultSyncStatusCopy } from '../offline/sync-manager.js';
 import { isOnline } from '../offline/offline-state.js';
 
@@ -204,8 +205,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       if (canRecordScore && tierRanked) {
         window.AuthModule.recordScore?.(currentTime, tier);
       } else if (isNewBestTime) {
-        // Unranked tier (or no leaderboard API): keep the local per-tier best only.
+        // Unranked tier (or no leaderboard API): keep the local per-tier best only —
+        // stamped with the same run provenance every other local-best write carries
+        // (#400; Codex review PR #407).
         localStorage.setItem(localBestTimeKey(tier), String(currentTime));
+        stampLocalBestMeta(tier);
       }
 
       // Show appropriate message based on time

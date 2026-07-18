@@ -90,8 +90,11 @@ function localBestMetaKey(tier: Difficulty = DEFAULT_DIFFICULTY): string {
  *  so a future replay/ranked mode knows whether the record is reproducible and
  *  against which kernel. A SIDECAR key: the legacy bare-number best-time value
  *  and every existing reader stay byte-for-byte unchanged. Best-effort — a
- *  blocked storage write must never break score recording. */
-function stampLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): void {
+ *  blocked storage write must never break score recording. Exported so EVERY
+ *  local-best write path stamps consistently — result-overlay.ts's unranked /
+ *  no-leaderboard-API fallback writes the same key and must carry the same
+ *  provenance (Codex review, PR #407). */
+export function stampLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): void {
   try {
     localStorage.setItem(localBestMetaKey(tier), JSON.stringify(getRunStamp()));
   } catch { /* storage may be unavailable; the time itself already saved */ }

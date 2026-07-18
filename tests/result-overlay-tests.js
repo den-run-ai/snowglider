@@ -124,6 +124,10 @@ async function main() {
     check('unranked tier still saves the per-tier local best',
       typeof local.getItem('snowgliderBestTime_bunny') === 'string'
       && local.getItem('snowgliderBestTime') === null);
+    // The fallback write carries the same run-provenance stamp every other
+    // local-best path writes (#400; Codex review PR #407).
+    check('unranked local best is stamped with the sidecar provenance meta',
+      typeof local.getItem('snowgliderBestTime_bunny_meta') === 'string');
     check('unranked tier omits the sign-in-to-save login prompt',
       !document.getElementById('loginPrompt'));
   }
