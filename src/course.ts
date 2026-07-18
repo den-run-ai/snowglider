@@ -28,6 +28,7 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
+import { getRunStamp } from './run-context.js';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
@@ -361,6 +362,10 @@ export const CourseModule = (function () {
   }
   function splitsKey(): string { return `${LS_SPLITS_BASE}_${activeTier()}`; }
   function ghostKey(): string { return `${LS_GHOST_BASE}_${activeTier()}`; }
+  // Sidecar run-provenance stamp for the stored ghost (#400): seed + physics
+  // version of the run that set it, so replay/ranked modes know if the ghost is
+  // reproducible. Sidecar keeps the legacy raw-array ghost format untouched.
+  function ghostMetaKey(): string { return `${ghostKey()}_meta`; }
 
   // One-time migration: the pre-tier un-suffixed keys become the Blue tier's keys, so a
   // returning player keeps their existing best splits + ghost on the (default) Blue tier.
@@ -645,8 +650,12 @@ export const CourseModule = (function () {
     const tierBestTime = ghostSamples ? ghostTotalTime : Infinity;
     const isTierBest = totalTime < tierBestTime;
 
-    // Commit best splits + ghost if this run is the tier's best so far.
-    if (isTierBest) {
+    // Commit best splits + ghost if this run is the tier's best so far — and the
+    // run is on a REAL world: practice (?seed=) runs never overwrite the
+    // canonical-world ghost/splits records (#403 review; the shared ghost key
+    // holds ONE record per tier, and a practice commit would both lose the
+    // canonical ghost and leave a stamp the canonical world rejects).
+    if (isTierBest && !getRunStamp().practice) {
       try {
         localStorage.setItem(splitsKey(), JSON.stringify(runSplits));
         // Ensure the final sample lands exactly on the finish time, but keep the
@@ -661,9 +670,25 @@ export const CourseModule = (function () {
           rot: lastReal ? lastReal.rot : Math.PI
         });
         localStorage.setItem(ghostKey(), JSON.stringify(recordSamples));
-      } catch { /* storage may be unavailable; ignore */ }
+        localStorage.setItem(ghostMetaKey(), JSON.stringify(getRunStamp()));
+      } catch {
+        // Partial commit (e.g. the ghost wrote but the stamp hit quota): a stale
+        // sidecar from the PREVIOUS record would attribute the new trajectory to
+        // the old seed/nonce and a provenance-aware loader could falsely accept
+        // it (Codex review PR #407). Better an unstamped (rejected) ghost than a
+        // mis-stamped one.
+        try { localStorage.removeItem(ghostMetaKey()); } catch { /* unreachable storage; nothing to invalidate */ }
+      }
     }
 
+    // A practice world's panel makes no competitive claims (Codex review PR
+    // #407): nothing was persisted, so "record"/"first descent"/medal labels
+    // would promise state that does not exist. buildResultPanel renders the
+    // practice note instead.
+    if (getRunStamp().practice) {
+      return buildResultPanel(totalTime, previousBest, false, false,
+        { key: 'finish', icon: '\u{1F9EA}', label: 'Practice run \u2014 seeded world (not ranked)' });
+    }
     const medal = medalFor(totalTime, previousBest, isFirst);
     return buildResultPanel(totalTime, previousBest, isBest, isFirst, medal);
   }

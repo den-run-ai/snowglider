@@ -107,6 +107,37 @@ async function main() {
     check('overlay is shown', deps.gameOverOverlay.style.display === 'flex');
   }
 
+  // --- Practice world (?seed=, #403 review): shows the time, records NOTHING ---
+  {
+    local.clear();
+    recorded = null;
+    const RC = await import('../src/run-context.ts');
+    RC.setWorldContext(424242, true); // an explicit ?seed= world => practice
+    const deps = makeDeps({ bestTime: Infinity });
+    createShowGameOver(deps)(FINISH);
+    check('practice finish does NOT submit to the leaderboard', recorded === null);
+    check('practice finish writes NO local best',
+      local.getItem('snowgliderBestTime') === null);
+    check('practice finish does not claim a new best time',
+      !/New Best Time/.test(deps.bestTimeDisplay.textContent));
+    check('practice finish still shows the overlay/result',
+      deps.gameOverOverlay.style.display === 'flex');
+    // The WHOLE overlay reads as unranked on a practice world (Codex PR #407):
+    // no sign-in-to-save prompt, no leaderboard render.
+    check('practice finish shows no login prompt', !document.getElementById('loginPrompt'));
+    check('practice finish never renders the leaderboard', leaderboardShown === 0);
+    // The best-time line renders the practice time ALONE (Codex review PR #407):
+    // the canonical best is a different world's record — and a new player would
+    // otherwise see 'Best: Infinitys'.
+    check('practice finish shows only the run time (no cross-world Best comparison)',
+      /^Your Time: \d+\.\d{2}s$/.test(deps.bestTimeDisplay.textContent));
+    // And the sync-status line must say nothing is saved (not the unranked-tier copy).
+    const syncLine = document.getElementById('syncStatus');
+    check('practice finish status copy says nothing is saved',
+      !!syncLine && /nothing is saved/i.test(syncLine.textContent));
+    RC.setRunSeed(null);
+  }
+
   // --- Unranked tier (D3): finish records NO Firestore score, keeps the per-tier local best ---
   {
     local.clear();
@@ -124,6 +155,10 @@ async function main() {
     check('unranked tier still saves the per-tier local best',
       typeof local.getItem('snowgliderBestTime_bunny') === 'string'
       && local.getItem('snowgliderBestTime') === null);
+    // The fallback write carries the same run-provenance stamp every other
+    // local-best path writes (#400; Codex review PR #407).
+    check('unranked local best is stamped with the sidecar provenance meta',
+      typeof local.getItem('snowgliderBestTime_bunny_meta') === 'string');
     check('unranked tier omits the sign-in-to-save login prompt',
       !document.getElementById('loginPrompt'));
   }

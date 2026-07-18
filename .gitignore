@@ -1,5 +1,8 @@
 # Dependencies
+# Both forms: `node_modules/` only matches a real directory, so a node_modules
+# SYMLINK (a machine-local dev convenience) would slip past it and get tracked.
 node_modules/
+node_modules
 
 # IDE files
 .DS_Store

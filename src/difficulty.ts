@@ -15,6 +15,7 @@
 // This module is intentionally dependency-free (it only reads the score-limits
 // floor), so it can be imported by the physics kernel without pulling in THREE.
 import { MIN_VALID_SCORE_TIME } from './score-limits.js';
+import { getRunStamp, CANONICAL_WORLD_SEED } from './run-context.js';
 // Type-only import: the lane shape lives next to the centerline primitive it feeds
 // (course-line.ts, also THREE-free), and `import type` erases at build time so this
 // stays a runtime-dependency-free module.
@@ -372,6 +373,87 @@ export function getDifficultyConfig(id: unknown): DifficultyConfig {
 // working untouched — no migration of live Blue scores. Bunny/Black get sibling names.
 
 /** localStorage key for a tier's best time. */
+/** Sidecar key for the run-provenance stamp next to a tier's local best time. */
+export function localBestMetaKey(tier: Difficulty = DEFAULT_DIFFICULTY): string {
+  return `${localBestTimeKey(tier)}_meta`;
+}
+
+/** Stamp the just-recorded local best with its run provenance (#400): the run
+ *  seed (null while unseeded) and the PHYSICS_VERSION that produced the time,
+ *  so a future replay/ranked mode knows whether the record is reproducible and
+ *  against which kernel. A SIDECAR key: the legacy bare-number best-time value
+ *  and every existing reader stay byte-for-byte unchanged. Best-effort — a
+ *  blocked storage write must never break score recording.
+ *
+ *  Lives HERE (not scores.ts) so every local-best write path can stamp without
+ *  pulling the Firebase SDK into its module graph: scores.ts imports the
+ *  gstatic CDN modules, and result-overlay.ts is part of the game orchestrator
+ *  graph that must still boot when the CDN is blocked and the local fallback is
+ *  installed (Codex review, PR #407 P1). */
+export function stampLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): void {
+  try {
+    localStorage.setItem(localBestMetaKey(tier), JSON.stringify(getRunStamp()));
+  } catch {
+    // Storage write failed (quota, private mode): the time itself already saved,
+    // but a PREVIOUS run's sidecar may still sit under this key — leaving it
+    // would falsely attribute the new time to the old seed/nonce. Better an
+    // unstamped (non-replayable) record than a mis-stamped one (Codex review
+    // PR #407).
+    try { localStorage.removeItem(localBestMetaKey(tier)); } catch { /* unreachable storage; nothing to invalidate */ }
+  }
+}
+
+/** Read a tier's run-provenance stamp ({seed, nonce, physicsVersion}) or null.
+ *  The nonce is part of the replay identity: two runs on the SAME world seed use
+ *  different run-scoped streams (physics auto-turns, avalanche spawns) unless
+ *  their nonces match, so a replay consumer needs it back out of the stamp
+ *  (Codex review PR #407). Stamps written before the nonce existed read as 0 —
+ *  the pinned practice-world value. */
+export function readLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): { seed: number | null; nonce: number; physicsVersion: number } | null {
+  try {
+    const raw = localStorage.getItem(localBestMetaKey(tier));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const rec = parsed as { seed?: unknown; nonce?: unknown; physicsVersion?: unknown };
+    if (typeof rec.physicsVersion !== 'number') return null;
+    return {
+      seed: typeof rec.seed === 'number' ? rec.seed : null,
+      nonce: typeof rec.nonce === 'number' ? rec.nonce : 0,
+      physicsVersion: rec.physicsVersion,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Is a tier's stored local best provenance-compatible with the CURRENT world —
+ *  same physics version AND same world seed as this session's run stamp?
+ *
+ *  The automatic leaderboard-sync paths (recordScore's stored-best backfill and
+ *  the sign-in backfill) must consult this before promoting an EXISTING local
+ *  best to the global board: a best carried over from a different world/kernel
+ *  (a pre-canonical unstamped record, or a stamp from another physics version)
+ *  was earned on a different obstacle field and would contaminate the
+ *  supposedly comparable board (Codex review PR #407). An unstamped best reads
+ *  as incompatible. The just-finished run's OWN time never needs this check —
+ *  it was earned in the current world by construction. */
+export function localBestProvenanceCompatible(tier: Difficulty = DEFAULT_DIFFICULTY): boolean {
+  const meta = readLocalBestMeta(tier);
+  if (!meta) return false;
+  const stamp = getRunStamp();
+  if (meta.physicsVersion !== stamp.physicsVersion) return false;
+  // Ranked local bests are CANONICAL-world records by construction (practice
+  // finishes never write one), so eligibility compares the stamp against the
+  // canonical seed — NOT the active session's world, which is startup-timing
+  // and URL dependent: auth can restore before setupScene installs any world
+  // (stamp seed null) or while a ?seed= practice world is active, and neither
+  // must reject a valid canonical best (Codex review PR #407, two rounds).
+  // Harness stamps (whatever seed the suite set, incl. null) keep matching via
+  // the stamp-equality clause.
+  return meta.seed === CANONICAL_WORLD_SEED || meta.seed === stamp.seed;
+}
+
 export function localBestTimeKey(tier: Difficulty): string {
   return tier === 'blue' ? 'snowgliderBestTime' : `snowgliderBestTime_${tier}`;
 }

@@ -174,6 +174,11 @@ async function main() {
   check('leaderboard-unavailable copy does not promise a shown board', !/last online|out of date/i.test(sm.RESULT_LEADERBOARD_UNAVAILABLE_COPY));
   check('offline takes precedence over anonymous', sm.resultSyncStatusCopy(S({ online: false, anonymous: true })) === sm.RESULT_OFFLINE_COPY);
   check('unranked takes precedence over offline', sm.resultSyncStatusCopy(S({ ranked: false, online: false })) === sm.RESULT_UNRANKED_COPY);
+  // A ?seed= practice WORLD saves nothing at all — it must NOT reuse the unranked-TIER
+  // copy, which promises a local best and ghost (Codex review PR #407).
+  check('practice world → its own nothing-saved copy', sm.resultSyncStatusCopy(S({ practiceWorld: true })) === sm.RESULT_PRACTICE_WORLD_COPY);
+  check('practice world takes precedence over unranked tier', sm.resultSyncStatusCopy(S({ practiceWorld: true, ranked: false })) === sm.RESULT_PRACTICE_WORLD_COPY);
+  check('practice-world copy does not claim records exist', !/local best|ghost|saved locally/i.test(sm.RESULT_PRACTICE_WORLD_COPY));
 
   console.log(`\nSYNC-MANAGER TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
