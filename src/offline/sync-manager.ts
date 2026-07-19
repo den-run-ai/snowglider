@@ -181,6 +181,9 @@ export interface ResultSyncState {
   anonymous: boolean;
   /** True for a ?seed= practice WORLD (#403): nothing is saved at all. */
   practiceWorld?: boolean;
+  /** True when the run was flagged timing-compromised (#403 review): heavy
+   *  stalls gave it slow motion, so nothing was recorded at all. */
+  timingCompromised?: boolean;
 }
 
 /** Practice-tier copy (unranked): local best + ghost only, no global board. */
@@ -192,6 +195,13 @@ export const RESULT_UNRANKED_COPY = 'Practice tier — local best and ghost only
  * exist (Codex review PR #407).
  */
 export const RESULT_PRACTICE_WORLD_COPY = 'Seeded practice world — times are shown but nothing is saved.';
+/**
+ * Timing-compromised copy (#403 review): the run dropped enough stalled wall time
+ * that its sim clock ran in slow motion, so NOTHING was recorded — not the PB,
+ * not the ghost/splits, not the board. Must not reuse the unranked-TIER copy,
+ * which promises a local best and ghost.
+ */
+export const RESULT_TIMING_COMPROMISED_COPY = 'Heavy stalls detected — this run was not recorded.';
 /** Offline copy: saved locally, will sync when back online + signed in. */
 export const RESULT_OFFLINE_COPY = 'Saved locally. Global leaderboard will sync when you are online and signed in.';
 /** Anonymous-guest copy: saved locally, sign in to sync future eligible scores. */
@@ -214,6 +224,7 @@ export const RESULT_LEADERBOARD_UNAVAILABLE_COPY = 'Score saved locally. Global 
  */
 export function resultSyncStatusCopy(state: ResultSyncState): string | null {
   if (state.practiceWorld) return RESULT_PRACTICE_WORLD_COPY;
+  if (state.timingCompromised) return RESULT_TIMING_COMPROMISED_COPY;
   if (!state.ranked) return RESULT_UNRANKED_COPY;
   if (!state.online) return RESULT_OFFLINE_COPY;
   if (state.anonymous) return RESULT_GUEST_COPY;

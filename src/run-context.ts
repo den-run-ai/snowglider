@@ -47,8 +47,16 @@ export type CosmeticStreamName = 'snowParticles' | 'avalanchePowder' | 'cameraEf
  *  v2 (#401): the terrain mesh now samples the analytic height field directly —
  *  the live surface players ride changed (the drifted mesh formula + its cache
  *  are gone) and the mesh's RNG draws left the hazards stream, so a ?seed=
- *  world and any stamped best/ghost from v1 are not comparable to v2 runs. */
-export const PHYSICS_VERSION = 2;
+ *  world and any stamped best/ghost from v1 are not comparable to v2 runs.
+ *
+ *  v3 (#402): one simulation clock. Avalanche gameplay (boulder physics AND
+ *  the burial/dodge/passed outcomes) resolves on the fixed 1/60 grid instead
+ *  of per render frame, and ranked time is accumulated simulation time rather
+ *  than wall clock — a stalled frame pays sim time, not wall time, and a
+ *  stall-heavy run is flagged timing-compromised instead of ranked. Same
+ *  world, different collision/timing outcomes than v2, so v2 records are not
+ *  comparable to v3 runs. */
+export const PHYSICS_VERSION = 3;
 
 /** Small, fast, well-distributed deterministic PRNG (same family the test
  *  fixtures use). Never global: each stream owns one instance. */

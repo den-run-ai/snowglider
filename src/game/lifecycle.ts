@@ -134,7 +134,11 @@ export function createLifecycle(deps: LifecycleDeps) {
     Diag.reset();
 
     state.startTime = performance.now(); // Reset the timer when starting a new run
-    updateTimerDisplay(state.gameActive, state.startTime);
+    // The HUD timer takes ELAPSED SIM SECONDS (#402), not a wall-clock origin —
+    // a new run's clock starts at 0 (startLoop's resetLoopState re-zeroes
+    // state.simElapsed right after; passing startTime here flashed the raw
+    // performance.now() milliseconds as "seconds" until the next frame).
+    updateTimerDisplay(state.gameActive, 0);
 
     // Reset course (gates/splits/ghost) and effects (avalanche UI, FOV, shake) for the new run
     if (CourseModule) CourseModule.reset();

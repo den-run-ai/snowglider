@@ -258,7 +258,19 @@ export class AvalancheSystem {
   }
 
   // Call every frame with delta time
+  // Advance boulders AND powder together. Kept as the harness/test entry point
+  // (winnability + the browser suites drive it at their own fixed dt); the LIVE
+  // loop instead calls the split halves so boulder PHYSICS advances on the fixed
+  // 1/60 substep grid while the powder cosmetics stay on the render frame (#402).
   update(dt: number): void {
+    this.updatePhysics(dt);
+    this.updateCosmetics(dt);
+  }
+
+  /** Boulder physics only (#402): gravity, terrain contact, slide acceleration,
+   *  and the instance matrices. Called per FIXED substep by the live loop, so
+   *  player/boulder RELATIVE motion no longer varies with the render rate. */
+  updatePhysics(dt: number): void {
     if (!this.active) return;
 
     const gravity = 18;
@@ -330,6 +342,13 @@ export class AvalancheSystem {
     }
 
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Powder-cloud cosmetics only (#402): render-only sprites on the render
+   *  delta (their 60 Hz-referenced emission accumulator makes the budget
+   *  per-second rate-independent — #400). Never gameplay. */
+  updateCosmetics(dt: number): void {
+    if (!this.active) return;
 
     // Billowing powder kicked up by the tumbling boulders.
     this._updatePowder(dt);

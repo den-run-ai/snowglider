@@ -88,6 +88,14 @@ export interface ResultOverlayState {
   gameActive: boolean;
   bestTime: number;
   startTime: number;
+  /** The loop's simulation clock (#402): accumulated fixed-step seconds this
+   *  run. Optional so legacy fixtures without it fall back to wall clock. */
+  simElapsed?: number;
+  /** Set by the loop when this run dropped enough stalled wall time that its sim
+   *  clock ran materially slower than real time (#403 review). A compromised run
+   *  still finishes and shows its time, but is never ranked (no PB, no
+   *  leaderboard, no ghost commit). Optional for legacy fixtures. */
+  timingCompromised?: boolean;
 }
 
 // Overlay DOM the result screen writes into. Owned by the coordinator for now.
@@ -129,7 +137,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // be canonical — a ?seed= practice world reads as unranked through the WHOLE
     // overlay (Codex review PR #407): no login prompt, no "saved" status copy,
     // no leaderboard render, and the practice result panel makes no PB promises.
-    const tierRanked = getDifficultyConfig(tier).ranked && !getRunStamp().practice;
+    // ... AND the run's timing must be intact: a stall-heavy run played in slow
+    // motion against its own ranked clock (free reaction time), so it records
+    // nothing competitive either (#403 review).
+    const tierRanked = getDifficultyConfig(tier).ranked && !getRunStamp().practice
+      && state.timingCompromised !== true;
     // Allow tests to intercept showGameOver calls
     if (window._testShowGameOverOverride) {
       window._testShowGameOverOverride(reason);
@@ -161,12 +173,16 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // screen can report the delta and whether this run set a new record.
     const previousBest = state.bestTime;
 
-    // Measure the finish elapsed ONCE and reuse it for both the best-time/score path
-    // and CourseModule.onFinish(). Otherwise a second performance.now() taken after the
-    // DOM/localStorage/score work could read later: a sub-millisecond personal best
-    // would be saved as a new record while the course screen sees elapsed >= previousBest,
-    // skips persisting the new ghost/splits, and shows a time that disagrees with the score.
-    const finishTime = (performance.now() - state.startTime) / 1000;
+    // The finish time IS the simulation clock (#402): the loop accumulates it in
+    // fixed steps and publishes it as state.simElapsed, so a stalled run records
+    // the time the simulation actually ran — wall clock can no longer inflate a
+    // ranked score (and it matches the splits/ghost, which read the same clock).
+    // Snapshotted ONCE and reused for the best-time/score path and
+    // CourseModule.onFinish() so every consumer sees the same value. Wall-clock
+    // fallback only for legacy callers whose state predates simElapsed.
+    const finishTime = typeof state.simElapsed === 'number'
+      ? state.simElapsed
+      : (performance.now() - state.startTime) / 1000;
     // Validate against the RUN's tier floor, not the global Blue floor — otherwise a
     // legitimately fast Black finish (below Blue's 18 s) would be treated as invalid and
     // lose its local best/ghost/result panel. Blue's floor == the global floor, unchanged.
@@ -207,7 +223,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // obstacle/avalanche field (seed-shopping), so only canonical-world runs
       // are ranked. The result panel still renders (CourseModule.onFinish).
       const practice = getRunStamp().practice;
-      const isNewBestTime = !practice && currentTime < state.bestTime;
+      const isNewBestTime = !practice && state.timingCompromised !== true
+        && currentTime < state.bestTime;
       const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
 
       // Record the score whenever the leaderboard API is available (it handles its own
@@ -228,11 +245,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         state.bestTime = currentTime;
         bestTimeDisplay.textContent = `New Best Time: ${state.bestTime.toFixed(2)}s`;
         bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
-      } else if (practice) {
+      } else if (practice || state.timingCompromised === true) {
         // A seeded practice world records nothing and its times are not comparable
         // with the canonical-world best — showing that best here would juxtapose two
         // different worlds (or print 'Best: Infinitys' for a new player). Render the
-        // practice time alone (Codex review PR #407).
+        // practice time alone (Codex review PR #407). A timing-compromised finish
+        // recorded nothing either, so it gets the same no-best-safe display
+        // (Codex review PR #409): its slow-motion time must not sit next to a
+        // real best — or next to 'Infinitys' for a new player.
         bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s`;
         bestTimeDisplay.style.color = 'white';
       } else {
@@ -257,6 +277,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         // A ?seed= practice WORLD saves nothing at all (no local best, no ghost),
         // which needs different copy than an unranked TIER (Codex review PR #407).
         practiceWorld: getRunStamp().practice,
+        // A timing-compromised run recorded nothing either — its copy must not
+        // claim a local best/ghost exist (Codex review PR #409).
+        timingCompromised: state.timingCompromised === true,
       });
       if (syncCopy && !document.getElementById('syncStatus')) {
         const syncStatus = document.createElement('p');
@@ -374,7 +397,10 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
 
       if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
         try {
-          const panel = CourseModule.onFinish(finishTime, previousBest);
+          // A timing-compromised run may not commit ghost/splits either — its
+          // slow-motion trajectory is as non-comparable as its time (#403 review).
+          const panel = CourseModule.onFinish(finishTime, previousBest,
+            state.timingCompromised !== true);
           if (panel) gameOverOverlay.insertBefore(panel, restartButton);
         } catch (e) {
           console.warn("Result screen failed:", (e as Error).message);
