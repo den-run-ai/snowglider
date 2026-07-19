@@ -155,6 +155,11 @@ async function main() {
     const syncLine = document.getElementById('syncStatus');
     check('compromised finish status copy says the run was not recorded',
       !!syncLine && /not recorded/i.test(syncLine.textContent));
+    // The best-time line renders the compromised time ALONE (Codex review PR
+    // #409): no 'Best: Infinitys' for a new player, no comparison against a
+    // best this run was barred from touching.
+    check('compromised finish shows only the run time (no Best comparison)',
+      /^Your Time: \d+\.\d{2}s$/.test(deps.bestTimeDisplay.textContent));
   }
 
   // --- Unranked tier (D3): finish records NO Firestore score, keeps the per-tier local best ---

@@ -494,8 +494,9 @@ window.initializeGameWithAudio = function() {
       toggleBtn.textContent = '▲';
     }
     
-    // Update initial values
-    updateTimerDisplay(state.gameActive, state.startTime);
+    // Update initial values — the HUD timer takes elapsed SIM seconds (#402),
+    // and at initialization the run clock is 0.
+    updateTimerDisplay(state.gameActive, state.simElapsed ?? 0);
   }
   
   // Initialize Controls

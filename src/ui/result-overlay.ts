@@ -245,11 +245,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         state.bestTime = currentTime;
         bestTimeDisplay.textContent = `New Best Time: ${state.bestTime.toFixed(2)}s`;
         bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
-      } else if (practice) {
+      } else if (practice || state.timingCompromised === true) {
         // A seeded practice world records nothing and its times are not comparable
         // with the canonical-world best — showing that best here would juxtapose two
         // different worlds (or print 'Best: Infinitys' for a new player). Render the
-        // practice time alone (Codex review PR #407).
+        // practice time alone (Codex review PR #407). A timing-compromised finish
+        // recorded nothing either, so it gets the same no-best-safe display
+        // (Codex review PR #409): its slow-motion time must not sit next to a
+        // real best — or next to 'Infinitys' for a new player.
         bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s`;
         bestTimeDisplay.style.color = 'white';
       } else {
