@@ -324,9 +324,13 @@ jobs:
   #
   # Requires a repo secret `FIREBASE_SERVICE_ACCOUNT` = the JSON of a service account
   # with the "Firebase Rules Admin" role (least privilege — do NOT reuse the broad
-  # firebase-adminsdk data key). Until that secret is set the step self-skips (exit 0),
-  # so this never breaks CI on forks or before the secret is configured — and the
-  # Pages deploy proceeds, matching the pre-gating behavior for secretless repos.
+  # firebase-adminsdk data key). A missing secret is handled per repo (Codex review
+  # PR #410 round 2): on the CANONICAL repo it HARD-FAILS the job — build-pages needs
+  # this job, so the versioned client cannot ship while the rules that accept it were
+  # never deployed (a silent skip here would be exactly the outage the ordering fix
+  # exists to prevent). On forks it warns and exits 0, so fork CI and secretless
+  # experiments keep building Pages exactly as before (their deploys don't guard a
+  # production Firestore anyway).
   deploy-rules:
     name: Deploy Firestore rules
     runs-on: ubuntu-latest
@@ -351,7 +355,11 @@ jobs:
           FIREBASE_PROJECT: sn0wglider
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            echo "::warning::FIREBASE_SERVICE_ACCOUNT secret not set — skipping Firestore rules deploy."
+            if [ "$GITHUB_REPOSITORY" = "den-run-ai/snowglider" ]; then
+              echo "::error::FIREBASE_SERVICE_ACCOUNT secret not set — refusing to deploy the client without its rules (set the secret, or deploy firestore.rules manually, then re-run)."
+              exit 1
+            fi
+            echo "::warning::FIREBASE_SERVICE_ACCOUNT secret not set — skipping Firestore rules deploy (fork/secretless repo)."
             exit 0
           fi
           # Deploy via the Rules REST API (pure Node, no firebase-tools): firebase-tools'
