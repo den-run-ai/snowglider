@@ -495,13 +495,45 @@ export function localGhostKey(tier: Difficulty): string {
   return `${LOCAL_GHOST_BASE}_${tier}`;
 }
 
-/** Firestore leaderboard collection name for a tier. */
+/** Firestore leaderboard collection name for a tier, namespaced by the physics/
+ *  world version — the REMOTE half of the localBestTimeKey scheme (#403 review
+ *  tail): a PHYSICS_VERSION bump changes the surface or the seeded obstacle
+ *  field, so remote times across versions are not comparable either. Without
+ *  this, a returning player's faster pre-bump REMOTE record would shadow their
+ *  current-version result forever through the `Math.min`/monotonic guards in
+ *  scores.ts and firestore.rules. Each version reads and writes its own board;
+ *  the pre-versioning collections stay behind (historical, still readable —
+ *  legacyLeaderboardCollectionName). firestore.rules must name the ACTIVE
+ *  collections literally (rules cannot import JS), so the two are kept in
+ *  lockstep by tests/remote-version-sync-tests.js — bumping PHYSICS_VERSION
+ *  without extending the rules fails the suite, and until the new rules deploy
+ *  the client's writes fail CLOSED (rejected server-side, kept locally, resynced
+ *  by the sign-in backfill once the rules are live). */
 export function leaderboardCollectionName(tier: Difficulty): string {
+  const base = `leaderboard_v${PHYSICS_VERSION}`;
+  return tier === 'blue' ? base : `${base}_${tier}`;
+}
+
+/** The pre-versioning leaderboard collection for a tier: retained, read-only
+ *  historical boards (an all-time display can surface them later — #247). */
+export function legacyLeaderboardCollectionName(tier: Difficulty): string {
   return tier === 'blue' ? 'leaderboard' : `leaderboard_${tier}`;
 }
 
-/** Field on `users/{uid}` holding a tier's best time. */
+/** Field on `users/{uid}` holding a tier's best time — version-namespaced like
+ *  the leaderboard collection above and for the same reason: the stored-best
+ *  read in updateUserBestTime (scores.ts) computes `Math.min(storedBest, time)`
+ *  and the rules only accept monotonic improvements per field, so an
+ *  unversioned field would let a pre-bump best shadow every current-version
+ *  run. Kept in lockstep with firestore.rules by
+ *  tests/remote-version-sync-tests.js. */
 export function userBestTimeField(tier: Difficulty): string {
+  return `${legacyUserBestTimeField(tier)}V${PHYSICS_VERSION}`;
+}
+
+/** The pre-versioning `users/{uid}` best-time field for a tier: retained as the
+ *  player's historical record (never compared against current-version runs). */
+export function legacyUserBestTimeField(tier: Difficulty): string {
   if (tier === 'bunny') return 'bestTimeBunny';
   if (tier === 'black') return 'bestTimeBlack';
   if (tier === 'expert') return 'bestTimeExpert';

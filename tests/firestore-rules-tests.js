@@ -385,6 +385,72 @@ async function main() {
     });
   }
 
+  console.log('\n--- Firestore rules: version-namespaced fields + boards (#403 review tail) ---');
+  // The ACTIVE schema is version-suffixed (userBestTimeField/leaderboardCollectionName
+  // in src/difficulty.ts). This file cannot import the TS seams (no loader under
+  // emulators:exec), so the literals here are kept in lockstep with the client by
+  // tests/remote-version-sync-tests.js in the main suite.
+  await runTest('versioned user best fields validate like bestTime (plausible + no downgrade)', async () => {
+    const alice = dbFor('alice');
+    await assertFails(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeV3: 17.99, updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeV3: 20, bestTimeBunnyV3: 20, bestTimeBlackV3: 18, bestTimeExpertV3: 21,
+        updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeV3: 25, updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeV3: 19, updatedAt: serverTimestamp() }, { merge: true }));
+  });
+
+  await runTest('a faster legacy best does NOT block the versioned field (the shadowing fix)', async () => {
+    const alice = dbFor('alice');
+    await seed(async admin => {
+      // A pre-versioning record faster than anything the player will run now.
+      await setDoc(doc(admin, 'users', 'alice'), { ...profile(), bestTime: 18.01 });
+    });
+    // The first v3 run is SLOWER than the legacy best — and must still be accepted:
+    // the versioned field starts its own monotonic chain, the legacy field is history.
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeV3: 30, updatedAt: serverTimestamp() }, { merge: true }));
+    // ...and stays monotonic within its own version thereafter.
+    await assertFails(setDoc(doc(alice, 'users', 'alice'),
+      { bestTimeV3: 31, updatedAt: serverTimestamp() }, { merge: true }));
+  });
+
+  await runTest('leaderboard_v3 (the active Blue board) validates like the classic board', async () => {
+    const alice = dbFor('alice');
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
+    await assertSucceeds(setDoc(
+      doc(alice, 'leaderboard_v3', 'alice'),
+      leaderboardEntry(alice, 'alice', 25.43)
+    ));
+    // Downgrade rejected, improvement accepted — same monotonic guard as the classic board.
+    await assertFails(setDoc(
+      doc(alice, 'leaderboard_v3', 'alice'),
+      leaderboardEntry(alice, 'alice', 30)
+    ));
+    await assertSucceeds(setDoc(
+      doc(alice, 'leaderboard_v3', 'alice'),
+      leaderboardEntry(alice, 'alice', 20)
+    ));
+    // Sub-floor forgeries rejected on the versioned board too.
+    await assertFails(setDoc(
+      doc(alice, 'leaderboard_v3', 'alice'),
+      leaderboardEntry(alice, 'alice', 17.99)
+    ));
+  });
+
+  for (const coll of ['leaderboard_v3_bunny', 'leaderboard_v3_black', 'leaderboard_v3_expert']) {
+    await runTest(`${coll} (unranked, versioned): writes denied, signed-in reads allowed`, async () => {
+      const alice = dbFor('alice');
+      await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
+      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 20)));
+      await assertSucceeds(getDocs(query(
+        collection(alice, coll), where('time', '>=', 18), orderBy('time', 'asc'), limit(10))));
+    });
+  }
+
   console.log(`\nFIRESTORE RULES TEST TOTAL: ${pass} passed, ${fail} failed`);
   await testEnv.cleanup();
   process.exit(fail ? 1 : 0);
