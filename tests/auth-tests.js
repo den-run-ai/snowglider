@@ -78,9 +78,16 @@ function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: $
 const flush = () => new Promise(r => setTimeout(r, 0)); // let queued promise callbacks run
 
 // Versioned competitive best-time key builders (#403 review), bound in main().
-let BTK, BTMK;
+// LB/LB_BUNNY and F_BUNNY are the ACTIVE (version-namespaced) remote board
+// collections / users-doc field the sync paths write, resolved from the seams so
+// a PHYSICS_VERSION bump keeps these assertions on the live schema.
+let BTK, BTMK, LB, LB_BUNNY, F_BUNNY;
 async function main() {
-  ({ localBestTimeKey: BTK, localBestMetaKey: BTMK } = await import('../src/difficulty.ts'));
+  const Difficulty = await import('../src/difficulty.ts');
+  ({ localBestTimeKey: BTK, localBestMetaKey: BTMK } = Difficulty);
+  LB = Difficulty.leaderboardCollectionName('blue');
+  LB_BUNNY = Difficulty.leaderboardCollectionName('bunny');
+  F_BUNNY = Difficulty.userBestTimeField('bunny');
 
   console.log('--- AuthModule load & init ---');
   const { AuthModule, fb } = await loadAuthModule();
@@ -330,8 +337,8 @@ async function main() {
   AuthModule.recordScore(22.34); // guest finishes a run (valid time; only the guest guard should block it)
   await flush();
   check('anonymous guest: recordScore writes NO leaderboard entry for the guest',
-    fb.read('leaderboard', 'guest1') === undefined &&
-    !calls.setDoc.some(c => c.path === 'leaderboard/guest1'));
+    fb.read(LB, 'guest1') === undefined &&
+    !calls.setDoc.some(c => c.path === `${LB}/guest1`));
   localStorage.clear(); // isolate from the backstop test below
   fb.emitAuthState(null);
 
@@ -398,9 +405,9 @@ async function main() {
   check('syncUserData writes the user profile doc on sign-in',
     !!fb.read('users', 'sync1') && fb.read('users', 'sync1').displayName === 'Sync');
   check('syncUserData backfills a valid local best to the leaderboard',
-    !!fb.read('leaderboard', 'sync1') && fb.read('leaderboard', 'sync1').time === 19.5);
+    !!fb.read(LB, 'sync1') && fb.read(LB, 'sync1').time === 19.5);
   check('syncUserData does NOT backfill an unranked tier best to the global board',
-    !fb.read('leaderboard_bunny', 'sync1') && !fb.read('users', 'sync1').bestTimeBunny);
+    !fb.read(LB_BUNNY, 'sync1') && !fb.read('users', 'sync1')[F_BUNNY]);
 
   // PROVENANCE GATE (Codex review PR #407): an UNSTAMPED (legacy/other-world) local
   // best is kept local — neither backfilled to the board nor queued for retry.
@@ -413,7 +420,7 @@ async function main() {
   {
     const storeEarly = await import('../src/offline/offline-store.ts');
     check('an unstamped legacy local best is NOT backfilled on sign-in (kept local)',
-      !fb.read('leaderboard', 'unstamped1') &&
+      !fb.read(LB, 'unstamped1') &&
       !storeEarly.getPendingSync('unstamped1', 'blue', localStorage));
     check('the unstamped legacy best itself is preserved locally',
       localStorage.getItem(BTK('blue')) === '19.2');
@@ -455,7 +462,7 @@ async function main() {
   await new Promise(r => setTimeout(r, 250)); // past the 100ms syncUserData timer
   await flush(); await flush(); await flush();
   check('a failed sign-in write never drops the local best — synced OR queued (Codex #362)',
-    fb.read('leaderboard', 'syncfail1')?.time === 20.5 ||
+    fb.read(LB, 'syncfail1')?.time === 20.5 ||
     store.getPendingSync('syncfail1', 'blue', localStorage)?.time === 20.5);
 
   // (C) A real user signing in while Firestore is NULL must STILL queue local bests —

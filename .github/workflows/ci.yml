@@ -218,7 +218,12 @@ jobs:
     runs-on: ubuntu-latest
     # Gate the Pages build/deploy on BOTH the Node/browser suite AND the production-build
     # PWA offline acceptance, so a broken service worker can never publish (Codex #363).
-    needs: [test, pwa]
+    # ALSO gated on deploy-rules (Codex review PR #410): the client schema may only go
+    # live once the rules that accept it are already deployed — see deploy-rules below
+    # for the ordering invariant. A failed rules deploy therefore blocks the client
+    # deploy (the old client keeps serving under the new, backward-compatible rules)
+    # instead of publishing a client whose reads/writes the live rules deny.
+    needs: [test, pwa, deploy-rules]
     # Only build/deploy Pages from main. Besides the PR exclusion, require the ref to be
     # main so a manual workflow_dispatch on a feature branch can't attempt a production
     # Pages build+deploy (it would fail at the github-pages environment gate). Mirrors the
@@ -297,25 +302,39 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v5
 
-  # Push the repo's firestore.rules to the live Firebase project. Chained AFTER the
-  # Pages deploy (`needs: deploy-pages`), which itself needs `test` (the Firestore-rules
-  # emulator suite AND the score-limits <-> rules drift test). Ordering matters: a merge
-  # can change BOTH the client score-writing code and firestore.rules, so publishing the
-  # new rules BEFORE the new client is live would leave the old live client running
-  # against the new rules and break leaderboard writes until the next deploy. Gating on
-  # deploy-pages means rules only go out once the matching client is already serving.
-  # Only on main — so PRs never touch prod. Closes the gap where firestore.rules evolved
-  # in-repo but was never deployed (prod sat on a stale ruleset for months because
-  # deployment was purely manual).
+  # Push the repo's firestore.rules to the live Firebase project. Runs BEFORE the
+  # Pages build/deploy (build-pages `needs` this job — Codex review PR #410): a merge
+  # can change BOTH the client score-writing code and firestore.rules, and the two
+  # orderings fail differently:
+  #   - rules first is safe iff the new rules still accept everything the OLD live
+  #     client writes (backward-compatible rules);
+  #   - pages first is safe iff the OLD rules accept everything the NEW client
+  #     writes — which the version-namespaced schema (leaderboard_v<N>/bestTimeV<N>,
+  #     src/difficulty.ts) structurally violates on every PHYSICS_VERSION bump: the
+  #     new client would read/write collections the live rules deny until this job
+  #     completed (a guaranteed leaderboard outage, unbounded if it failed).
+  # So the ORDERING INVARIANT is rules-first + backward-compatible rules: every
+  # rules change must keep accepting the currently-serving client's schema (the
+  # legacy fields/collections keep their cases in tests/firestore-rules-tests.js —
+  # `test` runs that emulator suite AND the score-limits/remote-version drift gates,
+  # and this job needs `test` transitively via build-pages' shared gates below).
+  # Only on main — so PRs never touch prod. Closes the gap where firestore.rules
+  # evolved in-repo but was never deployed (prod sat on a stale ruleset for months
+  # because deployment was purely manual).
   #
   # Requires a repo secret `FIREBASE_SERVICE_ACCOUNT` = the JSON of a service account
   # with the "Firebase Rules Admin" role (least privilege — do NOT reuse the broad
-  # firebase-adminsdk data key). Until that secret is set the step self-skips, so this
-  # never breaks CI on forks or before the secret is configured.
+  # firebase-adminsdk data key). A missing secret is handled per repo (Codex review
+  # PR #410 round 2): on the CANONICAL repo it HARD-FAILS the job — build-pages needs
+  # this job, so the versioned client cannot ship while the rules that accept it were
+  # never deployed (a silent skip here would be exactly the outage the ordering fix
+  # exists to prevent). On forks it warns and exits 0, so fork CI and secretless
+  # experiments keep building Pages exactly as before (their deploys don't guard a
+  # production Firestore anyway).
   deploy-rules:
     name: Deploy Firestore rules
     runs-on: ubuntu-latest
-    needs: deploy-pages
+    needs: [test, pwa]
     if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     permissions:
       contents: read  # only reads the repo; auth to Firebase is via the SA secret
@@ -336,7 +355,11 @@ jobs:
           FIREBASE_PROJECT: sn0wglider
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            echo "::warning::FIREBASE_SERVICE_ACCOUNT secret not set — skipping Firestore rules deploy."
+            if [ "$GITHUB_REPOSITORY" = "den-run-ai/snowglider" ]; then
+              echo "::error::FIREBASE_SERVICE_ACCOUNT secret not set — refusing to deploy the client without its rules (set the secret, or deploy firestore.rules manually, then re-run)."
+              exit 1
+            fi
+            echo "::warning::FIREBASE_SERVICE_ACCOUNT secret not set — skipping Firestore rules deploy (fork/secretless repo)."
             exit 0
           fi
           # Deploy via the Rules REST API (pure Node, no firebase-tools): firebase-tools'
