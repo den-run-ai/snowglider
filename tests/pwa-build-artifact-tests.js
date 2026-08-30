@@ -39,7 +39,10 @@ for (const m of sw.matchAll(/"url":"([^"]*)"/g)) {
 check('precache manifest has entries', urls.length > 0);
 
 // Forbidden: copied source/tests/node_modules, the auth page, media, maps, ez-tree.
-const FORBIDDEN = ['/src/', 'src/', '/tests/', 'tests/', 'node_modules/', 'auth.html', '.mp3', '.map', 'ez-tree'];
+const FORBIDDEN = [
+  '/src/', 'src/', '/tests/', 'tests/', 'node_modules/', 'auth.html', '.mp3',
+  '.map', 'ez-tree', 'README', 'LICENSE', 'THIRD_PARTY_NOTICES',
+];
 const offenders = urls.filter((u) => FORBIDDEN.some((f) => u.includes(f)));
 check(`precache excludes all forbidden paths (offenders: ${JSON.stringify(offenders)})`, offenders.length === 0);
 

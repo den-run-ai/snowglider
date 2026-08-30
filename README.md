@@ -25,7 +25,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - Snow particle effects that respond to speed and turning
 - Cinematic intro fly-over of the mountain at game start (skippable)
 - Tracking camera that follows the snowman's movements
-- Background music (simplified native HTML5 audio; see the audio history in [`CHANGELOG.md`](docs/CHANGELOG.md))
+- Background music: “Bad Cat [Master Version]” by Skullbeatz (see [third-party notices](THIRD_PARTY_NOTICES.md) and the audio history in [`CHANGELOG.md`](docs/CHANGELOG.md))
 - Timer with best time tracking
 - In-game feedback form — send a feature request or bug report straight from the start screen; it opens a prefilled GitHub issue (you submit under your own account) and logs an anonymous Firebase Analytics event
 - Comprehensive test suite for verifying game mechanics
@@ -52,7 +52,8 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
   snowman + physics, camera, controls, audio, auth, scores, UI). See
   [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full, maintained module map.
 - `src/boot/` - Classic-script auth fallback + Firebase bootstrap + startup driver
-- `assets/` - Media (audio, video) tracked with Git LFS
+- `assets/` - Media assets. The existing background track is a regular Git blob;
+  the repository does not currently use Git LFS.
 - `tests/`, `tests/verification/` - Node/browser/e2e suites and headless harnesses
 - `docs/` - `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md`, `TROUBLESHOOTING.md` (see [Documentation](#documentation))
 
@@ -169,10 +170,18 @@ Firestore Security Rules are tracked in `firestore.rules`. Run
 1. Push your changes to GitHub repository
 2. Enable GitHub Pages in repository settings
 3. Make sure to add your GitHub Pages domain to the authorized domains in Firebase Authentication settings
-4. The CI workflow runs tests, builds the Vite static artifact with `npm run build`, and deploys `dist/` to GitHub Pages after the test job succeeds
+4. The CI workflow runs the Node/browser, PWA, and cross-browser Playwright gates,
+   builds the Vite static artifact with `npm run build`, and deploys `dist/` to
+   GitHub Pages only after every production gate succeeds
 5. Your game will be accessible at `https://[your-username].github.io/[repo-name]/`
 
 ## Troubleshooting
 Diagnostics, debug overlays (e.g. `?debug=auth`), and logging guidance for
 Firebase connection issues, mobile authentication, CORS, and GitHub Pages
 deployment now live in [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+
+## License and credits
+
+SnowGlider's source code and original assets are available under the [MIT
+License](LICENSE). Bundled third-party material is excluded from that grant; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and its license.

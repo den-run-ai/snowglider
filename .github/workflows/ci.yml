@@ -28,8 +28,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-        with:
-          lfs: true  # Needed for audio files tracked with Git LFS
       
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -110,8 +108,8 @@ jobs:
     runs-on: ubuntu-latest
     # Additive cross-browser/Safari + mobile-touch layer alongside the Puppeteer
     # suite (which still owns the in-page suites + the primary coverage pipeline).
-    # Runs independently of `test`; it does NOT gate the Pages deploy (build-pages
-    # only needs `test`). E2E_COVERAGE makes the chromium project also emit V8
+    # Runs independently of `test`, but `deploy-pages` waits for this job as a
+    # status-only dependency. E2E_COVERAGE makes the chromium project also emit V8
     # coverage (coverage/e2e/lcov.info), uploaded to Codecov under the `e2e` flag so
     # it is combined server-side without threading a file across jobs (issue #133).
     #
@@ -126,9 +124,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-        # No lfs: the specs boot the game but never assert on the LFS-tracked audio
-        # asset (it loads on Start; a missing file is a media error, not a page
-        # error), so we skip LFS and the git-lfs-in-container requirement.
+        # No LFS checkout is needed: the existing MP3 is a regular Git blob.
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -225,8 +221,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-        with:
-          lfs: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -253,6 +247,7 @@ jobs:
           test -f dist/CNAME
           test -f dist/LICENSE
           test -f dist/README.md
+          test -f dist/THIRD_PARTY_NOTICES.md
           test ! -d dist/tests/verification
           # PWA install assets (issue #358, PR 2) must ship so the game is installable.
           test -f dist/manifest.webmanifest
@@ -280,7 +275,10 @@ jobs:
   deploy-pages:
     name: Deploy GitHub Pages
     runs-on: ubuntu-latest
-    needs: build-pages
+    # build-pages supplies the artifact; e2e is a status-only production gate.
+    # Keep this dependency here (rather than on build-pages) so the build can run in
+    # parallel while a failed/cancelled cross-browser run still blocks publication.
+    needs: [build-pages, e2e]
     if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     permissions:
       pages: write

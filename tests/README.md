@@ -352,7 +352,7 @@ orchestrator re-publishes (see [`ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §3)
 First run needs the browsers: `npx playwright install chromium webkit`.
 
 `npm run test:e2e` is intentionally **not** part of `npm test`; CI runs it as its
-own `e2e` job that does not gate the Pages deploy.
+own `e2e` job, and the Pages deployment waits for that job to pass.
 
 ## Test Implementation Details
 

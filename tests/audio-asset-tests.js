@@ -21,6 +21,15 @@ function check(name, condition) {
 }
 
 const repoRoot = path.resolve(__dirname, '..');
+const noticesPath = path.join(repoRoot, 'THIRD_PARTY_NOTICES.md');
+const notices = fs.existsSync(noticesPath) ? fs.readFileSync(noticesPath, 'utf8') : '';
+check('third-party notices file exists', notices.length > 0);
+const appShell = fs.readFileSync(path.join(repoRoot, 'index.html'), 'utf8');
+check('offline app shell carries the music attribution and license links',
+  appShell.includes('Bad Cat [Master Version]') &&
+    appShell.includes('Skullbeatz') &&
+    appShell.includes('newgrounds.com/audio/listen/376737') &&
+    appShell.includes('creativecommons.org/licenses/by-sa/3.0'));
 
 // AUDIO_PATH is the single source of truth in src/audio.ts; parse it straight from
 // source so this test breaks the moment the wired path and the shipped asset diverge.
@@ -32,6 +41,13 @@ if (match) {
   const audioPath = match[1];
   console.log(`  AUDIO_PATH = ${audioPath}`);
   const abs = path.join(repoRoot, audioPath);
+
+  check('third-party notices identify the shipped audio path', notices.includes(audioPath));
+  check('third-party notices credit the track and artist',
+    notices.includes('Bad Cat [Master Version]') && notices.includes('Skullbeatz'));
+  check('third-party notices link the source and Creative Commons license',
+    notices.includes('newgrounds.com/audio/listen/376737') &&
+      notices.includes('creativecommons.org/licenses/by-sa/3.0'));
 
   const exists = fs.existsSync(abs);
   check(`referenced asset exists on disk (${audioPath})`, exists);
