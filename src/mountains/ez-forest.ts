@@ -28,6 +28,7 @@
 //     observes because the flag is off headless. Tree shape itself uses ez-tree's
 //     own seeded RNG, so archetypes are deterministic per seed.
 import * as THREE from 'three';
+import { isTestModeSearch } from '../test-mode.js';
 
 /** One generated evergreen archetype, ready for InstancedMesh rendering. */
 export interface EzArchetype {
@@ -94,7 +95,7 @@ export function isEzForestEnabled(): boolean {
   // the first addTrees of a page load runs during setupScene, and this gate must
   // not depend on being called after that assignment.
   const automated = !!window.isTestMode || !!nav.webdriver ||
-    window.location.search.includes('test');
+    isTestModeSearch(window.location.search);
   return resolveEzForestEnabled(window.location.search, automated, ezForestOverride);
 }
 

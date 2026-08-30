@@ -81,6 +81,29 @@ async function main() {
     }
   }
 
+  // --- Browser URL gate: only the exact `test` query key means automation -------
+  {
+    const g = /** @type {any} */ (globalThis);
+    const hadWindow = 'window' in g, savedWindow = g.window;
+    const hadDocument = 'document' in g, savedDocument = g.document;
+    try {
+      g.document = {};
+      g.window = {
+        isTestMode: false,
+        location: { search: '?utm_campaign=beta-test' },
+        navigator: { userAgent: 'Mozilla/5.0 SnowGlider regression browser', webdriver: false },
+      };
+      assert(Trees.isEzForestEnabled() === true,
+        'campaign URL containing test keeps the real-player EZ forest');
+      g.window.location.search = '?test=unified';
+      assert(Trees.isEzForestEnabled() === false,
+        'exact test query keeps the automation forest fallback');
+    } finally {
+      if (hadWindow) g.window = savedWindow; else delete g.window;
+      if (hadDocument) g.document = savedDocument; else delete g.document;
+    }
+  }
+
   // --- Default path untouched when the flag is off ------------------------------
   {
     const scene = new THREE.Scene();

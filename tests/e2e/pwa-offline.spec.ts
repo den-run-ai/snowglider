@@ -86,6 +86,21 @@ test.describe('PWA offline mode', () => {
     expect(registrations, 'SW must not register on a ?test= route').toBe(0);
   });
 
+  test('ordinary query values containing test stay in player mode', async ({ page }) => {
+    await page.goto('/?utm_campaign=beta-test', { waitUntil: 'load' });
+    await page.waitForFunction(
+      () => (window as Window & { isTestMode?: boolean }).isTestMode === false,
+      undefined,
+      { timeout: 30_000 },
+    );
+    await expect(page.locator('#startGameButton')).toBeVisible();
+    await waitForServiceWorkerActive(page);
+    const registrations = await page.evaluate(() =>
+      navigator.serviceWorker.getRegistrations().then((r) => r.length),
+    );
+    expect(registrations, 'ordinary player query must still register the SW').toBe(1);
+  });
+
   test('an already-installed worker still bypasses ?test= (never serves it the cached shell)', async ({ page }) => {
     // The production hazard the fresh-context test above can't see (Codex #363): an origin
     // that ALREADY has SnowGlider's SW installed from a normal '/' visit, then loads a

@@ -13,6 +13,8 @@
 // no-op — every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 
+import { isTestModeSearch } from './test-mode.js';
+
 /** A rectangular on-screen touch zone (CSS pixels). */
 export interface TouchRegion {
   x: number;
@@ -468,7 +470,7 @@ function setupTouchControls(signal?: AbortSignal) {
   const handleTouchStart = (event: TouchEvent) => {
     if (isNonGameplayTouch(event)) return; // let UI controls + scrollable guides own their touch
     // Skip preventDefault during tests to avoid interfering with test automation
-    if (!window.location.search.includes('test=')) {
+    if (!isTestModeSearch(window.location.search)) {
       event.preventDefault();
     }
 
@@ -492,7 +494,7 @@ function setupTouchControls(signal?: AbortSignal) {
   const handleTouchMove = (event: TouchEvent) => {
     if (isNonGameplayTouch(event)) return; // let UI controls + scrollable guides own their touch
     // Skip preventDefault during tests to avoid interfering with test automation
-    if (!window.location.search.includes('test=')) {
+    if (!isTestModeSearch(window.location.search)) {
       event.preventDefault();
     }
 
@@ -515,7 +517,7 @@ function setupTouchControls(signal?: AbortSignal) {
   const handleTouchEnd = (event: TouchEvent) => {
     if (isNonGameplayTouch(event)) return; // matches the start/move early-out above
     // Skip preventDefault during tests to avoid interfering with test automation
-    if (!window.location.search.includes('test=')) {
+    if (!isTestModeSearch(window.location.search)) {
       event.preventDefault();
     }
 

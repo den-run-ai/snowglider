@@ -1,5 +1,6 @@
 // Snowman collision and finish-state checks.
 import type { PlayerPos, RockPos, ShowGameOverFn, TreePos } from './index.js';
+import { getTestModeValues } from '../test-mode.js';
 
 // Finish line: the run ends when the player crosses this z (skiing in -Z). This is the
 // SINGLE SOURCE OF TRUTH for the finish trigger — the live run ends here, and course.ts
@@ -44,6 +45,10 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     onObstaclesCleared
   } = state;
 
+  const testModes = getTestModeValues(window.location.search);
+  const isTestMode = testModes.length > 0;
+  const isVerboseTestMode = testModes.includes('true');
+
   // Airborne clears observed this frame (JP-2). Collected inside the collision
   // walks below — a clear is exactly "overlap true AND suppression branch fired".
   const clears: ObstacleClear[] = [];
@@ -56,7 +61,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   const treeCollisionRadius = window.treeCollisionRadius || 2.5; // Collision distance for trees
 
   // In test mode, output complete tree positions for debugging
-  if (window.location.search.includes('test=true') && treePositions.length > 0) {
+  if (isVerboseTestMode && treePositions.length > 0) {
     console.log(`TREES LOADED: ${treePositions.length} trees found`);
     console.log(`SNOWMAN POS: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`);
     console.log(`FIRST TREE: x=${treePositions[0]!.x.toFixed(2)}, y=${treePositions[0]!.y.toFixed(2)}, z=${treePositions[0]!.z.toFixed(2)}`);
@@ -67,7 +72,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   const totalTreesCount = treePositions.length;
 
   // Log tree information when in test mode
-  if (window.location.search.includes('test=true') && !window._treeCheckLogged) {
+  if (isVerboseTestMode && !window._treeCheckLogged) {
     console.log(`TREE COLLISION INFO: ${totalTreesCount} total trees, ${extendedTreesCount} in extended area (z < -80)`);
 
     // Log the ranges to verify coverage
@@ -86,7 +91,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     // Special case for tests - direct position match or very close positions always collide
     // Use a small epsilon for floating point comparison, increased for test reliability
     // This helps with floating-point precision issues in tests
-    const epsilon = window.location.search.includes('test') ? 0.1 : 0.001;
+    const epsilon = isTestMode ? 0.1 : 0.001;
 
     const exactMatch =
       Math.abs(pos.x - treePos.x) < epsilon &&
@@ -123,7 +128,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
         clears.push({ type: 'tree', key: `t${treeIndex}` });
         return false;
       }
-      if (window.location.search.includes('test=true')) {
+      if (isVerboseTestMode) {
         console.log(`DIRECT TREE HIT at (${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`);
       }
       return true;
@@ -137,7 +142,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     }
 
     // Debug collision in browser tests when needed
-    if (window.location.search.includes('test=true')) {
+    if (isVerboseTestMode) {
       // For extended terrain trees, log additional info
       const inExtendedArea = treePos.z < -80;
       console.log(`TREE CHECK: dist=${horizontalDistance.toFixed(2)}, radius=${treeCollisionRadius}, jumping=${isJumpingHighAboveTrees}, collision=${isCloseEnough && !isJumpingHighAboveTrees}, extended=${inExtendedArea}`);
@@ -146,12 +151,6 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
       if (horizontalDistance < 5) {
         console.log(`CLOSE TREE: x=${treePos.x.toFixed(2)}, y=${treePos.y.toFixed(2)}, z=${treePos.z.toFixed(2)}, snowman: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`);
       }
-    }
-
-    // Special handling for tests in browser-tests.js
-    if (window.location.search.includes('test') && horizontalDistance < 0.5) {
-      console.log(`TEST MODE: Forcing collision with very close tree (${horizontalDistance.toFixed(2)})`);
-      return true;
     }
 
     // Special handling for tree jumping test
@@ -187,7 +186,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     // the jump apex. (Requiring upward motion made descending-but-high jumps crash.)
     const isJumpingOverRock = isInAir && pos.y > exposedRockTop + 0.5;
 
-    if (window.location.search.includes('test=true') && horizontalDistance < 5) {
+    if (isVerboseTestMode && horizontalDistance < 5) {
       console.log(`ROCK CHECK: dist=${horizontalDistance.toFixed(2)}, radius=${rockRadius.toFixed(2)}, jumping=${isJumpingOverRock}, collision=${horizontalDistance < rockRadius && !isJumpingOverRock}`);
     }
 
@@ -208,8 +207,9 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
   // Allow wider boundaries to match the extended mountain terrain
   // Only skip boundary check during regression/tree tests, but NOT during browser tests or unified tests
-  const inExtendedMountainTest = window.location.search.includes('test=regression') ||
-                                window.location.search.includes('test=tree'); // Only skip for specific tests
+  const inExtendedMountainTest = testModes.some((mode) =>
+    mode === 'regression' || mode === 'tree' || mode === 'trees'
+  ); // Only skip for specific tests
   if (pos.z < FINISH_Z || // finish line (single source of truth; course.ts derives from this)
       (!inExtendedMountainTest && Math.abs(pos.x) > 120) || // Keep boundary check during browser/unified tests
       (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||

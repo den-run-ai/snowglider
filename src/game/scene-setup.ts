@@ -7,6 +7,7 @@
 // (DOM appends, scene.add, the eager window.* data globals) are unchanged.
 
 import * as THREE from 'three';
+import { isTestModeSearch } from '../test-mode.js';
 import { Camera } from '../camera.js';
 import { Snow } from '../snow.js';
 import { Snowman, SKI_TOP_SHEET } from '../snowman.js';
@@ -108,7 +109,7 @@ export function setupScene(signal?: AbortSignal) {
   // gate on it (the EZ evergreen forest keeps the stylized trees for the `?test=`
   // browser suites — issue #282 PR 3), so assigning it after tree creation (its
   // old home further down) would hand those suites the player default instead.
-  window.isTestMode = window.location.search.includes('test');
+  window.isTestMode = isTestModeSearch(window.location.search);
 
   // Listener options that wire game-lifetime handlers to the teardown AbortSignal
   // when one is supplied (undefined => the listener simply lives for the page).

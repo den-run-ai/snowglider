@@ -20,6 +20,7 @@
 import { INSTALL_HINT_TEXT } from '../offline/offline-ui.js';
 import { isStandalone } from '../offline/offline-state.js';
 import { safeGetItem, safeSetItem, type StorageLike } from '../offline/offline-store.js';
+import { isTestModeSearch } from '../test-mode.js';
 
 /**
  * The minimal Window surface this module needs. Narrowing (rather than the full
@@ -85,7 +86,7 @@ function defaultIsTestMode(win: WindowLike): boolean {
   try {
     if (win.navigator && win.navigator.webdriver) return true;
     const search = win.location && win.location.search ? win.location.search : '';
-    return search.includes('test');
+    return isTestModeSearch(search);
   } catch {
     return false;
   }

@@ -139,6 +139,28 @@ async function run() {
     /tree/i.test(String(frame({ x: 0, y: 0, z: 0 }, false))));
   window.location.search = '';
 
+  // 11) An ordinary marketing URL containing the letters "test" must stay on the
+  // production path. The old substring gate both recorded this airborne clear AND
+  // forced a crash for being within 0.5u of the trunk.
+  window.location.search = '?utm_campaign=beta-test';
+  const marketingPass = frameWithClears({ x: 0.25, y: 10, z: 0 }, true);
+  check('test substring in a campaign value does not force an airborne crash',
+    marketingPass.reason === null);
+  check('the campaign-URL airborne pass is still recorded as one clear',
+    marketingPass.clears.length === 1 && marketingPass.clears[0]?.key === 't0');
+
+  // 12) Likewise, an unrelated key named `contest` must not activate the special
+  // extended-terrain boundary exemption.
+  window.location.search = '?contest=regression';
+  check('unrelated contest query does not suppress the production side boundary',
+    /mountain/i.test(String(frame({ x: 121, y: 0, z: 0 }, false))));
+
+  // The canonical regression suite keeps its intentional extended boundary.
+  window.location.search = '?test=regression';
+  check('exact regression test mode still receives the extended boundary',
+    frame({ x: 121, y: 0, z: 0 }, false) === null);
+  window.location.search = '';
+
   console.log('\n================================================');
   console.log(`Summary: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
