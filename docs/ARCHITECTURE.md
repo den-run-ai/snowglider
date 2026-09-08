@@ -316,8 +316,8 @@ snowman.position = curState                       // restore authoritative physi
 > file. **`noise.ts`** holds `SimplexNoise` plus the deterministic fixed-seed fBm
 > (`terrainRidgeField` / `forestDensityField`); **`terrain.ts`** holds the analytic
 > height field (`getTerrainHeight` / `getTerrainGradient` / `getDownhillDirection`)
-> and the shared `heightMap` cache — the physics seam, kept byte-identical to the
-> mesh-vertex formula (the *two-formula terrain contract*); **`snow-surface.ts`**
+> and exact triangle interpolation with a bounded grid-corner cache. `heightMap`
+> is diagnostic mesh metadata only; live sampling is independent of query order; **`snow-surface.ts`**
 > holds the snow albedo/normal CanvasTextures and the vertex-colour / smoothed-normal
 > passes; **`terrain-mesh.ts`** holds `createTerrain` (which pre-populates `heightMap`
 > and scatters rocks + trees); **`rocks.ts`** holds rock meshes/colours/placement
