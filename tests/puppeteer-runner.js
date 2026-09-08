@@ -5,7 +5,6 @@
  * Usage: node tests/puppeteer-runner.js
  */
 
-const puppeteer = require('puppeteer');
 const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
@@ -261,13 +260,15 @@ async function runBrowserTests() {
   let browser;
   
   try {
+    // Puppeteer 25 is ESM-only; keep this CommonJS runner's import asynchronous.
+    const { default: puppeteer } = await import('puppeteer');
     // Start the dev server
     server = await startServer();
     
     // Launch browser
     console.log('Launching browser...');
     browser = await puppeteer.launch({
-      headless: 'new',
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',

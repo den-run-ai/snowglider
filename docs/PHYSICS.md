@@ -4,7 +4,7 @@ This document describes the simulation model behind SnowGlider: terrain, skiing,
 jumps, collisions, and the avalanche. It is a reference for anyone changing
 gameplay feel or debugging a physics regression. All numbers below are the actual
 constants in the source as of writing — when you change a constant, update this
-file and the verification baseline (see [Determinism & the test seam](#determinism--the-test-safe-seam)).
+file. Preserve the frozen no-input verification baseline unless an explicitly reviewed physics-version change requires a new baseline (see [Determinism & the test seam](#determinism--the-test-safe-seam)).
 
 Companion docs: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how the modules fit together),
 [`tests/README.md`](../tests/README.md) (how the physics is tested).
@@ -22,6 +22,10 @@ Companion docs: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how the modules fit togeth
   below ≈8 FPS. The fixed grid makes the live build frame-rate independent and is the
   exact `dt` the invariant/stress harnesses drive the kernel at. The kernel itself
   accepts any `delta` (the headless harnesses sweep it); only the live loop pins 1/60.
+- **Run time.** Player physics and avalanche outcomes advance on the same fixed grid.
+  Ranked finish times and splits use accumulated simulated time. Excess discarded
+  time marks the run timing-compromised, preventing a ranked record; hidden tabs
+  pause both simulation and timing.
 - **Axes.** `+y` is up. The fall line runs along `-z`: the player starts near
   `z = -15` and skis toward `z = -195`. `x` is the cross-slope (left/right) axis.
 - **Downhill velocity is negative `z`.** Spawning, the avalanche, and the finish
@@ -45,7 +49,8 @@ The base mountain is a radial exponential peak with layered noise:
 distance = sqrt(x² + z²)
 y  = 40 * exp(-distance / 40)                                   // base peak
 y += 1.5 * sin(x*0.05) * cos(z*0.05) * (1 - exp(-distance/60))  // low-freq roll
-y += sin(x*0.2) * cos(z*0.3) * 0.8                              // fine ridges
+y += terrainRidgeField(x,z) * 0.8 * (1 - exp(-distance/60))    // aperiodic ridges
+y += corridorWallHeight(x,z) + kickerRampHeight(x,z)           // when enabled
 if (z < -30) y += (z + 30) * 0.12                               // downhill bias
 ```
 
@@ -53,25 +58,23 @@ The last term is critical: below `z = -30` it adds a **consistent downhill
 gradient (0.12 per unit)** so the run never flattens out or turns uphill, even
 where noise would otherwise create a basin.
 
-### 2.2 The two-formula contract (read before editing terrain)
+### 2.2 One rendered and simulated surface (physics v3)
 
-There are **two** code paths that produce height, and they must agree:
+`analyticTerrainHeight(x,z)` defines the mountain recipe, including the current
+corridor and kickers. `createTerrain()` samples it at the rendered grid vertices.
+`getTerrainHeight(x,z)` and its cache-neutral leaf interpolate those exact triangles
+between vertices, including the mesh diagonal and Float32 vertex heights. Physics,
+collisions, placement and cameras therefore sample the surface players see.
 
-1. `createTerrain()` builds the visible mesh. It uses `SimplexNoise.noise()` for
-   roughness, plus occasional random bumps, and writes every vertex's **final**
-   height into a global `heightMap` keyed by `round(x*10),round(z*10)`.
-2. `getTerrainHeight(x, z)` is the analytic function the **physics** calls every
-   frame. It first checks `heightMap`; on a hit it returns the exact mesh height,
-   so the snowman rides precisely on the rendered surface at grid points. On a
-   miss it recomputes the analytic formula in §2.1 as an approximation.
+The bounded grid-corner cache avoids repeated analytic evaluations and resets when
+the terrain recipe changes. The exported `heightMap` is a diagnostic mesh snapshot;
+live queries never read or write it. Do not restore rounded-position memoization:
+first-writer values let cosmetic camera queries and prior runs change physics.
 
-The **base peak term and the downhill term must stay byte-identical between the
-two** (they are commented `MUST MATCH` in the source). The high-frequency noise
-intentionally differs (analytic `sin/cos` vs. Simplex), and the `heightMap`
-reconciles them at vertex positions. If you change the base shape or the downhill
-factor in one place and not the other, the snowman will float above or sink into
-the terrain between vertices — the single most common terrain regression, and the
-reason `tests/terrain-tests.js` asserts consistency.
+The old Simplex-mesh/analytic-physics split is retired. Standing guards include
+`height-field-parity-tests.js` (vertices, triangle interiors and discontinuities)
+and `terrain-query-isolation-tests.js` (all camera modes, refresh rates, query order
+and replay history). Cameras and other cosmetic readers must remain state-neutral.
 
 ### 2.3 Gradient & downhill direction
 
@@ -513,7 +516,7 @@ riding on) and **steepest at the lip** — how a real kicker is shaped, and what
 launch below converts to air; a smoothstep profile would flatten at the lip and
 launch nothing on a steep base slope. The ramp term is added in the **one canonical height source**
 (`mountains/terrain.ts` `kickerRampHeight`), consumed by both the mesh builder and
-the physics sampler — the §2.2 two-formula contract — and `setTerrainKickers`
+the physics sampler — the §2.2 shared-surface contract — and `setTerrainKickers`
 resets the height cache like the corridor. Pinned by `tests/kicker-tests.js`.
 
 **Lip-consistent launch** (`tuning.lipLaunch` — Expert only; every other tier keeps
@@ -560,7 +563,7 @@ rocks (`size >= 1.25`) are returned as collision hazards through `rockPositions`
 Small half-buried stones remain decorative so the slope does not become unfairly
 dense with low-visibility crashes.
 
-Because rock placement is unseeded `Math.random()`, `mountains.ts` also keeps the
+Although rock placement now runs under the seeded world-build stream, `mountains.ts` also keeps the
 central ski line and the spawn pocket free of *collidable* rocks
 (`rockIsCollisionHazard`): a rock only becomes a hazard when `|x| >= 5` (mirroring
 the tree clear-corridor in `trees.ts`, and wide enough to cover the max rock
@@ -621,11 +624,12 @@ compares trajectories against a frozen baseline. Two properties make this work:
    same speed + airtime), and the **provenance gate** (a non-player landing earns no
    boost or air score). All three are gated on the `playerJump` flag, so the
    auto-jump / coasting landing path stays byte-identical — no baseline regen needed.
-2. **Sources of randomness.** `Math.random()` appears in the idle auto-turn
-   (§3.5), in terrain mesh noise/bumps, and in avalanche spawn/velocity. The
-   verification harness injects a seeded RNG and a deterministic terrain so runs
-   are reproducible. If you add randomness to the grounded path, keep it behind an
-   input gate or the invariant harness will (correctly) fail.
+2. **Sources of randomness.** `RunContext` owns named seeded streams for gameplay,
+   world construction and cosmetics. Auto-turn and avalanche decisions do not share
+   draws with audio or particles. Run stamps include seed and physics version; custom
+   `?seed=` worlds remain practice. The historical no-input kernel harness uses its
+   own deterministic terrain and stays byte-identical; the world/camera/clock suites
+   separately guard the shipped surface and loop.
 
 The harnesses drive the kernel at a fixed `dt = 1/60`, and so does the **live loop**
 (the fixed-timestep accumulator, §1) — the thing that runs is the thing that's tested.

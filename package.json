@@ -4,6 +4,9 @@
   "description": "A cheerful snowman shredding mountain snow powder in a playful Three.js animation.",
   "main": "src/snowglider.js",
   "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "test": "node tests/run-node-suite.js",
     "test:terrain": "node --import ./tests/loaders/register-ts-resolve.mjs tests/terrain-tests.js",
@@ -120,7 +123,7 @@
     "istanbul-lib-report": "^3.0.1",
     "istanbul-reports": "^3.2.0",
     "jsdom": "^27.0.1",
-    "puppeteer": "^23.11.1",
+    "puppeteer": "^25.10.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1",
     "v8-to-istanbul": "^9.3.0",

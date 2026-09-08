@@ -45,6 +45,7 @@ import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js'
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { buildDifficultyPicker } from './ui/difficulty-picker.js';
+import { setPanelCollapsed } from './ui/collapsible-panel.js';
 import { setupScene } from './game/scene-setup.js';
 import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createRunClockGuard } from './game/run-clock.js';
@@ -488,10 +489,9 @@ window.initializeGameWithAudio = function() {
   if (gameStatsContainer) {
     console.log("Game start: ensuring stats are expanded");
     // Make sure stats are visible when game starts
-    gameStatsContainer.classList.remove('collapsed');
     const toggleBtn = document.getElementById('toggleStats');
     if (toggleBtn) {
-      toggleBtn.textContent = '▲';
+      setPanelCollapsed(gameStatsContainer, toggleBtn, false);
     }
     
     // Update initial values — the HUD timer takes elapsed SIM seconds (#402),
@@ -507,19 +507,8 @@ window.initializeGameWithAudio = function() {
     const shouldCollapse = window.innerWidth <= 480 || 
                            (window.innerWidth <= 768 && window.innerHeight <= 500);
     
-    if (shouldCollapse) {
-      controlsInfo.classList.add('collapsed');
-      const toggleBtn = document.getElementById('toggleControls');
-      if (toggleBtn) {
-        toggleBtn.textContent = '▼';
-      }
-    } else {
-      controlsInfo.classList.remove('collapsed');
-      const toggleBtn = document.getElementById('toggleControls');
-      if (toggleBtn) {
-        toggleBtn.textContent = '▲';
-      }
-    }
+    const toggleBtn = document.getElementById('toggleControls');
+    if (toggleBtn) setPanelCollapsed(controlsInfo, toggleBtn, shouldCollapse);
   }
   
   // Hand off to the game loop. New for issue #51: on the first real start the

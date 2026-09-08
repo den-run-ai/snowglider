@@ -71,8 +71,9 @@
   <script src="src/boot/firebase-bootstrap.js"></script>
 </head>
 <body>
+  <div id="gameAnnouncements" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
   <!-- Start Game Container and Button -->
-  <div id="startGameContainer">
+  <div id="startGameContainer" role="region" aria-labelledby="gameTitle">
     <h1 id="gameTitle">❄️ 🎿 ⛰️ SnowGlider ☃️ ❄️</h1>
     <p id="gameDescription">Race a snowman down a procedurally generated mountain: hit every checkpoint, carve past trees, launch off jumps — and outrun the avalanche chasing you down the slope. Beat the clock and your own best time for the fastest run!</p>
     
@@ -127,6 +128,7 @@
       </div>
     </div>
     <p class="touch-note">📱 On touch devices: tap the left/right of the screen to steer, top/bottom for speed<span id="touchJumpNote">, and the center to jump</span>.</p>
+    <p class="physics-era-notice"><strong>A fresh race starts here.</strong> Physics v3 brings a consistent mountain and avalanche timing. Personal bests and the leaderboard start fresh; earlier records are retained separately.</p>
     
     <!-- Difficulty tier picker (●Bunny / ■Blue / ◆Black); options are built by
          start-menu.ts from the difficulty config, with the last choice remembered. -->
@@ -134,7 +136,7 @@
 
     <div id="startMenu">
       <button id="startGameButton" class="menu-button start">Start Game</button>
-      <button id="aboutGameButton" class="menu-button about">About Game</button>
+      <button id="aboutGameButton" class="menu-button about" aria-expanded="false" aria-controls="aboutGamePanel">About Game</button>
       <button id="feedbackButton" class="menu-button feedback">💬 Feedback</button>
     </div>
 
@@ -143,8 +145,8 @@
     <div id="startLeaderboard" style="display:none;"></div>
     <p id="startSignInHint" style="display:none;">🔐 Optional: <strong>sign in (top&#8209;right)</strong> to save your best time to the global leaderboard.</p>
 
-    <div id="aboutGamePanel">
-      <h3>About SnowGlider</h3>
+    <div id="aboutGamePanel" role="dialog" aria-labelledby="aboutGameTitle">
+      <h3 id="aboutGameTitle">About SnowGlider</h3>
       <p>SnowGlider is a 3D skiing game where you guide a snowman down a procedurally generated backcountry mountain.</p>
       <p>Reach the finish as fast as you can: pass through the checkpoint gates, watch your split times, and beat the fastest run you've recorded.</p>
       <p>Keep an eye uphill — once you've descended far enough, an avalanche of tumbling snow boulders gives chase. Get caught and it's game over.</p>
@@ -161,7 +163,7 @@
   <div id="gameStatsContainer">
     <div id="gameStatsHeader">
       <h3>📊 Game Stats</h3>
-      <button id="toggleStats">▲</button>
+      <button id="toggleStats" aria-label="Toggle game stats options" aria-controls="gameStatsContent" aria-expanded="true">▲</button>
     </div>
     <div id="gameStatsContent">
       <div class="stat-item">
@@ -196,7 +198,7 @@
     <div id="controlsInfo">
       <div id="controlsHeader">
         <h3>⌨️ Game Controls</h3>
-        <button id="toggleControls">▲</button>
+        <button id="toggleControls" aria-label="Toggle controls options" aria-controls="controlsContent" aria-expanded="true">▲</button>
       </div>
       <div id="controlsContent">
         <div class="control-item">
@@ -299,7 +301,7 @@
       <!-- Compact account chip. The avatar is generated (random color + initials or
            a snow glyph) when there's no provider photo. For guests, clicking the chip
            unfolds #authUI to reveal the "sign in to save" upgrade options. -->
-      <button id="profileChip" type="button" title="Account">
+      <button id="profileChip" type="button" title="Account" aria-label="Account">
         <span id="profileAvatar" class="avatar"></span>
         <span id="profileName"></span>
       </button>

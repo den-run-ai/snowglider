@@ -31,6 +31,20 @@ async function dispatchTouch(
 }
 
 test.describe('mobile touch', () => {
+  test('touch camera disclosure exposes state and keeps hidden controls out of focus', async ({ page }) => {
+    await gotoGame(page);
+    await startGame(page);
+    const toggle = page.getByRole('button', { name: 'Toggle camera options' });
+    await expect(toggle).toHaveAttribute('aria-controls', 'cameraControlsContent');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#cameraControlsContent')).toHaveJSProperty('inert', true);
+    await toggle.tap();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: 'Orbit left (Q)', exact: true })).toBeVisible();
+    await toggle.tap();
+    await expect(page.getByRole('button', { name: 'Orbit left (Q)', exact: true })).toHaveCount(0);
+  });
+
   test('touch regions drive the shared controls state', async ({ page }) => {
     await gotoGame(page);
     await startGame(page);
@@ -153,13 +167,13 @@ test.describe('mobile share buttons', () => {
     await startGame(page);
 
     // Surface the finish result panel (which owns the share controls) without
-    // skiing the whole course: backdate the run clock past the 18s minimum-valid-
+    // skiing the whole course: set the simulation clock past the 18s minimum-valid-
     // time plausibility floor (src/score-limits.ts), then drive the real game-over
     // finish path. This builds #courseResult inside the (z-index 1000, full-screen)
     // game-over overlay.
     await page.evaluate(() => {
-      const w = window as unknown as { startTime: number; showGameOver: (r: string) => void };
-      w.startTime = performance.now() - 20000;
+      const w = window as unknown as { simElapsed: number; showGameOver: (r: string) => void };
+      w.simElapsed = 20;
       w.showGameOver('You reached the end of the slope!');
     });
 

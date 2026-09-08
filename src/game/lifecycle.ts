@@ -17,7 +17,8 @@ import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { updateTimerDisplay } from '../ui/hud.js';
-import { setupCollapsiblePanel } from '../ui/collapsible-panel.js';
+import { setupCollapsiblePanel, setPanelCollapsed } from '../ui/collapsible-panel.js';
+import { announceGameStatus, closeOverlayFocus, focusGameCanvas } from '../ui/accessibility.js';
 import { usesOrbitControls, type CameraMode } from '../camera.js';
 import type { SceneContext } from './scene-setup.js';
 
@@ -57,6 +58,7 @@ export function createLifecycle(deps: LifecycleDeps) {
   // signal when supplied so disposeGame can remove them, else live for the page.
   const listenerOpts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
   const touchOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
+  signal?.addEventListener('abort', () => closeOverlayFocus(gameOverOverlay, false), { once: true });
 
   function resetSnowman() {
     // Rewind the run's RNG streams for the new run (#400/#403 review). WORLD
@@ -143,6 +145,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Reset course (gates/splits/ghost) and effects (avalanche UI, FOV, shake) for the new run
     if (CourseModule) CourseModule.reset();
     if (EffectsModule) EffectsModule.reset();
+    announceGameStatus(`${getDifficultyConfig(state.difficulty).label} run started.`);
 
     // Track game reset in Analytics if available
     try {
@@ -162,6 +165,8 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Bail here so we don't start a run against the scene that's about to be torn down.
     if (maybeReloadForRunTier && maybeReloadForRunTier()) return;
     gameOverOverlay.style.display = 'none';
+    closeOverlayFocus(gameOverOverlay, false);
+    focusGameCanvas();
     state.gameActive = true;
 
     // Clear the finish result panel from the previous run, if present.
@@ -174,10 +179,9 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Show and reset game stats
     const gameStatsContainer = document.getElementById('gameStatsContainer');
     if (gameStatsContainer) {
-      gameStatsContainer.classList.remove('collapsed');
       const toggleBtn = document.getElementById('toggleStats');
       if (toggleBtn) {
-        toggleBtn.textContent = '▲';
+        setPanelCollapsed(gameStatsContainer, toggleBtn, false);
       }
     }
 
@@ -358,6 +362,7 @@ export function createLifecycle(deps: LifecycleDeps) {
       const btn = document.createElement('button');
       btn.textContent = label;
       btn.title = title;
+      btn.setAttribute('aria-label', cameraModeLabel(mode));
       btn.setAttribute('data-cam-mode', mode);
       btn.setAttribute('aria-pressed', 'false');
       btn.addEventListener('click', () => selectCameraMode(mode), listenerOpts);
@@ -379,6 +384,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     slider.step = '1';
     slider.id = 'cameraOrbitSlider';
     slider.title = 'Orbit angle (0–360°)';
+    slider.setAttribute('aria-label', 'Camera orbit angle');
     slider.setAttribute('data-cam-orbit', 'slider');
     slider.addEventListener('input', () => {
       const deg = Number(slider.value);
@@ -439,7 +445,7 @@ export function createLifecycle(deps: LifecycleDeps) {
       // Don't hijack typing in form fields (e.g. the orbit slider has focus).
       const target = event.target as Element | null;
       if (target && typeof (target as HTMLElement).closest === 'function' &&
-          target.closest('input, textarea, select')) return;
+          target.closest('input, textarea, select, [contenteditable="true"], [role="radio"], [role="dialog"], [role="alertdialog"]')) return;
       switch (event.key) {
         case 'q': case 'Q': nudgeOrbit(-ORBIT_KEY_STEP); break;
         case 'e': case 'E': nudgeOrbit(ORBIT_KEY_STEP); break;
@@ -516,6 +522,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     const btn = document.createElement('button');
     btn.textContent = glyph;
     btn.title = title;
+    btn.setAttribute('aria-label', title);
     btn.addEventListener('click', onClick, listenerOpts);
     btn.addEventListener('touchend', (e) => { e.preventDefault(); onClick(); }, touchOpts);
     return btn;

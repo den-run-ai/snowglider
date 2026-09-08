@@ -13,6 +13,7 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
 import { isOnline, watchConnectivity } from '../offline/offline-state.js';
 import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-ui.js';
 import { initInstallPrompt, type InstallPromptController } from '../pwa/install-prompt.js';
+import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessibility.js';
 
 (function () {
   let startGamePending = false;
@@ -217,11 +218,13 @@ import { initInstallPrompt, type InstallPromptController } from '../pwa/install-
     const startContainer = document.getElementById('startGameContainer');
     if (startContainer) {
       startContainer.style.display = 'none';
+      closeOverlayFocus(startContainer, false);
     }
     // Drop the start-screen account-control elevation now that the game is shown.
     document.body.classList.remove('start-screen-active');
 
     gameCanvas.style.display = 'block';
+    focusGameCanvas();
 
     window.initializeGameWithAudio?.();
     return true;
@@ -312,6 +315,10 @@ import { initInstallPrompt, type InstallPromptController } from '../pwa/install-
     // Hide the difficulty picker alongside the rest of the start controls so it
     // doesn't stay visible/clickable over the About panel.
     if (picker) picker.style.display = 'none';
+    document.getElementById('aboutGameButton')?.setAttribute('aria-expanded', 'true');
+    if (aboutPanel) openOverlayFocus(aboutPanel, {
+      initialFocus: document.getElementById('closeAboutButton'), onEscape: hideAbout,
+    });
   }
 
   function hideAbout() {
@@ -326,6 +333,8 @@ import { initInstallPrompt, type InstallPromptController } from '../pwa/install-
     if (startMenu) startMenu.style.display = 'flex';
     if (keyboardHint) keyboardHint.style.display = 'block';
     if (picker) picker.style.display = 'flex'; // restore (CSS lays it out as flex)
+    document.getElementById('aboutGameButton')?.setAttribute('aria-expanded', 'false');
+    if (aboutPanel) closeOverlayFocus(aboutPanel);
   }
 
   function initializeStartMenu() {
@@ -333,6 +342,12 @@ import { initInstallPrompt, type InstallPromptController } from '../pwa/install-
     setupOfflineBadge();
     setupInstallPrompt();
     buildDifficultyPicker();
+    const startContainer = document.getElementById('startGameContainer');
+    const account = document.getElementById('authContainer');
+    if (startContainer) openOverlayFocus(startContainer, {
+      initialFocus: document.getElementById('startGameButton'),
+      allowed: account ? [account] : [], modal: false,
+    });
     // Surface the account/sign-in control above the start overlay while it's up.
     document.body.classList.add('start-screen-active');
     if (window.SnowGliderGameScriptsReady) {
@@ -385,7 +400,7 @@ import { initInstallPrompt, type InstallPromptController } from '../pwa/install-
       // (just selects the tier) or the PWA install chip (Install/dismiss — Codex #360, a
       // keyboard Enter on Install would otherwise both install AND start the run).
       const target = event.target as Element | null;
-      if (target && typeof target.closest === 'function' && target.closest('#difficultyPicker, #installPrompt')) {
+      if (target && typeof target.closest === 'function' && target.closest('button, a, input, textarea, select, [role="radio"], [role="dialog"]')) {
         return;
       }
 
@@ -394,6 +409,7 @@ import { initInstallPrompt, type InstallPromptController } from '../pwa/install-
           aboutPanel &&
           aboutPanel.style.display !== 'block') {
         if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+          event.preventDefault();
           startGame();
         }
       } else if (aboutPanel && aboutPanel.style.display === 'block') {

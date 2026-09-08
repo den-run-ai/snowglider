@@ -26,6 +26,7 @@
 
 /** Per-frame camera shake offset returned by {@link EffectsModule.tickCamera}. */
 import { cosmeticRandom } from './run-context.js';
+import { announceGameStatus } from './ui/accessibility.js';
 
 export interface ShakeOffset {
   x: number;
@@ -68,6 +69,7 @@ export const EffectsModule = (function () {
   let ui: EffectsUI | null = null;
   let shake = 0;        // current shake intensity (decays over time)
   let proximityShake = 0; // sustained shake from avalanche proximity
+  let avalancheAnnounced = false;
   let currentFov = BASE_FOV;
 
   function buildUI() {
@@ -157,6 +159,10 @@ export const EffectsModule = (function () {
     }
 
     ui.banner.style.display = 'block';
+    if (!avalancheAnnounced) {
+      avalancheAnnounced = true;
+      announceGameStatus('Avalanche behind you. Keep skiing!');
+    }
     ui.meterWrap.style.display = 'block';
 
     // Map distance -> danger in [0,1] (closer == higher).
@@ -216,6 +222,7 @@ export const EffectsModule = (function () {
   }
 
   function reset() {
+    avalancheAnnounced = false;
     shake = 0;
     proximityShake = 0;
     currentFov = BASE_FOV;
@@ -230,6 +237,7 @@ export const EffectsModule = (function () {
   // / dev-HMR). buildUI appends three fixed-position overlays to document.body; without
   // this they linger over the host page after disposeGame. Idempotent; init() rebuilds.
   function teardown() {
+    avalancheAnnounced = false;
     if (ui) {
       ui.vignette.remove();
       ui.banner.remove();

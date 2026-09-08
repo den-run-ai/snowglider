@@ -21,7 +21,6 @@
  *   (needs Chrome; set PUPPETEER_EXECUTABLE_PATH to use a system/preinstalled one)
  */
 
-const puppeteer = require('puppeteer');
 const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
@@ -89,11 +88,13 @@ async function run() {
   let server;
   let browser;
   try {
+    // Puppeteer 25 is ESM-only; keep this CommonJS runner's import asynchronous.
+    const { default: puppeteer } = await import('puppeteer');
     server = await startServer();
     fs.mkdirSync(OUT_DIR, { recursive: true });
 
     browser = await puppeteer.launch({
-      headless: 'new',
+      headless: true,
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: [
         '--no-sandbox',

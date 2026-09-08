@@ -1,5 +1,17 @@
 # SnowGlider — Feature Gap Analysis & Roadmap
 
+**Release update (2026-09-08).** The freeze audit is being resolved in #406–#410,
+#421 and #427. Physics v3 unifies terrain, isolates RNG streams, synchronizes avalanche
+and run clocks, and versions local/remote records. The final hardening removes
+camera/history cache contamination, normalizes camera timing and improves keyboard,
+touch and accessible controls. Comparable PBs/boards start fresh; historical data is
+retained. The old scenery/expression/jump/mobile implementation trackers have been
+reconciled with main. Remaining work includes per-tier ranking proof (#247), physical
+heading/spins (#244), real-phone audio (#249), visual acceptance (#246/#297), night
+rendering (#300), and privacy/licensing follow-ups (#419/#418). Ghost rendering remains
+intentionally hidden; restoring a useful replay experience needs a focused design.
+
+
 *A synthesis of multiple review passes on the Three.js skiing game at [snowglider.ai](https://snowglider.ai) ([repo](https://github.com/den-run-ai/snowglider)).*
 
 ---

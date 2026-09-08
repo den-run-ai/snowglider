@@ -21,6 +21,8 @@
 // state, so tests/feedback-tests.js imports the real `.ts` and exercises them
 // headlessly. The DOM builder is modelled on ui/share-menu.ts.
 
+import { closeOverlayFocus, openOverlayFocus } from './accessibility.js';
+
 const REPO_SLUG = 'den-run-ai/snowglider';
 
 /** Shared label so all in-game feedback is findable on the Issues tab. */
@@ -223,6 +225,8 @@ function buildModal(): HTMLDivElement {
 
   const panel = document.createElement('div');
   panel.id = 'feedbackPanel';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-labelledby', 'feedbackTitle');
   Object.assign(panel.style, {
     background: '#1c2230', color: '#fff', width: 'min(440px, 92vw)',
     maxHeight: '90vh', overflowY: 'auto', borderRadius: '14px', padding: '20px',
@@ -230,6 +234,7 @@ function buildModal(): HTMLDivElement {
   });
 
   const heading = document.createElement('h3');
+  heading.id = 'feedbackTitle';
   heading.textContent = '💬 Send Feedback';
   Object.assign(heading.style, { margin: '0 0 6px', fontSize: '20px' });
 
@@ -255,6 +260,7 @@ function buildModal(): HTMLDivElement {
 
   const textarea = document.createElement('textarea');
   textarea.id = 'feedbackMessage';
+  textarea.setAttribute('aria-label', 'Your feedback');
   textarea.placeholder = 'Describe your idea or the bug you hit…';
   textarea.maxLength = MAX_MESSAGE;
   Object.assign(textarea.style, {
@@ -273,6 +279,7 @@ function buildModal(): HTMLDivElement {
 
   const error = document.createElement('p');
   error.id = 'feedbackError';
+  error.setAttribute('role', 'alert');
   Object.assign(error.style, { display: 'none', margin: '0 0 8px', fontSize: '13px', color: '#ff7675' });
 
   // Buttons.
@@ -311,7 +318,11 @@ function buildModal(): HTMLDivElement {
   overlay.appendChild(panel);
 
   // --- Behaviour ---
-  const close = (): void => { overlay.style.display = 'none'; error.style.display = 'none'; };
+  const close = (): void => {
+    overlay.style.display = 'none';
+    error.style.display = 'none';
+    closeOverlayFocus(overlay);
+  };
   cancel.addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   // Keep modal keystrokes from reaching start-menu.ts's document-level keydown
@@ -359,8 +370,10 @@ export function openFeedback(): void {
     document.body.appendChild(modalEl);
   }
   modalEl.style.display = 'flex';
-  const ta = modalEl.querySelector('#feedbackMessage');
-  if (ta instanceof HTMLTextAreaElement) ta.focus();
+  openOverlayFocus(modalEl, {
+    initialFocus: modalEl.querySelector<HTMLElement>('#feedbackMessage'),
+    onEscape: () => modalEl?.querySelector<HTMLButtonElement>('#feedbackCancel')?.click(),
+  });
 }
 
 /** Wire the start-screen feedback button. Safe to call repeatedly. */

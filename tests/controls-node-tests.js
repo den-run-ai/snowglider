@@ -117,6 +117,31 @@ async function main() {
   keydownRepeat('V');
   check('held "v" auto-repeat does not re-toggle the camera', cameraToggles === 1);
 
+  console.log('\n--- focused UI does not drive gameplay (#420) ---');
+  const input = document.createElement('textarea');
+  document.body.appendChild(input);
+  const resetButton = document.getElementById('resetBtn');
+  for (const key of ['ArrowLeft', 'ArrowRight', 'w', 's', ' ', 'v']) {
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true }));
+  }
+  resetButton.dispatchEvent(new window.KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  check('typing and button Space activation leave all movement/jump controls clear',
+    Object.values(controls).every((value) => value === false));
+  check('typing v in UI never changes the camera', cameraToggles === 1);
+  resetButton.focus(); // pointer clicks commonly retain this button focus
+  resetButton.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  check('ski steering still works after an in-run button retains focus', controls.left === true);
+  keyup('ArrowLeft');
+  resetButton.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'w', bubbles: true }));
+  check('WASD still works after an in-run button retains focus', controls.up === true);
+  keyup('w');
+  resetButton.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'v', bubbles: true }));
+  check('camera cycling still works after an in-run button retains focus', cameraToggles === 2);
+  keydown('ArrowLeft');
+  input.dispatchEvent(new window.KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }));
+  check('a key released after focus enters UI still clears its held state', controls.left === false);
+  input.remove();
+
   console.log('\n--- touch controls (region mapping) ---');
   const W = window.innerWidth;
   const H = window.innerHeight;

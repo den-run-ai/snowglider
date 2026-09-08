@@ -143,13 +143,14 @@ function near(a, b, eps, msg) {
   runTest('setting/clearing kickers resets the heightMap cache', () => {
     setTerrainKickers(null);
     resetHeightMap();
-    getTerrainHeight(0, kicker.z); // populate one entry
-    assert(Object.keys(heightMap).length > 0, 'cache populated');
+    const flat = getTerrainHeight(0, kicker.z);
+    heightMap[`0,${kicker.z * 10}`] = flat; // diagnostic mesh snapshot
     setTerrainKickers([kicker], null);
     assert(Object.keys(heightMap).length === 0, 'cache cleared on set');
-    getTerrainHeight(0, kicker.z);
+    assert(getTerrainHeight(0, kicker.z) > flat, 'new kicker replaces cached grid corners');
     setTerrainKickers(null);
     assert(Object.keys(heightMap).length === 0, 'cache cleared on clear');
+    near(getTerrainHeight(0, kicker.z), flat, 1e-9, 'clearing kicker restores the surface');
   });
 
   console.log('\n================================================');

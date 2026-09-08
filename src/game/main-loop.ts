@@ -870,6 +870,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     interpPrev.z = interpCur.z = pos.z;
     // Restart each run from the same deterministic point in the gust cycle (#253).
     Wind.reset();
+    state.scenery?.reset();
     Snow.resetTreeWind();
     // Re-laden every shed tree and clear in-flight puffs so each run starts from the
     // same forest state the deterministic gust cycle expects.

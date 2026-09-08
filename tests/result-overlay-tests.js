@@ -357,6 +357,30 @@ async function main() {
     CourseModule.onFinish = realOnFinish;
   }
 
+  // Result login prompts must retain a reachable sign-in path inside the dialog.
+  {
+    const { closeOverlayFocus } = await import('../src/ui/accessibility.ts');
+    const deps = makeDeps();
+    const account = document.createElement('div');
+    account.id = 'authContainer';
+    const provider = document.createElement('button');
+    provider.textContent = 'Sign in with Google';
+    let signIns = 0;
+    provider.addEventListener('click', () => { signIns++; });
+    account.appendChild(provider);
+    document.body.appendChild(account);
+    const show = createShowGameOver(deps);
+    show('You hit a tree!');
+    check('result contains the real account controls inside its focus boundary',
+      account.parentElement === deps.gameOverOverlay && account.inert !== true);
+    provider.click();
+    check('moving account controls preserves their existing sign-in handler', signIns === 1);
+    show('You hit a tree!');
+    check('re-showing a result keeps one account region', document.querySelectorAll('#authContainer').length === 1);
+    closeOverlayFocus(deps.gameOverOverlay, false);
+    check('restart/teardown cleanup restores account controls to their original parent', account.parentElement === document.body);
+  }
+
   console.log(`\nRESULT-OVERLAY TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

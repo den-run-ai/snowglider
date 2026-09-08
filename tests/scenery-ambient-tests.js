@@ -22,6 +22,7 @@ async function main() {
 
   testStructure(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testMotion(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
+  testReset(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testCosmeticNeutral(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testMaterials(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testDeterminism(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
@@ -76,6 +77,22 @@ function testMotion(THREE, build, makeSceneryRng, budget) {
   const snap = firstMatrix(THREE, im['ambient-birds']);
   sys.update(0, new THREE.Vector3(), 0.5);
   check('zero-dt update is a no-op', !changed(snap, firstMatrix(THREE, im['ambient-birds'])));
+}
+
+function testReset(THREE, build, makeSceneryRng, budget) {
+  const sys = build(makeSceneryRng(4), budget);
+  const player = new THREE.Vector3(0, 0, -15);
+  const meshes = Object.values(instanced(THREE, sys.group));
+  const snapshot = () => meshes.map(m => Array.from(m.instanceMatrix.array));
+  const initial = JSON.stringify(snapshot());
+  for (let i = 0; i < 30; i++) sys.update(1 / 60, player, i / 30);
+  const advanced = JSON.stringify(snapshot());
+  sys.reset();
+  check('restart restores every ambient instance to its seeded spawn pose', JSON.stringify(snapshot()) === initial);
+  sys.reset();
+  check('repeated reset is idempotent', JSON.stringify(snapshot()) === initial);
+  for (let i = 0; i < 30; i++) sys.update(1 / 60, player, i / 30);
+  check('restarted ambient animation exactly replays changing wind', JSON.stringify(snapshot()) === advanced);
 }
 
 function testCosmeticNeutral(THREE, build, makeSceneryRng, budget) {

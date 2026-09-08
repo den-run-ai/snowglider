@@ -24,14 +24,14 @@
 //   --sa <path>  >  $SNOWGLIDER_SA  >  $GOOGLE_APPLICATION_CREDENTIALS  >
 //   first *-firebase-adminsdk-*.json found in [cwd, this worktree, the main checkout].
 //
-// PRIVACY  the raw report embeds player emails + display names (admin-only view). Pass
-// --redact to hash PII so the HTML/JSON can be shared. Outputs land in ./analytics-out/
+// PRIVACY  the raw report embeds player names and identifiers (admin-only view). Pass
+// --redact to pseudonymize identifiers before reviewing outputs for sharing. Outputs land in ./analytics-out/
 // which is git-ignored — do not commit generated reports.
 //
 // USAGE
 //   node scripts/analytics-report.mjs                 # write analytics-out/report.{html,json}
 //   node scripts/analytics-report.mjs --open          # ...and open the HTML
-//   node scripts/analytics-report.mjs --redact        # hash emails/names for sharing
+//   node scripts/analytics-report.mjs --redact        # pseudonymize names/identifiers for sharing
 //   node scripts/analytics-report.mjs --out dir --sa /path/to/key.json --json-only
 //   GA4_PROPERTY_ID=123456789 node scripts/analytics-report.mjs   # include GA4 metrics
 //
@@ -496,29 +496,15 @@ function hostOf(url) {
 function hostIs(host, domain) {
   return host === domain || host.endsWith('.' + domain);
 }
-function emailDomain(email) {
-  const at = email.lastIndexOf('@');
-  return at === -1 ? '' : email.slice(at + 1);
-}
-
-// Best-effort sign-in provider from the stored profile (Firestore has no provider field).
+// Provider inference uses public photo hosts only; private emails are neither needed
+// nor included in exported reports. A missing photo is honestly "Unknown".
 function classifyProvider(user) {
   const host = hostOf(user.photoURL || '');
-  const email = (user.email || '').toLowerCase();
-  const dom = emailDomain(email);
-  if (hostIs(host, 'githubusercontent.com') || dom === 'users.noreply.github.com') return 'GitHub';
-  if (dom === 'privaterelay.appleid.com') return 'Apple';
-  if (hostIs(host, 'googleusercontent.com') || dom === 'gmail.com') return 'Google';
-  if (email) return 'Other (email)';
+  if (hostIs(host, 'githubusercontent.com')) return 'GitHub';
+  if (hostIs(host, 'googleusercontent.com')) return 'Google';
   return 'Unknown';
 }
 
-function redactEmail(email) {
-  if (!email) return null;
-  const [user, domain] = email.split('@');
-  const head = user ? user.slice(0, 2) : '';
-  return `${head}${'*'.repeat(Math.max(1, (user || '').length - 2))}@${domain || '?'}`;
-}
 function anonName(id) {
   return 'player_' + createHash('sha256').update(String(id)).digest('hex').slice(0, 8);
 }
@@ -537,11 +523,10 @@ function readScoreLimits(repoRoot) {
   } catch { return fallback; }
 }
 
-// The difficulty tiers, each with its Firestore best-time FIELD and leaderboard COLLECTION
-// (mirrors difficulty.ts userBestTimeField / leaderboardCollectionName: Blue keeps the
-// original un-suffixed names). recordScore stores per-tier bests on bestTimeBunny /
-// bestTimeBlack (and per-tier leaderboard_<tier> collections), so counting only `bestTime`
-// would miss anyone who finished Bunny/Black but not Blue.
+// All configured tiers and their CURRENT physics-version remote names. Historical
+// bests remain in Firestore but must not enter the current-version completion or
+// timing metrics. Parse the source to keep the plain-Node CLI dependency-free;
+// analytics-report-tests checks these names against the actual TypeScript helpers.
 //
 // NOTE on the floor: plausibility is NOT judged against the client per-tier floors
 // (difficulty.ts minScoreTime — those gate LOCAL practice bests). firestore.rules
@@ -549,34 +534,40 @@ function readScoreLimits(repoRoot) {
 // isValidScoreTime (>= MIN_VALID_SCORE_TIME, <= MAX), so any value in Firestore below that
 // global floor is forged/legacy regardless of tier. The reporter therefore uses the SERVER
 // floor for all tiers — see buildInsights.
-function readTiers() {
-  const tiers = [
-    { id: 'bunny', field: 'bestTimeBunny', collection: 'leaderboard_bunny', ranked: false },
-    { id: 'blue',  field: 'bestTime',      collection: 'leaderboard',        ranked: true },
-    { id: 'black', field: 'bestTimeBlack', collection: 'leaderboard_black',  ranked: false },
-  ];
-  // `ranked` decides which tiers even HAVE a global board — read from difficulty.ts so a
-  // later "ship Bunny/Black ranked" change is picked up automatically.
-  try {
-    const src = readFileSync(join(REPO_ROOT, 'src', 'difficulty.ts'), 'utf8');
-    for (const t of tiers) {
-      const m = src.match(new RegExp(`id:\\s*'${t.id}'[\\s\\S]{0,400}?ranked:\\s*(true|false)`));
-      if (m) t.ranked = m[1] === 'true';
-    }
-  } catch { /* keep defaults */ }
-  return tiers;
+export function readTiers(repoRoot = REPO_ROOT) {
+  const src = readFileSync(join(repoRoot, 'src', 'difficulty.ts'), 'utf8').replace(/\/\/[^\n]*/g, '');
+  const context = readFileSync(join(repoRoot, 'src', 'run-context.ts'), 'utf8');
+  const version = Number(context.match(/^export const PHYSICS_VERSION\s*=\s*(\d+)\s*;/m)?.[1]);
+  const registry = src.match(/export const DIFFICULTIES[^=]*=\s*\[([^\]]+)\]/)?.[1];
+  if (!Number.isSafeInteger(version) || version < 1 || !registry) {
+    throw new Error('Could not read the current physics version / difficulty registry; refusing legacy analytics.');
+  }
+  return registry.split(',').map(name => name.trim()).filter(Boolean).map(name => {
+    if (!/^\w+$/.test(name)) throw new Error(`Unsupported difficulty registry entry: ${name}`);
+    const block = src.match(new RegExp(`const ${name}:\\s*DifficultyConfig\\s*=\\s*\\{([\\s\\S]*?)^\\};`, 'm'))?.[1];
+    const id = block?.match(/\bid:\s*'([a-z]+)'/)?.[1];
+    const ranked = block?.match(/\branked:\s*(true|false)/)?.[1];
+    if (!id || !ranked) throw new Error(`Could not read difficulty configuration: ${name}`);
+    const tierSuffix = id === 'blue' ? '' : id[0].toUpperCase() + id.slice(1);
+    return {
+      id,
+      field: `bestTime${tierSuffix}V${version}`,
+      collection: `leaderboard_v${version}${id === 'blue' ? '' : `_${id}`}`,
+      ranked: ranked === 'true',
+    };
+  });
 }
 
 // --------------------------------------------------------------------- build insights ----
 // `boardEntries` is the merged per-tier leaderboard (each row tagged with `.tier`); `tiers`
 // carries each tier's best-time field; `limits` is the SERVER validation range
 // (firestore.rules isValidScoreTime), applied uniformly to every tier — see readTiers.
-function buildInsights(users, boardEntries, nowMs, tiers, limits) {
+export function buildInsights(users, boardEntries, nowMs, tiers, limits) {
   const usersById = new Map(users.map((u) => [u.id, u]));
   const isPlausible = (t) => num(t) && t >= limits.min && t <= limits.max;
 
-  // Every tier best a user has recorded (bestTime / bestTimeBunny / bestTimeBlack). A
-  // player who finished only Bunny/Black still counts, but each time is judged against the
+  // Every current-version tier best, including Expert. A player who finished only
+  // an unranked tier still counts, but each time is judged against the
   // SERVER floor the write had to clear, so a forged sub-floor value is excluded whatever
   // its tier field.
   const userBests = (u) => tiers
@@ -624,7 +615,7 @@ function buildInsights(users, boardEntries, nowMs, tiers, limits) {
   // Health / consistency checks.
   const boardUids = new Set(board.map((b) => b.uid));
   // Only a plausible RANKED-tier best is *expected* on a global board — unranked tiers
-  // (Bunny/Black) have no board by design, so a Bunny/Black-only completion is a normal
+  // have no board by design, so an unranked-only completion is a normal
   // state, not a "finished but not on leaderboard" anomaly.
   const rankedFields = tiers.filter((t) => t.ranked).map((t) => t.field);
   const completedNotOnBoard = users.filter((u) =>
@@ -674,13 +665,13 @@ function buildInsights(users, boardEntries, nowMs, tiers, limits) {
     health: {
       completedNotOnBoard, staleBoard, orphanBoard,
       implausibleTimes: implausibleUserTimes + implausibleBoardEntries,
-      usersMissingProfile: users.filter((u) => !u.displayName && !u.email).length,
+      usersMissingProfile: users.filter((u) => !u.displayName).length,
     },
     players: OPTS.redact ? users.map((u) => ({
       id: anonName(u.id), provider: classifyProvider(u),
       bestTime: bestOf(u), lastLogin: u.lastLogin || null,
     })) : users.map((u) => ({
-      id: u.id, name: u.displayName || null, email: redactEmail(u.email),
+      id: u.id, name: u.displayName || null,
       provider: classifyProvider(u), bestTime: bestOf(u),
       lastLogin: u.lastLogin || null,
     })),
@@ -916,7 +907,7 @@ function renderHtml(data) {
   <section class="grid2">
     <div>
       <h2>Sign-in providers</h2>
-      <p class="hint">Inferred from profile photo host / email domain.</p>
+      <p class="hint">Inferred from profile photo host; accounts without a recognized photo are unknown.</p>
       ${hbars(I.provider, { color: '#7fc9ff' })}
     </div>
     <div>
@@ -971,7 +962,7 @@ function renderHtml(data) {
       <div class="flag${I.health.staleBoard ? ' warn' : ''}"><b>${I.health.staleBoard}</b>leaderboard time ≠ profile best time</div>
       <div class="flag${I.health.orphanBoard ? ' warn' : ''}"><b>${I.health.orphanBoard}</b>leaderboard rows with no user doc</div>
       <div class="flag${I.health.implausibleTimes ? ' warn' : ''}"><b>${I.health.implausibleTimes}</b>implausible/forged times (excluded from stats)</div>
-      <div class="flag${I.health.usersMissingProfile ? ' warn' : ''}"><b>${I.health.usersMissingProfile}</b>users missing name &amp; email</div>
+      <div class="flag${I.health.usersMissingProfile ? ' warn' : ''}"><b>${I.health.usersMissingProfile}</b>users missing display name</div>
     </div>
   </section>
 
@@ -984,7 +975,7 @@ function renderHtml(data) {
 }
 
 // -------------------------------------------------------------------------------- main ----
-(async function main() {
+async function main() {
   const saPath = findServiceAccount();
   const sa = loadServiceAccount(saPath);
   log(`service account: ${sa.client_email}`);
@@ -995,9 +986,8 @@ function renderHtml(data) {
   const scoreLimits = readScoreLimits(REPO_ROOT);
   const tiers = readTiers();
   log('reading Firestore collections…');
-  // Read the users doc + EVERY tier's leaderboard collection (Blue = 'leaderboard',
-  // Bunny/Black = 'leaderboard_<tier>'). A tier with no board yet just returns []. Tag each
-  // row with its tier so per-tier floors apply downstream.
+  // Read EVERY current-version board (including Expert); never merge historical
+  // boards into the current physics season. An empty unranked board returns [].
   const [users, ...boards] = await Promise.all([
     fetchCollection(fsToken, sa.project_id, 'users'),
     ...tiers.map((t) => fetchCollection(fsToken, sa.project_id, t.collection)),
@@ -1025,6 +1015,7 @@ function renderHtml(data) {
       redacted: OPTS.redact,
       userCount: users.length,
       leaderboardCount: boardEntries.length,
+      scoreSchema: tiers,
       source: 'firestore' + (ga4.available ? '+ga4' : ''),
     },
     insights,
@@ -1048,4 +1039,10 @@ function renderHtml(data) {
     }
   }
   console.log('\n  ✓ done\n');
-})().catch((e) => die(e.stack || e.message));
+}
+
+// Importing the pure report helpers for tests must never discover credentials,
+// access production data, or write a report.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((e) => die(e.stack || e.message));
+}

@@ -73,6 +73,8 @@ export interface ScenerySystem {
    * the optional wind signals; never writes pos/velocity/terrain/course/collision state.
    */
   update(dt: number, playerPosition: THREE.Vector3, ctx?: SceneryUpdateContext): void;
+  /** Rewind cosmetic animation to the seeded spawn pose for a new run. */
+  reset(): void;
   /** Idempotently release every resource this system owns (see teardown.ts §3). */
   dispose(): void;
 }
@@ -140,7 +142,11 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   function update(dt: number, playerPosition: THREE.Vector3, ctx?: SceneryUpdateContext): void {
     // Cosmetic-only: advances the ambient-life animation from the render delta + wind signal.
     // Writes only ambient instance matrices — never pos/velocity/terrain/course/collision.
-    ambient.update(dt, playerPosition, ctx?.windStrength ?? 0);
+    if (!disposed) ambient.update(dt, playerPosition, ctx?.windStrength ?? 0);
+  }
+
+  function reset(): void {
+    if (!disposed) ambient.reset();
   }
 
   function dispose(): void {
@@ -167,5 +173,5 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
     group.removeFromParent();
   }
 
-  return { group, update, dispose };
+  return { group, update, reset, dispose };
 }

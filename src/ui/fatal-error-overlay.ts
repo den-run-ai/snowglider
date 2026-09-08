@@ -18,6 +18,8 @@
 // Kept tiny and three.js-free (DOM only) so it is headless-testable and can never itself
 // throw back into the loop. Idempotent: built once, re-shown on repeat calls.
 
+import { closeOverlayFocus, openOverlayFocus } from './accessibility.js';
+
 let overlay: HTMLDivElement | null = null;
 
 /** Default recovery action: a hard page reload to fetch a consistent bundle. Injectable
@@ -43,6 +45,9 @@ export function showFatalErrorOverlay(err?: unknown, opts: FatalErrorOverlayOpti
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.id = 'fatalErrorOverlay';
+    overlay.setAttribute('role', 'alertdialog');
+    overlay.setAttribute('aria-labelledby', 'fatalErrorTitle');
+    overlay.setAttribute('aria-describedby', 'fatalErrorMessage');
     Object.assign(overlay.style, {
       position: 'fixed', inset: '0', zIndex: '2000', // above the game-over overlay (1000)
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -52,6 +57,7 @@ export function showFatalErrorOverlay(err?: unknown, opts: FatalErrorOverlayOpti
     } as Partial<CSSStyleDeclaration>);
 
     const title = document.createElement('div');
+    title.id = 'fatalErrorTitle';
     title.textContent = 'Something went wrong';
     Object.assign(title.style, { fontSize: '24px', fontWeight: '800' } as Partial<CSSStyleDeclaration>);
 
@@ -83,17 +89,21 @@ export function showFatalErrorOverlay(err?: unknown, opts: FatalErrorOverlayOpti
   const detail = overlay.querySelector<HTMLElement>('#fatalErrorMessage');
   if (detail) {
     const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
-    detail.textContent = msg
-      ? `The game hit an unexpected error (“${msg}”). This is usually a stale cache after an update — reloading fixes it.`
-      : "The game hit an unexpected error. This is usually a stale cache after an update — reloading fixes it.";
+    detail.textContent = /WebGL.*context|context.*WebGL/i.test(msg)
+      ? 'This browser could not start 3D graphics. Enable hardware acceleration or try a browser with WebGL support, then reload.'
+      : msg
+        ? `The game hit an unexpected error (“${msg}”). Try reloading to load a fresh copy of the game.`
+        : 'The game hit an unexpected error. Try reloading to load a fresh copy of the game.';
   }
 
   overlay.style.display = 'flex';
+  openOverlayFocus(overlay, { initialFocus: overlay.querySelector<HTMLElement>('#fatalErrorReloadBtn') });
   return overlay;
 }
 
 /** Test seam: drop the cached overlay node so a fresh test starts clean. */
 export function resetFatalErrorOverlay(): void {
+  if (overlay) closeOverlayFocus(overlay, false);
   if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
   overlay = null;
 }

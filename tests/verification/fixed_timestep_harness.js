@@ -2,8 +2,8 @@
 // fixed_timestep_harness.js
 // Frame-rate-EQUIVALENCE gate for the live run loop's fixed-timestep accumulator
 // (src/game/main-loop.ts). Sibling to forward_stress_harness.js (PR #209), but where
-// that one drives the kernel with a *variable* dt to bound the damage, this one drives
-// the kernel through the SAME accumulator the live loop uses and proves the stronger
+// that one checks complete descents against obstacles, this one compares every step
+// through the SAME accumulator the live loop uses and proves the
 // property the accumulator newly guarantees:
 //
 //   1. FRAME-RATE EQUIVALENCE — the loop steps physics ONLY in fixed 1/60 s increments,
@@ -11,15 +11,15 @@
 //      144 Hz, or a jittery variable rate). The pre-accumulator variable-dt loop did NOT
 //      have this: coarse-dt Euler drifts the path tens of units (see the "variable-dt
 //      drift" diagnostic below). The accumulator is what collapses that drift to zero.
-//   2. NO TUNNELING BY CONSTRUCTION — every fixed step advances `pos` by `v/60`, so the
+//   2. COLLISION STEP BUDGET — every fixed step advances `pos` by `v/60`, so the
 //      per-step displacement stays far below the tree collision radius (2.5) at any
-//      render rate. The discrete point-vs-disk collision check therefore can never skip
-//      an obstacle disk (the #209 "floor it forward and tunnel through the trees" bug).
+//      render rate. This bounds tunnel risk; it is not a geometric proof for grazing
+//      disks (the forward-stress harness additionally probes actual crossing segments).
 //      This is the `tunnelRiskFrames == 0` guarantee diagnostics.ts watches live.
 //   3. NO NaN/Infinity — pos/velocity stay finite through every profile.
 //
-// The accumulator logic here mirrors main-loop.ts (FIXED_DT, MAX_SUBSTEPS, the ceiling
-// on frameDelta, the spiral-of-death drop). Inputs are keyed to IN-GAME time (the summed
+// The accumulator runs directly from main-loop.ts, including its exported constants,
+// frame-delta ceiling, and spiral-of-death guard. Inputs are keyed to IN-GAME time (the summed
 // fixed-step clock), not the render frame, exactly as a real player's held key would be.
 //
 // Run: node --import ./tests/loaders/register-ts-resolve.mjs tests/verification/fixed_timestep_harness.js
@@ -32,9 +32,6 @@ g.window = { location: { search: '' }, matchMedia: () => ({ matches: false }), t
 g.document = undefined; // trees/rocks skip canvas textures when document is absent
 try { Object.defineProperty(global, 'navigator', { value: { webdriver: false }, configurable: true }); } catch { /* keep existing */ }
 
-// Mirrors main-loop.ts.
-const FIXED_DT = 1 / 60;
-const MAX_SUBSTEPS = 8;
 const TREE_RADIUS = 2.5; // mirrors collision.ts default treeCollisionRadius
 
 // Seeded PRNG so tree/rock placement and the auto-turn are reproducible per run.
@@ -61,6 +58,7 @@ function fakeSnowman() {
 (async () => {
   await import(pathToFileURL(path.join(__dirname, '..', 'loaders', 'register-ts-resolve.mjs')).href);
   const { Snowman } = await import('../../src/snowman.ts');
+  const { livePhysicsLoop, FIXED_DT, MAX_SUBSTEPS } = await import('../helpers/live-physics-loop.mjs');
   const terrain = await import('../../src/mountains/terrain.ts');
   const { Trees } = await import('../../src/mountains/trees.ts');
   const { addRocks } = await import('../../src/mountains/rocks.ts');
@@ -95,37 +93,23 @@ function fakeSnowman() {
     const pos = { x: 0, z: -15, y: getTerrainHeight(0, -15) };
     const velocity = { x: 0, z: -3 };
     snowman.position.set(pos.x, pos.y, pos.z);
-    let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, -15),
-               airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
-    const showGameOver = () => {};
-
     const traj = [];
-    let accumulator = 0, inGameTime = 0, maxFixedStep = 0, nonFinite = false;
-    for (const rawDelta of frameDeltas) {
-      const frameDelta = Math.min(rawDelta, MAX_SUBSTEPS * FIXED_DT); // ceiling (main-loop.ts)
-      accumulator += frameDelta;
-      let substeps = 0;
-      while (accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS) {
-        const prevX = pos.x, prevZ = pos.z;
-        const controls = controlsAt(inGameTime);
-        st = Snowman.updateSnowman(snowman, FIXED_DT, pos, velocity, st.isInAir, st.verticalVelocity,
-          st.lastTerrainHeight, st.airTime, st.jumpCooldown, controls, st.turnPhase, st.currentTurnDirection,
-          st.turnChangeCooldown, 3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection,
-          treePositions, true, showGameOver, rockPositions);
-        snowman.position.set(pos.x, pos.y, pos.z);
+    let maxFixedStep = 0, nonFinite = false;
+    const live = livePhysicsLoop({ snowman, pos, velocity, treePositions, rockPositions,
+      controlsAt, showGameOver: () => {}, stopOnOutcome: false,
+      onStep: ({ prev }) => {
         if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z) ||
-            !Number.isFinite(velocity.x) || !Number.isFinite(velocity.z)) { nonFinite = true; break; }
-        const step = Math.hypot(pos.x - prevX, pos.z - prevZ);
-        if (step > maxFixedStep) maxFixedStep = step;
+            !Number.isFinite(velocity.x) || !Number.isFinite(velocity.z)) { nonFinite = true; live.stop(); return; }
+        maxFixedStep = Math.max(maxFixedStep, Math.hypot(pos.x - prev.x, pos.z - prev.z));
         traj.push({ x: pos.x, z: pos.z, vx: velocity.x, vz: velocity.z });
-        inGameTime += FIXED_DT;
-        accumulator -= FIXED_DT;
-        substeps++;
+      },
+    });
+    try {
+      for (const delta of frameDeltas) {
+        live.frame(delta);
+        if (nonFinite) break;
       }
-      // Spiral-of-death guard (main-loop.ts): drop the surplus if the ceiling was hit.
-      if (substeps >= MAX_SUBSTEPS && accumulator >= FIXED_DT) accumulator = 0;
-      if (nonFinite) break;
-    }
+    } finally { live.dispose(); }
     return { traj, maxFixedStep, nonFinite, steps: traj.length };
   }
 
@@ -246,7 +230,7 @@ function fakeSnowman() {
   console.log('  PASS:', equivalent ? 'every render rate ran the same step count + path ✅' : 'render rate changed the step count / trajectory ❌');
   if (!equivalent) hardFail = true;
 
-  // --- 2) No tunneling by construction: every fixed step < tree radius [GATING] ---
+  // --- 2) Collision step budget: every fixed step < tree radius [GATING] ---
   const noTunnel = worstFixedStep < TREE_RADIUS;
   console.log('\n--- 2) No tunneling: worst fixed-step displacement < tree radius [GATING] ---');
   console.log('  worst fixed step:', worstFixedStep.toFixed(3), `(${worstStepCtx})`, '| tree radius:', TREE_RADIUS);

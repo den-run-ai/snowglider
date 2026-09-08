@@ -328,10 +328,16 @@ async function main() {
     window.document.getElementById('profileName').textContent === 'Guest');
   check('anonymous guest: avatar has a generated glyph + background color',
     profileAvatar.textContent.length > 0 && /rgb\(/.test(profileAvatar.style.backgroundColor));
+  check('guest chip exposes its name, target, and collapsed state',
+    profileChip.getAttribute('aria-label') === 'Sign-in options for Guest'
+    && profileChip.getAttribute('aria-controls') === 'authUI'
+    && profileChip.getAttribute('aria-expanded') === 'false'
+    && !profileChip.hasAttribute('disabled'));
   // Clicking the chip unfolds #authUI so the guest can pick a provider to upgrade.
   profileChip.dispatchEvent(new window.Event('click'));
   check('anonymous guest: clicking the chip reveals the provider buttons for upgrade',
     authUI.style.display === 'flex' && profileUI.classList.contains('expanded'));
+  check('guest chip expanded state follows the visible options', profileChip.getAttribute('aria-expanded') === 'true');
   check('anonymous guest: AuthModule still reports signed-in (for UI/onboarding)',
     AuthModule.isUserSignedIn() === true);
   AuthModule.recordScore(22.34); // guest finishes a run (valid time; only the guest guard should block it)
@@ -404,6 +410,8 @@ async function main() {
   await flush();
   check('syncUserData writes the user profile doc on sign-in',
     !!fb.read('users', 'sync1') && fb.read('users', 'sync1').displayName === 'Sync');
+  check('profile sync does not persist the private provider email',
+    !Object.hasOwn(fb.read('users', 'sync1'), 'email'));
   check('syncUserData backfills a valid local best to the leaderboard',
     !!fb.read(LB, 'sync1') && fb.read(LB, 'sync1').time === 19.5);
   check('syncUserData does NOT backfill an unranked tier best to the global board',

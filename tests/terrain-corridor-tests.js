@@ -150,13 +150,16 @@ function near(a, b, eps, msg) {
 
   runTest('setting/clearing the corridor resets the (tier-blind) heightMap cache', () => {
     setTerrainCorridor(null);
-    getTerrainHeight(7, -60);
-    assert(Object.keys(heightMap).length > 0, 'cache populated by a sample');
+    const x = corridor.line.laneX(-60) + params.channelHalfWidth + params.wallRamp;
+    const flat = getTerrainHeight(x, -60);
+    heightMap['70,-600'] = flat; // diagnostic mesh snapshot
     setTerrainCorridor(corridor);
     assert(Object.keys(heightMap).length === 0, 'corridor change cleared the cache');
-    getTerrainHeight(7, -60);
+    assert(getTerrainHeight(x, -60) > flat, 'new corridor replaces cached grid corners');
     resetHeightMap();
     assert(Object.keys(heightMap).length === 0, 'resetHeightMap empties the cache');
+    setTerrainCorridor(null);
+    assert(Math.abs(getTerrainHeight(x, -60) - flat) < 1e-9, 'clearing corridor restores the surface');
   });
 
   // Leave terrain in the default (no-corridor) state for any later importer.

@@ -36,6 +36,21 @@ export interface CollapsiblePanelOptions {
   signal?: AbortSignal | undefined;
 }
 
+// Also used by result/restart transitions, so the visual and accessible state
+// cannot drift when a panel is collapsed without clicking its disclosure.
+export function setPanelCollapsed(container: HTMLElement, toggleButton: HTMLElement, collapsed: boolean): void {
+  const content = Array.from(container.children).find((el) => el.id.endsWith('Content')) as HTMLElement | undefined;
+  if (collapsed && content?.contains(container.ownerDocument.activeElement)) toggleButton.focus();
+  container.classList.toggle('collapsed', collapsed);
+  toggleButton.textContent = collapsed ? '▼' : '▲';
+  toggleButton.setAttribute('aria-expanded', String(!collapsed));
+  if (content) {
+    toggleButton.setAttribute('aria-controls', content.id);
+    content.inert = collapsed;
+    content.setAttribute('aria-hidden', String(collapsed));
+  }
+}
+
 // Wire the collapse toggle, click/touch handlers, optional small-screen
 // auto-collapse, and the horizontal swipe gesture onto a resolved header/button.
 function wirePanel(
@@ -52,9 +67,10 @@ function wirePanel(
   const passiveOpts: AddEventListenerOptions = signal ? { passive: true, signal } : { passive: true };
   const activeOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
   const setCollapsed = function(collapsed: boolean) {
-    container.classList.toggle('collapsed', collapsed);
-    toggleButton.textContent = collapsed ? '▼' : '▲';
+    setPanelCollapsed(container, toggleButton, collapsed);
   };
+  toggleButton.setAttribute('aria-label', `Toggle ${name} options`);
+  setCollapsed(container.classList.contains('collapsed'));
 
   const toggle = function() {
     console.log(`Toggle ${name} called, current state:`, container.classList.contains('collapsed'));
@@ -125,14 +141,9 @@ function wirePanel(
 function wireFallback(container: HTMLElement, toggleButton: HTMLElement, header: HTMLElement, signal?: AbortSignal): void {
   const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
   const toggle = function() {
-    if (container.classList.contains('collapsed')) {
-      container.classList.remove('collapsed');
-      toggleButton.textContent = '▲';
-    } else {
-      container.classList.add('collapsed');
-      toggleButton.textContent = '▼';
-    }
+    setPanelCollapsed(container, toggleButton, !container.classList.contains('collapsed'));
   };
+  setPanelCollapsed(container, toggleButton, container.classList.contains('collapsed'));
 
   toggleButton.addEventListener('click', function(e) {
     e.stopPropagation();
@@ -162,6 +173,7 @@ export function setupCollapsiblePanel(options: CollapsiblePanelOptions): void {
   }
 
   console.log(`Setting up ${name} toggle`);
+  toggleButton.setAttribute('aria-label', `Toggle ${name} options`);
 
   if (!options.resetListeners) {
     wirePanel(container, toggleButton, header, name, !!options.autoCollapseOnSmallScreens, options.signal);

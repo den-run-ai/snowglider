@@ -18,6 +18,8 @@ import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDi
 import { getRunStamp } from '../run-context.js';
 import { resultSyncStatusCopy } from '../offline/sync-manager.js';
 import { isOnline } from '../offline/offline-state.js';
+import { announceGameStatus, closeOverlayFocus, openOverlayFocus } from './accessibility.js';
+import { setPanelCollapsed } from './collapsible-panel.js';
 
 export function isValidScoreTime(time: number): boolean {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
@@ -147,6 +149,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       window._testShowGameOverOverride(reason);
       return;
     }
+    closeOverlayFocus(gameOverOverlay, false);
     state.gameActive = false;
 
     // Flush the run's diagnostics baseline now that the run has ended. The main loop stops
@@ -204,10 +207,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     const gameStatsContainer = document.getElementById('gameStatsContainer');
     if (gameStatsContainer) {
       // Option 1: Collapse the stats
-      gameStatsContainer.classList.add('collapsed');
       const toggleBtn = document.getElementById('toggleStats');
       if (toggleBtn) {
-        toggleBtn.textContent = '▼';
+        setPanelCollapsed(gameStatsContainer, toggleBtn, true);
       }
 
       // Option 2 (alternative): Hide the stats completely
@@ -420,5 +422,24 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     }
 
     gameOverOverlay.style.display = 'flex';
+    gameOverOverlay.setAttribute('role', 'dialog');
+    gameOverOverlay.setAttribute('aria-label', reason === FINISH_REASON ? 'Run complete' : 'Run ended');
+    if (gameOverDetail.id) gameOverOverlay.setAttribute('aria-describedby', gameOverDetail.id);
+    announceGameStatus(`${reason} ${bestTimeDisplay.textContent ?? ''}`);
+    // Keep the advertised sign-in action inside the dialog's focus boundary.
+    // Move the real controls, preserving native popup gestures and auth listeners;
+    // restore their original placement on Restart, re-show, or game teardown.
+    const account = document.getElementById('authContainer');
+    const accountParent = account?.parentNode;
+    const accountNext = account?.nextSibling ?? null;
+    if (account) gameOverOverlay.insertBefore(account, finishDifficultyPicker ?? restartButton);
+    openOverlayFocus(gameOverOverlay, {
+      initialFocus: restartButton,
+      onClose: () => {
+        if (account && accountParent) {
+          accountParent.insertBefore(account, accountNext?.parentNode === accountParent ? accountNext : null);
+        }
+      },
+    });
   };
 }

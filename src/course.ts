@@ -28,6 +28,7 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
+import { announceGameStatus } from './ui/accessibility.js';
 import { getRunStamp, PHYSICS_VERSION } from './run-context.js';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
@@ -596,6 +597,7 @@ export const CourseModule = (function () {
       }
       if (idx < splitPoints.length - 1) {
         showFlash(`${sp.label} &middot; ${formatTime(elapsed)}${deltaHtml}`, color);
+        announceGameStatus(`${sp.label}. ${elapsed.toFixed(2)} seconds.`);
       }
     }
 

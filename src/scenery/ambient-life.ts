@@ -31,6 +31,7 @@ function prefersReducedMotion(): boolean {
 export interface AmbientLifeSystem {
   group: THREE.Group;
   update(dt: number, playerPosition: THREE.Vector3, windStrength: number): void;
+  reset(): void;
 }
 
 // Prevailing drift direction for clouds + spindrift (unit-ish), scaled by wind strength.
@@ -251,5 +252,11 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
     writeFrame();
   }
 
-  return { group, update };
+  function reset(): void {
+    time = 0;
+    windDrift = 0;
+    writeFrame();
+  }
+
+  return { group, update, reset };
 }

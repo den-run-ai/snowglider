@@ -62,10 +62,8 @@ function createTerrainUnstreamed(scene: THREE.Scene) {
   // and kicker terms ride along automatically (the sampler already gates them),
   // and the mesh is exactly as deterministic as the sampler.
   //
-  // The shared heightMap cache is pre-populated with the SAME values the sampler's
-  // cache-miss path would compute, so it is now a pure memoization (it can no
-  // longer serve mesh-formula heights to physics that the analytic path would
-  // disagree with).
+  // Preserve the mesh-vertex snapshot for debugging. Physics samples the exact
+  // triangle directly; these rounded keys must never answer ad-hoc queries.
   for (let i = 0; i < vertices.length; i += 3) {
     const x = vertices[i]!, z = vertices[i + 2]!;
     const y = getTerrainHeightUncached(x, z);

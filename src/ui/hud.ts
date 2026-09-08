@@ -80,6 +80,7 @@ export function initializeGameStats(): void {
     containerId: 'gameStatsContainer',
     toggleButtonId: 'toggleStats',
     headerId: 'gameStatsHeader',
+    resetListeners: true,
   });
 }
 
