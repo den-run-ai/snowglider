@@ -237,6 +237,23 @@ async function main() {
   check('a normal game touch is preventDefaulted', gameEvt.defaultPrevented === true);
   dispatchTouch('touchend', document, [{ identifier: 7, clientX: W / 6, clientY: H / 2 }]);
 
+  window.history.replaceState({}, '', '/?contest=1');
+  const contestEvt = /** @type {any} */ (new window.Event('touchstart', { bubbles: true, cancelable: true }));
+  contestEvt.changedTouches = [{ identifier: 71, clientX: W / 6, clientY: H / 2 }];
+  document.dispatchEvent(contestEvt);
+  check('unrelated contest query keeps production touch prevention',
+    contestEvt.defaultPrevented === true);
+  dispatchTouch('touchend', document, [{ identifier: 71, clientX: W / 6, clientY: H / 2 }]);
+
+  window.history.replaceState({}, '', '/?test=controls');
+  const testEvt = /** @type {any} */ (new window.Event('touchstart', { bubbles: true, cancelable: true }));
+  testEvt.changedTouches = [{ identifier: 72, clientX: W / 6, clientY: H / 2 }];
+  document.dispatchEvent(testEvt);
+  check('exact test query still leaves automation touches unprevented',
+    testEvt.defaultPrevented === false);
+  dispatchTouch('touchend', document, [{ identifier: 72, clientX: W / 6, clientY: H / 2 }]);
+  window.history.replaceState({}, '', '/');
+
   controls.left = false;
   // Same left-region coordinates, but the gesture starts on the scroller row.
   const point = [{ identifier: 8, clientX: W / 6, clientY: H / 2 }];

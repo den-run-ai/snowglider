@@ -13,6 +13,8 @@
 // suites. The service worker must never precache them and must never navigation-hijack
 // their routes, or it would serve a stale app shell in place of a `?test=` suite.
 
+import { isTestModeSearch } from '../test-mode.js';
+
 /** localStorage-independent cache-name prefix; used to scope + purge our caches. */
 export const CACHE_PREFIX = 'snowglider';
 
@@ -29,6 +31,7 @@ export const FORBIDDEN_PRECACHE_SUBSTRINGS: readonly string[] = [
   '.map',
   'README',
   'LICENSE',
+  'THIRD_PARTY_NOTICES',
 ];
 
 /** Path prefixes/files the SW must pass straight through to the network (never serve
@@ -43,11 +46,11 @@ export function isBypassedPath(pathname: string): boolean {
   );
 }
 
-/** Is this an automation / test navigation (`?test=…`)? Mirrors the codebase's
- *  `location.search.includes('test')` automation gate (scene-setup.ts) so the SW and
- *  the game agree on what "a test route" is. */
+/** Is this an automation / test navigation (`?test=…`)? Uses the same exact-key
+ *  policy as scene setup so ordinary query values containing "test" stay player
+ *  navigations. */
 export function isAutomationSearch(search: string): boolean {
-  return (search || '').includes('test');
+  return isTestModeSearch(search);
 }
 
 /** Is this the emergency reset request (`?sw=reset`)? */

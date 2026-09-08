@@ -29,6 +29,10 @@ async function main() {
   check('does NOT register on file://', c.shouldRegisterServiceWorker({ protocol: 'file:', hostname: '', pathname: '/index.html', search: '' }) === false);
   check('does NOT register on auth.html', c.shouldRegisterServiceWorker(https('/auth.html', '')) === false);
   check('does NOT register under ?test=', c.shouldRegisterServiceWorker(https('/', '?test=unified')) === false);
+  for (const search of ['?latest=1', '?contest=1', '?utm_campaign=beta-test', '?foo=test']) {
+    check(`registers for ordinary player query ${search}`,
+      c.shouldRegisterServiceWorker(https('/', search)) === true);
+  }
   check('does NOT register under ?no-sw=1', c.shouldRegisterServiceWorker(https('/', '?no-sw=1')) === false);
   check('does NOT register under ?sw=reset', c.shouldRegisterServiceWorker(https('/', '?sw=reset')) === false);
 
@@ -57,6 +61,10 @@ async function main() {
   check('serve app shell for a normal navigation', c.shouldServeAppShell({ pathname: '/', search: '' }) === true);
   check('serve app shell for a deep in-app path', c.shouldServeAppShell({ pathname: '/some/route', search: '' }) === true);
   check('do NOT serve shell for /?test= (test suite navigation)', c.shouldServeAppShell({ pathname: '/', search: '?test=unified' }) === false);
+  for (const search of ['?latest=1', '?contest=1', '?utm_campaign=beta-test', '?foo=test']) {
+    check(`serves shell for ordinary player query ${search}`,
+      c.shouldServeAppShell({ pathname: '/', search }) === true);
+  }
   check('do NOT serve shell for /auth.html', c.shouldServeAppShell({ pathname: '/auth.html', search: '' }) === false);
   check('do NOT serve shell for /tests/...', c.shouldServeAppShell({ pathname: '/tests/x.html', search: '' }) === false);
   check('do NOT serve shell for /src/...', c.shouldServeAppShell({ pathname: '/src/main.js', search: '' }) === false);
@@ -65,7 +73,10 @@ async function main() {
 
   // --- isAutomationSearch mirrors the codebase automation gate ---
   check('isAutomationSearch true for ?test=', c.isAutomationSearch('?test=camera') === true);
+  check('isAutomationSearch true for bare ?test', c.isAutomationSearch('?test') === true);
   check('isAutomationSearch false otherwise', c.isAutomationSearch('?difficulty=black') === false);
+  check('isAutomationSearch ignores test in an unrelated value',
+    c.isAutomationSearch('?utm_campaign=beta-test') === false);
 
   // --- forbidden-precache list is the contract the build guard enforces ---
   check('forbidden list covers src/tests/node_modules/auth/mp3/map', ['/src/', '/tests/', '/node_modules/', 'auth.html', '.mp3', '.map'].every((s) => c.FORBIDDEN_PRECACHE_SUBSTRINGS.includes(s)));

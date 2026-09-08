@@ -101,6 +101,32 @@ async function main() {
   check('appinstalled hides the chip', env4.document.getElementById(ip.INSTALL_PROMPT_ID).style.display === 'none');
   ctrl4.dispose();
 
+  // --- Exact query-key gate: campaign values containing "test" are real players ---
+  const env5 = setupDom({ html: START_HTML, url: 'https://snowglider.ai/?utm_campaign=beta-test' });
+  const ctrl5 = ip.initInstallPrompt({
+    doc: env5.document,
+    win: env5.window,
+    standalone: () => false,
+    storage: createLocalStorageMock(),
+  });
+  env5.window.dispatchEvent(makeBip(env5.window, 'accepted'));
+  check('campaign URL containing test still receives the install prompt',
+    env5.document.getElementById(ip.INSTALL_PROMPT_ID)?.style.display === 'flex');
+  ctrl5.dispose();
+
+  const env6 = setupDom({ html: START_HTML, url: 'https://snowglider.ai/?test=unified' });
+  const ctrl6 = ip.initInstallPrompt({
+    doc: env6.document,
+    win: env6.window,
+    standalone: () => false,
+    storage: createLocalStorageMock(),
+  });
+  env6.window.dispatchEvent(makeBip(env6.window, 'accepted'));
+  const chip6 = env6.document.getElementById(ip.INSTALL_PROMPT_ID);
+  check('exact test key still suppresses the install prompt',
+    !chip6 || chip6.style.display === 'none');
+  ctrl6.dispose();
+
   // --- No document: inert controller, no throw ---
   const inert = ip.initInstallPrompt({ doc: /** @type {any} */ (null), win: /** @type {any} */ (null) });
   let inertThrew = false;

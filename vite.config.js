@@ -35,7 +35,8 @@ function copyStaticAppFiles() {
     ['auth.html', 'auth.html'],
     ['CNAME', 'CNAME'],
     ['LICENSE', 'LICENSE'],
-    ['README.md', 'README.md']
+    ['README.md', 'README.md'],
+    ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md']
   ];
 
   return {
@@ -219,6 +220,7 @@ export default defineConfig({
           'node_modules/**',
           'README.md',
           'LICENSE',
+          'THIRD_PARTY_NOTICES.md',
         ],
       },
       devOptions: { enabled: false },

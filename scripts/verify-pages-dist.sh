@@ -50,6 +50,7 @@ require_file() {
 }
 require_file dist/manifest.webmanifest
 require_file dist/icons/icon.svg
+require_file dist/THIRD_PARTY_NOTICES.md
 
 # PWA service worker (issue #358, PR 3): the built worker must ship, and the raw TS
 # worker source must NOT (it is compiled standalone by vite-plugin-pwa to dist/sw.js).
@@ -72,7 +73,7 @@ if [ -z "$PRECACHE_URLS" ]; then
 fi
 while IFS= read -r u; do
   case "$u" in
-    *src/*|*tests/*|*node_modules/*|*auth.html*|*.mp3|*.map)
+    *src/*|*tests/*|*node_modules/*|*auth.html*|*.mp3|*.map|*README*|*LICENSE*|*THIRD_PARTY_NOTICES*)
       echo "::error::service-worker precache manifest includes a forbidden path: '$u' — check the injectManifest globs"
       exit 1;;
   esac
