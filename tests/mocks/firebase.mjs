@@ -44,11 +44,14 @@
 /** @typedef {{ resolve?: any, reject?: any } | null} PopupResult */
 
 // ---- shared, test-controllable state ----
-/** @type {{ users: Map<string, DocData>, leaderboard: Map<string, DocData>, leaderboard_bunny: Map<string, DocData>, leaderboard_black: Map<string, DocData>, leaderboard_expert: Map<string, DocData> }} */
+/** @type {Record<string, Map<string, DocData>>} */
 export const db = {
   users: new Map(),
+  // The legacy (pre-versioning) Blue board + per-tier siblings. The ACTIVE boards
+  // are version-namespaced (leaderboard_v<N>[_tier], src/difficulty.ts) and are
+  // created lazily by getCollectionStore, so the mock never needs a hand-maintained
+  // registry that drifts on a PHYSICS_VERSION bump.
   leaderboard: new Map(),
-  // Per-difficulty-tier sibling boards (Blue uses `leaderboard`; see src/difficulty.ts).
   leaderboard_bunny: new Map(),
   leaderboard_black: new Map(),
   leaderboard_expert: new Map()
@@ -120,8 +123,15 @@ function clone(value) {
  * @returns {Map<string, DocData>}
  */
 function getCollectionStore(name) {
-  const store = /** @type {Record<string, Map<string, DocData>>} */ (db)[name];
+  let store = Object.hasOwn(db, name) ? db[name] : undefined;
   if (!store) {
+    // Exact legacy / numeric-version names, with known optional tier suffixes.
+    // A prefix match hides production failures behind empty mocked boards.
+    if (/^leaderboard(?:_v[1-9]\d*)?(?:_(?:bunny|black|expert))?$/.test(name)) {
+      store = new Map();
+      db[name] = store;
+      return store;
+    }
     throw new Error(`Unknown collection: ${name}`);
   }
   return store;
@@ -154,11 +164,7 @@ function writeDoc(ref, data, options) {
 
 /** Clear all in-memory documents, recorded calls, and any armed deferred write. */
 export function reset() {
-  db.users.clear();
-  db.leaderboard.clear();
-  db.leaderboard_bunny.clear();
-  db.leaderboard_black.clear();
-  db.leaderboard_expert.clear();
+  for (const store of Object.values(db)) store.clear();
   calls.getDoc = [];
   calls.setDoc = [];
   calls.getDocs = [];

@@ -93,6 +93,11 @@ Discovery skips two documented sets (see the header of `run-node-suite.js`):
 - **`firestore-rules-tests.js`** — needs the Java-backed Firestore emulator, so it
   runs in its own `npm run test:firebase` job.
 
+Remote score schema changes also run `remote-version-sync-tests.js`: it preserves
+the unversioned schema and every shipped version, including historical fields
+still present on user documents. See the [version bump checklist](../docs/SCORE-SCHEMA-VERSIONING.md)
+before changing `PHYSICS_VERSION` or the Firestore rules.
+
 Every suite is launched with the superset `--import
 tests/loaders/register-firebase-mock.mjs` hook. That hook layers the Firebase-CDN
 mock on top of the `.js`→`.ts` resolve fallback, and **both hooks are conditional
