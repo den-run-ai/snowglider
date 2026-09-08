@@ -14,7 +14,8 @@ import { EffectsModule } from '../effects.js';
 // scores module and the Firestore rules (issue #229, PR C).
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
-import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, type Difficulty } from '../difficulty.js';
+import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, stampLocalBestMeta, type Difficulty } from '../difficulty.js';
+import { getRunStamp } from '../run-context.js';
 import { resultSyncStatusCopy } from '../offline/sync-manager.js';
 import { isOnline } from '../offline/offline-state.js';
 
@@ -124,7 +125,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     const tier: Difficulty = getDifficulty ? getDifficulty() : readStoredDifficulty();
     // Unranked tiers (Bunny/Black for now) are practice-only: local best/ghost still
     // work, but nothing is submitted to the global board until their floors are measured.
-    const tierRanked = getDifficultyConfig(tier).ranked;
+    // Ranked-eligibility for THIS run: the tier must be ranked AND the world must
+    // be canonical — a ?seed= practice world reads as unranked through the WHOLE
+    // overlay (Codex review PR #407): no login prompt, no "saved" status copy,
+    // no leaderboard render, and the practice result panel makes no PB promises.
+    const tierRanked = getDifficultyConfig(tier).ranked && !getRunStamp().practice;
     // Allow tests to intercept showGameOver calls
     if (window._testShowGameOverOverride) {
       window._testShowGameOverOverride(reason);
@@ -196,7 +201,13 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // Only update times if player reached the end successfully
     if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
       const currentTime = finishTime;
-      const isNewBestTime = currentTime < state.bestTime;
+      // Practice worlds (?seed=..., #403 review) show their time but record
+      // NOTHING competitive: no leaderboard submit, no local best, no
+      // state.bestTime update — a freely chosen seed could cherry-pick an easy
+      // obstacle/avalanche field (seed-shopping), so only canonical-world runs
+      // are ranked. The result panel still renders (CourseModule.onFinish).
+      const practice = getRunStamp().practice;
+      const isNewBestTime = !practice && currentTime < state.bestTime;
       const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
 
       // Record the score whenever the leaderboard API is available (it handles its own
@@ -204,8 +215,12 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       if (canRecordScore && tierRanked) {
         window.AuthModule.recordScore?.(currentTime, tier);
       } else if (isNewBestTime) {
-        // Unranked tier (or no leaderboard API): keep the local per-tier best only.
+        // Unranked tier (or no leaderboard API): keep the local per-tier best only —
+        // stamped with the same run provenance every other local-best write carries
+        // (#400; Codex review PR #407). Practice runs never reach here
+        // (isNewBestTime is force-false above).
         localStorage.setItem(localBestTimeKey(tier), String(currentTime));
+        stampLocalBestMeta(tier);
       }
 
       // Show appropriate message based on time
@@ -213,6 +228,13 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         state.bestTime = currentTime;
         bestTimeDisplay.textContent = `New Best Time: ${state.bestTime.toFixed(2)}s`;
         bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
+      } else if (practice) {
+        // A seeded practice world records nothing and its times are not comparable
+        // with the canonical-world best — showing that best here would juxtapose two
+        // different worlds (or print 'Best: Infinitys' for a new player). Render the
+        // practice time alone (Codex review PR #407).
+        bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s`;
+        bestTimeDisplay.style.color = 'white';
       } else {
         bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${state.bestTime.toFixed(2)}s)`;
         bestTimeDisplay.style.color = 'white';
@@ -232,6 +254,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         ranked: tierRanked,
         signedIn: !!signedInUser,
         anonymous: !!(signedInUser && signedInUser.isAnonymous),
+        // A ?seed= practice WORLD saves nothing at all (no local best, no ghost),
+        // which needs different copy than an unranked TIER (Codex review PR #407).
+        practiceWorld: getRunStamp().practice,
       });
       if (syncCopy && !document.getElementById('syncStatus')) {
         const syncStatus = document.createElement('p');

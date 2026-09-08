@@ -179,10 +179,19 @@ export interface ResultSyncState {
   ranked: boolean;
   signedIn: boolean;
   anonymous: boolean;
+  /** True for a ?seed= practice WORLD (#403): nothing is saved at all. */
+  practiceWorld?: boolean;
 }
 
 /** Practice-tier copy (unranked): local best + ghost only, no global board. */
 export const RESULT_UNRANKED_COPY = 'Practice tier — local best and ghost only.';
+/**
+ * Practice-WORLD copy (?seed=..., #403): unlike an unranked TIER — where the local
+ * best and ghost still commit — a seeded practice world records nothing at all
+ * (no leaderboard, no local best, no ghost), so the copy must not claim records
+ * exist (Codex review PR #407).
+ */
+export const RESULT_PRACTICE_WORLD_COPY = 'Seeded practice world — times are shown but nothing is saved.';
 /** Offline copy: saved locally, will sync when back online + signed in. */
 export const RESULT_OFFLINE_COPY = 'Saved locally. Global leaderboard will sync when you are online and signed in.';
 /** Anonymous-guest copy: saved locally, sign in to sync future eligible scores. */
@@ -199,10 +208,12 @@ export const RESULT_LEADERBOARD_UNAVAILABLE_COPY = 'Score saved locally. Global 
  * The honest sync-status line for the result screen, or null when nothing extra needs
  * saying (a normal online signed-in sync, or a signed-out online run where the existing
  * "Log in to save your score" prompt already covers it). Pure so the copy is unit
- * tested. Precedence: unranked practice > offline > anonymous guest > signed-out (defer
- * to the login prompt) > (online, signed-in, Firestore down) leaderboard-unavailable.
+ * tested. Precedence: practice world > unranked practice tier > offline > anonymous
+ * guest > signed-out (defer to the login prompt) > (online, signed-in, Firestore down)
+ * leaderboard-unavailable.
  */
 export function resultSyncStatusCopy(state: ResultSyncState): string | null {
+  if (state.practiceWorld) return RESULT_PRACTICE_WORLD_COPY;
   if (!state.ranked) return RESULT_UNRANKED_COPY;
   if (!state.online) return RESULT_OFFLINE_COPY;
   if (state.anonymous) return RESULT_GUEST_COPY;

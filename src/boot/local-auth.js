@@ -57,6 +57,20 @@
 
         if (isNewPersonalBest) {
           localStorage.setItem(key, time.toString());
+          // Run-provenance stamp (#400): mirror the module-graph write paths. This is
+          // a CLASSIC script (no ES imports), so it reads the deliberate window seam
+          // scene-setup publishes at module load; the seam is defined by finish time
+          // (recordScore only runs after a full game session). Best-effort: absent
+          // seam or blocked storage must never break local-mode score recording —
+          // but a PREVIOUS run's sidecar must never survive to describe the NEW
+          // time (Codex review PR #407): clear it first, so an absent seam or a
+          // failed stamp write leaves the record unstamped, not mis-stamped.
+          try {
+            localStorage.removeItem(key + '_meta');
+            if (typeof window.__snowgliderGetRunStamp === 'function') {
+              localStorage.setItem(key + '_meta', JSON.stringify(window.__snowgliderGetRunStamp()));
+            }
+          } catch (e) { /* stamp is best-effort; the cleared sidecar stays cleared */ }
           console.log("New local best time recorded:", time);
         } else {
           console.log("Score recorded, but not a new local best time:", time);

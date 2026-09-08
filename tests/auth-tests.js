@@ -373,9 +373,16 @@ async function main() {
   // (see scores.ts: "the on-login syncUserData reconciliation re-applies it").
   // Write through the injected global store auth.ts reads (jsdom's window.localStorage
   // is read-only, so the harness's window.localStorage = global alias did not take).
+  // Backfill now requires a compatible provenance stamp on the best (Codex review
+  // PR #407): stamp fixtures with the CURRENT run stamp so they read as same-world.
+  const RCa = await import('../src/run-context.ts');
+  const stampCompatible = (key) => localStorage.setItem(`${key}_meta`,
+    JSON.stringify({ seed: RCa.getRunStamp().seed, nonce: 0, physicsVersion: RCa.PHYSICS_VERSION }));
   localStorage.setItem('snowgliderBestTime', '19.5');
+  stampCompatible('snowgliderBestTime');
   // An unranked tier's local best must NOT be published to the global board on sign-in.
   localStorage.setItem('snowgliderBestTime_bunny', '40');
+  stampCompatible('snowgliderBestTime_bunny');
   fb.setNextPopupResult(null);
   fb.emitAuthState({ uid: 'sync1', email: 's@g.ai', displayName: 'Sync', photoURL: null });
   // syncUserData is scheduled 100ms after sign-in; wait past it with margin, then let
@@ -390,6 +397,23 @@ async function main() {
     !!fb.read('leaderboard', 'sync1') && fb.read('leaderboard', 'sync1').time === 19.5);
   check('syncUserData does NOT backfill an unranked tier best to the global board',
     !fb.read('leaderboard_bunny', 'sync1') && !fb.read('users', 'sync1').bestTimeBunny);
+
+  // PROVENANCE GATE (Codex review PR #407): an UNSTAMPED (legacy/other-world) local
+  // best is kept local — neither backfilled to the board nor queued for retry.
+  localStorage.setItem('snowgliderBestTime', '19.2');
+  localStorage.removeItem('snowgliderBestTime_meta');
+  localStorage.removeItem('snowgliderPendingSync');
+  fb.emitAuthState({ uid: 'unstamped1', email: 'u@g.ai', displayName: 'Unstamped', photoURL: null });
+  await new Promise(r => setTimeout(r, 250));
+  await flush(); await flush(); await flush();
+  {
+    const storeEarly = await import('../src/offline/offline-store.ts');
+    check('an unstamped legacy local best is NOT backfilled on sign-in (kept local)',
+      !fb.read('leaderboard', 'unstamped1') &&
+      !storeEarly.getPendingSync('unstamped1', 'blue', localStorage));
+    check('the unstamped legacy best itself is preserved locally',
+      localStorage.getItem('snowgliderBestTime') === '19.2');
+  }
 
   // --- Codex #362: score backfill is DECOUPLED from profile persistence ---
   // Invariant: a real signed-in user with a ranked local best must confirm-or-queue the
@@ -421,6 +445,7 @@ async function main() {
   // directly so it's race-independent.
   localStorage.removeItem('snowgliderPendingSync');
   localStorage.setItem('snowgliderBestTime', '20.5'); // a fresh local-only best (ranked Blue)
+  stampCompatible('snowgliderBestTime');
   fb.setNextSetDocError('users/syncfail1', { code: 'unavailable' }); // a user-doc write fails
   fb.emitAuthState({ uid: 'syncfail1', email: 'f@g.ai', displayName: 'Fail', photoURL: null });
   await new Promise(r => setTimeout(r, 250)); // past the 100ms syncUserData timer
@@ -440,6 +465,7 @@ async function main() {
   await new Promise(r => setTimeout(r, 250));
   await flush(); await flush(); await flush();
   localStorage.setItem('snowgliderBestTime', '21'); // a fresh local ranked best
+  stampCompatible('snowgliderBestTime');
   fb.emitAuthState({ uid: 'nullfs1', email: 'n@g.ai', displayName: 'NoFs', photoURL: null });
   await new Promise(r => setTimeout(r, 250));
   await flush(); await flush(); await flush();

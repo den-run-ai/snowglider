@@ -12,6 +12,7 @@ import { Expression } from '../snowman-expression.js';
 import { AudioModule } from '../audio.js';
 import { Sfx } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
+import { rewindRunStreams, isPracticeRun, getRunStamp, drawRunNonce } from '../run-context.js';
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
@@ -58,6 +59,23 @@ export function createLifecycle(deps: LifecycleDeps) {
   const touchOpts: AddEventListenerOptions = signal ? { passive: false, signal } : { passive: false };
 
   function resetSnowman() {
+    // Rewind the run's RNG streams for the new run (#400/#403 review). WORLD
+    // streams (hazards/course) replay from the world seed. The RUN-scoped
+    // streams (physics auto-turns, avalanche boulders) re-derive from
+    // worldSeed^nonce: canonical-world runs draw a FRESH nonce so restarts keep
+    // their run-to-run variety on the one shared world, while a ?seed= practice
+    // run pins the nonce to 0 — the same seed is a full deterministic replay.
+    // The nonce comes from drawRunNonce (crypto-backed), NEVER global
+    // Math.random: cosmetic consumers (e.g. the Sfx noise buffers on unlock)
+    // advance the global stream by machine-dependent amounts, and the draw
+    // happens ONLY when a concrete world seed is active — with no seed the
+    // streams are Math.random passthroughs (the frozen-baseline and
+    // seeded-harness mode), where consuming any draw would shift the
+    // auto-turn/avalanche sequence and break the documented byte-identical
+    // passthrough contract (Codex review PR #407, two rounds).
+    const runStamp = getRunStamp();
+    rewindRunStreams(runStamp.seed !== null && !isPracticeRun() ? drawRunNonce() : 0);
+
     // Reset the snowman + player physics state (position, velocity, camera, and the
     // air/auto-turn scalars) to the start of a run.
     Physics.resetPlayer(player, snowman, Snow.getTerrainHeight, cameraManager);

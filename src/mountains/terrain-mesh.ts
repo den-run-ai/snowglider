@@ -24,9 +24,21 @@ import { addRocks, type RockPosition } from './rocks.js';
 import { addContactShadows } from './contact-shadows.js';
 import { SNOW_ROUGHNESS_SURFACE } from './snow-palette.js';
 import { getTerrainHeight as sampleTerrainHeight } from './terrain.js';
+import { withGameplayStream } from '../run-context.js';
 
-// Create Terrain (Natural Mountain)
+// Create Terrain (Natural Mountain).
+//
+// The whole world build — the mesh noise/bumps below, addRocks, and the ONE
+// Trees.addTrees forest (#397) — runs inside the 'hazards' gameplay stream
+// (#400): a pure no-op while unseeded (today's production and every harness
+// that assigns `Math.random = makeRng(seed)` stay byte-identical), and a
+// seed-deterministic world once setRunSeed is active — same seed => same
+// obstacle field, without touching the ~120 legacy draw sites individually.
 export function createTerrain(scene: THREE.Scene) {
+  return withGameplayStream('hazards', () => createTerrainUnstreamed(scene));
+}
+
+function createTerrainUnstreamed(scene: THREE.Scene) {
   // Create a large natural mountain terrain
   const geometry = new THREE.PlaneGeometry(300, 400, 150, 200);
   geometry.rotateX(-Math.PI / 2);

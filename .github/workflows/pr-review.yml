@@ -2,7 +2,10 @@ name: PR Review Bot
 
 on:
   pull_request:
-    branches: [main]
+    # Stacked-PR support: a PR whose BASE is another claude/* feature branch (the
+    # staged-stack review flow in CLAUDE.md) must run the same gates as a PR to
+    # main — without this, only the bottom of a stack ever got CI.
+    branches: [main, 'claude/**']
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:

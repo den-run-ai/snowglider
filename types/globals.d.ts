@@ -223,6 +223,10 @@ declare global {
     treePositions?: TreePosition[];
     rockPositions?: Array<{ x: number; y: number; z: number; size: number; topY?: number }>;
     isTestMode?: boolean;
+    /** Boot seam (#400): run-provenance stamp getter for the classic-script
+     *  local-auth fallback, which cannot import ES modules. Published by
+     *  setupScene; read at recordScore time. */
+    __snowgliderGetRunStamp?: () => { seed: number | null; physicsVersion: number };
     // Lifecycle/input callbacks snowglider.js publishes for controls.js + buttons.
     toggleCameraView?: () => unknown;
     resetSnowman?: () => void;
