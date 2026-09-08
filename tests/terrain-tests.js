@@ -157,7 +157,11 @@ runTest('Terrain Gradient', () => {
   // For a smoother peak, we check slightly off-center
   const gradAtNearPeak = Utils.getTerrainGradient(2, 2);
   const gradMagnitudeNearPeak = Math.sqrt(gradAtNearPeak.x * gradAtNearPeak.x + gradAtNearPeak.z * gradAtNearPeak.z);
-  assertLessThan(gradMagnitudeNearPeak, 1.0, 'Gradient near peak should be relatively small');
+  // The sampler returns the RENDERED piecewise-linear surface (#403 review):
+  // near the peak a per-triangle gradient is the 2-unit chord of the summit
+  // curve, slightly steeper than the old 0.1-eps analytic slope. Still small
+  // relative to the mid-slope ~2.0+ gradients the run rides.
+  assertLessThan(gradMagnitudeNearPeak, 1.5, 'Gradient near peak should be relatively small');
   
   // Gradient on side should point toward center
   const gradOnSide = Utils.getTerrainGradient(30, 0);

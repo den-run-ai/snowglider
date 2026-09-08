@@ -1,19 +1,19 @@
 // mountains/terrain-mesh.ts - Build the natural-mountain terrain mesh.
 //
 // THREE-heavy (browser-only): createTerrain rasterizes the analytic height field
-// into a PlaneGeometry, pre-populates the shared heightMap singleton (so the
-// per-vertex mesh height and getTerrainHeight agree — the "two-formula terrain
-// contract"), applies the snow look, and scatters rocks + trees. The mesh-vertex
-// formula here MUST stay byte-identical to getTerrainHeight in terrain.ts; the
-// terrain/regression suites and the physics-invariant harness pin it.
+// into a PlaneGeometry, pre-populates the shared heightMap singleton, applies the
+// snow look, and scatters rocks + trees. Since #401 the mesh has NO formula of
+// its own: every vertex samples getTerrainHeightUncached (terrain.ts), the same
+// pure function physics/collision/placement read — the old duplicated
+// "MUST MATCH" vertex formula had drifted materially and rendered a different
+// mountain than the one the kernel simulated.
 //
 // trees.ts is now a sibling submodule (./trees.js) that reads the terrain samplers
 // from the leaf modules directly, so there is no longer a mountains<->trees circular
 // import — this is a plain one-way dependency (terrain-mesh -> trees -> terrain/noise).
 import * as THREE from 'three';
 import { Trees, type TreePosition } from './trees.js';
-import { SimplexNoise, terrainRidgeField } from './noise.js';
-import { heightMap, corridorWallHeight, hasActiveCorridor, kickerRampHeight, hasActiveKickers } from './terrain.js';
+import { heightMap, getTerrainHeightUncached } from './terrain.js';
 import {
   createSnowAlbedoTexture,
   createSnowNormalTexture,
@@ -28,7 +28,7 @@ import { withGameplayStream } from '../run-context.js';
 
 // Create Terrain (Natural Mountain).
 //
-// The whole world build — the mesh noise/bumps below, addRocks, and the ONE
+// The whole world build — addRocks and the ONE
 // Trees.addTrees forest (#397) — runs inside the 'hazards' gameplay stream
 // (#400): a pure no-op while unseeded (today's production and every harness
 // that assigns `Math.random = makeRng(seed)` stay byte-identical), and a
@@ -51,65 +51,26 @@ function createTerrainUnstreamed(scene: THREE.Scene) {
   // buffer is a writable Float32Array, which we mutate in place below.
   const vertices = geometry.attributes.position!.array as Float32Array;
 
-  // Create Perlin noise for natural terrain variation
-  const perlin = new SimplexNoise();
-
-  // Bank the winding corridor (D3.2b) only when a tier set one; straight tiers (Blue/
-  // Bunny) skip the add entirely so the mesh takes the literal original path.
-  const corridorActive = hasActiveCorridor();
-  // Sculpted kickers (JP-6) only when a tier shipped `features`; same guardrail.
-  const kickersActive = hasActiveKickers();
-
+  // ONE height field (#401): every mesh vertex samples getTerrainHeightUncached —
+  // the SAME pure analytic function physics, collision grounding, and tree/rock
+  // placement read. The old vertex loop kept a hand-copied variant behind "MUST
+  // MATCH" comments and it had materially drifted (Simplex noise x2.0 + ridge x1.5
+  // + per-vertex Math.random bumps vs the sampler's sin*cos x1.5 + ridge x0.8), so
+  // the surface players SAW was not the surface the kernel and the headless
+  // harnesses simulated — and the mesh differed run to run (unseeded Simplex +
+  // random bumps). Sampling the one function ends the drift class: the corridor
+  // and kicker terms ride along automatically (the sampler already gates them),
+  // and the mesh is exactly as deterministic as the sampler.
+  //
+  // The shared heightMap cache is pre-populated with the SAME values the sampler's
+  // cache-miss path would compute, so it is now a pure memoization (it can no
+  // longer serve mesh-formula heights to physics that the analytic path would
+  // disagree with).
   for (let i = 0; i < vertices.length; i += 3) {
     const x = vertices[i]!, z = vertices[i + 2]!;
-    const distance = Math.sqrt(x * x + z * z);
-
-    // Base mountain shape - MUST MATCH getTerrainHeight function exactly!
-    let y = 40 * Math.exp(-distance / 40);
-
-    // Add perlin noise for natural terrain roughness
-    // Less noise near the peak, more at the sides
-    const noiseScale = 0.05;
-    const noiseStrength = 2.0 * (1 - Math.exp(-distance / 60));
-    y += perlin.noise(x * noiseScale, z * noiseScale) * noiseStrength;
-
-    // Store this vertex position in our heightmap for precise object placement
-    const key = `${Math.round(x*10)},${Math.round(z*10)}`;
-    heightMap[key] = y;
-
-    // Add natural terrain features and ridges (aperiodic — see terrainRidgeField).
-    // Damped toward the peak like the perlin roughness above (same distance falloff).
-    y += terrainRidgeField(x, z) * 1.5 * (1 - Math.exp(-distance / 60));
-
-    // Ensure downhill gradient in extended sections - create a consistent downhill slope
-    // Must match getTerrainHeight implementation exactly!
-    // Use a stronger gradient (0.12) to ensure consistent downhill even with terrain noise
-    if (z < -30) {
-      y += (z + 30) * 0.12;
-    }
-
-    // Add some random smaller bumps for natural backcountry terrain
-    if (Math.random() > 0.6) {
-      y += perlin.noise(x * 0.1 + 100, z * 0.1 + 100) * 2.0;
-    }
-
-    // Corridor walls (D3.2b) — the SAME formula getTerrainHeight adds, in lockstep, so
-    // the mesh vertex and the analytic sampler stay byte-identical (the two-formula
-    // contract). Added last, before the final height is committed to the heightmap.
-    if (corridorActive) {
-      y += corridorWallHeight(x, z);
-    }
-
-    // Kicker ramps (JP-6) — the SAME formula getTerrainHeight adds (two-formula
-    // contract §2.2): the visual ramp and the physical ramp can never disagree.
-    if (kickersActive) {
-      y += kickerRampHeight(x, z);
-    }
-
+    const y = getTerrainHeightUncached(x, z);
     vertices[i + 1] = y;
-
-    // IMPORTANT: Update the heightmap with the FINAL height after all modifications
-    heightMap[`${Math.round(x*10)},${Math.round(z*10)}`] = y;
+    heightMap[`${Math.round(x * 10)},${Math.round(z * 10)}`] = y;
   }
   geometry.computeVertexNormals();
   // Smooth the *shading* normals (positions/physics untouched) so the directional

@@ -563,7 +563,11 @@ import { Snowman } from '../src/snowman.js';
       let bestTimeUpdated = false;
       
       localStorage.setItem = function(key, value) {
-        if (key === 'snowgliderBestTime') {
+        // The competitive PB is namespaced by physics version ('snowgliderBestTime_vN',
+        // src/difficulty.ts localBestTimeKey); match BOTH forms so this test keeps
+        // working across version bumps — but NOT the '_meta' provenance sidecar or a
+        // tier-suffixed key, which are separate records.
+        if (/^snowgliderBestTime(_v\d+)?$/.test(key)) {
           bestTimeUpdated = true;
           originalLocalStorage.snowgliderBestTime = value;
         }

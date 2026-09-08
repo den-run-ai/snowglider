@@ -93,8 +93,13 @@ function near(a, b, eps, msg) {
   runTest('two-formula contract: getTerrainHeight == base + the SAME ramp term', () => {
     setTerrainKickers(null);
     resetHeightMap();
+    // Probes sit ON render-grid vertices (even x, even z): since #403's review the
+    // sampler returns the RENDERED piecewise-linear surface, which equals the
+    // analytic field exactly at vertices — so base + the analytic ramp term holds
+    // to 1e-9 there. Off-vertex, the surface is the interpolation of (base+ramp),
+    // which the height-field-parity suite pins against the actual mesh triangles.
     const probes = [
-      [0, kicker.z], [2, kicker.z + 3], [-4, kicker.z + 6], [0, kicker.z - 2], [9, kicker.z],
+      [0, kicker.z], [2, kicker.z + 4], [-4, kicker.z + 6], [0, kicker.z - 2], [8, kicker.z],
     ];
     const bases = probes.map(([x, z]) => getTerrainHeight(x, z));
     setTerrainKickers([kicker], null); // resets the cache itself

@@ -33,8 +33,11 @@ async function main() {
   const MAX = limits.MAX_VALID_SCORE_TIME;
 
   // --- Key contract: reused builders must match course.ts's `${base}_${tier}` scheme ---
-  check('localBestTimeKey(blue) is the legacy un-suffixed key', store.localBestTimeKey('blue') === 'snowgliderBestTime');
-  check('localBestTimeKey(black) is suffixed', store.localBestTimeKey('black') === 'snowgliderBestTime_black');
+  const PV = (await import('../src/run-context.ts')).PHYSICS_VERSION;
+  check('localBestTimeKey(blue) is the versioned base key (#403 review)',
+    store.localBestTimeKey('blue') === `snowgliderBestTime_v${PV}`);
+  check('localBestTimeKey(black) is suffixed within the version namespace',
+    store.localBestTimeKey('black') === `snowgliderBestTime_v${PV}_black`);
   check('localBestSplitsKey(blue) is suffixed for blue too', store.localBestSplitsKey('blue') === 'snowgliderBestSplits_blue');
   check('localGhostKey(bunny) matches the course.ts scheme', store.localGhostKey('bunny') === 'snowgliderGhost_bunny');
 
@@ -64,19 +67,19 @@ async function main() {
   // --- readLocalBest: valid / absent / corrupt ---
   const ls = createLocalStorageMock();
   check('readLocalBest null when absent', store.readLocalBest('blue', ls) === null);
-  ls.setItem('snowgliderBestTime', '42.5');
+  ls.setItem(store.localBestTimeKey('blue'), '42.5');
   check('readLocalBest returns a valid stored best', store.readLocalBest('blue', ls) === 42.5);
-  ls.setItem('snowgliderBestTime', 'not-a-number');
+  ls.setItem(store.localBestTimeKey('blue'), 'not-a-number');
   check('readLocalBest null on corrupt value', store.readLocalBest('blue', ls) === null);
-  check('readLocalBest purged the corrupt value', ls.getItem('snowgliderBestTime') === null);
-  ls.setItem('snowgliderBestTime', String(MIN - 5)); // implausible / sub-floor for BLUE
+  check('readLocalBest purged the corrupt value', ls.getItem(store.localBestTimeKey('blue')) === null);
+  ls.setItem(store.localBestTimeKey('blue'), String(MIN - 5)); // implausible / sub-floor for BLUE
   check('readLocalBest null on implausible value', store.readLocalBest('blue', ls) === null);
-  check('readLocalBest purged the implausible value', ls.getItem('snowgliderBestTime') === null);
+  check('readLocalBest purged the implausible value', ls.getItem(store.localBestTimeKey('blue')) === null);
   // The SAME 13 s value is a VALID Black best (Black's floor is 13 s) — must be preserved,
   // not purged (Codex #359: tier-aware local-best validation).
-  ls.setItem('snowgliderBestTime_black', '15');
+  ls.setItem(store.localBestTimeKey('black'), '15');
   check('readLocalBest preserves a valid fast Black best (15 s)', store.readLocalBest('black', ls) === 15);
-  check('valid Black best not purged', ls.getItem('snowgliderBestTime_black') === '15');
+  check('valid Black best not purged', ls.getItem(store.localBestTimeKey('black')) === '15');
   check('saveLocalBestIfBetter accepts a sub-18 s Black best', store.saveLocalBestIfBetter('black', 14, ls) === true);
   check('Black best updated to 14', store.readLocalBest('black', ls) === 14);
 
@@ -100,6 +103,20 @@ async function main() {
   check('markPendingSync writes a valid entry', store.markPendingSync('black', 25, 'u1', { recordedAt: 111, storage: ls }) === true);
   const p1 = store.getPendingSync('u1', 'black', ls);
   check('pending entry has tier/time/uid/recordedAt', !!p1 && p1.tier === 'black' && p1.time === 25 && p1.uid === 'u1' && p1.recordedAt === 111);
+  // Version gate (Codex review PR #408): a queued score is only comparable within the
+  // physics version that produced it. New marks stamp the CURRENT version; an entry
+  // from another version — or a pre-stamp legacy entry with none — is dropped on read,
+  // so a reconnect flush can never republish it into the current leaderboard.
+  check('markPendingSync stamps the current physics version', p1.physicsVersion === PV);
+  {
+    const raw = JSON.parse(ls.getItem('snowgliderPendingSync'));
+    raw[pk('vold', 'black')] = { tier: 'black', time: 21, uid: 'vold', recordedAt: 1, physicsVersion: PV - 1 };
+    raw[pk('vnone', 'black')] = { tier: 'black', time: 21, uid: 'vnone', recordedAt: 1 };
+    ls.setItem('snowgliderPendingSync', JSON.stringify(raw));
+    check('an old-version pending entry is dropped on read', store.getPendingSync('vold', 'black', ls) === null);
+    check('a pre-stamp legacy pending entry is dropped on read', store.getPendingSync('vnone', 'black', ls) === null);
+    check('the current-version entry survives the same read', store.getPendingSync('u1', 'black', ls)?.time === 25);
+  }
   check('markPendingSync keeps the BEST (lower) time for the same owner', store.markPendingSync('black', 30, 'u1', { recordedAt: 222, storage: ls }) === false);
   check('pending time unchanged after slower mark', store.getPendingSync('u1', 'black', ls).time === 25);
   check('faster pending time replaces', store.markPendingSync('black', 20, 'u1', { recordedAt: 333, storage: ls }) === true);
@@ -168,7 +185,8 @@ async function main() {
   ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ blue: { tier: 'blue', time: 30, uid: 'u1', recordedAt: 1 } }));
   check('legacy bare-tier key (no uid) dropped', Object.keys(store.readPendingSync(ls)).length === 0);
   // A valid entry with a non-number recordedAt reads back with recordedAt null.
-  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ [pk('u1', 'blue')]: { tier: 'blue', time: 30, uid: 'u1', recordedAt: 'oops' } }));
+  // (Raw entries need the current physics-version stamp to pass the read gate.)
+  ls.setItem(store.PENDING_SYNC_KEY, JSON.stringify({ [pk('u1', 'blue')]: { tier: 'blue', time: 30, uid: 'u1', recordedAt: 'oops', physicsVersion: PV } }));
   check('non-number stored recordedAt reads as null', store.getPendingSync('u1', 'blue', ls).recordedAt === null);
 
   console.log(`\nOFFLINE-STORE TEST TOTAL: ${pass} passed, ${fail} failed`);
