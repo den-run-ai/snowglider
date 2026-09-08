@@ -127,10 +127,15 @@ function main() {
   // boot), recording still works and simply leaves no stamp.
   a.window.__snowgliderGetRunStamp = () => ({ seed: 777, physicsVersion: 1 });
   Scores.recordScore(30);
+  // With the seam present the key derives from the stamp's version (#403 review):
+  // the write lands in that version's namespace, stamped alongside.
+  check('local-auth writes the stamp-versioned competitive key via the seam',
+    a.localStorage.getItem('snowgliderBestTime_v1') === '30');
   check('local-auth stamps a new best via the window seam',
-    a.localStorage.getItem('snowgliderBestTime_meta') === JSON.stringify({ seed: 777, physicsVersion: 1 }));
+    a.localStorage.getItem('snowgliderBestTime_v1_meta') === JSON.stringify({ seed: 777, physicsVersion: 1 }));
   delete a.window.__snowgliderGetRunStamp;
-  a.localStorage.removeItem('snowgliderBestTime_meta');
+  a.localStorage.removeItem('snowgliderBestTime_v1');
+  a.localStorage.removeItem('snowgliderBestTime_v1_meta');
   Scores.recordScore(25);
   check('an absent seam degrades gracefully (best still recorded, no stamp)',
     a.localStorage.getItem('snowgliderBestTime') === '25' &&
@@ -147,7 +152,8 @@ function main() {
     a.localStorage.getItem('snowgliderBestTime') === '19.5' &&
     a.localStorage.getItem('snowgliderBestTime_meta') === null);
   // And with the seam present but the META write failing, the old sidecar is
-  // cleared first — the record ends up unstamped, never mis-stamped.
+  // cleared first — the record ends up unstamped, never mis-stamped. (With the
+  // seam present the write lands in the stamp-versioned namespace, #403 review.)
   a.window.__snowgliderGetRunStamp = () => ({ seed: 222, physicsVersion: 1 });
   Scores.recordScore(19);
   const realLsSet = a.localStorage.setItem;
@@ -156,8 +162,9 @@ function main() {
   a.localStorage.setItem = realLsSet;
   delete a.window.__snowgliderGetRunStamp;
   check('a failed stamp write leaves the new best unstamped (stale sidecar cleared)',
-    a.localStorage.getItem('snowgliderBestTime') === '18.5' &&
-    a.localStorage.getItem('snowgliderBestTime_meta') === null);
+    a.localStorage.getItem('snowgliderBestTime_v1') === '18.5' &&
+    a.localStorage.getItem('snowgliderBestTime_v1_meta') === null);
+  a.localStorage.removeItem('snowgliderBestTime_v1');
 
   // --- Per-tier local best (D2): a tiered finish uses the per-tier key, not Blue ---
   a.localStorage.removeItem('snowgliderBestTime');

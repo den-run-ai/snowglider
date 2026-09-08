@@ -28,7 +28,8 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
-import { getRunStamp } from './run-context.js';
+import { announceGameStatus } from './ui/accessibility.js';
+import { getRunStamp, PHYSICS_VERSION } from './run-context.js';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
@@ -384,10 +385,43 @@ export const CourseModule = (function () {
   // ---------------------------------------------------------------------------
   // Ghost
   // ---------------------------------------------------------------------------
+  /** A stored ghost is only replayable against the WORLD that recorded it: the
+   *  ghost is a physical trajectory over the terrain surface, so after a
+   *  PHYSICS_VERSION bump (e.g. the #401 one-height-field change) a stale ghost
+   *  would clip through / float above the new surface and race an unfair time.
+   *  Compatible == stamped with the CURRENT version; an unstamped ghost
+   *  (recorded before provenance stamping existed, i.e. against a pre-#401
+   *  surface) is incompatible by definition. Skipping the load also resets the
+   *  tier-best commit baseline, so the FIRST run on the new world re-seeds the
+   *  ghost + best splits with replayable v-current data. Local BEST TIMES are
+   *  deliberately NOT invalidated: they are historical records, not physical
+   *  replays (see the run-context version-anchor doc / PR #408 review). */
+  function ghostStampCompatible(): boolean {
+    try {
+      const raw = localStorage.getItem(ghostMetaKey());
+      if (!raw) return false;
+      const meta: unknown = JSON.parse(raw);
+      if (typeof meta !== 'object' || meta === null) return false;
+      const rec = meta as { physicsVersion?: unknown; seed?: unknown };
+      // Same WORLD means same version AND same seed (Codex review PR #408): the
+      // hazards stream places different rocks/trees per seed, so a ghost from
+      // another seed threads an obstacle field that doesn't exist here — it
+      // would replay an impossible line and its time would block this seed's
+      // first run from committing its own baseline. Unseeded records carry
+      // seed null and only match unseeded runs (strict equality both ways).
+      const currentSeed = getRunStamp().seed;
+      const stampedSeed = typeof rec.seed === 'number' ? rec.seed : null;
+      return rec.physicsVersion === PHYSICS_VERSION && stampedSeed === currentSeed;
+    } catch {
+      return false;
+    }
+  }
+
   function loadGhost() {
     ghostSamples = null;
     ghostTotalTime = 0;
     try {
+      if (!ghostStampCompatible()) return; // stale-world ghost: leave unloaded (#401/#408)
       const raw = localStorage.getItem(ghostKey());
       if (raw) {
         const data = JSON.parse(raw);
@@ -406,6 +440,11 @@ export const CourseModule = (function () {
   // within a session (the split flash + result table compare against this).
   function loadBests() {
     try {
+      // Best splits commit ATOMICALLY with the ghost + its provenance stamp, so
+      // they inherit the same world-compatibility gate (#403 review): splits
+      // from another physics version / another world are not a valid delta
+      // baseline — the first run on the current world re-seeds both.
+      if (!ghostStampCompatible()) { bestSplits = null; return; }
       const raw = localStorage.getItem(splitsKey());
       bestSplits = raw ? JSON.parse(raw) : null;
     } catch {
@@ -558,6 +597,7 @@ export const CourseModule = (function () {
       }
       if (idx < splitPoints.length - 1) {
         showFlash(`${sp.label} &middot; ${formatTime(elapsed)}${deltaHtml}`, color);
+        announceGameStatus(`${sp.label}. ${elapsed.toFixed(2)} seconds.`);
       }
     }
 
@@ -632,11 +672,14 @@ export const CourseModule = (function () {
 
   // Called from showGameOver() on a successful finish.
   // Returns a DOM node (the result panel) to insert into the game-over overlay.
-  function onFinish(totalTime: number, previousBest: number): HTMLDivElement {
+  function onFinish(totalTime: number, previousBest: number, recordEligible = true): HTMLDivElement {
     hideHud();
 
-    const isFirst = !(previousBest < Infinity);
-    const isBest = isFirst || totalTime < previousBest;
+    // A record-ineligible finish (timing-compromised, #403 review) saved nothing,
+    // so it must not CLAIM a record either: no "First descent!"/"New record!"
+    // medal copy for a time that was deliberately not kept.
+    const isFirst = recordEligible && !(previousBest < Infinity);
+    const isBest = recordEligible && (isFirst || totalTime < previousBest);
 
     // Record the finish split.
     runSplits[splitPoints.length - 1] = totalTime;
@@ -654,8 +697,11 @@ export const CourseModule = (function () {
     // run is on a REAL world: practice (?seed=) runs never overwrite the
     // canonical-world ghost/splits records (#403 review; the shared ghost key
     // holds ONE record per tier, and a practice commit would both lose the
-    // canonical ghost and leave a stamp the canonical world rejects).
-    if (isTierBest && !getRunStamp().practice) {
+    // canonical ghost and leave a stamp the canonical world rejects). The caller
+    // can also veto the commit (recordEligible=false) — the overlay does for a
+    // timing-compromised run, whose slow-motion trajectory would poison the
+    // ghost/splits records the same way it would the PB (#403 review).
+    if (isTierBest && !getRunStamp().practice && recordEligible) {
       try {
         localStorage.setItem(splitsKey(), JSON.stringify(runSplits));
         // Ensure the final sample lands exactly on the finish time, but keep the

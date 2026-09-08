@@ -93,6 +93,11 @@ Discovery skips two documented sets (see the header of `run-node-suite.js`):
 - **`firestore-rules-tests.js`** — needs the Java-backed Firestore emulator, so it
   runs in its own `npm run test:firebase` job.
 
+Remote score schema changes also run `remote-version-sync-tests.js`: it preserves
+the unversioned schema and every shipped version, including historical fields
+still present on user documents. See the [version bump checklist](../docs/SCORE-SCHEMA-VERSIONING.md)
+before changing `PHYSICS_VERSION` or the Firestore rules.
+
 Every suite is launched with the superset `--import
 tests/loaders/register-firebase-mock.mjs` hook. That hook layers the Firebase-CDN
 mock on top of the `.js`→`.ts` resolve fallback, and **both hooks are conditional
@@ -402,3 +407,49 @@ The tree collision detection issue has been fixed by:
 The tests verify that these issues are properly detected and resolved.
 
 The tests are designed to be non-invasive and not require modifications to the core game code.
+
+### Deterministic balance and tier timing (September 2026 audit)
+
+`npm run test:winnable` retains the ten historical seeds for the all-seeds threat
+and skilled-line gates. G4's 80% casual-escape gate uses 60 fixed seeds: the original
+ten followed by the first 50 distinct integers from 6 upward. Seeds are selected
+without reference to outcomes. The final terrain query-isolation release gives 58/60 casual
+escapes (93.3%), versus 8/10 at the old gate's exact pass boundary. This measures the
+scripted controller on a fixed course; it is not a player population success rate.
+
+`tests/helpers/tier-descent.mjs` is the shared G5 corridor/kicker rider and timing
+probe. `npm run test:floor` uses it for all four tiers, with 60 seeds and no-manual-
+jump, single-jump, and repeated-jump input policies. It reports finish counts,
+min/median/p95/max times, DNFs and observed peak speed; jump policies are samples,
+not an optimizer. Static obstacles and the avalanche are cleared for timing, while
+G5 retains each tier's real avalanche. The larger no-jump timing ensemble must all
+finish, and currently ranked floors must accept every observed honest finish.
+
+Reference measurements on the original physics-v3 stack before the final query-isolation fix (rerun `npm run test:floor` for the current distribution):
+
+| Tier | No-jump min / median / p95 / max (s) | Observed peak (m/s) | Current client floor (s) |
+| --- | --- | --- | --- |
+| Bunny | 40.55 / 40.65 / 40.70 / 40.73 | 5.58 | 28 (practice) |
+| Blue | 26.20 / 26.33 / 26.45 / 26.48 | 8.21 | 18 (ranked) |
+| Black | 21.63 / 21.63 / 21.63 / 21.63 | 13.54 | 13 (practice) |
+| Expert | 20.32 / 20.32 / 20.32 / 20.32 | 13.56 | 13 (practice) |
+
+Black and Expert's equal times across seeds reflect this controller's deterministic
+steering on the canonical corridor, not 60 independently varied courses. None of
+these sampled finishes falls below the shared 18-second server floor. However,
+`course distance / observed peak speed` is only an observed-speed equivalent;
+it is **not a proven lower bound**, because an untested input sequence may reach a
+higher speed. The harness's 15%-margin floor candidates (27/18/11/11 seconds) are
+review inputs only. They do not certify ranking, cheating, or real-world realism.
+Before ranking additional tiers, validate faster input policies and actual play,
+align per-tier client/server floors, test and deploy server rules, and keep G5 green.
+
+Both `forward_stress_harness.js` and `fixed_timestep_harness.js` now drive the actual
+`createMainLoop` accumulator through `tests/helpers/live-physics-loop.mjs`. No test
+copy of the accumulator or timestep constants controls these gates. The fixture
+supplies inputs and observes each call to the real `Physics.stepPlayer`; rendering
+and DOM dependencies are stubbed. The stress matrix includes 500 ms stalls, probes
+collisions on every fixed substep, and gates zero slalom path drift across refresh
+rates. The obsolete direct-variable-delta path remains only as a diagnostic in the
+fixed-timestep suite. These headless gates do not replace browser rendering or
+mobile-control tests.

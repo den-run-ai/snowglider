@@ -16,6 +16,7 @@
 // consumers (scores.ts sync, course.ts) are rewired in the later stacked PRs.
 
 import { MAX_VALID_SCORE_TIME } from '../score-limits.js';
+import { PHYSICS_VERSION } from '../run-context.js';
 import {
   localBestTimeKey,
   localBestSplitsKey,
@@ -51,6 +52,12 @@ export interface PendingSyncEntry {
   uid: string;
   /** Epoch ms when the pending best was recorded, or null if not captured. */
   recordedAt: number | null;
+  /** The PHYSICS_VERSION that produced this time. Scores are only comparable within
+   *  one physics version (the versioned PB namespace), so the flush must never
+   *  republish a pre-bump queued time into the current leaderboard; entries from a
+   *  different version — including pre-stamp legacy entries — are dropped on read
+   *  (Codex review PR #408). */
+  physicsVersion: number;
 }
 
 /**
@@ -196,12 +203,17 @@ export function readPendingSync(storage?: StorageLike | null): Record<string, Pe
     if (entry.tier !== tier) continue;
     if (entry.uid !== uid) continue;
     if (!isPlausibleTierTime(tier, entry.time)) continue;
+    // Version gate (Codex review PR #408): a queued score from a DIFFERENT physics
+    // version (or a pre-stamp legacy entry with none) is deliberately non-comparable
+    // with the current leaderboard — discard it rather than let a reconnect flush
+    // republish it.
+    if (entry.physicsVersion !== PHYSICS_VERSION) continue;
     const recordedAt =
       typeof entry.recordedAt === 'number' && Number.isFinite(entry.recordedAt)
         ? entry.recordedAt
         : null;
     // The guards above narrow `tier` to Difficulty and confirm `uid` is a non-empty string.
-    out[key] = { tier, time: entry.time, uid, recordedAt };
+    out[key] = { tier, time: entry.time, uid, recordedAt, physicsVersion: entry.physicsVersion };
   }
   return out;
 }
@@ -250,7 +262,7 @@ export function markPendingSync(
   } else {
     recordedAt = typeof Date !== 'undefined' && typeof Date.now === 'function' ? Date.now() : null;
   }
-  map[key] = { tier, time, uid, recordedAt };
+  map[key] = { tier, time, uid, recordedAt, physicsVersion: PHYSICS_VERSION };
   return writePendingSync(map, storage);
 }
 

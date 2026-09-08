@@ -1,15 +1,12 @@
 // mountains/terrain.ts - Analytic terrain height field (the physics seam).
 //
-// Pure math, no THREE/DOM: getTerrainHeight/getTerrainGradient/getDownhillDirection
-// plus the shared `heightMap` cache they read/write. This is the contract the
-// physics rides — `getTerrainHeight` must stay byte-identical to the mesh-vertex
-// formula in terrain-mesh.ts (the "two-formula terrain contract"), and the physics
-// invariant harness + terrain/regression suites pin it.
+// Pure math, no THREE/DOM: every sampler reads the same triangle-interpolated
+// render grid. Only the fixed grid corners are memoized, so query order, camera
+// mode, refresh rate and previous runs cannot change the surface physics reads.
 //
-// `heightMap` is an ES-module singleton: terrain-mesh.ts imports THIS object and
-// pre-populates it while building the mesh, and getTerrainHeight reads/fills it as a
-// per-(x,z) cache. Keep it a single shared instance — splitting it would desync the
-// cache from the mesh.
+// `heightMap` remains the shared mesh-vertex snapshot for debugging. It is NOT a
+// physics cache: its historical 0.1-unit keys alias different positions, so using
+// the first sample in each cell changed later physics when cosmetics queried it.
 import { terrainRidgeField } from './noise.js';
 // Type-only: the corridor is built from a CourseLine the caller (scene-setup) passes
 // in, so terrain.ts gains no runtime dependency on the course-line / difficulty graph
@@ -22,7 +19,7 @@ export interface TerrainVec2 {
   z: number;
 }
 
-// Global height map for efficient lookup - will be populated when terrain is created
+// Mesh-vertex snapshot populated by createTerrain; never authoritative for queries.
 export const heightMap: Record<string, number> = {};
 
 // --- Difficulty corridor (D3.2b: "the line is the difficulty") --------------------
@@ -153,6 +150,7 @@ export function setTerrainCorridor(corridor: TerrainCorridor | null): void {
 /** Empty the shared heightMap cache in place (it is an imported singleton, not reassigned). */
 export function resetHeightMap(): void {
   for (const key in heightMap) delete heightMap[key];
+  resetGridCorners(); // the render-grid corner cache keys off the same surface recipe
 }
 
 /** Whether a corridor is active. Lets the mesh builder skip the wall add entirely for
@@ -182,33 +180,26 @@ export function corridorWallHeight(x: number, z: number): number {
   return c.params.wallHeight * smootherstep01(t);
 }
 
-// Calculate terrain height at (x, z)
+// Sample the exact render triangle. The bounded gridCorner cache below already
+// avoids repeated analytic/noise evaluations; an ad-hoc position cache is both
+// unnecessary and unsafe (rounded keys made the first reader own the surface).
 export function getTerrainHeight(x: number, z: number): number {
-  // First check if we have this position in our cached height map
-  const key = `${Math.round(x*10)},${Math.round(z*10)}`;
-  if (heightMap[key] !== undefined) {
-    return heightMap[key];
-  }
-  const y = getTerrainHeightUncached(x, z);
-  // Store in height map for future lookups
-  heightMap[key] = y;
-  return y;
+  return getTerrainHeightUncached(x, z);
 }
 
-/**
- * The pure terrain-height evaluation behind getTerrainHeight — identical formula
- * (it IS getTerrainHeight's cache-miss path), but it neither reads nor writes the
- * shared heightMap. For RENDER-ONLY consumers that sample many ad-hoc coordinates
- * (the rock grounding collars/chips, #385 PR 4): getTerrainHeight memoizes every
- * query into 0.1-unit cells that later tree placement and live physics read, so a
- * cosmetic layer sampling through the cached path would change what those
- * downstream callers see (Codex review on #390). Gameplay/physics callers should
- * keep using getTerrainHeight — the cache is their shared source of truth.
- */
-export function getTerrainHeightUncached(x: number, z: number): number {
+/** The pure ANALYTIC height field: the function the render grid is built from.
+ *  Everything else — physics, collision, placement — reads the TRIANGLE-
+ *  INTERPOLATED form below (getTerrainHeightUncached), which samples this only
+ *  at render-grid corners, so the simulated surface IS the rendered surface
+ *  even across discontinuities like the kicker lip (#403 review: the analytic
+ *  lip drop diverged from the 2-unit mesh interpolation by up to ~3 units).
+ *  Exported for the parity tests. */
+export function analyticTerrainHeight(x: number, z: number): number {
   const distance = Math.sqrt(x * x + z * z);
 
-  // Use EXACTLY the same formula as in terrain mesh creation
+  // THE height formula (#401): the mesh builder rasterizes this per vertex,
+  // and the interpolated sampler below reads the same grid — one source of
+  // truth for the mountain, rendered, simulated, and placed against.
   // Base mountain shape
   let y = 40 * Math.exp(-distance / 40);
 
@@ -241,6 +232,63 @@ export function getTerrainHeightUncached(x: number, z: number): number {
   }
 
   return y;
+}
+
+// --- Render-grid sampling (#403 review): physics samples the rendered triangles.
+// The terrain mesh is a PlaneGeometry(300, 400, 150, 200) rotated -90° about X:
+// vertices at x = -150 + 2i (i in 0..150) and z = -200 + 2j (j in 0..200), each
+// 2x2 cell split into the triangles (a,b,d) and (b,c,d) with a=(i,j), b=(i,j+1),
+// c=(i+1,j+1), d=(i+1,j) — i.e. the diagonal from (x0, z0+2) to (x0+2, z0).
+// getTerrainHeightUncached evaluates the SAME piecewise-linear surface the GPU
+// rasterizes, so rendered and simulated heights agree everywhere — including
+// off-vertex points across the kicker-lip discontinuity, where the analytic
+// formula and the interpolated mesh used to diverge by up to ~3 units.
+const GRID_X0 = -150, GRID_Z0 = -200, GRID_STEP = 2;
+const GRID_NX = 151, GRID_NZ = 201; // vertices per axis
+// Lazy corner cache for analytic evaluations at grid vertices (NaN = unfilled).
+// Cleared whenever the surface recipe changes (resetHeightMap: corridor/kickers).
+let gridCorner = new Float64Array(GRID_NX * GRID_NZ).fill(NaN);
+
+function cornerHeight(i: number, j: number): number {
+  const idx = i + j * GRID_NX;
+  let h = gridCorner[idx]!;
+  if (Number.isNaN(h)) {
+    h = analyticTerrainHeight(GRID_X0 + i * GRID_STEP, GRID_Z0 + j * GRID_STEP);
+    gridCorner[idx] = h;
+  }
+  return h;
+}
+
+/** Reset the lazy render-grid corner cache (called with the heightMap reset). */
+function resetGridCorners(): void {
+  gridCorner = new Float64Array(GRID_NX * GRID_NZ).fill(NaN);
+}
+
+/** Retained pure-sampling API for render-only callers. Like getTerrainHeight,
+ *  never touches the diagnostic heightMap; only fixed grid corners are cached. */
+export function getTerrainHeightUncached(x: number, z: number): number {
+  // Off the rendered grid (nothing is rasterized there; gameplay is bounded at
+  // |x| <= 120 and z in [-195, ...]) fall back to the analytic field.
+  if (x <= GRID_X0 || x >= GRID_X0 + (GRID_NX - 1) * GRID_STEP ||
+      z <= GRID_Z0 || z >= GRID_Z0 + (GRID_NZ - 1) * GRID_STEP) {
+    return analyticTerrainHeight(x, z);
+  }
+  const fx = (x - GRID_X0) / GRID_STEP;
+  const fz = (z - GRID_Z0) / GRID_STEP;
+  const i = Math.min(GRID_NX - 2, Math.floor(fx));
+  const j = Math.min(GRID_NZ - 2, Math.floor(fz));
+  const u = fx - i;
+  const v = fz - j;
+  const ha = cornerHeight(i, j);        // (x0,     z0)
+  const hb = cornerHeight(i, j + 1);    // (x0,     z0 + 2)
+  const hc = cornerHeight(i + 1, j + 1);// (x0 + 2, z0 + 2)
+  const hd = cornerHeight(i + 1, j);    // (x0 + 2, z0)
+  // Triangle (a,b,d) below the b->d diagonal (u + v <= 1), (b,c,d) above — the
+  // exact PlaneGeometry split. Linear (barycentric) interpolation per triangle.
+  if (u + v <= 1) {
+    return ha + u * (hd - ha) + v * (hb - ha);
+  }
+  return hc + (1 - u) * (hb - hc) + (1 - v) * (hd - hc);
 }
 
 // Calculate terrain gradient for physics and tree placement
@@ -281,5 +329,5 @@ export function debugHeightMap(x: number, z: number): number {
   console.log(`Height Map Debug at (${x}, ${z}):`);
   console.log(`- Height Map Entry: ${heightMap[key]}`);
   console.log(`- Calculated Height: ${getTerrainHeight(x, z)}`);
-  return heightMap[key]!;
+  return getTerrainHeight(x, z);
 }

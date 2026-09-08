@@ -13,6 +13,27 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Physics v3: a fresh personal-best and leaderboard era
+- Terrain contact, gameplay randomness, and avalanche stepping now use consistent
+  simulation rules. Earlier times are not comparable, so current personal bests and
+  the leaderboard start fresh. Historical records remain stored separately; this
+  release does not delete players' previous records.
+- The start screen announces the change before a player begins a new run.
+
+### Keyboard and screen-reader controls (#420)
+- Stats, controls, camera, account, and share disclosures expose their real expanded
+  state. Collapsed camera controls cannot receive keyboard focus; camera glyphs and
+  the sound toggle have descriptive names and synchronized state.
+- Start, About, feedback, result, and recovery screens manage focus and make covered
+  controls inert. About/feedback close with Escape and return focus to their trigger;
+  completed runs keep focus in the result until Restart is chosen.
+- Results include the existing account/sign-in controls inside the dialog, keeping
+  the "Log in" prompt actionable; Restart restores their normal in-game placement.
+- Start, checkpoints, avalanche onset, and results announce once at their event
+  boundaries. The continuously updated timer is deliberately not a live region.
+- Typing or activating a focused UI control no longer also steers, jumps, or changes
+  camera. Releasing a held movement key still clears it after focus moves into UI.
+
 ### Fix: EZ forest self-upgrades after a slow or failed chunk load (mobile cone-trees regression)
 - On a slow first visit (cellular), the ~4 MB EZ archetype chunk routinely outlives the
   6s run-start hold: the run correctly starts on the stylized fallback forest, but the

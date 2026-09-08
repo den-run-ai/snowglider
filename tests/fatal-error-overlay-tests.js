@@ -67,6 +67,13 @@ async function main() {
   // --- resetFatalErrorOverlay detaches the node so a fresh run starts clean ---
   {
     resetFatalErrorOverlay();
+    showFatalErrorOverlay(new Error('Error creating WebGL context.'));
+    check('WebGL startup failure explains graphics support instead of promising a cache fix',
+      /hardware acceleration/.test(document.getElementById('fatalErrorMessage').textContent));
+  }
+
+  {
+    resetFatalErrorOverlay();
     check('reset removes the overlay from the DOM', document.getElementById('fatalErrorOverlay') === null);
   }
 

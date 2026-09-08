@@ -45,6 +45,7 @@ import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js'
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { buildDifficultyPicker } from './ui/difficulty-picker.js';
+import { setPanelCollapsed } from './ui/collapsible-panel.js';
 import { setupScene } from './game/scene-setup.js';
 import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createRunClockGuard } from './game/run-clock.js';
@@ -488,14 +489,14 @@ window.initializeGameWithAudio = function() {
   if (gameStatsContainer) {
     console.log("Game start: ensuring stats are expanded");
     // Make sure stats are visible when game starts
-    gameStatsContainer.classList.remove('collapsed');
     const toggleBtn = document.getElementById('toggleStats');
     if (toggleBtn) {
-      toggleBtn.textContent = '▲';
+      setPanelCollapsed(gameStatsContainer, toggleBtn, false);
     }
     
-    // Update initial values
-    updateTimerDisplay(state.gameActive, state.startTime);
+    // Update initial values — the HUD timer takes elapsed SIM seconds (#402),
+    // and at initialization the run clock is 0.
+    updateTimerDisplay(state.gameActive, state.simElapsed ?? 0);
   }
   
   // Initialize Controls
@@ -506,19 +507,8 @@ window.initializeGameWithAudio = function() {
     const shouldCollapse = window.innerWidth <= 480 || 
                            (window.innerWidth <= 768 && window.innerHeight <= 500);
     
-    if (shouldCollapse) {
-      controlsInfo.classList.add('collapsed');
-      const toggleBtn = document.getElementById('toggleControls');
-      if (toggleBtn) {
-        toggleBtn.textContent = '▼';
-      }
-    } else {
-      controlsInfo.classList.remove('collapsed');
-      const toggleBtn = document.getElementById('toggleControls');
-      if (toggleBtn) {
-        toggleBtn.textContent = '▲';
-      }
-    }
+    const toggleBtn = document.getElementById('toggleControls');
+    if (toggleBtn) setPanelCollapsed(controlsInfo, toggleBtn, shouldCollapse);
   }
   
   // Hand off to the game loop. New for issue #51: on the first real start the
@@ -629,7 +619,18 @@ window.initializeGameWithAudio = function() {
     jumpCooldown:       { get: () => player.jumpCooldown,     set: (v) => { player.jumpCooldown = v; } },
     // Run/scoring + avalanche run-state now live on the typed `state` object.
     bestTime:           { get: () => state.bestTime,           set: (v) => { state.bestTime = v; } },
-    startTime:          { get: () => state.startTime,          set: (v) => { state.startTime = v; } },
+    // The startTime WINDOW seam is test-only (production writes state.startTime
+    // directly): browser/e2e suites backdate it to synthesize an elapsed run
+    // before calling showGameOver. Since #402 the recorded finish reads the
+    // SIMULATION clock, so the seam's setter derives state.simElapsed from the
+    // backdate — every existing "startTime = now - X" fixture keeps meaning
+    // "the run has been going X seconds" without modification.
+    startTime:          { get: () => state.startTime,          set: (v: number) => {
+      state.startTime = v;
+      const derived = (performance.now() - v) / 1000;
+      if (Number.isFinite(derived) && derived > 0) state.simElapsed = derived;
+    } },
+    simElapsed:         { get: () => state.simElapsed,         set: (v: number) => { state.simElapsed = v; } },
     avalancheTriggered: { get: () => state.avalancheTriggered, set: (v) => { state.avalancheTriggered = v; } },
     lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v) => { state.lastAvalancheZ = v; } },
     // Object/function refs the tests read or mutate (never reassign) — get-only.

@@ -103,5 +103,13 @@ Recommended additions the audit flags (high → low):
 - The service-account key is a live secret. It is **git-ignored**
   (`*-firebase-adminsdk-*.json`) and must stay in the SnowGlider checkout, never in a
   worktree or a commit. Rotate immediately if it is ever pushed.
-- `analytics-out/` is git-ignored — generated reports embed player emails/names. Use
+- `analytics-out/` is git-ignored — generated reports include player display names and identifiers, but omit email addresses. Use
   `--redact` before sharing.
+
+- The game no longer copies provider email addresses into new Firestore profile writes
+  or browser auth logs. Existing Firestore email fields are left intact for compatibility;
+  removing them requires the reviewed admin migration tracked in #419.
+- Provider inference now uses the public profile-photo host only. Missing/unsupported
+  photos are reported as unknown; provider totals should not be read as exact counts.
+- Full account deletion, retention policy and historical export cleanup remain tracked
+  in #419. Do not claim a profile-field change erases Auth or Analytics data.

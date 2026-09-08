@@ -99,7 +99,22 @@ async function flushAll() {
   await flush();
 }
 
+// Versioned competitive best-time key builders (#403 review), bound in main().
+// LB/LB_BUNNY and F_BLUE/F_BUNNY are the ACTIVE (version-namespaced) remote
+// leaderboard collections and users/{uid} best-time fields — the suite asserts
+// against whatever names the seams produce, so a PHYSICS_VERSION bump can't
+// silently leave these checks pinned to a stale schema.
+let BTK, BTMK, LB, LB_BUNNY, LB_BLACK, F_BLUE, F_BUNNY, F_BLACK;
 async function main() {
+  const Difficulty = await import('../src/difficulty.ts');
+  ({ localBestTimeKey: BTK, localBestMetaKey: BTMK } = Difficulty);
+  LB = Difficulty.leaderboardCollectionName('blue');
+  LB_BUNNY = Difficulty.leaderboardCollectionName('bunny');
+  LB_BLACK = Difficulty.leaderboardCollectionName('black');
+  F_BLUE = Difficulty.userBestTimeField('blue');
+  F_BUNNY = Difficulty.userBestTimeField('bunny');
+  F_BLACK = Difficulty.userBestTimeField('black');
+
   const ScoresModule = await loadScoresModule();
   // The pending-sync store is keyed by uid+tier (Codex #362); seed/read markers through it
   // rather than hand-building the composite localStorage keys.
@@ -128,17 +143,17 @@ async function main() {
   resetState(ScoresModule);
   ScoresModule.recordScore(0.01);
   check('invalid runs are not stored locally',
-    localStorage.getItem('snowgliderBestTime') === null);
+    localStorage.getItem(BTK('blue')) === null);
   ScoresModule.recordScore(600.01);
   check('over-cap runs are not stored locally',
-    localStorage.getItem('snowgliderBestTime') === null);
-  localStorage.setItem('snowgliderBestTime', 'bogus');
+    localStorage.getItem(BTK('blue')) === null);
+  localStorage.setItem(BTK('blue'), 'bogus');
   ScoresModule.recordScore(21.5);
   check('invalid stored local best is replaced by a valid run',
-    localStorage.getItem('snowgliderBestTime') === '21.5');
+    localStorage.getItem(BTK('blue')) === '21.5');
   ScoresModule.recordScore(25);
   check('slower valid runs do not replace the local best',
-    localStorage.getItem('snowgliderBestTime') === '21.5');
+    localStorage.getItem(BTK('blue')) === '21.5');
 
   // Run-provenance stamp (#400): a new local best writes a SIDECAR meta record
   // ({seed, physicsVersion}) without touching the legacy bare-number value; a
@@ -146,7 +161,7 @@ async function main() {
   {
     const RC = await import('../src/run-context.ts');
     const { readLocalBestMeta } = await import('../src/scores.ts');
-    const rawMeta = localStorage.getItem('snowgliderBestTime_meta');
+    const rawMeta = localStorage.getItem(BTMK('blue'));
     check('a new local best stamps the sidecar meta record', rawMeta !== null);
     const meta = readLocalBestMeta();
     check('the stamp carries the physics version and the (unseeded) null seed',
@@ -161,18 +176,18 @@ async function main() {
     // run-scoped streams), so the reader must hand it back (Codex review PR #407);
     // pre-nonce stamps read as the pinned practice value 0.
     check('the reader returns the stamped nonce', !!seededMeta && seededMeta.nonce === RC.getRunStamp().nonce);
-    localStorage.setItem('snowgliderBestTime_meta', JSON.stringify({ seed: 5, physicsVersion: 1 }));
+    localStorage.setItem(BTMK('blue'), JSON.stringify({ seed: 5, physicsVersion: 1 }));
     check('a pre-nonce stamp reads with nonce 0', readLocalBestMeta()?.nonce === 0);
     RC.setRunSeed(null);
     // Corrupt sidecars read as null, never throw.
-    localStorage.setItem('snowgliderBestTime_meta', '{not json');
+    localStorage.setItem(BTMK('blue'), '{not json');
     check('a corrupt meta sidecar reads as null', readLocalBestMeta() === null);
-    localStorage.removeItem('snowgliderBestTime_meta');
+    localStorage.removeItem(BTMK('blue'));
     // Stamp-failure invalidation (Codex review PR #407): when the sidecar WRITE
     // fails (quota), a PREVIOUS run's stamp must not survive to be falsely
     // attributed to the newly recorded time — better unstamped than mis-stamped.
     const { stampLocalBestMeta } = await import('../src/difficulty.ts');
-    localStorage.setItem('snowgliderBestTime_meta', JSON.stringify({ seed: 999, nonce: 1, physicsVersion: RC.PHYSICS_VERSION }));
+    localStorage.setItem(BTMK('blue'), JSON.stringify({ seed: 999, nonce: 1, physicsVersion: RC.PHYSICS_VERSION }));
     const realSetItem = localStorage.setItem;
     localStorage.setItem = (k, v) => { if (String(k).endsWith('_meta')) throw new Error('quota'); realSetItem(k, v); };
     stampLocalBestMeta();
@@ -183,24 +198,24 @@ async function main() {
     // CANONICAL-stamped best must stay sync-eligible there — it's the
     // production-default world — while any other seed still fails closed.
     const { localBestProvenanceCompatible } = await import('../src/difficulty.ts');
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RC.CANONICAL_WORLD_SEED, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     check('a canonical-stamped best is sync-eligible before the world context installs',
       localBestProvenanceCompatible() === true);
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: 12345, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     check('a non-canonical stamp is still rejected while unseeded',
       localBestProvenanceCompatible() === false);
     // ...and an active ?seed= PRACTICE world must not reject a canonical best
     // either (Codex review PR #407 round 6): the record is a canonical-world
     // record regardless of what world this session happens to be riding.
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RC.CANONICAL_WORLD_SEED, nonce: 0, physicsVersion: RC.PHYSICS_VERSION }));
     RC.setWorldContext(424242, true);
     check('a canonical-stamped best stays sync-eligible during a practice session',
       localBestProvenanceCompatible() === true);
     RC.setRunSeed(null);
-    localStorage.removeItem('snowgliderBestTime_meta');
+    localStorage.removeItem(BTMK('blue'));
   }
   check('unauthenticated local scoring does not write Firestore',
     calls.setDoc.length === 0);
@@ -212,38 +227,38 @@ async function main() {
   ScoresModule.setCurrentUser(currentAuthUser);
   // The stored best carries a CURRENT-world provenance stamp: only a compatible
   // stamp lets the backfill promote it to the board (Codex review PR #407).
-  localStorage.setItem('snowgliderBestTime', '19.43');
+  localStorage.setItem(BTK('blue'), '19.43');
   {
     const RCv = await import('../src/run-context.ts');
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RCv.getRunStamp().seed, nonce: 0, physicsVersion: RCv.PHYSICS_VERSION }));
   }
   ScoresModule.recordScore(22);
   await flushAll();
   check('slower authenticated finish syncs the stored local best to the user doc',
-    read('users', 'u1')?.bestTime === 19.43);
+    read('users', 'u1')?.[F_BLUE] === 19.43);
   check('slower authenticated finish backfills the leaderboard with the stored best',
-    read('leaderboard', 'u1')?.time === 19.43);
+    read(LB, 'u1')?.time === 19.43);
   // PROVENANCE GATE (Codex review PR #407): an UNSTAMPED (or other-world) stored
   // best must NOT be promoted by the sync — the run's own time syncs instead, so
   // the faster-but-unprovenanced 19.01 never reaches the user doc or the board.
   // (19.01: plausible for Blue — above its 18 s floor — but faster than the
   // synced 19.43, so promotion WOULD improve the board if the gate leaked.)
-  localStorage.setItem('snowgliderBestTime', '19.01');
-  localStorage.removeItem('snowgliderBestTime_meta');
+  localStorage.setItem(BTK('blue'), '19.01');
+  localStorage.removeItem(BTMK('blue'));
   ScoresModule.recordScore(22);
   await flushAll();
   check('an unstamped legacy stored best is NOT promoted to the board (run time syncs instead)',
-    read('users', 'u1')?.bestTime === 19.43 && read('leaderboard', 'u1')?.time === 19.43);
+    read('users', 'u1')?.[F_BLUE] === 19.43 && read(LB, 'u1')?.time === 19.43);
   // Restore the compatible stamped best for the cases below.
-  localStorage.setItem('snowgliderBestTime', '19.43');
+  localStorage.setItem(BTK('blue'), '19.43');
   {
     const RCv = await import('../src/run-context.ts');
-    localStorage.setItem('snowgliderBestTime_meta',
+    localStorage.setItem(BTMK('blue'),
       JSON.stringify({ seed: RCv.getRunStamp().seed, nonce: 0, physicsVersion: RCv.PHYSICS_VERSION }));
   }
   check('leaderboard write denormalizes the signed-in display name onto the entry',
-    read('leaderboard', 'u1')?.displayName === 'Snow');
+    read(LB, 'u1')?.displayName === 'Snow');
   check('score completion analytics are logged',
     calls.logEvent.some(event => event.name === 'complete_run' && event.params.time === 22));
   check('slower finish does not log a new-high-score event',
@@ -258,19 +273,19 @@ async function main() {
   ScoresModule.recordScore(22, 'bunny');
   await flushAll();
   check('bunny finish stores the local best under the per-tier key only',
-    localStorage.getItem('snowgliderBestTime_bunny') === '22' &&
-    localStorage.getItem('snowgliderBestTime') === null);
+    localStorage.getItem(BTK('bunny')) === '22' &&
+    localStorage.getItem(BTK('blue')) === null);
   check('bunny finish writes users.bestTimeBunny, not bestTime',
-    read('users', 'pt')?.bestTimeBunny === 22 && read('users', 'pt')?.bestTime === undefined);
-  check('bunny finish writes the leaderboard_bunny collection, not leaderboard',
-    read('leaderboard_bunny', 'pt')?.time === 22 && read('leaderboard', 'pt') == null);
+    read('users', 'pt')?.[F_BUNNY] === 22 && read('users', 'pt')?.[F_BLUE] === undefined);
+  check('bunny finish writes the bunny board collection, not the Blue board',
+    read(LB_BUNNY, 'pt')?.time === 22 && read(LB, 'pt') == null);
 
   ScoresModule.recordScore(30, 'black');
   await flushAll();
   check('black finish is independent (leaderboard_black + bestTimeBlack; bunny untouched)',
-    read('leaderboard_black', 'pt')?.time === 30 &&
-    read('users', 'pt')?.bestTimeBlack === 30 &&
-    read('leaderboard_bunny', 'pt')?.time === 22);
+    read(LB_BLACK, 'pt')?.time === 30 &&
+    read('users', 'pt')?.[F_BLACK] === 30 &&
+    read(LB_BUNNY, 'pt')?.time === 22);
 
   const bunnyLb = await ScoresModule.getLeaderboard('bunny');
   check('getLeaderboard("bunny") reads the bunny board',
@@ -281,26 +296,26 @@ async function main() {
   ScoresModule.recordScore(25); // no tier => Blue, the original names (back-compat)
   await flushAll();
   check('default (Blue) finish still uses the original key/collection/field',
-    localStorage.getItem('snowgliderBestTime') === '25' &&
-    read('leaderboard', 'pt')?.time === 25 && read('users', 'pt')?.bestTime === 25);
+    localStorage.getItem(BTK('blue')) === '25' &&
+    read(LB, 'pt')?.time === 25 && read('users', 'pt')?.[F_BLUE] === 25);
 
   console.log('\n--- Authoritative best reconciliation ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
-  seed('users', 'u2', { bestTime: 20, updatedAt: { old: true } });
+  seed('users', 'u2', { [F_BLUE]: 20, updatedAt: { old: true } });
   ScoresModule.updateUserBestTime('u2', 25.43);
   await flushAll();
   check('slower run does not overwrite a faster Firestore user best',
-    read('users', 'u2')?.bestTime === 20);
+    read('users', 'u2')?.[F_BLUE] === 20);
   check('missing leaderboard entry is backfilled with the authoritative best',
-    read('leaderboard', 'u2')?.time === 20);
+    read(LB, 'u2')?.time === 20);
   check('raw slower run never reaches the leaderboard',
-    calls.setDoc.every(call => call.path !== 'leaderboard/u2' || call.data.time !== 25.43));
+    calls.setDoc.every(call => call.path !== `${LB}/u2` || call.data.time !== 25.43));
 
   console.log('\n--- Leaderboard compare/write behavior ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
-  seed('leaderboard', 'u3', {
+  seed(LB, 'u3', {
     user: doc(firestoreInstance, 'users', 'u3'),
     time: 25,
     achievedAt: { old: true }
@@ -308,13 +323,13 @@ async function main() {
   ScoresModule.updateLeaderboard('u3', 28);
   await flushAll();
   check('leaderboard update does not downgrade a faster existing entry',
-    read('leaderboard', 'u3')?.time === 25);
+    read(LB, 'u3')?.time === 25);
   ScoresModule.updateLeaderboard('u3', 22);
   await flushAll();
   check('leaderboard update accepts a faster time',
-    read('leaderboard', 'u3')?.time === 22);
+    read(LB, 'u3')?.time === 22);
   check('leaderboard write without a signed-in owner stores a null display name',
-    read('leaderboard', 'u3')?.displayName === null);
+    read(LB, 'u3')?.displayName === null);
 
   console.log('\n--- Leaderboard display-name denormalization limits ---');
   resetState(ScoresModule);
@@ -325,11 +340,11 @@ async function main() {
   ScoresModule.updateLeaderboard('long', 20);
   await flushAll();
   check('display name is truncated to the rules\' 40-char cap before writing',
-    read('leaderboard', 'long')?.displayName === 'x'.repeat(40));
+    read(LB, 'long')?.displayName === 'x'.repeat(40));
   ScoresModule.updateLeaderboard('someone-else', 19);
   await flushAll();
   check('a write for a different uid never borrows the signed-in user\'s name',
-    read('leaderboard', 'someone-else')?.displayName === null);
+    read(LB, 'someone-else')?.displayName === null);
 
   console.log('\n--- Leaderboard rules-skew fallback: retry without displayName ---');
   // CI deploys firestore.rules AFTER Pages, so a fresh client can briefly write
@@ -339,47 +354,47 @@ async function main() {
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
   currentAuthUser = { uid: 'skew', displayName: 'Skewed' };
   ScoresModule.setCurrentUser(currentAuthUser);
-  setNextSetDocError('leaderboard/skew', { code: 'permission-denied' });
+  setNextSetDocError(`${LB}/skew`, { code: 'permission-denied' });
   ScoresModule.updateLeaderboard('skew', 20);
   await flushAll();
   check('permission-denied on the displayName write retries without the field',
-    calls.setDoc.filter(c => c.path === 'leaderboard/skew').length === 2 &&
-    !('displayName' in calls.setDoc.filter(c => c.path === 'leaderboard/skew')[1].data));
+    calls.setDoc.filter(c => c.path === `${LB}/skew`).length === 2 &&
+    !('displayName' in calls.setDoc.filter(c => c.path === `${LB}/skew`)[1].data));
   check('the retried write lands the score despite the rules skew',
-    read('leaderboard', 'skew')?.time === 20 &&
-    read('leaderboard', 'skew')?.displayName === undefined);
+    read(LB, 'skew')?.time === 20 &&
+    read(LB, 'skew')?.displayName === undefined);
 
   // Any other write error is NOT retried (offline etc. rides the SDK queue instead).
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
   currentAuthUser = { uid: 'flaky', displayName: 'Flaky' };
   ScoresModule.setCurrentUser(currentAuthUser);
-  setNextSetDocError('leaderboard/flaky', { code: 'unavailable' });
+  setNextSetDocError(`${LB}/flaky`, { code: 'unavailable' });
   ScoresModule.updateLeaderboard('flaky', 21);
   await flushAll();
   check('non-permission write errors are not retried',
-    calls.setDoc.filter(c => c.path === 'leaderboard/flaky').length === 1 &&
-    read('leaderboard', 'flaky') == null);
+    calls.setDoc.filter(c => c.path === `${LB}/flaky`).length === 1 &&
+    read(LB, 'flaky') == null);
 
   console.log('\n--- Leaderboard fetch filtering ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
-  seed('leaderboard', 'bad-fast', {
+  seed(LB, 'bad-fast', {
     user: doc(firestoreInstance, 'users', 'bad-fast'),
     time: 0.01
   });
-  seed('leaderboard', 'sub-floor', {              // forged sub-18s entry: must be filtered (PR C)
+  seed(LB, 'sub-floor', {              // forged sub-18s entry: must be filtered (PR C)
     user: doc(firestoreInstance, 'users', 'sub-floor'),
     time: 14
   });
-  seed('leaderboard', 'missing-user', {
+  seed(LB, 'missing-user', {
     time: 24
   });
-  seed('leaderboard', 'fast', {
+  seed(LB, 'fast', {
     user: doc(firestoreInstance, 'users', 'fast'),
     time: 24.67
   });
-  seed('leaderboard', 'slow', {
+  seed(LB, 'slow', {
     user: doc(firestoreInstance, 'users', 'slow'),
     time: 58.64
   });
@@ -399,12 +414,12 @@ async function main() {
   await flushAll();
   check('queued user write starts before leaderboard reconciliation',
     calls.setDoc.some(call => call.path === 'users/u4') &&
-    !calls.getDoc.includes('leaderboard/u4') &&
-    !read('leaderboard', 'u4'));
+    !calls.getDoc.includes(`${LB}/u4`) &&
+    !read(LB, 'u4'));
   write.resolve();
   await flushAll();
   check('leaderboard reconciliation runs after the queued user write settles',
-    read('leaderboard', 'u4')?.time === 18);
+    read(LB, 'u4')?.time === 18);
 
   console.log('\n--- New high score analytics ---');
   resetState(ScoresModule);
@@ -416,7 +431,7 @@ async function main() {
   check('a new authenticated personal best logs new_high_score',
     calls.logEvent.some(event => event.name === 'new_high_score' && event.params.time === 19));
   check('new personal best is also synced to the user doc',
-    read('users', 'hs')?.bestTime === 19);
+    read('users', 'hs')?.[F_BLUE] === 19);
 
   console.log('\n--- getActiveUser falls back to AuthModule ---');
   resetState(ScoresModule);
@@ -427,7 +442,7 @@ async function main() {
   ScoresModule.recordScore(19);
   await flushAll();
   check('getActiveUser pulls the user from AuthModule when none was set',
-    read('users', 'fallback')?.bestTime === 19);
+    read('users', 'fallback')?.[F_BLUE] === 19);
 
   console.log('\n--- isFirestoreAvailable reflects AuthModule + local instance ---');
   resetState(ScoresModule);
@@ -453,10 +468,10 @@ async function main() {
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
   currentAuthUser = { uid: 'me', displayName: 'Me' };
   ScoresModule.setCurrentUser(currentAuthUser);
-  seed('leaderboard', 'me', { user: doc(firestoreInstance, 'users', 'me'), time: 19.34 });
-  seed('leaderboard', 'other',
+  seed(LB, 'me', { user: doc(firestoreInstance, 'users', 'me'), time: 19.34 });
+  seed(LB, 'other',
     { user: doc(firestoreInstance, 'users', 'other'), time: 20, displayName: 'Rival' });
-  seed('leaderboard', 'legacy', { user: doc(firestoreInstance, 'users', 'legacy'), time: 21 });
+  seed(LB, 'legacy', { user: doc(firestoreInstance, 'users', 'legacy'), time: 21 });
   ScoresModule.displayLeaderboard();
   await flushAll();
   let lbHtml = document.getElementById('leaderboard').innerHTML;
@@ -478,9 +493,9 @@ async function main() {
   // A display name that would execute if it ever reached innerHTML as markup.
   currentAuthUser = { uid: 'evil', displayName: '<img src=x onerror=window.__pwned=1>' };
   ScoresModule.setCurrentUser(currentAuthUser);
-  seed('leaderboard', 'evil', { user: doc(firestoreInstance, 'users', 'evil'), time: 19.5 });
+  seed(LB, 'evil', { user: doc(firestoreInstance, 'users', 'evil'), time: 19.5 });
   // The stored-XSS vector: ANOTHER player's denormalized name reaching the viewer.
-  seed('leaderboard', 'bystander', {
+  seed(LB, 'bystander', {
     user: doc(firestoreInstance, 'users', 'bystander'),
     time: 21,
     displayName: '<img src=y onerror=window.__pwned=2>'
@@ -549,7 +564,7 @@ async function main() {
   // reinitialization must restore it and let the fetch+render proceed.
   firestoreAvailable = true;
   reinitializeSucceeds = true;
-  seed('leaderboard', 'x', { user: doc(firestoreInstance, 'users', 'x'), time: 30 });
+  seed(LB, 'x', { user: doc(firestoreInstance, 'users', 'x'), time: 30 });
   ScoresModule.displayLeaderboard();
   await flushAll();
   check('successful reinitialization restores the local instance and renders scores',

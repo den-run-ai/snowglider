@@ -1,8 +1,8 @@
 // camera.ts - Camera management for SnowGlider
 //
 // Phase 2.3 (issue #84): converted off the classic global model. `THREE` and the
-// terrain sampler (`Mountains.getTerrainHeight`) now come from real ES-module
-// imports instead of the CDN global / window bridge, and the class is `export`ed.
+// pure terrain samplers now come from real ES-module imports instead of the
+// CDN global / window bridge, and the class is `export`ed.
 // Loaded via the bundle entry (src/main.js).
 //
 // Phase 3.2 (issue #84): renamed `.js` -> `.ts`. The `@ts-check` pragma is gone
@@ -11,7 +11,7 @@
 // unchanged — every edit is type-only/erasable, so esbuild (Vite) and Node's
 // native type-stripping both run it exactly as before.
 import * as THREE from 'three';
-import { Mountains } from './mountains.js';
+import { getTerrainHeightUncached, getTerrainGradientUncached } from './mountains/terrain.js';
 
 /**
  * Camera viewpoint modes (issue #305, cinematic modes #315). Manual/auto third-person
@@ -58,10 +58,8 @@ export function usesOrbitControls(mode: CameraMode): boolean {
 }
 
 // --- View-control tuning (issue #305) ---
-// Per-frame easing factor the auto-frame recenter/zoom uses. Matches the gentle,
-// frame-rate-independent-enough feel of the existing `smoothing` lerp (0.08); the
-// game runs a fixed-timestep loop, so a constant factor is safe here (same pattern
-// the follow smoothing already relies on).
+// Reference easing at 60 Hz. The camera runs per render frame (outside fixed
+// physics), so every clock/ease below scales by the supplied render delta.
 const AUTO_FRAME_EASE = 0.06;
 // Frames a manual orbit/zoom nudge suppresses auto-frame easing for, so the chosen
 // framing holds briefly before the smart camera eases back (~1.5s @ 60fps).
@@ -185,6 +183,12 @@ function easeFor(base: number, dtFrames: number): number {
   return 1 - Math.pow(1 - base, dtFrames);
 }
 
+/** Render delta in reference 60 Hz frames; preserve legacy calls with no delta. */
+function cameraFrameUnits(context: AutoFrameContext): number {
+  const frames = context.frameDt === undefined ? 1 : context.frameDt * 60;
+  return Number.isFinite(frames) && frames > 0 ? frames : 1;
+}
+
 /** Wrap an angle to (-π, π] so easing toward 0 always takes the short way round. */
 function wrapAngle(a: number): number {
   const twoPi = Math.PI * 2;
@@ -220,9 +224,9 @@ export interface AutoFrameContext {
   /** World-unit distance to the nearest active avalanche boulder; Infinity/omitted = safe. */
   avalancheDistance?: number;
   /**
-   * Real render-frame delta in SECONDS. Used only to dt-scale the cameraman eases so their
-   * convergence is frame-rate independent (codex review, PR #379) — the camera updates on the
-   * render frame, not the fixed physics grid. Omitted / non-finite / non-positive falls back
+   * Real render-frame delta in SECONDS. Scales every camera clock, hold and ease;
+   * the camera updates on the render frame, not the fixed physics grid.
+   * Omitted / non-finite / non-positive falls back
    * to the 60 fps step (1/60), which keeps headless tests and older callers byte-identical.
    */
   frameDt?: number;
@@ -604,16 +608,17 @@ export class Camera {
   // into the next run's spawn or into Follow/Orbit (codex review, PR #306). Called once per
   // third-person frame while Auto is on and no recent manual nudge is holding. `slope`,
   // `turnRate` and `aspect` are derived by `update()`; `ctx` carries the loop-only signals.
-  applyAutoFrame(currentSpeed: number, slope = 0, turnRate = 0, aspect = 1, ctx: AutoFrameContext = {}): void {
-    this.orbitYaw += (0 - this.orbitYaw) * AUTO_FRAME_EASE;
-    this.orbitPitch += (0 - this.orbitPitch) * AUTO_FRAME_EASE;
+  applyAutoFrame(currentSpeed: number, slope = 0, turnRate = 0, aspect = 1, ctx: AutoFrameContext = {}, dtFrames = cameraFrameUnits(ctx)): void {
+    const ease = dtFrames === 1 ? AUTO_FRAME_EASE : easeFor(AUTO_FRAME_EASE, dtFrames);
+    this.orbitYaw += (0 - this.orbitYaw) * ease;
+    this.orbitPitch += (0 - this.orbitPitch) * ease;
     const { zoom, pitch } = this.autoFrameTargets(
       currentSpeed, slope, turnRate, aspect,
       ctx.isInAir === true,
       ctx.avalancheDistance === undefined ? Infinity : ctx.avalancheDistance,
     );
-    this.autoZoom += (zoom - this.autoZoom) * AUTO_FRAME_EASE;
-    this.autoPitch += (pitch - this.autoPitch) * AUTO_FRAME_EASE;
+    this.autoZoom += (zoom - this.autoZoom) * ease;
+    this.autoPitch += (pitch - this.autoPitch) * ease;
   }
 
   /**
@@ -697,7 +702,7 @@ export class Camera {
   entryOffset(distance: number, yaw: number, playerPosition: THREE.Vector3, velocity?: PlanarVelocity, context: AutoFrameContext = {}): THREE.Vector3 {
     if (!isCinematic(this.mode)) return this.followOffset(distance, yaw);
     const speed = velocity ? Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) : 0;
-    const grad = Mountains.getTerrainGradient(playerPosition.x, playerPosition.z);
+    const grad = getTerrainGradientUncached(playerPosition.x, playerPosition.z);
     const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
     if (this.mode === 'cameraman') {
       const heading = (velocity && speed > CAMERAMAN_MIN_SPEED_FOR_HEADING)
@@ -786,12 +791,16 @@ export class Camera {
 
   // Update camera position based on player position, rotation, and velocity.
   // `_getTerrainHeight` is accepted for call-site parity but unused: the camera
-  // samples terrain via the imported `Mountains.getTerrainHeight`/`getTerrainGradient`
-  // directly. `context` carries the loop's cosmetic-only situational signals (jump /
+  // samples via the pure leaf APIs so render interpolation cannot populate a
+  // gameplay cache with samples from between fixed physics steps.
+  // `context` carries the loop's cosmetic-only situational signals (jump /
   // avalanche) for Auto framing; omitted (or `{}`) it falls back to speed-only Auto.
   update(playerPosition: THREE.Vector3, playerRotation: THREE.Euler, velocity: PlanarVelocity, _getTerrainHeight: TerrainHeightFn, context: AutoFrameContext = {}) {
-    // Track frames for smoothing transitions
-    this.frameCount++;
+    // A reference-frame clock, not a count of monitor refreshes. The same elapsed
+    // seconds must produce the same drone orbit/weave and hold duration.
+    const dtFrames = cameraFrameUnits(context);
+    const previousFrame = this.frameCount;
+    this.frameCount += dtFrames;
     
     if (this.mode === "firstPerson") {
       this.updateFirstPerson(playerPosition, playerRotation, velocity);
@@ -838,7 +847,7 @@ export class Camera {
     if (currentSpeed > 1) {
       const heading = Math.atan2(velocity.x, velocity.z);
       if (this.lastTravelHeading !== null) {
-        turnRate = Math.abs(wrapAngle(heading - this.lastTravelHeading));
+        turnRate = Math.abs(wrapAngle(heading - this.lastTravelHeading)) / dtFrames;
       }
       this.lastTravelHeading = heading;
     } else {
@@ -851,19 +860,23 @@ export class Camera {
     //  - orbit:     no easing — the player's yaw/pitch/zoom are held exactly as set.
     //  - cinematic: no orbit/zoom easing — cameraman/drone compute their own framing below.
     const cinematic = isCinematic(this.mode);
+    const heldFrames = Math.min(this.manualHoldFrames, dtFrames);
+    if (!cinematic) this.manualHoldFrames = Math.max(0, this.manualHoldFrames - heldFrames);
+    const easingFrames = dtFrames - heldFrames;
     if (cinematic) {
       // Nothing to ease: the manual orbit/zoom state is inert; framing comes from cinematicOffset.
-    } else if (this.manualHoldFrames > 0) {
-      this.manualHoldFrames--;
+    } else if (easingFrames <= 1e-10) {
+      // This whole render frame remains within the manual-view hold window.
     } else if (this.mode === 'auto') {
       // Terrain steepness under the player (gradient magnitude, rise/run ≈ tan θ) drives the
       // expert-terrain pull-back + overhead lift; the loop's context adds jump / avalanche.
-      const grad = Mountains.getTerrainGradient(playerPosition.x, playerPosition.z);
+      const grad = getTerrainGradientUncached(playerPosition.x, playerPosition.z);
       const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
-      this.applyAutoFrame(currentSpeed, slope, turnRate, this.camera.aspect, context);
+      this.applyAutoFrame(currentSpeed, slope, turnRate, this.camera.aspect, context, easingFrames);
     } else if (this.mode === 'follow') {
-      this.orbitYaw += (0 - this.orbitYaw) * AUTO_FRAME_EASE;
-      this.orbitPitch += (0 - this.orbitPitch) * AUTO_FRAME_EASE;
+      const ease = easingFrames === 1 ? AUTO_FRAME_EASE : easeFor(AUTO_FRAME_EASE, easingFrames);
+      this.orbitYaw += (0 - this.orbitYaw) * ease;
+      this.orbitPitch += (0 - this.orbitPitch) * ease;
     }
 
     // Calculate dynamic distance based on speed, then apply the current framing.
@@ -872,7 +885,7 @@ export class Camera {
       // Cinematic modes (issue #315): terrain steepness under the player drives the expert-terrain
       // pull-back + overhead lift, the loop's context adds the jump framing, and the camera's own
       // frameCount is the deterministic oscillation/circle clock.
-      const grad = Mountains.getTerrainGradient(playerPosition.x, playerPosition.z);
+      const grad = getTerrainGradientUncached(playerPosition.x, playerPosition.z);
       const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
       if (this.mode === 'cameraman') {
         // Cameraman follows the snowman's ACTUAL recorded path like a fellow skier with a camera
@@ -889,8 +902,6 @@ export class Camera {
         // dt-scale of this frame for the cameraman eases (codex review, PR #379): the camera
         // updates on the render frame, so a constant per-call factor would converge much faster
         // at 144 Hz than 30 Hz. Non-finite / non-positive / omitted → the 60 fps step.
-        const rawDtFrames = context.frameDt === undefined ? 1 : context.frameDt * 60;
-        const dtFrames = Number.isFinite(rawDtFrames) && rawDtFrames > 0 ? rawDtFrames : 1;
         // Ease the situational distance/pitch profile (CAMERAMAN_PROFILE_EASE) instead of
         // applying it raw: a terrain-gradient or speed change now glides the framing the way
         // Auto's autoZoom/autoPitch do, rather than surging the target several units in a frame.
@@ -956,16 +967,19 @@ export class Camera {
     }
     
     // For the first 2 frames, use a higher smoothing factor to quickly snap to position if needed
-    let effectiveSmoothingFactor = this.smoothing;
-    if (this.frameCount <= 2) {
-      effectiveSmoothingFactor = 0.5; // Quick correction in first frames if needed
-    }
+    const snapFrames = Math.min(dtFrames, Math.max(0, 2 - previousFrame));
+    const regularFrames = dtFrames - snapFrames;
+    // Split a frame crossing the two-reference-frame entry window, so a 144 Hz
+    // sample cannot shorten the initial correction compared with a 30 Hz sample.
+    const effectiveSmoothingFactor = dtFrames === 1
+      ? (this.frameCount <= 2 ? 0.5 : this.smoothing)
+      : 1 - Math.pow(0.5, snapFrames) * Math.pow(1 - this.smoothing, regularFrames);
     
     // Apply smoothing - interpolate current position toward target
     this.camera.position.lerp(this.smoothingVectors.targetPosition, effectiveSmoothingFactor);
     
     // Maintain minimum height above terrain to prevent camera from going below ground
-    const terrainHeightAtCamera = Mountains.getTerrainHeight(this.camera.position.x, this.camera.position.z);
+    const terrainHeightAtCamera = getTerrainHeightUncached(this.camera.position.x, this.camera.position.z);
     if (this.camera.position.y < terrainHeightAtCamera + 5) {
       this.camera.position.y = terrainHeightAtCamera + 5;
     }
@@ -988,9 +1002,7 @@ export class Camera {
     // every other mode keeps the exact 1.0 copy, so this stays byte-identical outside cameraman.
     let lookEase = 1.0;
     if (this.mode === 'cameraman') {
-      const rawLookDtFrames = context.frameDt === undefined ? 1 : context.frameDt * 60;
-      const lookDtFrames = Number.isFinite(rawLookDtFrames) && rawLookDtFrames > 0 ? rawLookDtFrames : 1;
-      lookEase = easeFor(CAMERAMAN_LOOK_EASE, lookDtFrames);
+      lookEase = easeFor(CAMERAMAN_LOOK_EASE, dtFrames);
     }
     this.smoothingVectors.lookAtPosition.lerp(desiredLookAt, lookEase);
     this.camera.lookAt(this.smoothingVectors.lookAtPosition);

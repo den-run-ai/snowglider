@@ -315,21 +315,37 @@ function maxTrajDiff(a, b) {
     && expertAv.slideSpeedJitter === blackAv.slideSpeedJitter);
 
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
-  check('localBestTimeKey: Blue keeps the original key; others are suffixed',
-    D.localBestTimeKey('blue') === 'snowgliderBestTime'
-    && D.localBestTimeKey('bunny') === 'snowgliderBestTime_bunny'
-    && D.localBestTimeKey('black') === 'snowgliderBestTime_black'
-    && D.localBestTimeKey('expert') === 'snowgliderBestTime_expert');
-  check('leaderboardCollectionName: Blue == leaderboard; others are siblings',
-    D.leaderboardCollectionName('blue') === 'leaderboard'
-    && D.leaderboardCollectionName('bunny') === 'leaderboard_bunny'
-    && D.leaderboardCollectionName('black') === 'leaderboard_black'
-    && D.leaderboardCollectionName('expert') === 'leaderboard_expert');
-  check('userBestTimeField: Blue == bestTime; others are dedicated fields',
-    D.userBestTimeField('blue') === 'bestTime'
-    && D.userBestTimeField('bunny') === 'bestTimeBunny'
-    && D.userBestTimeField('black') === 'bestTimeBlack'
-    && D.userBestTimeField('expert') === 'bestTimeExpert');
+  // The ACTIVE key is namespaced by physics/world version (#403 review); the
+  // legacy unversioned key is retained read-only as the historical record.
+  const PV = (await import('../src/run-context.ts')).PHYSICS_VERSION;
+  check('localBestTimeKey: versioned base; Blue un-suffixed within it; others suffixed',
+    D.localBestTimeKey('blue') === `snowgliderBestTime_v${PV}`
+    && D.localBestTimeKey('bunny') === `snowgliderBestTime_v${PV}_bunny`
+    && D.localBestTimeKey('black') === `snowgliderBestTime_v${PV}_black`
+    && D.localBestTimeKey('expert') === `snowgliderBestTime_v${PV}_expert`);
+  check('legacyBestTimeKey keeps the pre-versioning shapes (historical record)',
+    D.legacyBestTimeKey('blue') === 'snowgliderBestTime'
+    && D.legacyBestTimeKey('bunny') === 'snowgliderBestTime_bunny');
+  check('leaderboardCollectionName: versioned base; Blue un-suffixed within it; others suffixed',
+    D.leaderboardCollectionName('blue') === `leaderboard_v${PV}`
+    && D.leaderboardCollectionName('bunny') === `leaderboard_v${PV}_bunny`
+    && D.leaderboardCollectionName('black') === `leaderboard_v${PV}_black`
+    && D.leaderboardCollectionName('expert') === `leaderboard_v${PV}_expert`);
+  check('legacyLeaderboardCollectionName keeps the pre-versioning shapes (historical boards)',
+    D.legacyLeaderboardCollectionName('blue') === 'leaderboard'
+    && D.legacyLeaderboardCollectionName('bunny') === 'leaderboard_bunny'
+    && D.legacyLeaderboardCollectionName('black') === 'leaderboard_black'
+    && D.legacyLeaderboardCollectionName('expert') === 'leaderboard_expert');
+  check('userBestTimeField: versioned; Blue == bestTimeV<N>; others are dedicated fields',
+    D.userBestTimeField('blue') === `bestTimeV${PV}`
+    && D.userBestTimeField('bunny') === `bestTimeBunnyV${PV}`
+    && D.userBestTimeField('black') === `bestTimeBlackV${PV}`
+    && D.userBestTimeField('expert') === `bestTimeExpertV${PV}`);
+  check('legacyUserBestTimeField keeps the pre-versioning shapes (historical record)',
+    D.legacyUserBestTimeField('blue') === 'bestTime'
+    && D.legacyUserBestTimeField('bunny') === 'bestTimeBunny'
+    && D.legacyUserBestTimeField('black') === 'bestTimeBlack'
+    && D.legacyUserBestTimeField('expert') === 'bestTimeExpert');
 
   console.log('--- Kernel tuning API: backward compatibility ---');
   const omitted = descend(update, undefined);

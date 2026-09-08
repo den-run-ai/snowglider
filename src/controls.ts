@@ -174,6 +174,12 @@ function setupKeyboardControls(signal?: AbortSignal) {
 
   // Handle keyboard down events
   const handleKeyDown = (event: KeyboardEvent) => {
+    // Text entry, sliders/radios, and blocking screens own their keys. Ordinary
+    // in-run buttons own activation only: clicking Sound must not disable skiing
+    // just because the browser leaves that button focused. Keyup always releases.
+    const target = event.target as Element | null;
+    if (target?.closest?.('input, select, textarea, [contenteditable="true"], [role="radio"], [role="dialog"], [role="alertdialog"], #startGameContainer')) return;
+    if ((event.key === ' ' || event.key === 'Enter') && target?.closest?.('button, a, [role="button"]')) return;
     switch(event.key) {
       case 'ArrowLeft':
       case 'a':

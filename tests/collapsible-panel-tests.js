@@ -31,6 +31,7 @@ function panelHtml(prefix) {
   return `
     <div id="${prefix}Container">
       <div id="${prefix}Header"><button id="${prefix}Toggle">▲</button></div>
+      <div id="${prefix}Content"><button id="${prefix}Action">Action</button></div>
     </div>`;
 }
 
@@ -61,14 +62,26 @@ async function main() {
   const statsC = document.getElementById('statsContainer');
   const statsT = document.getElementById('statsToggle');
   const statsH = document.getElementById('statsHeader');
+  const statsContent = document.getElementById('statsContent');
+  const statsAction = document.getElementById('statsAction');
+  check('disclosure is named and points at its content',
+    statsT.getAttribute('aria-label') === 'Toggle Stats options'
+    && statsT.getAttribute('aria-controls') === 'statsContent'
+    && statsT.getAttribute('aria-expanded') === 'true');
+  statsAction.focus();
 
   statsT.dispatchEvent(new window.Event('click', { bubbles: true })); // toggle -> collapsed
   check('toggle button collapses the panel',
     statsC.classList.contains('collapsed') && statsT.textContent === '▼');
+  check('collapse removes content from focus/accessibility and returns focus to disclosure',
+    statsContent.inert === true && statsContent.getAttribute('aria-hidden') === 'true'
+    && statsT.getAttribute('aria-expanded') === 'false' && document.activeElement === statsT);
 
   statsH.dispatchEvent(new window.Event('click', { bubbles: true })); // header click -> expand
   check('header click expands the panel',
     !statsC.classList.contains('collapsed') && statsT.textContent === '▲');
+  check('expansion restores content and state', statsContent.inert === false
+    && statsContent.getAttribute('aria-hidden') === 'false' && statsT.getAttribute('aria-expanded') === 'true');
 
   statsH.dispatchEvent(touchEvent(window, 'touchend')); // touchend -> collapse
   check('header touchend toggles the panel', statsC.classList.contains('collapsed'));

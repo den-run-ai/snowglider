@@ -152,6 +152,10 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   const menu = document.createElement('div');
   menu.id = 'shareMenu';
   menu.style.display = 'none';
+  if (!prefersNativeShare()) {
+    primary.setAttribute('aria-controls', menu.id);
+    primary.setAttribute('aria-expanded', 'false');
+  }
   menu.appendChild(makeSocialRow(data));
 
   const imageBtn = document.createElement('button');

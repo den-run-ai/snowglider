@@ -24,14 +24,14 @@
 //   --sa <path>  >  $SNOWGLIDER_SA  >  $GOOGLE_APPLICATION_CREDENTIALS  >
 //   first *-firebase-adminsdk-*.json found in [cwd, this worktree, the main checkout].
 //
-// PRIVACY  the raw report embeds player emails + display names (admin-only view). Pass
-// --redact to hash PII so the HTML/JSON can be shared. Outputs land in ./analytics-out/
+// PRIVACY  the raw report embeds player names and identifiers (admin-only view). Pass
+// --redact to pseudonymize identifiers before reviewing outputs for sharing. Outputs land in ./analytics-out/
 // which is git-ignored — do not commit generated reports.
 //
 // USAGE
 //   node scripts/analytics-report.mjs                 # write analytics-out/report.{html,json}
 //   node scripts/analytics-report.mjs --open          # ...and open the HTML
-//   node scripts/analytics-report.mjs --redact        # hash emails/names for sharing
+//   node scripts/analytics-report.mjs --redact        # pseudonymize names/identifiers for sharing
 //   node scripts/analytics-report.mjs --out dir --sa /path/to/key.json --json-only
 //   GA4_PROPERTY_ID=123456789 node scripts/analytics-report.mjs   # include GA4 metrics
 //
@@ -496,29 +496,15 @@ function hostOf(url) {
 function hostIs(host, domain) {
   return host === domain || host.endsWith('.' + domain);
 }
-function emailDomain(email) {
-  const at = email.lastIndexOf('@');
-  return at === -1 ? '' : email.slice(at + 1);
-}
-
-// Best-effort sign-in provider from the stored profile (Firestore has no provider field).
+// Provider inference uses public photo hosts only; private emails are neither needed
+// nor included in exported reports. A missing photo is honestly "Unknown".
 function classifyProvider(user) {
   const host = hostOf(user.photoURL || '');
-  const email = (user.email || '').toLowerCase();
-  const dom = emailDomain(email);
-  if (hostIs(host, 'githubusercontent.com') || dom === 'users.noreply.github.com') return 'GitHub';
-  if (dom === 'privaterelay.appleid.com') return 'Apple';
-  if (hostIs(host, 'googleusercontent.com') || dom === 'gmail.com') return 'Google';
-  if (email) return 'Other (email)';
+  if (hostIs(host, 'githubusercontent.com')) return 'GitHub';
+  if (hostIs(host, 'googleusercontent.com')) return 'Google';
   return 'Unknown';
 }
 
-function redactEmail(email) {
-  if (!email) return null;
-  const [user, domain] = email.split('@');
-  const head = user ? user.slice(0, 2) : '';
-  return `${head}${'*'.repeat(Math.max(1, (user || '').length - 2))}@${domain || '?'}`;
-}
 function anonName(id) {
   return 'player_' + createHash('sha256').update(String(id)).digest('hex').slice(0, 8);
 }
@@ -674,13 +660,13 @@ function buildInsights(users, boardEntries, nowMs, tiers, limits) {
     health: {
       completedNotOnBoard, staleBoard, orphanBoard,
       implausibleTimes: implausibleUserTimes + implausibleBoardEntries,
-      usersMissingProfile: users.filter((u) => !u.displayName && !u.email).length,
+      usersMissingProfile: users.filter((u) => !u.displayName).length,
     },
     players: OPTS.redact ? users.map((u) => ({
       id: anonName(u.id), provider: classifyProvider(u),
       bestTime: bestOf(u), lastLogin: u.lastLogin || null,
     })) : users.map((u) => ({
-      id: u.id, name: u.displayName || null, email: redactEmail(u.email),
+      id: u.id, name: u.displayName || null,
       provider: classifyProvider(u), bestTime: bestOf(u),
       lastLogin: u.lastLogin || null,
     })),
@@ -916,7 +902,7 @@ function renderHtml(data) {
   <section class="grid2">
     <div>
       <h2>Sign-in providers</h2>
-      <p class="hint">Inferred from profile photo host / email domain.</p>
+      <p class="hint">Inferred from profile photo host; accounts without a recognized photo are unknown.</p>
       ${hbars(I.provider, { color: '#7fc9ff' })}
     </div>
     <div>
@@ -971,7 +957,7 @@ function renderHtml(data) {
       <div class="flag${I.health.staleBoard ? ' warn' : ''}"><b>${I.health.staleBoard}</b>leaderboard time ≠ profile best time</div>
       <div class="flag${I.health.orphanBoard ? ' warn' : ''}"><b>${I.health.orphanBoard}</b>leaderboard rows with no user doc</div>
       <div class="flag${I.health.implausibleTimes ? ' warn' : ''}"><b>${I.health.implausibleTimes}</b>implausible/forged times (excluded from stats)</div>
-      <div class="flag${I.health.usersMissingProfile ? ' warn' : ''}"><b>${I.health.usersMissingProfile}</b>users missing name &amp; email</div>
+      <div class="flag${I.health.usersMissingProfile ? ' warn' : ''}"><b>${I.health.usersMissingProfile}</b>users missing display name</div>
     </div>
   </section>
 

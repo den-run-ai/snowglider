@@ -57,6 +57,9 @@ async function main() {
   local = env.localStorage;
 
   const mod = await import('../src/ui/result-overlay.ts');
+  // Versioned competitive best-time keys (#403 review): assert against the
+  // REAL key builders so the suite tracks the active ruleset namespace.
+  const { localBestTimeKey: BTK, localBestMetaKey: BTMK } = await import('../src/difficulty.ts');
   const { createShowGameOver, isValidScoreTime, readStoredBestTime } = mod;
 
   // --- isValidScoreTime: fallback computation + delegation to ScoresModule ---
@@ -70,10 +73,10 @@ async function main() {
   // --- readStoredBestTime: empty / valid / invalid stored values ---
   local.clear();
   check('readStoredBestTime returns Infinity with no stored time', readStoredBestTime() === Infinity);
-  local.clear(); local.setItem('snowgliderBestTime', '22.5');
+  local.clear(); local.setItem(BTK('blue'), '22.5');
   check('readStoredBestTime parses a valid stored time', readStoredBestTime() === 22.5);
-  local.clear(); local.setItem('snowgliderBestTime', '0.1');
-  check('readStoredBestTime drops an invalid stored time', readStoredBestTime() === Infinity && local.getItem('snowgliderBestTime') === null);
+  local.clear(); local.setItem(BTK('blue'), '0.1');
+  check('readStoredBestTime drops an invalid stored time', readStoredBestTime() === Infinity && local.getItem(BTK('blue')) === null);
 
   // --- showGameOver: test override short-circuit ---
   let overrode = null;
@@ -117,7 +120,7 @@ async function main() {
     createShowGameOver(deps)(FINISH);
     check('practice finish does NOT submit to the leaderboard', recorded === null);
     check('practice finish writes NO local best',
-      local.getItem('snowgliderBestTime') === null);
+      local.getItem(BTK('blue')) === null);
     check('practice finish does not claim a new best time',
       !/New Best Time/.test(deps.bestTimeDisplay.textContent));
     check('practice finish still shows the overlay/result',
@@ -138,6 +141,27 @@ async function main() {
     RC.setRunSeed(null);
   }
 
+  // --- Timing-compromised run (#403 review): shows the time, records NOTHING ---
+  {
+    local.clear();
+    recorded = null;
+    const deps = makeDeps({ bestTime: 40 });
+    /** @type {any} */ (deps.state).timingCompromised = true;
+    createShowGameOver(deps)(FINISH);
+    check('compromised finish does NOT submit to the leaderboard', recorded === null);
+    check('compromised finish writes NO local best', local.getItem(BTK('blue')) === null);
+    check('compromised finish does not claim a new best time',
+      !/New Best Time/.test(deps.bestTimeDisplay.textContent));
+    const syncLine = document.getElementById('syncStatus');
+    check('compromised finish status copy says the run was not recorded',
+      !!syncLine && /not recorded/i.test(syncLine.textContent));
+    // The best-time line renders the compromised time ALONE (Codex review PR
+    // #409): no 'Best: Infinitys' for a new player, no comparison against a
+    // best this run was barred from touching.
+    check('compromised finish shows only the run time (no Best comparison)',
+      /^Your Time: \d+\.\d{2}s$/.test(deps.bestTimeDisplay.textContent));
+  }
+
   // --- Unranked tier (D3): finish records NO Firestore score, keeps the per-tier local best ---
   {
     local.clear();
@@ -153,12 +177,12 @@ async function main() {
     check('unranked finish still emits the canonical complete_run event',
       analyticsEvents.some(e => e[0] === 'complete_run'));
     check('unranked tier still saves the per-tier local best',
-      typeof local.getItem('snowgliderBestTime_bunny') === 'string'
-      && local.getItem('snowgliderBestTime') === null);
+      typeof local.getItem(BTK('bunny')) === 'string'
+      && local.getItem(BTK('blue')) === null);
     // The fallback write carries the same run-provenance stamp every other
     // local-best path writes (#400; Codex review PR #407).
     check('unranked local best is stamped with the sidecar provenance meta',
-      typeof local.getItem('snowgliderBestTime_bunny_meta') === 'string');
+      typeof local.getItem(BTMK('bunny')) === 'string');
     check('unranked tier omits the sign-in-to-save login prompt',
       !document.getElementById('loginPrompt'));
   }
@@ -172,7 +196,7 @@ async function main() {
     const deps = makeDeps({ bestTime: Infinity, startTime: performance.now() - 15000, getDifficulty: () => 'black' });
     createShowGameOver(deps)(FINISH);
     check('fast Black finish (15s < Blue floor) is treated as a valid finish, saves its local best',
-      typeof local.getItem('snowgliderBestTime_black') === 'string'
+      typeof local.getItem(BTK('black')) === 'string'
       && /New Best Time/.test(deps.bestTimeDisplay.textContent));
   }
 
@@ -276,7 +300,7 @@ async function main() {
     local.clear();
     const deps = makeDeps({ bestTime: Infinity });
     createShowGameOver(deps)(FINISH);
-    check('finish without recordScore persists a local best', typeof local.getItem('snowgliderBestTime') === 'string');
+    check('finish without recordScore persists a local best', typeof local.getItem(BTK('blue')) === 'string');
   }
 
   // --- Finish with an INVALID elapsed time -> warn branch, no score ---
@@ -331,6 +355,30 @@ async function main() {
     check('finish drops a stale login prompt + survives analytics/onFinish throwing',
       deps.gameOverOverlay.style.display === 'flex');
     CourseModule.onFinish = realOnFinish;
+  }
+
+  // Result login prompts must retain a reachable sign-in path inside the dialog.
+  {
+    const { closeOverlayFocus } = await import('../src/ui/accessibility.ts');
+    const deps = makeDeps();
+    const account = document.createElement('div');
+    account.id = 'authContainer';
+    const provider = document.createElement('button');
+    provider.textContent = 'Sign in with Google';
+    let signIns = 0;
+    provider.addEventListener('click', () => { signIns++; });
+    account.appendChild(provider);
+    document.body.appendChild(account);
+    const show = createShowGameOver(deps);
+    show('You hit a tree!');
+    check('result contains the real account controls inside its focus boundary',
+      account.parentElement === deps.gameOverOverlay && account.inert !== true);
+    provider.click();
+    check('moving account controls preserves their existing sign-in handler', signIns === 1);
+    show('You hit a tree!');
+    check('re-showing a result keeps one account region', document.querySelectorAll('#authContainer').length === 1);
+    closeOverlayFocus(deps.gameOverOverlay, false);
+    check('restart/teardown cleanup restores account controls to their original parent', account.parentElement === document.body);
   }
 
   console.log(`\nRESULT-OVERLAY TEST TOTAL: ${pass} passed, ${fail} failed`);

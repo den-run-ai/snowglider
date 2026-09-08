@@ -28,6 +28,13 @@ service cloud.firestore {
     // bestTimeBunny / bestTimeBlack / bestTimeExpert are the other tiers. All validate
     // against the same plausibility floor for now (every tier currently plays the same
     // physics).
+    //
+    // VERSIONED fields (#403 review tail): a PHYSICS_VERSION bump makes times
+    // incomparable across versions, so the ACTIVE fields carry a V<N> suffix
+    // (userBestTimeField in src/difficulty.ts — the lockstep is enforced by
+    // tests/remote-version-sync-tests.js). The unversioned fields remain accepted
+    // so still-deployed pre-bump clients keep working; they become the historical
+    // record the moment the versioned client is serving.
     function validUserKeys(data) {
       return data.keys().hasOnly([
         'displayName',
@@ -38,6 +45,10 @@ service cloud.firestore {
         'bestTimeBunny',
         'bestTimeBlack',
         'bestTimeExpert',
+        'bestTimeV3',
+        'bestTimeBunnyV3',
+        'bestTimeBlackV3',
+        'bestTimeExpertV3',
         'updatedAt'
       ]);
     }
@@ -52,6 +63,10 @@ service cloud.firestore {
         && (!('bestTimeBunny' in data) || isValidScoreTime(data.bestTimeBunny))
         && (!('bestTimeBlack' in data) || isValidScoreTime(data.bestTimeBlack))
         && (!('bestTimeExpert' in data) || isValidScoreTime(data.bestTimeExpert))
+        && (!('bestTimeV3' in data) || isValidScoreTime(data.bestTimeV3))
+        && (!('bestTimeBunnyV3' in data) || isValidScoreTime(data.bestTimeBunnyV3))
+        && (!('bestTimeBlackV3' in data) || isValidScoreTime(data.bestTimeBlackV3))
+        && (!('bestTimeExpertV3' in data) || isValidScoreTime(data.bestTimeExpertV3))
         && (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
@@ -70,6 +85,10 @@ service cloud.firestore {
           'bestTimeBunny',
           'bestTimeBlack',
           'bestTimeExpert',
+          'bestTimeV3',
+          'bestTimeBunnyV3',
+          'bestTimeBlackV3',
+          'bestTimeExpertV3',
           'updatedAt'
         ])
         && (!changedUserKeys().hasAny(['displayName']) ||
@@ -124,6 +143,38 @@ service cloud.firestore {
             !isValidScoreTime(resource.data.bestTimeExpert) ||
             request.resource.data.bestTimeExpert <= resource.data.bestTimeExpert)
         )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeV3'])
+        || (
+          isValidScoreTime(request.resource.data.bestTimeV3)
+          && (!('bestTimeV3' in resource.data) ||
+            !isValidScoreTime(resource.data.bestTimeV3) ||
+            request.resource.data.bestTimeV3 <= resource.data.bestTimeV3)
+        )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeBunnyV3'])
+        || (
+          isValidScoreTime(request.resource.data.bestTimeBunnyV3)
+          && (!('bestTimeBunnyV3' in resource.data) ||
+            !isValidScoreTime(resource.data.bestTimeBunnyV3) ||
+            request.resource.data.bestTimeBunnyV3 <= resource.data.bestTimeBunnyV3)
+        )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeBlackV3'])
+        || (
+          isValidScoreTime(request.resource.data.bestTimeBlackV3)
+          && (!('bestTimeBlackV3' in resource.data) ||
+            !isValidScoreTime(resource.data.bestTimeBlackV3) ||
+            request.resource.data.bestTimeBlackV3 <= resource.data.bestTimeBlackV3)
+        )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeExpertV3'])
+        || (
+          isValidScoreTime(request.resource.data.bestTimeExpertV3)
+          && (!('bestTimeExpertV3' in resource.data) ||
+            !isValidScoreTime(resource.data.bestTimeExpertV3) ||
+            request.resource.data.bestTimeExpertV3 <= resource.data.bestTimeExpertV3)
+        )
       );
     }
 
@@ -162,7 +213,27 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // The pre-versioning Blue board: still writable so already-deployed pre-v3
+    // clients keep working; the versioned client below neither reads nor writes
+    // it, so it freezes into the historical record as clients refresh.
     match /leaderboard/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardDoc(userId, request.resource.data);
+      allow update: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardUpdate(userId);
+      allow delete: if false;
+    }
+
+    // THE ACTIVE Blue board (#403 review tail): version-namespaced alongside
+    // userBestTimeField/leaderboardCollectionName in src/difficulty.ts (lockstep
+    // enforced by tests/remote-version-sync-tests.js). A PHYSICS_VERSION bump
+    // starts a fresh board — pre-bump times were earned on a different surface/
+    // clock and must not shadow current-version runs through the monotonic
+    // update guard. Same validation as the classic board.
+    match /leaderboard_v3/{userId} {
       allow get, list: if isSignedIn();
       allow create: if isOwner(userId)
         && exists(userDocPath(userId))
@@ -190,6 +261,24 @@ service cloud.firestore {
     }
 
     match /leaderboard_expert/{userId} {
+      allow get, list: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Versioned unranked sibling boards: the versioned client READS these names
+    // (empty boards), and the unranked guarantee must hold server-side for the
+    // active names exactly as it does for the classic ones above.
+    match /leaderboard_v3_bunny/{userId} {
+      allow get, list: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /leaderboard_v3_black/{userId} {
+      allow get, list: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /leaderboard_v3_expert/{userId} {
       allow get, list: if isSignedIn();
       allow write: if false;
     }

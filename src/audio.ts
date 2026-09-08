@@ -129,6 +129,8 @@ export const AudioModule = (function() {
   function updateButtonUI(btn: HTMLElement) {
     btn.textContent = muted ? '🔇' : '🔊';
     btn.title = muted ? 'Unmute' : 'Mute';
+    btn.setAttribute('aria-label', 'Sound');
+    btn.setAttribute('aria-pressed', String(!muted));
   }
 
   // Public API

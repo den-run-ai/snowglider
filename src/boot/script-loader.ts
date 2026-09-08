@@ -9,6 +9,7 @@
 // The `../audio.js` import specifier is unchanged — Vite/tsc Bundler resolve it to
 // audio.ts.
 import { AudioModule } from '../audio.js';
+import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
 
 (function () {
   const GAME_SCRIPT_ORDER: string[] = [
@@ -190,6 +191,7 @@ import { AudioModule } from '../audio.js';
       })
       .catch((error) => {
         console.error("Failed to load or initialize game scripts:", error);
+        showFatalErrorOverlay(error);
       });
   }
 

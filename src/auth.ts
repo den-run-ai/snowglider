@@ -206,7 +206,7 @@ function notifyAuthChanged() {
 // guest-upgrade path (linkWithPopup keeps the same uid and may not re-fire the
 // observer), so both routes drive identical UI + scoring updates.
 function handleSignedInUser(user: User) {
-  console.log("Auth state changed: User IS signed in", user.uid, user.email,
+  console.log("Auth state changed: User IS signed in",
     user.isAnonymous ? '(anonymous guest)' : '');
   currentUser = user;
 
@@ -305,6 +305,21 @@ function renderAvatar(el: HTMLElement, user: {
 
 // Update UI when a real (non-anonymous) user is logged in: show the compact avatar
 // chip + name + logout, and fold the provider buttons away entirely.
+function updateProfileDisclosure(guest: boolean, expanded = false): void {
+  const chip = document.getElementById('profileChip');
+  if (!chip) return;
+  chip.setAttribute('aria-label', guest ? 'Sign-in options for Guest' : 'Signed-in account');
+  if (guest) {
+    chip.removeAttribute('disabled');
+    chip.setAttribute('aria-controls', 'authUI');
+    chip.setAttribute('aria-expanded', String(expanded));
+  } else {
+    chip.setAttribute('disabled', ''); // signed-in chip is an identity, not an action
+    chip.removeAttribute('aria-controls');
+    chip.removeAttribute('aria-expanded');
+  }
+}
+
 function updateUIForLoggedInUser(user: User) {
   const authUI = document.getElementById('authUI');
   const profileUI = document.getElementById('profileUI');
@@ -321,6 +336,7 @@ function updateUIForLoggedInUser(user: User) {
   profileUI.classList.remove('guest', 'expanded');
   if (profileName) profileName.textContent = user.displayName || user.email || '';
   if (profileAvatar) renderAvatar(profileAvatar, user);
+  updateProfileDisclosure(false);
 }
 
 // Update UI when user is logged out: provider buttons visible, profile hidden.
@@ -333,6 +349,7 @@ function updateUIForLoggedOutUser() {
   authUI.style.display = 'flex';
   profileUI.style.display = 'none';
   profileUI.classList.remove('guest', 'expanded');
+  updateProfileDisclosure(false);
 }
 
 // Update UI for an anonymous "guest" session. The login options are FOLDED behind
@@ -360,6 +377,7 @@ function updateUIForGuestUser() {
   profileUI.classList.remove('expanded');
   if (profileName) profileName.textContent = 'Guest';
   if (profileAvatar) renderAvatar(profileAvatar, { isAnonymous: true, uid: currentUser?.uid });
+  updateProfileDisclosure(true);
 }
 
 // Provider metadata for the buttons in #authUI. Each federated provider maps a
@@ -527,7 +545,7 @@ function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
 
   flow
     .then(result => {
-      console.log(`Popup sign-in successful (${meta.method}) for:`, result.user.email);
+      console.log(`Popup sign-in successful (${meta.method})`);
       if (analytics) {
         logEvent(analytics, 'login', withTrafficTag({ method: meta.method }));
       }
@@ -603,10 +621,20 @@ function setupAuthButtons() {
       if (!authUI) return;
       const collapsed = authUI.style.display === 'none';
       authUI.style.display = collapsed ? 'flex' : 'none';
+      updateProfileDisclosure(true, collapsed);
       if (profileUI) profileUI.classList.toggle('expanded', collapsed);
     };
     profileChip.addEventListener('click', toggleGuestUpgrade);
     profileChip.addEventListener('touchend', toggleGuestUpgrade, { passive: false });
+    document.getElementById('authContainer')?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || profileChip.getAttribute('aria-expanded') !== 'true') return;
+      const authUI = document.getElementById('authUI');
+      if (authUI) authUI.style.display = 'none';
+      document.getElementById('profileUI')?.classList.remove('expanded');
+      updateProfileDisclosure(true);
+      profileChip.focus();
+      event.stopPropagation();
+    });
   }
 
   // Logout button. Bind click + touchend, mirroring bindAuthButton. The OLD code
@@ -715,7 +743,6 @@ function syncUserData(user: User) {
     // Use setDoc with merge:true to create or update user profile.
     setDoc(userDocRef, {
       displayName: user.displayName,
-      email: user.email,
       photoURL: user.photoURL,
       lastLogin: serverTimestamp() // Record last login time
     }, { merge: true })

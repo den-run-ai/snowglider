@@ -6,6 +6,7 @@
 // exercises the checked-in firestore.rules with @firebase/rules-unit-testing.
 const fs = require('fs');
 const path = require('path');
+const { REMOTE_SCORE_SCHEMAS } = require('./lib/remote-score-schemas.js');
 const {
   assertFails,
   assertSucceeds,
@@ -384,6 +385,89 @@ async function main() {
         collection(anon, coll), where('time', '>=', 18), orderBy('time', 'asc'), limit(10))));
     });
   }
+
+  console.log('\n--- Firestore rules: every shipped remote schema stays usable ---');
+  // The same append-only history drives the fast drift gate. Exercise real rules
+  // for every old field and collection, even after the client moves to V4+.
+  for (const schema of REMOTE_SCORE_SCHEMAS) {
+    for (const { field, board, ranked } of schema.tiers) {
+      await runTest(`${field}: floor/cap, monotonic updates and corrupt-score repair`, async () => {
+        const alice = dbFor('alice');
+        const ref = doc(alice, 'users', 'alice');
+        const write = time => setDoc(ref, { [field]: time, updatedAt: serverTimestamp() }, { merge: true });
+        await assertFails(write(schema.minTime - 0.01));
+        await assertFails(write(schema.maxTime + 1));
+        await assertSucceeds(write(schema.minTime + 2));
+        await assertFails(write(schema.minTime + 3));
+        await assertFails(write(schema.minTime - 0.01));
+        await assertSucceeds(write(schema.minTime));
+        await seed(async admin => {
+          await setDoc(doc(admin, 'users', 'alice'), { [field]: 0.01 });
+        });
+        await assertSucceeds(write(schema.minTime + 1));
+      });
+
+      await runTest(`${board}: preserved read/write policy and score validation`, async () => {
+        const alice = dbFor('alice');
+        const ref = doc(alice, board, 'alice');
+        const write = time => setDoc(ref, leaderboardEntry(alice, 'alice', time));
+        await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
+        if (ranked) {
+          await assertFails(write(schema.minTime - 0.01));
+          await assertFails(write(schema.maxTime + 1));
+          await assertSucceeds(write(schema.minTime + 2));
+          await assertFails(write(schema.minTime + 3));
+          await assertSucceeds(write(schema.minTime));
+          await assertFails(setDoc(doc(alice, board, 'bob'), leaderboardEntry(alice, 'bob', schema.minTime)));
+        } else {
+          await assertFails(write(schema.minTime + 2));
+          // Cover updates too: a write-denied board must stay denied if a row
+          // already exists from an admin import or an older deployment.
+          await seed(async admin => {
+            await setDoc(doc(admin, board, 'alice'), leaderboardEntry(admin, 'alice', schema.minTime + 2));
+          });
+          await assertFails(write(schema.minTime + 1));
+        }
+        await assertSucceeds(getDocs(query(collection(alice, board), orderBy('time', 'asc'), limit(10))));
+        await assertFails(getDocs(query(collection(anonDb(), board), orderBy('time', 'asc'), limit(10))));
+      });
+    }
+  }
+
+  await runTest('historical score fields do not block profile-only updates', async () => {
+    const alice = dbFor('alice');
+    const historicalFields = Object.fromEntries(REMOTE_SCORE_SCHEMAS.flatMap(schema =>
+      schema.tiers.map(({ field }) => [field, schema.minTime + 1])));
+    // Admin seed models an account created by every earlier deployed client.
+    await seed(async admin => {
+      await setDoc(doc(admin, 'users', 'alice'), { ...profile(), ...historicalFields });
+    });
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
+      { displayName: 'Updated name', lastLogin: serverTimestamp() }, { merge: true }));
+    const snapshot = await assertSucceeds(getDoc(doc(alice, 'users', 'alice')));
+    for (const [field, time] of Object.entries(historicalFields)) {
+      if (snapshot.data()[field] !== time) throw new Error(`Profile update lost ${field}`);
+    }
+  });
+
+  await runTest('each version starts its own monotonic score chain', async () => {
+    const alice = dbFor('alice');
+    const ref = doc(alice, 'users', 'alice');
+    // Every later first score is slower than the existing versions. It must
+    // still be accepted, without changing those older best times.
+    for (const [index, schema] of REMOTE_SCORE_SCHEMAS.entries()) {
+      const fields = Object.fromEntries(schema.tiers.map(({ field }) => [field, schema.minTime + 1 + index]));
+      await assertSucceeds(setDoc(ref, { ...fields, updatedAt: serverTimestamp() }, { merge: true }));
+      const snapshot = await assertSucceeds(getDoc(ref));
+      for (const [olderIndex, older] of REMOTE_SCORE_SCHEMAS.slice(0, index + 1).entries()) {
+        for (const { field } of older.tiers) {
+          if (snapshot.data()[field] !== older.minTime + 1 + olderIndex) {
+            throw new Error(`Another schema shadowed ${field}`);
+          }
+        }
+      }
+    }
+  });
 
   console.log(`\nFIRESTORE RULES TEST TOTAL: ${pass} passed, ${fail} failed`);
   await testEnv.cleanup();

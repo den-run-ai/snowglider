@@ -31,6 +31,20 @@ async function dispatchTouch(
 }
 
 test.describe('mobile touch', () => {
+  test('touch camera disclosure exposes state and keeps hidden controls out of focus', async ({ page }) => {
+    await gotoGame(page);
+    await startGame(page);
+    const toggle = page.getByRole('button', { name: 'Toggle camera options' });
+    await expect(toggle).toHaveAttribute('aria-controls', 'cameraControlsContent');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#cameraControlsContent')).toHaveJSProperty('inert', true);
+    await toggle.tap();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: 'Orbit left (Q)', exact: true })).toBeVisible();
+    await toggle.tap();
+    await expect(page.getByRole('button', { name: 'Orbit left (Q)', exact: true })).toHaveCount(0);
+  });
+
   test('touch regions drive the shared controls state', async ({ page }) => {
     await gotoGame(page);
     await startGame(page);

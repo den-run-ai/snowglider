@@ -193,6 +193,11 @@ async function main() {
     check('wheel zooms once the run is active', calls.some(c => c[0] === 'adjustZoom'));
     check('wheel preventDefault fires during gameplay', wheelOn.defaultPrevented === true);
     check('Q key orbits during gameplay', calls.some(c => c[0] === 'orbit'));
+    const focusedOrbitsBefore = calls.filter(c => c[0] === 'orbit').length;
+    camToggle.focus();
+    camToggle.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'q', bubbles: true }));
+    check('Q still orbits after an in-run camera button retains focus',
+      calls.filter(c => c[0] === 'orbit').length === focusedOrbitsBefore + 1);
 
     // Tray chips: clicking a mode chip selects it; the orbit slider drives setOrbitYaw.
     const chip = (mode) => /** @type {HTMLButtonElement} */ (document.querySelector(`#cameraControls [data-cam-mode="${mode}"]`));
@@ -202,6 +207,10 @@ async function main() {
     slider.value = '90';
     slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     check('orbit slider drives setOrbitYaw', calls.some(c => c[0] === 'setOrbitYaw'));
+    const sliderOrbitsBefore = calls.filter(c => c[0] === 'orbit').length;
+    slider.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'q', bubbles: true }));
+    check('focused slider owns its keys without changing the orbit through Q',
+      calls.filter(c => c[0] === 'orbit').length === sliderOrbitsBefore);
 
     // First person disables the orbit/zoom widgets (they only affect third-person).
     chip('firstPerson').click(); // sets the stub's mode to 'firstPerson'

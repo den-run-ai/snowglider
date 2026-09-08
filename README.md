@@ -104,9 +104,11 @@ files.
 ## Development
 
 ### Local Development Setup
-**Prerequisite:** Node.js 22+ (matches CI). The Node test suite runs the
-TypeScript sources directly through Node's native type stripping, which requires
-Node 22 or newer.
+**Prerequisite:** Node.js 22.18+ (CI uses the latest Node 22). The Node test suite
+runs TypeScript sources through [native type stripping](https://nodejs.org/api/typescript.html),
+enabled by default in 22.18. This also meets
+[Puppeteer 25's Node 22.12+ requirement](https://pptr.dev/guides/system-requirements).
+Linux browser downloads also require `unzip` on `PATH`.
 
 1. Clone the repository
 2. Install dependencies with `npm ci`
