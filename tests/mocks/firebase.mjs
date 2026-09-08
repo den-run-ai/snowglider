@@ -123,12 +123,11 @@ function clone(value) {
  * @returns {Map<string, DocData>}
  */
 function getCollectionStore(name) {
-  let store = db[name];
+  let store = Object.hasOwn(db, name) ? db[name] : undefined;
   if (!store) {
-    // Any member of the leaderboard family (incl. the version-namespaced active
-    // boards) is created on first touch; other unknown names still throw so a
-    // typo'd collection can't silently read as empty.
-    if (/^leaderboard(_|$)/.test(name)) {
+    // Exact legacy / numeric-version names, with known optional tier suffixes.
+    // A prefix match hides production failures behind empty mocked boards.
+    if (/^leaderboard(?:_v[1-9]\d*)?(?:_(?:bunny|black|expert))?$/.test(name)) {
       store = new Map();
       db[name] = store;
       return store;

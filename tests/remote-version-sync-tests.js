@@ -1,108 +1,122 @@
 // @ts-check
-// remote-version-sync-tests.js
-// Lockstep guard for the VERSION-NAMESPACED remote score schema (#403 review tail).
-//
-// The client derives its Firestore names from PHYSICS_VERSION at runtime
-// (userBestTimeField / leaderboardCollectionName in src/difficulty.ts), but
-// firestore.rules cannot import JavaScript — the rules must name the active
-// fields and collections literally. Same for tests/firestore-rules-tests.js,
-// which runs under `emulators:exec` without the TS loader. This suite parses
-// both files and asserts they carry exactly the names the seams produce, so
-// bumping PHYSICS_VERSION without extending the rules (and the rules tests)
-// fails `npm test` instead of silently shipping a client whose writes the
-// server rejects. (Until a matching rules deploy, such writes fail CLOSED —
-// rejected server-side, kept locally, resynced by the sign-in backfill — but
-// they must never fail SILENTLY in CI.)
-//
+// Firestore cannot import the client's versioned names. Check every shipped
+// schema, including historical versioned fields that survive on users/{uid}.
+// Replacing V3 with V4 would otherwise reject profile updates on existing users.
 // Run: node --import ./tests/loaders/register-ts-resolve.mjs tests/remote-version-sync-tests.js
 const fs = require('fs');
 const path = require('path');
+const { SHIPPED_REMOTE_VERSIONS, REMOTE_SCORE_SCHEMAS, schemaForVersion } = require('./lib/remote-score-schemas.js');
 
 let pass = 0, fail = 0;
 function check(name, ok) {
-  console.log(`  ${ok ? 'PASS' : 'FAIL'}: ${name} ${ok ? '✅' : '❌'}`);
+  console.log(`  ${ok ? 'PASS' : 'FAIL'}: ${name}`);
   if (ok) pass++; else fail++;
 }
 
-/** Escape a literal for embedding in a RegExp. */
 function esc(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Scope assertions to their function / match block, rather than counting names
+// anywhere (comments or one allowlist could otherwise mask the other).
+function blockAfter(source, header) {
+  const start = source.indexOf(header);
+  if (start < 0) return '';
+  const open = source.indexOf('{', start + header.length);
+  if (open < 0) return '';
+  let depth = 1;
+  for (let i = open + 1; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    if (source[i] === '}' && --depth === 0) return source.slice(open + 1, i);
+  }
+  return '';
+}
+
+function inspectRules(source, schemas) {
+  const rules = source.replace(/\/\/[^\n]*/g, '');
+  const createKeys = blockAfter(rules, 'function validUserKeys(data)');
+  const updateKeys = blockAfter(rules, 'function validChangedUserFields()');
+  const createDoc = blockAfter(rules, 'function validUserDoc(data)');
+  const updateBest = blockAfter(rules, 'function validBestTimeUpdate()');
+  const results = [];
+  const record = (name, ok) => results.push({ name, ok });
+  for (const schema of schemas) {
+    const validator = esc(schema.scoreValidator);
+    const bounds = blockAfter(rules, `function ${schema.scoreValidator}(time)`);
+    record(`${schema.label}: preserves score floor/cap ${schema.minTime}/${schema.maxTime}`,
+      new RegExp(`time\\s+is\\s+number\\s*&&\\s*time\\s*>=\\s*${schema.minTime}\\s*&&\\s*time\\s*<=\\s*${schema.maxTime}\\s*;`).test(bounds));
+    for (const { field, board, ranked } of schema.tiers) {
+      const quoted = `'${field}'`;
+      const escaped = esc(field);
+      record(`${field}: create allowlist`, createKeys.includes(quoted));
+      record(`${field}: update allowlist`, updateKeys.includes(quoted));
+      record(`${field}: create plausibility`, new RegExp(`${validator}\\(data\\.${escaped}\\)`).test(createDoc));
+      record(`${field}: update plausibility`, new RegExp(`${validator}\\(request\\.resource\\.data\\.${escaped}\\)`).test(updateBest));
+      record(`${field}: monotonic within its own schema`,
+        new RegExp(`request\\.resource\\.data\\.${escaped}\\s*<=\\s*resource\\.data\\.${escaped}`).test(updateBest));
+      const boardBlock = blockAfter(rules, `match /${board}/{userId}`);
+      record(`${board}: authenticated reads`, /allow\s+get,\s*list:\s*if\s+isSignedIn\(\)/.test(boardBlock));
+      if (ranked) {
+        record(`${board}: validated create`, /allow\s+create:[^;]*validLeaderboardDoc/.test(boardBlock));
+        record(`${board}: validated update`, /allow\s+update:[^;]*validLeaderboardUpdate/.test(boardBlock));
+      } else {
+        record(`${board}: unranked writes denied`, /allow\s+write:\s*if\s+false/.test(boardBlock));
+      }
+    }
+  }
+  return results;
 }
 
 (async () => {
   const D = await import('../src/difficulty.ts');
   const { PHYSICS_VERSION } = await import('../src/run-context.ts');
-
   const rules = fs.readFileSync(path.join(__dirname, '..', 'firestore.rules'), 'utf8');
   const rulesTests = fs.readFileSync(path.join(__dirname, 'firestore-rules-tests.js'), 'utf8');
 
-  const TIERS = /** @type {const} */ (['blue', 'bunny', 'black', 'expert']);
-
-  console.log('--- difficulty.ts seams: versioned, distinct from the legacy names ---');
-  for (const tier of TIERS) {
-    const field = D.userBestTimeField(tier);
-    const coll = D.leaderboardCollectionName(tier);
-    check(`${tier}: active field/collection carry the physics version (v${PHYSICS_VERSION})`,
-      field.includes(`V${PHYSICS_VERSION}`) && coll.includes(`_v${PHYSICS_VERSION}`));
-    check(`${tier}: active names differ from the legacy (historical) names`,
-      field !== D.legacyUserBestTimeField(tier)
-      && coll !== D.legacyLeaderboardCollectionName(tier));
+  console.log('--- append-only remote schema history ---');
+  // [3] -> [4] must fail even when the active client, rules and emulator all agree
+  // on V4. Keep every version, including ones deployed only briefly.
+  for (let version = 3; version <= PHYSICS_VERSION; version++) {
+    check(`shipped v${version} stays in emulator and compatibility coverage`, SHIPPED_REMOTE_VERSIONS.includes(version));
   }
-
-  console.log('\n--- firestore.rules: every ACTIVE users/{uid} field is validated ---');
-  for (const tier of TIERS) {
-    const field = D.userBestTimeField(tier);
-    // Accepted by BOTH key allowlists: validUserKeys (create) and the
-    // changedUserKeys().hasOnly list (update).
-    const allowlisted = (rules.match(new RegExp(`'${esc(field)}'`, 'g')) || []).length;
-    check(`rules allowlist '${field}' for create AND update`, allowlisted >= 2);
-    // Plausibility-gated like every other best-time field...
-    check(`rules bound '${field}' with isValidScoreTime`,
-      new RegExp(`isValidScoreTime\\(data\\.${esc(field)}\\)`).test(rules));
-    // ...and monotonic within its own version (no downgrade to a slower time).
-    check(`rules enforce monotonic improvement on '${field}'`,
-      new RegExp(`request\\.resource\\.data\\.${esc(field)}\\s*<=\\s*resource\\.data\\.${esc(field)}`).test(rules));
-  }
-
-  console.log('\n--- firestore.rules: the ACTIVE leaderboard collections exist ---');
-  // The ranked Blue board must be a VALIDATED writable match block.
-  const blueColl = D.leaderboardCollectionName('blue');
-  const blueBlockStart = rules.indexOf(`match /${blueColl}/{userId}`);
-  check(`rules declare match /${blueColl}/{userId}`, blueBlockStart !== -1);
-  if (blueBlockStart !== -1) {
-    const nextMatch = rules.indexOf('match /', blueBlockStart + 1);
-    const block = rules.slice(blueBlockStart, nextMatch === -1 ? rules.length : nextMatch);
-    check(`${blueColl}: create validates via validLeaderboardDoc`,
-      block.includes('validLeaderboardDoc'));
-    check(`${blueColl}: update validates via validLeaderboardUpdate`,
-      block.includes('validLeaderboardUpdate'));
-  }
-  // The unranked sibling boards must exist (the client reads them) and stay
-  // server-side read-only until their flip-to-ranked PR.
-  for (const tier of /** @type {const} */ (['bunny', 'black', 'expert'])) {
-    const coll = D.leaderboardCollectionName(tier);
-    const start = rules.indexOf(`match /${coll}/{userId}`);
-    check(`rules declare match /${coll}/{userId}`, start !== -1);
-    if (start !== -1) {
-      const nextMatch = rules.indexOf('match /', start + 1);
-      const block = rules.slice(start, nextMatch === -1 ? rules.length : nextMatch);
-      check(`${coll}: every client write is denied (unranked guarantee)`,
-        /allow\s+write:\s*if\s+false/.test(block));
+  check('remote schema history contains the active version', SHIPPED_REMOTE_VERSIONS.includes(PHYSICS_VERSION));
+  check('remote schema history is unique and ordered',
+    SHIPPED_REMOTE_VERSIONS.every((v, i, all) => Number.isInteger(v) && v >= 3 && (i === 0 || v > all[i - 1])));
+  const active = REMOTE_SCORE_SCHEMAS.find(schema => schema.version === PHYSICS_VERSION);
+  if (active) {
+    for (const { tier, field, board } of active.tiers) {
+      check(`${tier}: client field matches registered active schema`, D.userBestTimeField(tier) === field);
+      check(`${tier}: client board matches registered active schema`, D.leaderboardCollectionName(tier) === board);
     }
   }
-
-  console.log('\n--- firestore-rules-tests.js: emulator coverage names the active schema ---');
-  // The emulator suite cannot import the seams, so its literals drift-guard here.
-  check('rules tests exercise the active Blue best-time field',
-    rulesTests.includes(`'users', 'alice'`) && rulesTests.includes(D.userBestTimeField('blue')));
-  check('rules tests exercise the active Blue board',
-    rulesTests.includes(`'${blueColl}'`));
-  for (const tier of /** @type {const} */ (['bunny', 'black', 'expert'])) {
-    check(`rules tests exercise the active ${tier} names`,
-      rulesTests.includes(D.userBestTimeField(tier))
-      && rulesTests.includes(`'${D.leaderboardCollectionName(tier)}'`));
+  const legacy = REMOTE_SCORE_SCHEMAS.find(schema => schema.version === null);
+  check('the unversioned schema remains in compatibility coverage', !!legacy);
+  if (legacy) {
+    for (const { tier, field, board } of legacy.tiers) {
+      check(`${tier}: legacy client field stays stable`, D.legacyUserBestTimeField(tier) === field);
+      check(`${tier}: legacy client board stays stable`, D.legacyLeaderboardCollectionName(tier) === board);
+    }
   }
+  check('emulator uses the same complete schema history',
+    /require\('\.\/lib\/remote-score-schemas\.js'\)/.test(rulesTests)
+    && /for\s*\(const schema of REMOTE_SCORE_SCHEMAS\)/.test(rulesTests));
+
+  console.log('\n--- rules preserve every shipped schema ---');
+  for (const { name, ok } of inspectRules(rules, REMOTE_SCORE_SCHEMAS)) check(name, ok);
+
+  console.log('\n--- regression: a future active-only V4 replacement is rejected ---');
+  const replacement = rules.replace(/V3\b/g, 'V4').replace(/_v3\b/g, '_v4').replace(/_v3_/g, '_v4_');
+  const nextSchema = schemaForVersion(4);
+  check('mutation supplies a complete, valid V4 schema', inspectRules(replacement, [nextSchema]).every(result => result.ok));
+  check('mutation cannot drop historical V3 fields or boards',
+    inspectRules(replacement, REMOTE_SCORE_SCHEMAS).some(result => !result.ok));
+  const missingCreateKey = rules.replace("        'bestTimeV3',", '');
+  check('missing V3 create allowlist entry fails despite update references',
+    inspectRules(missingCreateKey, REMOTE_SCORE_SCHEMAS).some(result => result.name === 'bestTimeV3: create allowlist' && !result.ok));
+  const missingUpdateKey = rules.replace("          'bestTimeV3',", '');
+  check('missing V3 update allowlist entry fails despite create references',
+    inspectRules(missingUpdateKey, REMOTE_SCORE_SCHEMAS).some(result => result.name === 'bestTimeV3: update allowlist' && !result.ok));
 
   console.log(`\nREMOTE-VERSION SYNC TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
-})().catch((e) => { console.error(e); process.exit(1); });
+})().catch((error) => { console.error(error); process.exit(1); });

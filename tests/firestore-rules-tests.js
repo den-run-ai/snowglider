@@ -6,6 +6,7 @@
 // exercises the checked-in firestore.rules with @firebase/rules-unit-testing.
 const fs = require('fs');
 const path = require('path');
+const { REMOTE_SCORE_SCHEMAS } = require('./lib/remote-score-schemas.js');
 const {
   assertFails,
   assertSucceeds,
@@ -385,71 +386,88 @@ async function main() {
     });
   }
 
-  console.log('\n--- Firestore rules: version-namespaced fields + boards (#403 review tail) ---');
-  // The ACTIVE schema is version-suffixed (userBestTimeField/leaderboardCollectionName
-  // in src/difficulty.ts). This file cannot import the TS seams (no loader under
-  // emulators:exec), so the literals here are kept in lockstep with the client by
-  // tests/remote-version-sync-tests.js in the main suite.
-  await runTest('versioned user best fields validate like bestTime (plausible + no downgrade)', async () => {
-    const alice = dbFor('alice');
-    await assertFails(setDoc(doc(alice, 'users', 'alice'),
-      { bestTimeV3: 17.99, updatedAt: serverTimestamp() }, { merge: true }));
-    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
-      { bestTimeV3: 20, bestTimeBunnyV3: 20, bestTimeBlackV3: 18, bestTimeExpertV3: 21,
-        updatedAt: serverTimestamp() }, { merge: true }));
-    await assertFails(setDoc(doc(alice, 'users', 'alice'),
-      { bestTimeV3: 25, updatedAt: serverTimestamp() }, { merge: true }));
-    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
-      { bestTimeV3: 19, updatedAt: serverTimestamp() }, { merge: true }));
-  });
+  console.log('\n--- Firestore rules: every shipped remote schema stays usable ---');
+  // The same append-only history drives the fast drift gate. Exercise real rules
+  // for every old field and collection, even after the client moves to V4+.
+  for (const schema of REMOTE_SCORE_SCHEMAS) {
+    for (const { field, board, ranked } of schema.tiers) {
+      await runTest(`${field}: floor/cap, monotonic updates and corrupt-score repair`, async () => {
+        const alice = dbFor('alice');
+        const ref = doc(alice, 'users', 'alice');
+        const write = time => setDoc(ref, { [field]: time, updatedAt: serverTimestamp() }, { merge: true });
+        await assertFails(write(schema.minTime - 0.01));
+        await assertFails(write(schema.maxTime + 1));
+        await assertSucceeds(write(schema.minTime + 2));
+        await assertFails(write(schema.minTime + 3));
+        await assertFails(write(schema.minTime - 0.01));
+        await assertSucceeds(write(schema.minTime));
+        await seed(async admin => {
+          await setDoc(doc(admin, 'users', 'alice'), { [field]: 0.01 });
+        });
+        await assertSucceeds(write(schema.minTime + 1));
+      });
 
-  await runTest('a faster legacy best does NOT block the versioned field (the shadowing fix)', async () => {
-    const alice = dbFor('alice');
-    await seed(async admin => {
-      // A pre-versioning record faster than anything the player will run now.
-      await setDoc(doc(admin, 'users', 'alice'), { ...profile(), bestTime: 18.01 });
-    });
-    // The first v3 run is SLOWER than the legacy best — and must still be accepted:
-    // the versioned field starts its own monotonic chain, the legacy field is history.
-    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
-      { bestTimeV3: 30, updatedAt: serverTimestamp() }, { merge: true }));
-    // ...and stays monotonic within its own version thereafter.
-    await assertFails(setDoc(doc(alice, 'users', 'alice'),
-      { bestTimeV3: 31, updatedAt: serverTimestamp() }, { merge: true }));
-  });
-
-  await runTest('leaderboard_v3 (the active Blue board) validates like the classic board', async () => {
-    const alice = dbFor('alice');
-    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
-    await assertSucceeds(setDoc(
-      doc(alice, 'leaderboard_v3', 'alice'),
-      leaderboardEntry(alice, 'alice', 25.43)
-    ));
-    // Downgrade rejected, improvement accepted — same monotonic guard as the classic board.
-    await assertFails(setDoc(
-      doc(alice, 'leaderboard_v3', 'alice'),
-      leaderboardEntry(alice, 'alice', 30)
-    ));
-    await assertSucceeds(setDoc(
-      doc(alice, 'leaderboard_v3', 'alice'),
-      leaderboardEntry(alice, 'alice', 20)
-    ));
-    // Sub-floor forgeries rejected on the versioned board too.
-    await assertFails(setDoc(
-      doc(alice, 'leaderboard_v3', 'alice'),
-      leaderboardEntry(alice, 'alice', 17.99)
-    ));
-  });
-
-  for (const coll of ['leaderboard_v3_bunny', 'leaderboard_v3_black', 'leaderboard_v3_expert']) {
-    await runTest(`${coll} (unranked, versioned): writes denied, signed-in reads allowed`, async () => {
-      const alice = dbFor('alice');
-      await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
-      await assertFails(setDoc(doc(alice, coll, 'alice'), leaderboardEntry(alice, 'alice', 20)));
-      await assertSucceeds(getDocs(query(
-        collection(alice, coll), where('time', '>=', 18), orderBy('time', 'asc'), limit(10))));
-    });
+      await runTest(`${board}: preserved read/write policy and score validation`, async () => {
+        const alice = dbFor('alice');
+        const ref = doc(alice, board, 'alice');
+        const write = time => setDoc(ref, leaderboardEntry(alice, 'alice', time));
+        await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
+        if (ranked) {
+          await assertFails(write(schema.minTime - 0.01));
+          await assertFails(write(schema.maxTime + 1));
+          await assertSucceeds(write(schema.minTime + 2));
+          await assertFails(write(schema.minTime + 3));
+          await assertSucceeds(write(schema.minTime));
+          await assertFails(setDoc(doc(alice, board, 'bob'), leaderboardEntry(alice, 'bob', schema.minTime)));
+        } else {
+          await assertFails(write(schema.minTime + 2));
+          // Cover updates too: a write-denied board must stay denied if a row
+          // already exists from an admin import or an older deployment.
+          await seed(async admin => {
+            await setDoc(doc(admin, board, 'alice'), leaderboardEntry(admin, 'alice', schema.minTime + 2));
+          });
+          await assertFails(write(schema.minTime + 1));
+        }
+        await assertSucceeds(getDocs(query(collection(alice, board), orderBy('time', 'asc'), limit(10))));
+        await assertFails(getDocs(query(collection(anonDb(), board), orderBy('time', 'asc'), limit(10))));
+      });
+    }
   }
+
+  await runTest('historical score fields do not block profile-only updates', async () => {
+    const alice = dbFor('alice');
+    const historicalFields = Object.fromEntries(REMOTE_SCORE_SCHEMAS.flatMap(schema =>
+      schema.tiers.map(({ field }) => [field, schema.minTime + 1])));
+    // Admin seed models an account created by every earlier deployed client.
+    await seed(async admin => {
+      await setDoc(doc(admin, 'users', 'alice'), { ...profile(), ...historicalFields });
+    });
+    await assertSucceeds(setDoc(doc(alice, 'users', 'alice'),
+      { displayName: 'Updated name', lastLogin: serverTimestamp() }, { merge: true }));
+    const snapshot = await assertSucceeds(getDoc(doc(alice, 'users', 'alice')));
+    for (const [field, time] of Object.entries(historicalFields)) {
+      if (snapshot.data()[field] !== time) throw new Error(`Profile update lost ${field}`);
+    }
+  });
+
+  await runTest('each version starts its own monotonic score chain', async () => {
+    const alice = dbFor('alice');
+    const ref = doc(alice, 'users', 'alice');
+    // Every later first score is slower than the existing versions. It must
+    // still be accepted, without changing those older best times.
+    for (const [index, schema] of REMOTE_SCORE_SCHEMAS.entries()) {
+      const fields = Object.fromEntries(schema.tiers.map(({ field }) => [field, schema.minTime + 1 + index]));
+      await assertSucceeds(setDoc(ref, { ...fields, updatedAt: serverTimestamp() }, { merge: true }));
+      const snapshot = await assertSucceeds(getDoc(ref));
+      for (const [olderIndex, older] of REMOTE_SCORE_SCHEMAS.slice(0, index + 1).entries()) {
+        for (const { field } of older.tiers) {
+          if (snapshot.data()[field] !== older.minTime + 1 + olderIndex) {
+            throw new Error(`Another schema shadowed ${field}`);
+          }
+        }
+      }
+    }
+  });
 
   console.log(`\nFIRESTORE RULES TEST TOTAL: ${pass} passed, ${fail} failed`);
   await testEnv.cleanup();
