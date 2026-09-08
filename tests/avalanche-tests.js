@@ -46,7 +46,14 @@ let passCount = 0;
 let failCount = 0;
 
 async function importTranspiledTypeScriptModule(sourcePath) {
-  const source = fs.readFileSync(sourcePath, 'utf8');
+  // The transpiled copy lives in a temp dir, so sibling `./x.js` specifiers
+  // (e.g. avalanche.ts -> './run-context.js', #400) would dangle. Rewrite them
+  // to absolute file:// URLs of the real `.ts` sources — Node's type stripping
+  // imports those directly, exactly as the other suites do.
+  const srcDir = path.dirname(sourcePath);
+  const source = fs.readFileSync(sourcePath, 'utf8')
+    .replace(/from '(\.\/[^']+)\.js'/g, (_m, rel) =>
+      `from '${pathToFileURL(path.join(srcDir, `${rel}.ts`)).href}'`);
   const transpiled = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.ES2022,
