@@ -289,7 +289,7 @@ the risky one is still in review.
 - Boulders spawn behind player (uphill) and tumble downhill following terrain
 - Physics includes gravity, ground collision, bounce, friction, and slide acceleration
 - Burial detection: collision between player and boulder = game over
-- Methods: `trigger(playerPos)`, `update(dt)`, `checkBurial(playerPos)`, `hasPassed(playerPos)`, `reset()`
+- Methods: `trigger(playerPos)`, `update(dt)` (physics + cosmetics — the harness/test entry point), `updatePhysics(dt)` / `updateCosmetics(dt)` (the #402 split: the live loop advances boulders per FIXED 1/60 substep and powder per render frame), `checkBurial(playerPos)`, `hasPassed(playerPos)`, `reset()`
 - Requires terrain height function via `setTerrainFunction(fn)` for terrain-aware physics
 - Browser tests: serve with `npm start`, then `http://localhost:8080/?test=avalanche`
 

@@ -50,6 +50,13 @@ import { type RunClockGuard } from './run-clock.js';
 export const FIXED_DT = 1 / 60;
 export const MAX_SUBSTEPS = 8;
 
+// Total wall-clock seconds of dropped (stall-guarded) physics time a run may absorb
+// and still count as ranked. Generous for real machines — a healthy run drops zero;
+// an occasional GC hiccup drops tens of milliseconds — but a sustained slow-motion
+// stall (the exploit: throttle the tab, gain reaction time against a slowed clock)
+// crosses it within a couple of seconds of wall time (#403 review).
+export const DROPPED_TIME_RANKED_LIMIT = 0.25;
+
 // Apparent-wind normalization for the scarf (#253): the local-frame apparent wind is
 // divided by this reference speed and clamped to [-1,1] before it reaches the cosmetic
 // flex layer. ~16 ≈ a brisk run, so a strong gust or fast straight-line saturates the
@@ -129,6 +136,14 @@ export function createMainLoop(deps: MainLoopDeps) {
   // its banking ran — so an event's points ride the chain built BEFORE it. Reset
   // per run in resetLoopState; a SKETCHY/wipeout landing breaks it (combo.ts).
   let comboStep = 0;
+  // THE simulation clock (#402): seconds of ACCUMULATED FIXED STEPS this run.
+  // Course/split/ghost timing keys off this — not performance.now — so ranked
+  // time can no longer advance while physics time is being dropped (the
+  // MAX_SUBSTEPS spiral guard discards surplus accumulator time on a stall: the
+  // game slows down, and now the clock slows down WITH it), and a hidden-tab
+  // pause freezes it naturally (no substeps run). Wall clock remains only for
+  // the cosmetic HUD readout (updateTimerDisplay) and analytics.
+  let simTime = 0;
   // The latest per-step physics result, retained so a render frame that ran ZERO
   // substeps (a >60 Hz panel) can still repaint the HUD / advance cosmetics from the
   // last known state instead of going blank.
@@ -232,19 +247,109 @@ export function createMainLoop(deps: MainLoopDeps) {
   // that live in the loop (not the kernel) and so must also run on the fixed grid, so a
   // fast render frame can't carry the player past them between samples. Runs at FIXED_DT.
   function stepFixed(dt: number): UpdateResult {
+    // --- Avalanche trigger + boulder physics: ON THE FIXED GRID (#402) ---------
+    // Boulders advance in the same 1/60 substeps as the player (boulders first,
+    // then the player — the same within-frame order the old per-render-frame
+    // advance had), so player/boulder RELATIVE motion no longer varies with the
+    // render rate, and the live slide finally matches the winnability harness,
+    // which always stepped the avalanche at a fixed 1/60. The trigger's
+    // distance check moves with it, so arming can't skew by frame timing.
+    // Powder cosmetics stay on the render frame (see animate()).
+    const avalanche = state.avalanche;
+    if (avalanche) {
+      const distanceTraveled = state.lastAvalancheZ - pos.z;
+      if (avalanche.enabled && !state.avalancheTriggered && distanceTraveled > avalanche.triggerDistance) {
+        avalanche.trigger(snowman.position);
+        state.avalancheTriggered = true;
+        console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
+      }
+      avalanche.updatePhysics(dt);
+    }
+
+    // --- The simulation clock (#402) -----------------------------------------
+    // Advance and PUBLISH the clock BEFORE executing the step: the step being
+    // run occupies (simTime, simTime + dt], and the kernel can end the run
+    // SYNCHRONOUSLY inside stepPhysics (crossing FINISH_Z calls showGameOver,
+    // whose finishTime reads state.simElapsed) — stamping afterwards would
+    // record the finishing run one substep (1/60 s) short. Dropped accumulator
+    // time (the spiral guard) and hidden-tab pauses simply don't advance it.
+    simTime += dt;
+    state.simElapsed = simTime;
+
     const result = stepPhysics(dt);
 
     // --- Course progress: split timing, progress HUD, ghost racing ---
-    // On the fixed grid so a fast render frame can't carry the player past a split gate
-    // between samples; the split/ghost readouts still key off wall-clock elapsed.
+    // On the fixed grid so a fast render frame can't carry the player past a split
+    // gate between samples. Splits, the ghost, and the FINAL COURSE TIME key off
+    // the simulation clock (#402): sim time == wall time on a healthy run, but a
+    // stall that drops physics time no longer inflates the ranked time (and a
+    // ranked run can no longer bank wall-clock while frozen).
     if (CourseModule) {
-      const elapsed = (performance.now() - state.startTime) / 1000;
-      CourseModule.update(pos, elapsed, snowman);
+      CourseModule.update(pos, simTime, snowman);
     }
 
-    // (Avalanche burial is checked once per RENDER frame — after the player's substeps and
-    // this frame's boulder advance, before hasPassed()/reset — so it still runs on a
-    // no-step >60 Hz frame. See the avalanche block in animate().)
+    // --- Avalanche OUTCOME resolution: ON THE FIXED GRID (#403 review) --------
+    // Burial, the dodge window, hasPassed()/reset and the re-arm all resolve here,
+    // per substep, against the kernel `pos` this step just produced — not once per
+    // render frame against the (render-interpolated, one-frame-lagged) mesh
+    // position. At low frame rates multiple substeps can no longer pass between
+    // collision decisions, so survival outcomes are the same at every render rate
+    // given the same boulder/player trajectories. The `state.gameActive` guard
+    // enforces EXACTLY ONE terminal event: if this substep's kernel step already
+    // ended the run (tree/rock crash or finish — showGameOver runs synchronously
+    // inside stepPhysics), burial cannot fire afterwards and replace the
+    // already-built result; and once any terminal event fires, the substep loop
+    // itself stops. Only the powder cosmetics, warning UI and audio remain on the
+    // render frame (see animate()).
+    if (avalanche && state.gameActive) {
+      // Avalanche-dodge window (JP-3, #47): an overlap only buries the player when
+      // they are NOT airborne on a deliberate jump. resolveBurialOutcome holds the
+      // provenance / once-per-slide guards; the kernel is never involved (#245).
+      const burialOutcome = resolveBurialOutcome(
+        avalanche.checkBurial(pos),
+        player.isInAir,
+        !!(snowman.userData && snowman.userData.playerJump),
+        state.dodgeAwarded
+      );
+      if (burialOutcome === 'buried') {
+        const activeShowGameOver = typeof window.showGameOver === 'function'
+          ? window.showGameOver
+          : showGameOver;
+        activeShowGameOver("Buried by avalanche!");
+      } else if (burialOutcome === 'dodgedFirst') {
+        // First dodging substep of this slide: bank the bonus (same air-score
+        // channel the result screen reads), toast it, and kick the escape impulse
+        // so a stomped landing can outrun the front. Later overlap substeps of the
+        // same jump resolve to 'dodged' (immune, no re-award). The enclosing
+        // gameActive guard keeps a finish-frame dodge from mutating a result the
+        // kernel already built (Codex review on #289).
+        state.dodgeAwarded = true;
+        if (CourseModule) {
+          // JP-7: the dodge banks through the chain like everything else (its own
+          // points ride the multiplier built before it), then builds the chain.
+          CourseModule.addAirScore(Math.round(DODGE_SCORE * comboMultiplier(comboStep)));
+          CourseModule.flashDodge();
+        }
+        comboStep = nextComboStep(comboStep, 'dodge');
+        velocity.x *= DODGE_ESCAPE_BOOST;
+        velocity.z *= DODGE_ESCAPE_BOOST;
+      }
+
+      // Reset avalanche if it has passed the player (survived!) — on the same
+      // grid, AFTER this substep's burial test, so a boulder overlapping the
+      // player is always tested before the slide can deactivate. Re-checks
+      // gameActive: if THIS substep's burial (or a kernel crash/finish) just
+      // ended the run, the passed/re-arm transition must not fire after the
+      // terminal event and clear the very slide that ended the run.
+      if (state.gameActive && state.avalancheTriggered && avalanche.hasPassed(pos)) {
+        console.log("Avalanche passed - player survived!");
+        avalanche.reset();
+        state.avalancheTriggered = false;
+        state.lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
+        state.dodgeAwarded = false;   // the next slide re-arms the once-per-slide bonus
+      }
+    }
+
     return result;
   }
 
@@ -369,6 +474,17 @@ export function createMainLoop(deps: MainLoopDeps) {
   // (those lived in `animate`, not `updateSnowman`). The live rAF loop does NOT call
   // this; it runs the fixed-step accumulator below.
   function updateSnowman(delta: number) {
+    // Advance the PUBLISHED sim clock for this legacy fixed-step seam too (#402):
+    // the kernel can end the run synchronously inside this step (FINISH_Z calls
+    // showGameOver, whose finishTime reads state.simElapsed), so a harness that
+    // drives a whole run through repeated updateSnowman(...) must accumulate a
+    // real elapsed — not finish at 0 s and be discarded as implausible. ADDITIVE
+    // on state.simElapsed (never overwritten from the live loop's private
+    // simTime): a harness that pre-set the clock through the startTime/simElapsed
+    // window seam keeps its offset, and the live rAF loop — which never calls
+    // this — keeps its own accumulator authority.
+    state.simElapsed += delta;
+
     // We no longer need to add test hooks every frame as they're set up at initialization
     // and after resets. This improves performance.
     const result = stepPhysics(delta);
@@ -450,6 +566,16 @@ export function createMainLoop(deps: MainLoopDeps) {
   // --- Animation Loop (fixed-timestep accumulator) ---
   let lastTime = 0;
   let accumulator = 0;
+  // Wall-clock seconds of THIS RUN's physics time discarded by the stall guards
+  // (the frame-delta ceiling + the spiral-guard accumulator drop). Dropping time
+  // is the right anti-tunnel behavior, but it slows the SIM relative to real
+  // time — a stall-heavy (or artificially stalled) run plays in slow motion
+  // while paying a proportionally small ranked clock, which is free reaction
+  // time. Past DROPPED_TIME_RANKED_LIMIT the run is flagged timing-compromised:
+  // it still finishes and shows its time, but records nothing competitive
+  // (#403 review: ranked integrity). Hidden-tab pauses do NOT count — the run
+  // clock guard freezes sim AND timer together there, so no advantage exists.
+  let droppedSimTime = 0;
   // Set once a frame throws an uncaught error: the loop hard-stops (no reschedule) and
   // the recovery overlay is shown, instead of spinning rAF and re-throwing on a frozen
   // frame forever. animate() reschedules at the TOP of the frame, so without this guard
@@ -509,7 +635,16 @@ export function createMainLoop(deps: MainLoopDeps) {
       try {
       // Ceiling the frame delta at the spiral guard (MAX_SUBSTEPS * FIXED_DT) so a long
       // stall (tab restore, GC pause) can't pour an unbounded backlog into the accumulator.
-      const frameDelta = Math.min((time - lastTime) / 1000, MAX_SUBSTEPS * FIXED_DT);
+      const rawDelta = (time - lastTime) / 1000;
+      const frameDelta = Math.min(rawDelta, MAX_SUBSTEPS * FIXED_DT);
+      if (rawDelta > frameDelta) droppedSimTime += rawDelta - frameDelta;
+      // Flag BEFORE this frame's substeps run (Codex review PR #409): a substep
+      // of this very frame can cross the finish and record synchronously — if the
+      // stall that crossed the limit is THIS frame's, the finish must already see
+      // the run as compromised.
+      if (!state.timingCompromised && droppedSimTime > DROPPED_TIME_RANKED_LIMIT) {
+        state.timingCompromised = true;
+      }
       lastTime = time;
 
       // Only set up test hooks if they're missing
@@ -521,26 +656,15 @@ export function createMainLoop(deps: MainLoopDeps) {
         Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
       }
 
-      // --- Avalanche advance (boulder physics) — BEFORE the substeps ------------
-      // Advance the boulders FIRST (trigger + update), then the player substeps, then the
-      // per-frame burial check + hasPassed()/reset + warning UI (after the physics core,
-      // below) — so burial always tests this frame's boulder AND player positions before
-      // the slide can deactivate. Boulder physics stays on the render delta (its own
-      // frame-rate fix lives in avalanche.ts).
+      // --- Avalanche powder cosmetics — render frame only (#402) ----------------
+      // The gameplay half (trigger, boulder physics, AND the burial/dodge/
+      // passed outcomes) lives in stepFixed's 1/60 substeps, so a run's slide is
+      // frame-rate independent; only the render-only powder cloud stays on the
+      // render delta (its 60 Hz-referenced emission accumulator keeps the
+      // budget-per-second rate-independent, #400).
       const avalanche = state.avalanche;
       if (avalanche) {
-        // Trigger based on distance traveled (player starts at z=-15, skis toward -Z).
-        // Per-tier (D3.2d): `enabled` is false for Bunny (never fires); `triggerDistance` is
-        // the active tier's arm distance (Black arms sooner than Blue). Both come from the
-        // system's own fields, set from the tier's `avalanche` block in scene-setup.
-        const distanceTraveled = state.lastAvalancheZ - pos.z;
-        if (avalanche.enabled && !state.avalancheTriggered && distanceTraveled > avalanche.triggerDistance) {
-          avalanche.trigger(snowman.position);
-          state.avalancheTriggered = true;
-          console.log("Avalanche triggered! Distance traveled:", distanceTraveled.toFixed(1));
-        }
-        // Update avalanche physics (boulder tumble advances on the render delta).
-        avalanche.update(frameDelta);
+        avalanche.updateCosmetics(frameDelta);
       }
 
       // --- Fixed-step physics core ---------------------------------------------
@@ -568,7 +692,18 @@ export function createMainLoop(deps: MainLoopDeps) {
       }
       // Spiral-of-death guard: if we hit the substep ceiling with time still owed, drop
       // the surplus (the game slows down rather than tunnelling) and keep alpha in [0,1).
-      if (substeps >= MAX_SUBSTEPS && accumulator >= FIXED_DT) accumulator = 0;
+      if (substeps >= MAX_SUBSTEPS && accumulator >= FIXED_DT) {
+        droppedSimTime += accumulator;
+        accumulator = 0;
+      }
+      // Ranked-integrity flag (#403 review): enough dropped time means this run's sim
+      // clock ran materially slower than wall time (slow-motion reaction advantage) —
+      // flag it once; the finish path reads the flag and declines to rank the run.
+      // (Also checked BEFORE the substeps above; this catches the spiral-guard
+      // accumulator drop for the NEXT frame's substeps.)
+      if (!state.timingCompromised && droppedSimTime > DROPPED_TIME_RANKED_LIMIT) {
+        state.timingCompromised = true;
+      }
       const alpha = accumulator / FIXED_DT;
       if (result) lastResult = result;
 
@@ -630,71 +765,16 @@ export function createMainLoop(deps: MainLoopDeps) {
         windGust: Wind.gust(),
       });
 
-      // --- Avalanche burial + survival check + warning UI -----------------------
-      // Burial is checked ONCE PER RENDER FRAME here — after the player's substeps and
-      // after this frame's avalanche.update (above) — and BEFORE hasPassed()/reset. So a
-      // boulder overlapping the player is always tested before the slide can deactivate,
-      // including on a no-step (>60 Hz) frame where the substep loop didn't run. Per-frame
-      // is sufficient: bounded speed × the broad 120-boulder slide means the player can't
-      // traverse a boulder between frames, so the final-position check can't miss one.
-      // checkBurial() self-guards when inactive.
-      if (avalanche) {
-        // Avalanche-dodge window (JP-3, #47): an overlap only buries the player when
-        // they are NOT airborne on a deliberate jump. resolveBurialOutcome holds the
-        // provenance / once-per-slide guards; the kernel is never involved (#245).
-        const burialOutcome = resolveBurialOutcome(
-          avalanche.checkBurial(snowman.position),
-          player.isInAir,
-          !!(snowman.userData && snowman.userData.playerJump),
-          state.dodgeAwarded
-        );
-        if (burialOutcome === 'buried') {
-          const activeShowGameOver = typeof window.showGameOver === 'function'
-            ? window.showGameOver
-            : showGameOver;
-          activeShowGameOver("Buried by avalanche!");
-        } else if (burialOutcome === 'dodgedFirst' && state.gameActive) {
-          // First dodging frame of this slide: bank the bonus (same air-score channel
-          // the result screen reads), toast it, and kick the escape impulse so a
-          // stomped landing can outrun the front. Later overlap frames of the same
-          // jump resolve to 'dodged' (immune, no re-award).
-          //
-          // Gated on state.gameActive: this block runs AFTER the frame's physics
-          // substeps, so if one of them already ended the run — crossing FINISH_Z
-          // builds the result screen synchronously inside the kernel step — the run
-          // total has been read and rendered. Banking here would mutate it after the
-          // fact (and impulse a finished run), so a dodge coinciding with the finish
-          // frame simply doesn't award: the run is over, the slide no longer matters.
-          // (Codex review on #289.)
-          state.dodgeAwarded = true;
-          if (CourseModule) {
-            // JP-7: the dodge banks through the chain like everything else (its own
-            // points ride the multiplier built before it), then builds the chain.
-            CourseModule.addAirScore(Math.round(DODGE_SCORE * comboMultiplier(comboStep)));
-            CourseModule.flashDodge();
-          }
-          comboStep = nextComboStep(comboStep, 'dodge');
-          velocity.x *= DODGE_ESCAPE_BOOST;
-          velocity.z *= DODGE_ESCAPE_BOOST;
-        }
-
-        // Reset avalanche if it has passed the player (survived!)
-        if (state.avalancheTriggered && avalanche.hasPassed(snowman.position)) {
-          console.log("Avalanche passed - player survived!");
-          avalanche.reset();
-          state.avalancheTriggered = false;
-          state.lastAvalancheZ = pos.z; // Reset trigger point for potential next avalanche
-          state.dodgeAwarded = false;   // the next slide re-arms the once-per-slide bonus
-        }
-
-        // Telegraph the threat: banner, "distance behind you" meter, vignette, shake.
-        if (EffectsModule) {
-          const avActive = state.avalancheTriggered && avalanche.active;
-          const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
-          EffectsModule.updateAvalanche(avActive, avDist);
-          // Avalanche rumble crescendos with the same proximity the banner uses (#158).
-          Sfx.setAvalanche(avActive, avDist);
-        }
+      // --- Avalanche warning UI + audio — render frame only (#403 review) -------
+      // Every GAMEPLAY decision (burial, dodge, hasPassed/reset/re-arm) resolves
+      // per fixed substep inside stepFixed; this render-side block only telegraphs
+      // the threat off the render-facing mesh position.
+      if (avalanche && EffectsModule) {
+        const avActive = state.avalancheTriggered && avalanche.active;
+        const avDist = avActive ? avalanche.getClosestDistance(snowman.position) : Infinity;
+        EffectsModule.updateAvalanche(avActive, avDist);
+        // Avalanche rumble crescendos with the same proximity the banner uses (#158).
+        Sfx.setAvalanche(avActive, avDist);
       }
 
       // Save player position before snow splash effect updates
@@ -742,7 +822,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       compensateShadowBiasForElevation(directionalLight, sunDirScratch.y, Sky.getMiddaySunElevationSin());
 
       updateCamera(frameDelta);
-      updateTimerDisplay(state.gameActive, state.startTime); // Update the timer display
+      updateTimerDisplay(state.gameActive, state.simElapsed); // HUD shows the SIM clock (#402) — matches the recorded finish time
 
       // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
       // the positional offset so the camera manager's own smoothing stays clean.
@@ -778,6 +858,10 @@ export function createMainLoop(deps: MainLoopDeps) {
   // diagnostics step (a huge maxSubstepStep false tunnel-risk sample). Idempotent.
   function resetLoopState() {
     accumulator = 0;
+    simTime = 0; // a new run starts its simulation clock (#402) from zero
+    state.simElapsed = 0;
+    droppedSimTime = 0;
+    state.timingCompromised = false; // each run earns (or loses) ranked status fresh
     lastResult = null;
     prevInAir = false;
     comboStep = 0; // a new run starts its style chain from ×1 (JP-7)

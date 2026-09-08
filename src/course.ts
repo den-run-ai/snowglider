@@ -670,11 +670,14 @@ export const CourseModule = (function () {
 
   // Called from showGameOver() on a successful finish.
   // Returns a DOM node (the result panel) to insert into the game-over overlay.
-  function onFinish(totalTime: number, previousBest: number): HTMLDivElement {
+  function onFinish(totalTime: number, previousBest: number, recordEligible = true): HTMLDivElement {
     hideHud();
 
-    const isFirst = !(previousBest < Infinity);
-    const isBest = isFirst || totalTime < previousBest;
+    // A record-ineligible finish (timing-compromised, #403 review) saved nothing,
+    // so it must not CLAIM a record either: no "First descent!"/"New record!"
+    // medal copy for a time that was deliberately not kept.
+    const isFirst = recordEligible && !(previousBest < Infinity);
+    const isBest = recordEligible && (isFirst || totalTime < previousBest);
 
     // Record the finish split.
     runSplits[splitPoints.length - 1] = totalTime;
@@ -692,8 +695,11 @@ export const CourseModule = (function () {
     // run is on a REAL world: practice (?seed=) runs never overwrite the
     // canonical-world ghost/splits records (#403 review; the shared ghost key
     // holds ONE record per tier, and a practice commit would both lose the
-    // canonical ghost and leave a stamp the canonical world rejects).
-    if (isTierBest && !getRunStamp().practice) {
+    // canonical ghost and leave a stamp the canonical world rejects). The caller
+    // can also veto the commit (recordEligible=false) — the overlay does for a
+    // timing-compromised run, whose slow-motion trajectory would poison the
+    // ghost/splits records the same way it would the PB (#403 review).
+    if (isTierBest && !getRunStamp().practice && recordEligible) {
       try {
         localStorage.setItem(splitsKey(), JSON.stringify(runSplits));
         // Ensure the final sample lands exactly on the finish time, but keep the

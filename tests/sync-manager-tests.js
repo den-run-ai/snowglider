@@ -179,6 +179,13 @@ async function main() {
   check('practice world → its own nothing-saved copy', sm.resultSyncStatusCopy(S({ practiceWorld: true })) === sm.RESULT_PRACTICE_WORLD_COPY);
   check('practice world takes precedence over unranked tier', sm.resultSyncStatusCopy(S({ practiceWorld: true, ranked: false })) === sm.RESULT_PRACTICE_WORLD_COPY);
   check('practice-world copy does not claim records exist', !/local best|ghost|saved locally/i.test(sm.RESULT_PRACTICE_WORLD_COPY));
+  // A timing-compromised run recorded NOTHING (no PB, no ghost, no board), so it
+  // gets its own copy — never the unranked-tier copy that promises local records
+  // (Codex review PR #409).
+  check('timing-compromised → its own nothing-recorded copy', sm.resultSyncStatusCopy(S({ timingCompromised: true })) === sm.RESULT_TIMING_COMPROMISED_COPY);
+  check('timing-compromised beats the unranked-tier copy', sm.resultSyncStatusCopy(S({ timingCompromised: true, ranked: false })) === sm.RESULT_TIMING_COMPROMISED_COPY);
+  check('practice world still beats timing-compromised', sm.resultSyncStatusCopy(S({ practiceWorld: true, timingCompromised: true })) === sm.RESULT_PRACTICE_WORLD_COPY);
+  check('compromised copy does not claim records exist', !/local best|ghost|saved locally/i.test(sm.RESULT_TIMING_COMPROMISED_COPY));
 
   console.log(`\nSYNC-MANAGER TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
