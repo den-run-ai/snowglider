@@ -64,7 +64,9 @@ export function openOverlayFocus(root: HTMLElement, options: {
   }
   function onKey(event: KeyboardEvent): void {
     if (stack.at(-1) !== root) return;
-    if (event.key === 'Escape' && (options.onEscape || options.modal !== false)) {
+    // A nondismissable result/recovery surface must let nested disclosures own
+    // Escape (for example Guest sign-in options inside the result dialog).
+    if (event.key === 'Escape' && options.onEscape) {
       event.preventDefault();
       event.stopPropagation();
       options.onEscape?.();

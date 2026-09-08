@@ -66,10 +66,10 @@ test.describe('gameplay flow', () => {
     // Drive the real game-over path with a valid finish time so the full result
     // panel (medal + splits + share controls) is built exactly as a finished run.
     await page.evaluate(() => {
-      const w = window as unknown as { startTime: number; showGameOver: (r: string) => void };
+      const w = window as unknown as { simElapsed: number; showGameOver: (r: string) => void };
       // ~20s elapsed clears the leaderboard plausibility floor (MIN_VALID_SCORE_TIME
       // = 18s) so showGameOver builds the full result panel, as a real finish would.
-      w.startTime = performance.now() - 20000;
+      w.simElapsed = 20;
       w.showGameOver('You reached the end of the slope!');
     });
 

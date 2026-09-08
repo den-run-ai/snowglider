@@ -33,6 +33,15 @@ test('keyboard About and feedback contain focus and return it without starting a
 test('camera disclosures, sound state, and results expose their keyboard contracts', async ({ page }) => {
   await gotoGame(page);
   await startGame(page);
+  // This test owns DOM/keyboard contracts, not a timed downhill run. CI's
+  // software-rendered mountain took ~14s per click under V8 coverage, exhausting
+  // the total test budget despite correct states. Pause through the existing
+  // state seam so assertions cannot race rendering or a natural crash/finish.
+  // The separate gameplay/perf/real-player screenshot specs keep the loop live.
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    window.gameActive = false;
+    requestAnimationFrame(() => resolve());
+  }));
   const stats = page.getByRole('button', { name: 'Toggle game stats options' });
   await stats.click();
   await expect(stats).toHaveAttribute('aria-expanded', 'false');
@@ -72,6 +81,11 @@ test('camera disclosures, sound state, and results expose their keyboard contrac
   await page.keyboard.press('Escape');
   await expect(page.locator('#gameOverOverlay')).toBeVisible();
   await page.locator('#restartButton').click();
+  expect(await page.evaluate(() => {
+    const restarted = window.gameActive;
+    window.gameActive = false;
+    return restarted;
+  })).toBe(true);
   await expect(page.locator('#gameOverOverlay')).toBeHidden();
   await expect(page.locator('#gameCanvas')).toBeFocused();
   await expect(page.locator('#cameraControls')).not.toHaveJSProperty('inert', true);

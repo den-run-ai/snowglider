@@ -60,6 +60,23 @@ async function main() {
   el('toggleStats').click();
   assert.equal(el('toggleStats').getAttribute('aria-expanded'), 'false');
   assert.equal(el('gameStatsContent').inert, true);
+  const result = document.createElement('section');
+  result.setAttribute('role', 'dialog');
+  result.innerHTML = '<button id="nestedTrigger" aria-expanded="true">Account</button><div id="nestedOptions"><button id="nestedProvider">Sign in</button></div>';
+  document.body.appendChild(result);
+  result.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    el('nestedTrigger').setAttribute('aria-expanded', 'false');
+    el('nestedOptions').style.display = 'none';
+    el('nestedTrigger').focus();
+    event.stopPropagation();
+  });
+  openOverlayFocus(result, { initialFocus: el('nestedProvider') });
+  el('nestedProvider').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(el('nestedTrigger').getAttribute('aria-expanded'), 'false');
+  assert.equal(document.activeElement, el('nestedTrigger'));
+  assert.equal(el('gameControl').inert, true, 'nested Escape does not dismiss the result focus boundary');
+  closeOverlayFocus(result, false);
   dom.window.close();
   console.log('Accessibility: focus entry/restore, nested isolation, dynamic controls, cleanup, and event announcements pass.');
 }
