@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
-    # Stacked-PR support: a PR whose BASE is another claude/* feature branch (the
+    # Stacked-PR support: a PR whose BASE is another claude/* or codex/* branch (the
     # staged-stack review flow in CLAUDE.md) must run the same gates as a PR to
     # main — without this, only the bottom of a stack ever got CI.
-    branches: [main, 'claude/**']
+    branches: [main, 'claude/**', 'codex/**']
   workflow_dispatch:
 
 permissions:

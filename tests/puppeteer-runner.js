@@ -10,6 +10,7 @@ const http = require('http');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
+const { isRendererFailure, validateBrowserResults } = require('./helpers/browser-results');
 const {
   startBrowserCoverage,
   foldPageCoverage,
@@ -18,7 +19,7 @@ const {
 } = require('./coverage/browser-coverage');
 
 const PORT = process.env.TEST_PORT || 8081;  // Use different port to avoid conflicts
-const TEST_TIMEOUT = 120000; // 2 minutes for all tests
+const TEST_TIMEOUT = 90000; // Existing whole-suite deadline, now a failing outcome
 const RESULTS_DIR = path.join(__dirname, '..', 'test-results');
 const ROOT = path.join(__dirname, '..');
 // Opt-in browser coverage (step 2 of the honest-coverage work). Off by default so
@@ -147,6 +148,7 @@ async function runStartMenuRaceRegression(browser) {
 
   const page = await browser.newPage();
   const errors = [];
+  const rendererErrors = [];
   let releaseSnowgliderScript;
   let snowgliderRequestSeen;
 
@@ -159,6 +161,9 @@ async function runStartMenuRaceRegression(browser) {
 
   page.on('pageerror', (err) => {
     errors.push(err.message);
+  });
+  page.on('console', (msg) => {
+    if (isRendererFailure(msg.text())) rendererErrors.push(msg.text());
   });
 
   await page.setRequestInterception(true);
@@ -244,8 +249,8 @@ async function runStartMenuRaceRegression(browser) {
         gameCanvas.style.display === 'block';
     }, { timeout: 30000 });
 
-    if (errors.some(error => error.includes("Cannot read properties of null"))) {
-      throw new Error(`Unexpected null DOM access error: ${errors.join('; ')}`);
+    if (errors.length || rendererErrors.length) {
+      throw new Error(`Start-menu page/renderer errors: ${[...errors, ...rendererErrors].join('; ')}`);
     }
 
     console.log('PASS: start menu re-enables Start for a gesture-backed deferred start');
@@ -294,9 +299,11 @@ async function runBrowserTests() {
 
     // Collect console logs
     const consoleLogs = [];
+    const rendererErrors = [];
     page.on('console', (msg) => {
       const text = msg.text();
       consoleLogs.push(`[${msg.type()}] ${text}`);
+      if (isRendererFailure(text)) rendererErrors.push(text);
       
       // Print test results and important events to stdout
       if (text.includes('PASS:') || text.includes('FAIL:') || 
@@ -338,77 +345,35 @@ async function runBrowserTests() {
     // Wait for tests to complete
     console.log('Running tests...');
     
-    const results = await page.evaluate(() => {
+    let results = await page.evaluate((timeoutMs) => {
       return new Promise((resolve) => {
-        let pollCount = 0;
-        
+        let interval;
+        let deadline;
+        const snapshot = () => ({
+          ...window._unifiedTestCounts,
+          expectedSuites: window._unifiedExpectedSuites,
+          summaryText: document.getElementById('unified-test-summary')?.textContent || 'N/A'
+        });
+        const finish = (timeout) => {
+          clearInterval(interval);
+          clearTimeout(deadline);
+          resolve({ ...snapshot(), timeout });
+        };
         const checkResults = () => {
-          pollCount++;
-          
-          // Log state periodically
-          if (pollCount % 10 === 0) {
-            const counts = window._unifiedTestCounts;
-            const hasRunner = !!window._unifiedTestResults;
-            console.log(`Poll ${pollCount}: runner=${hasRunner}, counts=${JSON.stringify(counts)}`);
-          }
-          
-          // Check if unified test runner has completed
-          const summary = document.getElementById('unified-test-summary');
-          if (summary && summary.textContent.includes('ALL TESTS COMPLETED')) {
-            const counts = window._unifiedTestCounts || { passed: 0, failed: 0 };
-            resolve({
-              passed: counts.passed,
-              failed: counts.failed,
-              completed: counts.completed || [],
-              summaryText: summary.textContent
-            });
-            return true;
-          }
-          
-          // Also check if tests completed but summary text isn't updated. This
-          // must use the runner's expected count; resolving at a hard-coded lower
-          // count can silently skip later suites.
           const counts = window._unifiedTestCounts;
-          const expectedSuiteCount = window._unifiedExpectedSuiteCount || 7;
-          if (counts && counts.completed && counts.completed.length >= expectedSuiteCount) {
-            resolve({
-              passed: counts.passed,
-              failed: counts.failed,
-              completed: counts.completed,
-              summaryText: summary ? summary.textContent : 'N/A'
-            });
+          const expected = window._unifiedExpectedSuiteCount;
+          if (Number.isInteger(expected) && expected > 0 && counts?.completed?.length >= expected) {
+            finish(false);
             return true;
           }
-          
           return false;
         };
-        
-        // Check immediately
         if (checkResults()) return;
-        
-        // Poll for completion every second
-        const interval = setInterval(() => {
-          if (checkResults()) {
-            clearInterval(interval);
-          }
-        }, 1000);
-        
-        // Timeout after 90 seconds
-        setTimeout(() => {
-          clearInterval(interval);
-          const counts = window._unifiedTestCounts || { passed: 0, failed: 0 };
-          const runnerActive = !!window._unifiedTestRunnerActive;
-          resolve({
-            passed: counts.passed,
-            failed: counts.failed,
-            completed: counts.completed || [],
-            timeout: true,
-            runnerActive: runnerActive
-          });
-        }, 90000);
+        interval = setInterval(checkResults, 1000);
+        deadline = setTimeout(() => finish(true), timeoutMs);
       });
-    });
-    
+    }, TEST_TIMEOUT);
+
     // Stop and persist browser coverage now that the suite has finished but the
     // page is still alive. Best-effort: never let coverage break the test run.
     if (COLLECT_COVERAGE) {
@@ -435,6 +400,17 @@ async function runBrowserTests() {
       consoleLogs.join('\n')
     );
     
+    // Re-read after screenshot/coverage work so late duplicate callbacks or runner
+    // errors cannot hide behind the first completion snapshot. Preserve timeout.
+    results = { ...results, ...await page.evaluate(() => ({
+      ...window._unifiedTestCounts,
+      expectedSuites: window._unifiedExpectedSuites
+    })) };
+    const failures = validateBrowserResults(results, errors, rendererErrors);
+    results.pageErrors = errors;
+    results.rendererErrors = rendererErrors;
+    results.validationFailures = failures;
+
     // Save results JSON
     fs.writeFileSync(
       path.join(RESULTS_DIR, 'results.json'),
@@ -447,7 +423,7 @@ async function runBrowserTests() {
     console.log('========================================');
     console.log(`Passed: ${results.passed}`);
     console.log(`Failed: ${results.failed}`);
-    console.log(`Completed suites: ${results.completed.join(', ')}`);
+    console.log(`Completed suites: ${(results.completed || []).join(', ')}`);
     
     if (results.timeout) {
       console.log('WARNING: Tests timed out before completion');
@@ -460,8 +436,8 @@ async function runBrowserTests() {
     
     console.log('========================================\n');
     
-    // Return exit code based on results
-    return results.failed > 0 ? 1 : 0;
+    for (const failure of failures) console.error(`FAIL: ${failure}`);
+    return failures.length > 0 ? 1 : 0;
     
   } catch (error) {
     console.error('Test runner error:', error.message);
