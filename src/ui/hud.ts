@@ -81,6 +81,7 @@ export function initializeGameStats(): void {
     toggleButtonId: 'toggleStats',
     headerId: 'gameStatsHeader',
     resetListeners: true,
+    autoCollapseOnSmallScreens: true,
   });
 }
 

@@ -43,6 +43,7 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
   },
   projects: [
     {
@@ -64,10 +65,25 @@ export default defineConfig({
     {
       // Emulated iPhone (WebKit engine, mobile UA, touch, mobile viewport). The
       // game's control layer enables touch input when it detects a mobile UA, so
-      // this is where the touch-control specs run. Mobile-only by testMatch.
+      // this is where the touch-control and responsive HUD specs run.
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testMatch: /mobile\.spec\.ts/,
+      testMatch: /(mobile|panels)\.spec\.ts/,
+    },
+    {
+      name: 'Mobile Safari landscape',
+      use: { ...devices['iPhone 13 landscape'] },
+      testMatch: /panels\.spec\.ts/,
+    },
+    {
+      name: 'Android Chrome',
+      use: { ...devices['Pixel 7'] },
+      testMatch: /panels\.spec\.ts/,
+    },
+    {
+      name: 'Android Chrome landscape',
+      use: { ...devices['Pixel 7 landscape'] },
+      testMatch: /panels\.spec\.ts/,
     },
   ],
   webServer: {

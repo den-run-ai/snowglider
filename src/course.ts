@@ -163,10 +163,9 @@ export const CourseModule = (function () {
     const root = document.createElement('div');
     root.id = 'courseHud';
     Object.assign(root.style, {
-      position: 'fixed', top: '14px', left: '50%', transform: 'translateX(-50%)',
       zIndex: '900', display: 'none', flexDirection: 'column', alignItems: 'center',
       gap: '6px', pointerEvents: 'none', fontFamily: 'Arial, sans-serif',
-      textShadow: '0 1px 3px rgba(0,0,0,0.8)', width: 'min(420px, 86vw)'
+      textShadow: '0 1px 3px rgba(0,0,0,0.8)'
     });
 
     // Progress bar
@@ -198,7 +197,7 @@ export const CourseModule = (function () {
 
     root.appendChild(track);
     root.appendChild(row);
-    document.body.appendChild(root);
+    (document.getElementById('hudLeft') ?? document.body).prepend(root);
 
     // Split flash (briefly shows the time + delta when crossing a checkpoint; also
     // reused for the meaningful-jumps air toast). Given an id so it is addressable.

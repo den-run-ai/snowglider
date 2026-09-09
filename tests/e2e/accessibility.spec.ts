@@ -89,7 +89,7 @@ test('camera disclosures, sound state, and results expose their keyboard contrac
   await expect(page.locator('#gameOverOverlay')).toBeHidden();
   await expect(page.locator('#gameCanvas')).toBeFocused();
   await expect(page.locator('#cameraControls')).not.toHaveJSProperty('inert', true);
-  await expect(page.locator('body > #authContainer')).toHaveCount(1);
+  await expect(page.locator('#hudRight > #authContainer')).toHaveCount(1);
   await expect(page.locator('#gameAnnouncements')).toContainText('run started');
 });
 

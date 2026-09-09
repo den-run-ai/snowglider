@@ -343,11 +343,23 @@ Specs (each maps to one PR commit):
   reset returns to start. (chromium + webkit)
 - `mobile.spec.ts` — touch regions drive controls; canvas + on-screen touch
   controls render. (emulated iPhone / WebKit)
+- `panels.spec.ts` — shared Controls / Stats / Camera disclosures, 44 px hit targets,
+  unclipped HUD geometry, nonoverlapping auth/course/buttons, all six camera modes,
+  keyboard and touch activation, inert collapsed content, compact accordion behavior,
+  and resize/orientation preservation. Runs on desktop Chromium/WebKit and emulated
+  iPhone Safari / Android Chrome in portrait and landscape. The HTML report includes
+  collapsed/expanded screenshots with the real EZ forest; geometry assertions avoid
+  brittle 3D pixel baselines. The Chromium layout check also covers 768×768 and
+  640×540 tablet windows with all panels expanded and 320×568 / 568×320 small phones.
+  Provider buttons are hit-tested before starting, so an overlay cannot silently
+  block sign-in even when the buttons remain visible.
+  Device emulation does not replace physical-phone checks.
 
 ```bash
 npm run test:e2e          # all specs, all projects (boots its own Vite server)
 npm run test:e2e:webkit   # WebKit (Safari engine) only
 npm run test:e2e:ui       # interactive Playwright UI mode
+npm run test:e2e -- panels.spec.ts # responsive HUD gate across all six projects
 ```
 
 `playwright.config.ts` boots a dedicated Vite dev server (port 8082, separate from

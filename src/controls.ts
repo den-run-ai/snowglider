@@ -414,7 +414,7 @@ function setupTouchControls(signal?: AbortSignal) {
   window.addEventListener('resize', updateTouchRegions, opts);
   
   // Touches that begin inside a scrollable UI panel (the Controls / Ski Techniques
-  // guides, or the finish/game-over result overlay) must be handed to the browser so
+  // guides, Game Stats, or the finish/game-over result overlay) go to the browser so
   // the panel can scroll natively. The document-level handlers below otherwise call
   // preventDefault() on every move — killing the scroll — and would also mis-read the
   // drag as ski steering. A TouchEvent's target stays the element the gesture started
@@ -425,7 +425,7 @@ function setupTouchControls(signal?: AbortSignal) {
   const isScrollableUiTouch = (event: TouchEvent): boolean => {
     const target = event.target as Element | null;
     return !!(target && typeof target.closest === 'function' &&
-      target.closest('#controlsGuide, #controlsContent, #gameOverOverlay'));
+      target.closest('#controlsGuide, #controlsContent, #gameStatsContent, #gameOverOverlay'));
   };
 
   // Touches that land on an interactive control (any button/link/form field, or an
@@ -448,11 +448,12 @@ function setupTouchControls(signal?: AbortSignal) {
   // are plain divs. On landscape phones the tray sits inside a steering region, so a
   // fold tap/swipe on that chrome would otherwise ALSO be read as ski steering. This
   // mirrors the mouse-drag/wheel exclusion lifecycle.ts already applies to the tray
-  // (Codex review, PR #331).
+  // (Codex review, PR #331). Stats chrome has the same ownership even while its
+  // shared disclosure is being initialized or reset; its text is never a ski input.
   const isInteractiveUiTouch = (event: TouchEvent): boolean => {
     const target = event.target as Element | null;
     return !!(target && typeof target.closest === 'function' &&
-      target.closest('button, a, input, select, textarea, label, [role="button"], #cameraControls'));
+      target.closest('button, a, input, select, textarea, label, [role="button"], #cameraControls, #gameStatsContainer'));
   };
 
   // A touch the gameplay layer must leave entirely alone: a scroll inside a guide

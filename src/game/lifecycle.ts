@@ -17,7 +17,7 @@ import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
 import { updateTimerDisplay } from '../ui/hud.js';
-import { setupCollapsiblePanel, setPanelCollapsed } from '../ui/collapsible-panel.js';
+import { setupCollapsiblePanel, setPanelCollapsed, isCompactPanelViewport } from '../ui/collapsible-panel.js';
 import { announceGameStatus, closeOverlayFocus, focusGameCanvas } from '../ui/accessibility.js';
 import { usesOrbitControls, type CameraMode } from '../camera.js';
 import type { SceneContext } from './scene-setup.js';
@@ -181,7 +181,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     if (gameStatsContainer) {
       const toggleBtn = document.getElementById('toggleStats');
       if (toggleBtn) {
-        setPanelCollapsed(gameStatsContainer, toggleBtn, false);
+        setPanelCollapsed(gameStatsContainer, toggleBtn, isCompactPanelViewport());
       }
     }
 
@@ -241,8 +241,12 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Update the toggle button text
     const cameraToggleBtn = document.getElementById('cameraToggleBtn');
     if (cameraToggleBtn) {
-      cameraToggleBtn.textContent = `Camera: ${label}`;
+      cameraToggleBtn.textContent = 'Next view';
+      cameraToggleBtn.setAttribute('aria-label', `Next camera view (V). Current: ${label}`);
     }
+
+    const summary = document.getElementById('cameraModeSummary');
+    if (summary) summary.textContent = label;
 
     // Highlight the active mode chip in the camera tray, and disable the orbit/zoom widgets
     // in the modes that ignore manual view controls (first person + the cinematic follows).
@@ -283,20 +287,10 @@ export function createLifecycle(deps: LifecycleDeps) {
     // Add camera toggle button
     const cameraToggleBtn = document.createElement('button');
     cameraToggleBtn.id = 'cameraToggleBtn';
-    cameraToggleBtn.textContent = 'Camera: Auto';
-    cameraToggleBtn.style.position = 'absolute';
-    cameraToggleBtn.style.bottom = '20px';
-    cameraToggleBtn.style.left = '170px'; // Position it next to reset button
-    cameraToggleBtn.style.padding = '15px 20px';
-    cameraToggleBtn.style.border = 'none';
-    cameraToggleBtn.style.borderRadius = '8px';
-    cameraToggleBtn.style.backgroundColor = '#4a69bd'; // Different color from reset button
-    cameraToggleBtn.style.color = 'white';
-    cameraToggleBtn.style.cursor = 'pointer';
-    cameraToggleBtn.style.fontSize = '16px';
-    cameraToggleBtn.style.setProperty('-webkit-tap-highlight-color', 'rgba(255, 255, 255, 0.5)');
-    cameraToggleBtn.style.touchAction = 'manipulation'; // Removes delay on mobile devices
-    cameraToggleBtn.style.userSelect = 'none';
+    cameraToggleBtn.textContent = 'Next view';
+    cameraToggleBtn.type = 'button';
+    cameraToggleBtn.title = 'Cycle camera view (V)';
+    cameraToggleBtn.style.touchAction = 'manipulation';
 
     // Add both click and touchend events to ensure cross-platform compatibility
     cameraToggleBtn.addEventListener('click', toggleCameraView, listenerOpts);
@@ -328,7 +322,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     tray.id = 'cameraControls';
 
     // Collapsible header (matches the Game Controls / Game Stats HUD panels): a title
-    // plus a ▲/▼ toggle. setupCollapsiblePanel() below wires the click / touch / swipe
+    // plus the shared disclosure chevron. setupCollapsiblePanel() below wires the click / touch / swipe
     // collapse behavior and toggles the `collapsed` class on the tray. The mode chips
     // and orbit/zoom rows live in a content wrapper that the class hides.
     const header = document.createElement('div');
@@ -338,9 +332,12 @@ export function createLifecycle(deps: LifecycleDeps) {
     const toggleBtn = document.createElement('button');
     toggleBtn.id = 'toggleCamera';
     toggleBtn.type = 'button';
-    toggleBtn.textContent = '▲';
     toggleBtn.setAttribute('aria-label', 'Toggle camera options');
-    header.append(title, toggleBtn);
+    const summary = document.createElement('span');
+    summary.id = 'cameraModeSummary';
+    summary.className = 'panel-summary';
+    summary.textContent = cameraModeLabel(cameraManager.mode);
+    header.append(title, summary, toggleBtn);
     tray.appendChild(header);
 
     const content = document.createElement('div');
@@ -352,12 +349,12 @@ export function createLifecycle(deps: LifecycleDeps) {
       { mode: 'auto', label: 'Auto', title: 'Auto — smart camera that adapts to speed and turns' },
       { mode: 'follow', label: 'Follow', title: 'Follow — classic chase view behind the snowman' },
       { mode: 'orbit', label: 'Orbit', title: 'Orbit — free 360° camera you control' },
-      { mode: 'firstPerson', label: 'FP', title: 'First person — over-the-head view' },
-      { mode: 'cameraman', label: 'Cam', title: 'Cameraman — cinematic ski-film chase; low, close, side-trailing' },
+      { mode: 'firstPerson', label: 'First person', title: 'First person — over-the-head view' },
+      { mode: 'cameraman', label: 'Cameraman', title: 'Cameraman — cinematic ski-film chase; low, close, side-trailing' },
       { mode: 'drone', label: 'Drone', title: 'Drone — cinematic aerial chase; high, far, slowly circling' },
     ];
     const modeRow = document.createElement('div');
-    modeRow.className = 'cam-row';
+    modeRow.className = 'cam-row cam-modes';
     for (const { mode, label, title } of modes) {
       const btn = document.createElement('button');
       btn.textContent = label;
@@ -465,7 +462,7 @@ export function createLifecycle(deps: LifecycleDeps) {
       if (!usesOrbitControls(cameraManager.mode)) return;
       const target = event.target as Element | null;
       if (target && typeof (target as HTMLElement).closest === 'function' &&
-          target.closest('#controlsGuide, #controlsContainer, #gameOverOverlay, #cameraControls')) return;
+          target.closest('#controlsGuide, #controlsContainer, #gameOverOverlay, #cameraControls, #gameStatsContainer, #authContainer')) return;
       event.preventDefault();
       cameraManager.adjustZoom(event.deltaY > 0 ? ZOOM_OUT_STEP : ZOOM_IN_STEP);
     };

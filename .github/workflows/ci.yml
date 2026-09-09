@@ -127,6 +127,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
         # No LFS checkout is needed: the existing MP3 is a regular Git blob.
 
       - name: Setup Node.js
@@ -141,13 +143,31 @@ jobs:
       # No browser-install step: the container already provides chromium + webkit
       # and all their OS dependencies.
 
-      - name: Run Playwright E2E tests
+      # panels.spec.ts gates shared disclosure geometry, keyboard/touch behavior,
+      # compact resize/orientation and six camera modes on desktop Chromium/WebKit
+      # plus iPhone Safari and Android Chrome in portrait AND landscape. Screenshot
+      # attachments in the HTML report show both collapsed and expanded player HUDs.
+      - name: Run Playwright E2E and responsive HUD gate (desktop, iOS, Android)
         run: npm run test:e2e
         env:
           CI: true
           # Collect Chromium V8 coverage during the e2e run; globalTeardown writes
           # coverage/e2e/lcov.info. WebKit/mobile projects skip collection.
           E2E_COVERAGE: '1'
+
+      - name: Capture before and after HUD review screenshots
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        env:
+          HUD_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/capture-hud-review.mjs
+
+      - name: Upload HUD review screenshots
+        uses: actions/upload-artifact@v7
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        with:
+          name: hud-review
+          path: test-results/hud-review/
+          retention-days: 14
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
