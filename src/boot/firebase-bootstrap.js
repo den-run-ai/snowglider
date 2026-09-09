@@ -21,6 +21,8 @@
     }
 
     const notice = document.createElement('div');
+    notice.id = 'localModeNotice';
+    notice.style.pointerEvents = 'none';
     notice.style.position = 'fixed';
     notice.style.bottom = '10px';
     notice.style.right = '10px';

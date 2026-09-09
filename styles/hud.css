@@ -168,6 +168,8 @@ body.start-screen-active #gameStatsContainer { visibility: hidden; }
   touch-action: manipulation;
   z-index: 100;
 }
+/* Keep the development notice off the play surface and its action buttons. */
+body.game-active #localModeNotice { display: none; }
 #resetBtn { left: var(--hud-left); width: 80px; background: #26753b; }
 #cameraToggleBtn { left: calc(var(--hud-left) + 90px); background: #365aa6; }
 #cameraControls {

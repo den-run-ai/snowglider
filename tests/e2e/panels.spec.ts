@@ -50,6 +50,19 @@ async function setExpanded(page: Page, toggle: string, expanded: boolean, touch:
   await expect(button).toHaveAttribute('aria-expanded', String(expanded));
 }
 
+async function resizeAndSettle(page: Page, viewport: { width: number; height: number }): Promise<void> {
+  await page.setViewportSize(viewport);
+  // The protocol viewport updates before Android's layout viewport necessarily
+  // does. Compact-to-compact rotations keep aria-expanded unchanged, so checking
+  // panel state alone cannot wait for the resize event or its layout update.
+  await page.waitForFunction(({ width, height }) => (
+    window.innerWidth === width && window.innerHeight === height
+  ), viewport);
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
 async function expectInsideViewport(page: Page, selector: string): Promise<void> {
   const box = await page.locator(selector).boundingBox();
   const viewport = page.viewportSize()!;
@@ -71,11 +84,18 @@ async function expectNoOverlap(page: Page, first: string, second: string): Promi
 }
 
 async function expectHitTarget(page: Page, selector: string): Promise<void> {
-  expect(await page.locator(selector).evaluate((el) => {
+  const target = await page.locator(selector).evaluate((el) => {
     const box = el.getBoundingClientRect();
-    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-    return hit !== null && el.contains(hit);
-  }), `${selector} is reachable at its center`).toBe(true);
+    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    const hit = document.elementFromPoint(center.x, center.y);
+    return {
+      reachable: hit !== null && el.contains(hit),
+      center,
+      hit: hit?.outerHTML.slice(0, 500) ?? null,
+    };
+  });
+  expect(target.reachable,
+    `${selector} is reachable at ${JSON.stringify(target.center)}; actual hit: ${target.hit}`).toBe(true);
 }
 
 async function expectHudLayout(page: Page): Promise<void> {
@@ -171,14 +191,14 @@ test('responsive panel layout has one consistent disclosure and no HUD collision
     // desktop expanded defaults. Pin that intermediate breakpoint without
     // duplicating the complete interaction suite in another browser project.
     for (const viewport of [{ width: 768, height: 768 }, { width: 640, height: 540 }]) {
-      await page.setViewportSize(viewport);
+      await resizeAndSettle(page, viewport);
       for (const panel of panels) await setExpanded(page, panel.toggle, true, hasTouch);
       await expectHudLayout(page);
     }
     await testInfo.attach('hud-tablet-expanded', { body: await page.screenshot(), contentType: 'image/png' });
 
     for (const viewport of [{ width: 320, height: 568 }, { width: 568, height: 320 }]) {
-      await page.setViewportSize(viewport);
+      await resizeAndSettle(page, viewport);
       for (const panel of panels) {
         await expect(page.locator(panel.toggle)).toHaveAttribute('aria-expanded', 'false');
       }
@@ -249,7 +269,7 @@ test('compact panels share space and preserve an open panel through resize and r
   await openPausedGame(page);
   const initial = page.viewportSize()!;
   if (initial.width > 600 && initial.height > 500) {
-    await page.setViewportSize({ width: 390, height: 844 });
+    await resizeAndSettle(page, { width: 390, height: 844 });
   }
   for (const panel of panels) {
     await expect(page.locator(panel.toggle)).toHaveAttribute('aria-expanded', 'false');
@@ -261,10 +281,10 @@ test('compact panels share space and preserve an open panel through resize and r
     }
   }
   const compact = page.viewportSize()!;
-  await page.setViewportSize({ width: compact.width, height: compact.height - 40 });
+  await resizeAndSettle(page, { width: compact.width, height: compact.height - 40 });
   await expect(page.locator('#toggleCamera')).toHaveAttribute('aria-expanded', 'true');
   await expectHudLayout(page);
-  await page.setViewportSize({ width: compact.height, height: compact.width });
+  await resizeAndSettle(page, { width: compact.height, height: compact.width });
   await expect(page.locator('#toggleCamera')).toHaveAttribute('aria-expanded', 'true');
   await expectHudLayout(page);
   await setExpanded(page, '#toggleCamera', false, hasTouch);

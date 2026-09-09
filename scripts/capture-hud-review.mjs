@@ -4,14 +4,14 @@
 // HUD_BASE_REF=<local commit SHA> adds four before images from a temporary worktree.
 // Without HUD_BASE_REF, capture only the four current images.
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, devices } from '@playwright/test';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const root = await realpath(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
 const output = join(root, 'test-results', 'hud-review');
 const baseRef = process.env.HUD_BASE_REF?.trim();
 const evidence = [];
@@ -20,7 +20,12 @@ let beforeWorktree;
 let browser;
 
 function git(args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  // Container checkouts can have a different owner, and actions/checkout's
+  // temporary safe.directory config is not inherited by subsequent steps.
+  // Trust only this canonical checkout for this command; never modify Git config.
+  return execFileSync('git', ['-c', `safe.directory=${root}`, ...args], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 }
 
 async function stopServer(child) {
@@ -150,7 +155,7 @@ try {
   if (baseRef) {
     if (!/^[a-f0-9]{7,40}$/i.test(baseRef)) throw new Error('HUD_BASE_REF must be a local commit SHA. Fetch it before running this script.');
     baseCommit = git(['rev-parse', '--verify', `${baseRef}^{commit}`]);
-    temporaryDirectory = await mkdtemp(join(tmpdir(), 'snowglider-hud-'));
+    temporaryDirectory = await realpath(await mkdtemp(join(tmpdir(), 'snowglider-hud-')));
     const candidate = join(temporaryDirectory, 'before');
     git(['worktree', 'add', '--detach', candidate, baseCommit]);
     beforeWorktree = candidate;
