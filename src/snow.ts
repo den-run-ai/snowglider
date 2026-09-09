@@ -313,6 +313,7 @@ function createSnowSplash(): SnowSplash {
     // Randomly choose between the two texture types
     const materialIndex = cosmeticRandom('snowParticles') > 0.3 ? 0 : 1;
     const particle = new THREE.Sprite(materials[materialIndex]!.clone());
+    particle.visible = false;
     
     // Start with zero size (invisible)
     particle.scale.set(0, 0, 0);
@@ -351,6 +352,18 @@ function createSnowSplash(): SnowSplash {
 // emission block below. Module-level like the splash pool itself.
 let splashEmitAccum = 0;
 
+/** Clear the reused pool on a new run, including any banked emission tick. */
+function resetSnowSplash(splash: SnowSplash | null): void {
+  splashEmitAccum = 0;
+  if (!splash) return;
+  for (const particle of splash.particles) {
+    particle.userData.active = false;
+    particle.visible = false;
+    particle.scale.set(0, 0, 0);
+  }
+  splash.nextParticle = 0;
+}
+
 function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THREE.Object3D, velocity: PlanarVelocity, isInAir: boolean, scene: THREE.Scene, landingBurst?: number) {
   // Early return if not initialized
   if (!splash || !splash.particles) return;
@@ -372,6 +385,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
     // Deactivate if lifetime is over
     if (particle.userData.lifetime <= 0) {
       particle.userData.active = false;
+      particle.visible = false; // zero scale alone still submits a Sprite draw
       particle.scale.set(0, 0, 0); // Make invisible
       return;
     }
@@ -519,6 +533,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         particle.userData.maxLifetime = 0.7 + cosmeticRandom('snowParticles') * 0.9 * (1 + speedFactor * 0.5);
         particle.userData.lifetime = particle.userData.maxLifetime;
         particle.userData.active = true;
+        particle.visible = true;
         
         // Add to scene if not already added
         if (!particle.parent) {
@@ -566,6 +581,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
       particle.userData.maxLifetime = 0.5 + landingBurst * 0.6 + cosmeticRandom('snowParticles') * 0.3;
       particle.userData.lifetime = particle.userData.maxLifetime;
       particle.userData.active = true;
+      particle.visible = true;
       if (!particle.parent) scene.add(particle);
     }
   }
@@ -604,6 +620,7 @@ export const Snow = {
   updateSnowflakes,
   teardownSnowflakes,
   createSnowSplash,
+  resetSnowSplash,
   updateSnowSplash
 };
 
