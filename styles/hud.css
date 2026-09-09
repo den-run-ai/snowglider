@@ -11,6 +11,7 @@
 
 #hudLeft, #hudRight {
   position: fixed;
+  z-index: 200;
   top: var(--hud-top);
   width: var(--hud-column);
   display: flex;
