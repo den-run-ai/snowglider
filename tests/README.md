@@ -175,6 +175,10 @@ errors and shader/WebGL failures also fail the process; expected logged audio or
 storage fallback errors do not. `test-results/results.json` records per-suite
 assertions, runner/page/renderer errors, and the final validation failures.
 `unified-runner-tests.js` exercises the actual runner's failure paths headlessly.
+The result collector also enforces its 90-second deadline from Node, so a blocked
+renderer cannot disable the timeout. Browser cleanup is bounded and kills its
+owned browser if graceful close stalls. `puppeteer-deadline-tests.js` verifies the
+actual collector exits unsuccessfully for a permanently pending page evaluation.
 When adding a browser suite, update both the unified runner's manifest and
 `helpers/browser-results.js`; their agreement is checked by that Node suite.
 

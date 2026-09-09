@@ -134,6 +134,7 @@ async function main() {
   for (const message of [
     'THREE.WebGLProgram: Shader Error 0 - VALIDATE_STATUS false',
     'WebGLRenderer: Error creating WebGL context.',
+    'THREE.WebGLRenderer: Context Lost.',
     'WebGL: INVALID_OPERATION: drawElements: no valid shader program in use',
     '[SnowGlider] Fatal animation-loop error — stopping the run:'
   ]) assert.equal(isRendererFailure(message), true, message);

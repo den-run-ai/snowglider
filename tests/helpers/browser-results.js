@@ -5,7 +5,7 @@
 const EXPECTED_SUITES = ['controls', 'camera', 'audio', 'gameplay', 'tree', 'avalanche', 'regression'];
 
 function isRendererFailure(message) {
-  return /WebGLProgram: Shader Error|WebGLRenderer: (?:A WebGL context could not be created|Error creating WebGL context)|(?:GL_)?INVALID_(?:OPERATION|VALUE|ENUM):|\[SnowGlider\] Fatal animation-loop error/.test(message);
+  return /WebGLProgram: Shader Error|WebGLRenderer: (?:A WebGL context could not be created|Error creating WebGL context|Context Lost\.)|(?:GL_)?INVALID_(?:OPERATION|VALUE|ENUM):|\[SnowGlider\] Fatal animation-loop error/.test(message);
 }
 
 function validateBrowserResults(results, pageErrors = [], rendererErrors = []) {

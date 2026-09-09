@@ -29,6 +29,64 @@ const ROOT = path.join(__dirname, '..');
 const COLLECT_COVERAGE = process.env.BROWSER_COVERAGE === '1' || process.env.BROWSER_COVERAGE === 'true';
 const COVERAGE_DIR = path.join(ROOT, 'coverage', 'browser');
 
+// A renderer blocked in JavaScript cannot fire its own timeout. Keep the deadline
+// in Node as well, including on the cleanup path after a stuck protocol request.
+async function withNodeDeadline(operation, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms (Node deadline)`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function collectBrowserResults(page, timeoutMs = TEST_TIMEOUT) {
+  return withNodeDeadline(() => page.evaluate((timeoutMs) => {
+    return new Promise((resolve) => {
+      let interval;
+      let deadline;
+      const snapshot = () => ({
+        ...window._unifiedTestCounts,
+        expectedSuites: window._unifiedExpectedSuites,
+        summaryText: document.getElementById('unified-test-summary')?.textContent || 'N/A'
+      });
+      const finish = (timeout) => {
+        clearInterval(interval);
+        clearTimeout(deadline);
+        resolve({ ...snapshot(), timeout });
+      };
+      const checkResults = () => {
+        const counts = window._unifiedTestCounts;
+        const expected = window._unifiedExpectedSuiteCount;
+        if (Number.isInteger(expected) && expected > 0 && counts?.completed?.length >= expected) {
+          finish(false);
+          return true;
+        }
+        return false;
+      };
+      if (checkResults()) return;
+      interval = setInterval(checkResults, 1000);
+      deadline = setTimeout(() => finish(true), timeoutMs);
+    });
+  }, timeoutMs), timeoutMs, 'Browser test results');
+}
+
+async function closeBrowser(browser, timeoutMs = 5000) {
+  try {
+    await withNodeDeadline(() => browser.close(), timeoutMs, 'Browser cleanup');
+  } catch (error) {
+    // Puppeteer's graceful close may itself be blocked behind the dead renderer.
+    // Kill only the browser process launched by this runner, then propagate failure.
+    browser.process()?.kill('SIGKILL');
+    throw error;
+  }
+}
+
 // Ensure results directory exists
 if (!fs.existsSync(RESULTS_DIR)) {
   fs.mkdirSync(RESULTS_DIR, { recursive: true });
@@ -345,34 +403,7 @@ async function runBrowserTests() {
     // Wait for tests to complete
     console.log('Running tests...');
     
-    let results = await page.evaluate((timeoutMs) => {
-      return new Promise((resolve) => {
-        let interval;
-        let deadline;
-        const snapshot = () => ({
-          ...window._unifiedTestCounts,
-          expectedSuites: window._unifiedExpectedSuites,
-          summaryText: document.getElementById('unified-test-summary')?.textContent || 'N/A'
-        });
-        const finish = (timeout) => {
-          clearInterval(interval);
-          clearTimeout(deadline);
-          resolve({ ...snapshot(), timeout });
-        };
-        const checkResults = () => {
-          const counts = window._unifiedTestCounts;
-          const expected = window._unifiedExpectedSuiteCount;
-          if (Number.isInteger(expected) && expected > 0 && counts?.completed?.length >= expected) {
-            finish(false);
-            return true;
-          }
-          return false;
-        };
-        if (checkResults()) return;
-        interval = setInterval(checkResults, 1000);
-        deadline = setTimeout(() => finish(true), timeoutMs);
-      });
-    }, TEST_TIMEOUT);
+    let results = await collectBrowserResults(page);
 
     // Stop and persist browser coverage now that the suite has finished but the
     // page is still alive. Best-effort: never let coverage break the test run.
@@ -443,20 +474,22 @@ async function runBrowserTests() {
     console.error('Test runner error:', error.message);
     return 1;
   } finally {
-    // Cleanup
-    if (browser) {
-      await browser.close();
-    }
-    if (server) {
-      server.kill();
+    // Always release the server, even if browser shutdown fails or hangs.
+    try {
+      if (browser) await closeBrowser(browser);
+    } finally {
+      if (server) server.kill();
     }
   }
 }
 
-// Run tests
-runBrowserTests().then((exitCode) => {
-  process.exit(exitCode);
-}).catch((err) => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+module.exports = { collectBrowserResults, closeBrowser };
+
+if (require.main === module) {
+  runBrowserTests().then((exitCode) => {
+    process.exit(exitCode);
+  }).catch((err) => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}
