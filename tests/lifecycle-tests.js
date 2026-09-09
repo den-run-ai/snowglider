@@ -193,6 +193,18 @@ async function main() {
     check('wheel zooms once the run is active', calls.some(c => c[0] === 'adjustZoom'));
     check('wheel preventDefault fires during gameplay', wheelOn.defaultPrevented === true);
     check('Q key orbits during gameplay', calls.some(c => c[0] === 'orbit'));
+    const stats = document.createElement('div');
+    stats.id = 'gameStatsContainer';
+    const statText = document.createElement('span');
+    stats.appendChild(statText);
+    document.body.appendChild(stats);
+    const wheelZooms = calls.filter(c => c[0] === 'adjustZoom').length;
+    const statsWheel = new dom.window.Event('wheel', { bubbles: true, cancelable: true });
+    Object.defineProperty(statsWheel, 'deltaY', { value: 100 });
+    statText.dispatchEvent(statsWheel);
+    check('scrolling Stats never zooms the camera', calls.filter(c => c[0] === 'adjustZoom').length === wheelZooms);
+    check('Stats keeps native wheel scrolling', !statsWheel.defaultPrevented);
+
     const focusedOrbitsBefore = calls.filter(c => c[0] === 'orbit').length;
     camToggle.focus();
     camToggle.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'q', bubbles: true }));

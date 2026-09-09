@@ -68,7 +68,7 @@ export function formatStatTime(seconds: number): string {
 }
 
 // Wire up the Game Stats panel collapse/swipe behavior.
-export function initializeGameStats(): void {
+export function initializeGameStats(signal?: AbortSignal): void {
   // Re-seed the slope EMA + tier so a new run doesn't drift in from the last run.
   smoothedSlope = null;
   slopeTierIdx = 0;
@@ -82,13 +82,14 @@ export function initializeGameStats(): void {
     headerId: 'gameStatsHeader',
     resetListeners: true,
     autoCollapseOnSmallScreens: true,
+    signal,
   });
 }
 
 // Wire up the Game Controls panel collapse/swipe behavior. Resets stale listeners
 // and auto-collapses on small screens — this is invoked more than once
 // (DOMContentLoaded + initializeGameWithAudio).
-export function initializeControlsToggle(): void {
+export function initializeControlsToggle(signal?: AbortSignal): void {
   setupCollapsiblePanel({
     name: 'controls',
     containerId: 'controlsInfo',
@@ -96,6 +97,7 @@ export function initializeControlsToggle(): void {
     headerId: 'controlsHeader',
     resetListeners: true,
     autoCollapseOnSmallScreens: true,
+    signal,
   });
 }
 

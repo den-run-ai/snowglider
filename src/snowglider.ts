@@ -103,7 +103,7 @@ state.bestTime = readStoredBestTime();
 // Initialize the stats display when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing game stats");
-  initializeGameStats();
+  initializeGameStats(listenerAbort.signal);
 });
 
 // Add best time to game over overlay
@@ -336,7 +336,7 @@ window.testHooks.isDebrisActive = () => !!state.debris && state.debris.active;
 // Initialize controls toggle when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing controls toggle");
-  initializeControlsToggle();
+  initializeControlsToggle(listenerAbort.signal);
 });
 
 // Teardown bookkeeping (dispose-audit plan §3 / Codex review): a guard flag plus the
@@ -481,8 +481,8 @@ window.initializeGameWithAudio = function() {
   Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
   
   // Make sure game stats and controls are properly initialized and visible
-  initializeGameStats();
-  initializeControlsToggle();
+  initializeGameStats(listenerAbort.signal);
+  initializeControlsToggle(listenerAbort.signal);
   
   // Initialize Game Stats
   const gameStatsContainer = document.getElementById('gameStatsContainer');
