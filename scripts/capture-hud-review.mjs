@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 import { chromium, devices } from '@playwright/test';
 
 const root = await realpath(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
@@ -60,7 +61,8 @@ async function withServer(directory, port, capture) {
       if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Vite exited before readiness:\n${log}`);
       // The Local banner belongs to this spawned child. A stale listener alone
       // must not pass readiness while --strictPort is about to reject our child.
-      if (log.includes('Local:')) {
+      // Vite inserts ANSI color resets between "Local" and ":" in CI output.
+      if (stripVTControlCharacters(log).includes('Local:')) {
         try {
           const response = await fetch(`${baseUrl}/@vite/client`, { signal: AbortSignal.timeout(1000) });
           await response.arrayBuffer();

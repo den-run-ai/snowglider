@@ -164,6 +164,9 @@ jobs:
       # plus iPhone Safari and Android Chrome in portrait AND landscape. Screenshot
       # attachments in the HTML report show both collapsed and expanded player HUDs.
       - name: Run Playwright E2E and responsive HUD gate (desktop, iOS, Android)
+        # A review-image failure keeps the job red but must not suppress the
+        # browser regression results needed to diagnose the application itself.
+        if: ${{ !cancelled() }}
         run: npm run test:e2e
         env:
           CI: true
