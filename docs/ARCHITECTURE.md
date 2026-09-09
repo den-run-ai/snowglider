@@ -196,6 +196,17 @@ is skipped (reproducing the original Loading/Get-Ready timing exactly) for the
 `?test=` suites (`window.isTestMode`), automated runs (`navigator.webdriver`), and
 `prefers-reduced-motion`; `?intro=force` / `?intro=off` override that for QA.
 
+**Graphics loss recovery (#431).** `game/context-loss.ts` observes the renderer's
+canvas `webglcontextlost` event independently of the gameplay loop: Three.js skips
+rendering silently on a lost context, including during the menu or intro. The
+coordinator stops and disposes the current instance, cancels pending start/intro
+work, silences audio, clears controls, and shows the accessible **Graphics
+interrupted → Reload** dialog. A restored context never resumes that interrupted
+run; reload constructs a fresh scene and returns to the start menu. The same
+AbortSignal owns the canvas listener and lifecycle callbacks, so intentional
+teardown cannot trigger recovery. Node ownership/overlay tests and Chromium's
+real `WEBGL_lose_context` extension exercise this contract.
+
 **Fixed-timestep loop.** `animate(time)` runs a fixed-timestep accumulator: physics
 advances **only** in `FIXED_DT = 1/60` s steps (the rate `physics_invariant_harness.js`
 pins), while cosmetics run once per render frame. This makes the live game frame-rate

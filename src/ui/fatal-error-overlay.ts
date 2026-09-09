@@ -33,6 +33,8 @@ function defaultReload(): void {
 export interface FatalErrorOverlayOptions {
   /** Override the reload action (tests). Defaults to `window.location.reload()`. */
   onReload?: () => void;
+  /** Runtime graphics loss differs from failure to create a WebGL context. */
+  reason?: 'context-lost';
 }
 
 /** Build (once) and show the full-screen recovery overlay. Safe to call repeatedly and
@@ -87,9 +89,14 @@ export function showFatalErrorOverlay(err?: unknown, opts: FatalErrorOverlayOpti
   // Surface a short, non-sensitive hint of the error for debugging without dumping a
   // full stack at the player. Cosmetic only; the reload is the real recovery.
   const detail = overlay.querySelector<HTMLElement>('#fatalErrorMessage');
+  const title = overlay.querySelector<HTMLElement>('#fatalErrorTitle');
+  if (title) title.textContent = opts.reason === 'context-lost'
+    ? 'Graphics interrupted' : 'Something went wrong';
   if (detail) {
     const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
-    detail.textContent = /WebGL.*context|context.*WebGL/i.test(msg)
+    detail.textContent = opts.reason === 'context-lost'
+      ? 'The browser lost its graphics connection. The game has stopped. Reload to start a new run.'
+      : /WebGL.*context|context.*WebGL/i.test(msg)
       ? 'This browser could not start 3D graphics. Enable hardware acceleration or try a browser with WebGL support, then reload.'
       : msg
         ? `The game hit an unexpected error (“${msg}”). Try reloading to load a fresh copy of the game.`

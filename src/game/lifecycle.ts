@@ -61,6 +61,7 @@ export function createLifecycle(deps: LifecycleDeps) {
   signal?.addEventListener('abort', () => closeOverlayFocus(gameOverOverlay, false), { once: true });
 
   function resetSnowman() {
+    if (signal?.aborted) return;
     // Rewind the run's RNG streams for the new run (#400/#403 review). WORLD
     // streams (hazards/course) replay from the world seed. The RUN-scoped
     // streams (physics auto-turns, avalanche boulders) re-derive from
@@ -160,6 +161,7 @@ export function createLifecycle(deps: LifecycleDeps) {
   }
 
   function restartGame() {
+    if (signal?.aborted) return;
     // The finish "Play again on" picker can switch tiers; if it did, the built scene no longer
     // matches, so reload to reshape it for the new tier (the run resumes automatically after).
     // Bail here so we don't start a run against the scene that's about to be torn down.
