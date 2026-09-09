@@ -1,5 +1,7 @@
 import { test, expect } from './fixtures';
 import { gotoGame, startGame } from './helpers';
+import { devices } from '@playwright/test';
+import { RENDER_PHASES, prepareRenderScenario, enterRenderPhase, measureRenderPhase, assertRenderPhase } from './render-scenarios';
 
 // Boot the real game, sample renderer.info after warm frames, and pin ceilings
 // above measured values. These are regression guards, not performance targets.
@@ -73,8 +75,8 @@ const EZ_BUDGET = {
  *  layout varies the mesh/triangle count run to run, so ceilings calibrated from
  *  one measured scene could red-bar an unrelated PR on a denser draw. addInitScript
  *  runs in the page realm before the bundle's first Math.random call. */
-function seedDeterministicLayout(page: import('@playwright/test').Page): Promise<void> {
-  return page.addInitScript(() => {
+async function seedDeterministicLayout(page: import('@playwright/test').Page): Promise<void> {
+  await page.addInitScript(() => {
     // mulberry32 — small, fast, well-distributed seeded PRNG.
     let s = 0x9e3779b9 >>> 0;
     Math.random = () => {
@@ -172,3 +174,32 @@ test.describe('rendering perf / draw-call budget @chromium', () => {
     expectWithinBudget(peak, EZ_BUDGET);
   });
 });
+
+// The startup ceilings above are retained as historical regression guards. This
+// second tier exercises full player effects at fixed phases down the entire course,
+// including late spray and crash resources. Timing is reported, never treated as
+// machine-independent FPS. The frozen RAF clock makes phase state repeatable.
+for (const [name, device] of Object.entries({
+  desktop: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 720 } },
+  phone: { ...devices['Pixel 7'] }
+})) {
+  test.describe(`player rendering phases (${name}) @chromium`, () => {
+    const { defaultBrowserType: _browserType, ...contextOptions } = device;
+    test.use(contextOptions);
+    test.skip(({ browserName }) => browserName !== 'chromium', 'renderer phase probes use Chromium');
+    test('spawn, downhill, avalanche, spray and crash stay batched', async ({ page }, testInfo) => {
+      test.setTimeout(180_000);
+      const errors = await prepareRenderScenario(page);
+      const metrics = [];
+      for (const phase of RENDER_PHASES) {
+        await enterRenderPhase(page, phase);
+        const measured = await measureRenderPhase(page, phase);
+        metrics.push(measured);
+        assertRenderPhase(measured);
+      }
+      await testInfo.attach(`render-phases-${name}`, { body: Buffer.from(JSON.stringify(metrics, null, 2)), contentType: 'application/json' });
+      console.log(`[render-phases:${name}]`, JSON.stringify(metrics));
+      expect(errors, 'uncaught page/shader errors').toEqual([]);
+    });
+  });
+}

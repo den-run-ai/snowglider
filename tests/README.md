@@ -213,6 +213,52 @@ http://localhost:8080/?test=true
 
 ### Browser Regression Tests
 
+The renderer has two complementary tiers:
+
+- `tests/e2e/perf-budget.spec.ts` retains the historical startup resource ceilings
+  and adds desktop/phone phase replays with the full EZ forest, snowfall, spray,
+  avalanche powder, and crash debris. Prescribed positions cover the course; this
+  is not a continuous autonomous winning run. A controlled 60 Hz RAF clock makes
+  state reproducible while real physics, shaders, camera and effects execute.
+  Each phase batches its eight settling frames and twelve measured frames inside
+  the page: all 100 frame callbacks and GPU finishes still run, with two browser
+  evaluations per phase instead of a round trip per frame. This avoids the CI
+  instrumentation overhead that consumed the 180-second test deadline; the
+  timeout, coverage collection, and measured sample count remain unchanged.
+  Structural checks require live instances in one shared 1,528-particle allocation and spatial
+  forest chunks. CPU submission and GPU-finished frame-service p50/p95 timings
+  are diagnostic observations from this CI machine, never FPS pass thresholds.
+- `.github/workflows/render-review.yml` captures BASE and HEAD on the same pinned
+  Playwright image using one candidate-owned harness. It publishes 16 paired
+  canvas images: five gameplay phases plus Orbit initialization/first/second
+  update at the obstructed camera repro, on desktop and phone. `comparison/index.html`
+  shows before/after/diff and metrics; JSON records exact commits and seed. Canvas
+  images exclude HTML overlays so crash debris remains visible. Recovery/UI
+  screenshots are covered separately by their E2E specs.
+
+PR comparisons resolve an exact merge-base between the candidate and the
+repository's default branch, so stacked PRs show the cumulative rendering change.
+They are review evidence, not an approved visual baseline. A manual run can
+override that choice by supplying a full `baseline_sha`. Missing commits/images,
+incomplete captures, blank images and
+runtime/shader errors fail; the workflow never generates a baseline to make a
+missing-baseline check pass, and stores no image binaries in the repository.
+
+After a maintainer explicitly approves a commit's images, a manual run can set
+`approved_baseline: true`. That mode requires the supplied full SHA to match the
+captured baseline and fails if any image differs by more than 0.1% of pixels
+(maximum per-channel delta greater than 16), or its dimensions change. The
+comparison script also supports `RENDER_APPROVED_BASELINE_SHA` and
+`RENDER_MAX_CHANGED_RATIO` for an explicitly configured acceptance gate. This
+simple pixel tolerance is not a perceptual judgement; review the images before
+approving a new baseline. Baseline capture files are never updated by comparison.
+
+`npm run test:render-review` requires `RENDER_COMMIT` to be a full SHA; optionally
+set `RENDER_APP_DIR` to another installed checkout and `RENDER_OUTPUT_DIR` for
+off-tree artifacts. `node scripts/compare-render-review.mjs BASE_DIR HEAD_DIR OUTPUT_DIR`
+builds the portable review report. `render-review-tests.js` tests its actual PNG,
+manifest and process-exit failure paths without a browser.
+
 1. Serve the game, then open the regression test URL:
 ```
 http://localhost:8080/?test=regression
