@@ -37,7 +37,11 @@ async function withNodeDeadline(operation, timeoutMs, label) {
     return await Promise.race([
       Promise.resolve().then(operation),
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms (Node deadline)`)), timeoutMs);
+        timer = setTimeout(() => {
+          const error = new Error(`${label} timed out after ${timeoutMs}ms (Node deadline)`);
+          error.name = 'BrowserDeadlineError';
+          reject(error);
+        }, timeoutMs);
       })
     ]);
   } finally {
@@ -45,7 +49,7 @@ async function withNodeDeadline(operation, timeoutMs, label) {
   }
 }
 
-async function collectBrowserResults(page, timeoutMs = TEST_TIMEOUT) {
+async function collectBrowserResults(page, timeoutMs = TEST_TIMEOUT, graceMs = 1000) {
   return withNodeDeadline(() => page.evaluate((timeoutMs) => {
     return new Promise((resolve) => {
       let interval;
@@ -73,7 +77,63 @@ async function collectBrowserResults(page, timeoutMs = TEST_TIMEOUT) {
       interval = setInterval(checkResults, 1000);
       deadline = setTimeout(() => finish(true), timeoutMs);
     });
-  }, timeoutMs), timeoutMs, 'Browser test results');
+  // The page's timer is installed after the CDP round trip. Give a responsive
+  // page time to return its partial timeout snapshot before Node aborts a hang.
+  }, timeoutMs), timeoutMs + graceMs, 'Browser test results');
+}
+
+async function writeBrowserArtifacts(page, initialResults, {
+  resultsDir = RESULTS_DIR, consoleLogs = [], pageErrors = [], rendererErrors = [],
+  collectCoverage = null, timeoutMs = 15000
+} = {}) {
+  let results = { ...initialResults, initialSnapshot: initialResults };
+  let artifactsComplete = false;
+  const artifactFailures = [];
+  const artifactWarnings = [];
+  const persist = () => {
+    results.pageErrors = [...pageErrors];
+    results.rendererErrors = [...rendererErrors];
+    results.artifactWarnings = [...artifactWarnings];
+    results.artifactsComplete = artifactsComplete;
+    results.validationFailures = [...validateBrowserResults(results, pageErrors, rendererErrors), ...artifactFailures,
+      ...(artifactsComplete ? [] : ['Browser artifact collection is incomplete'])];
+    fs.writeFileSync(path.join(resultsDir, 'console-logs.txt'), consoleLogs.join('\n'));
+    fs.writeFileSync(path.join(resultsDir, 'results.json'), JSON.stringify(results, null, 2));
+  };
+  fs.mkdirSync(resultsDir, { recursive: true });
+  // Preserve evidence before any further CDP request; never upload a stale image
+  // from an earlier run if this page cannot be captured.
+  fs.rmSync(path.join(resultsDir, 'test-results.png'), { force: true });
+  persist();
+  if (collectCoverage) {
+    try {
+      await withNodeDeadline(collectCoverage, timeoutMs, 'Browser coverage');
+    } catch (error) {
+      // Ordinary coverage instrumentation errors remain best-effort. A stalled
+      // protocol operation is a runner failure, not successful coverage collection.
+      (error.name === 'BrowserDeadlineError' ? artifactFailures : artifactWarnings).push(error.message);
+    }
+  }
+  try {
+    await withNodeDeadline(() => page.screenshot({
+      path: path.join(resultsDir, 'test-results.png'), fullPage: true
+    }), timeoutMs, 'Browser screenshot');
+  } catch (error) {
+    artifactFailures.push(`Screenshot failed: ${error.message}`);
+  }
+  try {
+    const latest = await withNodeDeadline(() => page.evaluate(() => ({
+      ...window._unifiedTestCounts,
+      expectedSuites: window._unifiedExpectedSuites
+    })), timeoutMs, 'Final browser results');
+    // A later successful snapshot cannot erase the original whole-suite timeout.
+    results = { ...results, ...latest, timeout: !!(results.timeout || latest?.timeout) };
+  } catch (error) {
+    artifactFailures.push(`Final result read failed: ${error.message}`);
+  }
+  artifactsComplete = true;
+  persist();
+  return results;
 }
 
 async function closeBrowser(browser, timeoutMs = 5000) {
@@ -403,50 +463,23 @@ async function runBrowserTests() {
     // Wait for tests to complete
     console.log('Running tests...');
     
-    let results = await collectBrowserResults(page);
-
-    // Stop and persist browser coverage now that the suite has finished but the
-    // page is still alive. Best-effort: never let coverage break the test run.
-    if (COLLECT_COVERAGE) {
-      try {
+    let results;
+    try {
+      results = await collectBrowserResults(page);
+    } catch (error) {
+      results = { timeout: true, collectionError: error.message };
+    }
+    results = await writeBrowserArtifacts(page, results, {
+      consoleLogs, pageErrors: errors, rendererErrors,
+      collectCoverage: COLLECT_COVERAGE ? async () => {
         const coverageMap = createCoverageMap();
         await foldPageCoverage(page, coverageMap, ROOT);
         fs.mkdirSync(COVERAGE_DIR, { recursive: true });
         writeBrowserReports(coverageMap, COVERAGE_DIR);
         console.log(`Browser coverage written: ${coverageMap.files().filter(f => f.includes(`${path.sep}src${path.sep}`)).length} src files -> ${path.relative(ROOT, COVERAGE_DIR)}/lcov.info`);
-      } catch (covErr) {
-        console.warn('Browser coverage: failed to write report:', covErr.message);
-      }
-    }
-
-    // Take a screenshot of results
-    await page.screenshot({
-      path: path.join(RESULTS_DIR, 'test-results.png'),
-      fullPage: true
+      } : null
     });
-    
-    // Save console logs
-    fs.writeFileSync(
-      path.join(RESULTS_DIR, 'console-logs.txt'),
-      consoleLogs.join('\n')
-    );
-    
-    // Re-read after screenshot/coverage work so late duplicate callbacks or runner
-    // errors cannot hide behind the first completion snapshot. Preserve timeout.
-    results = { ...results, ...await page.evaluate(() => ({
-      ...window._unifiedTestCounts,
-      expectedSuites: window._unifiedExpectedSuites
-    })) };
-    const failures = validateBrowserResults(results, errors, rendererErrors);
-    results.pageErrors = errors;
-    results.rendererErrors = rendererErrors;
-    results.validationFailures = failures;
-
-    // Save results JSON
-    fs.writeFileSync(
-      path.join(RESULTS_DIR, 'results.json'),
-      JSON.stringify(results, null, 2)
-    );
+    const failures = results.validationFailures;
     
     // Print summary
     console.log('\n========================================');
@@ -483,7 +516,7 @@ async function runBrowserTests() {
   }
 }
 
-module.exports = { collectBrowserResults, closeBrowser };
+module.exports = { collectBrowserResults, writeBrowserArtifacts, closeBrowser };
 
 if (require.main === module) {
   runBrowserTests().then((exitCode) => {
