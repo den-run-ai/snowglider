@@ -109,8 +109,8 @@ async function main() {
       'addTrees returns a non-empty treePositions array', `${positions.length} trees`);
 
     const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(forest.length >= 1 && forest.length <= 5,
-      'forest renders as a handful of InstancedMeshes', `${forest.length} meshes`);
+    assert(forest.length > 5 && forest.length <= 100,
+      'forest renders as bounded spatial InstancedMesh chunks', `${forest.length} meshes`);
     assert(forest.every(m => m.isInstancedMesh), 'forest meshes are InstancedMeshes');
     const forestParts = new Set(forest.map(m => m.userData.forestPart));
     const expectedParts = ['branch', 'cone', 'snowCap', 'snowPatch', 'trunk'];
@@ -121,8 +121,8 @@ async function main() {
     const trunk = forest.find(m => m.userData.forestPart === 'trunk');
     assert(!!trunk, 'a trunk InstancedMesh is tagged via userData.forestPart');
     // One trunk instance per placed tree — the exact contract the browser test checks.
-    assert(trunk && trunk.count === positions.length,
-      'trunk instance count equals treePositions.length',
+    assert(forest.filter(m => m.userData.forestPart === 'trunk').reduce((n, m) => n + m.count, 0) === positions.length,
+      'total trunk instance count equals treePositions.length',
       trunk ? `${trunk.count} === ${positions.length}` : 'no trunk mesh');
 
     // Tinted families carry per-instance colour; snow does not.
@@ -139,7 +139,7 @@ async function main() {
     // accumulating duplicate InstancedMeshes in the scene (covers the teardown loop).
     const positions2 = Trees.addTrees(scene);
     const forest2 = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(forest2.length >= 1 && forest2.length <= 5,
+    assert(forest2.length > 5 && forest2.length <= 100,
       're-init rebuilds the forest without duplicating instanced meshes',
       `${forest2.length} meshes after re-init`);
     assert(positions2.length > 0, 're-init still returns tree positions');
