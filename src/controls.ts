@@ -107,6 +107,20 @@ const CONTROL_NAMES: readonly ControlName[] = ['left', 'right', 'up', 'down', 'j
 const keyboardHeld: Record<ControlName, boolean> = {
   left: false, right: false, up: false, down: false, jump: false
 };
+// Physical ownership matters within the keyboard too: A and ArrowLeft may both
+// hold Left. Releasing either must subtract only that key's contribution. `code`
+// survives modifier/layout changes between down/up; normalized `key` supports
+// synthetic callers and browsers that omit code.
+const pressedKeys = new Map<string, ControlName>();
+const keyIdentity = (event: KeyboardEvent): string => event.code || event.key.toLowerCase();
+
+function applyKeyboardOwnership(): void {
+  for (const name of CONTROL_NAMES) keyboardHeld[name] = false;
+  for (const name of pressedKeys.values()) keyboardHeld[name] = true;
+  for (const name of CONTROL_NAMES) {
+    gameControls[name] = keyboardHeld[name] || touchState.touchHeld[name];
+  }
+}
 
 /** Recompute the touch contribution to the shared control state from ALL live
  *  touches (#399): a control is touch-held iff at least one live touch owns it.
@@ -163,13 +177,13 @@ function setupKeyboardControls(signal?: AbortSignal) {
   // keyboard's own contribution, and a release falls back to the touch-held state
   // so lifting a key never clears a control a finger is still pressing (the mirror
   // of applyTouchOwnership's keyboard fallback; Codex review, PR #404).
-  const keyPress = (name: ControlName) => {
-    keyboardHeld[name] = true;
-    gameControls[name] = true;
-  };
-  const keyRelease = (name: ControlName) => {
-    keyboardHeld[name] = false;
-    gameControls[name] = touchState.touchHeld[name];
+  const keyPress = (name: ControlName, event: KeyboardEvent) => {
+    const identity = keyIdentity(event);
+    // A repeat may continue a live hold, but cannot recreate ownership cleared
+    // by a tier toggle, focus loss, or reset. A fresh keydown can acquire it again.
+    if (event.repeat && !pressedKeys.has(identity)) return;
+    pressedKeys.set(identity, name);
+    applyKeyboardOwnership();
   };
 
   // Handle keyboard down events
@@ -184,25 +198,25 @@ function setupKeyboardControls(signal?: AbortSignal) {
       case 'ArrowLeft':
       case 'a':
       case 'A':
-        keyPress('left');
+        keyPress('left', event);
         break;
       case 'ArrowRight':
       case 'd':
       case 'D':
-        keyPress('right');
+        keyPress('right', event);
         break;
       case 'ArrowUp':
       case 'w':
       case 'W':
-        keyPress('up');
+        keyPress('up', event);
         break;
       case 'ArrowDown':
       case 's':
       case 'S':
-        keyPress('down');
+        keyPress('down', event);
         break;
       case ' ':  // Spacebar
-        keyPress('jump');
+        keyPress('jump', event);
         break;
       case 'v':  // Toggle camera view (edge-triggered: once per physical press)
       case 'V':
@@ -217,35 +231,12 @@ function setupKeyboardControls(signal?: AbortSignal) {
     }
   };
   
-  // Handle keyboard up events
+  // Release by physical identity even if Shift/layout/focus changed the key's
+  // text since keydown. A key not owned by gameplay cannot release another key.
   const handleKeyUp = (event: KeyboardEvent) => {
-    switch(event.key) {
-      case 'ArrowLeft':
-      case 'a':
-      case 'A':
-        keyRelease('left');
-        break;
-      case 'ArrowRight':
-      case 'd':
-      case 'D':
-        keyRelease('right');
-        break;
-      case 'ArrowUp':
-      case 'w':
-      case 'W':
-        keyRelease('up');
-        break;
-      case 'ArrowDown':
-      case 's':
-      case 'S':
-        keyRelease('down');
-        break;
-      case ' ':  // Spacebar
-        keyRelease('jump');
-        break;
-    }
+    if (pressedKeys.delete(keyIdentity(event))) applyKeyboardOwnership();
   };
-  
+
   // Register on `window` ONLY. A keydown dispatched at the focused element bubbles
   // up to `window`, so a single window-level listener catches every key. Registering
   // the SAME handler on both `window` and `document` (as this used to) fires it twice
@@ -256,6 +247,13 @@ function setupKeyboardControls(signal?: AbortSignal) {
   const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
   window.addEventListener('keydown', handleKeyDown, opts);
   window.addEventListener('keyup', handleKeyUp, opts);
+  // Browsers may deliver the release to another window/tab after focus leaves.
+  // Clear BOTH keyboard and touch ownership so returning cannot resume a latched
+  // turn, brake or jump. Visible-only transitions must not cancel live input.
+  window.addEventListener('blur', resetControls, opts);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') resetControls();
+  }, opts);
 }
 
 // Two SEPARATE visual concepts share the touch-region math (both pointer-events:none,
@@ -540,30 +538,6 @@ function setupTouchControls(signal?: AbortSignal) {
     repaintVisualControls();
   };
 
-  // Sync every pad/zone's fill to the CURRENT control state: active controls get the
-  // highlight, everything else returns to idle. Called on every press/release and after
-  // the zero-touches full reset in handleTouchEnd.
-  const repaintVisualControls = () => {
-    if (!touchState.showVisualControls && !touchState.showDebugTouchZones) return;
-    const debug = touchState.showDebugTouchZones;
-    const activeBg = debug ? DEBUG_ZONE_ACTIVE_BG : AFFORDANCE_ACTIVE_BG;
-    const idleBg = debug ? DEBUG_ZONE_IDLE_BG : AFFORDANCE_IDLE_BG;
-    const touchControls = document.querySelectorAll('.touch-control');
-    touchControls.forEach(control => {
-      const el = control as HTMLElement;
-      // Highlight the active control
-      if ((control.classList.contains('touch-left') && gameControls.left) ||
-          (control.classList.contains('touch-right') && gameControls.right) ||
-          (control.classList.contains('touch-up') && gameControls.up) ||
-          (control.classList.contains('touch-down') && gameControls.down) ||
-          (control.classList.contains('touch-jump') && gameControls.jump)) {
-        el.style.backgroundColor = activeBg;
-      } else {
-        el.style.backgroundColor = idleBg;
-      }
-    });
-  };
-
   // Add touch event listeners
   document.addEventListener('touchstart', handleTouchStart, touchOpts);
   document.addEventListener('touchmove', handleTouchMove, touchOpts);
@@ -656,6 +630,31 @@ function setupTouchControls(signal?: AbortSignal) {
   }
 }
 
+// Sync every pad/zone's fill to the CURRENT control state: active controls get the
+// highlight, everything else returns to idle. Called on every press/release and after
+// resets on blur/hidden, so cleared input never leaves a lit touch pad.
+function repaintVisualControls(): void {
+  if (typeof document === 'undefined') return;
+  if (!touchState.showVisualControls && !touchState.showDebugTouchZones) return;
+  const debug = touchState.showDebugTouchZones;
+  const activeBg = debug ? DEBUG_ZONE_ACTIVE_BG : AFFORDANCE_ACTIVE_BG;
+  const idleBg = debug ? DEBUG_ZONE_IDLE_BG : AFFORDANCE_IDLE_BG;
+  const touchControls = document.querySelectorAll('.touch-control');
+  touchControls.forEach(control => {
+    const el = control as HTMLElement;
+    // Highlight the active control
+    if ((control.classList.contains('touch-left') && gameControls.left) ||
+        (control.classList.contains('touch-right') && gameControls.right) ||
+        (control.classList.contains('touch-up') && gameControls.up) ||
+        (control.classList.contains('touch-down') && gameControls.down) ||
+        (control.classList.contains('touch-jump') && gameControls.jump)) {
+      el.style.backgroundColor = activeBg;
+    } else {
+      el.style.backgroundColor = idleBg;
+    }
+  });
+}
+
 // Reset all controls to default state
 function resetControls(): ControlState {
   gameControls.left = false;
@@ -670,7 +669,9 @@ function resetControls(): ControlState {
   touchState.touches = {};
   touchState.owners = {};
   touchState.touchHeld = { left: false, right: false, up: false, down: false, jump: false };
+  pressedKeys.clear();
   for (const name of CONTROL_NAMES) keyboardHeld[name] = false;
+  repaintVisualControls();
 
   return gameControls;
 }
@@ -688,6 +689,12 @@ export const Controls = {
     jumpEnabled = enabled;
     if (!enabled) {
       gameControls.jump = false;
+      // Clear the source ownership too: any later gameplay key event recomputes
+      // keyboardHeld from this map and would otherwise revive the latched jump.
+      for (const [key, name] of pressedKeys) {
+        if (name === 'jump') pressedKeys.delete(key);
+      }
+      keyboardHeld.jump = false;
       // Drop jump ownership from any live touch (#399): controlAtPoint stops
       // resolving the center region while disabled, but a touch that grabbed jump
       // BEFORE the toggle would otherwise re-assert it on its next recompute.
