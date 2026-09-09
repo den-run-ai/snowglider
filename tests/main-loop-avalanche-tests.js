@@ -31,6 +31,8 @@ async function main() {
   /** @type {any} */ (env.window).testHooks = {};
 
   const { createMainLoop } = await import('../src/game/main-loop.ts');
+  const { createRenderQuality } = await import('../src/game/render-quality.ts');
+  const { DirectionalLight } = await import('three');
   const { CourseModule } = await import('../src/course.ts');
   const { Physics } = await import('../src/player-state.ts');
   const { Snow } = await import('../src/snow.ts');
@@ -125,9 +127,10 @@ async function main() {
       player,
       scene: { children: [], add() {}, remove() {} },
       camera: { position: { x: 0, y: 0, z: 0 }, fov: 75, updateProjectionMatrix() {} },
-      renderer: { render() {}, setSize() {} },
+      renderer: overrides.renderer ?? { render() {}, setSize() {} },
+      renderQuality: overrides.renderQuality,
       cameraManager: { update() {}, handleResize() {} },
-      directionalLight: {
+      directionalLight: overrides.directionalLight ?? {
         position: { set() {}, copy() {} },
         target: { position: { set() {} }, updateMatrixWorld() {} },
         // NS2 (PR-V2): the loop writes shadow.normalBias each frame (elevation-aware
@@ -260,6 +263,47 @@ async function main() {
     h.state.gameActive = false;
     h.loop.animate(t0 + STEP_MS);
     check('no avalanche outcome resolves once the run is over', h.gameOverReasons.length === 0);
+  }
+
+  console.log('--- Adaptive quality transition presents a completed frame ---');
+
+  {
+    let pixelRatio = 2;
+    let frameHasImage = false;
+    let blankFrames = 0;
+    /** @type {string[]} */
+    const operations = [];
+    const renderer = /** @type {import('three').WebGLRenderer} */ (/** @type {unknown} */ ({
+      getPixelRatio: () => pixelRatio,
+      setPixelRatio(value) {
+        pixelRatio = value;
+        // Three.js setPixelRatio calls setSize, whose canvas width/height writes
+        // clear the drawing buffer immediately, including an already drawn frame.
+        frameHasImage = false;
+        operations.push('resize');
+      },
+      setSize() {},
+      render() { frameHasImage = true; operations.push('render'); },
+      shadowMap: { needsUpdate: false },
+      domElement: { dataset: {} },
+    }));
+    const sun = new DirectionalLight();
+    sun.shadow.mapSize.set(2048, 2048);
+    const renderQuality = createRenderQuality(renderer, sun, 'auto', 2);
+    const h = makeLoop({ renderer, directionalLight: sun, renderQuality });
+    h.loop.startLoop();
+    const t0 = performance.now();
+    // Real 30 FPS frame samples exhaust startup grace and cross two sustained
+    // overload windows, causing exactly one high -> balanced resource change.
+    for (let frame = 1; frame <= 225; frame++) {
+      h.loop.animate(t0 + frame * (1000 / 30));
+      if (!frameHasImage) blankFrames++;
+    }
+    const resizeIndex = operations.indexOf('resize');
+    check('the live loop triggers a real high-to-balanced quality transition',
+      pixelRatio === 1.5 && operations.filter(op => op === 'resize').length === 1);
+    check('the quality resize is followed by drawing in the same frame',
+      resizeIndex >= 0 && operations[resizeIndex + 1] === 'render' && blankFrames === 0);
   }
 
   CourseModule.addAirScore = realAddAirScore;

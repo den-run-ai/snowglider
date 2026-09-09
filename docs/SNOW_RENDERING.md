@@ -1,5 +1,28 @@
 # Snow Rendering & Lighting Guide
 
+## Adaptive render budgets
+
+Normal player runs start at the existing high quality (device pixel ratio capped at
+2 and a 2048² sun shadow map). Sustained slow frame delivery can step down to
+balanced (DPR cap 1.5, 1024² shadows), then low (DPR cap 1, 512² shadows).
+The policy waits through three seconds of startup/resume, evaluates two-second
+windows, lowers quality above 22 ms average frame time, and requires twelve seconds
+below 18 ms to recover one level. Invalid samples, loading and hidden spans do not
+count. Long frame samples are capped at 250 ms so one stall cannot force a change,
+while sustained overload still reduces quality. These thresholds are a policy, not a claim
+of measured phone FPS. Quality changes only framebuffer and shadow resources;
+physics, obstacle layout, particle simulation and scoring remain unchanged.
+
+Automated runs retain high quality for reproducible render budgets. `?quality=auto`
+explicitly exercises adaptation; `?quality=high`, `balanced` or `low` pins a level
+for repeatable measurements and image comparisons. Canvas `data-render-quality`
+records the current level. Resize updates the capped device ratio without resetting
+the chosen level. Old shadow targets are disposed before replacement.
+
+The sun uses `PCFShadowMap` directly. Three.js r184 automatically replaces the
+deprecated `PCFSoftShadowMap` with this mode, so the configuration now agrees with
+the renderer's effective mode. The legacy color pipeline below is unchanged.
+
 This is the design rationale for how SnowGlider lights and shades snow. It is the
 reference the snow/lighting PRs (issues #17, #18, and the #2 sky work) converged on,
 and the contract any later atmospheric layer — notably the #163 sun cycle — must
