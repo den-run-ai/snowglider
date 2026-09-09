@@ -1,0 +1,522 @@
+[
+  {
+    "filename": "before-phone-collapsed.png",
+    "commit": "5e5e36f63bc16ebc4625dd9e4113f72e3a778d1c",
+    "viewport": {
+      "name": "phone",
+      "width": 390,
+      "height": 700,
+      "touch": true
+    },
+    "cameraExpanded": false,
+    "url": "http://127.0.0.1:8084/index.html?eztrees=1&intro=off",
+    "ezBranchMeshes": 6,
+    "panels": [
+      {
+        "id": "controlsInfo",
+        "collapsed": true,
+        "bounds": {
+          "x": 10,
+          "y": 10,
+          "width": 174,
+          "height": 35
+        }
+      },
+      {
+        "id": "gameStatsContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 204,
+          "y": 55,
+          "width": 176,
+          "height": 139
+        }
+      },
+      {
+        "id": "authContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 214,
+          "y": 10,
+          "width": 166,
+          "height": 118
+        }
+      },
+      {
+        "id": "cameraControls",
+        "collapsed": true,
+        "bounds": {
+          "x": 20,
+          "y": 567,
+          "width": 186,
+          "height": 53
+        }
+      },
+      {
+        "id": "courseHud",
+        "collapsed": false,
+        "bounds": {
+          "x": 27.3046875,
+          "y": 14,
+          "width": 335.390625,
+          "height": 31
+        }
+      }
+    ]
+  },
+  {
+    "filename": "before-phone-expanded.png",
+    "commit": "5e5e36f63bc16ebc4625dd9e4113f72e3a778d1c",
+    "viewport": {
+      "name": "phone",
+      "width": 390,
+      "height": 700,
+      "touch": true
+    },
+    "cameraExpanded": true,
+    "url": "http://127.0.0.1:8084/index.html?eztrees=1&intro=off",
+    "ezBranchMeshes": 6,
+    "panels": [
+      {
+        "id": "controlsInfo",
+        "collapsed": true,
+        "bounds": {
+          "x": 10,
+          "y": 10,
+          "width": 174,
+          "height": 35
+        }
+      },
+      {
+        "id": "gameStatsContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 204,
+          "y": 55,
+          "width": 176,
+          "height": 139
+        }
+      },
+      {
+        "id": "authContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 214,
+          "y": 10,
+          "width": 166,
+          "height": 118
+        }
+      },
+      {
+        "id": "cameraControls",
+        "collapsed": false,
+        "bounds": {
+          "x": 20,
+          "y": 459,
+          "width": 354.296875,
+          "height": 161
+        }
+      },
+      {
+        "id": "courseHud",
+        "collapsed": false,
+        "bounds": {
+          "x": 27.3046875,
+          "y": 14,
+          "width": 335.390625,
+          "height": 31
+        }
+      }
+    ]
+  },
+  {
+    "filename": "before-desktop-collapsed.png",
+    "commit": "5e5e36f63bc16ebc4625dd9e4113f72e3a778d1c",
+    "viewport": {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "touch": false
+    },
+    "cameraExpanded": false,
+    "url": "http://127.0.0.1:8084/index.html?eztrees=1&intro=off",
+    "ezBranchMeshes": 6,
+    "panels": [
+      {
+        "id": "controlsInfo",
+        "collapsed": false,
+        "bounds": {
+          "x": 10,
+          "y": 10,
+          "width": 270,
+          "height": 576.65625
+        }
+      },
+      {
+        "id": "gameStatsContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 840.875,
+          "y": 70,
+          "width": 589.125,
+          "height": 79
+        }
+      },
+      {
+        "id": "authContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 1228,
+          "y": 10,
+          "width": 202,
+          "height": 63
+        }
+      },
+      {
+        "id": "cameraControls",
+        "collapsed": true,
+        "bounds": {
+          "x": 20,
+          "y": 767,
+          "width": 186,
+          "height": 53
+        }
+      },
+      {
+        "id": "courseHud",
+        "collapsed": false,
+        "bounds": {
+          "x": 510,
+          "y": 14,
+          "width": 420,
+          "height": 31
+        }
+      }
+    ]
+  },
+  {
+    "filename": "before-desktop-expanded.png",
+    "commit": "5e5e36f63bc16ebc4625dd9e4113f72e3a778d1c",
+    "viewport": {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "touch": false
+    },
+    "cameraExpanded": true,
+    "url": "http://127.0.0.1:8084/index.html?eztrees=1&intro=off",
+    "ezBranchMeshes": 6,
+    "panels": [
+      {
+        "id": "controlsInfo",
+        "collapsed": false,
+        "bounds": {
+          "x": 10,
+          "y": 10,
+          "width": 270,
+          "height": 576.65625
+        }
+      },
+      {
+        "id": "gameStatsContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 840.875,
+          "y": 70,
+          "width": 589.125,
+          "height": 79
+        }
+      },
+      {
+        "id": "authContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 1228,
+          "y": 10,
+          "width": 202,
+          "height": 63
+        }
+      },
+      {
+        "id": "cameraControls",
+        "collapsed": false,
+        "bounds": {
+          "x": 20,
+          "y": 659,
+          "width": 354.296875,
+          "height": 161
+        }
+      },
+      {
+        "id": "courseHud",
+        "collapsed": false,
+        "bounds": {
+          "x": 510,
+          "y": 14,
+          "width": 420,
+          "height": 31
+        }
+      }
+    ]
+  },
+  {
+    "filename": "after-phone-collapsed.png",
+    "commit": "6d95028c172e817d3067bda0017d56d8fb1a1039",
+    "viewport": {
+      "name": "phone",
+      "width": 390,
+      "height": 700,
+      "touch": true
+    },
+    "cameraExpanded": false,
+    "url": "http://127.0.0.1:8085/index.html?eztrees=1&intro=off",
+    "ezBranchMeshes": 6,
+    "panels": [
+      {
+        "id": "controlsInfo",
+        "collapsed": true,
+        "bounds": {
+          "x": 10,
+          "y": 49,
+          "width": 131.0625,
+          "height": 46
+        }
+      },
+      {
+        "id": "gameStatsContainer",
+        "collapsed": true,
+        "bounds": {
+          "x": 270.59375,
+          "y": 68,
+          "width": 109.40625,
+          "height": 46
+        }
+      },
+      {
+        "id": "authContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 234,
+          "y": 10,
+          "width": 146,
+          "height": 50
+        }
+      },
+      {
+        "id": "cameraControls",
+        "collapsed": true,
+        "bounds": {
+          "x": 10,
+          "y": 586,
+          "width": 156.0625,
+          "height": 46
+        }
+      },
+      {
+        "id": "courseHud",
+        "collapsed": false,
+        "bounds": {
+          "x": 10,
+          "y": 10,
+          "width": 181,
+          "height": 31
+        }
+      }
+    ]
+  },
+  {
+    "filename": "after-phone-expanded.png",
+    "commit": "6d95028c172e817d3067bda0017d56d8fb1a1039",
+    "viewport": {
+      "name": "phone",
+      "width": 390,
+      "height": 700,
+      "touch": true
+    },
+    "cameraExpanded": true,
+    "url": "http://127.0.0.1:8085/index.html?eztrees=1&intro=off",
+    "ezBranchMeshes": 6,
+    "panels": [
+      {
+        "id": "controlsInfo",
+        "collapsed": true,
+        "bounds": {
+          "x": 10,
+          "y": 49,
+          "width": 131.0625,
+          "height": 46
+        }
+      },
+      {
+        "id": "gameStatsContainer",
+        "collapsed": true,
+        "bounds": {
+          "x": 270.59375,
+          "y": 68,
+          "width": 109.40625,
+          "height": 46
+        }
+      },
+      {
+        "id": "authContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 234,
+          "y": 10,
+          "width": 146,
+          "height": 50
+        }
+      },
+      {
+        "id": "cameraControls",
+        "collapsed": false,
+        "bounds": {
+          "x": 10,
+          "y": 363,
+          "width": 370,
+          "height": 269
+        }
+      },
+      {
+        "id": "courseHud",
+        "collapsed": false,
+        "bounds": {
+          "x": 10,
+          "y": 10,
+          "width": 181,
+          "height": 31
+        }
+      }
+    ]
+  },
+  {
+    "filename": "after-desktop-collapsed.png",
+    "commit": "6d95028c172e817d3067bda0017d56d8fb1a1039",
+    "viewport": {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "touch": false
+    },
+    "cameraExpanded": false,
+    "url": "http://127.0.0.1:8085/index.html?eztrees=1&intro=off",
+    "ezBranchMeshes": 6,
+    "panels": [
+      {
+        "id": "controlsInfo",
+        "collapsed": false,
+        "bounds": {
+          "x": 10,
+          "y": 10,
+          "width": 280,
+          "height": 459.84375
+        }
+      },
+      {
+        "id": "gameStatsContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 1150,
+          "y": 83,
+          "width": 280,
+          "height": 187.734375
+        }
+      },
+      {
+        "id": "authContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 1230,
+          "y": 10,
+          "width": 200,
+          "height": 65
+        }
+      },
+      {
+        "id": "cameraControls",
+        "collapsed": true,
+        "bounds": {
+          "x": 10,
+          "y": 786,
+          "width": 173.015625,
+          "height": 46
+        }
+      },
+      {
+        "id": "courseHud",
+        "collapsed": false,
+        "bounds": {
+          "x": 510,
+          "y": 10,
+          "width": 420,
+          "height": 31
+        }
+      }
+    ]
+  },
+  {
+    "filename": "after-desktop-expanded.png",
+    "commit": "6d95028c172e817d3067bda0017d56d8fb1a1039",
+    "viewport": {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "touch": false
+    },
+    "cameraExpanded": true,
+    "url": "http://127.0.0.1:8085/index.html?eztrees=1&intro=off",
+    "ezBranchMeshes": 6,
+    "panels": [
+      {
+        "id": "controlsInfo",
+        "collapsed": false,
+        "bounds": {
+          "x": 10,
+          "y": 10,
+          "width": 280,
+          "height": 459.84375
+        }
+      },
+      {
+        "id": "gameStatsContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 1150,
+          "y": 83,
+          "width": 280,
+          "height": 187.734375
+        }
+      },
+      {
+        "id": "authContainer",
+        "collapsed": false,
+        "bounds": {
+          "x": 1230,
+          "y": 10,
+          "width": 200,
+          "height": 65
+        }
+      },
+      {
+        "id": "cameraControls",
+        "collapsed": false,
+        "bounds": {
+          "x": 10,
+          "y": 563,
+          "width": 380,
+          "height": 269
+        }
+      },
+      {
+        "id": "courseHud",
+        "collapsed": false,
+        "bounds": {
+          "x": 510,
+          "y": 10,
+          "width": 420,
+          "height": 31
+        }
+      }
+    ]
+  }
+]
