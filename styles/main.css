@@ -740,7 +740,13 @@ body.start-screen-active #authContainer {
 }
 #gameCanvas {
   display: none; /* Initially hidden until game starts */
+  /* A stale landscape canvas must not widen the mobile layout viewport before
+     the resize handler measures it; otherwise that width feeds back into Three. */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
 }
+#gameCanvas > canvas { max-width: 100%; max-height: 100%; }
 
 @media (max-height: 650px) {
   /* Adjustments for smaller height screens */
