@@ -13,6 +13,7 @@
 // native type-stripping both run it exactly as before.
 import * as THREE from 'three';
 import { gameplayRandom, cosmeticRandom } from './run-context.js';
+import { snowBillboardsFor, type SnowBillboards } from './snow-billboards.js';
 
 // Number of billowing powder-cloud sprites kicked up by the slide (see the
 // `powder` field below). Sized like the ski snow-splash pool in snow.ts.
@@ -88,8 +89,8 @@ export class AvalancheSystem {
   // --- Powder cloud (issue #49 / ROADMAP Finding 3) -------------------------
   // A diffuse plume of billowing snow sprites kicked up by the tumbling boulders,
   // so an approaching slide reads as a rolling cloud of powder and not just a
-  // cluster of spheres. Sprite-based (like the ski snow-splash in snow.ts) rather
-  // than instanced because each puff fades, expands and rotates independently.
+  // cluster of spheres. Sprite-shaped simulation state feeds the same sorted
+  // instanced billboard draw as the snowfall, ski spray and tree-shed powder.
   // Built only when a DOM is present — the headless Node avalanche tests construct
   // the system without a `document`, so the pool stays empty and the powder
   // emit/update calls below are no-ops there.
@@ -97,6 +98,7 @@ export class AvalancheSystem {
   powderNext: number;            // round-robin cursor into the powder pool
   powderEmitAccum: number;       // frame-rate-independent puff-emission accumulator (#400)
   powderTexture: THREE.Texture | null;  // shared puff texture (disposed once)
+  private powderBatch: SnowBillboards | null = null;
 
   constructor(scene: THREE.Scene, count: number = 120, params: AvalancheParams = {}) {
     this.scene = scene;
@@ -203,11 +205,12 @@ export class AvalancheSystem {
         rotSpeed: (cosmeticRandom('avalanchePowder') - 0.5) * 1.2
       };
       sprite.userData = puff;
-      this.scene.add(sprite);
       this.powder.push(sprite);
     }
 
     base.dispose(); // only the per-particle clones are kept
+    this.powderBatch = snowBillboardsFor(this.scene);
+    this.powderBatch.add(this.powder, () => 3);
   }
 
   // Connect to terrain system
@@ -522,7 +525,12 @@ export class AvalancheSystem {
   }
 
   dispose(): void {
+    this.powderBatch?.remove(this.powder);
+    this.powderBatch = null;
     this.scene.remove(this.mesh);
+    // Per-instance GPU attributes belong to the mesh, not its geometry. This
+    // owner detaches before the scene sweep, so it must release them itself.
+    this.mesh.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
 

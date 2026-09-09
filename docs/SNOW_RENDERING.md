@@ -85,6 +85,33 @@ The design-intent palette these values serve (near-white `#EDF0F6` base albedo, 
 target the snow material and tints aim at; the code in `mountains.ts` /
 `scene-setup.ts` is the authoritative value.
 
+## Snowfall and ski spray batching
+
+`src/snow-billboards.ts` renders the 1000 falling flakes, 250-slot ski-spray pool,
+260 avalanche puffs and 18 tree-shed puffs as one instanced billboard mesh. The
+simulation modules retain detached particle handles
+for simulation and inspection; they are not scene objects and issue no individual
+draws. Wind, terrain recycling, emission cadence, lifetimes, opacity and rotation
+keep their existing simulation code and cosmetic RNG streams.
+
+The batch uses the installed Three.js Sprite shader's billboard and fog equations,
+with per-particle attributes replacing object uniforms. The original five textures
+remain separate samplers, preserving their filtering and alpha; normal blending and
+`depthWrite: false` remain unchanged. Each render culls particles individually, sorts
+all five texture families back to front, and uploads only the active attribute
+range. An empty batch has zero instances. Packing runs in `Scene.onBeforeRender`,
+before Three uploads geometry buffers, including intro and share-image renders.
+
+Batching preserves the ordering between flakes, spray, avalanche and tree-shed
+powder. The batch's sorting center follows the median visible particle so other
+transparent scenery is not sorted against a stale world-origin anchor. As with the
+existing instanced cloud meshes, blending between the particle batch and large
+transparent scenery remains an object-level approximation; include scenery overlap
+in player-path visual review.
+The headless `snow-billboards-tests.js` suite checks camera-dependent ordering,
+Sprite corner parity, culling, RNG isolation, and owned-resource teardown. Renderer
+budgets and screenshots verify the actual GPU path on desktop and phone viewports.
+
 ## Contact shadows follow the player (#18)
 
 A grounding shadow is the strongest "this object is on the snow" cue on an all-white
