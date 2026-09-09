@@ -3,11 +3,59 @@
 // Browser-call count is the regression contract: CI traces spent 133–155 seconds
 // between calls while only 1.6–1.9 seconds ran inside the controlled frame steps.
 const assert = require('node:assert/strict');
+const vm = require('node:vm');
 
 async function main() {
-  const { RENDER_PHASES, enterRenderPhase, measureRenderPhase, assertRenderPhase } =
+  const { RENDER_PHASES, prepareRenderScenario, enterRenderPhase, measureRenderPhase, assertRenderPhase } =
     await import('./e2e/render-scenarios.ts');
+  const { Sfx } = await import('../src/sfx.ts');
   const savedWindow = globalThis.window;
+  const savedRandom = Math.random;
+  const preferences = new Map();
+  let audioConstructions = 0, audioRandomDraws = 0, booted = false;
+  const browser = /** @type {any} */ ({
+    AudioContext: function() { audioConstructions++; },
+    webkitAudioContext: function() { audioConstructions++; },
+    navigator: { webdriver: true },
+    localStorage: { setItem: (key, value) => preferences.set(key, value) },
+    Math: Object.create(Math)
+  });
+  browser.window = browser;
+  const realm = vm.createContext(browser);
+  const initScripts = [];
+  const stopAfterBoot = new Error('pre-boot probe completed');
+  const bootPage = /** @type {import('@playwright/test').Page} */ (/** @type {unknown} */ ({
+    on() {},
+    async addInitScript(callback) { initScripts.push(callback); },
+    async emulateMedia() {},
+    async goto(url) {
+      // Execute the real init callback at the browser's pre-navigation boundary.
+      // The test stops after the app-boot probe; graphics setup is tested below.
+      for (const callback of initScripts) vm.runInContext(`(${callback.toString()})()`, realm);
+      assert.equal(browser.AudioContext, undefined, 'AudioContext must be absent before app boot');
+      assert.equal(browser.webkitAudioContext, undefined, 'prefixed AudioContext must be absent before app boot');
+      assert.equal(browser.navigator.webdriver, false, 'keep the actual player renderer path');
+      assert.equal(new URL(url, 'https://example.test').searchParams.get('eztrees'), '1');
+      assert.equal(preferences.get('snowgliderMuted'), 'true');
+      globalThis.window = browser;
+      Math.random = () => { audioRandomDraws++; return .5; };
+      Sfx.setMuted(true);
+      Sfx.unlock(); // the production Start-handler call must now be inert
+      assert.equal(Sfx.getStatus().active, false);
+      assert.equal(audioConstructions, 0);
+      assert.equal(audioRandomDraws, 0, 'audio cannot consume the crash-debris RNG stream');
+      booted = true;
+      throw stopAfterBoot;
+    }
+  }));
+  try {
+    await assert.rejects(prepareRenderScenario(bootPage), error => error === stopAfterBoot);
+    assert.equal(booted, true);
+  } finally {
+    Sfx.teardown();
+    Math.random = savedRandom;
+    globalThis.window = savedWindow;
+  }
   const controls = { up: false, down: false, left: false, right: false, jump: false };
   const info = { render: { calls: 0, triangles: 0 }, memory: { geometries: 7, textures: 5 }, programs: [1, 2, 3] };
   const identity = { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] };
@@ -87,7 +135,7 @@ async function main() {
   } finally {
     globalThis.window = savedWindow;
   }
-  console.log('Render scenario batching: 100 frames, 10 browser calls, exact sample quantiles, phase ordering and nonempty particles verified.');
+  console.log('Render scenarios: pre-boot audio isolation, 100 frames, 10 browser calls, exact quantiles, phase ordering and nonempty particles verified.');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

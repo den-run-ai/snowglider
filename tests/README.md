@@ -220,6 +220,9 @@ The renderer has two complementary tiers:
   avalanche powder, and crash debris. Prescribed positions cover the course; this
   is not a continuous autonomous winning run. A controlled 60 Hz RAF clock makes
   state reproducible while real physics, shaders, camera and effects execute.
+  Both Web Audio constructors are disabled before app boot: muted SFX would still
+  fill a random noise buffer and shift later crash debris. The pre-boot regression
+  calls the real SFX unlock method and verifies zero audio allocations/RNG draws.
   Each phase batches its eight settling frames and twelve measured frames inside
   the page: all 100 frame callbacks and GPU finishes still run, with two browser
   evaluations per phase instead of a round trip per frame. This avoids the CI

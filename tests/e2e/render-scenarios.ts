@@ -52,8 +52,8 @@ export type PhaseMetrics = {
   };
 };
 
-/** The game constructs the full player scene. Only the intro is skipped; sound is
- * muted and a practice seed avoids leaderboard writes. RAF then advances at exact
+/** The game constructs the full player scene. The intro is skipped and Web Audio
+ * is disabled; a practice seed avoids leaderboard writes. RAF then advances at exact
  * 1/60 steps independent of the CI machine. Native timers still boot the app.
  * These are prescribed phase replays, not a claim that an autonomous skier won. */
 export async function prepareRenderScenario(page: Page): Promise<string[]> {
@@ -63,6 +63,12 @@ export async function prepareRenderScenario(page: Page): Promise<string[]> {
     if (resultContract.isRendererFailure(message.text())) errors.push(message.text());
   });
   await page.addInitScript(() => {
+    // Muting only changes gain: Sfx.unlock still builds a noise buffer using the
+    // global RNG also consumed by crash debris. Disable both constructors before
+    // boot so audio-only changes cannot alter rendering comparison fixtures.
+    for (const name of ['AudioContext', 'webkitAudioContext']) {
+      Object.defineProperty(window, name, { configurable: true, value: undefined });
+    }
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
     localStorage.setItem('snowgliderMuted', 'true');
     let seed = 0x9e3779b9;
