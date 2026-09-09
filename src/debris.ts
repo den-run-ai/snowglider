@@ -24,6 +24,7 @@
 // directly.
 import * as THREE from 'three';
 import { getSnowmanSnowMaterial } from './snowman/snow-material.js';
+import { getSnowmanUserData } from './snowman/user-data.js';
 
 type TerrainFn = (x: number, z: number) => number;
 interface PlanarVelocityLike { x: number; z: number; }
@@ -119,7 +120,7 @@ export class SnowmanDebris {
     // into a few sub-chunks so it reads as "the balls breaking". The head cluster /
     // arms are Groups; getWorldPosition + a bounding-box radius handle them uniformly,
     // so we never read .geometry/.material off a Group. ---
-    const roots: THREE.Object3D[] = (snowman.userData && snowman.userData.shatterRoots) || [];
+    const roots = getSnowmanUserData(snowman).shatterRoots ?? [];
     const worldPos = new THREE.Vector3();
     for (const root of roots) {
       root.getWorldPosition(worldPos);

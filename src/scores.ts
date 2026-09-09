@@ -37,7 +37,7 @@ import {
   getDocs,
   serverTimestamp,
   type Firestore,
-  type DocumentReference
+  DocumentReference
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
@@ -83,6 +83,11 @@ function isValidScoreTime(time: unknown): time is number {
     time <= MAX_VALID_SCORE_TIME;
 }
 
+/** SDK promises can reject with arbitrary values, including null. */
+function readErrorCode(error: unknown): string | null {
+  return error !== null && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code : null;
+}
 
 function readLocalBestTime(tier: Difficulty = DEFAULT_DIFFICULTY) {
   const key = localBestTimeKey(tier);
@@ -185,7 +190,7 @@ function drainPendingSyncQueue() {
     // their uid) — a foreign user's leftover marker must not churn a reinit for someone
     // who has nothing to sync (Codex #362).
     if (!firestore && activeUser && hasPendingSync(activeUser.uid)) {
-      const authModule = window.AuthModule as { reinitializeFirestore?: () => unknown } | null | undefined;
+      const authModule = window.AuthModule;
       if (authModule && typeof authModule.reinitializeFirestore === 'function') {
         console.log('Reconnected with a pending offline best; reinitializing Firestore to sync it.');
         authModule.reinitializeFirestore();
@@ -228,13 +233,8 @@ function getActiveUser(): User | null {
     return currentUser;
   }
 
-  // window.AuthModule is the untyped (any) boot bridge; narrow it to the two accessors
-  // used here so callers get a typed User back instead of any — otherwise type-checking
-  // is silently disabled on every .uid/.displayName access at this function's call sites.
-  const authModule = window.AuthModule as {
-    getAuthState?: () => { user?: User | null } | null;
-    getCurrentUser?: () => User | null;
-  } | null | undefined;
+  // The boot bridge keeps the SDK's User type even when the local fallback omits members.
+  const authModule = window.AuthModule;
   if (!authModule) {
     return null;
   }
@@ -346,7 +346,7 @@ function updateUserBestTime(userId: string, time: number, tier: Difficulty = DEF
           // "confirmed" signal so the flush keeps its retry marker.
           updateLeaderboard(userId, authoritativeBest, tier)
         )
-        .catch(error => {
+        .catch((error: unknown) => {
           console.warn("Best time write did not complete:", error);
           // Still reconcile the board (original behavior), but a failed user write means
           // this sync is not confirmed — resolve false so the flush keeps its marker.
@@ -448,7 +448,7 @@ function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFA
           // failed outright. Retry once in the old-rules shape (no displayName) so
           // the SCORE is never lost to the skew; the name backfills on a later
           // finish once the new rules are live (a same-time rewrite is allowed).
-          if ((error as { code?: string })?.code === 'permission-denied') {
+          if (readErrorCode(error) === 'permission-denied') {
             console.warn("Leaderboard write with displayName rejected; retrying without it (rules skew?).");
             return setDoc(leaderboardDocRef, {
               user: userDocRef,
@@ -490,18 +490,25 @@ interface LeaderboardDoc {
   displayName: string | null;
 }
 
+/** SDK identity plus profile ownership; document contents remain untyped until decoded. */
+function isUserReference(value: unknown, userId: string): value is DocumentReference {
+  return value instanceof DocumentReference && value.path === `users/${userId}`;
+}
+
 /**
  * Decode+validate a raw Firestore leaderboard document at the trust boundary, so the
  * untyped `DocumentData` never flows into the app as `any`. Returns null for anything
  * that isn't a valid, complete entry (invalid/absent time, missing user ref).
  */
-function readLeaderboardDoc(data: unknown): LeaderboardDoc | null {
+function readLeaderboardDoc(data: unknown, userId: string): LeaderboardDoc | null {
   if (!data || typeof data !== 'object') return null;
   const d = data as Record<string, unknown>;
   if (!isValidScoreTime(d.time)) return null; // narrows d.time to number
-  if (!d.user) return null;
+  // A truthy object/string is not an SDK reference. Also reject references to a
+  // different user's profile (or another collection) instead of trusting a cast.
+  if (!isUserReference(d.user, userId)) return null;
   return {
-    user: d.user as DocumentReference,
+    user: d.user,
     time: d.time,
     displayName: typeof d.displayName === 'string' ? d.displayName : null,
   };
@@ -541,7 +548,7 @@ function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<Leaderbo
         snapshot.forEach(docSnap => {
           // Decode the raw DocumentData through the trust boundary — invalid/incomplete
           // entries (bad time, missing user ref) are dropped rather than flowing as `any`.
-          const decoded = readLeaderboardDoc(docSnap.data());
+          const decoded = readLeaderboardDoc(docSnap.data(), docSnap.id);
           if (decoded) {
             scores.push({
               userId: docSnap.id, // The user ID is the document ID
@@ -558,13 +565,14 @@ function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<Leaderbo
         console.log("Leaderboard data fetched:", scores.length, "entries");
         return scores;
       })
-      .catch((error: { code?: string }) => {
+      .catch((error: unknown) => {
         console.error("Error fetching leaderboard:", error);
+        const code = readErrorCode(error);
         // Only set Firestore to null for serious connectivity issues, not permissions
-        if (error.code === 'unavailable' || error.code === 'failed-precondition') {
+        if (code === 'unavailable' || code === 'failed-precondition') {
           console.warn("Firestore became unavailable fetching leaderboard. Clearing local instance.");
           firestore = null; // Set local instance to null
-        } else if (error.code === 'permission-denied') {
+        } else if (code === 'permission-denied') {
           console.warn("Permission issues with Firestore leaderboard access. Continuing with limited functionality.");
           // Don't disable Firestore entirely for permission issues
         }

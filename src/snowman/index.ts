@@ -16,6 +16,7 @@
 // native type-stripping run it exactly as before; the physics-invariant harness
 // confirms coasting stays bit-identical to the frozen baseline.
 import * as THREE from 'three';
+import { getSnowmanUserData } from './user-data.js';
 import type { SnowmanPhysicsTuning } from '../difficulty.js';
 import { detectCollisionsAndFinish, type ObstacleClear } from './collision.js';
 import { createSnowman } from './model.js';
@@ -227,14 +228,14 @@ function updateSnowman(snowman: THREE.Object3D, delta: number, pos: PlayerPos, v
     // The callback runs synchronously inside detectCollisionsAndFinish, so stamping
     // `result.obstacleCleared` here is visible to this frame's caller (toast cue).
     onObstaclesCleared: (clears: ObstacleClear[]) => {
-      const ud = snowman.userData;
+      const ud = getSnowmanUserData(snowman);
       if (!ud || !ud.playerJump) return;
       if (!ud.clearedObstacles) ud.clearedObstacles = {};
-      const seen = ud.clearedObstacles as Record<string, boolean>;
+      const seen = ud.clearedObstacles;
       for (const clear of clears) {
         if (seen[clear.key]) continue;
         seen[clear.key] = true;
-        const count = ((ud.clearsThisAir as number) || 0) + 1;
+        const count = (ud.clearsThisAir || 0) + 1;
         ud.clearsThisAir = count;
         if (count > CLEAR_MAX_PER_AIR) continue;
         result.obstacleCleared = clear.type;

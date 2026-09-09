@@ -35,9 +35,7 @@ interface PlanarVelocity {
   z: number;
 }
 
-/** Per-flake animation state kept on `sprite.userData` (typed view — `userData` is
- *  `any` in three's types, and the wobble math below would otherwise pass `any` into
- *  `Math.sin`/arithmetic). */
+/** App-owned state shared by checked construction and every particle update. */
 interface FlakeState {
   speed: number;
   wobble: number;
@@ -48,9 +46,27 @@ interface FlakeState {
   windFactor?: number;
 }
 
+interface FlakeSprite extends THREE.Sprite {
+  userData: FlakeState;
+}
+interface SplashState {
+  active: boolean;
+  lifetime: number;
+  maxLifetime: number;
+  xSpeed: number;
+  ySpeed: number;
+  zSpeed: number;
+  size: number;
+  rotationSpeed: number;
+  type: number;
+}
+interface SplashSprite extends THREE.Sprite {
+  userData: SplashState;
+}
+
 /** Pooled snow-splash particle system returned by {@link createSnowSplash}. */
 interface SnowSplash {
-  particles: THREE.Sprite[];
+  particles: SplashSprite[];
   particleCount: number;
   nextParticle: number;
 }
@@ -59,7 +75,7 @@ interface SnowSplash {
 // This file now delegates terrain/mountain calls to mountains.js
 
 // --- Snow Particle System ---
-const snowflakes: THREE.Sprite[] = [];
+const snowflakes: FlakeSprite[] = [];
 const snowflakeCount = 1000;
 const snowflakeSpread = 100; // Spread area around player
 const snowflakeHeight = 50; // Height above player
@@ -156,10 +172,10 @@ function createSnowflakes(scene: THREE.Scene) {
       wobblePos: cosmeticRandom('snowParticles') * Math.PI * 2,
       windFactor: 0.12 + 0.28 * (1 - sizeNorm)
     };
-    snowflake.userData = flake;
+    const typedSnowflake: FlakeSprite = Object.assign(snowflake, { userData: flake });
 
     scene.add(snowflake);
-    snowflakes.push(snowflake);
+    snowflakes.push(typedSnowflake);
   }
 }
 
@@ -197,7 +213,7 @@ function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scen
   // by it scaled by its own wind factor, so the whole snowfall leans the same way (#253).
   const wind = windDrift();
   snowflakes.forEach(snowflake => {
-    const flake = snowflake.userData as FlakeState;
+    const flake = snowflake.userData;
     // Apply falling movement
     snowflake.position.y -= flake.speed * delta;
 
@@ -282,7 +298,7 @@ function createSnowSplash(): SnowSplash {
   const texture2 = createSplashClumpTexture();
 
   // Follow the same approach as snowflakes - use individual sprites
-  const splashParticles: THREE.Sprite[] = [];
+  const splashParticles: SplashSprite[] = [];
   const particleCount = 250; // Increased for more dramatic effect
 
   // Base materials the pool clones from. NormalBlending like the flakes and the
@@ -318,7 +334,7 @@ function createSnowSplash(): SnowSplash {
     particle.scale.set(0, 0, 0);
     
     // Store particle-specific data
-    particle.userData = {
+    const state: SplashState = {
       active: false,
       lifetime: 0,
       maxLifetime: 0,
@@ -331,7 +347,8 @@ function createSnowSplash(): SnowSplash {
     };
     
     // Add to tracking array
-    splashParticles.push(particle);
+    const typedParticle: SplashSprite = Object.assign(particle, { userData: state });
+    splashParticles.push(typedParticle);
   }
   
   return {

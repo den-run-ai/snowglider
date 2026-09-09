@@ -107,8 +107,8 @@ const EZ_BUDGET = {
  *  layout varies the mesh/triangle count run to run, so ceilings calibrated from
  *  one measured scene could red-bar an unrelated PR on a denser draw. addInitScript
  *  runs in the page realm before the bundle's first Math.random call. */
-function seedDeterministicLayout(page: import('@playwright/test').Page): Promise<void> {
-  return page.addInitScript(() => {
+async function seedDeterministicLayout(page: import('@playwright/test').Page): Promise<void> {
+  await page.addInitScript(() => {
     // mulberry32 — small, fast, well-distributed seeded PRNG.
     let s = 0x9e3779b9 >>> 0;
     Math.random = () => {

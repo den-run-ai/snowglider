@@ -158,8 +158,8 @@ export const AudioModule = (function() {
       const el = createAudio();
       el.play().then(() => {
         console.log('[Audio] Playing');
-      }).catch((e) => {
-        console.warn('[Audio] Play failed:', e.message);
+      }).catch((e: unknown) => {
+        console.warn('[Audio] Play failed:', e instanceof Error ? e.message : e);
       });
       return true;
     },

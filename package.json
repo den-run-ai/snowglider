@@ -93,7 +93,7 @@
     "test:coverage": "c8 --all --src src --reporter=lcov --reporter=text npm run test",
     "coverage:merge": "node tests/coverage/merge-lcov.js --out coverage/lcov.info coverage/lcov.info coverage/browser/lcov.info coverage/e2e/lcov.info",
     "test:coverage:all": "npm run test:coverage && npm run test:browser:coverage && npm run coverage:merge",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit",
     "dev": "vite --host 0.0.0.0",
@@ -101,11 +101,15 @@
     "preview": "vite preview --host 0.0.0.0",
     "start": "vite --host 0.0.0.0 --port 8080",
     "analytics": "node scripts/analytics-report.mjs",
-    "audit:missed-main": "node scripts/audit-missed-main.mjs"
+    "audit:missed-main": "node scripts/audit-missed-main.mjs",
+    "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit",
+    "typecheck:coverage": "node scripts/check-typecheck-coverage.mjs",
+    "typecheck:all": "npm run typecheck && npm run typecheck:tests && npm run typecheck:worker && npm run typecheck:e2e && npm run typecheck:coverage",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit"
   },
   "dependencies": {
-    "@dgreenheck/ez-tree": "^1.1.0",
-    "firebase": "^11.5.0",
+    "@dgreenheck/ez-tree": "1.1.0",
+    "firebase": "11.5.0",
     "three": "0.184.0"
   },
   "devDependencies": {

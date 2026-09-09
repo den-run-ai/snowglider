@@ -28,6 +28,7 @@
 //     observes because the flag is off headless. Tree shape itself uses ez-tree's
 //     own seeded RNG, so archetypes are deterministic per seed.
 import * as THREE from 'three';
+import type { Tree as PublishedEzTree } from '@dgreenheck/ez-tree';
 import { isTestModeSearch } from '../test-mode.js';
 
 /** One generated evergreen archetype, ready for InstancedMesh rendering. */
@@ -157,36 +158,81 @@ function farRecipe(r: EzRecipe): EzRecipe {
 const SNOW_ANCHORS_PER_ARCHETYPE = 12;
 
 // --- @dgreenheck/ez-tree adapter types (issue #367) --------------------------------
-// The published package ships no usable types for our purposes, so instead of
-// scattering `any` casts across generateArchetype we describe the small slice of its
-// surface this module actually drives. The dynamic import stays `unknown` and is
-// validated by a runtime guard (asEzTreeModule) at the boundary.
+// The package ships types, but its methods include `any` parameters and its mesh
+// materials are broad unions. Derive the options from those declarations, then
+// validate/narrow the small API actually used here at the lazy import boundary.
+type PublishedOptions = PublishedEzTree['options'];
+type PublishedBranch = PublishedOptions['branch'];
 
 /** The one ez-tree instance API this module uses (a narrow view — the real options
  *  object has many more fields we neither read nor write). */
 interface EzTreeInstance {
   loadPreset(name: string): void;
   generate(): void;
-  options: {
-    seed: number;
-    branch: {
-      levels: number;
-      children: number[];
-      segments: number[];
-      sections: number[];
+  options: Pick<PublishedOptions, 'seed'> & {
+    branch: Pick<PublishedBranch, 'levels'> & {
+      children: Pick<PublishedBranch['children'], 0 | 1>;
+      segments: Pick<PublishedBranch['segments'], 0 | 1>;
+      sections: Pick<PublishedBranch['sections'], 0 | 1>;
     };
-    leaves: {
-      count: number;
-      size: number;
-    };
+    leaves: Pick<PublishedOptions['leaves'], 'count' | 'size'>;
   };
   branchesMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
-  leavesMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshPhongMaterial>;
+  leavesMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
 }
 
 /** The module shape we expect from the lazy `@dgreenheck/ez-tree` import. */
 interface EzTreeModule {
-  Tree: new () => EzTreeInstance;
+  Tree: new () => unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function hasBranchLevels(value: unknown): value is { 0: number; 1: number } {
+  return isRecord(value) && Number.isFinite(value[0]) && Number.isFinite(value[1]);
+}
+
+function isSingleMaterialMesh(value: unknown): value is THREE.Mesh<THREE.BufferGeometry, THREE.Material> {
+  return value instanceof THREE.Mesh && value.geometry instanceof THREE.BufferGeometry &&
+    value.material instanceof THREE.Material;
+}
+
+/** Validate the exact methods, mutable options, and resource types we consume.
+ * Numeric branch keys are objects in ez-tree, not arrays with push/map methods. */
+function asEzTreeInstance(value: unknown): EzTreeInstance {
+  const hasInstance = (tree: unknown): tree is EzTreeInstance => {
+    if (!isRecord(tree) || typeof tree.loadPreset !== 'function' || typeof tree.generate !== 'function') return false;
+    const options = tree.options;
+    if (!isRecord(options) || !Number.isFinite(options.seed)) return false;
+    const branch = options.branch;
+    const leaves = options.leaves;
+    return isRecord(branch) && Number.isFinite(branch.levels) &&
+      hasBranchLevels(branch.children) && hasBranchLevels(branch.segments) && hasBranchLevels(branch.sections) &&
+      isRecord(leaves) && Number.isFinite(leaves.count) && Number.isFinite(leaves.size) &&
+      isSingleMaterialMesh(tree.branchesMesh) && isSingleMaterialMesh(tree.leavesMesh);
+  };
+  if (!hasInstance(value)) throw new Error('EzForest: incompatible ez-tree instance/options/meshes');
+  return value;
+}
+
+/** A rejected adapter instance may already own GPU resources; release only
+ * recognized THREE resources, leaving the package's shared texture cache alone. */
+function disposeRejectedEzTree(value: unknown): void {
+  if (!isRecord(value)) return;
+  const disposers = new Map<object, () => void>();
+  for (const key of ['branchesMesh', 'leavesMesh']) {
+    const mesh = value[key];
+    if (!isRecord(mesh)) continue;
+    const geometry = mesh.geometry;
+    if (geometry instanceof THREE.BufferGeometry) disposers.set(geometry, () => geometry.dispose());
+    const candidates: unknown[] = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of candidates) {
+      if (material instanceof THREE.Material) disposers.set(material, () => material.dispose());
+    }
+  }
+  for (const dispose of disposers.values()) dispose();
 }
 
 /** Runtime guard at the import trust boundary: accept the module (or its `default`
@@ -284,43 +330,57 @@ function computeSnowAnchors(leaves: THREE.BufferGeometry): Array<{ x: number; y:
 }
 
 function generateArchetype(EZ: EzTreeModule, recipe: EzRecipe, species: number, detail: EzDetail): EzArchetype {
-  const tree = new EZ.Tree();
-  tree.loadPreset(recipe.preset);
-  tree.options.seed = recipe.seed;
-  // Low-poly tuning: single branching level, coarser tubes, fewer/larger needle
-  // cards. Far builds coarsen the tubes one more notch — at off-piste distance the
-  // silhouette is all that survives.
-  tree.options.branch.levels = 1;
-  tree.options.branch.children[0] = recipe.children0;
-  tree.options.branch.children[1] = 0;
-  tree.options.branch.segments[0] = detail === 'far' ? 4 : 6;
-  tree.options.branch.segments[1] = 3;
-  tree.options.branch.sections[0] = detail === 'far' ? 5 : 8;
-  tree.options.branch.sections[1] = 3;
-  tree.options.leaves.count = recipe.leavesCount;
-  tree.options.leaves.size = tree.options.leaves.size * recipe.leavesSizeMul;
-  tree.generate();
+  const rawTree = new EZ.Tree();
+  try {
+    const tree = asEzTreeInstance(rawTree);
+    tree.loadPreset(recipe.preset);
+    // loadPreset mutates options and generates meshes; validate that boundary too.
+    asEzTreeInstance(tree);
+    tree.options.seed = recipe.seed;
+    // Low-poly tuning: single branching level, coarser tubes, fewer/larger needle
+    // cards. Far builds coarsen the tubes one more notch — at off-piste distance the
+    // silhouette is all that survives.
+    tree.options.branch.levels = 1;
+    tree.options.branch.children[0] = recipe.children0;
+    tree.options.branch.children[1] = 0;
+    tree.options.branch.segments[0] = detail === 'far' ? 4 : 6;
+    tree.options.branch.segments[1] = 3;
+    tree.options.branch.sections[0] = detail === 'far' ? 5 : 8;
+    tree.options.branch.sections[1] = 3;
+    tree.options.leaves.count = recipe.leavesCount;
+    tree.options.leaves.size = tree.options.leaves.size * recipe.leavesSizeMul;
+    tree.generate();
+    // generate replaces both geometries/materials. Before generation the package
+    // uses a basic material; afterwards needles must expose the Phong texture map.
+    asEzTreeInstance(tree);
+    if (!(tree.leavesMesh.material instanceof THREE.MeshPhongMaterial)) {
+      throw new Error('EzForest: generated leaves require a MeshPhongMaterial');
+    }
 
-  const branches = tree.branchesMesh.geometry;
-  const leaves = tree.leavesMesh.geometry;
-  branches.computeBoundingBox();
-  const height = branches.boundingBox ? branches.boundingBox.max.y : 1;
+    const branches = tree.branchesMesh.geometry;
+    const leaves = tree.leavesMesh.geometry;
+    branches.computeBoundingBox();
+    const height = branches.boundingBox ? branches.boundingBox.max.y : 1;
 
-  // Keep ez-tree's needle sprite (module-cached in the package; a stub headless).
-  // The package flags it SRGBColorSpace, but this game renders the legacy linear
-  // pipeline (ColorManagement off, NoColorSpace canvas textures everywhere) — the
-  // sRGB decode would double-darken the needles, so re-flag it to match.
-  const leafMaterial = tree.leavesMesh.material;
-  const leafMap = leafMaterial.map || null;
-  if (leafMap) leafMap.colorSpace = THREE.NoColorSpace;
+    // Keep ez-tree's needle sprite (module-cached in the package; a stub headless).
+    // The package flags it SRGBColorSpace, but this game renders the legacy linear
+    // pipeline (ColorManagement off, NoColorSpace canvas textures everywhere) — the
+    // sRGB decode would double-darken the needles, so re-flag it to match.
+    const leafMaterial = tree.leavesMesh.material;
+    const leafMap = leafMaterial.map || null;
+    if (leafMap) leafMap.colorSpace = THREE.NoColorSpace;
 
-  // The geometries are ours now; the generated Phong materials are not used
-  // (trees.ts builds tinted, swaying materials) — free them. Their maps are the
-  // package's shared texture cache, which material.dispose() correctly leaves alone.
-  tree.branchesMesh.material.dispose();
-  leafMaterial.dispose();
+    // The geometries are ours now; the generated Phong materials are not used
+    // (trees.ts builds tinted, swaying materials) — free them. Their maps are the
+    // package's shared texture cache, which material.dispose() correctly leaves alone.
+    tree.branchesMesh.material.dispose();
+    leafMaterial.dispose();
 
-  return { branches, leaves, leafMap, height, snowAnchors: computeSnowAnchors(leaves), species, detail };
+    return { branches, leaves, leafMap, height, snowAnchors: computeSnowAnchors(leaves), species, detail };
+  } catch (error) {
+    disposeRejectedEzTree(rawTree);
+    throw error;
+  }
 }
 
 // Bumped by resetEzForest so a generation that was already awaiting the chunk when
@@ -338,14 +398,22 @@ export function ensureEzArchetypes(): Promise<EzArchetype[]> {
     const generating = loadEzTreeModule().then((EZ) => {
       const savedRandom = Math.random;
       Math.random = ezUuidRandom;
-      let generated: EzArchetype[];
+      const generated: EzArchetype[] = [];
       try {
         // Near builds first (species i at index i), far builds after (index i +
         // EZ_SPECIES_COUNT) — trees.ts relies on this layout for LOD selection.
-        generated = [
-          ...EZ_RECIPES.map((r, i) => generateArchetype(EZ, r, i, 'near')),
-          ...EZ_RECIPES.map((r, i) => generateArchetype(EZ, farRecipe(r), i, 'far'))
-        ];
+        for (const detail of ['near', 'far'] as const) {
+          EZ_RECIPES.forEach((recipe, species) => {
+            generated.push(generateArchetype(EZ, detail === 'far' ? farRecipe(recipe) : recipe, species, detail));
+          });
+        }
+      } catch (error) {
+        // An incompatible later species must not orphan earlier successful builds.
+        for (const archetype of generated) {
+          archetype.branches.dispose();
+          archetype.leaves.dispose();
+        }
+        throw error;
       } finally {
         Math.random = savedRandom;
       }

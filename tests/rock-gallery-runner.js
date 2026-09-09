@@ -54,7 +54,7 @@ function assertPortAvailable(port) {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
     probe.once('error', (err) => {
-      reject(err.code === 'EADDRINUSE'
+      reject('code' in err && err.code === 'EADDRINUSE'
         ? new Error(`Port ${port} is already in use; refusing to run the gallery against a pre-existing server`)
         : err);
     });
@@ -70,6 +70,7 @@ async function startServer() {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  /** @type {{ code: number | null, signal: NodeJS.Signals | null } | null} */
   let exited = null;
   server.on('exit', (code, signal) => { exited = { code, signal }; });
   for (let i = 0; i < 60; i++) {
@@ -106,7 +107,7 @@ async function run() {
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1600, height: 900, deviceScaleFactor: 1 });
-    page.on('pageerror', (err) => console.error('Page error:', err.message));
+    page.on('pageerror', (err) => console.error('Page error:', (err instanceof Error ? err.message : String(err))));
 
     // Real-player-path setup (#336): defeat the webdriver automation gate and seed
     // Math.random so the surrounding terrain/forest layout reproduces run-to-run.
@@ -184,7 +185,7 @@ async function run() {
     console.log('\nRock gallery captures complete.');
     return 0;
   } catch (err) {
-    console.error('Rock gallery runner failed:', err.message);
+    console.error('Rock gallery runner failed:', (err instanceof Error ? err.message : String(err)));
     return 1;
   } finally {
     if (browser) await browser.close();

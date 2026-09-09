@@ -265,6 +265,17 @@ async function main() {
   await flush();
   check('unknown error: shows a generic alert', alerts.length === 1 && /boom/.test(alerts[0]));
 
+  // Promise rejection values are not guaranteed FirebaseError objects. Preserve
+  // useful plain strings and recover controls even when no message/code exists.
+  for (const reason of ['network failed', null, undefined, { code: 42, message: { invalid: true } }]) {
+    alerts.length = 0;
+    fb.setNextPopupResult({ reject: reason });
+    loginBtn.dispatchEvent(new window.Event('click'));
+    await flush();
+    check('malformed rejection produces a useful message and releases sign-in controls',
+      alerts.length === 1 && /network failed|Unknown error/.test(alerts[0]) && loginBtn.disabled === false);
+  }
+
   console.log('\n--- GitHub & Apple provider sign-in ---');
   const githubBtn = /** @type {HTMLButtonElement} */ (window.document.getElementById('githubLoginBtn'));
   const appleBtn = /** @type {HTMLButtonElement} */ (window.document.getElementById('appleLoginBtn'));

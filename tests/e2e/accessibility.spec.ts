@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { gotoGame, startGame } from './helpers';
+import { gotoGame, startGame, type GameWindow } from './helpers';
 
 test('keyboard About and feedback contain focus and return it without starting a run', async ({ page }) => {
   await gotoGame(page);
@@ -39,7 +39,7 @@ test('camera disclosures, sound state, and results expose their keyboard contrac
   // state seam so assertions cannot race rendering or a natural crash/finish.
   // The separate gameplay/perf/real-player screenshot specs keep the loop live.
   await page.evaluate(() => new Promise<void>((resolve) => {
-    window.gameActive = false;
+    (window as GameWindow).gameActive = false;
     requestAnimationFrame(() => resolve());
   }));
   const stats = page.getByRole('button', { name: 'Toggle game stats options' });
@@ -64,10 +64,10 @@ test('camera disclosures, sound state, and results expose their keyboard contrac
   await expect(sound).toHaveAttribute('aria-pressed', String(wasPressed !== 'true'));
   await sound.focus();
   await page.keyboard.down('w');
-  expect(await page.evaluate(() => window.getControls?.().up)).toBe(true);
+  expect(await page.evaluate(() => (window as GameWindow).getControls?.().up)).toBe(true);
   await page.keyboard.up('w');
   await page.keyboard.down('Space');
-  expect(await page.evaluate(() => window.getControls?.().jump)).toBe(false);
+  expect(await page.evaluate(() => (window as GameWindow).getControls?.().jump)).toBe(false);
   await page.keyboard.up('Space');
 
   await page.evaluate(() => window.showGameOver?.('You hit a tree!'));
@@ -82,8 +82,8 @@ test('camera disclosures, sound state, and results expose their keyboard contrac
   await expect(page.locator('#gameOverOverlay')).toBeVisible();
   await page.locator('#restartButton').click();
   expect(await page.evaluate(() => {
-    const restarted = window.gameActive;
-    window.gameActive = false;
+    const restarted = (window as GameWindow).gameActive;
+    (window as GameWindow).gameActive = false;
     return restarted;
   })).toBe(true);
   await expect(page.locator('#gameOverOverlay')).toBeHidden();
