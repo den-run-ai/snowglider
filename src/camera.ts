@@ -11,7 +11,8 @@
 // unchanged — every edit is type-only/erasable, so esbuild (Vite) and Node's
 // native type-stripping both run it exactly as before.
 import * as THREE from 'three';
-import { getTerrainHeightUncached, getTerrainGradientUncached } from './mountains/terrain.js';
+import { getTerrainGradientUncached } from './mountains/terrain.js';
+import { seatCameraAboveTerrain } from './camera-terrain.js';
 
 /**
  * Camera viewpoint modes (issue #305, cinematic modes #315). Manual/auto third-person
@@ -764,7 +765,7 @@ export class Camera {
         playerPosition.y + 6.5, // Look more downward for better terrain visibility
         playerPosition.z + Math.cos(playerRotation.y) * 8
       );
-      this.camera.lookAt(lookTarget);
+      this.smoothingVectors.lookAtPosition.copy(lookTarget);
     } else {
       // Original third-person camera initialization
       // Start with the base distance of minDistance - will adjust dynamically during
@@ -776,13 +777,15 @@ export class Camera {
       // Place camera exactly where it should be in its final position
       const initialPos = new THREE.Vector3(playerPosition.x, playerPosition.y, playerPosition.z).add(camOffset);
       this.camera.position.copy(initialPos);
-      this.camera.lookAt(playerPosition.x, playerPosition.y, playerPosition.z);
-      
-      // Initialize smoothing vectors exactly matching the final position
-      this.smoothingVectors.targetPosition.copy(initialPos);
-      this.smoothingVectors.lastPosition.copy(initialPos);
       this.smoothingVectors.lookAtPosition.set(playerPosition.x, playerPosition.y, playerPosition.z);
     }
+
+    // Entry and reentry must obey the same terrain constraints as a regular frame.
+    // Otherwise a retained orbit/zoom can render underground before the next clamp.
+    seatCameraAboveTerrain(this.camera.position, this.smoothingVectors.lookAtPosition);
+    this.camera.lookAt(this.smoothingVectors.lookAtPosition);
+    this.smoothingVectors.targetPosition.copy(this.camera.position);
+    this.smoothingVectors.lastPosition.copy(this.camera.position);
     
     // Reset frame counter
     this.frameCount = 0;
@@ -826,12 +829,13 @@ export class Camera {
       this.camera.position.copy(camPos);
       
       // Ensure all vectors are properly set to match this position
-      this.smoothingVectors.lastPosition.copy(camPos);
-      this.smoothingVectors.targetPosition.copy(camPos);
       this.smoothingVectors.lookAtPosition.copy(playerPosition);
+      seatCameraAboveTerrain(this.camera.position, this.smoothingVectors.lookAtPosition);
+      this.smoothingVectors.lastPosition.copy(this.camera.position);
+      this.smoothingVectors.targetPosition.copy(this.camera.position);
       
       // Look at the player
-      this.camera.lookAt(playerPosition);
+      this.camera.lookAt(this.smoothingVectors.lookAtPosition);
       return;
     }
     
@@ -978,12 +982,6 @@ export class Camera {
     // Apply smoothing - interpolate current position toward target
     this.camera.position.lerp(this.smoothingVectors.targetPosition, effectiveSmoothingFactor);
     
-    // Maintain minimum height above terrain to prevent camera from going below ground
-    const terrainHeightAtCamera = getTerrainHeightUncached(this.camera.position.x, this.camera.position.z);
-    if (this.camera.position.y < terrainHeightAtCamera + 5) {
-      this.camera.position.y = terrainHeightAtCamera + 5;
-    }
-    
     // Smooth the lookAt point, focusing slightly ahead of the player in the movement direction.
     // Build the DESIRED look target (player + a small speed-based look-ahead) into a dedicated
     // scratch vector, then ease the persisted `lookAtPosition` toward it. For every mode except
@@ -1005,6 +1003,9 @@ export class Camera {
       lookEase = easeFor(CAMERAMAN_LOOK_EASE, dtFrames);
     }
     this.smoothingVectors.lookAtPosition.lerp(desiredLookAt, lookEase);
+    // Run after BOTH position and look-target smoothing: checking the intended
+    // unsmoothed ray does not protect the ray that is actually rendered.
+    seatCameraAboveTerrain(this.camera.position, this.smoothingVectors.lookAtPosition);
     this.camera.lookAt(this.smoothingVectors.lookAtPosition);
     
     // Save current position for next frame
@@ -1045,7 +1046,10 @@ export class Camera {
       playerPosition.y + 6.0, 
       playerPosition.z + Math.cos(angle) * lookAheadFactor
     );
-    this.camera.lookAt(lookTarget);
+    this.smoothingVectors.lookAtPosition.copy(lookTarget);
+    seatCameraAboveTerrain(this.camera.position, this.smoothingVectors.lookAtPosition);
+    this.camera.lookAt(this.smoothingVectors.lookAtPosition);
+    this.smoothingVectors.lastPosition.copy(this.camera.position);
   }
 
   // Handle window resize
