@@ -16,12 +16,13 @@ import { gotoGame, startGame } from './helpers';
 //
 // Chromium CI, PR #444 (1280x720, seeded layout), measured classic peaks of
 // 186 calls / 219898 triangles / 212 geometries and, on retry, 207 / 222480 / 228.
-// Geometry headroom accounts for the measured chunk wrappers plus unbatched rocks;
-// draw, triangle, texture and program ceilings retain the pre-chunk guards.
+// After rock batching, PR #445 measured 135 calls / 221026 triangles / 141
+// geometries. This restores the earlier 185-geometry cap. Other ceilings retain
+// the pre-chunk guards.
 const BUDGET = {
   calls: 800, // instancing must keep this well below a per-tree mesh scene
   triangles: 350_000, // color and shadow triangles vary with the player camera
-  geometries: 230, // measured 212–228 resident wrappers before rock batching
+  geometries: 185, // measured 141 after rock batching (212–228 before)
   textures: 25, // live texture count (measured 16 incl. the snow-depth DataTexture; TIGHT)
   // Snow-depth terrain modulation (#246 PR 3) samples a DataTexture in the terrain
   // material via onBeforeCompile, which needs a stable customProgramCacheKey — that
@@ -52,12 +53,12 @@ type RendererWindow = Window & {
 // --- EZ evergreen variant budget (issue #282, ?eztrees=1 prototype) ---------
 // EZ uses species/LOD archetypes and needle cards, so it has more geometry
 // families and spatial wrappers. PR #444 measured 230 calls / 382868 triangles /
-// 265 geometries / 17 textures / 43 programs. The 280-wrapper cap leaves 15 of
-// headroom without changing the draw, triangle, texture or shader limits.
+// 265 geometries / 17 textures / 43 programs. Rock batching in PR #445 measured
+// 179 / 384010 / 193 / 17 / 43, restoring the previous 210-geometry cap.
 const EZ_BUDGET = {
   calls: 800, // parity with the stylized budget — instancing must hold here too
   triangles: 600_000, // needle cards remain bounded after spatial culling
-  geometries: 280, // measured 265 resident wrappers before rock batching
+  geometries: 210, // measured 193 after rock batching (265 before)
   textures: 30, // + needle sprite & co. over the stylized measured ~11
   // Background scenery system (issue #320) adds a handful of shared instanced-basic-fog
   // program variants; the ambient-life layer tipped the EZ peak to 41 (its clouds/birds/
