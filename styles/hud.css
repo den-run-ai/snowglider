@@ -216,6 +216,13 @@ body.game-active #localModeNotice { display: none; }
   #cameraControls:not(.collapsed) { width: var(--hud-column); }
 }
 @media (max-width: 600px), (max-height: 500px) {
+  /* Guest upgrade buttons and wrapped account actions can make auth taller.
+     Let Stats scroll within the remaining column above the collapsed camera. */
+  #hudRight { max-height: calc(100dvh - var(--hud-top) - var(--hud-bottom) - 112px); }
+  #authContainer { flex-shrink: 0; }
+  #gameStatsContainer { display: flex; flex-direction: column; min-height: 46px; }
+  #gameStatsHeader { flex-shrink: 0; }
+  #gameStatsContent { min-height: 0; }
   .hud-panel-header { gap: 4px; padding-left: 8px; }
   .hud-panel-header h3 { font-size: 13px; }
   #controlsContent { max-height: max(64px, calc(100dvh - var(--hud-top) - var(--hud-bottom) - 210px)); }

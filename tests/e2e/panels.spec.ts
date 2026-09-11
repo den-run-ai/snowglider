@@ -290,3 +290,46 @@ test('compact panels share space and preserve an open panel through resize and r
   await setExpanded(page, '#toggleCamera', false, hasTouch);
   await expectHudLayout(page);
 });
+
+test('expanded guest account leaves Stats scrollable above the camera on narrow phones', async ({ page, hasTouch }) => {
+  await openPausedGame(page);
+  await resizeAndSettle(page, { width: 320, height: 568 });
+  await setExpanded(page, '#toggleCamera', true, hasTouch);
+  await activate(page.locator('[data-cam-mode="cameraman"]'), hasTouch);
+  await setExpanded(page, '#toggleCamera', false, hasTouch);
+
+  // Exercise the production guest account geometry without authenticating to a
+  // live provider. The guest chip and Logout wrap in this narrow right column.
+  await page.evaluate(() => {
+    document.querySelector('#authContainer .local-mode-notice')?.remove();
+    const profile = document.getElementById('profileUI')!;
+    profile.style.display = 'flex';
+    profile.classList.add('guest');
+    document.getElementById('profileName')!.textContent = 'Guest';
+    document.getElementById('profileChip')!.removeAttribute('disabled');
+  });
+
+  await setExpanded(page, '#toggleStats', true, hasTouch);
+  for (const viewport of [{ width: 320, height: 568 }, { width: 568, height: 320 }]) {
+    await resizeAndSettle(page, viewport);
+    for (const expanded of [false, true]) {
+      await page.evaluate((expanded) => {
+        document.getElementById('authUI')!.style.display = expanded ? 'flex' : 'none';
+        document.getElementById('profileUI')!.classList.toggle('expanded', expanded);
+        document.getElementById('profileChip')!.setAttribute('aria-expanded', String(expanded));
+      }, expanded);
+      await expectHudLayout(page);
+      await expectHitTarget(page, '#toggleCamera');
+      await expectHitTarget(page, '#profileChip');
+      await expectHitTarget(page, '#logoutBtn');
+      const content = page.locator('#gameStatsContent');
+      const lastStat = content.locator(':scope > :last-child');
+      await lastStat.scrollIntoViewIfNeeded();
+      const visibleBody = (await content.boundingBox())!;
+      const finalRow = (await lastStat.boundingBox())!;
+      expect(finalRow.y).toBeGreaterThanOrEqual(visibleBody.y - 1);
+      expect(finalRow.y + finalRow.height).toBeLessThanOrEqual(visibleBody.y + visibleBody.height + 1);
+      await expectHudLayout(page);
+    }
+  }
+});
