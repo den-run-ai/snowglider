@@ -74,6 +74,19 @@ async function main() {
 
   {
     resetFatalErrorOverlay();
+    showFatalErrorOverlay(undefined, { reason: 'context-lost' });
+    check('runtime context loss has an accurate title',
+      document.getElementById('fatalErrorTitle').textContent === 'Graphics interrupted');
+    check('runtime context loss explains that the run stopped and needs a reload',
+      /game has stopped.*Reload to start a new run/.test(document.getElementById('fatalErrorMessage').textContent));
+    check('context recovery takes focus on Reload', document.activeElement.id === 'fatalErrorReloadBtn');
+    showFatalErrorOverlay(new Error('other error'));
+    check('ordinary errors reset the context-loss title',
+      document.getElementById('fatalErrorTitle').textContent === 'Something went wrong');
+  }
+
+  {
+    resetFatalErrorOverlay();
     check('reset removes the overlay from the DOM', document.getElementById('fatalErrorOverlay') === null);
   }
 

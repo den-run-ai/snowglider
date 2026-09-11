@@ -51,6 +51,8 @@ import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createRunClockGuard } from './game/run-clock.js';
 import { createLifecycle } from './game/lifecycle.js';
 import { disposeGame } from './game/teardown.js';
+import { watchContextLoss } from './game/context-loss.js';
+import { showFatalErrorOverlay, resetFatalErrorOverlay } from './ui/fatal-error-overlay.js';
 
 // One AbortController owns every game-lifetime DOM listener — the keyboard/touch/resize
 // handlers in Controls, plus those wired below and inside scene-setup/lifecycle (the §4
@@ -411,6 +413,7 @@ function startGameplayLoop(showGetReady: boolean, waitedForForest = false) {
 // <audio> implementation); the music calls below are real. Several Howler-era API
 // names are kept as compat stubs in audio.ts, noted per call site.
 window.initializeGameWithAudio = function() {
+  if (disposed) return false;
   console.log("Initializing game...");
 
   // Howler-era compat stub: on the native HTML5 implementation there is no
@@ -429,6 +432,7 @@ window.initializeGameWithAudio = function() {
   // showAudioRetryPrompt() is a no-op stub, so this check is inert — kept only so
   // the old retry flow can be revived if a context-based backend ever returns.
   const checkAudioStatus = () => {
+    if (disposed) return;
     const status = AudioModule.getStatus();
     
     // Skip check if audio is disabled
@@ -548,6 +552,7 @@ window.initializeGameWithAudio = function() {
       render: () => { renderer.render(scene, camera); },
       onComplete: () => {
         document.body.classList.remove('intro-active');
+        if (disposed) return;
         // Re-seat the camera manager's smoothing at the settled pose, then run.
         cameraManager.initialize(snowman.position, snowman.rotation);
         // Start the run timer at the hand-off, not before the fly-over. resetSnowman()
@@ -688,6 +693,9 @@ function disposeSnowGlider(): void {
   // (the intro's onComplete, the loading/Get-Ready timers) short-circuits in
   // startGameplayLoop instead of starting a loop against a disposed renderer.
   disposed = true;
+  // Abort before renderer teardown deliberately loses its context. This also
+  // makes retained lifecycle callbacks inert before any subsystem cleanup runs.
+  listenerAbort.abort();
   if (pendingStartTimer !== null) { clearTimeout(pendingStartTimer); pendingStartTimer = null; }
   // Cancel the deferred "Get Ready!" toast so it can't appear over the host page after a
   // mid-startup unmount (the callback is also disposed-guarded).
@@ -700,6 +708,8 @@ function disposeSnowGlider(): void {
   // renderer.render on a dead context); its onComplete is now a no-op via the guard.
   if (activeIntro && !activeIntro.done) activeIntro.skip();
   activeIntro = null;
+  document.body.classList.remove('intro-active', 'game-active');
+  resetFatalErrorOverlay();
   // Stop the audio + SFX started in initializeGameWithAudio. They are module-level
   // resources (a looping <audio> + the Web Audio beds + the mute button) that
   // disposeGame's scene/renderer/listener teardown would otherwise leave running.
@@ -779,3 +789,21 @@ if (window.isTestMode) {
     window.initializeGameWithAudio?.();
   }, 100);
 }
+
+// Register after all startup timers/handles and the teardown function exist, so
+// an already-lost context during boot can safely dispose the whole instance.
+// Do not resume after webglcontextrestored: an interrupted run cannot remain
+// valid, and the old async forest/intro work must never start invisible gameplay.
+watchContextLoss(renderer.domElement, {
+  signal: listenerAbort.signal,
+  isContextLost: () => renderer.getContext().isContextLost(),
+  onLost: () => {
+    state.gameActive = false;
+    state.animationRunning = false;
+    try {
+      disposeSnowGlider();
+    } finally {
+      showFatalErrorOverlay(undefined, { reason: 'context-lost' });
+    }
+  },
+});
