@@ -1,57 +1,27 @@
 import { test, expect } from './fixtures';
 import { gotoGame, startGame } from './helpers';
 
-// Plan §1A — performance / draw-call budget. Nothing in the repo asserts on
-// `renderer.info` today (grep confirms zero usages in src or tests), so an
-// un-instanced-tree-style regression (draw calls / geometry blowup) ships silently.
-// This is the cheapest high-value rendering category: boot the REAL game, let the
-// loop render a few warm frames, then read renderer.info off the test-only seam
-// (publishGameGlobals in src/snowglider.ts) and pin ceilings just above the
-// measured values — a regression guard, not an aspirational target.
+// Boot the real game, sample renderer.info after warm frames, and pin ceilings
+// above measured values. These are regression guards, not performance targets.
 //
-// Chromium-only on purpose: renderer.info is GPU/driver-dependent and the numbers
-// aren't comparable across WebKit/mobile, so comparing them there would add noise
-// without value. WebKit/mobile keep owning the user-flow + touch specs.
+// Chromium owns the measured baseline; WebKit/mobile also exercise user flows,
+// touch controls, and resource teardown.
 
 // --- Budget ceilings -------------------------------------------------------
-// Measured on Chromium (warm frame, 1280x720 viewport, deterministic forest seed):
-// calls ~234, triangles ~218k, geometries ~150, textures 13, programs 19. These are
-// scene-dependent (the same geometry the production bundle builds), not
-// GPU/driver-dependent, so they hold across Chromium builds. Ceilings are padded
-// above those actuals as a REGRESSION GUARD, not an aspirational target.
+// Spatial forest batches cull independently in the camera and sun-shadow frusta.
+// Each chunk has a BufferGeometry wrapper for its instance attributes/bounds, but
+// chunks in one family share static vertex/index BufferAttributes. renderer.info
+// counts wrappers, not unique GPU buffers or bytes. The family sharing and GPU
+// lifetime invariants are separately covered by forest-buffer-lifetime-tests.js.
 //
-// The forest is now InstancedMesh (src/mountains/trees.ts): the whole forest draws
-// as 5 InstancedMeshes (~5 colour + ~5 shadow draws) instead of a Group-of-~20-meshes
-// PER tree, which collapsed draw calls from ~2700 peak to ~252. So `calls` is now a
-// TIGHT regression guard: a revert to per-tree meshes would push it back into the
-// thousands, which the 800 ceiling flags immediately (was a loose 3500 when trees
-// were un-instanced).
-//
-// `triangles` stays a LOOSE ceiling: a forest-wide InstancedMesh has a huge bounding
-// sphere and effectively never frustum-culls, so every tree instance is always
-// rasterized (the documented instancing tradeoff — see trees.ts buildForest /
-// avalanche.ts:88). That raised triangles from ~125k (per-tree, culled) to ~176k,
-// still a small fraction of the rasterizer budget; the shadow pass also makes it
-// swing frame-to-frame, so a tight pin would flake. The other TIGHT guards are
-// geometries/textures/programs — trees.ts pools shared trunk/cone/branch
-// geometries+materials, so those live counts must NOT grow per object; a regression
-// back to per-tree geometry would push `geometries` into the hundreds.
-//
-// Player-following sun shadow (#18) raised the resident-geometry + draw-call peaks.
-// Before, the directional light's shadow frustum was three.js's default ±5 box at the
-// world origin, so the shadow pass rendered essentially nothing (the player spawns at
-// z=-15, outside it) and only camera-visible geometry was ever uploaded. Now the
-// frustum follows the player (game/sun-shadow.ts), so the shadow pass renders the
-// surrounding casters — trees/rocks/snow-patches that already set `castShadow` — making
-// their geometry resident immediately and adding one shadow draw per caster batch. That
-// moved `geometries` from ~86 to ~155 (peak) and `calls` from ~252 to ~273. The richer
-// tree pass now measures ~150 geometries and ~234 calls with the same guard. `geometries`
-// stays a TIGHT guard at 185: the forest geometry is still pooled, so a per-tree-mesh
-// regression would blow it into the hundreds and red-bar well under 185.
+// Chromium CI, PR #444 (1280x720, seeded layout), measured classic peaks of
+// 186 calls / 219898 triangles / 212 geometries and, on retry, 207 / 222480 / 228.
+// Geometry headroom accounts for the measured chunk wrappers plus unbatched rocks;
+// draw, triangle, texture and program ceilings retain the pre-chunk guards.
 const BUDGET = {
-  calls: 800, // draw calls per frame (measured peak ~273; TIGHT — instancing must hold)
-  triangles: 350_000, // rasterized triangles per frame (measured peak ~183k; loose — forest never culls)
-  geometries: 185, // live BufferGeometry count (measured peak ~155 with the #18 shadow pass; TIGHT — pooled, must stay bounded)
+  calls: 800, // instancing must keep this well below a per-tree mesh scene
+  triangles: 350_000, // color and shadow triangles vary with the player camera
+  geometries: 230, // measured 212–228 resident wrappers before rock batching
   textures: 25, // live texture count (measured 16 incl. the snow-depth DataTexture; TIGHT)
   // Snow-depth terrain modulation (#246 PR 3) samples a DataTexture in the terrain
   // material via onBeforeCompile, which needs a stable customProgramCacheKey — that
@@ -80,19 +50,14 @@ type RendererWindow = Window & {
 };
 
 // --- EZ evergreen variant budget (issue #282, ?eztrees=1 prototype) ---------
-// The opt-in EZ-Tree forest swaps the stylized cones for archetype geometry:
-// up to 6 archetype InstancedMesh pairs (3 species x near/far LOD) + instanced
-// snow instead of the 5 stylized families, per-archetype sway program variants,
-// and the package's needle sprite. Measured on Chromium with the same seeded
-// layout: calls ~233, triangles ~463k, geometries ~137, textures 13, programs 34.
-// Triangles run ~2x the stylized forest (needle cards + no instance culling —
-// same documented tradeoff); the far-LOD split is what keeps it at ~2x instead
-// of ~4x, and this guard pins that it STAYS there. Draw calls hold parity with
-// the stylized budget — instancing is the invariant that matters most.
+// EZ uses species/LOD archetypes and needle cards, so it has more geometry
+// families and spatial wrappers. PR #444 measured 230 calls / 382868 triangles /
+// 265 geometries / 17 textures / 43 programs. The 280-wrapper cap leaves 15 of
+// headroom without changing the draw, triangle, texture or shader limits.
 const EZ_BUDGET = {
   calls: 800, // parity with the stylized budget — instancing must hold here too
-  triangles: 600_000, // loose ceiling over the measured ~410k (forest never culls)
-  geometries: 210, // + up to 12 archetype geometries over the stylized ~155 peak
+  triangles: 600_000, // needle cards remain bounded after spatial culling
+  geometries: 280, // measured 265 resident wrappers before rock batching
   textures: 30, // + needle sprite & co. over the stylized measured ~11
   // Background scenery system (issue #320) adds a handful of shared instanced-basic-fog
   // program variants; the ambient-life layer tipped the EZ peak to 41 (its clouds/birds/
@@ -127,29 +92,31 @@ function seedDeterministicLayout(page: import('@playwright/test').Page): Promise
  *  case and is what the budgets guard. */
 async function sampleRendererPeak(page: import('@playwright/test').Page): Promise<PerfInfo> {
   await page.waitForFunction(() => !!(window as RendererWindow).renderer);
-  const samples: PerfInfo[] = [];
-  for (let i = 0; i < 12; i++) {
-    const s: PerfInfo | null = await page.evaluate(
-      () =>
-        new Promise((resolve) => {
-          requestAnimationFrame(() => {
-            const r = (window as RendererWindow).renderer;
-            resolve(
-              r
-                ? {
-                    calls: r.info.render.calls,
-                    triangles: r.info.render.triangles,
-                    geometries: r.info.memory.geometries,
-                    textures: r.info.memory.textures,
-                    programs: r.info.programs?.length ?? 0,
-                  }
-                : null,
-            );
-          });
-        }),
-    );
-    if (s) samples.push(s);
-  }
+  // Keep the window in one browser evaluation: per-frame runner round trips allow
+  // arbitrary extra simulation frames under CI load, changing scenery/effects.
+  const samples = await page.evaluate(async () => {
+    const frames: PerfInfo[] = [];
+    for (let i = 0; i < 12; i++) {
+      const sample = await new Promise<PerfInfo | null>((resolve) => {
+        requestAnimationFrame(() => {
+          const r = (window as RendererWindow).renderer;
+          resolve(
+            r
+              ? {
+                  calls: r.info.render.calls,
+                  triangles: r.info.render.triangles,
+                  geometries: r.info.memory.geometries,
+                  textures: r.info.memory.textures,
+                  programs: r.info.programs?.length ?? 0,
+                }
+              : null,
+          );
+        });
+      });
+      if (sample) frames.push(sample);
+    }
+    return frames;
+  });
   expect(samples.length, 'renderer seam did not publish renderer.info').toBeGreaterThan(0);
   return {
     calls: Math.max(...samples.map((s) => s.calls)),
@@ -164,7 +131,7 @@ function expectWithinBudget(peak: PerfInfo, budget: typeof BUDGET): void {
   expect(peak.calls, 'draw calls per frame').toBeGreaterThan(0);
   expect(peak.calls, 'draw calls per frame').toBeLessThanOrEqual(budget.calls);
   expect(peak.triangles, 'triangles per frame').toBeLessThanOrEqual(budget.triangles);
-  // Tight pin: the shared geometry cache means this must not grow per object.
+  // Includes spatial wrappers; static buffer sharing has a separate unit gate.
   expect(peak.geometries, 'live BufferGeometry count').toBeLessThanOrEqual(budget.geometries);
   expect(peak.textures, 'live texture count').toBeLessThanOrEqual(budget.textures);
   expect(peak.programs, 'compiled shader programs').toBeLessThanOrEqual(budget.programs);

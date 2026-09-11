@@ -101,8 +101,8 @@ async function main() {
     assert(!!snowPatch.geometry.getAttribute('aSnowLoad') && !!snowPatch.geometry.getAttribute('aSnowRatio'),
       'snow (shrink) geometry carries aSnowLoad + aSnowRatio');
     assert(!trunk.geometry.getAttribute('aSnowLoad'), 'trunk geometry carries no load attribute');
-    assert(cone.userData.ownsGeometry === true && trunk.userData.ownsGeometry === undefined,
-      'load families own their geometry clone; the trunk still draws the shared pool');
+    assert(cone.userData.ownsGeometry === true && trunk.userData.ownsGeometry === true,
+      'every chunk owns its geometry wrapper while sharing static vertex buffers');
 
     // Every cone instance inherited its tree's base load.
     const coneLoads = cone.geometry.getAttribute('aSnowLoad').array;
@@ -116,19 +116,18 @@ async function main() {
     const heavy = state.baseLoads.findIndex(b => b >= 0.3);
     assert(heavy >= 0, 'a reasonably laden tree exists to exercise setTreeLoad');
     Trees.setTreeLoad(heavy, 0);
-    const ratios = snowPatch.geometry.getAttribute('aSnowRatio').array;
-    const capRatios = snowCap.geometry.getAttribute('aSnowRatio').array;
+    const ratios = forest.filter(m => m.userData.forestPart === 'snowPatch').flatMap(m => Array.from(m.geometry.getAttribute('aSnowRatio').array));
+    const capRatios = forest.filter(m => m.userData.forestPart === 'snowCap').flatMap(m => Array.from(m.geometry.getAttribute('aSnowRatio').array));
     const zeroRatios = ratios.filter(r => r === 0).length + capRatios.filter(r => r === 0).length;
     assert(zeroRatios > 0, 'zeroing a laden tree zeroes its snow ratios (shelves shrink)');
-    assert(cone.geometry.getAttribute('aSnowLoad').needsUpdate === true ||
-      cone.geometry.getAttribute('aSnowLoad').version > 0,
+    assert(forest.some(m => m.geometry.getAttribute('aSnowLoad')?.version > 0),
       'attribute re-upload is flagged after a load write');
 
     // Ground collars are pushed OUTSIDE the per-tree ranges: setting every tree to a
     // non-zero load leaves exactly one untouched (load 0, full ratio) snowPatch
     // instance per tree — the collar, which must never droop or shrink on a shed.
     for (let i = 0; i < state.count; i++) Trees.setTreeLoad(i, 0.5);
-    const patchLoads = snowPatch.geometry.getAttribute('aSnowLoad').array;
+    const patchLoads = forest.filter(m => m.userData.forestPart === 'snowPatch').flatMap(m => Array.from(m.geometry.getAttribute('aSnowLoad').array));
     const collarCount = patchLoads.filter(l => l === 0).length;
     assert(collarCount === state.count,
       'exactly one immutable ground collar per tree stays load-0', `${collarCount}/${state.count}`);
@@ -201,8 +200,7 @@ async function main() {
 
     // ...the registry attribute followed the dump (the visible spring-back)...
     const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    const cone = /** @type {any} */ (forest.find(m => m.userData.forestPart === 'cone'));
-    const coneLoads = cone.geometry.getAttribute('aSnowLoad').array;
+    const coneLoads = forest.filter(m => m.userData.forestPart === 'cone').flatMap(m => Array.from(m.geometry.getAttribute('aSnowLoad').array));
     assert(Array.prototype.some.call(coneLoads, (l) => Math.abs(l - dumped) < 1e-3),
       'the dumped load is written through to the instanced attribute');
 
