@@ -21,6 +21,7 @@
 //   - **Reduced-motion aware.** Under prefers-reduced-motion the whole system is
 //     inert: loads stay at their static base, no puffs burst.
 import * as THREE from 'three';
+import { snowBillboardsFor, type SnowBillboards } from './snow-billboards.js';
 import { Wind } from './wind.js';
 import { Trees } from './trees.js';
 import type { TreePosition } from './trees.js';
@@ -181,6 +182,8 @@ export const TreeShed = (function() {
   let puffMaterialTemplate: THREE.SpriteMaterial | null = null;
   let puffs: Puff[] = [];
   let puffNext = 0;
+  let puffBatch: SnowBillboards | null = null;
+  let puffScene: THREE.Scene | null = null;
 
   function prefersReducedMotion(): boolean {
     return typeof window !== 'undefined' &&
@@ -230,6 +233,13 @@ export const TreeShed = (function() {
 
   function spawnPuffs(scene: THREE.Scene, tree: TreePosition, load: number): void {
     if (!ensurePuffPool()) return;
+    if (puffScene !== scene) {
+      const sprites = puffs.map((puff) => puff.sprite);
+      puffBatch?.remove(sprites);
+      puffBatch = snowBillboardsFor(scene);
+      puffBatch.add(sprites, () => 4);
+      puffScene = scene;
+    }
     const wv = Wind.vector();
     const scale = tree.scale || 1.0;
     const crownY = tree.y + (5.5 + 3.5 * rng()) * scale; // upper canopy band
@@ -238,10 +248,6 @@ export const TreeShed = (function() {
       const puff = puffs[puffNext]!;
       puffNext = (puffNext + 1) % puffs.length;
       const s = puff.sprite;
-      if (s.parent !== scene) {
-        s.removeFromParent();
-        scene.add(s);
-      }
       s.position.set(
         tree.x + (rng() - 0.5) * 1.6 * scale,
         crownY - n * 1.1 * scale,
@@ -408,9 +414,17 @@ export const TreeShed = (function() {
       return loads && index >= 0 && index < loads.length ? loads[index]! : NaN;
     },
 
+    /** Detached simulation handles for diagnostics; the batch renders them. */
+    getPuffSprites: function(): readonly THREE.Sprite[] {
+      return puffs.map((puff) => puff.sprite);
+    },
+
     /** Dispose the pooled puff resources (dispose-audit teardown / dev-HMR). */
     teardown: function(): void {
       hidePuffs();
+      puffBatch?.remove(puffs.map((puff) => puff.sprite));
+      puffBatch = null;
+      puffScene = null;
       for (const puff of puffs) {
         puff.sprite.material.dispose();
       }

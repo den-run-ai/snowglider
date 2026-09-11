@@ -278,9 +278,10 @@ async function main() {
     Wind.update(0.05);
     const events3 = TreeShed.update(0.05, player3, positions3, scene2);
     assert(events3.length > 0, 'a shed fires under the DOM too');
-    const livePuffs = () => scene2.children.filter(c => c.name === 'treeShedPuff' && c.visible);
+    const livePuffs = () => TreeShed.getPuffSprites().filter(c => c.visible);
     const burst = livePuffs();
-    assert(burst.length >= 2, 'shed trees burst pooled puff sprites into the scene', `${burst.length} puffs`);
+    assert(burst.length >= 2 && scene2.children.some(c => c.name === 'snowBillboards'),
+      'shed trees burst pooled puffs into the shared batch', `${burst.length} puffs`);
 
     // Puffs billow: advance and watch one drift, expand, and take opacity.
     const p0 = /** @type {any} */ (burst[0]);
@@ -307,8 +308,8 @@ async function main() {
     // teardown() disposes the pool + template resources and is idempotent.
     TreeShed.teardown();
     TreeShed.teardown();
-    assert(scene2.children.filter(c => c.name === 'treeShedPuff').length === 0,
-      'teardown removes the pooled sprites from the scene');
+    assert(TreeShed.getPuffSprites().length === 0 && !scene2.children.some(c => c.name === 'snowBillboards'),
+      'teardown removes the pooled particles and their batch from the scene');
 
     // Reduced motion: the whole system is inert — no load writes, no puffs.
     dom.window.matchMedia = () => /** @type {any} */ ({ matches: true });

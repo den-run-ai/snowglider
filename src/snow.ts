@@ -21,6 +21,7 @@ import { cosmeticRandom } from './run-context.js';
 import { Mountains } from './mountains.js';
 import { Trees } from './trees.js';
 import { Wind } from './wind.js';
+import { snowBillboardsFor, type SnowBillboards } from './snow-billboards.js';
 
 /** Minimal positional shape the snow systems read from the player. */
 interface Vec3Like {
@@ -53,6 +54,10 @@ interface SnowSplash {
   particles: THREE.Sprite[];
   particleCount: number;
   nextParticle: number;
+  /** Real pools use the shared billboard batch; hand-built test pools retain the
+   * old lightweight Sprite seam without needing a scene/rendering subsystem. */
+  batched?: boolean;
+  batch?: SnowBillboards;
 }
 
 // Mountains features are now in mountains.js
@@ -60,6 +65,8 @@ interface SnowSplash {
 
 // --- Snow Particle System ---
 const snowflakes: THREE.Sprite[] = [];
+let snowfallBatch: SnowBillboards | null = null;
+let snowfallScene: THREE.Scene | null = null;
 const snowflakeCount = 1000;
 const snowflakeSpread = 100; // Spread area around player
 const snowflakeHeight = 50; // Height above player
@@ -121,7 +128,8 @@ function createFlakeTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
-function createSnowflakes(scene: THREE.Scene) {
+function createSnowflakes(scene: THREE.Scene): readonly THREE.Sprite[] {
+  if (snowflakes.length > 0) teardownSnowflakes();
   const texture = createFlakeTexture();
   // One material per opacity bucket, all sharing the one texture.
   const materials = FLAKE_OPACITY_BUCKETS.map((opacity) => new THREE.SpriteMaterial({
@@ -158,9 +166,14 @@ function createSnowflakes(scene: THREE.Scene) {
     };
     snowflake.userData = flake;
 
-    scene.add(snowflake);
     snowflakes.push(snowflake);
   }
+  snowfallBatch = snowBillboardsFor(scene);
+  snowfallScene = scene;
+  snowfallBatch.add(snowflakes, () => 0);
+  // Detached handles remain inspectable by particle tests; they never submit
+  // per-flake draws or participate in Object3D matrix traversal.
+  return snowflakes.slice();
 }
 
 // Clear the module-level snowflake pool (dispose-audit teardown / dev-HMR). The pool is
@@ -172,7 +185,11 @@ function createSnowflakes(scene: THREE.Scene) {
 // same resource hundreds of times. Self-contained so it does not depend on disposeGame's
 // scene sweep order; the array is emptied so a later createSnowflakes() starts clean.
 // Idempotent.
-function teardownSnowflakes(): void {
+function teardownSnowflakes(scene?: THREE.Scene): void {
+  if (scene && snowfallScene !== scene) return;
+  snowfallBatch?.remove(snowflakes);
+  snowfallBatch = null;
+  snowfallScene = null;
   const mats = new Set<THREE.SpriteMaterial>();
   const texes = new Set<THREE.Texture>();
   for (const flake of snowflakes) {
@@ -281,7 +298,8 @@ function createSnowSplash(): SnowSplash {
   const texture = createSplashPuffTexture();
   const texture2 = createSplashClumpTexture();
 
-  // Follow the same approach as snowflakes - use individual sprites
+  // Sprite-shaped CPU state preserves the simulation/test seam. The live scene
+  // renders these through the same sorted billboard batch as the snowfall.
   const splashParticles: THREE.Sprite[] = [];
   const particleCount = 250; // Increased for more dramatic effect
 
@@ -290,9 +308,8 @@ function createSnowSplash(): SnowSplash {
   // glowed cyan against dark trees. The pool DOES keep one material per sprite
   // (cloned once here, never per frame): unlike the flakes' static opacity buckets,
   // the splash animates `material.opacity`/`rotation` per particle over its lifetime,
-  // and THREE.Sprite has no per-instance opacity — the two textures above are the
-  // shared resources. Migrating the pool to Points/InstancedMesh is the separate V1b
-  // follow-up, only if perf data demands it.
+  // and the billboard batch reads those values into per-instance attributes. The
+  // two textures above are the shared resources; no per-particle draw is issued.
   const materials = [
     new THREE.SpriteMaterial({
       map: texture,
@@ -338,7 +355,8 @@ function createSnowSplash(): SnowSplash {
   return {
     particles: splashParticles,
     particleCount,
-    nextParticle: 0
+    nextParticle: 0,
+    batched: true,
   };
 }
 
@@ -364,9 +382,33 @@ function resetSnowSplash(splash: SnowSplash | null): void {
   splash.nextParticle = 0;
 }
 
+/** Detached CPU handles are not reachable by the scene-resource sweep. Release
+ * their owned materials/textures and unregister them from the shared batch. */
+function teardownSnowSplash(splash: SnowSplash | null): void {
+  if (!splash) return;
+  resetSnowSplash(splash);
+  splash.batch?.remove(splash.particles);
+  delete splash.batch;
+  const materials = new Set<THREE.SpriteMaterial>();
+  const textures = new Set<THREE.Texture>();
+  for (const particle of splash.particles) {
+    particle.removeFromParent();
+    materials.add(particle.material);
+    if (particle.material.map) textures.add(particle.material.map);
+  }
+  for (const material of materials) material.dispose();
+  for (const texture of textures) texture.dispose();
+  splash.particles.length = 0;
+  splash.particleCount = 0;
+}
+
 function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THREE.Object3D, velocity: PlanarVelocity, isInAir: boolean, scene: THREE.Scene, landingBurst?: number) {
   // Early return if not initialized
-  if (!splash || !splash.particles) return;
+  if (!splash || !splash.particles || splash.particles.length === 0) return;
+  if (splash.batched && !splash.batch) {
+    splash.batch = snowBillboardsFor(scene);
+    splash.batch.add(splash.particles, (particle) => particle.userData.type === 0 ? 1 : 2);
+  }
   
   // Calculate current speed
   const speed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
@@ -536,7 +578,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         particle.visible = true;
         
         // Add to scene if not already added
-        if (!particle.parent) {
+        if (!splash.batched && !particle.parent) {
           scene.add(particle);
         }
       }
@@ -582,7 +624,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
       particle.userData.lifetime = particle.userData.maxLifetime;
       particle.userData.active = true;
       particle.visible = true;
-      if (!particle.parent) scene.add(particle);
+      if (!splash.batched && !particle.parent) scene.add(particle);
     }
   }
 }
@@ -621,6 +663,7 @@ export const Snow = {
   teardownSnowflakes,
   createSnowSplash,
   resetSnowSplash,
+  teardownSnowSplash,
   updateSnowSplash
 };
 

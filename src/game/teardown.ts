@@ -31,6 +31,7 @@ import { resetTreePools } from '../trees.js';
 import { resetRockCaches } from '../mountains/rocks.js';
 import { resetSnowmanSnowMaterial } from '../snowman/snow-material.js';
 import { TreeShed } from '../tree-shed.js';
+import { Snow } from '../snow.js';
 import type { SceneContext } from './scene-setup.js';
 
 // Idempotence guard, keyed on the context object (not a shared module bool) so each
@@ -114,19 +115,26 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   ctx.state.gameActive = false;
   ctx.state.animationRunning = false;
 
+  // Release every shared billboard owner before sweeping the scene. The final
+  // pool unregister detaches and disposes the batch; sweeping it first would
+  // dispose its geometry/material again when avalanche or tree-shed releases it.
+  Snow.teardownSnowflakes(ctx.scene);
+  Snow.teardownSnowSplash(ctx.snowSplash);
+  ctx.state.avalanche?.dispose();
+  TreeShed.teardown();
+
   // 2. Dispose every unique GPU resource reachable from the scene, once.
   disposeSceneResources(ctx.scene);
 
   // 3. Subsystems that own buffers/meshes (mirror their existing patterns). debris
-  //    disposes its owned fragments via reset(); snowTrails/avalanche detach their
-  //    InstancedMesh and free its geometry/material. Double-dispose with the scene
+  //    disposes its owned fragments via reset(); snowTrails detaches its
+  //    InstancedMesh and frees its geometry/material. Double-dispose with the scene
   //    sweep above is safe (THREE's dispose tolerates a second call).
   ctx.state.debris?.reset();
   ctx.state.snowTrails?.dispose();
   // Persistent snow-depth field (#246): dispose() is a no-op until a later PR gives the
   // field a GPU DataTexture, but wire it now so teardown is complete when that lands.
   ctx.state.snowDepth?.dispose();
-  ctx.state.avalanche?.dispose();
   // Background scenery (#320): dispose() frees the scenery group's GPU buffers plus any
   // off-scene caches/loaders/listeners a later PR adds (the scene sweep above already
   // caught its attached meshes; dispose() is idempotent, so the overlap is safe).
@@ -142,9 +150,6 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   // ... the shared snowman/debris snow material cache likewise (the sweep just
   //    disposed the material + its textures; a remount must rebuild, not reuse).
   resetSnowmanSnowMaterial();
-  // ... and the shed system's pooled puff sprites/texture + its stale load state
-  //    (its bindings point into the buffers the sweep above just freed).
-  TreeShed.teardown();
 
   // 5. Renderer + WebGL context. Wrapped because forceContextLoss touches the live GL
   //    context, which can throw in a headless / already-lost environment.

@@ -46,6 +46,9 @@ let passCount = 0;
 let failCount = 0;
 
 async function importTranspiledTypeScriptModule(sourcePath) {
+  // Resolve transitive renderer modules too (avalanche -> billboard batch ->
+  // scenery RNG), including when this suite is launched with plain node.
+  await import('./loaders/register-ts-resolve.mjs');
   // The transpiled copy lives in a temp dir, so sibling `./x.js` specifiers
   // (e.g. avalanche.ts -> './run-context.js', #400) would dangle. Rewrite them
   // to absolute file:// URLs of the real `.ts` sources — Node's type stripping
