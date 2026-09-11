@@ -872,6 +872,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     Wind.reset();
     state.scenery?.reset();
     Snow.resetTreeWind();
+    Snow.resetSnowSplash(snowSplash);
     // Re-laden every shed tree and clear in-flight puffs so each run starts from the
     // same forest state the deterministic gust cycle expects.
     TreeShed.reset();

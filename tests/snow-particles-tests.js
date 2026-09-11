@@ -163,6 +163,24 @@ async function main() {
       mats.every((m) => m.blending === THREE.NormalBlending));
     check('every splash material is transparent with depthWrite off',
       mats.every((m) => m.transparent === true && m.depthWrite === false));
+
+    // A zero-sized Sprite still passes Three's point/frustum test and enters the
+    // render list. Exercise expiry + both emitters + reset on the real pool.
+    check('unused spray starts hidden', splash.particles.every((p) => !p.visible));
+    const sprayScene = new THREE.Scene();
+    const snowman = new THREE.Object3D();
+    Snow.updateSnowSplash(splash, 1 / 60, snowman, { x: 0, z: -20 }, false, sprayScene);
+    check('grounded emission makes active sprites visible',
+      splash.particles.some((p) => p.userData.active && p.visible));
+    Snow.updateSnowSplash(splash, 10, snowman, { x: 0, z: 0 }, true, sprayScene);
+    check('expired spray is excluded from Three render traversal',
+      splash.particles.every((p) => !p.userData.active && !p.visible));
+    Snow.updateSnowSplash(splash, 0, snowman, { x: 0, z: 0 }, true, sprayScene, 1);
+    check('landing burst re-shows reclaimed sprites',
+      splash.particles.some((p) => p.userData.active && p.visible));
+    Snow.resetSnowSplash(splash);
+    check('run reset hides the entire pool and resets its cursor',
+      splash.nextParticle === 0 && splash.particles.every((p) => !p.userData.active && !p.visible));
   }
 
   console.log(`\nSNOW PARTICLES TESTS: ${pass} passed, ${fail} failed`);
