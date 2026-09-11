@@ -1,0 +1,95 @@
+{
+  "base_commit": "baa662c77e81a4bb93d3e58154cd35ff8009948a",
+  "viewport": {
+    "width": 320,
+    "height": 568
+  },
+  "query": "?eztrees=1",
+  "player_forest_assertion": "Awaited attached ezBranches with navigator.webdriver=false",
+  "geometry": {
+    "before": {
+      "#authContainer": {
+        "x": 164,
+        "y": 10,
+        "width": 146,
+        "height": 142,
+        "top": 10,
+        "right": 310,
+        "bottom": 152,
+        "left": 164
+      },
+      "#gameStatsContainer": {
+        "x": 164,
+        "y": 160,
+        "width": 146,
+        "height": 312,
+        "top": 160,
+        "right": 310,
+        "bottom": 472,
+        "left": 164
+      },
+      "#gameStatsContent": {
+        "x": 165,
+        "y": 205,
+        "width": 144,
+        "height": 266,
+        "top": 205,
+        "right": 309,
+        "bottom": 471,
+        "left": 165
+      },
+      "#cameraControls": {
+        "x": 10,
+        "y": 454,
+        "width": 210.078125,
+        "height": 46,
+        "top": 454,
+        "right": 220.078125,
+        "bottom": 500,
+        "left": 10
+      }
+    },
+    "after": {
+      "#authContainer": {
+        "x": 164,
+        "y": 10,
+        "width": 146,
+        "height": 142,
+        "top": 10,
+        "right": 310,
+        "bottom": 152,
+        "left": 164
+      },
+      "#gameStatsContainer": {
+        "x": 164,
+        "y": 160,
+        "width": 146,
+        "height": 284,
+        "top": 160,
+        "right": 310,
+        "bottom": 444,
+        "left": 164
+      },
+      "#gameStatsContent": {
+        "x": 165,
+        "y": 205,
+        "width": 144,
+        "height": 238,
+        "top": 205,
+        "right": 309,
+        "bottom": 443,
+        "left": 165
+      },
+      "#cameraControls": {
+        "x": 10,
+        "y": 454,
+        "width": 210.078125,
+        "height": 46,
+        "top": 454,
+        "right": 220.078125,
+        "bottom": 500,
+        "left": 10
+      }
+    }
+  }
+}
