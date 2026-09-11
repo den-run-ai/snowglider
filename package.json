@@ -101,7 +101,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "start": "vite --host 0.0.0.0 --port 8080",
     "analytics": "node scripts/analytics-report.mjs",
-    "audit:missed-main": "node scripts/audit-missed-main.mjs"
+    "audit:missed-main": "node scripts/audit-missed-main.mjs",
+    "test:render-review": "PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test -c playwright.render-review.config.ts"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",
