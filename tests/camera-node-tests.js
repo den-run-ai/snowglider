@@ -119,21 +119,22 @@ async function main() {
   {
     const cam = newCamera();
     // rotation.y = PI/2 -> offset (sin*15, 8, cos*15) = (15, 8, ~0)
-    cam.initialize(new THREE.Vector3(0, 0, 0), new THREE.Euler(0, Math.PI / 2, 0));
+    // Isolate the yaw offset above terrain; a below-ground fixture now correctly clamps.
+    cam.initialize(new THREE.Vector3(0, 1000, 0), new THREE.Euler(0, Math.PI / 2, 0));
     const p = cam.camera.position;
     check('rotates the follow offset around the player by yaw',
-      approx(p.x, 15) && approx(p.y, 8) && approx(p.z, 0));
+      approx(p.x, 15) && approx(p.y, 1008) && approx(p.z, 0));
   }
 
   console.log('\n--- initialize: first-person ---');
   {
     const cam = newCamera();
     cam.setMode('firstPerson');
-    cam.initialize(new THREE.Vector3(0, 20, 0), new THREE.Euler(0, 0, 0));
+    cam.initialize(new THREE.Vector3(0, 1000, 0), new THREE.Euler(0, 0, 0));
     // offset (-sin0*2.5+0.2, 10, -cos0*2.5) = (0.2, 10, -2.5)
     const p = cam.camera.position;
     check('seats the camera just above/behind the head',
-      approx(p.x, 0.2) && approx(p.y, 30) && approx(p.z, -2.5));
+      approx(p.x, 0.2) && approx(p.y, 1010) && approx(p.z, -2.5));
   }
 
   console.log('\n--- orbit: 360° scroller places the camera around the player ---');
@@ -414,14 +415,14 @@ async function main() {
   {
     const cam = newCamera();
     cam.setMode('firstPerson');
-    const player = new THREE.Vector3(5, 20, 5);
+    const player = new THREE.Vector3(5, 1000, 5);
     const rot = new THREE.Euler(0, 0, 0);
     cam.initialize(player, rot);
     cam.update(player, rot, { x: 0, z: 0 }, () => 0);
     const p = cam.camera.position;
     // offset (-sin0*2.5+0.2, 10, -cos0*2.5) = (0.2, 10, -2.5)
     check('first-person update keeps the camera at head height + offset',
-      approx(p.x, 5.2) && approx(p.y, 30) && approx(p.z, 2.5));
+      approx(p.x, 5.2) && approx(p.y, 1010) && approx(p.z, 2.5));
   }
 
   console.log('\n--- cinematic modes: cinematicTargets profile (issue #315) ---');

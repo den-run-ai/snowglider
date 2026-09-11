@@ -252,6 +252,20 @@ camera.position -= shake                          // revert so smoothing stays c
 snowman.position = curState                       // restore authoritative physics pos
 ```
 
+`camera-terrain.ts` seats every camera mode on initialization, mode reentry, and
+after position/look-target smoothing. It preserves clear views and raises blocked
+views using the actual look-target→camera segment: the shared terrain grid's x, z,
+and diagonal edge crossings bound the piecewise-linear surface exactly. A buried
+look target is raised to the surface; clearance grows from zero at that target to
+five units at the camera. Work is capped at 256 crossings (at most 258 height reads),
+with a vertical seat above the target if the budget or an invalid segment sample
+prevents a complete check. An invalid target/target height is rejected before
+mutation. This is allocation-free, RNG-neutral camera math and never writes the
+player or gameplay terrain recipe. The guarantee covers the manager's central
+sight line, before the later cosmetic shake; it is not tree/rock occlusion or a
+near-plane volume test. `camera-terrain-tests.js` covers actual terrain across all
+six modes/four tiers, entry/reentry, diagonal ridges, bounded fallback, and RNG.
+
 > `window.updateSnowman(delta)` is retained as a single-step test seam (physics +
 > telemetry + cosmetics, no course/avalanche — exactly the pre-accumulator single-call
 > behavior) that the browser suites drive directly; the live loop runs `stepFixed`
