@@ -75,6 +75,7 @@ export function reachedDefaultBranch(status) {
 export function parseAllowlist(text) {
   const raw = text != null ? text : (existsSync(ALLOWLIST_PATH) ? readFileSync(ALLOWLIST_PATH, 'utf8') : '{}');
   const obj = JSON.parse(raw);
+  /** @type {Record<string, string>} */
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
     if (k.startsWith('_')) continue;

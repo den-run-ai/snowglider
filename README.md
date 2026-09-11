@@ -41,9 +41,10 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 - [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — diagnostics, debug overlays, and logging for local/production issues
 - [`ROADMAP.md`](docs/ROADMAP.md) — feature roadmap and gap analysis (incl. the now-shipped R2/R3 refactor stages)
 
-> The TypeScript/ES-module migration and the three.js r134→0.184 upgrade are
-> complete; the current module architecture lives in
-> [`ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> The application TypeScript/ES-module migration and the three.js r134→0.184
+> upgrade are complete. See [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the module
+> map and [`TYPE_SAFETY.md`](docs/TYPE_SAFETY.md) for compiler coverage, SDK contracts
+> and the remaining legacy test exceptions.
 
 ## Project Structure
 - `index.html` / `auth.html` - Entry points (load the Vite bundle `src/main.ts`)

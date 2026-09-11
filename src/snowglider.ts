@@ -2,10 +2,9 @@
 //
 // Phase 3.9 (issue #84): the orchestrator is the LAST module renamed `.js` -> `.ts`,
 // after every leaf module was stable. The `@ts-check` pragma is gone (implied for a
-// real `.ts` file) and the three `/** @type {any} */ (...)` JSDoc casts (the r160
-// color-management / renderer opt-outs) are now `as any` casts — `.ts` does not
-// honour JSDoc cast syntax. No behaviour change and no GameState refactor: the
-// module-scoped state and its window accessors are unchanged. It still loads via the
+// real `.ts` file). The module state and browser-test accessors are typed; the
+// accessor setters must declare their inputs because PropertyDescriptor's default
+// setter parameter is untyped. It still loads via the
 // deferred dynamic import below (Vite resolves `./snowglider.js` -> `snowglider.ts`;
 // the build emits a `dist/src/snowglider.js` chunk), and the puppeteer start-menu
 // regression now matches the delayed `/src/snowglider.{js,ts}` request.
@@ -612,19 +611,19 @@ window.initializeGameWithAudio = function() {
     // Mutable primitives the tests reassign — proxy reads and writes.
     // gameActive now lives on the typed `state` (GameState); the proxy backs the
     // bare handle with state.* so a test's `gameActive = true` flows to the live state.
-    gameActive:         { get: () => state.gameActive,       set: (v) => { state.gameActive = v; } },
+    gameActive:         { get: () => state.gameActive,       set: (v: boolean) => { state.gameActive = v; } },
     // Player physics scalars now live on the typed `player` state (src/player-state.ts);
     // the proxy reads/writes player.* so test reassignments hit the live state.
-    isInAir:            { get: () => player.isInAir,          set: (v) => { player.isInAir = v; } },
-    verticalVelocity:   { get: () => player.verticalVelocity, set: (v) => { player.verticalVelocity = v; } },
+    isInAir:            { get: () => player.isInAir,          set: (v: boolean) => { player.isInAir = v; } },
+    verticalVelocity:   { get: () => player.verticalVelocity, set: (v: number) => { player.verticalVelocity = v; } },
     // jumpCooldown is reassigned by the gameplay suite (testJumpMechanics). It must
     // be republished like the others: now that browser-tests.js is an ES module
     // (strict mode), a bare `jumpCooldown = 0` assignment to an unpublished name
     // throws a ReferenceError instead of silently creating a sloppy-mode global
     // (issue #84).
-    jumpCooldown:       { get: () => player.jumpCooldown,     set: (v) => { player.jumpCooldown = v; } },
+    jumpCooldown:       { get: () => player.jumpCooldown,     set: (v: number) => { player.jumpCooldown = v; } },
     // Run/scoring + avalanche run-state now live on the typed `state` object.
-    bestTime:           { get: () => state.bestTime,           set: (v) => { state.bestTime = v; } },
+    bestTime:           { get: () => state.bestTime,           set: (v: number) => { state.bestTime = v; } },
     // The startTime WINDOW seam is test-only (production writes state.startTime
     // directly): browser/e2e suites backdate it to synthesize an elapsed run
     // before calling showGameOver. Since #402 the recorded finish reads the
@@ -637,8 +636,8 @@ window.initializeGameWithAudio = function() {
       if (Number.isFinite(derived) && derived > 0) state.simElapsed = derived;
     } },
     simElapsed:         { get: () => state.simElapsed,         set: (v: number) => { state.simElapsed = v; } },
-    avalancheTriggered: { get: () => state.avalancheTriggered, set: (v) => { state.avalancheTriggered = v; } },
-    lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v) => { state.lastAvalancheZ = v; } },
+    avalancheTriggered: { get: () => state.avalancheTriggered, set: (v: boolean) => { state.avalancheTriggered = v; } },
+    lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v: number) => { state.lastAvalancheZ = v; } },
     // Object/function refs the tests read or mutate (never reassign) — get-only.
     scene:              { get: () => scene },
     // Test-only read seam for the perf/draw-call budget spec (tests/e2e/perf-budget.spec.ts).

@@ -51,6 +51,50 @@ export interface GhostSample {
   rot: number; // snowman heading (radians)
 }
 
+/** localStorage is an untrusted boundary, even for current-world records. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function decodeGhostSamples(value: unknown): GhostSample[] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const entries: unknown[] = value;
+  const samples: GhostSample[] = [];
+  let previousTime = 0;
+  for (const entry of entries) {
+    if (!isRecord(entry)) return null;
+    const { t, x, y, z, rot } = entry;
+    if (!isFiniteNumber(t) || t < previousTime ||
+        !isFiniteNumber(x) || !isFiniteNumber(y) ||
+        !isFiniteNumber(z) || !isFiniteNumber(rot)) return null;
+    samples.push({ t, x, y, z, rot });
+    previousTime = t;
+  }
+  // onFinish appends a final sample even if update already sampled that exact
+  // time. Equal timestamps are valid; backwards/negative times and a zero-time
+  // record are not (the latter would permanently block future tier bests).
+  return previousTime > 0 ? samples : null;
+}
+
+function decodeBestSplits(value: unknown, splitCount: number): number[] | null {
+  if (!Array.isArray(value) || value.length !== splitCount) return null;
+  const entries: unknown[] = value;
+  const splits: number[] = [];
+  let previousTime = 0;
+  for (const entry of entries) {
+    // These are cumulative times, not individual segment durations. A zero or
+    // repeated checkpoint time is allowed, but the finish must be positive.
+    if (!isFiniteNumber(entry) || entry < previousTime) return null;
+    splits.push(entry);
+    previousTime = entry;
+  }
+  return previousTime > 0 ? splits : null;
+}
+
 /** A checkpoint or the finish line along the fall line. */
 export interface SplitPoint {
   z: number;
@@ -400,8 +444,7 @@ export const CourseModule = (function () {
       const raw = localStorage.getItem(ghostMetaKey());
       if (!raw) return false;
       const meta: unknown = JSON.parse(raw);
-      if (typeof meta !== 'object' || meta === null) return false;
-      const rec = meta as { physicsVersion?: unknown; seed?: unknown };
+      if (!isRecord(meta)) return false;
       // Same WORLD means same version AND same seed (Codex review PR #408): the
       // hazards stream places different rocks/trees per seed, so a ghost from
       // another seed threads an obstacle field that doesn't exist here — it
@@ -409,8 +452,7 @@ export const CourseModule = (function () {
       // first run from committing its own baseline. Unseeded records carry
       // seed null and only match unseeded runs (strict equality both ways).
       const currentSeed = getRunStamp().seed;
-      const stampedSeed = typeof rec.seed === 'number' ? rec.seed : null;
-      return rec.physicsVersion === PHYSICS_VERSION && stampedSeed === currentSeed;
+      return meta.physicsVersion === PHYSICS_VERSION && meta.seed === currentSeed;
     } catch {
       return false;
     }
@@ -423,10 +465,11 @@ export const CourseModule = (function () {
       if (!ghostStampCompatible()) return; // stale-world ghost: leave unloaded (#401/#408)
       const raw = localStorage.getItem(ghostKey());
       if (raw) {
-        const data = JSON.parse(raw);
-        if (Array.isArray(data) && data.length > 1) {
-          ghostSamples = data;
-          ghostTotalTime = data[data.length - 1].t;
+        const data: unknown = JSON.parse(raw);
+        const samples = decodeGhostSamples(data);
+        if (samples) {
+          ghostSamples = samples;
+          ghostTotalTime = samples[samples.length - 1]!.t;
         }
       }
     } catch {
@@ -445,7 +488,8 @@ export const CourseModule = (function () {
       // baseline — the first run on the current world re-seeds both.
       if (!ghostStampCompatible()) { bestSplits = null; return; }
       const raw = localStorage.getItem(splitsKey());
-      bestSplits = raw ? JSON.parse(raw) : null;
+      const data: unknown = raw ? JSON.parse(raw) : null;
+      bestSplits = decodeBestSplits(data, splitPoints.length);
     } catch {
       bestSplits = null;
     }

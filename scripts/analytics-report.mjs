@@ -99,7 +99,7 @@ function findServiceAccount() {
 function loadServiceAccount(path) {
   let sa;
   try { sa = JSON.parse(readFileSync(path, 'utf8')); }
-  catch (e) { die(`could not read/parse service-account key ${path}: ${e.message}`); }
+  catch (e) { die(`could not read/parse service-account key ${path}: ${(e instanceof Error ? e.message : String(e))}`); }
   if (sa.type !== 'service_account') die(`${path} is not a service_account key (type=${sa.type})`);
   for (const k of ['client_email', 'private_key', 'project_id']) {
     if (!sa[k]) die(`service-account key missing required field: ${k}`);
@@ -194,7 +194,7 @@ async function fetchGa4(sa) {
   try {
     token = await getAccessToken(sa, 'https://www.googleapis.com/auth/analytics.readonly');
   } catch (e) {
-    return { available: false, reason: `Could not mint an Analytics token: ${e.message}`, howTo };
+    return { available: false, reason: `Could not mint an Analytics token: ${(e instanceof Error ? e.message : String(e))}`, howTo };
   }
   const property = `properties/${OPTS.gaProperty}`;
   async function runReport(body) {
@@ -291,7 +291,7 @@ async function fetchGa4(sa) {
         spikes: detectAnomalies(series, sortedDays),
       };
     } catch (e) {
-      anomalies = { available: false, reason: e.message, days: [], spikes: [] };
+      anomalies = { available: false, reason: (e instanceof Error ? e.message : String(e)), days: [], spikes: [] };
     }
 
     return {
@@ -304,7 +304,7 @@ async function fetchGa4(sa) {
       byEvent, timeline, country, anomalies,
     };
   } catch (e) {
-    return { available: false, reason: `GA4 query failed: ${e.message}`, howTo };
+    return { available: false, reason: `GA4 query failed: ${(e instanceof Error ? e.message : String(e))}`, howTo };
   }
 }
 

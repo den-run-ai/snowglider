@@ -1,6 +1,6 @@
 import { type Locator, type Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { gotoGame, startGame } from './helpers';
+import { gotoGame, startGame, type GameWindow } from './helpers';
 
 const panels = [
   { container: '#controlsInfo', header: '#controlsHeader', toggle: '#toggleControls', content: 'controlsContent' },
@@ -26,7 +26,7 @@ async function openPausedGame(page: Page, playerScene = false): Promise<void> {
   // These are UI contracts, not timed skiing. Pause through the existing seam so
   // software rendering cannot finish/crash the run halfway through a touch test.
   await page.evaluate(() => new Promise<void>((resolve) => {
-    window.gameActive = false;
+    (window as GameWindow).gameActive = false;
     requestAnimationFrame(() => resolve());
   }));
   if (playerScene) {
@@ -247,7 +247,7 @@ test('all disclosures work by touch or keyboard and collapsed contents cannot re
   const modes = [
     ['auto', 'Auto'], ['follow', 'Follow'], ['orbit', 'Orbit 360°'],
     ['firstPerson', 'First Person'], ['cameraman', 'Cameraman'], ['drone', 'Drone'],
-  ];
+  ] as const;
   await expect(page.locator('[data-cam-mode]')).toHaveCount(modes.length);
   for (const [mode, label] of modes) {
     const button = page.locator(`[data-cam-mode="${mode}"]`);

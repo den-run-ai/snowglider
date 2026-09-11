@@ -32,7 +32,7 @@
 // (e.g. a changed `calls.setDoc` entry) now surfaces as a type error here.
 
 /** @typedef {Record<string, any>} DocData */
-/** @typedef {{ firestore: unknown, collectionName: string, id: string, path: string }} DocRef */
+/** @typedef {DocumentReference} DocRef */
 /** @typedef {{ firestore: unknown, collectionName: string, path: string }} CollectionRef */
 /** @typedef {{ kind: 'where', field: string, op: string, value: any }} WhereConstraint */
 /** @typedef {{ kind: 'orderBy', field: string, direction?: string }} OrderByConstraint */
@@ -115,7 +115,21 @@ let timestampCounter = 0;
  * @returns {T}
  */
 function clone(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
+  return /** @type {T} */ (cloneValue(value));
+}
+
+/** Preserve SDK-reference identity while copying document fields, like Firestore.
+ * JSON round-tripping turned references into plain objects and hid boundary bugs.
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function cloneValue(value) {
+  if (value instanceof DocumentReference) return value;
+  if (Array.isArray(value)) return value.map(cloneValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneValue(item)]));
+  }
+  return value;
 }
 
 /**
@@ -223,6 +237,22 @@ export function setPendingWrite(path) {
 }
 
 // ---- firebase-firestore.js surface ----
+/** Minimal SDK constructor contract used by the application's boundary validator. */
+export class DocumentReference {
+  /**
+   * @param {unknown} firestore
+   * @param {string} collectionName
+   * @param {string} id
+   */
+  constructor(firestore, collectionName, id) {
+    this.firestore = firestore;
+    this.collectionName = collectionName;
+    this.id = id;
+    this.path = `${collectionName}/${id}`;
+    this.type = 'document';
+  }
+}
+
 export function getFirestore() {
   return firestoreInstance;
 }
@@ -234,12 +264,7 @@ export function getFirestore() {
  * @returns {DocRef}
  */
 export function doc(firestore, collectionName, id) {
-  return {
-    firestore,
-    collectionName,
-    id,
-    path: `${collectionName}/${id}`
-  };
+  return new DocumentReference(firestore, collectionName, id);
 }
 
 /**
@@ -460,7 +485,7 @@ export class OAuthProvider {
 
 export function signInWithPopup() {
   calls.signInWithPopup++;
-  if (nextPopupResult && nextPopupResult.reject) {
+  if (nextPopupResult && 'reject' in nextPopupResult) {
     return Promise.reject(nextPopupResult.reject);
   }
   return Promise.resolve(nextPopupResult ? nextPopupResult.resolve : { user: { email: 'x@y.z' } });
@@ -470,7 +495,7 @@ export function signInWithPopup() {
 // default resolves to a fresh anonymous user (isAnonymous: true, no email).
 export function signInAnonymously() {
   calls.signInAnonymously++;
-  if (nextPopupResult && nextPopupResult.reject) {
+  if (nextPopupResult && 'reject' in nextPopupResult) {
     return Promise.reject(nextPopupResult.reject);
   }
   return Promise.resolve(
@@ -488,7 +513,7 @@ export function signInAnonymously() {
  */
 export function linkWithPopup(user, _provider) {
   calls.linkWithPopup++;
-  if (nextLinkResult && nextLinkResult.reject) {
+  if (nextLinkResult && 'reject' in nextLinkResult) {
     return Promise.reject(nextLinkResult.reject);
   }
   return Promise.resolve(

@@ -310,6 +310,15 @@ export function frameRateHealth(summary: DiagSummary, cfg: DiagConfig): HealthVe
   return { level, reasons };
 }
 
+/** Browser error/rejection payloads may come from another realm or be plain objects.
+ *  Keep their SDK-provided `any` outside the recorder and narrow individual fields. */
+function errorText(value: unknown, field: 'message' | 'stack'): string {
+  if (typeof value !== 'object' || value === null) return '';
+  if (field === 'message' && 'message' in value && typeof value.message === 'string') return value.message;
+  if (field === 'stack' && 'stack' in value && typeof value.stack === 'string') return value.stack;
+  return '';
+}
+
 // --- Stateful recorder + DOM overlay (the live device side) --------------------
 
 class Diagnostics {
@@ -510,16 +519,16 @@ class Diagnostics {
         message: String(e.message || 'error'),
         source: e.filename || '',
         line: e.lineno || 0,
-        stack: (e.error && e.error.stack ? String(e.error.stack) : '').slice(0, 600),
+        stack: errorText(e.error, 'stack').slice(0, 600),
         ...context(),
       });
     }, opts);
     window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
-      const reason = e.reason;
-      const msg = reason && reason.message ? reason.message : String(reason);
+      const reason: unknown = e.reason;
+      const msg = errorText(reason, 'message') || String(reason);
       this.emit('unhandled_rejection', {
         message: String(msg).slice(0, 300),
-        stack: (reason && reason.stack ? String(reason.stack) : '').slice(0, 600),
+        stack: errorText(reason, 'stack').slice(0, 600),
         ...context(),
       });
     }, opts);

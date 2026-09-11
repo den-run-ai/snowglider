@@ -7,6 +7,9 @@
 import type * as THREE from 'three';
 import type { TreePosition } from '../src/trees.js';
 import type { User } from 'firebase/auth';
+import type { FirebaseOptions } from 'firebase/app';
+import type { Firestore } from 'firebase/firestore';
+import type { Analytics } from 'firebase/analytics';
 import type { Difficulty } from '../src/difficulty.js';
 import type { LeaderboardScore } from '../src/scores.js';
 
@@ -75,17 +78,14 @@ declare global {
     isSignedIn: boolean;
   }
 
-  // NOTE: the members below use METHOD syntax (`foo?(): T`) rather than property
-  // syntax (`foo?: () => T`) deliberately — method signatures are compared with
-  // BIVARIANT parameters, so the concrete modules (whose params are the precise
-  // Firebase types, e.g. `initializeAuth(config: FirebaseOptions)`) stay assignable
-  // to these loosened seam declarations. Property syntax would reject them under
-  // strictFunctionTypes.
+  // Initializers preserve the SDK's parameter types even through the window bridge.
+  // Property function signatures keep strictFunctionTypes effective; the local
+  // fallback can ignore these arguments without weakening checks for callers.
 
   /** The auth/scoring boot bridge published on `window` by auth.ts (real Firebase)
    *  or boot/local-auth.js (the reduced file://-mode shim). */
   interface AuthModuleApi {
-    initializeAuth?(config?: unknown): unknown;
+    initializeAuth?: (config: FirebaseOptions) => void;
     getCurrentUser?(): User | null;
     isUserSignedIn?(): boolean;
     getUserIdToken?(forceRefresh?: boolean): Promise<string | null>;
@@ -101,7 +101,7 @@ declare global {
    *  reduced boot/local-auth.js shim, whose updateUserBestTime/updateLeaderboard are
    *  no-op `() => void` — hence the `| void` returns). */
   interface ScoresModuleApi {
-    initializeScores?(firestore: unknown, analytics: unknown): void;
+    initializeScores?: (firestore: Firestore | null, analytics: Analytics | null) => void;
     setCurrentUser?(user: User | null): void;
     recordScore?(time: number, tier?: Difficulty): void;
     displayLeaderboard?(tier?: Difficulty): void;
@@ -163,7 +163,7 @@ declare global {
 
   /** Firebase's own auto-init defaults hook (auth.ts sets these to suppress 404s). */
   interface FirebaseDefaults {
-    config?: unknown;
+    config?: FirebaseOptions;
     _authTokenSyncURL?: string | null;
   }
 

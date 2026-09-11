@@ -52,7 +52,9 @@ async function run() {
 
   // Deferred importer: the "chunk fetch" resolves only when the test says so,
   // handing back the REAL @dgreenheck/ez-tree module.
+  /** @type {() => void} */
   let releaseImport;
+  /** @type {Promise<void>} */
   const gate = new Promise((resolve) => { releaseImport = resolve; });
   EzForest.__setEzModuleImporterForTests(() => gate.then(() => import('@dgreenheck/ez-tree')));
   Trees.setEzForestEnabled(true);
@@ -94,7 +96,9 @@ async function run() {
 
     // --- Scenario 2: teardown after abandonment stales the pending upgrade ---
     EzForest.resetEzForest();
+    /** @type {() => void} */
     let releaseSecond;
+    /** @type {Promise<void>} */
     const gate2 = new Promise((resolve) => { releaseSecond = resolve; });
     EzForest.__setEzModuleImporterForTests(() => gate2.then(() => import('@dgreenheck/ez-tree')));
     const scene2 = new THREE.Scene();

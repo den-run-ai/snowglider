@@ -1,19 +1,15 @@
-import type { WebGLRenderer } from 'three';
+import type { GameState, SceneContext } from '../../src/game/scene-setup.js';
+import type { PlayerState } from '../../src/player-state.js';
 import { test, expect } from './fixtures';
 import { gotoGame, startGame } from './helpers';
 
-type RecoveryWindow = Window & {
-  renderer: WebGLRenderer;
-  scene: import('three').Scene;
-  pos: { x: number; y: number; z: number };
-  gameActive: boolean;
-  simElapsed: number;
-  getControls: () => Record<string, boolean>;
-  initializeGameWithAudio: () => boolean;
-  restartGame: () => void;
-  resetSnowman: () => void;
-  showGameOver: (reason: string) => void;
-};
+type RecoveryWindow = Window &
+  Pick<SceneContext, 'renderer' | 'scene'> &
+  Pick<GameState, 'gameActive' | 'simElapsed'> &
+  Pick<PlayerState, 'pos'> &
+  Required<Pick<Window, 'initializeGameWithAudio' | 'restartGame' | 'resetSnowman' | 'showGameOver'>> & {
+    getControls: typeof import('../../src/controls.js').Controls.getControls;
+  };
 
 test.describe('real WebGL context loss', () => {
   // Chromium exposes WEBGL_lose_context consistently in CI. This intentionally
@@ -39,7 +35,7 @@ test.describe('real WebGL context loss', () => {
         // Successful CI runs retain visual evidence too. Force and verify the
         // actual player forest, rather than photographing the automation cones.
         await page.waitForFunction(() => {
-          const w = window as RecoveryWindow;
+          const w = window as unknown as RecoveryWindow;
           let ezAttached = false;
           w.scene.traverse((object) => {
             if (object.userData.forestPart === 'ezBranches') ezAttached = true;
@@ -58,7 +54,7 @@ test.describe('real WebGL context loss', () => {
       // handle. Check the retained real state and callbacks rather than reading
       // undefined handles and mistakenly concluding the simulation stopped.
       const probe = await page.evaluateHandle(async (currentPhase) => {
-        const w = window as RecoveryWindow;
+        const w = window as unknown as RecoveryWindow;
         if (currentPhase === 'loading' || currentPhase === 'intro') {
           // Start awaits the audio-unlock promise before entering its loading
           // delay/intro. Observe the actual phase before losing graphics; doing
@@ -90,8 +86,20 @@ test.describe('real WebGL context loss', () => {
         const gl = renderer.getContext();
         const extension = gl.getExtension('WEBGL_lose_context');
         if (!extension) throw new Error('WEBGL_lose_context unavailable');
-        const getActive = Object.getOwnPropertyDescriptor(w, 'gameActive')!.get!;
-        const getElapsed = Object.getOwnPropertyDescriptor(w, 'simElapsed')!.get!;
+        // Retain the actual accessors before disposal deletes the window handles.
+        // PropertyDescriptor.get returns any, so validate its result at this seam
+        // rather than allowing an untyped value through the serialized probe.
+        function retainGetter<T>(name: string, isValue: (value: unknown) => value is T): () => T {
+          const getter: (() => unknown) | undefined = Object.getOwnPropertyDescriptor(w, name)?.get?.bind(w);
+          if (!getter) throw new Error(`Missing live ${name} getter`);
+          return () => {
+            const value = getter();
+            if (!isValue(value)) throw new Error(`Invalid live ${name} value`);
+            return value;
+          };
+        }
+        const getActive = retainGetter('gameActive', (value): value is boolean => typeof value === 'boolean');
+        const getElapsed = retainGetter('simElapsed', (value): value is number => typeof value === 'number' && Number.isFinite(value));
         const controls = w.getControls();
         controls.left = true;
         const pos = w.pos;
@@ -146,10 +154,10 @@ test.describe('real WebGL context loss', () => {
       const navigation = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
       await page.getByRole('button', { name: 'Reload', exact: true }).click();
       await navigation;
-      await page.waitForFunction(() => typeof (window as RecoveryWindow).initializeGameWithAudio === 'function');
+      await page.waitForFunction(() => typeof (window as unknown as RecoveryWindow).initializeGameWithAudio === 'function');
       await expect(page.locator('#fatalErrorOverlay')).toHaveCount(0);
       await expect(page.locator('#gameCanvas canvas')).toHaveCount(1);
-      expect(await page.evaluate(() => !(window as RecoveryWindow).renderer.getContext().isContextLost())).toBe(true);
+      expect(await page.evaluate(() => !(window as unknown as RecoveryWindow).renderer.getContext().isContextLost())).toBe(true);
     });
   }
 });

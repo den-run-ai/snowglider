@@ -75,6 +75,18 @@ import { DIFFICULTIES, localBestTimeKey, localBestProvenanceCompatible, type Dif
 import { safeGetItem, safeRemoveItem } from "./offline/offline-store.js";
 import { withTrafficTag } from "./analytics-env.js";
 
+/** Promise rejections are untrusted: Firebase errors normally expose string
+ * code/message fields, but network shims and failures can reject with anything. */
+function readAuthError(error: unknown): { code: string | null; message: string } {
+  const fields = error !== null && typeof error === 'object'
+    ? error as Record<string, unknown> : {};
+  return {
+    code: typeof fields.code === 'string' ? fields.code : null,
+    message: typeof fields.message === 'string' ? fields.message
+      : typeof error === 'string' ? error : 'Unknown error. Please try again.',
+  };
+}
+
 // Initialize Firebase Auth
 function initializeAuth(firebaseConfig: FirebaseOptions) {
   try {
@@ -144,7 +156,7 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
       window.firebaseModules = Object.assign(window.firebaseModules || {}, {
         logEvent: (name: string, params?: Record<string, unknown>) => {
           try { if (analytics) logEvent(analytics, name, withTrafficTag(params)); }
-          catch (e) { console.log('logEvent skipped:', (e as Error).message); }
+          catch (e) { console.log('logEvent skipped:', readAuthError(e).message); }
         }
       });
     }
@@ -178,8 +190,8 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
     }
   } catch (e) {
     // Catch errors during initializeApp or other setup steps
-    const err = e as Error;
-    console.error("Firebase setup failed:", err.message, err.stack);
+    const err = readAuthError(e);
+    console.error("Firebase setup failed:", err.message, e instanceof Error ? e.stack : undefined);
     auth = firestore = analytics = null; // Ensure services are null on failure
     updateUIForLoggedOutUser();
     resetAuthButtons();
@@ -480,7 +492,8 @@ function setAuthButtonsBusy(activeBtn: HTMLButtonElement) {
 }
 
 // Shared sign-in error handling for every provider and the guest path.
-function handleSignInError(error: { code?: string; message?: string }) {
+function handleSignInError(reason: unknown) {
+  const error = readAuthError(reason);
   console.error("Sign-in error:", error.code, error.message);
   if (error.code === 'auth/popup-blocked') {
     alert('Popup blocked by browser. Please allow popups for this site and try again.');
@@ -533,9 +546,10 @@ function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
   const flow: Promise<UserCredential> = upgrading
     ? linkWithPopup(guest, provider)
         .then(result => { linkedInPlace = true; return result; })
-        .catch(error => {
-          if (error.code === 'auth/credential-already-in-use' ||
-              error.code === 'auth/email-already-in-use') {
+        .catch((error: unknown) => {
+          const { code } = readAuthError(error);
+          if (code === 'auth/credential-already-in-use' ||
+              code === 'auth/email-already-in-use') {
             console.log('Guest upgrade: provider account already exists, signing in instead.');
             return signInWithPopup(auth!, provider);
           }
@@ -666,9 +680,9 @@ function setupAuthButtons() {
             // Success is primarily handled by onAuthStateChanged listener
             console.log("Successfully signed out via button.");
         })
-        .catch(error => {
+        .catch((error: unknown) => {
             console.error("Logout error:", error);
-            alert(`Error signing out: ${error.message}`); // Inform user of logout error
+            alert(`Error signing out: ${readAuthError(error).message}`); // Inform user of logout error
         })
         .finally(() => {
           // Reset button state regardless of success/failure
@@ -749,12 +763,13 @@ function syncUserData(user: User) {
     .then(() => {
       console.log("User data synced/updated in Firestore for:", user.uid);
     })
-    .catch(error => {
+    .catch((error: unknown) => {
       console.error("Error saving user data to Firestore:", error);
       // Handle potential Firestore unavailability errors. Score backfill already ran above,
       // so disabling Firestore here no longer risks dropping the player's local bests.
-      if (error.code === 'permission-denied' || error.code === 'unavailable' ||
-          error.code === 'failed-precondition') {
+      const { code } = readAuthError(error);
+      if (code === 'permission-denied' || code === 'unavailable' ||
+          code === 'failed-precondition') {
         console.warn("Firestore became unavailable during user data sync. Disabling Firestore features.");
         firestore = null; // Disable Firestore for subsequent operations
         ScoresModule.initializeScores(null, analytics);

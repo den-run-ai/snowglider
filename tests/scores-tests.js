@@ -406,6 +406,22 @@ async function main() {
   check('getLeaderboard orders valid entries by ascending time',
     leaderboard[0].time === 24.67 && leaderboard[1].time === 58.64);
 
+  // Runtime reference identity and ownership must survive document reads. Shape
+  // lookalikes, strings, and another user's real reference all used to pass the
+  // truthiness check and escape as a supposedly trusted DocumentReference.
+  resetState(ScoresModule);
+  ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+  seed(LB, 'valid', { user: doc(firestoreInstance, 'users', 'valid'), time: 30 });
+  seed(LB, 'string', { user: 'users/string', time: 31 });
+  seed(LB, 'lookalike', { user: { type: 'document', path: 'users/lookalike' }, time: 32 });
+  seed(LB, 'wrong-owner', { user: doc(firestoreInstance, 'users', 'someone-else'), time: 33 });
+  seed(LB, 'wrong-collection', { user: doc(firestoreInstance, 'other', 'wrong-collection'), time: 34 });
+  const checkedReferences = await ScoresModule.getLeaderboard();
+  check('leaderboard drops malformed and mismatched references at the boundary',
+    checkedReferences.length === 1 && checkedReferences[0].userId === 'valid');
+  check('Firestore mock reads preserve DocumentReference instances',
+    checkedReferences[0].userRef instanceof fb.DocumentReference);
+
   console.log('\n--- Offline write ordering ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);

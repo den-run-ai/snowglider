@@ -147,7 +147,7 @@ async function main() {
     const profileUI = document.getElementById('profileUI');
     // The local fallback's initializeAuth ran via installLocalAuthFallback path? No —
     // installLocalAuthFallback only installs the module; drive the notice via it.
-    window.AuthModule.initializeAuth();
+    window.AuthModule.initializeAuth({});
     check('local fallback appends a local-mode notice', !!authContainer.querySelector('.local-mode-notice'));
 
     // Late real auth.js load after the fallback: re-init the real module + clear UI.

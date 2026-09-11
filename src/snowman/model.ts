@@ -1,5 +1,6 @@
 // Snowman geometry/model construction.
 import * as THREE from 'three';
+import { setSnowmanUserData, type BaseTransform, type SnowmanUserData } from './user-data.js';
 import { getSnowmanSnowMaterial } from './snow-material.js';
 import { createSkis } from './ski.js';
 import { createFace } from './face.js';
@@ -56,7 +57,7 @@ function bakeJunctionTint(
 }
 
 // Create Snowman (Three Spheres)
-export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}): THREE.Group {
+export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}) {
   const group = new THREE.Group();
   // Shared snowman/debris snow material (PR-V4): the same albedo/normal generators as
   // the terrain snow, so the player stops reading as plastic against the slope. One
@@ -296,17 +297,10 @@ export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}
   // cosmetic geometry; the expression controller animates these as offsets from neutral.
   const face = createFace(head, blackMaterial, leftEye, rightEye);
 
-  // Keep references + neutral pose so ski technique (e.g. snowplow wedge) can be shown.
-  group.userData = group.userData || {};
-  group.userData.leftSki = leftSki;
-  group.userData.rightSki = rightSki;
-  group.userData.leftSkiBaseX = leftSki.position.x;
-  group.userData.rightSkiBaseX = rightSki.position.x;
-
   // --- Cosmetic part registries (issue #53) ---------------------------------
   // FLEX registry: fine-grained animatable refs read by src/snowman-flex.ts. Every
   // value is a renderable Object3D; headGroup is the neck-pivoted cluster above.
-  group.userData.parts = {
+  const parts = {
     bottom, middle,
     headGroup, head,
     leftEye, rightEye, nose,
@@ -336,7 +330,7 @@ export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}
   // flings, so accessories ride with their cluster instead of being double-spawned.
   // headGroup + arms (+ scarfTail) are THREE.Groups; the shatter loop branches on
   // `part.isMesh` (the scarf wrap is a Mesh).
-  group.userData.shatterRoots = [
+  const shatterRoots = [
     bottom, middle, headGroup,
     leftArmGroup, rightArmGroup,
     button1, button2, button3,
@@ -362,22 +356,23 @@ export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}
     flipPivot.add(child); // Object3D.add() reparents from `group`
   }
   group.add(flipPivot);
-  group.userData.flipPivot = flipPivot;
 
   // Neutral local transforms, kept OFF the registries so a generic loop over .parts
   // / .shatterRoots only ever sees renderable Object3Ds. Keyed by the same names so
   // the flex layer can pair part <-> base and restore exactly on reset.
-  group.userData.partBaseTransforms = recordBaseTransforms(group.userData.parts);
+  // Retain the concrete model-part types for callers, together with the shared
+  // optional physics fields. The checked bag is published only when complete.
+  const modelData = {
+    leftSki, rightSki,
+    leftSkiBaseX: leftSki.position.x, rightSkiBaseX: rightSki.position.x,
+    parts, shatterRoots, flipPivot,
+    partBaseTransforms: recordBaseTransforms(parts)
+  };
+  const userData: SnowmanUserData & typeof modelData = modelData;
+  const snowman = setSnowmanUserData(group, userData);
 
   scene.add(group);
-  return group;
-}
-
-/** A plain-number snapshot of a part's neutral local transform. */
-interface BaseTransform {
-  position: { x: number; y: number; z: number };
-  scale: { x: number; y: number; z: number };
-  rotation: { x: number; y: number; z: number };
+  return snowman;
 }
 
 /** Snapshot each part's neutral local position/scale/rotation so the cosmetic flex

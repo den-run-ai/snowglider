@@ -7,11 +7,11 @@ import { expect, type Page } from '@playwright/test';
 // from pixels.
 
 /** The subset of orchestrator `window.*` handles the specs read. */
-type GameWindow = Window & {
+export type GameWindow = Window & {
   initializeGameWithAudio?: () => void;
   gameActive?: boolean;
   pos?: { x: number; y: number; z: number };
-  getControls?: () => Record<string, boolean>;
+  getControls?: typeof import('../../src/controls.js').Controls.getControls;
 };
 
 /** Load the game page and wait until the deferred orchestrator has wired up start.
@@ -42,7 +42,7 @@ export function getPos(page: Page): Promise<{ x: number; y: number; z: number } 
 }
 
 /** Live shared controls state (left/right/up/down/jump), or null if unavailable. */
-export function getControls(page: Page): Promise<Record<string, boolean> | null> {
+export function getControls(page: Page): Promise<ReturnType<NonNullable<GameWindow['getControls']>> | null> {
   return page.evaluate(() => {
     const fn = (window as GameWindow).getControls;
     return fn ? fn() : null;

@@ -108,6 +108,18 @@ async function main() {
   check('error: a non-Error rejection reason is still captured',
     events.some((e) => e.event === 'unhandled_rejection' && /plain string reason/.test(String(e.data.message))));
 
+  events.length = 0;
+  window.dispatchEvent(Object.assign(new window.Event('unhandledrejection'), {
+    reason: { message: 'cross-realm error', stack: 'external stack' }
+  }));
+  check('error: structural error payload retains its message and stack',
+    events.some((e) => e.data.message === 'cross-realm error' && e.data.stack === 'external stack'));
+  window.dispatchEvent(Object.assign(new window.Event('unhandledrejection'), {
+    reason: { message: 'invalid stack', stack: { nested: 'not text' } }
+  }));
+  check('error: malformed stack payload is omitted from diagnostics',
+    events.some((e) => e.data.message === 'invalid stack' && e.data.stack === ''));
+
   // a bare error event (no message / filename / lineno / error) still reports via fallbacks.
   events.length = 0;
   window.dispatchEvent(new window.Event('error'));

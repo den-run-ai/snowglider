@@ -966,8 +966,9 @@ export function addRocks(
     const child = scene.children[i]!;
     if (child.userData && (child.userData.isRock === true || child.userData.isRockGrounding === true)) {
       scene.remove(child);
-      if (child instanceof THREE.Mesh && child.geometry instanceof THREE.BufferGeometry) {
-        child.geometry.dispose();
+      if (child instanceof THREE.Mesh) {
+        const geometry: unknown = child.geometry;
+        if (geometry instanceof THREE.BufferGeometry) geometry.dispose();
       }
     }
   }

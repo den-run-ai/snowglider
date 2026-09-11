@@ -6,8 +6,7 @@
 // node_modules/three, auth.html and a large MP3 that must NOT be cached or
 // navigation-hijacked — see sw-config.ts for that policy.
 //
-// This file is bundled for the ServiceWorkerGlobalScope, not type-checked by the app
-// tsconfig (it is excluded there); vite-plugin-pwa compiles it standalone.
+// The worker has its own strict WebWorker type-check project, tsconfig.worker.json.
 /// <reference lib="webworker" />
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
@@ -86,7 +85,8 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
 });
 // The page posts this from a safe screen (start / result / game-over) to apply an update.
 self.addEventListener('message', (event: ExtendableMessageEvent) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
+  const data: unknown = event.data;
+  if (data !== null && typeof data === 'object' && 'type' in data && data.type === 'SKIP_WAITING') {
     void self.skipWaiting();
   }
 });

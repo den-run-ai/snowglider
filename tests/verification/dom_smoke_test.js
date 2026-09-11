@@ -353,6 +353,7 @@ async function main() {
   // Reparenting is rest-pose-neutral: every reparented accessory keeps its shipped
   // world position (world pos == the pre-fix literal it was authored at).
   const wp = new RealTHREE.Vector3();
+  /** @type {Array<[import('three').Object3D, number, number, number]>} */
   const restWorld = [
     [ud.parts.leftEye, 0.4, 7.2, 0.8], [ud.parts.rightEye, -0.4, 7.2, 0.8],
     [ud.parts.nose, 0, 7.0, 1], [ud.parts.hatBase, 0, 7.9, 0], [ud.parts.hatTop, 0, 8.45, 0],
