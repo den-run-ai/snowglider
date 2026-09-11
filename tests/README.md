@@ -169,6 +169,22 @@ from `npm test` because the emulator requires a local Java runtime.
 
 ### Browser Tests
 
+`npm run test:browser` requires all seven unified suites to complete exactly once,
+report assertions, and finish without suite errors or a timeout. Uncaught page
+errors and shader/WebGL failures also fail the process; expected logged audio or
+storage fallback errors do not. `test-results/results.json` records per-suite
+assertions, runner/page/renderer errors, and the final validation failures.
+`unified-runner-tests.js` exercises the actual runner's failure paths headlessly.
+The result collector gives the page's 90-second deadline a one-second Node grace
+period, preserving partial results when the page remains responsive. Coverage,
+screenshot, and final-state reads each have a 15-second Node deadline. Console
+logs and results are saved before these requests and updated with any failures;
+the initial snapshot remains available. Browser cleanup is bounded and kills its
+owned browser if graceful close stalls. `puppeteer-deadline-tests.js` exercises
+responsive suite timeouts and stalled collection, artifact, and cleanup requests.
+When adding a browser suite, update both the unified runner's manifest and
+`helpers/browser-results.js`; their agreement is checked by that Node suite.
+
 Append a `?test=` parameter to the game URL to load a suite in-browser; results
 display on-screen. The game must be **served** — `npm start` runs Vite on port 8080
 (the `?test=` URLs below assume that port); `npm run dev` also works but uses the
