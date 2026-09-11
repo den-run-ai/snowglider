@@ -53,7 +53,9 @@ export function configureSunShadow(
   light: THREE.DirectionalLight,
   renderer: Pick<THREE.WebGLRenderer, 'shadowMap'>
 ): void {
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // r184 removed the distinct PCFSoft implementation; select its supported PCF
+  // replacement directly instead of relying on a runtime warning and fallback.
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   light.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
   const cam = light.shadow.camera;
   cam.left = -SHADOW_HALF_EXTENT;

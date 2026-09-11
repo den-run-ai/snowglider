@@ -76,6 +76,7 @@ const {
   camera,
   cameraManager,
   directionalLight,
+  renderQuality,
   gameOverOverlay,
   gameOverDetail,
   restartButton,
@@ -224,6 +225,7 @@ const { updateSnowman, updateCamera, startLoop, resetLoopState, handleResize } =
   rockPositions,
   showGameOver,
   runClockGuard,
+  renderQuality,
 });
 window.addEventListener('resize', handleResize, { signal: listenerAbort.signal });
 
