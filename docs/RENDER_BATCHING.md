@@ -46,3 +46,27 @@ classic and 280 EZ. These counts include chunk wrappers; they do not measure
 unique vertex/index buffers or GPU bytes. Draw, triangle, texture and program
 ceilings remain unchanged. The 12-frame sample runs in one browser evaluation so
 runner round-trip delays cannot introduce arbitrary extra simulation frames.
+
+Static rocks use 40-unit cells grouped by their shared material. The builder first
+computes every original rock's collider top and contact-shadow position, then bakes
+its placed geometry into cell-relative coordinates and merges that cell. UVs, vertex
+colours and lighting normals are preserved; the original per-rock geometries and
+intermediate clones are released. A lone rock can keep its original mesh. The merged
+mesh carries `userData.isRock`, `rockCount` and `rockChunk`, so cleanup, gallery hiding
+and rendered-rock accounting work for both representations. Batches have finite
+geometry bounds and use ordinary camera/shadow frustum culling.
+
+`addRocks(..., { batching: false })` retains the original mesh representation as an
+equivalence-test seam. `tests/rock-batches-tests.js` compares world-space vertices,
+normals, colours and UVs, verifies independent distant-cell rejection, and proves
+byte-identical collider tops, contact-shadow inputs and downstream RNG on every tier.
+Its seeded scene goes from 147 to 50 draws for Bunny/Blue, 176 to 62 for Black, and 174
+to 58 for Expert before camera/shadow culling. Actual frame-level renderer metrics
+must still be measured because a merged cell can submit some off-screen rocks.
+
+With both batches enabled, Chromium CI for PR #445 measured classic peaks of
+135 draw calls / 221,026 triangles / 141 geometries and EZ peaks of
+179 / 384,010 / 193. Geometry ceilings therefore return to 185 classic / 210 EZ;
+the temporary forest-only 230 / 280 caps are no longer needed. Both variants
+retained 17 textures and 26 classic / 43 EZ programs. Chromium and WebKit teardown
+returned the measured 141 geometries to zero.

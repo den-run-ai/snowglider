@@ -196,7 +196,8 @@ export async function initRockGallery(): Promise<NonNullable<Window['__rockGalle
     stats(): Record<string, unknown> {
       return {
         galleryRocks: galleryGroup.children.length,
-        sceneRocks: scene.children.filter((c) => c.userData.isRock === true).length,
+        sceneRocks: scene.children.filter((c) => c.userData.isRock === true)
+          .reduce((count, rock) => count + (typeof rock.userData.rockCount === 'number' ? rock.userData.rockCount : 1), 0),
         ezBranchesAttached: scene.children.some((c) => c.userData.forestPart === 'ezBranches'),
         isTestMode: window.isTestMode === true,
         webdriver: navigator.webdriver === true,
