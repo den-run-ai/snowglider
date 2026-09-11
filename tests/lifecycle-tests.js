@@ -104,7 +104,7 @@ async function main() {
   check('camera row label updates (follow => "Camera: Follow")',
     rowText('#cameraViewControl') === 'V Camera: Follow');
   check('camera-toggle button text updates too',
-    document.getElementById('cameraToggleBtn').textContent === 'Camera: Follow');
+    document.getElementById('cameraToggleBtn').getAttribute('aria-label') === 'Next camera view (V). Current: Follow');
   check('Hop turn (last) row is NOT rewritten by the camera toggle',
     lastRowText() === hopBefore &&
     lastRowText() === 'Space+←/→ Hop turn — quick pivot on steeps');
@@ -181,10 +181,10 @@ async function main() {
     // Clicking the toggle folds the tray (collapsed class + ▼) and unfolds it (▲).
     camToggle.click();
     check('toggle folds the camera tray',
-      camTray.classList.contains('collapsed') && camToggle.textContent === '▼');
+      camTray.classList.contains('collapsed') && camToggle.getAttribute('aria-expanded') === 'false');
     camToggle.click();
     check('toggle unfolds the camera tray',
-      !camTray.classList.contains('collapsed') && camToggle.textContent === '▲');
+      !camTray.classList.contains('collapsed') && camToggle.getAttribute('aria-expanded') === 'true');
 
     // Helper to dispatch a window event with extra props (jsdom lacks WheelEvent).
     // `target` is read-only and set to `window` by dispatch; the handlers treat a
@@ -210,6 +210,18 @@ async function main() {
     check('wheel zooms once the run is active', calls.some(c => c[0] === 'adjustZoom'));
     check('wheel preventDefault fires during gameplay', wheelOn.defaultPrevented === true);
     check('Q key orbits during gameplay', calls.some(c => c[0] === 'orbit'));
+    const stats = document.createElement('div');
+    stats.id = 'gameStatsContainer';
+    const statText = document.createElement('span');
+    stats.appendChild(statText);
+    document.body.appendChild(stats);
+    const wheelZooms = calls.filter(c => c[0] === 'adjustZoom').length;
+    const statsWheel = new dom.window.Event('wheel', { bubbles: true, cancelable: true });
+    Object.defineProperty(statsWheel, 'deltaY', { value: 100 });
+    statText.dispatchEvent(statsWheel);
+    check('scrolling Stats never zooms the camera', calls.filter(c => c[0] === 'adjustZoom').length === wheelZooms);
+    check('Stats keeps native wheel scrolling', !statsWheel.defaultPrevented);
+
     const focusedOrbitsBefore = calls.filter(c => c[0] === 'orbit').length;
     camToggle.focus();
     camToggle.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'q', bubbles: true }));
@@ -248,18 +260,18 @@ async function main() {
 
   // --- Regression (codex review, PR #306): tray stacks BELOW the game-over overlay ---
   // The tray must never paint over — or stay clickable above — the finish/game-over
-  // modal. Its z-index (styles/main.css) has to stay below the overlay's, which
+  // modal. Its z-index (styles/hud.css) has to stay below the overlay's, which
   // scene-setup.ts sets inline. Parse both from source so a future bump to either
   // value that breaks the ordering fails here.
   console.log('\n--- camera tray z-index stays below the game-over overlay ---');
   {
     const fs = require('fs');
     const path = require('path');
-    const css = fs.readFileSync(path.join(__dirname, '../styles/main.css'), 'utf8');
+    const css = fs.readFileSync(path.join(__dirname, '../styles/hud.css'), 'utf8');
     const sceneSrc = fs.readFileSync(path.join(__dirname, '../src/game/scene-setup.ts'), 'utf8');
     const trayZ = Number((css.match(/#cameraControls\s*\{[^}]*?z-index:\s*(\d+)/) || [])[1]);
     const overlayZ = Number((sceneSrc.match(/gameOverOverlay\.style\.zIndex\s*=\s*['"](\d+)['"]/) || [])[1]);
-    check('parsed #cameraControls z-index from main.css', Number.isFinite(trayZ));
+    check('parsed #cameraControls z-index from hud.css', Number.isFinite(trayZ));
     check('parsed #gameOverOverlay z-index from scene-setup.ts', Number.isFinite(overlayZ));
     check('camera tray z-index is below the game-over overlay', trayZ < overlayZ);
   }

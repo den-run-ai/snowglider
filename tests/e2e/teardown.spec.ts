@@ -72,6 +72,16 @@ test.describe('disposeGame teardown', () => {
     // disposeGame stays a callable no-op so a remount/double-cleanup through window is safe.
     expect(await page.evaluate(() => typeof (window as DisposeWindow).disposeGame)).toBe('function');
 
+    // Static HUD markup survives the renderer, but its game-owned handlers must
+    // stop. A compact resize or click must not mutate a disposed panel.
+    const panelState = await page.locator('#toggleStats, #toggleControls')
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-expanded')));
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.locator('#toggleStats').click();
+    await page.locator('#toggleControls').click();
+    expect(await page.locator('#toggleStats, #toggleControls')
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-expanded')))).toEqual(panelState);
+
     // Give any orphaned rAF a couple of frames to (not) fire against the dead context.
     await page.waitForTimeout(150);
     expect(pageErrors, `unexpected page errors during teardown:\n${pageErrors.join('\n')}`).toEqual([]);

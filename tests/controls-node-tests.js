@@ -292,6 +292,34 @@ async function main() {
   check('a drag inside #controlsContent is never read as ski steering', controls.left === false);
   document.body.removeChild(guide);
 
+  // Stats now has a scrollable body too. Exercise its actual non-button text,
+  // where browser-native scrolling must survive the document gameplay handlers.
+  // A second finger and a keyboard key may already be steering: the UI gesture
+  // must neither claim its own control nor release those independent inputs.
+  const statsPanel = document.createElement('div');
+  statsPanel.id = 'gameStatsContainer';
+  statsPanel.innerHTML = '<div id="gameStatsHeader"><h3>Stats</h3></div><div id="gameStatsContent"><span id="speedValue">12 km/h</span></div>';
+  document.body.appendChild(statsPanel);
+  const heldPoint = [{ identifier: 81, clientX: W * 5 / 6, clientY: H / 2 }];
+  dispatchTouch('touchstart', document, heldPoint);
+  keydown('ArrowUp');
+  const heldControls = JSON.stringify(Controls.getControls());
+  for (const selector of ['#speedValue', '#gameStatsHeader h3']) {
+    for (const type of ['touchstart', 'touchmove', 'touchend']) {
+      const event = /** @type {any} */ (new window.Event(type, { bubbles: true, cancelable: true }));
+      event.changedTouches = [{ identifier: 82, clientX: W / 6, clientY: H / 2 }];
+      statsPanel.querySelector(selector).dispatchEvent(event);
+      check(`${type} on ${selector} leaves native UI gestures unprevented`, !event.defaultPrevented);
+      check(`${type} on ${selector} preserves existing touch/keyboard ownership`,
+        JSON.stringify(Controls.getControls()) === heldControls);
+    }
+  }
+  dispatchTouch('touchend', document, heldPoint);
+  keyup('ArrowUp');
+  check('Stats interaction leaves no phantom steering after held inputs end',
+    !Controls.getControls().left && !Controls.getControls().right && !Controls.getControls().up);
+  statsPanel.remove();
+
   console.log('\n--- interactive UI controls: touch passthrough (mobile) ---');
   // A tap on any interactive control (button/link/form field) drawn over the canvas
   // must be left to the browser: NOT preventDefaulted, so the synthesized click still

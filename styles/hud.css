@@ -1,0 +1,240 @@
+/* One disclosure language and one layout system for the in-game HUD (#428).
+   Panel geometry lives here; mode/action buttons never style header buttons. */
+:root {
+  --hud-left: max(10px, env(safe-area-inset-left));
+  --hud-right: max(10px, env(safe-area-inset-right));
+  --hud-top: max(10px, env(safe-area-inset-top));
+  --hud-bottom: max(12px, env(safe-area-inset-bottom));
+  --hud-column: min(280px, calc((100vw - var(--hud-left) - var(--hud-right) - 8px) / 2));
+  --hud-surface: rgba(20, 31, 43, 0.86);
+}
+
+#hudLeft, #hudRight {
+  position: fixed;
+  z-index: 200;
+  top: var(--hud-top);
+  width: var(--hud-column);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+#hudLeft { left: var(--hud-left); align-items: flex-start; }
+#hudRight { right: var(--hud-right); align-items: flex-end; }
+body.start-screen-active #hudRight { z-index: 2001; }
+body.start-screen-active #gameStatsContainer { visibility: hidden; }
+#controlsContainer { position: relative; width: 100%; z-index: 200; }
+#gameStatsContainer { position: relative; width: 100%; z-index: 100; }
+#authContainer {
+  position: relative;
+  padding: 6px;
+  max-width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--hud-surface);
+  font-family: Arial, sans-serif;
+  z-index: 999;
+  pointer-events: auto;
+}
+#authUI { justify-content: center; gap: 4px; }
+.provider-btn { width: 60px; min-height: 44px; box-sizing: border-box; }
+#profileUI { flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+#profileChip, #logoutBtn { min-height: 44px; }
+#profileChip { max-width: 100%; }
+#profileName { min-width: 0; }
+/* Guest sign-in is the same chevron, including its state and touch target. */
+#profileUI.guest #profileChip::after {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  margin: 0 8px;
+  flex: 0 0 auto;
+}
+#profileUI.guest #profileChip[aria-expanded="true"]::after {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.hud-panel {
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background: var(--hud-surface);
+  color: #fff;
+  font: 14px/1.4 Arial, sans-serif;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.14);
+  pointer-events: auto;
+  overflow: hidden;
+}
+.hud-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding-left: 12px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+.hud-panel-header h3 {
+  margin: 0;
+  font: 600 14px/1.3 Arial, sans-serif;
+  white-space: nowrap;
+}
+.panel-summary {
+  color: #cfdef2;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.panel-disclosure {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.panel-disclosure:hover { background: rgba(255, 255, 255, 0.1); }
+.panel-chevron {
+  display: block;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 120ms ease;
+  pointer-events: none;
+}
+[aria-expanded="true"] > .panel-chevron { transform: translateY(2px) rotate(225deg); }
+.hud-panel :focus-visible { outline: 3px solid #a5d8ff; outline-offset: -3px; }
+#controlsInfo.collapsed, #gameStatsContainer.collapsed, #cameraControls.collapsed { width: max-content; max-width: 100%; }
+#controlsInfo.collapsed > #controlsContent,
+#gameStatsContainer.collapsed > #gameStatsContent,
+#cameraControls.collapsed > #cameraControlsContent { display: none; }
+#controlsContent, #gameStatsContent, #cameraControlsContent {
+  box-sizing: border-box;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 10px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+#controlsContent { max-height: max(64px, calc(100dvh - 410px)); }
+#gameStatsContent {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-height: max(64px, calc(100dvh - 280px));
+}
+.stat-item { display: flex; flex-direction: column; min-width: 0; }
+.stat-label { font-size: 11px; color: #c2cfdd; }
+.stat-value { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+
+#courseHud {
+  position: fixed;
+  top: var(--hud-top);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 620px));
+}
+
+#resetBtn, #cameraToggleBtn {
+  position: fixed;
+  bottom: var(--hud-bottom);
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  color: white;
+  font: 600 14px/1.3 Arial, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+  z-index: 100;
+}
+/* Keep the development notice off the play surface and its action buttons. */
+body.game-active #localModeNotice { display: none; }
+#resetBtn { left: var(--hud-left); width: 80px; background: #26753b; }
+#cameraToggleBtn { left: calc(var(--hud-left) + 90px); background: #365aa6; }
+#cameraControls {
+  position: fixed;
+  left: var(--hud-left);
+  bottom: calc(var(--hud-bottom) + 56px);
+  width: min(380px, calc(100vw - var(--hud-left) - var(--hud-right)));
+  z-index: 100;
+}
+#cameraControls.collapsed { max-width: calc(100vw - var(--hud-left) - var(--hud-right)); }
+#cameraControlsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100dvh - var(--hud-top) - var(--hud-bottom) - 210px);
+}
+#cameraControls .cam-row { display: flex; align-items: center; gap: 6px; }
+#cameraControls .cam-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#cameraControlsContent button {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: #365aa6;
+  color: #fff;
+  font: 13px/1.2 Arial, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#cameraControlsContent button:hover { background: #456bbb; }
+#cameraControlsContent button[aria-pressed="true"] { background: #f6c35a; color: #1a2432; font-weight: 700; }
+#cameraControlsContent button:disabled, #cameraControls input:disabled { opacity: 0.45; cursor: default; }
+#cameraControls .cam-zoom-label { width: 48px; text-align: center; }
+#cameraControls input[type="range"] { flex: 1; min-width: 0; width: 100%; height: 44px; accent-color: #9ac9ff; }
+
+@media (max-width: 1000px) {
+  #courseHud { position: relative; top: auto; left: auto; transform: none; width: 100%; }
+}
+@media (min-width: 601px) and (max-width: 1000px) and (min-height: 501px) {
+  #controlsContent { max-height: max(64px, calc(100dvh - 450px)); }
+  #cameraControls:not(.collapsed) { width: var(--hud-column); }
+}
+@media (max-width: 600px), (max-height: 500px) {
+  /* Guest upgrade buttons and wrapped account actions can make auth taller.
+     Let Stats scroll within the remaining column above the collapsed camera. */
+  #hudRight { max-height: calc(100dvh - var(--hud-top) - var(--hud-bottom) - 112px); }
+  #authContainer { flex-shrink: 0; }
+  #gameStatsContainer { display: flex; flex-direction: column; min-height: 46px; }
+  #gameStatsHeader { flex-shrink: 0; }
+  #gameStatsContent { min-height: 0; }
+  .hud-panel-header { gap: 4px; padding-left: 8px; }
+  .hud-panel-header h3 { font-size: 13px; }
+  #controlsContent { max-height: max(64px, calc(100dvh - var(--hud-top) - var(--hud-bottom) - 210px)); }
+  #gameStatsContent { grid-template-columns: 1fr; max-height: max(64px, calc(100dvh - var(--hud-top) - var(--hud-bottom) - 280px)); }
+  #controlsInfo:not(.collapsed) { width: 100%; }
+  .control-item > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+  #controlsContent { font-size: 13px; }
+  #authUI { display: flex; flex-wrap: nowrap; }
+  .provider-btn { min-width: 0; width: 44px; font-size: 9px; padding: 4px 2px; }
+  .provider-icon { width: 20px; height: 20px; }
+  #authContainer { padding: 3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel-chevron { transition: none; }
+}

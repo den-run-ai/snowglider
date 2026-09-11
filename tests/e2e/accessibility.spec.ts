@@ -9,7 +9,16 @@ test('keyboard About and feedback contain focus and return it without starting a
   await page.keyboard.press('Enter');
   await expect(page.getByRole('dialog', { name: 'About SnowGlider' })).toBeVisible();
   await expect(page.locator('#closeAboutButton')).toBeFocused();
-  await expect(page.locator('#authContainer')).toHaveJSProperty('inert', true);
+  // Dialog isolation can make the auth container inert through its HUD column.
+  // Check effective isolation and attempt real focus rather than pinning which
+  // ancestor owns the inert attribute.
+  await expect.poll(() => page.locator('#authContainer').evaluate((el) => (
+    el.closest('[inert]') !== null
+  ))).toBe(true);
+  for (const selector of ['#loginBtn', '#githubLoginBtn', '#guestLoginBtn']) {
+    await page.locator(selector).evaluate((el) => (el as HTMLElement).focus());
+    await expect(page.locator('#closeAboutButton')).toBeFocused();
+  }
   await page.keyboard.press('Escape');
   await expect(about).toBeFocused();
   await expect(about).toHaveAttribute('aria-expanded', 'false');
@@ -89,7 +98,7 @@ test('camera disclosures, sound state, and results expose their keyboard contrac
   await expect(page.locator('#gameOverOverlay')).toBeHidden();
   await expect(page.locator('#gameCanvas')).toBeFocused();
   await expect(page.locator('#cameraControls')).not.toHaveJSProperty('inert', true);
-  await expect(page.locator('body > #authContainer')).toHaveCount(1);
+  await expect(page.locator('#hudRight > #authContainer')).toHaveCount(1);
   await expect(page.locator('#gameAnnouncements')).toContainText('run started');
 });
 

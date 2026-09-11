@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- build-id is replaced at serve/build time by the inject-build-id Vite plugin
        (vite.config.js); the "dev" placeholder only shows if served without Vite. -->
   <meta name="build-id" content="dev">
@@ -32,6 +32,7 @@
   <meta name="twitter:image" content="https://raw.githubusercontent.com/den-run-ai/snowglider/assets/og-image/og-card.png">
 
   <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/hud.css">
 
   <!-- PWA install metadata (issue #358, PR 2). The manifest + icons make the game
        installable on desktop/Android; the service worker (offline app-shell caching)
@@ -76,7 +77,7 @@
   <div id="startGameContainer" role="region" aria-labelledby="gameTitle">
     <h1 id="gameTitle">❄️ 🎿 ⛰️ SnowGlider ☃️ ❄️</h1>
     <p id="gameDescription">Race a snowman down a procedurally generated mountain: hit every checkpoint, carve past trees, launch off jumps — and outrun the avalanche chasing you down the slope. Beat the clock and your own best time for the fastest run!</p>
-    
+
     <div id="controlsGuide">
       <h3>Controls</h3>
       <div class="control-row">
@@ -129,7 +130,7 @@
     </div>
     <p class="touch-note">📱 On touch devices: tap the left/right of the screen to steer, top/bottom for speed<span id="touchJumpNote">, and the center to jump</span>.</p>
     <p class="physics-era-notice"><strong>A fresh race starts here.</strong> Physics v3 brings a consistent mountain and avalanche timing. Personal bests and the leaderboard start fresh; earlier records are retained separately.</p>
-    
+
     <!-- Difficulty tier picker (●Bunny / ■Blue / ◆Black); options are built by
          start-menu.ts from the difficulty config, with the last choice remembered. -->
     <div id="difficultyPicker" role="radiogroup" aria-label="Difficulty tier"></div>
@@ -159,50 +160,17 @@
     <div id="buildBadge" aria-label="build version"></div>
   </div>
 
-  <!-- Game Stats Container - Combined stats window -->
-  <div id="gameStatsContainer">
-    <div id="gameStatsHeader">
-      <h3>📊 Game Stats</h3>
-      <button id="toggleStats" aria-label="Toggle game stats options" aria-controls="gameStatsContent" aria-expanded="true">▲</button>
-    </div>
-    <div id="gameStatsContent">
-      <div class="stat-item">
-        <span class="stat-label">Level</span>
-        <span id="levelValue" class="stat-value">■ Blue</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">Current Time</span>
-        <span id="currentTime" class="stat-value">0.0s</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">Slope</span>
-        <span id="slopeValue" class="stat-value">0° (0%)</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">Speed</span>
-        <span id="speedValue" class="stat-value">0 km/h (0 mph)</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">Altitude</span>
-        <span id="altitudeValue" class="stat-value">0 m (0 ft)</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">Status</span>
-        <span id="groundStatus" class="stat-value">⛷️ Ground</span>
-      </div>
-    </div>
-  </div>
-  
+  <div id="hudLeft">
   <!-- Controls Container -->
   <div id="controlsContainer">
-    <div id="controlsInfo">
-      <div id="controlsHeader">
-        <h3>⌨️ Game Controls</h3>
-        <button id="toggleControls" aria-label="Toggle controls options" aria-controls="controlsContent" aria-expanded="true">▲</button>
+    <div id="controlsInfo" class="hud-panel">
+      <div id="controlsHeader" class="hud-panel-header">
+        <h3>⌨️ Controls</h3>
+        <button id="toggleControls" class="panel-disclosure" type="button" aria-label="Toggle controls options" aria-controls="controlsContent" aria-expanded="true"><span class="panel-chevron" aria-hidden="true"></span></button>
       </div>
       <div id="controlsContent">
         <div class="control-item">
-          <span class="key-badge">←/A</span> 
+          <span class="key-badge">←/A</span>
           <span>Turn Left</span>
         </div>
         <div class="control-item">
@@ -262,8 +230,8 @@
     </div>
   </div>
 
-  <button id="resetBtn">Reset</button>
-  
+  </div>
+  <div id="hudRight">
   <!-- Auth Container -->
   <div id="authContainer">
     <div id="authUI">
@@ -308,10 +276,48 @@
       <button id="logoutBtn">Logout</button>
     </div>
   </div>
-  
+
+  <!-- Game Stats Container - Combined stats window -->
+  <div id="gameStatsContainer" class="hud-panel">
+    <div id="gameStatsHeader" class="hud-panel-header">
+      <h3>📊 Stats</h3>
+      <button id="toggleStats" class="panel-disclosure" type="button" aria-label="Toggle game stats options" aria-controls="gameStatsContent" aria-expanded="true"><span class="panel-chevron" aria-hidden="true"></span></button>
+    </div>
+    <div id="gameStatsContent">
+      <div class="stat-item">
+        <span class="stat-label">Level</span>
+        <span id="levelValue" class="stat-value">■ Blue</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Current Time</span>
+        <span id="currentTime" class="stat-value">0.0s</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Slope</span>
+        <span id="slopeValue" class="stat-value">0° (0%)</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Speed</span>
+        <span id="speedValue" class="stat-value">0 km/h (0 mph)</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Altitude</span>
+        <span id="altitudeValue" class="stat-value">0 m (0 ft)</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Status</span>
+        <span id="groundStatus" class="stat-value">⛷️ Ground</span>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <button id="resetBtn">Reset</button>
+
   <!-- Leaderboard Container (will be added to game over overlay) -->
   <div id="leaderboard" style="display:none;"></div>
-  
+
   <!--
     ES-module bundle entry (issue #84, Phase 2). Deferred like every module
     script, so it runs before DOMContentLoaded and before the module loader

@@ -93,8 +93,8 @@ export const AudioModule = (function() {
     const btn = document.createElement('button');
     btn.id = 'audioControlBtn';
     btn.style.cssText = `
-      position: fixed; bottom: 20px; right: 20px; z-index: 1000;
-      width: 40px; height: 40px; border-radius: 50%;
+      position: fixed; bottom: var(--hud-bottom, 20px); right: var(--hud-right, 20px); z-index: 1000;
+      width: 44px; height: 44px; border-radius: 50%;
       border: none; background: rgba(0,0,0,0.6); color: white;
       font-size: 20px; cursor: pointer;
     `;

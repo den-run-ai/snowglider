@@ -13,6 +13,25 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Unreleased
 
+### Responsive HUD consistency (#428)
+
+- Controls, Stats and Camera now share one compact header, sans-serif typography,
+  centered chevron and 44px disclosure target. Removed the duplicate swipe arrows
+  and isolated mode-button styling from the camera disclosure.
+- The collapsed Camera chip shows the active mode; the separate action says
+  “Next view.” All six modes have readable labels and wrap into a touch-sized grid.
+- Natural top HUD stacks separate progress/controls and account/stats. Bottom
+  actions respect safe areas; short panels scroll rather than clip content.
+- Compact screens open one HUD panel at a time. Browser-toolbar resizes preserve
+  explicit expansion, cancelled/vertical gestures do not toggle panels, and repeat
+  initialization replaces listeners. Guest disclosure uses the same chevron style.
+- The render canvas stays within the viewport after phone rotation, preventing
+  a stale landscape width from shrinking the entire portrait HUD.
+- CI now covers panel geometry, visible collapsed state, hit targets, scrolling,
+  keyboard/touch and rotation on desktop Chromium/WebKit and phone Safari/Chrome
+  in both orientations. Real-player before/after screenshots are review artifacts;
+  physical-device acceptance and pixel baselines remain separate work.
+
 ### Physics v3: a fresh personal-best and leaderboard era
 - Terrain contact, gameplay randomness, and avalanche stepping now use consistent
   simulation rules. Earlier times are not comparable, so current personal bests and

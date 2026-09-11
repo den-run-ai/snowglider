@@ -44,7 +44,7 @@ import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js'
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { buildDifficultyPicker } from './ui/difficulty-picker.js';
-import { setPanelCollapsed } from './ui/collapsible-panel.js';
+import { setPanelCollapsed, isCompactPanelViewport } from './ui/collapsible-panel.js';
 import { setupScene } from './game/scene-setup.js';
 import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
 import { createRunClockGuard } from './game/run-clock.js';
@@ -105,7 +105,7 @@ state.bestTime = readStoredBestTime();
 // Initialize the stats display when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing game stats");
-  initializeGameStats();
+  initializeGameStats(listenerAbort.signal);
 });
 
 // Add best time to game over overlay
@@ -339,7 +339,7 @@ window.testHooks.isDebrisActive = () => !!state.debris && state.debris.active;
 // Initialize controls toggle when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing controls toggle");
-  initializeControlsToggle();
+  initializeControlsToggle(listenerAbort.signal);
 });
 
 // Teardown bookkeeping (dispose-audit plan §3 / Codex review): a guard flag plus the
@@ -486,17 +486,17 @@ window.initializeGameWithAudio = function() {
   Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
   
   // Make sure game stats and controls are properly initialized and visible
-  initializeGameStats();
-  initializeControlsToggle();
+  initializeGameStats(listenerAbort.signal);
+  initializeControlsToggle(listenerAbort.signal);
   
   // Initialize Game Stats
   const gameStatsContainer = document.getElementById('gameStatsContainer');
   if (gameStatsContainer) {
-    console.log("Game start: ensuring stats are expanded");
+    console.log("Game start: setting responsive stats state");
     // Make sure stats are visible when game starts
     const toggleBtn = document.getElementById('toggleStats');
     if (toggleBtn) {
-      setPanelCollapsed(gameStatsContainer, toggleBtn, false);
+      setPanelCollapsed(gameStatsContainer, toggleBtn, isCompactPanelViewport());
     }
     
     // Update initial values — the HUD timer takes elapsed SIM seconds (#402),
@@ -509,8 +509,7 @@ window.initializeGameWithAudio = function() {
   if (controlsInfo) {
     console.log("Game start: ensuring controls are in right state");
     // Auto-collapse controls on smaller screens, expand on larger screens
-    const shouldCollapse = window.innerWidth <= 480 || 
-                           (window.innerWidth <= 768 && window.innerHeight <= 500);
+    const shouldCollapse = isCompactPanelViewport();
     
     const toggleBtn = document.getElementById('toggleControls');
     if (toggleBtn) setPanelCollapsed(controlsInfo, toggleBtn, shouldCollapse);
