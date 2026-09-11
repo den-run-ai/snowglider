@@ -14,6 +14,7 @@
 // byte-identical (every edit type-only/erasable), so esbuild (Vite) and Node's native
 // type-stripping run it exactly as before.
 import * as THREE from 'three';
+import { splitForestMesh } from './forest-chunks.js';
 import { getTerrainHeight as sampleTerrainHeight, getTerrainGradient as sampleTerrainGradient } from './terrain.js';
 import { forestDensityField } from './noise.js';
 // The run's centerline: the clear corridor + density zones follow it (Black). Returns
@@ -641,6 +642,56 @@ function setTreeLoad(index: number, value: number): void {
   }
 }
 
+// The shader's maximum lean is 0.9 * (0.6 + 0.4 * 1.3) = 1.008u;
+// crosswind flutter <= 0.9 * 0.16 = 0.144u, and snow droop <= 0.6u.
+// A 1.2u expansion on each axis conservatively covers every load/wind phase.
+const TREE_CHUNK_MOTION_PADDING = 1.2;
+
+/** Preserve the original builders' RNG sequence and placement/attribute ordering,
+ * then replace their whole-mountain draw with spatially bounded draws. Remap the
+ * live snow registry so shedding still updates exactly the intended tree's parts. */
+function chunkForest(scene: THREE.Scene, sources: THREE.InstancedMesh[]): THREE.InstancedMesh[] {
+  const result: THREE.InstancedMesh[] = [];
+  for (const source of sources) {
+    const sourceLoad = source.geometry.getAttribute('aSnowLoad');
+    const sourceRatio = source.geometry.getAttribute('aSnowRatio');
+    const bindings = treeLoadBindings.filter(binding =>
+      (binding.load && binding.load === sourceLoad) || (binding.ratio && binding.ratio === sourceRatio));
+    treeLoadBindings = treeLoadBindings.filter(binding => !bindings.includes(binding));
+    for (const { mesh, sourceIndices } of splitForestMesh(source, TREE_CHUNK_MOTION_PADDING)) {
+      const localIndices = new Map(sourceIndices.map((original, local) => [original, local]));
+      for (const binding of bindings) {
+        const ranges: Array<[number, number] | null> = binding.ranges.map(range => {
+          if (!range) return null;
+          let start = -1;
+          let count = 0;
+          for (let original = range[0]; original < range[0] + range[1]; original++) {
+            const local = localIndices.get(original);
+            if (local !== undefined) {
+              if (start < 0) start = local;
+              count++;
+            }
+          }
+          // sourceIndices preserves ordering, so each original contiguous tree
+          // range remains contiguous even when a cell boundary divides the tree.
+          return count ? [start, count] : null;
+        });
+        treeLoadBindings.push({
+          load: binding.load ? mesh.geometry.getAttribute('aSnowLoad') as THREE.InstancedBufferAttribute : null,
+          ratio: binding.ratio ? mesh.geometry.getAttribute('aSnowRatio') as THREE.InstancedBufferAttribute : null,
+          ranges
+        });
+      }
+      scene.add(mesh);
+      result.push(mesh);
+    }
+    scene.remove(source);
+    if (source.userData.ownsGeometry) source.geometry.dispose();
+    source.dispose();
+  }
+  return result;
+}
+
 /** Drop every load binding and start a fresh registration epoch (each addTrees
  *  rebuild): stale bindings must never write into a disposed forest's buffers. */
 function resetTreeLoadRegistry(): void {
@@ -757,10 +808,8 @@ const EZ_TREE_TARGET_HEIGHT = 10;
 
 /** Lateral distance from the run's centerline beyond which a tree renders as the
  *  cheap far-LOD build (issue #282, PR 2). The chase camera hugs the corridor, so
- *  every tree past this band is only ever seen at distance — a whole-forest
- *  InstancedMesh never frustum-culls (documented tradeoff, see buildForest), which
- *  makes rasterized triangles the cost that matters; the static near/far split
- *  roughly halves it without any per-frame LOD work. */
+ *  every tree past this band is seen at distance. Spatial chunks additionally cull
+ *  offscreen stands without per-frame LOD or placement work. */
 const EZ_LOD_FAR_DISTANCE = 32;
 
 /** Which detail build a tree at (x, z) uses. Pure + exported for the headless test. */
@@ -1092,6 +1141,7 @@ function abandonPendingEzBuild(): boolean {
  *  and deterministic given (placements, archetypes); all randomness is hash-based. */
 function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes: EzArchetype[]): void {
   if (archetypes.length === 0 || placements.length === 0) return;
+  const built: THREE.InstancedMesh[] = [];
   const sets = getEzMaterialSets(archetypes);
   const trunkPalette = getTrunkColors();
   const leafTints = getEzLeafTints();
@@ -1214,6 +1264,7 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     if (leaves.instanceColor) leaves.instanceColor.needsUpdate = true;
     scene.add(branches);
     scene.add(leaves);
+    built.push(branches, leaves);
     treeLoadBindings.push({ load: leafLoadAttr, ratio: null, ranges: leafRanges });
   });
 
@@ -1250,8 +1301,10 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     descs.forEach((d, j) => im.setMatrixAt(j, d.matrix));
     im.instanceMatrix.needsUpdate = true;
     scene.add(im);
+    built.push(im);
     treeLoadBindings.push({ load: loadAttr, ratio: ratioAttr, ranges: ezRangesFromDescs(descs, placements.length) });
   }
+  chunkForest(scene, built);
   // The EZ forest's bindings are now live — bump the epoch so consumers resync.
   treeLoadVersion++;
 }
@@ -1615,7 +1668,7 @@ function buildForest(scene: THREE.Scene, buckets: Buckets, loadRanges?: LoadRang
     }
   }
   if (loadRanges) treeLoadVersion++;
-  return built;
+  return chunkForest(scene, built);
 }
 
 // Half-width (world units) of the corridor's clear lane for tree placement — the same strip

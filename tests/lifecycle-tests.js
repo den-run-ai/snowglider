@@ -75,6 +75,23 @@ async function main() {
   console.log('--- lifecycle.ts toggleCameraView ---');
   const { createLifecycle } = await import('../src/game/lifecycle.ts');
 
+  // A caller can retain these functions after window handles/listeners are
+  // removed. A disposed graphics instance must stay stopped even then.
+  {
+    const controller = new dom.window.AbortController();
+    const deps = makeDeps(['follow']);
+    deps.signal = controller.signal;
+    deps.state.gameActive = false;
+    let starts = 0;
+    deps.startLoop = () => { starts++; };
+    const lifecycle = createLifecycle(deps);
+    controller.abort();
+    lifecycle.restartGame();
+    lifecycle.resetSnowman();
+    check('retained restart cannot activate a disposed run', !deps.state.gameActive && starts === 0);
+    check('retained reset cannot mutate a disposed player', deps.player.pos.z === 0);
+  }
+
   buildControlsDom();
   const hopBefore = lastRowText();
   // Cycle order out of the camera manager: follow -> orbit -> firstPerson -> cameraman -> drone -> auto.
