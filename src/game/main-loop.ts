@@ -41,6 +41,7 @@ import { updateStatsHud, updateTimerDisplay, updateLevelHud } from '../ui/hud.js
 import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
 import { type SceneContext } from './scene-setup.js';
 import { type RunClockGuard } from './run-clock.js';
+import type { RenderQualityController } from './render-quality.js';
 
 // The physics grid. FIXED_DT is the rate the invariant harness pins (1/60 s), so the
 // kernel is byte-identical here to the headless suites. MAX_SUBSTEPS caps how many
@@ -111,13 +112,14 @@ export interface MainLoopDeps extends
   // background rAF. Optional (explicitly undefined under automation and in the unit
   // harnesses, which keeps their loop byte-identical).
   runClockGuard?: RunClockGuard | undefined;
+  renderQuality?: RenderQualityController | undefined;
 }
 
 export function createMainLoop(deps: MainLoopDeps) {
   const {
     state, scene, camera, renderer, cameraManager, directionalLight,
     snowman, snowSplash, treePositions, rockPositions,
-    player, showGameOver, runClockGuard,
+    player, showGameOver, runClockGuard, renderQuality,
   } = deps;
   const pos = player.pos;
   const velocity = player.velocity;
@@ -620,6 +622,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       if (runClockGuard) {
         if (runClockGuard.isPaused()) {
           lastTime = time;
+          renderQuality?.resetTiming();
           return;
         }
         // First frame after a resume: reseed the frame clock. On browsers that STOP
@@ -630,6 +633,7 @@ export function createMainLoop(deps: MainLoopDeps) {
         // could farm that into free distance (codex review, PR #278).
         if (runClockGuard.consumeResumed()) {
           lastTime = time;
+          renderQuality?.resetTiming();
         }
       }
       try {
@@ -831,6 +835,10 @@ export function createMainLoop(deps: MainLoopDeps) {
         const spd = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
         _shake = EffectsModule.tickCamera(camera, frameDelta, spd);
       }
+      // Use actual frame duration rather than the physics stall clamp. Apply render
+      // resource changes before drawing: setPixelRatio resizes and clears the canvas.
+      // Sampling here never changes simulation time or the completed physics outcome.
+      renderQuality?.sample(rawDelta, state.gameActive && Trees.treeCollidersReady());
       renderer.render(scene, camera);
       if (_shake) {
         camera.position.x -= _shake.x;
@@ -857,6 +865,7 @@ export function createMainLoop(deps: MainLoopDeps) {
   // would leak into the render lerp (a visible camera/snowman jump) and into the first
   // diagnostics step (a huge maxSubstepStep false tunnel-risk sample). Idempotent.
   function resetLoopState() {
+    renderQuality?.resetTiming();
     accumulator = 0;
     simTime = 0; // a new run starts its simulation clock (#402) from zero
     state.simElapsed = 0;
@@ -872,6 +881,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     Wind.reset();
     state.scenery?.reset();
     Snow.resetTreeWind();
+    Snow.resetSnowSplash(snowSplash);
     // Re-laden every shed tree and clear in-flight puffs so each run starts from the
     // same forest state the deterministic gust cycle expects.
     TreeShed.reset();
@@ -890,6 +900,7 @@ export function createMainLoop(deps: MainLoopDeps) {
   // --- Handle Window Resize ---
   function handleResize() {
     cameraManager.handleResize();
+    renderQuality?.setDevicePixelRatio(window.devicePixelRatio || 1);
     renderer.setSize(window.innerWidth, window.innerHeight);
   }
 

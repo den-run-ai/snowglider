@@ -111,8 +111,8 @@ async function main() {
     await Trees.ezForestReady();
     const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
     const parts = new Set(forest.map(m => m.userData.forestPart));
-    assert(positions.length > 0 && forest.length >= 1 && forest.length <= 5,
-      'flag OFF: forest stays within the stylized 5-family envelope',
+    assert(positions.length > 0 && forest.length > 5 && forest.length <= 100,
+      'flag OFF: forest has bounded spatial chunks for its five part families',
       `${forest.length} meshes`);
     assert(!parts.has('ezBranches') && !parts.has('ezLeaves'),
       'flag OFF: no EZ families are appended');
@@ -208,6 +208,11 @@ async function main() {
     assert(parts.has('snowPatch'), 'flag ON: ground snow collars still ground each tree');
     assert(parts.has('ezSnowCap') && parts.has('ezSnowPatch'),
       'flag ON: crown snow caps + draped shelves are instanced');
+
+    assert(forest.every(m => m.frustumCulled && m.boundingSphere && Number.isFinite(m.boundingSphere.radius)),
+      'every EZ family and ground collar has finite motion-padded culling bounds');
+    assert(new Set(forest.map(m => m.userData.forestChunk)).size > 1,
+      'EZ families are divided into multiple spatial cells');
 
     const ezBranchMeshes = forest.filter(m => m.userData.forestPart === 'ezBranches');
     const ezLeafMeshes = forest.filter(m => m.userData.forestPart === 'ezLeaves');

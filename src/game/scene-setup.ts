@@ -20,6 +20,7 @@ import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
 import { configureSunShadow } from './sun-shadow.js';
+import { createRenderQuality, resolveRenderQualityMode } from './render-quality.js';
 import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
 import { readStoredDifficulty, getDifficultyConfig, BLUE_AVALANCHE, type Difficulty } from '../difficulty.js';
@@ -306,6 +307,9 @@ export function setupScene(signal?: AbortSignal) {
   // target must be in the scene for Three.js to orient the shadow camera toward it.
   configureSunShadow(directionalLight, renderer);
   scene.add(directionalLight.target);
+  const renderQuality = createRenderQuality(renderer, directionalLight,
+    resolveRenderQualityMode(window.location.search, window.isTestMode || navigator.webdriver),
+    window.devicePixelRatio || 1);
 
   // --- Sky & fog ---
   // Preetham atmospheric sky + sun, with horizon-tinted distance fog (issue #2),
@@ -519,6 +523,7 @@ export function setupScene(signal?: AbortSignal) {
     camera,
     cameraManager,
     directionalLight,
+    renderQuality,
     gameOverOverlay,
     gameOverDetail,
     restartButton,

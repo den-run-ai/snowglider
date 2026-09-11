@@ -243,8 +243,8 @@ export function analyticTerrainHeight(x: number, z: number): number {
 // rasterizes, so rendered and simulated heights agree everywhere — including
 // off-vertex points across the kicker-lip discontinuity, where the analytic
 // formula and the interpolated mesh used to diverge by up to ~3 units.
-const GRID_X0 = -150, GRID_Z0 = -200, GRID_STEP = 2;
-const GRID_NX = 151, GRID_NZ = 201; // vertices per axis
+export const GRID_X0 = -150, GRID_Z0 = -200, GRID_STEP = 2;
+export const GRID_NX = 151, GRID_NZ = 201; // vertices per axis
 // Lazy corner cache for analytic evaluations at grid vertices (NaN = unfilled).
 // Cleared whenever the surface recipe changes (resetHeightMap: corridor/kickers).
 let gridCorner = new Float64Array(GRID_NX * GRID_NZ).fill(NaN);

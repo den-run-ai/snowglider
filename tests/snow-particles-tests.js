@@ -56,10 +56,11 @@ async function main() {
   // ---- snowflakes: blending + material/texture dedup -------------------------
   console.log('--- snowflakes: diffuse blending + shared bucket materials ---');
   const scene = new THREE.Scene();
-  Snow.createSnowflakes(scene);
-  const flakes = scene.children.filter((c) => /** @type {any} */ (c).isSprite);
+  const flakes = Snow.createSnowflakes(scene);
   {
-    check('creates the full flake pool (1000 sprites)', flakes.length === 1000);
+    check('creates the full flake simulation pool (1000 detached handles)', flakes.length === 1000);
+    check('the scene renders snowfall in one billboard batch',
+      scene.children.length === 1 && scene.children[0].name === 'snowBillboards' && flakes.every((f) => !f.parent));
 
     const mats = new Set(flakes.map((f) => /** @type {any} */ (f).material));
     const texes = new Set([...mats].map((m) => m.map));
@@ -144,9 +145,9 @@ async function main() {
       [...disposals.values()].every((n) => n === 1));
 
     // The pool restarts clean after teardown (no stale sprites accumulate).
-    Snow.createSnowflakes(scene);
+    const rebuilt = Snow.createSnowflakes(scene);
     check('createSnowflakes after teardown rebuilds a clean 1000-sprite pool',
-      scene.children.filter((c) => /** @type {any} */ (c).isSprite).length === 1000);
+      rebuilt.length === 1000 && scene.children.length === 1);
     Snow.teardownSnowflakes();
   }
 
@@ -163,6 +164,24 @@ async function main() {
       mats.every((m) => m.blending === THREE.NormalBlending));
     check('every splash material is transparent with depthWrite off',
       mats.every((m) => m.transparent === true && m.depthWrite === false));
+
+    // A zero-sized Sprite still passes Three's point/frustum test and enters the
+    // render list. Exercise expiry + both emitters + reset on the real pool.
+    check('unused spray starts hidden', splash.particles.every((p) => !p.visible));
+    const sprayScene = new THREE.Scene();
+    const snowman = new THREE.Object3D();
+    Snow.updateSnowSplash(splash, 1 / 60, snowman, { x: 0, z: -20 }, false, sprayScene);
+    check('grounded emission makes active sprites visible',
+      splash.particles.some((p) => p.userData.active && p.visible));
+    Snow.updateSnowSplash(splash, 10, snowman, { x: 0, z: 0 }, true, sprayScene);
+    check('expired spray is excluded from Three render traversal',
+      splash.particles.every((p) => !p.userData.active && !p.visible));
+    Snow.updateSnowSplash(splash, 0, snowman, { x: 0, z: 0 }, true, sprayScene, 1);
+    check('landing burst re-shows reclaimed sprites',
+      splash.particles.some((p) => p.userData.active && p.visible));
+    Snow.resetSnowSplash(splash);
+    check('run reset hides the entire pool and resets its cursor',
+      splash.nextParticle === 0 && splash.particles.every((p) => !p.userData.active && !p.visible));
   }
 
   console.log(`\nSNOW PARTICLES TESTS: ${pass} passed, ${fail} failed`);

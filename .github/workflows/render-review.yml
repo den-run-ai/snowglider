@@ -1,0 +1,120 @@
+name: Rendering review
+
+on:
+  pull_request:
+    branches: [main, 'claude/**', 'codex/**']
+    paths:
+      - 'index.html'
+      - 'styles/**'
+      - 'vite.config.js'
+      - 'src/**'
+      - 'tests/e2e/**'
+      - 'tests/render-review/**'
+      - 'tests/helpers/**'
+      - 'scripts/compare-render-review.mjs'
+      - 'playwright.render-review.config.ts'
+      - 'package*.json'
+      - '.github/workflows/render-review.yml'
+  workflow_dispatch:
+    inputs:
+      baseline_sha:
+        description: 'Exact 40-character baseline commit (required for manual runs)'
+        required: true
+        type: string
+      approved_baseline:
+        description: 'Treat this explicitly approved baseline as an acceptance gate'
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: BASE vs HEAD render evidence
+    runs-on: ubuntu-latest
+    # Same pinned browser/OS and serial runner for both revisions. This workflow
+    # is independent of deployment; review-only pixel differences are informative.
+    # Missing/failed captures still fail, and approved-baseline mode fails diffs.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.0-noble
+    timeout-minutes: 20
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: head
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve exact cumulative baseline
+        id: baseline
+        working-directory: head
+        env:
+          EXPLICIT_BASELINE_SHA: ${{ inputs.baseline_sha || '' }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+          const baseline = process.env.EXPLICIT_BASELINE_SHA || execFileSync('git', [
+            'merge-base', 'HEAD', `refs/remotes/origin/${process.env.DEFAULT_BRANCH}`
+          ], { encoding: 'utf8' }).trim();
+          if (!/^[0-9a-f]{40}$/.test(baseline)) throw new Error('Baseline must resolve to a full commit SHA');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha=${baseline}\n`);
+          console.log(`Cumulative rendering baseline: ${baseline}`);
+          NODE
+
+      - name: Checkout baseline
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.baseline.outputs.sha }}
+          path: base
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install candidate dependencies
+        working-directory: head
+        run: npm ci
+
+      - name: Install baseline dependencies
+        working-directory: base
+        run: npm ci
+
+      - name: Capture baseline with candidate harness
+        working-directory: head
+        env:
+          CI: true
+          RENDER_APP_DIR: ${{ github.workspace }}/base
+          RENDER_OUTPUT_DIR: ${{ github.workspace }}/render-review/base
+          RENDER_COMMIT: ${{ steps.baseline.outputs.sha }}
+        run: npm run test:render-review
+
+      - name: Capture candidate
+        working-directory: head
+        env:
+          CI: true
+          RENDER_APP_DIR: ${{ github.workspace }}/head
+          RENDER_OUTPUT_DIR: ${{ github.workspace }}/render-review/head
+          RENDER_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: npm run test:render-review
+
+      - name: Produce image diffs and metrics review
+        working-directory: head
+        env:
+          RENDER_APPROVED_BASELINE_SHA: ${{ inputs.approved_baseline && inputs.baseline_sha || '' }}
+        run: node scripts/compare-render-review.mjs ../render-review/base ../render-review/head ../render-review/comparison
+
+      - name: Upload complete rendering evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rendering-review-${{ github.run_id }}
+          path: render-review/
+          if-no-files-found: error
+          retention-days: 14

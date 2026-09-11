@@ -8,7 +8,10 @@ declare global {
       passed: number;
       failed: number;
       completed: string[];
+      suiteResults: Record<string, { assertions: number; error: string | null }>;
+      runnerErrors: string[];
     };
     _unifiedExpectedSuiteCount?: number;
+    _unifiedExpectedSuites?: string[];
   }
 }

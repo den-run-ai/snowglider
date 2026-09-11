@@ -56,7 +56,7 @@ async function main() {
       light.shadow.mapSize.width === SHADOW_MAP_SIZE && light.shadow.mapSize.height === SHADOW_MAP_SIZE);
     check('depth biases set to kill acne / peter-panning',
       light.shadow.bias === SHADOW_BIAS && light.shadow.normalBias === SHADOW_NORMAL_BIAS);
-    check('soft (PCF) shadows enabled on the renderer', renderer.shadowMap.type === THREE.PCFSoftShadowMap);
+    check('supported PCF shadows enabled on the renderer', renderer.shadowMap.type === THREE.PCFShadowMap);
   }
 
   console.log('\n--- sun-shadow: aimSunLight ---');

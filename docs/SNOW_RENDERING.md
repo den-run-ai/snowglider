@@ -1,5 +1,28 @@
 # Snow Rendering & Lighting Guide
 
+## Adaptive render budgets
+
+Normal player runs start at the existing high quality (device pixel ratio capped at
+2 and a 2048² sun shadow map). Sustained slow frame delivery can step down to
+balanced (DPR cap 1.5, 1024² shadows), then low (DPR cap 1, 512² shadows).
+The policy waits through three seconds of startup/resume, evaluates two-second
+windows, lowers quality above 22 ms average frame time, and requires twelve seconds
+below 18 ms to recover one level. Invalid samples, loading and hidden spans do not
+count. Long frame samples are capped at 250 ms so one stall cannot force a change,
+while sustained overload still reduces quality. These thresholds are a policy, not a claim
+of measured phone FPS. Quality changes only framebuffer and shadow resources;
+physics, obstacle layout, particle simulation and scoring remain unchanged.
+
+Automated runs retain high quality for reproducible render budgets. `?quality=auto`
+explicitly exercises adaptation; `?quality=high`, `balanced` or `low` pins a level
+for repeatable measurements and image comparisons. Canvas `data-render-quality`
+records the current level. Resize updates the capped device ratio without resetting
+the chosen level. Old shadow targets are disposed before replacement.
+
+The sun uses `PCFShadowMap` directly. Three.js r184 automatically replaces the
+deprecated `PCFSoftShadowMap` with this mode, so the configuration now agrees with
+the renderer's effective mode. The legacy color pipeline below is unchanged.
+
 This is the design rationale for how SnowGlider lights and shades snow. It is the
 reference the snow/lighting PRs (issues #17, #18, and the #2 sky work) converged on,
 and the contract any later atmospheric layer — notably the #163 sun cycle — must
@@ -84,6 +107,33 @@ The design-intent palette these values serve (near-white `#EDF0F6` base albedo, 
 `#FFF6E6` sunlit snow, cool `#B6C9E6` shaded snow, `#93A9CC` occluded pockets) is the
 target the snow material and tints aim at; the code in `mountains.ts` /
 `scene-setup.ts` is the authoritative value.
+
+## Snowfall and ski spray batching
+
+`src/snow-billboards.ts` renders the 1000 falling flakes, 250-slot ski-spray pool,
+260 avalanche puffs and 18 tree-shed puffs as one instanced billboard mesh. The
+simulation modules retain detached particle handles
+for simulation and inspection; they are not scene objects and issue no individual
+draws. Wind, terrain recycling, emission cadence, lifetimes, opacity and rotation
+keep their existing simulation code and cosmetic RNG streams.
+
+The batch uses the installed Three.js Sprite shader's billboard and fog equations,
+with per-particle attributes replacing object uniforms. The original five textures
+remain separate samplers, preserving their filtering and alpha; normal blending and
+`depthWrite: false` remain unchanged. Each render culls particles individually, sorts
+all five texture families back to front, and uploads only the active attribute
+range. An empty batch has zero instances. Packing runs in `Scene.onBeforeRender`,
+before Three uploads geometry buffers, including intro and share-image renders.
+
+Batching preserves the ordering between flakes, spray, avalanche and tree-shed
+powder. The batch's sorting center follows the median visible particle so other
+transparent scenery is not sorted against a stale world-origin anchor. As with the
+existing instanced cloud meshes, blending between the particle batch and large
+transparent scenery remains an object-level approximation; include scenery overlap
+in player-path visual review.
+The headless `snow-billboards-tests.js` suite checks camera-dependent ordering,
+Sprite corner parity, culling, RNG isolation, and owned-resource teardown. Renderer
+budgets and screenshots verify the actual GPU path on desktop and phone viewports.
 
 ## Contact shadows follow the player (#18)
 

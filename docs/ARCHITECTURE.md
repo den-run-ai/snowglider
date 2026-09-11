@@ -196,6 +196,17 @@ is skipped (reproducing the original Loading/Get-Ready timing exactly) for the
 `?test=` suites (`window.isTestMode`), automated runs (`navigator.webdriver`), and
 `prefers-reduced-motion`; `?intro=force` / `?intro=off` override that for QA.
 
+**Graphics loss recovery (#431).** `game/context-loss.ts` observes the renderer's
+canvas `webglcontextlost` event independently of the gameplay loop: Three.js skips
+rendering silently on a lost context, including during the menu or intro. The
+coordinator stops and disposes the current instance, cancels pending start/intro
+work, silences audio, clears controls, and shows the accessible **Graphics
+interrupted → Reload** dialog. A restored context never resumes that interrupted
+run; reload constructs a fresh scene and returns to the start menu. The same
+AbortSignal owns the canvas listener and lifecycle callbacks, so intentional
+teardown cannot trigger recovery. Node ownership/overlay tests and Chromium's
+real `WEBGL_lose_context` extension exercise this contract.
+
 **Fixed-timestep loop.** `animate(time)` runs a fixed-timestep accumulator: physics
 advances **only** in `FIXED_DT = 1/60` s steps (the rate `physics_invariant_harness.js`
 pins), while cosmetics run once per render frame. This makes the live game frame-rate
@@ -240,6 +251,20 @@ renderer.render(scene, camera)
 camera.position -= shake                          // revert so smoothing stays clean
 snowman.position = curState                       // restore authoritative physics pos
 ```
+
+`camera-terrain.ts` seats every camera mode on initialization, mode reentry, and
+after position/look-target smoothing. It preserves clear views and raises blocked
+views using the actual look-target→camera segment: the shared terrain grid's x, z,
+and diagonal edge crossings bound the piecewise-linear surface exactly. A buried
+look target is raised to the surface; clearance grows from zero at that target to
+five units at the camera. Work is capped at 256 crossings (at most 258 height reads),
+with a vertical seat above the target if the budget or an invalid segment sample
+prevents a complete check. An invalid target/target height is rejected before
+mutation. This is allocation-free, RNG-neutral camera math and never writes the
+player or gameplay terrain recipe. The guarantee covers the manager's central
+sight line, before the later cosmetic shake; it is not tree/rock occlusion or a
+near-plane volume test. `camera-terrain-tests.js` covers actual terrain across all
+six modes/four tiers, entry/reentry, diagonal ridges, bounded fallback, and RNG.
 
 > `window.updateSnowman(delta)` is retained as a single-step test seam (physics +
 > telemetry + cosmetics, no course/avalanche — exactly the pre-accumulator single-call

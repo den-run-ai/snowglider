@@ -8,6 +8,7 @@
 // analytic terrain samplers from terrain.js. Extracted from the mountains hub
 // (Stage R-mountains, issue #34).
 import * as THREE from 'three';
+import { batchStaticRocks } from './rock-batches.js';
 import {
   getTerrainHeight, getTerrainGradient,
   // Cache-neutral samplers for the RENDER-ONLY grounding layer (#385 PR 4): the
@@ -951,19 +952,21 @@ export function addRocks(
      *  a TEST seam so suites can prove placement + the hazard list are byte-identical
      *  with the decorations on and off (#385 PR 4). Default on. */
     grounding?: boolean;
+    /** Keep separate meshes for geometry/collider equivalence tests. */
+    batching?: boolean;
   }
 ): RockHazardPosition[] {
   const grounding = opts?.grounding !== false;
   // Remove any existing rocks from the scene to prevent duplicates. Rocks are tagged
   // `userData.isRock` in createRock (and the merged grounding meshes
   // `userData.isRockGrounding`), so the sweep is geometry-agnostic — it keeps
-  // working if the rock geometry ever changes away from a dodecahedron. The merged
-  // grounding geometries are one-per-build (not shared), so dispose them here.
+  // working with merged spatial batches too. Every attached rock/grounding geometry
+  // is owned by this build (materials are pooled), so free it when replacing the scene.
   for (let i = scene.children.length - 1; i >= 0; i--) {
     const child = scene.children[i]!;
     if (child.userData && (child.userData.isRock === true || child.userData.isRockGrounding === true)) {
       scene.remove(child);
-      if (child.userData.isRockGrounding === true && child instanceof THREE.Mesh) {
+      if (child instanceof THREE.Mesh) {
         const geometry: unknown = child.geometry;
         if (geometry instanceof THREE.BufferGeometry) geometry.dispose();
       }
@@ -1153,6 +1156,10 @@ export function addRocks(
       }
     }
   }
+
+  // Collision tops and full rendered positions were recorded from the originals.
+  // This cosmetic merge must happen only after every placement/RNG consumer.
+  if (opts?.batching !== false) batchStaticRocks(scene);
 
   // Build the merged grounding meshes LAST — after every placement loop has
   // finished with the global stream (this consumes zero global draws; UUID draws

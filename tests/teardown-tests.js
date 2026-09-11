@@ -32,7 +32,7 @@ async function main() {
   await testDedupSweep(THREE, disposeSceneResources);
   await testDisposeGameIdempotent(THREE, disposeGame);
   await testOwnedDomNodeRemoval(THREE, disposeGame);
-  await testSnowflakePoolTeardown(THREE);
+  await testSnowflakePoolTeardown(THREE, disposeGame);
   await testAudioToastTeardown();
 
   console.log(`\nTEARDOWN TOTAL: ${pass} passed, ${fail} failed`);
@@ -73,9 +73,14 @@ async function testAudioToastTeardown() {
 // ---- Snow.teardownSnowflakes: detaches the sprites, frees their materials, and CLEARS
 // the module-level pool so a same-instance remount doesn't stack a second snowfall on the
 // stale sprites (Codex review #226). ----
-async function testSnowflakePoolTeardown(THREE) {
+async function testSnowflakePoolTeardown(THREE, disposeGame) {
   console.log('--- Snow.teardownSnowflakes: clears the module snowflake pool ---');
   const { Snow } = await import('../src/snow.ts');
+  const { AvalancheSystem } = await import('../src/avalanche.ts');
+  const { Trees } = await import('../src/trees.ts');
+  const { TreeShed } = await import('../src/tree-shed.ts');
+  const { Wind, DEFAULT_WIND_CONFIG } = await import('../src/wind.ts');
+  const shedConfig = TreeShed.getConfig();
 
   // jsdom lacks a 2d canvas context; stub the few calls createSnowflakes makes.
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://snowglider.ai/' });
@@ -83,6 +88,7 @@ async function testSnowflakePoolTeardown(THREE) {
   const prevDoc = g.document, prevWin = g.window;
   g.window = dom.window;
   g.document = dom.window.document;
+  g.window.isTestMode = true;
   const realCreate = dom.window.document.createElement.bind(dom.window.document);
   dom.window.document.createElement = (tag) => {
     const el = realCreate(tag);
@@ -90,6 +96,8 @@ async function testSnowflakePoolTeardown(THREE) {
       el.getContext = () => ({
         createRadialGradient: () => ({ addColorStop() {} }),
         fillRect() {}, fillStyle: '',
+        createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }),
+        putImageData() {},
       });
     }
     return el;
@@ -108,14 +116,12 @@ async function testSnowflakePoolTeardown(THREE) {
     const scene = new THREE.Scene();
     const before = scene.children.length;
 
-    Snow.createSnowflakes(scene);
+    const flakes = Snow.createSnowflakes(scene);
     const added = scene.children.length - before;
-    check('createSnowflakes adds the snowflake sprites to the scene', added > 0);
-    const uniqueMats = new Set(
-      scene.children.filter((c) => c.isSprite).map((s) => s.material)
-    ).size;
+    check('createSnowflakes adds one billboard batch to the scene', added === 1);
+    const uniqueMats = new Set(flakes.map((s) => s.material)).size;
     check('the flake pool shares bucket materials (uniques far below sprite count)',
-      uniqueMats >= 2 && uniqueMats < added / 10);
+      uniqueMats >= 2 && uniqueMats < flakes.length / 10);
 
     matDisposed = 0;
     Snow.teardownSnowflakes();
@@ -133,7 +139,58 @@ async function testSnowflakePoolTeardown(THREE) {
     Snow.teardownSnowflakes();
     check('the second teardown disposes only the fresh unique buckets (no stale-pool re-dispose)',
       matDisposed === uniqueMats);
+
+    // The public teardown must release detached particle resources itself, even
+    // when the caller does not use the top-level SnowGlider coordinator wrapper.
+    const { ctx } = makeFakeContext(THREE);
+    const previousHook = ctx.scene.onBeforeRender;
+    const ownedFlakes = Snow.createSnowflakes(ctx.scene);
+    const splash = Snow.createSnowSplash();
+    Object.assign(ctx, { snowSplash: splash });
+    Snow.updateSnowSplash(splash, 0, new THREE.Object3D(), { x: 0, z: 0 }, true, ctx.scene);
+    // All four real pools share ownership. Avalanche powder and lazy tree-shed
+    // puffs must unregister before the generic scene sweep reaches their batch.
+    const avalanche = new AvalancheSystem(ctx.scene, 1);
+    Object.assign(ctx.state, { avalanche });
+    const treePositions = Trees.addTrees(ctx.scene);
+    Wind.configure({ baseStrength: 8, gustRange: 2, gustRate: 2, seed: 0 });
+    Wind.reset();
+    TreeShed.configure({ gustEdge: 0.01, minStrength: 0, minLoad: 0, radius: 60, maxTrees: 1 });
+    Wind.update(0.05);
+    TreeShed.update(0.05, treePositions[0], treePositions, ctx.scene);
+    const treePuffs = TreeShed.getPuffSprites();
+    check('teardown fixture has live tree-shed puffs and the real avalanche powder pool',
+      treePuffs.length === 18 && treePuffs.some(p => p.visible) && avalanche.powder.length === 260);
+    const batch = splash.batch;
+    let batchGeometryDisposed = 0, batchMaterialDisposed = 0, mapsDisposed = 0;
+    let avalancheInstancesDisposed = 0, avalancheGeometryDisposed = 0, avalancheMaterialDisposed = 0;
+    batch.mesh.geometry.addEventListener('dispose', () => { batchGeometryDisposed++; });
+    batch.mesh.material.addEventListener('dispose', () => { batchMaterialDisposed++; });
+    avalanche.mesh.addEventListener('dispose', () => { avalancheInstancesDisposed++; });
+    avalanche.mesh.geometry.addEventListener('dispose', () => { avalancheGeometryDisposed++; });
+    avalanche.mesh.material.addEventListener('dispose', () => { avalancheMaterialDisposed++; });
+    const maps = new Set([...ownedFlakes, ...splash.particles, ...avalanche.powder, ...treePuffs]
+      .map((p) => p.material.map));
+    for (const map of maps) map.addEventListener('dispose', () => { mapsDisposed++; });
+    Snow.teardownSnowflakes(new THREE.Scene());
+    check('disposing another scene cannot clear this scene\'s snowfall', batch.mesh.parent === ctx.scene);
+    disposeGame(ctx);
+    disposeGame(ctx);
+    check('direct disposeGame frees all four detached particle pools\' textures exactly once',
+      maps.size === 5 && mapsDisposed === maps.size);
+    check('direct disposeGame releases the shared batch geometry and material once',
+      batchGeometryDisposed === 1 && batchMaterialDisposed === 1);
+    check('direct disposeGame frees avalanche instance buffers, geometry and material once',
+      avalancheInstancesDisposed === 1 && avalancheGeometryDisposed === 1 && avalancheMaterialDisposed === 1);
+    check('direct disposeGame restores the scene callback and clears detached spray state',
+      ctx.scene.onBeforeRender === previousHook && splash.particles.length === 0 && batch.mesh.parent === null);
+    check('direct disposeGame clears avalanche powder and tree-shed pool ownership',
+      avalanche.powder.length === 0 && avalanche.powderTexture === null && TreeShed.getPuffSprites().length === 0);
   } finally {
+    TreeShed.teardown();
+    TreeShed.configure(shedConfig);
+    Wind.configure(DEFAULT_WIND_CONFIG);
+    Wind.reset();
     THREE.SpriteMaterial.prototype.dispose = realMatDispose;
     g.document = prevDoc;
     g.window = prevWin;

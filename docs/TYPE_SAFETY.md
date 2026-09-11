@@ -25,7 +25,7 @@ The JavaScript test project checks files by default and relaxes implicit-any,
 null and unused checks for existing scaffolding. Playwright TypeScript specs,
 helpers and configurations additionally pass the full strict compiler settings in
 `tsconfig.e2e.json`. Nine exact legacy exclusions remain: eight
-classic in-page browser suites/runner files and the frozen historical physics
+legacy in-page browser suites/runner files and the frozen historical physics
 baseline. They are listed, with reasons, in `scripts/check-typecheck-coverage.mjs`.
 New files do not inherit an exemption. The inventory check rejects additional
 omissions, unchecked projects, new `@ts-nocheck` directives and stale exemptions.
