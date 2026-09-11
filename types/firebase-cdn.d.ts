@@ -1,10 +1,8 @@
-// auth.js / scores.js import Firebase from the gstatic CDN by full URL
-// (the same module specifiers index.html loads at runtime). Map those URLs to the
-// installed `firebase` v11 package's types so `// @ts-check` can resolve them
-// (Firebase ships its own types.)
+// auth.ts / scores.ts import Firebase from the gstatic CDN by full URL.
+// Map those URLs to the exact installed SDK's official type declarations.
 //
-// Keep the version (11.5.0) in lockstep with the URLs in src/auth.js + src/scores.js
-// and the `firebase` devDependency.
+// tests/dependency-type-contract-tests.js enforces parity between these URLs,
+// runtime imports, and the pinned firebase dependency / lockfile version.
 declare module "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js" {
   export * from "firebase/app";
 }

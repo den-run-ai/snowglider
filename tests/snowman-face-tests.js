@@ -29,6 +29,12 @@ async function main() {
   snowman.updateMatrixWorld(true);
   const parts = snowman.userData.parts;
   const base = snowman.userData.partBaseTransforms;
+  /** @param {string} name */
+  function faceMesh(name) {
+    const part = parts[name];
+    if (!(part instanceof THREE.Mesh)) throw new Error(`${name} is not a face mesh`);
+    return part;
+  }
 
   console.log('--- face rig: registry + base transforms ---');
   const faceKeys = [
@@ -105,8 +111,8 @@ async function main() {
   check('both cheeks share one material instance; both pupils share one',
     parts.leftCheek.material === parts.rightCheek.material && parts.leftPupil.material === parts.rightPupil.material);
   check('all 7 joints share ONE geometry; all 6 segments share ONE; both brows share ONE (pooled)',
-    [1, 2, 3, 4, 5, 6].every((i) => parts[`mouthBead${i}`].geometry === parts.mouthBead0.geometry) &&
-    [1, 2, 3, 4, 5].every((i) => parts[`mouthSeg${i}`].geometry === parts.mouthSeg0.geometry) &&
+    [1, 2, 3, 4, 5, 6].every((i) => faceMesh(`mouthBead${i}`).geometry === parts.mouthBead0.geometry) &&
+    [1, 2, 3, 4, 5].every((i) => faceMesh(`mouthSeg${i}`).geometry === parts.mouthSeg0.geometry) &&
     parts.leftBrow.geometry === parts.rightBrow.geometry);
 
   console.log(`\n${pass} passed, ${fail} failed`);

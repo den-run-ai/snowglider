@@ -50,11 +50,8 @@ jobs:
       - name: Run lint
         run: npm run lint
 
-      - name: Type-check (tsc --noEmit)
-        run: npm run typecheck
-
-      - name: Type-check tests (@ts-check'd suites)
-        run: npm run typecheck:tests
+      - name: Type-check app, worker, tests and coverage guard
+        run: npm run typecheck:all
 
       # Validate the production Vite bundle on every PR (tsc --noEmit above does
       # NOT run the bundler). Catches a build/transpile regression before merge so

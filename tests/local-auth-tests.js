@@ -251,7 +251,7 @@ function main() {
       check('ScoresModule.displayLeaderboard tolerates a missing #leaderboard', true);
       // No authUI/profileUI/authContainer -> every initializeAuth guard takes its
       // false branch without throwing.
-      bare.window.AuthModule.initializeAuth();
+      bare.window.AuthModule.initializeAuth({});
       check('AuthModule.initializeAuth tolerates missing auth DOM', true);
       // No ScoresModule and no #leaderboard -> AuthModule.displayLeaderboard logs only.
       delete bare.window.ScoresModule;

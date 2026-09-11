@@ -2,16 +2,6 @@ const js = require("@eslint/js");
 const globals = require("globals");
 const tseslint = require("typescript-eslint");
 
-const warningRules = Object.fromEntries(
-  Object.entries(js.configs.recommended.rules).map(([ruleName, ruleConfig]) => {
-    if (Array.isArray(ruleConfig)) {
-      return [ruleName, ["warn", ...ruleConfig.slice(1)]];
-    }
-
-    return [ruleName, "warn"];
-  })
-);
-
 module.exports = [
   {
     ignores: [
@@ -23,7 +13,7 @@ module.exports = [
     ]
   },
   {
-    files: ["**/*.js"],
+    files: ["**/*.{js,mjs,cjs}"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",
@@ -59,7 +49,7 @@ module.exports = [
       }
     },
     rules: {
-      ...warningRules,
+      ...js.configs.recommended.rules,
       "no-redeclare": "off",
       "no-unused-vars": "off"
     }
@@ -70,7 +60,7 @@ module.exports = [
   // boot/script-loader.js, ui/start-menu.js → .ts, 3.11). The only remaining
   // `.js` files under src are the classic Firebase/local-auth bootstrap
   // `<script>`s (boot/firebase-bootstrap.js, boot/local-auth.js); they are NOT
-  // modules, so the default `**/*.js` block (sourceType:"script") above is
+  // modules, so the default JS block (sourceType:"script") above is
   // correct for them.
   //
   // Phase 3 (typescript-eslint): the `src/` + `types/` `.ts` sources are linted
@@ -78,15 +68,11 @@ module.exports = [
   // (`recommendedTypeChecked`, backed by the project's tsconfig via
   // `projectService`). `tsc --noEmit` remains the authoritative type gate; the
   // type-aware lint rules add behavioural checks tsc doesn't (floating/misused
-  // promises, redundant assertions). The scope is `src/`+`types/` because those
-  // are exactly what tsconfig includes — the Playwright e2e specs and *.config.ts
-  // are excluded from tsconfig, so type-aware linting can't build a program for
-  // them (they are linted non-type-checked in the block below).
+  // promises, redundant assertions). App, E2E and worker use separate typed
+  // projects so each retains the correct runtime globals and strictness.
   ...tseslint.config({
     files: ["src/**/*.ts", "types/**/*.ts"],
-    // src/pwa/sw.ts is the service worker: it's excluded from tsconfig (webworker
-    // lib, compiled standalone by vite-plugin-pwa), so the type-aware program can't
-    // include it. It's linted non-type-checked in its own block below.
+    // The worker has a separate WebWorker compiler project below.
     ignores: ["src/pwa/sw.ts"],
     extends: [tseslint.configs.recommendedTypeChecked],
     languageOptions: {
@@ -102,71 +88,67 @@ module.exports = [
     rules: {
       // The TypeScript migration is complete and `tsc --noEmit` now enforces
       // noUnusedLocals/noUnusedParameters (it FAILS on unused code), so re-enable
-      // the eslint twin as a warning for consistency. The leading-underscore
+      // the eslint twin as an error for consistency. The leading-underscore
       // ignore patterns mirror tsc's default so deliberately-unused
       // call-site-parity params (e.g. `_scene`) don't warn in either tool.
-      "@typescript-eslint/no-unused-vars": ["warn", {
+      "@typescript-eslint/no-unused-vars": ["error", {
         argsIgnorePattern: "^_",
         varsIgnorePattern: "^_",
         caughtErrorsIgnorePattern: "^_"
       }],
-      // Deliberate `any` lives only in boot/test seams + untyped Firestore
-      // DocumentData.
-      "@typescript-eslint/no-explicit-any": "warn",
-      // recommendedTypeChecked's `no-unsafe-*` family fires pervasively wherever
-      // a deliberate `any` flows — untyped Firestore DocumentData, the window.*
-      // game/test handle casts, and untyped THREE.js internals. Mirror
-      // no-explicit-any and keep them as WARNINGS (surfaced as debt to pay down
-      // incrementally, but non-blocking) rather than dropping the whole
-      // type-checked tier. `restrict-template-expressions` is downgraded for the
-      // same reason (it trips on those `any`/`never`-typed Firestore fields).
-      // The high-value behavioural rules below stay at their default `error`.
-      "@typescript-eslint/no-unsafe-member-access": "warn",
-      "@typescript-eslint/no-unsafe-assignment": "warn",
-      "@typescript-eslint/no-unsafe-call": "warn",
-      "@typescript-eslint/no-unsafe-argument": "warn",
-      "@typescript-eslint/no-unsafe-return": "warn",
-      "@typescript-eslint/restrict-template-expressions": "warn"
+      // Production boundaries must narrow SDK/user-data values before use. These
+      // are errors so dependency upgrades cannot silently reintroduce unsafe flows.
+      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-unsafe-member-access": "error",
+      "@typescript-eslint/no-unsafe-assignment": "error",
+      "@typescript-eslint/no-unsafe-call": "error",
+      "@typescript-eslint/no-unsafe-argument": "error",
+      "@typescript-eslint/no-unsafe-return": "error",
+      "@typescript-eslint/restrict-template-expressions": "error"
     }
   }),
-  // The Playwright e2e specs and root *.config.ts files are excluded from
-  // tsconfig (the tsc gate covers src/ + types/ only), so the type-aware program
-  // above can't include them. Lint them with the non-type-checked recommended
-  // ruleset so they still get baseline coverage without a parser project error.
+  // E2E TypeScript and Playwright configs retain full strict checking in their
+  // own project; typed lint also catches floating promises and unsafe SDK flows.
   ...tseslint.config({
     files: ["tests/**/*.ts", "*.config.ts"],
-    extends: [tseslint.configs.recommended],
+    extends: [tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       sourceType: "module",
+      parserOptions: {
+        project: "./tsconfig.e2e.json",
+        tsconfigRootDir: __dirname
+      },
       globals: {
         ...globals.browser,
         ...globals.node
       }
     },
     rules: {
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": "off"
     }
   }),
-  // The service worker (src/pwa/sw.ts) runs in the ServiceWorkerGlobalScope and is
-  // excluded from tsconfig, so lint it non-type-checked with worker + browser globals
-  // (self, caches, clients, skipWaiting, ExtendableMessageEvent, …).
+  // The worker is type-checked against WebWorker globals in its own project.
   ...tseslint.config({
     files: ["src/pwa/sw.ts"],
-    extends: [tseslint.configs.recommended],
+    extends: [tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       sourceType: "module",
+      parserOptions: {
+        project: "./tsconfig.worker.json",
+        tsconfigRootDir: __dirname
+      },
       globals: {
         ...globals.serviceworker,
         ...globals.browser
       }
     },
     rules: {
-      "@typescript-eslint/no-explicit-any": "warn"
+      "@typescript-eslint/no-explicit-any": "error"
     }
   }),
   {
-    files: ["vite.config.js"],
+    files: ["vite.config.js", "**/*.mjs"],
     languageOptions: {
       sourceType: "module"
     }

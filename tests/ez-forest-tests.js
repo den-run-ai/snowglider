@@ -566,6 +566,82 @@ async function main() {
     Trees.setEzForestEnabled(null);
   }
 
+  // Exercise the adapter against the INSTALLED dependency, including a simulated
+  // upstream shape drift. The previous guard checked only the Tree constructor;
+  // strings in numeric fields were silently overwritten/coerced into valid output.
+  {
+    const installed = await import('@dgreenheck/ez-tree');
+    for (const stage of ['constructor', 'preset']) {
+      let disposed = 0;
+      class ChangedTree extends installed.Tree {
+        constructor() {
+          super();
+          this.branchesMesh.geometry.addEventListener('dispose', () => { disposed++; });
+          this.leavesMesh.geometry.addEventListener('dispose', () => { disposed++; });
+          // Inject malformed third-party data without claiming it matches the SDK.
+          if (stage === 'constructor') Reflect.set(this.options.leaves, 'size', '1');
+        }
+        loadPreset(name) {
+          super.loadPreset(name);
+          if (stage === 'preset') {
+            disposed = 0; // loadPreset already disposed the constructor's empty geometry.
+            this.branchesMesh.geometry.addEventListener('dispose', () => { disposed++; });
+            this.leavesMesh.geometry.addEventListener('dispose', () => { disposed++; });
+            Reflect.set(this.options.branch.children, '1', '0');
+          }
+        }
+      }
+      EzForest.resetEzForest();
+      EzForest.__setEzModuleImporterForTests(() => Promise.resolve({ Tree: ChangedTree }));
+      let rejected = false;
+      try { await EzForest.ensureEzArchetypes(); }
+      catch (error) { rejected = /incompatible ez-tree instance/.test(String(error)); }
+      assert(rejected, `${stage} shape drift is rejected before numeric coercion`);
+      assert(disposed === 2, `${stage} rejection releases both allocated geometries`);
+      assert(EzForest.getEzArchetypesSync() === null, 'a rejected adapter leaves no partial archetype cache');
+    }
+
+    let instances = 0, completedDisposals = 0, textureDisposals = 0;
+    const watchedTextures = new Set();
+    const onTextureDispose = () => { textureDisposals++; };
+    class LaterChangedTree extends installed.Tree {
+      constructor() {
+        super();
+        this.generations = 0;
+        instances++;
+        if (instances === 2) Reflect.set(this.options.leaves, 'size', NaN);
+      }
+      generate() {
+        super.generate();
+        this.generations++;
+        // loadPreset generates once itself; watch only the final tuned archetype.
+        if (this.generations !== 2) return;
+        this.branchesMesh.geometry.addEventListener('dispose', () => { completedDisposals++; });
+        this.leavesMesh.geometry.addEventListener('dispose', () => { completedDisposals++; });
+        const material = this.leavesMesh.material;
+        if (material instanceof THREE.MeshPhongMaterial && material.map) {
+          watchedTextures.add(material.map);
+          material.map.addEventListener('dispose', onTextureDispose);
+        }
+      }
+    }
+    EzForest.resetEzForest();
+    EzForest.__setEzModuleImporterForTests(() => Promise.resolve({ Tree: LaterChangedTree }));
+    let rejectedLaterSpecies = false;
+    try { await EzForest.ensureEzArchetypes(); }
+    catch { rejectedLaterSpecies = true; }
+    assert(rejectedLaterSpecies && completedDisposals === 2,
+      'a later species failure releases geometries from completed earlier archetypes');
+    assert(textureDisposals === 0, 'rejection cleanup preserves the dependency shared texture cache');
+    for (const texture of watchedTextures) texture.removeEventListener('dispose', onTextureDispose);
+    EzForest.resetEzForest();
+    EzForest.__setEzModuleImporterForTests(null);
+    const restored = await EzForest.ensureEzArchetypes();
+    assert(restored.length === EzForest.EZ_SPECIES_COUNT * 2,
+      'the installed dependency passes the complete adapter contract after rejected imports');
+    EzForest.resetEzForest();
+  }
+
   console.log(`\n=================================`);
   console.log(`EZ forest tests completed: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

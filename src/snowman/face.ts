@@ -42,14 +42,14 @@ import {
  *  `mouthSegments` are the 6 line segments layoutMouthLine refits between them. */
 export interface SnowmanFaceParts {
   mouth: THREE.Group;
-  mouthBeads: THREE.Mesh[];
-  mouthSegments: THREE.Mesh[];
-  leftBrow: THREE.Object3D;
-  rightBrow: THREE.Object3D;
-  leftCheek: THREE.Object3D;
-  rightCheek: THREE.Object3D;
-  leftPupil: THREE.Object3D;
-  rightPupil: THREE.Object3D;
+  mouthBeads: THREE.Mesh<THREE.SphereGeometry, THREE.Material>[];
+  mouthSegments: THREE.Mesh<THREE.CylinderGeometry, THREE.Material>[];
+  leftBrow: THREE.Mesh<THREE.CylinderGeometry, THREE.Material>;
+  rightBrow: THREE.Mesh<THREE.CylinderGeometry, THREE.Material>;
+  leftCheek: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
+  rightCheek: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
+  leftPupil: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
+  rightPupil: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
 }
 
 // --- Geometry / layout constants (head-LOCAL space) --------------------------
@@ -97,7 +97,7 @@ export function createFace(
   const segGeo = new THREE.CylinderGeometry(MOUTH_LINE_R, MOUTH_LINE_R, 1, 6);
   const mouth = new THREE.Group();
   mouth.position.set(0, MOUTH_Y, 0);
-  const mouthBeads: THREE.Mesh[] = [];
+  const mouthBeads: SnowmanFaceParts['mouthBeads'] = [];
   for (let i = 0; i < MOUTH_JOINT_COUNT; i++) {
     // Even spread across [-halfWidth, +halfWidth]; single joint guard avoids /0.
     const t = MOUTH_JOINT_COUNT > 1 ? (i / (MOUTH_JOINT_COUNT - 1)) * 2 - 1 : 0; // -1..1
@@ -111,7 +111,7 @@ export function createFace(
     mouth.add(joint);
     mouthBeads.push(joint);
   }
-  const mouthSegments: THREE.Mesh[] = [];
+  const mouthSegments: SnowmanFaceParts['mouthSegments'] = [];
   for (let i = 0; i < MOUTH_JOINT_COUNT - 1; i++) {
     const seg = new THREE.Mesh(segGeo, coalMaterial);
     mouth.add(seg);
@@ -125,7 +125,7 @@ export function createFace(
   // cylinder's y-axis onto x), with a slight resting tilt; the controller rotates/raises
   // them for focus / panic / joy. Shared geometry.
   const browGeo = new THREE.CylinderGeometry(BROW_R, BROW_R, BROW_LEN, 6);
-  function makeBrow(sign: number): THREE.Object3D {
+  function makeBrow(sign: number) {
     const brow = new THREE.Mesh(browGeo, coalMaterial);
     brow.position.set(sign * BROW_X, BROW_Y, surfaceZ(sign * BROW_X, BROW_Y));
     // Cylinder default axis is +y; lay it horizontal (along x). The resting brow is FLAT
@@ -143,7 +143,7 @@ export function createFace(
   // clown circles. Flattened via mesh scale so the one shared sphere geometry serves
   // both. The controller pops them (slightly) on a big smile / land.
   const cheekGeo = new THREE.SphereGeometry(0.115, 8, 8);
-  function makeCheek(sign: number): THREE.Object3D {
+  function makeCheek(sign: number) {
     const cheek = new THREE.Mesh(cheekGeo, cheekMaterial);
     cheek.position.set(sign * CHEEK_X, CHEEK_Y, surfaceZ(sign * CHEEK_X, CHEEK_Y, -0.04));
     cheek.scale.set(1, 0.7, 0.35); // press flat against the face
@@ -159,7 +159,7 @@ export function createFace(
   // eye's squash/blink; the controller can also shift them a touch toward a turn/hazard.
   // The eyes are spheres of radius 0.15 centred at head-local (±0.4, 0.2, 0.8).
   const pupilGeo = new THREE.SphereGeometry(PUPIL_R, 6, 6);
-  function makePupil(): THREE.Object3D {
+  function makePupil() {
     const pupil = new THREE.Mesh(pupilGeo, highlightMaterial);
     // Eye-local: upper-front of the coal eye (eye radius 0.15, so 0.11 sits proud).
     pupil.position.set(0, 0.04, 0.11);

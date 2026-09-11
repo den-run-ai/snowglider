@@ -85,7 +85,7 @@ async function runTest(name, testFn) {
     pass++;
   } catch (error) {
     console.log(`  FAIL: ${name}`);
-    console.log(`    ${error.message}`);
+    console.log(`    ${(error instanceof Error ? error.message : String(error))}`);
     fail++;
   }
 }

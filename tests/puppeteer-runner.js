@@ -111,7 +111,7 @@ async function writeBrowserArtifacts(page, initialResults, {
     } catch (error) {
       // Ordinary coverage instrumentation errors remain best-effort. A stalled
       // protocol operation is a runner failure, not successful coverage collection.
-      (error.name === 'BrowserDeadlineError' ? artifactFailures : artifactWarnings).push(error.message);
+      (error instanceof Error && error.name === 'BrowserDeadlineError' ? artifactFailures : artifactWarnings).push((error instanceof Error ? error.message : String(error)));
     }
   }
   try {
@@ -119,7 +119,7 @@ async function writeBrowserArtifacts(page, initialResults, {
       path: path.join(resultsDir, 'test-results.png'), fullPage: true
     }), timeoutMs, 'Browser screenshot');
   } catch (error) {
-    artifactFailures.push(`Screenshot failed: ${error.message}`);
+    artifactFailures.push(`Screenshot failed: ${(error instanceof Error ? error.message : String(error))}`);
   }
   try {
     const latest = await withNodeDeadline(() => page.evaluate(() => ({
@@ -129,7 +129,7 @@ async function writeBrowserArtifacts(page, initialResults, {
     // A later successful snapshot cannot erase the original whole-suite timeout.
     results = { ...results, ...latest, timeout: !!(results.timeout || latest?.timeout) };
   } catch (error) {
-    artifactFailures.push(`Final result read failed: ${error.message}`);
+    artifactFailures.push(`Final result read failed: ${(error instanceof Error ? error.message : String(error))}`);
   }
   artifactsComplete = true;
   persist();
@@ -175,7 +175,7 @@ function assertPortAvailable(port) {
     const probe = net.createServer();
 
     probe.once('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
+      if ('code' in err && err.code === 'EADDRINUSE') {
         reject(new Error(`Port ${port} is already in use; refusing to run browser tests against a pre-existing server`));
         return;
       }
@@ -225,13 +225,14 @@ async function startServer() {
   // Record an early exit (e.g. `--strictPort` and the port was already taken, so
   // Vite refuses to start) so we can fail loudly instead of probing whatever else
   // is on the port.
+  /** @type {{ code: number | null, signal: NodeJS.Signals | null } | null} */
   let exitInfo = null;
   server.on('exit', (code, signal) => {
     exitInfo = { code, signal };
   });
 
   const startupError = new Promise((_resolve, reject) => {
-    server.on('error', (err) => reject(new Error(`Failed to start server: ${err.message}`)));
+    server.on('error', (err) => reject(new Error(`Failed to start server: ${(err instanceof Error ? err.message : String(err))}`)));
   });
 
   // Poll Vite's own endpoint for up to ~30s (its first cold dep-optimize is slow).
@@ -261,24 +262,29 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/** @param {import('puppeteer').Browser} browser */
 async function runStartMenuRaceRegression(browser) {
   console.log('Running start menu race regression...');
 
   const page = await browser.newPage();
   const errors = [];
   const rendererErrors = [];
+  /** @type {() => void} */
   let releaseSnowgliderScript;
+  /** @type {() => void} */
   let snowgliderRequestSeen;
 
+  /** @type {Promise<void>} */
   const releaseSnowgliderScriptPromise = new Promise(resolve => {
     releaseSnowgliderScript = resolve;
   });
+  /** @type {Promise<void>} */
   const snowgliderRequestSeenPromise = new Promise(resolve => {
     snowgliderRequestSeen = resolve;
   });
 
   page.on('pageerror', (err) => {
-    errors.push(err.message);
+    errors.push((err instanceof Error ? err.message : String(err)));
   });
   page.on('console', (msg) => {
     if (isRendererFailure(msg.text())) rendererErrors.push(msg.text());
@@ -315,8 +321,8 @@ async function runStartMenuRaceRegression(browser) {
     await page.click('#startGameButton');
 
     await page.waitForFunction(() => {
-      const button = document.getElementById('startGameButton');
-      return button && button.disabled && button.getAttribute('aria-busy') === 'true';
+      const button = document.querySelector('button#startGameButton');
+      return button instanceof HTMLButtonElement && button.disabled && button.getAttribute('aria-busy') === 'true';
     }, { timeout: 5000 });
 
     const pendingState = await page.evaluate(() => {
@@ -344,10 +350,10 @@ async function runStartMenuRaceRegression(browser) {
     releaseSnowgliderScript();
 
     await page.waitForFunction(() => {
-      const button = document.getElementById('startGameButton');
+      const button = document.querySelector('button#startGameButton');
       const startContainer = document.getElementById('startGameContainer');
       const gameCanvas = document.getElementById('gameCanvas');
-      return button &&
+      return button instanceof HTMLButtonElement &&
         startContainer &&
         gameCanvas &&
         !button.disabled &&
@@ -411,7 +417,7 @@ async function runBrowserTests() {
       try {
         await startBrowserCoverage(page);
       } catch (covErr) {
-        console.warn('Browser coverage: failed to start:', covErr.message);
+        console.warn('Browser coverage: failed to start:', (covErr instanceof Error ? covErr.message : String(covErr)));
       }
     }
 
@@ -434,8 +440,8 @@ async function runBrowserTests() {
     // Track errors
     const errors = [];
     page.on('pageerror', (err) => {
-      errors.push(err.message);
-      console.error('Page error:', err.message);
+      errors.push((err instanceof Error ? err.message : String(err)));
+      console.error('Page error:', (err instanceof Error ? err.message : String(err)));
     });
     
     // Navigate to test page
@@ -456,7 +462,7 @@ async function runBrowserTests() {
     try {
       await page.mouse.click(5, 5);
     } catch (clickErr) {
-      console.warn('Audio-unlock click skipped:', clickErr.message);
+      console.warn('Audio-unlock click skipped:', (clickErr instanceof Error ? clickErr.message : String(clickErr)));
     }
     await new Promise(r => setTimeout(r, 1000));
     
@@ -467,7 +473,7 @@ async function runBrowserTests() {
     try {
       results = await collectBrowserResults(page);
     } catch (error) {
-      results = { timeout: true, collectionError: error.message };
+      results = { timeout: true, collectionError: (error instanceof Error ? error.message : String(error)) };
     }
     results = await writeBrowserArtifacts(page, results, {
       consoleLogs, pageErrors: errors, rendererErrors,
@@ -504,7 +510,7 @@ async function runBrowserTests() {
     return failures.length > 0 ? 1 : 0;
     
   } catch (error) {
-    console.error('Test runner error:', error.message);
+    console.error('Test runner error:', (error instanceof Error ? error.message : String(error)));
     return 1;
   } finally {
     // Always release the server, even if browser shutdown fails or hangs.

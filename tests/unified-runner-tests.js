@@ -126,7 +126,9 @@ async function main() {
     { ...good, completed: [...good.completed, 'controls'] },
     { ...good, expectedSuites: [] },
     { ...good, suiteResults: {} },
-    { ...good, runnerErrors: undefined }
+    { ...good, runnerErrors: undefined },
+    { ...good, runnerErrors: [null] },
+    { ...good, suiteResults: { controls: { assertions: '1' } } }
   ]) assert.ok(validateBrowserResults(bad).length > 0);
   assert.ok(validateBrowserResults(good, ['uncaught in a later timer']).length > 0);
   assert.ok(validateBrowserResults(good, [], ['WebGLProgram: Shader Error 0']).length > 0);

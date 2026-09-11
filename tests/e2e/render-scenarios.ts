@@ -1,31 +1,26 @@
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import type * as THREE from 'three';
-import type { Camera } from '../../src/camera';
+import type { GameState, SceneContext } from '../../src/game/scene-setup.js';
+import type { PlayerState } from '../../src/player-state.js';
 import resultContract from '../helpers/browser-results.js';
 
 export const RENDER_PHASES = ['spawn', 'downhill', 'avalanche', 'spray', 'crash'] as const;
 export type RenderPhase = typeof RENDER_PHASES[number];
 export const REVIEW_SEED = 0x531060d5;
 
-type RenderWindow = Window & {
-  scene: THREE.Scene;
-  renderer: THREE.WebGLRenderer;
-  camera: THREE.PerspectiveCamera;
-  cameraManager: Camera;
-  snowman: THREE.Object3D;
-  pos: { x: number; y: number; z: number };
-  velocity: { x: number; z: number };
-  snowSplash: { particles: THREE.Sprite[] };
-  avalanche: { active: boolean; count: number; powder: THREE.Sprite[]; trigger: (pos: { x: number; y: number; z: number }) => void };
-  avalancheTriggered: boolean;
-  getTerrainHeight: (x: number, z: number) => number;
-  getControls: () => { up: boolean; down: boolean; left: boolean; right: boolean; jump: boolean };
-  gameActive: boolean;
-  showGameOver: (reason: string) => void;
-  testHooks: { isDebrisActive: () => boolean };
-  __renderClock: { step: () => { cpuMs: number; synchronizedMs: number } };
-};
+// Derive the published scene/player handles from their checked producers, so
+// particle and SDK contracts keep following the application after upgrades.
+type RenderWindow = Window &
+  Pick<SceneContext, 'scene' | 'renderer' | 'camera' | 'cameraManager' | 'snowman' | 'snowSplash'> &
+  Pick<PlayerState, 'pos' | 'velocity'> &
+  Pick<GameState, 'avalanche' | 'avalancheTriggered' | 'gameActive'> &
+  Required<Pick<Window, 'showGameOver'>> & {
+    getTerrainHeight: typeof import('../../src/snow.js').Snow.getTerrainHeight;
+    getControls: typeof import('../../src/controls.js').Controls.getControls;
+    testHooks: Required<Pick<NonNullable<Window['testHooks']>, 'isDebrisActive'>>;
+    __renderClock: { step: () => { cpuMs: number; synchronizedMs: number } };
+  };
 
 export type PhaseMetrics = {
   phase: RenderPhase;
@@ -84,7 +79,10 @@ export async function prepareRenderScenario(page: Page): Promise<string[]> {
   await page.waitForFunction(() => {
     const w = window as unknown as RenderWindow;
     let ready = false;
-    w.scene?.traverse(object => { if (object.userData.forestPart === 'ezBranches') ready = true; });
+    w.scene?.traverse(object => {
+      const data: Record<string, unknown> = object.userData;
+      if (data.forestPart === 'ezBranches') ready = true;
+    });
     return ready && typeof window.initializeGameWithAudio === 'function';
   }, undefined, { timeout: 30_000 });
 
@@ -143,6 +141,7 @@ export async function enterRenderPhase(page: Page, phase: RenderPhase): Promise<
       w.cameraManager.initialize(w.snowman.position, w.snowman.rotation, w.velocity);
       Object.assign(w.getControls(), { up: true, down: false, left: false, right: phase === 'spray', jump: false });
       if (phase === 'avalanche') {
+        if (!w.avalanche) throw new Error('Render scenario requires the live avalanche system');
         w.avalanche.trigger(w.pos);
         w.avalancheTriggered = true;
       }
@@ -161,6 +160,7 @@ export async function measureRenderPhase(page: Page, phase: RenderPhase): Promis
   // This removes runner/trace/coverage round trips, not rendered frames or checks.
   const { samples, state } = await page.evaluate(() => {
     const w = window as unknown as RenderWindow;
+    if (!w.avalanche) throw new Error('Render scenario requires the live avalanche system');
     const samples = [];
     for (let i = 0; i < 12; i++) {
       const timing = w.__renderClock.step();
@@ -174,7 +174,8 @@ export async function measureRenderPhase(page: Page, phase: RenderPhase): Promis
     w.scene.traverse(object => {
       if (object.name === 'forestInstanced') {
         forestMeshes++;
-        if (typeof object.userData.forestChunk === 'string') chunks.add(object.userData.forestChunk);
+        const data: Record<string, unknown> = object.userData;
+        if (typeof data.forestChunk === 'string') chunks.add(data.forestChunk);
       }
       if (object.name === 'snowBillboards') {
         snowBatches++;
