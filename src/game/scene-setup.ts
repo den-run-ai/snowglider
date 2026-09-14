@@ -23,7 +23,8 @@ import { configureSunShadow } from './sun-shadow.js';
 import { createRenderQuality, resolveRenderQualityMode } from './render-quality.js';
 import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
-import { readStoredDifficulty, getDifficultyConfig, BLUE_AVALANCHE, type Difficulty } from '../difficulty.js';
+import { getDifficultyConfig, BLUE_AVALANCHE, type Difficulty } from '../difficulty.js';
+import { initialRunDifficulty } from './run-transition.js';
 import { courseLineFor, setActiveCourseLine } from '../course-line.js';
 import { createScenery, type ScenerySystem } from '../scenery/scenery.js';
 import { scenerySeedFor } from '../scenery/scenery-budget.js';
@@ -335,7 +336,7 @@ export function setupScene(signal?: AbortSignal) {
   // picker, or the finish "Play again on" picker) it would not match; rather than rebuild
   // in place (a large, leak-prone teardown) the coordinator reloads on that mismatch
   // (maybeReloadForRunTier) so setupScene re-runs for the locked tier — see snowglider.ts.
-  const builtDifficulty = readStoredDifficulty();
+  const builtDifficulty = initialRunDifficulty();
   const runConfig = getDifficultyConfig(builtDifficulty);
   const courseLine = runConfig.line.curviness > 0 ? courseLineFor(runConfig) : null;
   setActiveCourseLine(courseLine);

@@ -127,6 +127,20 @@ async function main() {
     !chip6 || chip6.style.display === 'none');
   ctrl6.dispose();
 
+  // Responsive menu: the prompt belongs to the offline disclosure, not outside
+  // the card's scroll area on the full-screen backdrop.
+  const menuEnv = setupDom({ html: '<div id="startGameContainer"><div id="startInstallSlot"></div></div>' });
+  const menuCtrl = ip.initInstallPrompt({
+    doc: menuEnv.document, win: menuEnv.window,
+    isTestMode: () => false, standalone: () => false,
+    storage: createLocalStorageMock(),
+  });
+  menuEnv.window.dispatchEvent(makeBip(menuEnv.window, 'accepted'));
+  check('install prompt mounts inside the offline disclosure slot',
+    menuEnv.document.getElementById(ip.INSTALL_PROMPT_ID)?.parentElement?.id === 'startInstallSlot');
+  menuCtrl.dispose();
+  menuEnv.teardown();
+
   // --- No document: inert controller, no throw ---
   const inert = ip.initInstallPrompt({ doc: /** @type {any} */ (null), win: /** @type {any} */ (null) });
   let inertThrew = false;

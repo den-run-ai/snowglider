@@ -62,6 +62,25 @@ async function main() {
   const { localBestTimeKey: BTK, localBestMetaKey: BTMK } = await import('../src/difficulty.ts');
   const { createShowGameOver, isValidScoreTime, readStoredBestTime } = mod;
 
+  // End-of-run UI must clear an already visible start/loading toast without
+  // tearing down audio, and tell the orchestrator to cancel a pending toast.
+  {
+    const { AudioModule } = await import('../src/audio.ts');
+    const deps = makeDeps();
+    let ended = 0;
+    AudioModule.showMessage('Get Ready!', 100000);
+    const sound = document.createElement('button');
+    sound.id = 'audioControlBtn';
+    document.body.appendChild(sound);
+    createShowGameOver({ ...deps, onEndRun: () => { ended++; } })('You hit a tree!');
+    check('result entry cancels pending run UI work', ended === 1);
+    check('result entry removes visible run toasts immediately',
+      ![...document.body.children].some(el => el.textContent === 'Get Ready!'));
+    check('clearing result toasts preserves the sound control for replay',
+      document.getElementById('audioControlBtn') === sound);
+    AudioModule.clearMessages();
+  }
+
   // --- isValidScoreTime: fallback computation + delegation to ScoresModule ---
   delete window.ScoresModule;
   check('isValidScoreTime fallback accepts a sane time', isValidScoreTime(20) === true);

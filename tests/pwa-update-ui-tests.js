@@ -95,6 +95,21 @@ async function main() {
   try { env.document.getElementById('swUpdateReload').click(); } catch { threw = true; }
   check('a throwing apply() is swallowed', threw === false);
 
+  // The responsive menu has an inner card; mounting on the full-screen backdrop
+  // would put this action outside its scroll area. Still observe the outer
+  // screen's visibility so switching to results re-homes the notification.
+  env.document.getElementById(ui.UPDATE_BANNER_ID).remove();
+  const slot = env.document.createElement('div');
+  slot.id = 'startUpdateSlot';
+  container.appendChild(slot);
+  ui.showUpdatePrompt(() => {}, env.document);
+  check('responsive menu update mounts in the card slot', env.document.getElementById(ui.UPDATE_BANNER_ID).parentElement === slot);
+  check('responsive menu update stays idempotent', ui.showUpdatePrompt(() => {}, env.document) === false);
+  container.style.display = 'none';
+  gameOver.style.display = 'flex';
+  await new Promise((r) => setTimeout(r, 0));
+  check('card-mounted update moves to results when outer start screen hides', env.document.getElementById(ui.UPDATE_BANNER_ID).parentElement === gameOver);
+
   env.teardown();
   console.log(`\nPWA UPDATE-UI TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

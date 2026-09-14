@@ -320,6 +320,39 @@ async function main() {
     !Controls.getControls().left && !Controls.getControls().right && !Controls.getControls().up);
   statsPanel.remove();
 
+  console.log('\n--- onboarding disclosures and scroll area own native touch gestures ---');
+  // These are the real menu boundaries, including non-interactive paragraphs and
+  // blank card space. Suppressing any part of a touch sequence prevents native
+  // details activation or vertical scrolling even though click() tests pass.
+  const startPanel = document.createElement('div');
+  startPanel.id = 'startGameContainer';
+  startPanel.innerHTML = '<div class="start-dialog"><h1>SnowGlider</h1><details><summary><span>Offline play</span></summary><p>Offline instructions</p></details></div>';
+  const standaloneDisclosure = document.createElement('details');
+  standaloneDisclosure.innerHTML = '<summary><span>Other options</span></summary>';
+  document.body.append(startPanel, standaloneDisclosure);
+  dispatchTouch('touchstart', document, heldPoint);
+  keydown('ArrowUp');
+  const controlsBeforeMenuTouch = JSON.stringify(Controls.getControls());
+  const menuTargets = [
+    startPanel,
+    ...startPanel.querySelectorAll('.start-dialog, h1, summary, summary span, p'),
+    standaloneDisclosure.querySelector('summary span'),
+  ];
+  for (const target of menuTargets) {
+    for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+      const event = /** @type {any} */ (new window.Event(type, { bubbles: true, cancelable: true }));
+      event.changedTouches = [{ identifier: 83, clientX: W / 6, clientY: H / 2 }];
+      target.dispatchEvent(event);
+      check(`${type} on menu ${target.tagName} allows native activation/scroll`, !event.defaultPrevented);
+      check(`${type} on menu ${target.tagName} never changes held gameplay inputs`,
+        JSON.stringify(Controls.getControls()) === controlsBeforeMenuTouch);
+    }
+  }
+  dispatchTouch('touchend', document, heldPoint);
+  keyup('ArrowUp');
+  startPanel.remove();
+  standaloneDisclosure.remove();
+
   console.log('\n--- interactive UI controls: touch passthrough (mobile) ---');
   // A tap on any interactive control (button/link/form field) drawn over the canvas
   // must be left to the browser: NOT preventDefaulted, so the synthesized click still

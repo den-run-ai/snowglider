@@ -16,7 +16,7 @@ const { JSDOM } = require('jsdom');
 // ---- jsdom environment with the auth UI markup auth.js expects ----
 const dom = new JSDOM(`<!doctype html><html><body>
   <div id="authUI" style="display:flex">
-    <button id="loginBtn">Login with Google</button>
+    <button id="loginBtn" disabled aria-busy="true">Login with Google</button>
     <button id="githubLoginBtn">Login with GitHub</button>
     <!-- appleLoginBtn is icon-style (svg + .provider-label) to exercise the
          label-span branch of setButtonLabel/resetAuthButtons. -->
@@ -96,6 +96,9 @@ async function main() {
       'getAuthState', 'isFirebaseAvailable'].every(k => typeof AuthModule[k] === 'function'));
 
   AuthModule.initializeAuth(config);
+  check('auth initialization releases the loading state after wiring providers',
+    !window.document.getElementById('loginBtn').hasAttribute('disabled')
+    && !window.document.getElementById('loginBtn').hasAttribute('aria-busy'));
   check('onAuthStateChanged listener was registered', typeof fb.getAuthStateCallback() === 'function');
   check('auth persistence was set (browserLocalPersistence)', calls.setPersistence === 1);
 
@@ -134,6 +137,7 @@ async function main() {
   loginBtn.dispatchEvent(new window.Event('click'));
   check('click disables the button and shows "Signing In..."',
     loginBtn.disabled === true && /Signing In/.test(loginBtn.textContent));
+  check('sign-in exposes its pending state to assistive technology', loginBtn.getAttribute('aria-busy') === 'true');
   check('signInWithPopup was invoked once', calls.signInWithPopup === 1);
 
   // A second click while in-flight must NOT open a second popup (disabled guard).

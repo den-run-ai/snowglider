@@ -4,11 +4,11 @@ import { gotoGame, startGame, type GameWindow } from './helpers';
 test('keyboard About and feedback contain focus and return it without starting a run', async ({ page }) => {
   await gotoGame(page);
   await expect(page.locator('#resetBtn')).toHaveJSProperty('inert', true);
-  const about = page.getByRole('button', { name: 'About Game', exact: true });
+  const about = page.locator('#aboutGameButton');
   await about.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('dialog', { name: 'About SnowGlider' })).toBeVisible();
-  await expect(page.locator('#closeAboutButton')).toBeFocused();
+  await expect(page.locator('#aboutGamePanel')).toBeFocused();
   // Dialog isolation can make the auth container inert through its HUD column.
   // Check effective isolation and attempt real focus rather than pinning which
   // ancestor owns the inert attribute.
@@ -17,7 +17,7 @@ test('keyboard About and feedback contain focus and return it without starting a
   ))).toBe(true);
   for (const selector of ['#loginBtn', '#githubLoginBtn', '#guestLoginBtn']) {
     await page.locator(selector).evaluate((el) => (el as HTMLElement).focus());
-    await expect(page.locator('#closeAboutButton')).toBeFocused();
+    await expect(page.locator('#aboutGamePanel')).toBeFocused();
   }
   await page.keyboard.press('Escape');
   await expect(about).toBeFocused();
@@ -111,9 +111,11 @@ test('real-player release notice, About, and EZ mountain screenshots', async ({ 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await gotoGame(page, '?eztrees=1');
-  await expect(page.locator('.physics-era-notice')).toContainText('earlier records are retained');
+  await page.locator('#startHelpDetails > summary').click();
+  await expect(page.locator('.physics-era-notice')).toBeVisible();
+  await expect(page.locator('.physics-era-notice')).toContainText(/earlier records (are retained|are kept) separately/i);
   await testInfo.attach('physics-v3-start-screen', { body: await page.screenshot(), contentType: 'image/png' });
-  await page.getByRole('button', { name: 'About Game', exact: true }).click();
+  await page.locator('#aboutGameButton').click();
   await testInfo.attach('about-screen', { body: await page.screenshot(), contentType: 'image/png' });
   await page.keyboard.press('Escape');
   await startGame(page);

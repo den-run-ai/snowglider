@@ -159,6 +159,18 @@ async function main() {
 
   console.log('\n--- deferred start before game scripts load (080bb29) ---');
   delete window.initializeGameWithAudio; // game scripts not ready yet
+  const { AudioModule } = await import('../src/audio.ts');
+  const { Sfx } = await import('../src/sfx.ts');
+  const originalPlay = AudioModule.playPreloadedAudio;
+  const originalUnlock = Sfx.unlock;
+  const audioCalls = [];
+  AudioModule.playPreloadedAudio = () => { audioCalls.push('music'); return true; };
+  Sfx.unlock = () => { audioCalls.push('sfx'); };
+  btn.dispatchEvent(new window.Event('click'));
+  check('early Start unlocks music and SFX synchronously in the original click',
+    audioCalls.join(',') === 'music,sfx' && typeof window.initializeGameWithAudio !== 'function');
+  AudioModule.playPreloadedAudio = originalPlay;
+  Sfx.unlock = originalUnlock;
   const deferred = SM.startGame();
   check('startGame defers (returns false) when game scripts are not ready',
     deferred === false);
@@ -167,13 +179,14 @@ async function main() {
   check('deferred start does NOT hide the start container',
     startContainer.style.display !== 'none');
 
-  console.log('\n--- game scripts arrive: preserve start gesture (6429cfa) ---');
+  console.log('\n--- game scripts arrive: honor the queued start ---');
   window.initializeGameWithAudio = () => { launches++; };
   window.dispatchEvent(new window.Event('snowglider:game-scripts-ready'));
   check('game-scripts-ready clears the pending wait and re-enables the button',
     btn.disabled === false && !btn.hasAttribute('aria-busy'));
-  check('game-scripts-ready does NOT auto-start; it waits for a fresh gesture',
-    launches === 0 && startContainer.style.display !== 'none');
+  check('game-scripts-ready completes the queued start without a second click',
+    launches === 1 && startContainer.style.display === 'none');
+  startContainer.style.display = 'flex';
 
   console.log('\n--- successful start when ready ---');
   launches = 0;
@@ -182,6 +195,8 @@ async function main() {
   check('successful start hides the container and shows the canvas',
     startContainer.style.display === 'none' && gameCanvas.style.display === 'block');
   check('successful start invokes initializeGameWithAudio once', launches === 1);
+  SM.startGame();
+  check('repeated start after the menu closes cannot launch twice', launches === 1);
 
   console.log('\n--- about panel show/hide ---');
   SM.showAbout();
@@ -192,8 +207,8 @@ async function main() {
   check('showAbout also hides the difficulty picker', picker.style.display === 'none');
   SM.hideAbout();
   check('hideAbout restores the menu and hides the about panel',
-    aboutPanel.style.display === 'none' && startMenu.style.display === 'flex');
-  check('hideAbout restores the difficulty picker', picker.style.display === 'flex');
+    aboutPanel.style.display === 'none' && startMenu.style.display === '');
+  check('hideAbout restores the difficulty picker', picker.style.display === '');
 
   console.log('\n--- keyboard: Enter starts when the start screen is visible ---');
   startContainer.style.display = 'flex'; // start screen visible again
@@ -231,7 +246,10 @@ async function main() {
   startContainer.style.display = 'flex';
   aboutPanel.style.display = 'none';
   launches = 0;
+  SM.initializeStartMenu();
+  SM.initializeStartMenu();
   btn.dispatchEvent(new window.Event('click'));
+  check('start is synchronous within the click gesture after repeated menu initialization', launches === 1);
   await flush();
   await flush();
   check('clicking Start runs the start flow (after async audio unlock)',

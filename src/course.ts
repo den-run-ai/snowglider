@@ -776,13 +776,17 @@ export const CourseModule = (function () {
     // practice note instead.
     if (getRunStamp().practice) {
       return buildResultPanel(totalTime, previousBest, false, false,
-        { key: 'finish', icon: '\u{1F9EA}', label: 'Practice run \u2014 seeded world (not ranked)' });
+        { key: 'finish', icon: '\u{1F9EA}', label: 'Practice run \u2014 seeded world (not ranked)' }, false);
+    }
+    if (!recordEligible) {
+      return buildResultPanel(totalTime, previousBest, false, false,
+        { key: 'finish', icon: '🏁', label: 'Finished' }, false);
     }
     const medal = medalFor(totalTime, previousBest, isFirst);
     return buildResultPanel(totalTime, previousBest, isBest, isFirst, medal);
   }
 
-  function buildResultPanel(totalTime: number, previousBest: number, isBest: boolean, isFirst: boolean, medal: Medal): HTMLDivElement {
+  function buildResultPanel(totalTime: number, previousBest: number, isBest: boolean, isFirst: boolean, medal: Medal, compareBest = true): HTMLDivElement {
     const panel = document.createElement('div');
     panel.id = 'courseResult';
     Object.assign(panel.style, {
@@ -831,7 +835,10 @@ export const CourseModule = (function () {
     // Improvement line
     const improve = document.createElement('div');
     Object.assign(improve.style, { fontSize: '14px', marginBottom: '12px' });
-    if (isFirst) {
+    if (!compareBest) {
+      improve.textContent = 'This run was not saved as a personal best.';
+      improve.style.color = '#dfe6e9';
+    } else if (isFirst || !Number.isFinite(previousBest)) {
       improve.textContent = GHOST_VISIBLE
         ? 'Set the time to beat — your ghost will race you next run.'
         : 'Set the time to beat — try to beat it on your next run.';
@@ -893,7 +900,7 @@ export const CourseModule = (function () {
 
       const d = document.createElement('div');
       d.style.textAlign = 'right';
-      if (bestSplits && typeof bestSplits[i] === 'number' && typeof runSplits[i] === 'number') {
+      if (compareBest && bestSplits && typeof bestSplits[i] === 'number' && typeof runSplits[i] === 'number') {
         const diff = runSplits[i] - bestSplits[i];
         d.textContent = formatDelta(diff);
         d.style.color = diff <= 0 ? '#55efc4' : '#ff7675';

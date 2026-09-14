@@ -35,6 +35,7 @@ SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a pr
 
 ## Documentation
 - [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module system, load order, the per-frame game loop, and the Firebase/scoring subsystem
+- [`UI_PATTERNS.md`](docs/UI_PATTERNS.md) — responsive menus, disclosures, account/sharing interactions, and release checks
 - [`PHYSICS.md`](docs/PHYSICS.md) — terrain, skiing, jumps, collisions, and the avalanche model, with a constants reference
 - [`CHANGELOG.md`](docs/CHANGELOG.md) — notable changes, including the skill/structure layer (#56) and the full audio history
 - [`tests/README.md`](tests/README.md) — test types, commands, and the verification harness

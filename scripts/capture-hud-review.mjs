@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Review evidence, not pixel baselines: show the actual EZ forest behind the HUD.
 // Uses the installed Playwright Chromium; never downloads a browser or git ref.
-// HUD_BASE_REF=<local commit SHA> adds four before images from a temporary worktree.
-// Without HUD_BASE_REF, capture only the four current images.
+// HUD_BASE_REF=<local commit SHA> adds before images from a temporary worktree.
+// Each version captures three start screens and four in-game HUD states; the
+// current version also captures About at each viewport through the player path.
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -92,7 +93,8 @@ async function captureVersion(label, directory, port, commit) {
   await withServer(directory, port, async baseUrl => {
     for (const viewport of [
       { name: 'phone', width: 390, height: 700, touch: true },
-      { name: 'desktop', width: 1440, height: 900, touch: false },
+      { name: 'desktop', width: 1280, height: 720, touch: false },
+      { name: 'landscape', width: 700, height: 390, touch: true },
     ]) {
       const context = await browser.newContext({
         viewport: { width: viewport.width, height: viewport.height },
@@ -108,6 +110,47 @@ async function captureVersion(label, directory, port, commit) {
         await page.addInitScript(() => Object.defineProperty(navigator, 'webdriver', { get: () => false }));
         await page.goto(`${baseUrl}/index.html?eztrees=1&intro=off`, { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => typeof window.initializeGameWithAudio === 'function');
+        // Capture the untouched first-load menu BEFORE Playwright can implicitly
+        // scroll Start into view. This is the regression: visible DOM could still
+        // put the title, difficulty, or offline entry outside the viewport.
+        const startFilename = `${label}-${viewport.name}-start.png`;
+        await page.screenshot({ path: join(output, startFilename), animations: 'disabled' });
+        evidence.push({
+          filename: startFilename, commit, viewport, screen: 'start', playerPath: true,
+          ...await page.evaluate(() => ({
+            url: location.href,
+            documentWidth: document.documentElement.scrollWidth,
+            viewportWidth: innerWidth,
+            controls: [
+              '#gameTitle', '#difficultyPicker', '#startGameButton',
+              '#startHelpDetails > summary', '#offlinePlayDetails > summary', '#authContainer',
+            ].map(selector => {
+              const element = document.querySelector(selector);
+              const bounds = element?.getBoundingClientRect();
+              const hit = bounds ? document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2) : null;
+              return {
+                selector, reachable: !!hit && element.contains(hit),
+                bounds: bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null,
+              };
+            }),
+          })),
+        });
+        await writeFile(join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
+        console.log(`Start review: ${startFilename}`);
+        if (label === 'after') {
+          if (viewport.touch) await page.locator('#aboutGameButton').tap();
+          else await page.locator('#aboutGameButton').click();
+          await page.locator('#aboutGamePanel').waitFor({ state: 'visible' });
+          const aboutFilename = `${label}-${viewport.name}-about.png`;
+          await page.screenshot({ path: join(output, aboutFilename), animations: 'disabled' });
+          evidence.push({ filename: aboutFilename, commit, viewport, screen: 'about', playerPath: true });
+          await writeFile(join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
+          console.log(`About review: ${aboutFilename}`);
+          await page.locator('#closeAboutButton').scrollIntoViewIfNeeded();
+          if (viewport.touch) await page.locator('#closeAboutButton').tap();
+          else await page.locator('#closeAboutButton').click();
+        }
+        if (viewport.name === 'landscape') continue;
         if (viewport.touch) await page.locator('#startGameButton').tap();
         else await page.locator('#startGameButton').click();
         await page.waitForFunction(() => window.gameActive === true);
@@ -163,7 +206,11 @@ try {
     beforeWorktree = candidate;
     await symlink(join(root, 'node_modules'), join(beforeWorktree, 'node_modules'), 'dir');
   }
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}),
+  });
   if (beforeWorktree) await captureVersion('before', beforeWorktree, 8084, baseCommit);
   await captureVersion('after', root, 8085, git(['rev-parse', 'HEAD']));
 } finally {

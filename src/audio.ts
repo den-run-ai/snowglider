@@ -24,6 +24,7 @@
 // To disable: Set AUDIO_ENABLED = false
 
 import { Sfx } from './sfx.js';
+import { safeGetItem, safeSetItem } from './offline/offline-store.js';
 
 const AUDIO_ENABLED = true;
 
@@ -54,11 +55,18 @@ export const AudioModule = (function() {
   // linger over the host page after an unmount until their timeout fires.
   const activeMessages = new Set<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> }>();
 
+  // Run messages belong to the active run, not the result dialog. Clearing them
+  // must leave music preferences and the sound control intact for replay.
+  function clearMessages(): void {
+    for (const { el, timer } of activeMessages) { clearTimeout(timer); el.remove(); }
+    activeMessages.clear();
+  }
+
   const AUDIO_PATH = 'assets/skullbeatz_bad_cat.mp3';
 
   // Load mute preference from localStorage
   function loadPreferences() {
-    const stored = localStorage.getItem('snowgliderMuted');
+    const stored = safeGetItem('snowgliderMuted');
     if (stored !== null) {
       muted = stored === 'true';
     }
@@ -66,7 +74,7 @@ export const AudioModule = (function() {
 
   // Save mute preference
   function savePreferences() {
-    localStorage.setItem('snowgliderMuted', String(muted));
+    safeSetItem('snowgliderMuted', String(muted));
   }
 
   // Create the audio element
@@ -232,6 +240,7 @@ export const AudioModule = (function() {
     showMessage: function(msg: string, duration = 3000) {
       // Keep message functionality
       const div = document.createElement('div');
+      div.className = 'game-toast';
       div.textContent = msg;
       div.style.cssText = `
         position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -244,6 +253,7 @@ export const AudioModule = (function() {
       activeMessages.add(entry);
     },
     showAudioRetryPrompt: function() {},
+    clearMessages,
 
     // Stop the music and release the mute button (dispose-audit teardown / dev-HMR).
     // The looping <audio> element and the `#audioControlBtn` are module-level, so without
@@ -253,8 +263,7 @@ export const AudioModule = (function() {
     teardown: function() {
       // Clear any on-screen toasts (and their pending auto-remove timers) FIRST — showMessage
       // isn't gated on AUDIO_ENABLED, so a toast can exist even when audio is disabled.
-      for (const { el, timer } of activeMessages) { clearTimeout(timer); el.remove(); }
-      activeMessages.clear();
+      clearMessages();
       if (!AUDIO_ENABLED) return;
       if (audio) {
         // pause() halts playback; dropping the reference makes the (detached, paused)

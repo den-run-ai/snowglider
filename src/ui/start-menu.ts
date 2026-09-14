@@ -8,7 +8,9 @@
 // under the current non-strict config. The `../audio.js` import specifier is
 // unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
-import { getDifficultyConfig, readStoredDifficulty, storeDifficulty, type Difficulty } from '../difficulty.js';
+import { getDifficultyConfig, storeDifficulty, type Difficulty } from '../difficulty.js';
+import { consumeRunLaunch, initialRunDifficulty } from '../game/run-transition.js';
+import { Sfx } from '../sfx.js';
 import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPickerHandle } from './difficulty-picker.js';
 import { isOnline, watchConnectivity } from '../offline/offline-state.js';
 import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-ui.js';
@@ -20,7 +22,8 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
   // The player's chosen difficulty tier, remembered across sessions in
   // localStorage. The picker writes it; the game reads the persisted value at run
   // start (src/snowglider.ts) so changing the pick then starting takes effect.
-  let selectedDifficulty: Difficulty = readStoredDifficulty();
+  let selectedDifficulty: Difficulty = initialRunDifficulty();
+  let menuListeners: AbortController | null = null;
   // Handle to the shared picker widget; getSelectedDifficulty reads through it so the
   // live selection stays the single source of truth across rebuilds.
   let pickerHandle: DifficultyPickerHandle | null = null;
@@ -28,6 +31,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
   // in-flight leaderboard read can detect that a newer refresh superseded it
   // (e.g. the player logged out mid-read) and discard its now-stale result.
   let accountRefreshSeq = 0;
+  let scrollBeforeAbout = 0;
 
   // Handle to the offline-mode badge + its connectivity subscription. The badge is
   // mounted hidden and only revealed when offline, so the online start screen is
@@ -42,7 +46,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
   // with connectivity. Idempotent: re-init tears down the prior watcher first so we
   // never stack duplicate `online`/`offline` listeners.
   function setupOfflineBadge() {
-    const container = document.getElementById('startGameContainer');
+    const container = document.getElementById('startStatus') ?? document.getElementById('startGameContainer');
     if (!container) return;
     offlineBadge = ensureOfflineBadge(container);
     setOfflineBadgeVisible(offlineBadge, !isOnline());
@@ -187,21 +191,20 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
       });
   }
 
-  async function unlockAudioForStart(source: string) {
-    if (!AudioModule) {
-      return;
-    }
-
-    try {
-      await AudioModule.resumeAudioContext();
-      console.log(`AudioContext resume attempted in ${source} handler`);
-      AudioModule.playPreloadedAudio();
-    } catch (e) {
-      console.warn(`Audio operation in ${source} failed:`, e);
-    }
-  }
-
   function startGame() {
+    const startContainer = document.getElementById('startGameContainer');
+    // Click/touch compatibility events and retained callbacks must not reset an
+    // already-starting run or create a second loop/intro.
+    if (!startContainer || startContainer.style.display === 'none') return false;
+    // Unlock inside the original user gesture, even when scripts are still loading.
+    // Audio readiness never blocks play; the browser still enforces autoplay policy.
+    try {
+      void AudioModule.resumeAudioContext().catch(() => {});
+      AudioModule.playPreloadedAudio();
+    } catch (error) {
+      console.warn('Audio unavailable; continuing to play.', error);
+    }
+    Sfx.unlock();
     const gameCanvas = document.getElementById('gameCanvas');
     const canInitializeGame = typeof window.initializeGameWithAudio === 'function';
 
@@ -215,7 +218,6 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     startGamePending = false;
     setStartButtonWaiting(false);
 
-    const startContainer = document.getElementById('startGameContainer');
     if (startContainer) {
       startContainer.style.display = 'none';
       closeOverlayFocus(startContainer, false);
@@ -238,9 +240,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
 
     if (startGamePending) {
       startGamePending = false;
-      setStartButtonWaiting(false);
-      console.log("Game scripts ready after deferred start request; waiting for a fresh start gesture.");
-      return true;
+      return startGame();
     }
 
     setStartButtonWaiting(false);
@@ -254,6 +254,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     }
 
     startButton.disabled = waiting;
+    startButton.textContent = waiting ? 'Preparing run…' : 'Start Game';
     if (waiting) {
       startButton.setAttribute('aria-busy', 'true');
     } else {
@@ -281,7 +282,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
   function buildDifficultyPicker() {
     const picker = document.getElementById('difficultyPicker');
     if (!picker) return;
-    selectedDifficulty = readStoredDifficulty();
+    selectedDifficulty = initialRunDifficulty();
     pickerHandle = buildDifficultyPickerUI(picker, {
       initial: selectedDifficulty,
       heading: 'Difficulty',
@@ -303,6 +304,8 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
 
   function showAbout() {
     const aboutPanel = document.getElementById('aboutGamePanel');
+    const card = aboutPanel?.closest<HTMLElement>('.start-dialog');
+    if (card && !card.classList.contains('about-open')) scrollBeforeAbout = card.scrollTop;
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
@@ -315,33 +318,53 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     // Hide the difficulty picker alongside the rest of the start controls so it
     // doesn't stay visible/clickable over the About panel.
     if (picker) picker.style.display = 'none';
+    if (card) {
+      card.classList.add('about-open');
+      card.scrollTop = 0;
+    }
     document.getElementById('aboutGameButton')?.setAttribute('aria-expanded', 'true');
     if (aboutPanel) openOverlayFocus(aboutPanel, {
-      initialFocus: document.getElementById('closeAboutButton'), onEscape: hideAbout,
+      // Read from the top of the panel. The bottom Close action may need scrolling
+      // on a short phone, so focusing it with preventScroll would hide that focus.
+      initialFocus: aboutPanel, onEscape: hideAbout,
     });
   }
 
   function hideAbout() {
     const aboutPanel = document.getElementById('aboutGamePanel');
+    const card = aboutPanel?.closest<HTMLElement>('.start-dialog');
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
     const picker = document.getElementById('difficultyPicker');
 
     if (aboutPanel) aboutPanel.style.display = 'none';
-    if (controlsGuide) controlsGuide.style.display = 'block';
-    if (startMenu) startMenu.style.display = 'flex';
-    if (keyboardHint) keyboardHint.style.display = 'block';
-    if (picker) picker.style.display = 'flex'; // restore (CSS lays it out as flex)
+    if (controlsGuide) controlsGuide.style.display = '';
+    if (startMenu) startMenu.style.display = '';
+    if (keyboardHint) keyboardHint.style.display = '';
+    if (picker) picker.style.display = ''; // restore the responsive CSS layout
+    if (card) {
+      card.classList.remove('about-open');
+      card.scrollTop = scrollBeforeAbout;
+    }
     document.getElementById('aboutGameButton')?.setAttribute('aria-expanded', 'false');
     if (aboutPanel) closeOverlayFocus(aboutPanel);
+    document.getElementById('aboutGameButton')?.focus({ preventScroll: true });
   }
 
   function initializeStartMenu() {
+    menuListeners?.abort();
+    menuListeners = new window.AbortController();
+    const listenerOptions = { signal: menuListeners.signal };
     addBuildBadge();
     setupOfflineBadge();
     setupInstallPrompt();
     buildDifficultyPicker();
+    if (consumeRunLaunch()) {
+      startGamePending = true;
+      setStartButtonWaiting(true);
+      document.getElementById('startGameContainer')?.classList.add('run-preparing');
+    }
     const startContainer = document.getElementById('startGameContainer');
     const account = document.getElementById('authContainer');
     if (startContainer) openOverlayFocus(startContainer, {
@@ -358,37 +381,33 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     const startGameButton = document.getElementById('startGameButton');
     if (startGameButton) {
       startGameButton.addEventListener('click', function () {
-        console.log("Start button clicked");
-        // unlock the audio context first, then start; void marks the promise as
-        // intentionally fire-and-forget so the handler stays void-returning.
-        void unlockAudioForStart('click').then(() => startGame());
-      });
+        startGame();
+      }, listenerOptions);
 
       startGameButton.addEventListener('touchstart', function (e) {
         e.preventDefault();
         this.classList.add('touch-active');
-      }, { passive: false });
+      }, { ...listenerOptions, passive: false });
 
       startGameButton.addEventListener('touchend', function (e) {
         e.preventDefault();
         this.classList.remove('touch-active');
-        console.log("Touch end - starting game");
-        void unlockAudioForStart('touch').then(() => startGame());
-      }, { passive: false });
+        startGame();
+      }, { ...listenerOptions, passive: false });
 
       startGameButton.addEventListener('touchcancel', function () {
         this.classList.remove('touch-active');
-      }, { passive: true });
+      }, { ...listenerOptions, passive: true });
     }
 
     const aboutGameButton = document.getElementById('aboutGameButton');
     if (aboutGameButton) {
-      aboutGameButton.addEventListener('click', showAbout);
+      aboutGameButton.addEventListener('click', showAbout, listenerOptions);
     }
 
     const closeAboutButton = document.getElementById('closeAboutButton');
     if (closeAboutButton) {
-      closeAboutButton.addEventListener('click', hideAbout);
+      closeAboutButton.addEventListener('click', hideAbout, listenerOptions);
     }
 
     document.addEventListener('keydown', function (event) {
@@ -400,7 +419,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
       // (just selects the tier) or the PWA install chip (Install/dismiss — Codex #360, a
       // keyboard Enter on Install would otherwise both install AND start the run).
       const target = event.target as Element | null;
-      if (target && typeof target.closest === 'function' && target.closest('button, a, input, textarea, select, [role="radio"], [role="dialog"]')) {
+      if (target && typeof target.closest === 'function' && target.closest('button, a, summary, input, textarea, select, [role="radio"], [role="dialog"]')) {
         return;
       }
 
@@ -418,7 +437,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
           if (closeAboutButton) closeAboutButton.click();
         }
       }
-    });
+    }, listenerOptions);
   }
 
   document.addEventListener('DOMContentLoaded', initializeStartMenu);

@@ -350,21 +350,6 @@ async function runStartMenuRaceRegression(browser) {
     releaseSnowgliderScript();
 
     await page.waitForFunction(() => {
-      const button = document.querySelector('button#startGameButton');
-      const startContainer = document.getElementById('startGameContainer');
-      const gameCanvas = document.getElementById('gameCanvas');
-      return button instanceof HTMLButtonElement &&
-        startContainer &&
-        gameCanvas &&
-        !button.disabled &&
-        button.getAttribute('aria-busy') !== 'true' &&
-        startContainer.style.display !== 'none' &&
-        typeof window.initializeGameWithAudio === 'function';
-    }, { timeout: 30000 });
-
-    await page.click('#startGameButton');
-
-    await page.waitForFunction(() => {
       const startContainer = document.getElementById('startGameContainer');
       const gameCanvas = document.getElementById('gameCanvas');
       return startContainer &&
@@ -377,7 +362,7 @@ async function runStartMenuRaceRegression(browser) {
       throw new Error(`Start-menu page/renderer errors: ${[...errors, ...rendererErrors].join('; ')}`);
     }
 
-    console.log('PASS: start menu re-enables Start for a gesture-backed deferred start');
+    console.log('PASS: queued Start completes when scripts arrive without another click');
   } finally {
     releaseSnowgliderScript();
     await page.close();
@@ -447,12 +432,18 @@ async function runBrowserTests() {
     // Navigate to test page
     console.log('Loading test page...');
     await page.goto(`http://127.0.0.1:${PORT}/index.html?test=unified`, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 30000
     });
-    
-    // Wait for page to be fully ready
-    await page.waitForSelector('canvas', { timeout: 10000 });
+
+    // Tests run while audio/provider requests may remain active. Network idleness
+    // is unrelated to app readiness and can time out after suites have already
+    // passed. Require the real game canvas and initialized runner instead; result
+    // collection below still enforces every declared suite, errors and its deadline.
+    await page.waitForFunction(() => window.SnowGliderGameScriptsReady === true &&
+      !!document.querySelector('#gameCanvas canvas') &&
+      Number.isInteger(window._unifiedExpectedSuiteCount) && window._unifiedExpectedSuiteCount > 0,
+    { timeout: 30000 });
     console.log('Canvas loaded');
     
     // Simulate user interaction to trigger audio tests and unlock audio context.

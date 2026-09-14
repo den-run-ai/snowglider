@@ -25,9 +25,8 @@ export interface ShareControlsOptions {
   time: number;
   isBest: boolean;
   /**
-   * Supplies the renderer/scene/camera at click time so the share image can
-   * capture the live frame. Called lazily (the renderer always exists by the
-   * time the result screen is shown); may return null, in which case the card
+   * Supplies the renderer/scene/camera when the result appears so the share image
+   * captures that run before a later replay. May return null, in which case the card
    * falls back to a gradient background.
    */
   getCapture?: () => CaptureContext | null;
@@ -54,7 +53,8 @@ function defuseTouch(el: HTMLElement): void {
 
 function styleButton(btn: HTMLElement, primary: boolean): void {
   Object.assign(btn.style, {
-    display: 'block', width: '100%', padding: primary ? '10px 14px' : '9px 12px',
+    display: 'block', width: '100%', minHeight: '44px', boxSizing: 'border-box',
+    padding: primary ? '10px 14px' : '9px 12px',
     fontSize: primary ? '15px' : '14px', fontWeight: '700', color: '#fff',
     cursor: 'pointer', border: 'none', borderRadius: '10px',
     fontFamily: 'Arial, sans-serif', touchAction: 'manipulation', userSelect: 'none',
@@ -104,7 +104,8 @@ function makeSocialRow(data: ReturnType<typeof buildResultShareData>): HTMLDivEl
   const links = buildShareLinks(data);
   const row = document.createElement('div');
   Object.assign(row.style, {
-    display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginTop: '10px',
+    display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(112px, 100%), 1fr))',
+    gap: '8px', marginTop: '10px',
   });
   for (const { key, label, iconPath, color } of SHARE_PLATFORMS) {
     const btn = document.createElement('button');
@@ -117,11 +118,11 @@ function makeSocialRow(data: ReturnType<typeof buildResultShareData>): HTMLDivEl
     btn.appendChild(document.createTextNode(label));
     Object.assign(btn.style, {
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-      padding: '8px 6px', fontSize: '13px', fontWeight: '700', color: '#fff',
+      padding: '8px 6px', minHeight: '44px', minWidth: '0',
+      fontSize: '13px', fontWeight: '700', color: '#fff',
       cursor: 'pointer', border: 'none', borderRadius: '8px',
       background: 'rgba(255,255,255,0.14)', fontFamily: 'Arial, sans-serif',
       touchAction: 'manipulation', userSelect: 'none', whiteSpace: 'nowrap',
-      overflow: 'hidden', textOverflow: 'ellipsis',
     });
     btn.style.setProperty('-webkit-tap-highlight-color', 'rgba(255,255,255,0.4)');
     defuseTouch(btn);
@@ -152,10 +153,8 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   const menu = document.createElement('div');
   menu.id = 'shareMenu';
   menu.style.display = 'none';
-  if (!prefersNativeShare()) {
-    primary.setAttribute('aria-controls', menu.id);
-    primary.setAttribute('aria-expanded', 'false');
-  }
+  primary.setAttribute('aria-controls', menu.id);
+  primary.setAttribute('aria-expanded', 'false');
   menu.appendChild(makeSocialRow(data));
 
   const imageBtn = document.createElement('button');
@@ -199,13 +198,42 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
     return buildShareCardBlob(ctx, opts.time, opts.isBest, data.url);
   }
 
+  // Image decoding and canvas.toBlob finish in later tasks. Prepare once while
+  // the result is displayed so native sharing can start inside the tap's user
+  // activation (Safari may reject a share after awaiting image preparation).
+  // An immediate primary tap shares text instead of waiting for the PNG.
+  let preparedCard: Blob | null = null;
+  imageBtn.disabled = true;
+  imageBtn.setAttribute('aria-busy', 'true');
+  imageBtn.textContent = '⏳ Preparing image…';
+  const cardReady = Promise.resolve().then(currentCardBlob).catch(() => null).then(blob => {
+    preparedCard = blob;
+    imageBtn.disabled = false;
+    imageBtn.removeAttribute('aria-busy');
+    imageBtn.textContent = imageLabel;
+    return blob;
+  });
+
+  function setMenuOpen(open: boolean): void {
+    menu.style.display = open ? 'block' : 'none';
+    primary.setAttribute('aria-expanded', String(open));
+  }
+
+  container.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || menu.style.display === 'none') return;
+    setMenuOpen(false);
+    primary.focus();
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
   let imageBusy = false;
   async function handleImage(): Promise<void> {
     if (imageBusy) return;
     imageBusy = true;
     imageBtn.textContent = '⏳ Building image…';
     try {
-      const blob = await currentCardBlob();
+      const blob = preparedCard || await cardReady;
       if (!blob) { flash(imageBtn, '⚠️ Image unavailable', imageLabel); return; }
       // Mobile: hand the PNG to the native sheet (reaches Instagram / Stories).
       const outcome = prefersNativeShare() ? await shareImageFile(blob, data) : 'unavailable';
@@ -230,13 +258,15 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   async function handlePrimaryNative(): Promise<void> {
     if (nativeBusy) return;
     nativeBusy = true;
+    primary.disabled = true;
+    primary.setAttribute('aria-busy', 'true');
     primary.textContent = '⏳ Preparing…';
     try {
       // Mobile/touch: share the screenshot card itself so the run image rides
       // along into the OS sheet (which lists Instagram / Stories and every other
       // installed social app). Fall back to a text+link share when the image
       // can't be built or this browser can't file-share.
-      const blob = await currentCardBlob();
+      const blob = preparedCard;
       if (blob) {
         const imgOutcome = await shareImageFile(blob, data);
         if (imgOutcome === 'shared') { flash(primary, '✅ Shared!', PRIMARY_LABEL); return; }
@@ -247,21 +277,27 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
       if (outcome === 'shared') flash(primary, '✅ Shared!', PRIMARY_LABEL);
       else if (outcome === 'copied') flash(primary, '✅ Link copied!', PRIMARY_LABEL);
       else if (outcome === 'cancelled') primary.textContent = PRIMARY_LABEL;
-      else flash(primary, '⚠️ Sharing unavailable', PRIMARY_LABEL);
+      else {
+        // A native/clipboard failure must not strand a mobile player: offer the
+        // same explicit web targets and copy action as desktop, ready for a new tap.
+        setMenuOpen(true);
+        flash(primary, 'Choose a sharing option below', PRIMARY_LABEL);
+      }
     } finally {
       nativeBusy = false;
+      primary.disabled = false;
+      primary.removeAttribute('aria-busy');
     }
   }
 
   primary.addEventListener('click', () => {
-    if (prefersNativeShare()) {
+    if (prefersNativeShare() && menu.style.display === 'none') {
       void handlePrimaryNative();
       return;
     }
     // Desktop: reveal/hide the explicit per-platform menu.
     const open = menu.style.display !== 'none';
-    menu.style.display = open ? 'none' : 'block';
-    primary.setAttribute('aria-expanded', String(!open));
+    setMenuOpen(!open);
   });
 
   container.appendChild(primary);

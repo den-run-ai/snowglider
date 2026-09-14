@@ -27,7 +27,9 @@ const observedIds = new Set<string>();
 function firstVisibleSafeContainer(doc: Document): HTMLElement | null {
   for (const id of SAFE_CONTAINER_IDS) {
     const el = doc.getElementById(id);
-    if (el && el.style.display !== 'none') return el;
+    if (el && el.style.display !== 'none') {
+      return id === 'startGameContainer' ? doc.getElementById('startUpdateSlot') ?? el : el;
+    }
   }
   return null;
 }

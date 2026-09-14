@@ -569,11 +569,11 @@ export function resolveActiveDifficulty(livePick: unknown, storage?: Storage | n
 
 /** Does a run on `runTier` need the scene rebuilt for it? The corridor/gates/obstacles/
  *  avalanche are baked once from `builtTier` (the tier setupScene ran on); they only match
- *  the run when the tiers agree. `automation` forces `false` so the test/E2E suites stay on
- *  a single, reload-free path (they never switch tiers mid-session). Pure decision core of
+ *  the run when the tiers agree. `legacyTestMode` suppresses navigation only for the in-page ?test= harness;
+ *  browser E2E tests must follow the same tier transitions as players. Pure decision core of
  *  snowglider.ts `maybeReloadForRunTier`; the reload + persistence side effects stay there. */
-export function runTierNeedsRebuild(runTier: Difficulty, builtTier: Difficulty, automation: boolean): boolean {
-  return !automation && runTier !== builtTier;
+export function runTierNeedsRebuild(runTier: Difficulty, builtTier: Difficulty, legacyTestMode: boolean): boolean {
+  return !legacyTestMode && runTier !== builtTier;
 }
 
 /** Persist the player's chosen tier. No-op (never throws) when storage is

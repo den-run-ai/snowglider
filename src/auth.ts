@@ -199,6 +199,9 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
 
   // Set up login/logout buttons (even if auth failed, to avoid errors)
   setupAuthButtons();
+  // The initial markup disables providers while their handlers are loading.
+  // Authentication is optional, so game startup does not wait for this module.
+  resetAuthButtons();
 }
 
 // Broadcast a signed-in-state change so read-only consumers (e.g. the start-screen
@@ -470,6 +473,7 @@ function resetAuthButtons() {
     // the full label.
     setButtonLabel(btn, btn.querySelector('.provider-label') ? meta.short : meta.label);
     btn.disabled = false;
+    btn.removeAttribute('aria-busy');
     btn.classList.remove('signing-in');
     btn.classList.remove('retry-auth'); // legacy redirect-retry class
   });
@@ -484,6 +488,7 @@ function setAuthButtonsBusy(activeBtn: HTMLButtonElement) {
     const btn = document.getElementById(id) as HTMLButtonElement | null;
     if (!btn) return;
     btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
     if (btn === activeBtn) {
       btn.classList.add('signing-in');
       if (!btn.querySelector('.provider-label')) btn.textContent = 'Signing In...';

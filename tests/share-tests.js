@@ -183,6 +183,8 @@ async function main() {
   check('no navigator.share -> image share unavailable', (await shareImageFile(blob, data)) === 'unavailable');
   setGlobal('navigator', { share: async () => {}, canShare: () => false });
   check('canShare rejects files -> unavailable', (await shareImageFile(blob, data)) === 'unavailable');
+  setGlobal('navigator', { share: async () => {}, canShare: () => { throw new Error('permissions policy'); } });
+  check('throwing canShare safely reports unavailable', (await shareImageFile(blob, data)) === 'unavailable');
   /** @type {any} */ let sharedFiles = null;
   setGlobal('navigator', { share: async (d) => { sharedFiles = d.files; }, canShare: () => true });
   check('native file share succeeds -> shared', (await shareImageFile(blob, data)) === 'shared');

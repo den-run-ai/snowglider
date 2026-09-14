@@ -139,6 +139,8 @@ async function main() {
     && global.localStorage.getItem('snowgliderBestSplits') === null);
   const panelText1 = panel1.textContent || '';
   check('first finish shows a medal/result text', /descent|record|Finish/i.test(panelText1));
+  check('eligible first finish uses a first-descent message without non-finite times',
+    /First descent!/.test(panelText1) && !/Infinity|NaN/.test(panelText1));
 
   // Gap 3 regression: the persisted ghost's final sample keeps the player's real x
   // (not a hardcoded 0) so it doesn't snap to center at the line.
@@ -313,6 +315,26 @@ async function main() {
 
   Course.hideHud();
   check('hideHud() runs without throwing', true);
+
+  // A timing-ineligible finish can occur on a slow first run (no prior best).
+  // It records nothing, so neither the medal nor any comparison may promise a
+  // record, emit Infinity, or compare its splits against a saved best.
+  const savedGhost = global.localStorage.getItem('snowgliderGhost_black');
+  for (const previousBest of [Infinity, NaN, t + 100]) {
+    const result = Course.onFinish(t, previousBest, false);
+    const text = result.textContent || '';
+    check('ineligible finish shows Finished without medals, record claims, or non-finite comparisons',
+      /Finished/.test(text) && /not saved as a personal best/.test(text)
+      && !/First descent|New record|Silver run|Bronze run|new personal best|vs best|Infinity|NaN/.test(text));
+    check('ineligible finish leaves the saved ghost unchanged',
+      global.localStorage.getItem('snowgliderGhost_black') === savedGhost);
+  }
+  const RC = await import('../../src/run-context.ts');
+  RC.setWorldContext(456789, true);
+  const practice = Course.onFinish(t, Infinity);
+  check('practice first finish has no record claim or Infinity comparison',
+    /Practice run/.test(practice.textContent) && !/First descent|New record|vs best|Infinity|NaN/.test(practice.textContent));
+  RC.setRunSeed(null);
 
   // ---- Snowman model: head cluster + part registries + flex (issue #53) ----
   // Import the submodules directly (not the snowman.ts facade): this harness runs
