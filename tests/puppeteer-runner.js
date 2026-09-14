@@ -432,12 +432,18 @@ async function runBrowserTests() {
     // Navigate to test page
     console.log('Loading test page...');
     await page.goto(`http://127.0.0.1:${PORT}/index.html?test=unified`, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 30000
     });
-    
-    // Wait for page to be fully ready
-    await page.waitForSelector('canvas', { timeout: 10000 });
+
+    // Tests run while audio/provider requests may remain active. Network idleness
+    // is unrelated to app readiness and can time out after suites have already
+    // passed. Require the real game canvas and initialized runner instead; result
+    // collection below still enforces every declared suite, errors and its deadline.
+    await page.waitForFunction(() => window.SnowGliderGameScriptsReady === true &&
+      !!document.querySelector('#gameCanvas canvas') &&
+      Number.isInteger(window._unifiedExpectedSuiteCount) && window._unifiedExpectedSuiteCount > 0,
+    { timeout: 30000 });
     console.log('Canvas loaded');
     
     // Simulate user interaction to trigger audio tests and unlock audio context.

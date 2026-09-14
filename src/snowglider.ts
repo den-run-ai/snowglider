@@ -196,6 +196,9 @@ const showGameOver = createShowGameOver({
   restartButton,
   bestTimeDisplay,
   onCrash: triggerCrashShatter,
+  onEndRun: () => {
+    if (getReadyTimer !== null) { clearTimeout(getReadyTimer); getReadyTimer = null; }
+  },
   // Route the finish score/best-time/leaderboard to the run's tier.
   getDifficulty: () => state.difficulty,
   // Keep the finish-screen tier picker directly above RESTART and reflecting the tier
@@ -414,7 +417,7 @@ function startGameplayLoop(showGetReady: boolean, waitedForForest = false) {
   if (showGetReady) {
     getReadyTimer = setTimeout(() => {
       getReadyTimer = null;
-      if (disposed) return;
+      if (disposed || !state.gameActive) return;
       AudioModule.showMessage("Get Ready!", 1000);
     }, 1500);
   }

@@ -152,25 +152,47 @@ test('all social targets fit narrow results and native share fallback remains re
     // and scrolling included). No independently assembled result fixture.
     (window as unknown as Window & { simElapsed: number }).simElapsed = 30;
     window.showGameOver?.('You reached the end of the slope!');
+    // Record any deferred start toast that tries to appear after results. Keep
+    // observing beyond the orchestrator's 1.5s delay while exercising the menu.
+    const w = window as Window & { __resultToastCheck?: Promise<boolean>; __shareOpened?: string[] };
+    let staleToast = [...document.body.children].some(el => el.textContent === 'Get Ready!');
+    const observer = new MutationObserver(() => {
+      staleToast ||= [...document.body.children].some(el => el.textContent === 'Get Ready!');
+    });
+    observer.observe(document.body, { childList: true });
+    w.__resultToastCheck = new Promise(resolve => setTimeout(() => {
+      observer.disconnect();
+      resolve(staleToast);
+    }, 1700));
     Object.defineProperty(navigator, 'share', {
       configurable: true, value: () => Promise.reject(new Error('native sharing unavailable')),
     });
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true, value: { writeText: () => Promise.reject(new Error('clipboard denied')) },
     });
-    const w = window as Window & { __shareOpened?: string[] };
     w.__shareOpened = [];
     window.open = url => { w.__shareOpened!.push(String(url)); return null; };
   });
+  await page.locator('#courseResult > div').first().scrollIntoViewIfNeeded();
+  await testInfo.attach('result-heading-viewport', {
+    body: await page.screenshot(), contentType: 'image/png',
+  });
   await activate(page.locator('#shareResultBtn'), hasTouch);
   await expect(page.locator('#shareMenu')).toBeVisible();
+  await expect(page.locator('#courseResult')).not.toContainText(/Infinity|NaN/);
+  // If software rendering made this run ineligible, the course card must
+  // agree with the overlay's explicit "not recorded" status.
+  if (await page.locator('#syncStatus').filter({ hasText: /not recorded/i }).count()) {
+    await expect(page.locator('#courseResult')).not.toContainText(/First descent|New record|Silver run|Bronze run/);
+  }
   for (const platform of ['x', 'facebook', 'linkedin', 'whatsapp', 'reddit', 'telegram']) {
     await expectUsable(page, `#share-${platform}-btn`);
     await activate(page.locator(`#share-${platform}-btn`), hasTouch);
   }
   expect(await page.evaluate(() => (window as Window & { __shareOpened?: string[] }).__shareOpened)).toHaveLength(6);
-  await testInfo.attach('expanded-result-sharing', {
-    body: await page.locator('#courseResult').screenshot(), contentType: 'image/png',
+  await page.locator('#shareMenu').scrollIntoViewIfNeeded();
+  await testInfo.attach('expanded-result-sharing-viewport', {
+    body: await page.screenshot(), contentType: 'image/png',
   });
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } });
@@ -184,4 +206,6 @@ test('all social targets fit narrow results and native share fallback remains re
   await expect(page.locator('#shareMenu')).toBeHidden();
   await expect(page.locator('#gameOverOverlay')).toBeVisible();
   await expectUsable(page, '#shareImageBtn');
+  expect(await page.evaluate(() => (window as Window & { __resultToastCheck?: Promise<boolean> }).__resultToastCheck),
+    'no delayed Get Ready toast appears over results').toBe(false);
 });

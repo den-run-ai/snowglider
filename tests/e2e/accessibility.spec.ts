@@ -8,7 +8,7 @@ test('keyboard About and feedback contain focus and return it without starting a
   await about.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('dialog', { name: 'About SnowGlider' })).toBeVisible();
-  await expect(page.locator('#closeAboutButton')).toBeFocused();
+  await expect(page.locator('#aboutGamePanel')).toBeFocused();
   // Dialog isolation can make the auth container inert through its HUD column.
   // Check effective isolation and attempt real focus rather than pinning which
   // ancestor owns the inert attribute.
@@ -17,7 +17,7 @@ test('keyboard About and feedback contain focus and return it without starting a
   ))).toBe(true);
   for (const selector of ['#loginBtn', '#githubLoginBtn', '#guestLoginBtn']) {
     await page.locator(selector).evaluate((el) => (el as HTMLElement).focus());
-    await expect(page.locator('#closeAboutButton')).toBeFocused();
+    await expect(page.locator('#aboutGamePanel')).toBeFocused();
   }
   await page.keyboard.press('Escape');
   await expect(about).toBeFocused();

@@ -2,7 +2,8 @@
 // Review evidence, not pixel baselines: show the actual EZ forest behind the HUD.
 // Uses the installed Playwright Chromium; never downloads a browser or git ref.
 // HUD_BASE_REF=<local commit SHA> adds before images from a temporary worktree.
-// Each version captures three start screens and four in-game HUD states.
+// Each version captures three start screens and four in-game HUD states; the
+// current version also captures About at each viewport through the player path.
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -136,6 +137,19 @@ async function captureVersion(label, directory, port, commit) {
         });
         await writeFile(join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
         console.log(`Start review: ${startFilename}`);
+        if (label === 'after') {
+          if (viewport.touch) await page.locator('#aboutGameButton').tap();
+          else await page.locator('#aboutGameButton').click();
+          await page.locator('#aboutGamePanel').waitFor({ state: 'visible' });
+          const aboutFilename = `${label}-${viewport.name}-about.png`;
+          await page.screenshot({ path: join(output, aboutFilename), animations: 'disabled' });
+          evidence.push({ filename: aboutFilename, commit, viewport, screen: 'about', playerPath: true });
+          await writeFile(join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
+          console.log(`About review: ${aboutFilename}`);
+          await page.locator('#closeAboutButton').scrollIntoViewIfNeeded();
+          if (viewport.touch) await page.locator('#closeAboutButton').tap();
+          else await page.locator('#closeAboutButton').click();
+        }
         if (viewport.name === 'landscape') continue;
         if (viewport.touch) await page.locator('#startGameButton').tap();
         else await page.locator('#startGameButton').click();

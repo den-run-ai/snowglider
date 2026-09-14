@@ -166,10 +166,41 @@ test('connectivity badge belongs to the menu card and offline instructions remai
   await expect(page.locator('#offlineBadge')).toBeHidden();
 });
 
+test('About opens at its heading, Close stays reachable, and the menu state returns intact', async ({ page, hasTouch }) => {
+  const about = page.locator('#aboutGameButton');
+  await activate(about, hasTouch);
+  await expect(page.locator('#aboutGamePanel')).toBeFocused();
+  await expectReachable(page, '#aboutGameTitle');
+  await expect(page.locator('.start-extras')).toBeHidden();
+  await page.locator('#closeAboutButton').scrollIntoViewIfNeeded();
+  await expectReachable(page, '#closeAboutButton', true);
+  await activate(page.locator('#closeAboutButton'), hasTouch);
+  await expect(about).toBeFocused();
+  await expectCoreMenu(page);
+  expect(await page.evaluate(() => (window as GameWindow).gameActive)).not.toBe(true);
+
+  // Opening About from a scrolled help menu must preserve that native disclosure
+  // state and return focus to the triggering button when Escape closes the panel.
+  await activate(page.locator('#startHelpDetails > summary'), hasTouch);
+  await about.scrollIntoViewIfNeeded();
+  await activate(about, hasTouch);
+  await expectReachable(page, '#aboutGameTitle');
+  await page.keyboard.press('Escape');
+  await expect(about).toBeFocused();
+  await expect(page.locator('#startHelpDetails')).toHaveJSProperty('open', true);
+  await expectReachable(page, '#aboutGameButton', true);
+  expect(await page.evaluate(() => (window as GameWindow).gameActive)).not.toBe(true);
+});
+
 test('guest account controls remain reachable above the menu in both disclosure states', async ({ page }) => {
   // Use the production guest markup without signing into an external provider.
   // Provider behavior is covered separately; this pins the actual wrapped chip,
   // Logout, and optional upgrade buttons that consume the reserved account space.
+  // Game readiness no longer waits for auth. Buttons enable when handlers attach,
+  // before the initial auth callback finishes; wait for that callback's profile
+  // label too, or its signed-out update can overwrite this guest fixture.
+  await expect(page.locator('#loginBtn')).toBeEnabled();
+  await expect(page.locator('#profileChip')).toHaveAttribute('aria-label', 'Signed-in account');
   await page.evaluate(() => {
     document.querySelector('#authContainer .local-mode-notice')?.remove();
     const profile = document.getElementById('profileUI')!;

@@ -78,6 +78,8 @@
 .start-dialog .install-prompt, .start-dialog .sw-update-banner { flex-wrap: wrap; border-radius: 10px; padding: 4px 8px; }
 .install-prompt-install, .install-prompt-dismiss, .sw-update-reload { min-width: 44px; min-height: 44px; }
 #aboutGamePanel { margin: 12px 0 0; max-width: none; }
+.start-dialog.about-open { display: block; }
+.start-dialog.about-open > :not(#aboutGamePanel) { display: none; }
 summary:focus-visible { outline: 3px solid #74d9ff; outline-offset: 3px; }
 body.start-screen-active #hudLeft,
 body.start-screen-active #cameraControls,
@@ -124,7 +126,9 @@ body.start-screen-active #authContainer .local-mode-notice { display: none; }
   #difficultyPicker .difficulty-blurb { display: none; }
   .start-account-note { margin: 4px 0 0; }
   .start-extras { align-content: start; }
-  .start-account-info, #startUpdateSlot, #aboutGamePanel { grid-column: 1 / -1; }
-  .start-account-info:has(#startLeaderboard[style*="display:none"]):has(#startSignInHint[style*="display:none"]) { display: none; }
+  /* Hidden children contribute no grid rows. Avoid selecting serialized style
+     attributes: Safari can retain a hidden parent after the hint becomes visible. */
+  .start-account-info { display: contents; }
+  .start-account-info > *, #startUpdateSlot, #aboutGamePanel { grid-column: 1 / -1; }
   #startUpdateSlot:empty { display: none; }
 }

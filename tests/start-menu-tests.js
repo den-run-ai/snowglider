@@ -159,6 +159,18 @@ async function main() {
 
   console.log('\n--- deferred start before game scripts load (080bb29) ---');
   delete window.initializeGameWithAudio; // game scripts not ready yet
+  const { AudioModule } = await import('../src/audio.ts');
+  const { Sfx } = await import('../src/sfx.ts');
+  const originalPlay = AudioModule.playPreloadedAudio;
+  const originalUnlock = Sfx.unlock;
+  const audioCalls = [];
+  AudioModule.playPreloadedAudio = () => { audioCalls.push('music'); return true; };
+  Sfx.unlock = () => { audioCalls.push('sfx'); };
+  btn.dispatchEvent(new window.Event('click'));
+  check('early Start unlocks music and SFX synchronously in the original click',
+    audioCalls.join(',') === 'music,sfx' && typeof window.initializeGameWithAudio !== 'function');
+  AudioModule.playPreloadedAudio = originalPlay;
+  Sfx.unlock = originalUnlock;
   const deferred = SM.startGame();
   check('startGame defers (returns false) when game scripts are not ready',
     deferred === false);

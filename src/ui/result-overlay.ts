@@ -18,6 +18,7 @@ import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDi
 import { getRunStamp } from '../run-context.js';
 import { resultSyncStatusCopy } from '../offline/sync-manager.js';
 import { isOnline } from '../offline/offline-state.js';
+import { readLocalBest, safeSetItem } from '../offline/offline-store.js';
 import { announceGameStatus, closeOverlayFocus, openOverlayFocus } from './accessibility.js';
 import { setPanelCollapsed } from './collapsible-panel.js';
 
@@ -42,20 +43,11 @@ export function isPlausibleForTier(time: number, tier: Difficulty = DEFAULT_DIFF
 }
 
 export function readStoredBestTime(tier: Difficulty = DEFAULT_DIFFICULTY): number {
-  const key = localBestTimeKey(tier);
-  const storedBestTime = localStorage.getItem(key);
-  if (!storedBestTime) {
-    return Infinity;
-  }
+  return readLocalBest(tier) ?? Infinity;
+}
 
-  const parsedBestTime = parseFloat(storedBestTime);
-  if (isPlausibleForTier(parsedBestTime, tier)) {
-    return parsedBestTime;
-  }
-
-  console.warn("Ignoring invalid stored best time:", storedBestTime);
-  localStorage.removeItem(key);
-  return Infinity;
+function persistLocalBest(tier: Difficulty, time: number): void {
+  if (safeSetItem(localBestTimeKey(tier), String(time))) stampLocalBestMeta(tier);
 }
 
 function getSignedInUser() {
@@ -112,6 +104,8 @@ export interface ResultOverlayDeps {
   // renderer are in scope. Kept as an injected hook so this UI module stays free of
   // three.js. The overlay itself is unchanged (shown immediately, as before).
   onCrash?: (reason: string) => void;
+  /** Cancel pending run-only UI work before opening the result dialog. */
+  onEndRun?: () => void;
   // The run's difficulty tier, so the score/best-time/leaderboard go to that tier.
   // Omitted => falls back to the persisted pick (readStoredDifficulty).
   getDifficulty?: () => Difficulty;
@@ -151,6 +145,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     }
     closeOverlayFocus(gameOverOverlay, false);
     state.gameActive = false;
+    deps.onEndRun?.();
+    AudioModule.clearMessages();
 
     // Flush the run's diagnostics baseline now that the run has ended. The main loop stops
     // recording once gameActive is false, and a player who finishes/crashes and then leaves
@@ -232,14 +228,20 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // Record the score whenever the leaderboard API is available (it handles its own
       // auth + persistence); otherwise fall back to persisting a new local best.
       if (canRecordScore && tierRanked) {
-        window.AuthModule.recordScore?.(currentTime, tier);
+        try {
+          window.AuthModule.recordScore?.(currentTime, tier);
+        } catch (error) {
+          // Classic local-auth fallback can throw when browser storage is denied.
+          // The completed run and Play again must remain available even then.
+          console.warn('Score persistence unavailable; keeping the session result.', error);
+          if (isNewBestTime) persistLocalBest(tier, currentTime);
+        }
       } else if (isNewBestTime) {
         // Unranked tier (or no leaderboard API): keep the local per-tier best only —
         // stamped with the same run provenance every other local-best write carries
         // (#400; Codex review PR #407). Practice runs never reach here
         // (isNewBestTime is force-false above).
-        localStorage.setItem(localBestTimeKey(tier), String(currentTime));
-        stampLocalBestMeta(tier);
+        persistLocalBest(tier, currentTime);
       }
 
       // Show appropriate message based on time

@@ -31,6 +31,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
   // in-flight leaderboard read can detect that a newer refresh superseded it
   // (e.g. the player logged out mid-read) and discard its now-stale result.
   let accountRefreshSeq = 0;
+  let scrollBeforeAbout = 0;
 
   // Handle to the offline-mode badge + its connectivity subscription. The badge is
   // mounted hidden and only revealed when offline, so the online start screen is
@@ -303,6 +304,8 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
 
   function showAbout() {
     const aboutPanel = document.getElementById('aboutGamePanel');
+    const card = aboutPanel?.closest<HTMLElement>('.start-dialog');
+    if (card && !card.classList.contains('about-open')) scrollBeforeAbout = card.scrollTop;
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
@@ -315,14 +318,21 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     // Hide the difficulty picker alongside the rest of the start controls so it
     // doesn't stay visible/clickable over the About panel.
     if (picker) picker.style.display = 'none';
+    if (card) {
+      card.classList.add('about-open');
+      card.scrollTop = 0;
+    }
     document.getElementById('aboutGameButton')?.setAttribute('aria-expanded', 'true');
     if (aboutPanel) openOverlayFocus(aboutPanel, {
-      initialFocus: document.getElementById('closeAboutButton'), onEscape: hideAbout,
+      // Read from the top of the panel. The bottom Close action may need scrolling
+      // on a short phone, so focusing it with preventScroll would hide that focus.
+      initialFocus: aboutPanel, onEscape: hideAbout,
     });
   }
 
   function hideAbout() {
     const aboutPanel = document.getElementById('aboutGamePanel');
+    const card = aboutPanel?.closest<HTMLElement>('.start-dialog');
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
@@ -333,8 +343,13 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     if (startMenu) startMenu.style.display = '';
     if (keyboardHint) keyboardHint.style.display = '';
     if (picker) picker.style.display = ''; // restore the responsive CSS layout
+    if (card) {
+      card.classList.remove('about-open');
+      card.scrollTop = scrollBeforeAbout;
+    }
     document.getElementById('aboutGameButton')?.setAttribute('aria-expanded', 'false');
     if (aboutPanel) closeOverlayFocus(aboutPanel);
+    document.getElementById('aboutGameButton')?.focus({ preventScroll: true });
   }
 
   function initializeStartMenu() {

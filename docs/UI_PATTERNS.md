@@ -25,8 +25,8 @@ difficulty or action on its own.
   tiers rebuilds geometry and resumes the requested run without a second menu.
   A one-shot tier parameter is validated and removed from the URL after boot.
 - Audio unlock is attempted in the user gesture. Audio/network initialization
-  must not hold up local play. Browser autoplay restrictions still apply after
-  navigation.
+  must not hold up local play. After a tier navigation, retry sound on the next
+  gameplay gesture because browser activation does not carry across documents.
 
 ## Offline, account and sharing
 
@@ -44,6 +44,11 @@ difficulty or action on its own.
 - Social options wrap within the viewport, with readable labels and at least
   44px targets. Do not truncate platform names or attach duplicate handlers on
   repeated results.
+- Results must show finite times and comparisons. Practice or ineligible
+  finishes must not claim records or medals. Clear start/countdown messages before
+  presenting results so they cannot cover replay or sharing controls.
+- Unavailable browser storage must not block boot, mute controls, results or
+  replay. Use the safe offline-store helpers; persistence remains best-effort.
 
 ## Evidence required for UI changes
 
@@ -54,6 +59,10 @@ hit targets, including 320×568 and 568×320; `panels.spec.ts` checks the HUD.
 Startup/replay tests must exercise the real tier-rebuild path rather than a
 webdriver-only shortcut. Auth/share tests mock provider boundaries without
 signing into real accounts or posting to social networks.
+
+`controls-node-tests.js` verifies that menu and summary touch events retain their
+native default behavior without clearing a separate held gameplay input. A CSS
+fix cannot compensate for a document handler that cancels the synthesized tap.
 
 The production PWA suite separately verifies cached offline reloads, local
 results and update behavior. Logic tests alone cannot prove responsive layout.
