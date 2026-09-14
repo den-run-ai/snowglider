@@ -24,6 +24,7 @@
   color: #fff;
   font: 14px/1.4 Arial, sans-serif;
 }
+.start-dialog a { color: #74d9ff; text-decoration: underline; }
 .start-heading { text-align: center; margin-bottom: 16px; }
 #gameTitle { margin: 0 0 6px; font-size: 32px; letter-spacing: 0; animation: none; text-shadow: none; }
 #gameDescription { margin: 0; max-width: none; font-size: 14px; color: #cfdef2; }
