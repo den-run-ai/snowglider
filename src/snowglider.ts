@@ -40,6 +40,8 @@ import { EffectsModule } from './effects.js';
 import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
 import { resolveActiveDifficulty, readStoredDifficulty, storeDifficulty, runTierNeedsRebuild } from './difficulty.js';
+import { isRunTransition, runLaunchUrl } from './game/run-transition.js';
+import { resumeAudioOnPlayGesture } from './ui/play-audio-gesture.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
@@ -97,6 +99,15 @@ const {
 const player = Physics.createPlayerState(Snow.getTerrainHeight);
 const pos = player.pos;
 const velocity = player.velocity;
+
+const playSurface = document.getElementById('gameCanvas');
+if (isRunTransition() && playSurface) {
+  resumeAudioOnPlayGesture(playSurface, {
+    signal: listenerAbort.signal,
+    isPlaying: () => state.gameActive,
+    resume: () => { AudioModule.startAudio(); Sfx.unlock(); },
+  });
+}
 
 // Persisted best loaded once at module eval (may prune an invalid stored entry).
 // Score-time validation + best-time persistence live in ui/result-overlay.ts.
@@ -282,23 +293,21 @@ Diag.init(
 // the shape of the mountain would not match the run (e.g. a ranked Blue run left on Black's
 // winding corridor + obstacle field, or a Black run on the centered course).
 //
-// Rebuilding terrain + trees + rocks + gates + avalanche in place is a large, leak-prone
-// teardown; a reload is exact and cheap enough for this rare, deliberate action — the tier is
-// persisted first, so setupScene() rebuilds the whole scene from it on load and the start menu
-// re-highlights it. The reload lands back on the start screen, so the player just presses Start
-// once more (their gesture is preserved — the run's AudioModule.startAudio()/Sfx.unlock() need a
-// trusted user gesture, which an auto-resumed run wouldn't have). Returns true when a reload was
-// scheduled; callers must then bail out of starting a run against the doomed scene.
-//
-// Skipped under test/automation (the suites never switch tiers mid-session and must stay on a
-// single, reload-free path), and when the tier can't be persisted (private mode) — reloading
-// there would just rebuild the SAME scene and swallow every Start.
+// Terrain/obstacle placement is baked once, so rebuild through one navigation.
+// Carry the already-requested run in a validated URL parameter: the new scene and
+// menu read the same tier even if storage is blocked, then consume the intent and
+// start automatically. Only the legacy ?test= suites suppress navigation; ordinary
+// browser automation must exercise the real player transition.
 function maybeReloadForRunTier(): boolean {
-  const automation = Boolean(window.isTestMode) || Boolean(navigator.webdriver);
-  if (!runTierNeedsRebuild(state.difficulty, state.builtDifficulty, automation)) return false;
+  if (!runTierNeedsRebuild(state.difficulty, state.builtDifficulty, Boolean(window.isTestMode))) return false;
   storeDifficulty(state.difficulty);
-  if (readStoredDifficulty() !== state.difficulty) return false; // persist failed (e.g. private mode)
-  location.reload();
+  const restart = document.getElementById('restartButton');
+  if (restart instanceof HTMLButtonElement) {
+    restart.disabled = true;
+    restart.textContent = 'Preparing run…';
+    restart.setAttribute('aria-busy', 'true');
+  }
+  location.replace(runLaunchUrl(location.href, state.difficulty));
   return true;
 }
 
@@ -347,6 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // loading timer instead of letting its closure later start the loop and render against a
 // disposed renderer + removed canvas.
 let disposed = false;
+let startInProgress = false;
 let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
 let getReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let testAutoStartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -389,6 +399,7 @@ function startGameplayLoop(showGetReady: boolean, waitedForForest = false) {
     });
     return;
   }
+  startInProgress = false;
   state.gameActive = true;
   state.animationRunning = true;
 
@@ -414,7 +425,8 @@ function startGameplayLoop(showGetReady: boolean, waitedForForest = false) {
 // <audio> implementation); the music calls below are real. Several Howler-era API
 // names are kept as compat stubs in audio.ts, noted per call site.
 window.initializeGameWithAudio = function() {
-  if (disposed) return false;
+  if (disposed || startInProgress || state.gameActive) return false;
+  startInProgress = true;
   console.log("Initializing game...");
 
   // Howler-era compat stub: on the native HTML5 implementation there is no
@@ -473,7 +485,7 @@ window.initializeGameWithAudio = function() {
   const pickedTier = startMenu?.getSelectedDifficulty?.();
   state.difficulty = resolveActiveDifficulty(pickedTier);
   // If the player picked a tier the scene wasn't built for, reload to reshape the terrain
-  // corridor/gates/obstacles/avalanche for it; the run resumes automatically after. Bail so
+  // corridor/gates/obstacles/avalanche for it; the already-requested run resumes automatically after. Bail so
   // we don't start a run against the scene that's about to be torn down.
   if (maybeReloadForRunTier()) return;
   // Show the chosen tier's own best time (the HUD + result screen compare against this).
@@ -527,7 +539,7 @@ window.initializeGameWithAudio = function() {
   const forceIntro = search.includes('intro=force');
   const disableIntro = search.includes('intro=off');
   const automated = typeof navigator !== 'undefined' && navigator.webdriver === true;
-  const skipIntro = disableIntro || (!forceIntro && (!!window.isTestMode || automated || prefersReducedMotion()));
+  const skipIntro = isRunTransition() || disableIntro || (!forceIntro && (!!window.isTestMode || automated || prefersReducedMotion()));
   const playIntro = !skipIntro && !state.gameInitialized;
 
   if (playIntro) {
@@ -566,13 +578,13 @@ window.initializeGameWithAudio = function() {
       },
     });
   } else if (!state.gameInitialized) {
-    // First start, but the cinematic is skipped (test/automation/reduced-motion):
-    // reproduce the original short loading message + delayed activation exactly.
+    // Yield once so the loading state can paint. Readiness comes from the actual
+    // forest promise below, not an unconditional 1.8-second delay.
     AudioModule.showMessage("Loading game...", 1500);
     state.gameInitialized = true;
     // Track the timer so disposeGame can cancel it; startGameplayLoop is also
     // `disposed`-guarded, so this is belt-and-suspenders against a mid-delay teardown.
-    pendingStartTimer = setTimeout(() => { pendingStartTimer = null; startGameplayLoop(true); }, 1800);
+    pendingStartTimer = setTimeout(() => { pendingStartTimer = null; startGameplayLoop(!isRunTransition()); }, 0);
   } else {
     // Already initialized once: restart immediately.
     startGameplayLoop(false);

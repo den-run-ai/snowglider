@@ -33,6 +33,7 @@
 
   <link rel="stylesheet" href="styles/main.css">
   <link rel="stylesheet" href="styles/hud.css">
+  <link rel="stylesheet" href="styles/menu.css">
 
   <!-- PWA install metadata (issue #358, PR 2). The manifest + icons make the game
        installable on desktop/Android; the service worker (offline app-shell caching)
@@ -71,13 +72,28 @@
   <script src="src/boot/local-auth.js"></script>
   <script src="src/boot/firebase-bootstrap.js"></script>
 </head>
-<body>
+<body class="start-screen-active">
   <div id="gameAnnouncements" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
   <!-- Start Game Container and Button -->
   <div id="startGameContainer" role="region" aria-labelledby="gameTitle">
-    <h1 id="gameTitle">❄️ 🎿 ⛰️ SnowGlider ☃️ ❄️</h1>
-    <p id="gameDescription">Race a snowman down a procedurally generated mountain: hit every checkpoint, carve past trees, launch off jumps — and outrun the avalanche chasing you down the slope. Beat the clock and your own best time for the fastest run!</p>
-
+    <div class="start-dialog">
+      <header class="start-heading">
+        <h1 id="gameTitle">❄️ SnowGlider</h1>
+        <p id="gameDescription">Carve past trees, hit the checkpoints, and outrun the avalanche.</p>
+        <div id="startStatus"></div>
+        <p id="startLoadingStatus" role="status">Preparing run…</p>
+      </header>
+      <section class="start-play" aria-label="Choose a run">
+        <div id="difficultyPicker" role="radiogroup" aria-label="Difficulty tier"></div>
+        <div id="startMenu">
+          <button id="startGameButton" class="menu-button start" type="button">Start Game</button>
+        </div>
+        <p class="start-account-note">Free to play · No sign-in needed</p>
+      </section>
+      <div class="start-extras">
+        <details id="startHelpDetails" class="menu-details">
+          <summary class="menu-disclosure">How to play <span class="panel-chevron" aria-hidden="true"></span></summary>
+          <div class="menu-details-body">
     <div id="controlsGuide">
       <h3>Controls</h3>
       <div class="control-row">
@@ -129,35 +145,40 @@
       </div>
     </div>
     <p class="touch-note">📱 On touch devices: tap the left/right of the screen to steer, top/bottom for speed<span id="touchJumpNote">, and the center to jump</span>.</p>
-    <p class="physics-era-notice"><strong>A fresh race starts here.</strong> Physics v3 brings a consistent mountain and avalanche timing. Personal bests and the leaderboard start fresh; earlier records are retained separately.</p>
-
-    <!-- Difficulty tier picker (●Bunny / ■Blue / ◆Black); options are built by
-         start-menu.ts from the difficulty config, with the last choice remembered. -->
-    <div id="difficultyPicker" role="radiogroup" aria-label="Difficulty tier"></div>
-
-    <div id="startMenu">
-      <button id="startGameButton" class="menu-button start">Start Game</button>
-      <button id="aboutGameButton" class="menu-button about" aria-expanded="false" aria-controls="aboutGamePanel">About Game</button>
-      <button id="feedbackButton" class="menu-button feedback">💬 Feedback</button>
-    </div>
-
-    <!-- Global Top Times preview; populated by start-menu.ts once scores load,
-         and hidden when no leaderboard is available (e.g. local/offline). -->
-    <div id="startLeaderboard" style="display:none;"></div>
-    <p id="startSignInHint" style="display:none;">🔐 Optional: <strong>sign in (top&#8209;right)</strong> to save your best time to the global leaderboard.</p>
-
+            <p class="physics-era-notice">Personal bests and the leaderboard use the current mountain and avalanche timing. Earlier records are kept separately.</p>
+            <p id="keyboardHint">Press <span class="key">Enter</span> or <span class="key">Space</span> to start from the play button.</p>
+            <div id="buildBadge" aria-label="build version"></div>
+          </div>
+        </details>
+        <details id="offlinePlayDetails" class="menu-details">
+          <summary class="menu-disclosure">Offline play <span class="panel-chevron" aria-hidden="true"></span></summary>
+          <div class="menu-details-body" id="offlinePlayContent">
+            <p>Open SnowGlider online once and let it finish loading. Then return in the same browser to play offline. Best times stay on this device; the global leaderboard and sign-in need a connection.</p>
+            <p>On iPhone or iPad, use Safari’s Share → Add to Home Screen. In Chrome, use the browser’s Install option when available.</p>
+            <div id="startInstallSlot"></div>
+          </div>
+        </details>
+        <div id="startSecondaryActions">
+          <button id="aboutGameButton" class="menu-button about" type="button" aria-label="About Game" aria-expanded="false" aria-controls="aboutGamePanel">About</button>
+          <button id="feedbackButton" class="menu-button feedback" type="button">Feedback</button>
+        </div>
+      </div>
+      <div class="start-account-info">
+        <p id="startSignInHint" style="display:none;">Optional: sign in above to save your Blue best time to the global leaderboard.</p>
+        <div id="startLeaderboard" style="display:none;"></div>
+      </div>
+      <div id="startUpdateSlot"></div>
     <div id="aboutGamePanel" role="dialog" aria-labelledby="aboutGameTitle">
       <h3 id="aboutGameTitle">About SnowGlider</h3>
       <p>SnowGlider is a 3D skiing game where you guide a snowman down a procedurally generated backcountry mountain.</p>
       <p>Reach the finish as fast as you can: pass through the checkpoint gates, watch your split times, and beat the fastest run you've recorded.</p>
       <p>Keep an eye uphill — once you've descended far enough, an avalanche of tumbling snow boulders gives chase. Get caught and it's game over.</p>
-      <p>Sign in with Google to save your best time to the global leaderboard. Made with Three.js and a lot of love for winter sports.</p>
+      <p>Sign in with Google or GitHub to save your Blue run to the global leaderboard. Made with Three.js and a lot of love for winter sports.</p>
       <p>Music: <a href="https://www.newgrounds.com/audio/listen/376737" target="_blank" rel="noopener">“Bad Cat [Master Version]” by Skullbeatz</a>, used under <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="license noopener">CC BY-SA 3.0</a>. See the <a href="THIRD_PARTY_NOTICES.md">third-party notices</a>.</p>
       <button id="closeAboutButton" class="menu-button">Close</button>
     </div>
 
-    <p id="keyboardHint">Press <span class="key">Enter</span> or <span class="key">Space</span> to start the game</p>
-    <div id="buildBadge" aria-label="build version"></div>
+    </div>
   </div>
 
   <div id="hudLeft">
@@ -243,7 +264,7 @@
         <button id="appleLoginBtn" class="provider-btn provider-apple"> with the Apple
         glyph and auth.ts will pick it up (PROVIDER_BUTTONS already lists it).
       -->
-      <button id="loginBtn" class="provider-btn provider-google" title="Sign in with Google" aria-label="Sign in with Google">
+      <button id="loginBtn" disabled aria-busy="true" class="provider-btn provider-google" title="Sign in with Google" aria-label="Sign in with Google">
         <svg class="provider-icon" viewBox="0 0 48 48" aria-hidden="true">
           <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-9 20-20c0-1.3-.1-2.7-.4-3.9z"/>
           <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
@@ -252,13 +273,13 @@
         </svg>
         <span class="provider-label">Google</span>
       </button>
-      <button id="githubLoginBtn" class="provider-btn provider-github" title="Sign in with GitHub" aria-label="Sign in with GitHub">
+      <button id="githubLoginBtn" disabled aria-busy="true" class="provider-btn provider-github" title="Sign in with GitHub" aria-label="Sign in with GitHub">
         <svg class="provider-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
         </svg>
         <span class="provider-label">GitHub</span>
       </button>
-      <button id="guestLoginBtn" class="provider-btn provider-guest" title="Play as Guest (no account)" aria-label="Play as Guest">
+      <button id="guestLoginBtn" disabled aria-busy="true" class="provider-btn provider-guest" title="Play as Guest (no account)" aria-label="Play as Guest">
         <svg class="provider-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
         </svg>

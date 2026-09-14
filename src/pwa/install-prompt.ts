@@ -131,7 +131,7 @@ export function initInstallPrompt(deps: InstallPromptDeps = {}): InstallPromptCo
   }
 
   function findContainer(): HTMLElement | null {
-    return doc!.getElementById('startGameContainer');
+    return doc!.getElementById('startInstallSlot') ?? doc!.getElementById('startGameContainer');
   }
 
   function ensureChip(): HTMLElement | null {

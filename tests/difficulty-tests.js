@@ -150,13 +150,13 @@ function maxTrajDiff(a, b) {
     D.resolveActiveDifficulty(undefined, null) === 'blue');
 
   // runTierNeedsRebuild: the scene (corridor/gates/obstacles/avalanche) is baked from the
-  // built tier, so a run needs a rebuild exactly when its tier differs — except under
-  // automation, which must stay on one reload-free path.
+  // built tier, so a run needs a rebuild exactly when its tier differs — except for the
+  // legacy in-page test harness, which must stay on one navigation-free path.
   check('runTierNeedsRebuild: same tier needs no rebuild',
     D.runTierNeedsRebuild('black', 'black', false) === false);
   check('runTierNeedsRebuild: a different tier needs a rebuild',
     D.runTierNeedsRebuild('black', 'blue', false) === true);
-  check('runTierNeedsRebuild: never rebuilds under automation (tests stay on one path)',
+  check('runTierNeedsRebuild: legacy in-page suites suppress navigation',
     D.runTierNeedsRebuild('black', 'blue', true) === false
     && D.runTierNeedsRebuild('black', 'black', true) === false);
 

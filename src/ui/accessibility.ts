@@ -53,7 +53,7 @@ export function openOverlayFocus(root: HTMLElement, options: {
   }) : null;
   observer?.observe(doc.body, { childList: true });
 
-  const selector = 'button, a[href], input, select, textarea, [tabindex]';
+  const selector = 'button, a[href], summary, input, select, textarea, [tabindex]';
   function focusable(): HTMLElement[] {
     return allowed.flatMap((scope) => Array.from(scope.querySelectorAll<HTMLElement>(selector)))
       .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[inert]')

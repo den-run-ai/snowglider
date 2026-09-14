@@ -159,18 +159,19 @@ import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
 
   function initializeGameScripts() {
     const firebaseBoot = window.SnowGliderFirebase;
-    const authReady: Promise<void> = firebaseBoot && typeof firebaseBoot.waitForAuthModule === 'function'
-      ? firebaseBoot.waitForAuthModule()
-      : Promise.resolve();
-
-    authReady
+    // Authentication is optional. A slow/unreachable provider must not delay local
+    // play behind its timeout; keep the bootstrap's fallback/late-auth path running
+    // independently and refresh account UI when it settles.
+    void Promise.resolve()
+      .then(() => firebaseBoot?.waitForAuthModule?.())
       .then(() => {
-        console.log("AuthModule ready, proceeding with game scripts and Auth initialization.");
         if (firebaseBoot && typeof firebaseBoot.initializeAuthModule === 'function') {
           firebaseBoot.initializeAuthModule();
         }
-        return loadScriptsInOrder(GAME_SCRIPT_ORDER);
       })
+      .catch((error: unknown) => console.warn('Sign-in unavailable; local play remains ready.', error));
+
+    loadScriptsInOrder(GAME_SCRIPT_ORDER)
       .then(() => {
         // snowglider.js (the orchestrator) is now an ES module loaded by the
         // bundle entry's deferred dynamic-import hook (GAME_SCRIPT_ORDER above is

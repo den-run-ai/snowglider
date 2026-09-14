@@ -22,6 +22,11 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env.E2E_PORT || 8082);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+// Optional system Chrome for environments that already provide the browser but
+// cannot download Playwright's bundled Chromium. CI uses the bundled default.
+const chromiumLaunchOptions = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+  ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+  : {};
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -50,7 +55,7 @@ export default defineConfig({
       // Headless Chromium — the same engine the Puppeteer suite uses, kept here so
       // the user-flow specs have a fast, reliable baseline to compare WebKit against.
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], launchOptions: chromiumLaunchOptions },
       testIgnore: /(mobile|pwa-.*)\.spec\.ts/,
     },
     {
@@ -68,22 +73,22 @@ export default defineConfig({
       // this is where the touch-control and responsive HUD specs run.
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testMatch: /(mobile|panels)\.spec\.ts/,
+      testMatch: /(mobile|panels|onboarding|auth-sharing|start-replay)\.spec\.ts/,
     },
     {
       name: 'Mobile Safari landscape',
       use: { ...devices['iPhone 13 landscape'] },
-      testMatch: /panels\.spec\.ts/,
+      testMatch: /(panels|onboarding|auth-sharing|start-replay)\.spec\.ts/,
     },
     {
       name: 'Android Chrome',
-      use: { ...devices['Pixel 7'] },
-      testMatch: /panels\.spec\.ts/,
+      use: { ...devices['Pixel 7'], launchOptions: chromiumLaunchOptions },
+      testMatch: /(panels|onboarding|auth-sharing|start-replay)\.spec\.ts/,
     },
     {
       name: 'Android Chrome landscape',
-      use: { ...devices['Pixel 7 landscape'] },
-      testMatch: /panels\.spec\.ts/,
+      use: { ...devices['Pixel 7 landscape'], launchOptions: chromiumLaunchOptions },
+      testMatch: /(panels|onboarding|auth-sharing|start-replay)\.spec\.ts/,
     },
   ],
   webServer: {

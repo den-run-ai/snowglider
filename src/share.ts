@@ -279,8 +279,8 @@ export async function shareImageFile(
   }
   // `canShare` gates files: if it exists and rejects them, native file share is
   // unsupported here — fall back rather than throwing a TypeError on share().
-  if (typeof nav.canShare === 'function' && !nav.canShare({ files: [file] })) return 'unavailable';
   try {
+    if (typeof nav.canShare === 'function' && !nav.canShare({ files: [file] })) return 'unavailable';
     await nav.share({ files: [file], title: data.title, text: `${data.text} ${data.url}` });
     logShareEvent('image');
     return 'shared';

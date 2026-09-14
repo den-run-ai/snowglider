@@ -350,21 +350,6 @@ async function runStartMenuRaceRegression(browser) {
     releaseSnowgliderScript();
 
     await page.waitForFunction(() => {
-      const button = document.querySelector('button#startGameButton');
-      const startContainer = document.getElementById('startGameContainer');
-      const gameCanvas = document.getElementById('gameCanvas');
-      return button instanceof HTMLButtonElement &&
-        startContainer &&
-        gameCanvas &&
-        !button.disabled &&
-        button.getAttribute('aria-busy') !== 'true' &&
-        startContainer.style.display !== 'none' &&
-        typeof window.initializeGameWithAudio === 'function';
-    }, { timeout: 30000 });
-
-    await page.click('#startGameButton');
-
-    await page.waitForFunction(() => {
       const startContainer = document.getElementById('startGameContainer');
       const gameCanvas = document.getElementById('gameCanvas');
       return startContainer &&
@@ -377,7 +362,7 @@ async function runStartMenuRaceRegression(browser) {
       throw new Error(`Start-menu page/renderer errors: ${[...errors, ...rendererErrors].join('; ')}`);
     }
 
-    console.log('PASS: start menu re-enables Start for a gesture-backed deferred start');
+    console.log('PASS: queued Start completes when scripts arrive without another click');
   } finally {
     releaseSnowgliderScript();
     await page.close();

@@ -412,18 +412,20 @@ function setupTouchControls(signal?: AbortSignal) {
   window.addEventListener('resize', updateTouchRegions, opts);
   
   // Touches that begin inside a scrollable UI panel (the Controls / Ski Techniques
-  // guides, Game Stats, or the finish/game-over result overlay) go to the browser so
+  // guides, Game Stats, onboarding, or the finish/game-over result overlay) go to the browser so
   // the panel can scroll natively. The document-level handlers below otherwise call
   // preventDefault() on every move — killing the scroll — and would also mis-read the
   // drag as ski steering. A TouchEvent's target stays the element the gesture started
   // on, so excluding these targets lets the overflow areas scroll without leaking into
   // gameplay input. `#gameOverOverlay` is included because on a tall finish screen
   // (result panel + expanded share menu) it scrolls to keep RESTART reachable, and the
-  // run is already over there, so a drag is never gameplay steering.
+  // run is already over there, so a drag is never gameplay steering. The whole start
+  // container owns touch, including disclosure text and blank card space: limiting
+  // this to buttons/the controls guide breaks offline-help scrolling on phones.
   const isScrollableUiTouch = (event: TouchEvent): boolean => {
     const target = event.target as Element | null;
     return !!(target && typeof target.closest === 'function' &&
-      target.closest('#controlsGuide, #controlsContent, #gameStatsContent, #gameOverOverlay'));
+      target.closest('#startGameContainer, #controlsGuide, #controlsContent, #gameStatsContent, #gameOverOverlay'));
   };
 
   // Touches that land on an interactive control (any button/link/form field, or an
@@ -451,7 +453,7 @@ function setupTouchControls(signal?: AbortSignal) {
   const isInteractiveUiTouch = (event: TouchEvent): boolean => {
     const target = event.target as Element | null;
     return !!(target && typeof target.closest === 'function' &&
-      target.closest('button, a, input, select, textarea, label, [role="button"], #cameraControls, #gameStatsContainer'));
+      target.closest('button, a, summary, input, select, textarea, label, [role="button"], #cameraControls, #gameStatsContainer'));
   };
 
   // A touch the gameplay layer must leave entirely alone: a scroll inside a guide

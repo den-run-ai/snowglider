@@ -87,23 +87,20 @@ test.describe('disposeGame teardown', () => {
     expect(pageErrors, `unexpected page errors during teardown:\n${pageErrors.join('\n')}`).toEqual([]);
   });
 
-  test('dispose during the start delay cancels the pending loop start', async ({ page }) => {
+  test('dispose during the initial task yield cancels the pending loop start', async ({ page }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
 
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await waitForOrchestrator(page);
 
-    // Click Start, then dispose immediately — well inside the ~1.8s loading delay,
-    // before the deferred startGameplayLoop fires. The `disposed` guard + the cleared
-    // timer must keep the loop from ever starting against the torn-down renderer.
-    await page.click('#startGameButton');
-    await page.evaluate(() => (window as DisposeWindow).disposeGame!());
-
-    // Wait past the 1800ms delayed start. The teardown ran (initializeGameWithAudio is
-    // deleted) and the deferred loop never started — a loop against the torn-down renderer
-    // would throw on renderer.render after context loss, so zero page errors is the proof.
-    await page.waitForTimeout(2200);
+    // Keep start and dispose in one browser task so the readiness yield cannot
+    // finish before teardown (there is deliberately no artificial loading delay).
+    await page.evaluate(() => {
+      document.getElementById('startGameButton')!.click();
+      (window as DisposeWindow).disposeGame!();
+    });
+    await page.waitForTimeout(100);
     expect(await page.evaluate(() => typeof (window as DisposeWindow).initializeGameWithAudio)).toBe('undefined');
     expect(pageErrors, `unexpected page errors after a mid-startup dispose:\n${pageErrors.join('\n')}`).toEqual([]);
   });
