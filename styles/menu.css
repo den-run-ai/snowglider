@@ -88,6 +88,9 @@ body.start-screen-active #resetBtn,
 body.start-screen-active #cameraToggleBtn,
 body.start-screen-active #audioControlBtn,
 body.start-screen-active .touch-control { visibility: hidden; }
+/* Modal focus isolation already disables this floating control. Hide it too so
+   an inactive Sound button cannot paint over result/share actions. */
+#audioControlBtn[inert] { visibility: hidden; }
 body.start-screen-active #hudRight { width: auto; max-width: calc(100vw - 24px); }
 /* Keep guest upgrades on the same account row so opening the chip cannot cover
    the title or steal the short landscape menu's height. */

@@ -10,6 +10,7 @@ async function activate(control: Locator, hasTouch: boolean): Promise<void> {
 async function waitForRun(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as GameWindow).gameActive === true);
   await expect(page.locator('#startGameContainer')).toBeHidden();
+  await expect(page.locator('#audioControlBtn')).toBeVisible();
   expect(new URL(page.url()).searchParams.has('play')).toBe(false);
 }
 

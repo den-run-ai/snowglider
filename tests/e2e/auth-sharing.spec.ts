@@ -174,6 +174,7 @@ test('all social targets fit narrow results and native share fallback remains re
     window.open = url => { w.__shareOpened!.push(String(url)); return null; };
   });
   await page.locator('#courseResult > div').first().scrollIntoViewIfNeeded();
+  await expect(page.locator('#audioControlBtn')).toBeHidden();
   await testInfo.attach('result-heading-viewport', {
     body: await page.screenshot(), contentType: 'image/png',
   });

@@ -44,6 +44,8 @@ difficulty or action on its own.
 - Social options wrap within the viewport, with readable labels and at least
   44px targets. Do not truncate platform names or attach duplicate handlers on
   repeated results.
+- Hide inactive floating controls using the dialog's existing `inert` state so
+  they cannot cover result/share actions; restore them when play resumes.
 - Results must show finite times and comparisons. Practice or ineligible
   finishes must not claim records or medals. Clear start/countdown messages before
   presenting results so they cannot cover replay or sharing controls.
