@@ -139,6 +139,36 @@ async function main() {
       (t - state.startTime) === 7000);
   }
 
+  console.log('\n--- Run-clock guard: orchestrator initializes in an already-hidden tab ---');
+  {
+    // Deferred module loading can complete after the player backgrounds the tab.
+    // There is no new hidden event for the guard to observe after construction.
+    const doc = fakeDoc();
+    doc.setVisibility('hidden');
+    let t = 1000;
+    const state = { gameActive: false, startTime: t };
+    const guard = createRunClockGuard(state, {
+      doc: /** @type {any} */ (doc),
+      now: () => t
+    });
+    const frame = makeLoop(guard, t);
+
+    check('an initially hidden document starts paused without a visibility event',
+      guard.isPaused() === true);
+    check('initial hidden state does not announce a resume', guard.consumeResumed() === false);
+    state.gameActive = true;
+    check('a run started after hidden initialization cannot advance on background frames',
+      frame(2000) === 0 && frame(3000) === 0);
+
+    t = 9000;
+    doc.setVisibility('visible');
+    check('first visibility restoration shifts out the initial hidden span',
+      guard.isPaused() === false && state.startTime === 9000);
+    check('first visible frame after hidden initialization runs no backlog', frame(t) === 0);
+    check('initial-hidden resume is consumed exactly once', guard.consumeResumed() === false);
+    check('normal physics resumes after the initial-hidden reseed', frame(t + 17) === 1);
+  }
+
   console.log('\n--- Run-clock guard: run becomes active while already hidden (codex round 2) ---');
   {
     // The player clicks Start, then switches tabs during the first-start loading

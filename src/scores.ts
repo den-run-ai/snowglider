@@ -163,7 +163,8 @@ function flushOfflineScoreQueue() {
  * (real signed-in user + ranked tier).
  */
 function syncBestTimeWithRetry(uid: string, time: number, tier: Difficulty): void {
-  void updateUserBestTime(uid, time, tier)
+  // Normalize synchronous SDK failures into the same confirm-or-queue path.
+  void Promise.resolve().then(() => updateUserBestTime(uid, time, tier))
     .then((confirmed) => {
       // Queue under the ORIGINAL uid captured here — not getActiveUser() at resolve time,
       // which may be a different account (or none) if the player switched mid-write (Codex #362).
@@ -751,9 +752,19 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
   }
 }
 
+/** Analytics is optional: a telemetry failure must never interrupt score persistence. */
+function logScoreEvent(name: 'complete_run' | 'new_high_score', time: number): void {
+  if (!analytics) return;
+  try {
+    logEvent(analytics, name, withTrafficTag({ time }));
+  } catch (error) {
+    console.warn('Score analytics unavailable:', error);
+  }
+}
+
 /**
- * Record a completed run score
- * @param {number} time - Run completion time in seconds
+ * Record a completed run score. Local storage, telemetry and remote sync fail
+ * independently; none may replace an existing personal best with a slower run.
  */
 function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
   if (!isValidScoreTime(time)) {
@@ -761,95 +772,60 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
     return;
   }
 
-  // Always store locally first as a fallback and for immediate personal best tracking
+  let localBestTime: number | null = null;
+  let localBestRead = false;
   try {
-    const localBestTime = readLocalBestTime(tier);
-    const isNewLocalBest = localBestTime === null || time < localBestTime;
-
-    if (isNewLocalBest) {
+    localBestTime = readLocalBestTime(tier);
+    localBestRead = true;
+  } catch (error) {
+    // Do not overwrite a best we could not read. The current run can still sync.
+    console.warn('Local best time unavailable:', error);
+  }
+  const isNewLocalBest = localBestTime === null || time < localBestTime;
+  if (localBestRead && isNewLocalBest) {
+    try {
       localStorage.setItem(localBestTimeKey(tier), time.toString());
       stampLocalBestMeta(tier);
       console.log("New local best time recorded:", time);
-    } else {
-      console.log("Score recorded, but not a new local best time:", time);
+    } catch (error) {
+      console.warn('Local best time could not be saved:', error);
     }
+  }
 
-    // The best time we want reflected on the leaderboard is the better of this run
-    // and any previously stored local best. Syncing this value (rather than only the
-    // current run) lets us backfill a best time that was recorded but never made it
-    // to Firestore — e.g. a best set before sign-in or under an earlier bug. Without
-    // this, a stored best could only reach the leaderboard by being beaten again.
-    // PROVENANCE GATE (Codex review PR #407): the stored best is only promotable
-    // when its sidecar stamp matches the current world (same seed + physics
-    // version) — a pre-canonical/unstamped best was earned on a different
-    // obstacle field and must not contaminate the comparable board. The run's
-    // OWN time needs no check: it was just earned in the current world.
-    const effectiveBestTime = isNewLocalBest || !localBestProvenanceCompatible(tier)
-      ? time
-      : localBestTime;
+  // Only a best stamped for the current world may be promoted to its board.
+  // An older/unstamped record remains untouched, including its provenance.
+  const effectiveBestTime = localBestTime !== null && !isNewLocalBest && localBestProvenanceCompatible(tier)
+    ? localBestTime
+    : time;
 
-    // Track completion in Analytics (if available)
-    if (analytics) {
-      logEvent(analytics, 'complete_run', withTrafficTag({ time: time }));
-    }
+  logScoreEvent('complete_run', time);
+  const userAtTimeOfRecord = getActiveUser();
 
-    // Read the signed-in user at record time so auth UI and scoring stay in sync.
-    const userAtTimeOfRecord = getActiveUser();
-
-    // If Firestore isn't available but should be, try to reinitialize it
-    if (userAtTimeOfRecord && !firestore && window.navigator.onLine &&
-        window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
-      console.log("Firestore unavailable but user is online. Attempting to reinitialize...");
-      window.AuthModule.reinitializeFirestore();
-    }
-
-    // Sync whenever the user is signed in and Firestore is available. updateUserBestTime
-    // compares against the authoritative Firestore value and only writes when the time
-    // is better than (or equal to) what is already stored, so syncing on every finish is
-    // safe and never downgrades a faster stored time.
-    if (userAtTimeOfRecord && firestore) {
-      console.log("Attempting to sync best time to Firestore:", effectiveBestTime, `(${tier})`);
-      // Fire-and-forget for the finish UI, but a non-confirming result is queued for retry:
-      // this sync resolves `false` when it doesn't settle (transient getDoc/setDoc/leaderboard
-      // failure), and while online + Firestore-ready the queueOfflineBest() call below writes
-      // no marker — so without a retry a flaky-Firestore online finish would strand the best
-      // in localStorage. syncBestTimeWithRetry queues it on a non-confirming result (Codex #362).
-      syncBestTimeWithRetry(userAtTimeOfRecord.uid, effectiveBestTime, tier); // handles leaderboard update too
-
-      // Track new best time in Analytics (if available)
-      if (isNewLocalBest && analytics) {
-        logEvent(analytics, 'new_high_score', withTrafficTag({ time: time }));
-      }
-    } else {
-      // Log reasons why Firestore update was skipped
-      if (!userAtTimeOfRecord) console.log("Skipping Firestore update: User not signed in.");
-      if (!firestore) {
-        console.log("Skipping Firestore update: Firestore not available.");
-        // Log additional diagnostic information
-        if (window.navigator.onLine) {
-          console.log("Device is online, but Firestore connection is unavailable. Authentication may have issues.");
-        } else {
-          console.log("Device appears to be offline. Check internet connection.");
-        }
-      }
-    }
-
-    // Local-first offline queue (issue #358, PR 4): if this run is eligible (a real
-    // signed-in user on a ranked tier) but couldn't sync now (Firestore uninitialized
-    // / offline), mark it pending so a reconnect flushes it. No-ops for anonymous
-    // guests (getActiveUser excludes them), unranked tiers, and normal online syncs.
-    queueOfflineBest(tier, effectiveBestTime, buildSyncDeps());
-
-  } catch (error) {
-    console.error("Error in recordScore:", error);
-    // Attempt to save locally even if other parts fail
+  if (userAtTimeOfRecord && !firestore && window.navigator.onLine &&
+      window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
     try {
-      if (isValidScoreTime(time)) {
-        localStorage.setItem(localBestTimeKey(tier), time.toString());
-        stampLocalBestMeta(tier);
-      }
-    } catch (e) {
-      console.error("LocalStorage error during fallback save:", e);
+      window.AuthModule.reinitializeFirestore();
+    } catch (error) {
+      // Keep going: queueOfflineBest below retains the score for reconnect.
+      console.warn('Firestore reinitialization failed:', error);
+    }
+  }
+
+  if (userAtTimeOfRecord && firestore) {
+    // The authoritative sync confirms both writes or queues this captured owner
+    // for retry, including synchronous SDK exceptions and rejected promises.
+    syncBestTimeWithRetry(userAtTimeOfRecord.uid, effectiveBestTime, tier);
+    if (isNewLocalBest) logScoreEvent('new_high_score', time);
+  }
+
+  // Store a retry marker when a real user's ranked run cannot sync now. The
+  // storage helpers are throw-safe, but an optional availability probe can fail.
+  try {
+    queueOfflineBest(tier, effectiveBestTime, buildSyncDeps());
+  } catch (error) {
+    console.warn('Score sync availability could not be checked:', error);
+    if (userAtTimeOfRecord && !userAtTimeOfRecord.isAnonymous) {
+      queueFailedSync(userAtTimeOfRecord.uid, tier, effectiveBestTime, buildSyncDeps());
     }
   }
 }

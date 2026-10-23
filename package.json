@@ -1,6 +1,6 @@
 {
   "name": "snowglider",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A cheerful snowman shredding mountain snow powder in a playful Three.js animation.",
   "main": "src/snowglider.js",
   "license": "SEE LICENSE IN LICENSE",

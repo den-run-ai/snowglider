@@ -108,6 +108,8 @@ let pendingWrite = null;
  *  @type {{ path: string, error: unknown } | null} */
 let nextSetDocError = null;
 let timestampCounter = 0;
+/** @type {unknown} */
+let nextLogEventError = null;
 
 /**
  * @template T
@@ -191,6 +193,7 @@ export function reset() {
   pendingWritePath = null;
   pendingWrite = null;
   nextSetDocError = null;
+  nextLogEventError = null;
   timestampCounter = 0;
   authStateCallback = null;
   nextPopupResult = null;
@@ -409,6 +412,11 @@ export function getAnalytics() {
  * @param {any} [params]
  */
 export function logEvent(_analytics, name, params) {
+  if (nextLogEventError !== null) {
+    const error = nextLogEventError;
+    nextLogEventError = null;
+    throw error;
+  }
   calls.logEvent.push({ name, params });
 }
 
@@ -608,4 +616,11 @@ export function emitAuthState(user) {
   if (authStateCallback) {
     authStateCallback(user);
   }
+}
+
+/** Fail the next analytics call synchronously, as an unavailable SDK can.
+ * @param {unknown} error
+ */
+export function setNextLogEventError(error) {
+  nextLogEventError = error;
 }
