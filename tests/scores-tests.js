@@ -220,6 +220,87 @@ async function main() {
   check('unauthenticated local scoring does not write Firestore',
     calls.setDoc.length === 0);
 
+  console.log('\n--- Score persistence survives optional-service failures ---');
+  {
+    const RC = await import('../src/run-context.ts');
+    RC.setWorldContext(RC.CANONICAL_WORLD_SEED, false);
+    const previousMeta = JSON.stringify({ ...RC.getRunStamp(), nonce: 123 });
+    const originalReinitialize = window.AuthModule.reinitializeFirestore;
+    const originalAvailability = window.AuthModule.isFirebaseAvailable;
+
+    for (const failure of ['analytics', 'reinitialize', 'availability']) {
+      for (const time of [30, 20]) {
+        resetState(ScoresModule);
+        localStorage.setItem(BTK('blue'), '25');
+        localStorage.setItem(BTMK('blue'), previousMeta);
+        currentAuthUser = { uid: 'resilient', displayName: 'Resilient' };
+        ScoresModule.setCurrentUser(currentAuthUser);
+        if (failure === 'analytics') {
+          ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
+          fb.setNextLogEventError(new Error('analytics unavailable'));
+        } else {
+          firestoreAvailable = false;
+          if (failure === 'reinitialize') {
+            window.AuthModule.reinitializeFirestore = () => { throw new Error('reinit unavailable'); };
+          } else {
+            window.AuthModule.isFirebaseAvailable = () => { throw new Error('availability unavailable'); };
+          }
+        }
+        ScoresModule.recordScore(time);
+        await flushAll();
+        const expected = Math.min(25, time);
+        check(`${failure}: current ${time}s preserves the best ${expected}s`,
+          localStorage.getItem(BTK('blue')) === String(expected));
+        check(`${failure}: provenance changes only for an improved best`,
+          localStorage.getItem(BTMK('blue')) === (time < 25 ? JSON.stringify(RC.getRunStamp()) : previousMeta));
+        check(`${failure}: signed-in best still syncs or queues`,
+          failure === 'analytics'
+            ? read('users', 'resilient')?.[F_BLUE] === expected && read(LB, 'resilient')?.time === expected
+            : pendingTime('resilient', 'blue') === expected);
+        window.AuthModule.reinitializeFirestore = originalReinitialize;
+        window.AuthModule.isFirebaseAvailable = originalAvailability;
+      }
+    }
+
+    // A failed read must not be treated as an empty store. Even if writes still
+    // work, leave the unread best and its original provenance alone.
+    resetState(ScoresModule);
+    localStorage.setItem(BTK('blue'), '25');
+    localStorage.setItem(BTMK('blue'), previousMeta);
+    currentAuthUser = { uid: 'read-denied', displayName: 'Read denied' };
+    ScoresModule.setCurrentUser(currentAuthUser);
+    ScoresModule.initializeScores(firestoreInstance, null);
+    seed('users', 'read-denied', { [F_BLUE]: 25 });
+    seed(LB, 'read-denied', { user: doc(firestoreInstance, 'users', 'read-denied'), time: 25 });
+    const originalGetItem = localStorage.getItem;
+    localStorage.getItem = () => { throw new Error('read denied'); };
+    ScoresModule.recordScore(30);
+    await flushAll();
+    localStorage.getItem = originalGetItem;
+    check('denied reads never overwrite an unread personal best or stamp',
+      localStorage.getItem(BTK('blue')) === '25' && localStorage.getItem(BTMK('blue')) === previousMeta);
+    check('denied reads do not prevent authoritative remote reconciliation',
+      read('users', 'read-denied')?.[F_BLUE] === 25 && read(LB, 'read-denied')?.time === 25);
+
+    // Denied writes must not abort the online score path or restamp the old best.
+    resetState(ScoresModule);
+    localStorage.setItem(BTK('blue'), '25');
+    localStorage.setItem(BTMK('blue'), previousMeta);
+    currentAuthUser = { uid: 'write-denied', displayName: 'Write denied' };
+    ScoresModule.setCurrentUser(currentAuthUser);
+    ScoresModule.initializeScores(firestoreInstance, null);
+    const originalSetItem = localStorage.setItem;
+    localStorage.setItem = () => { throw new Error('write denied'); };
+    ScoresModule.recordScore(20);
+    await flushAll();
+    localStorage.setItem = originalSetItem;
+    check('denied writes leave existing time and provenance intact',
+      localStorage.getItem(BTK('blue')) === '25' && localStorage.getItem(BTMK('blue')) === previousMeta);
+    check('denied writes still sync an improved score to user and leaderboard',
+      read('users', 'write-denied')?.[F_BLUE] === 20 && read(LB, 'write-denied')?.time === 20);
+    RC.setRunSeed(null);
+  }
+
   console.log('\n--- Authenticated score sync ---');
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);

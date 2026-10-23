@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to SnowGlider. This is a continuously deployed static site
-with no formal release versions, so entries are grouped by the pull request or
-dated milestone that introduced them, most recent first.
+All notable changes to SnowGlider. The static site deploys continuously from main.
+Starting with v1.0.1, named maintenance releases also have version tags; older
+entries are grouped by the pull request or dated milestone that introduced them.
 
 This file consolidates two reports that previously lived under `docs/`: the
 skill-&-structure implementation report (#56) and the audio implementation /
@@ -11,7 +11,19 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ---
 
-## Unreleased
+## 1.0.1 — 2026-10-22
+
+- Preserve faster personal bests and their world provenance when optional analytics
+  or Firestore recovery fails. Local-storage errors no longer prevent an otherwise
+  valid result from reaching the signed-in sync path.
+- Start the run-clock guard paused when deferred loading finishes in a hidden tab.
+  The first visible frame discards the hidden backlog before simulation resumes.
+- Update Vite and the js-yaml, brace-expansion, source-map-js and follow-redirects
+  tooling dependencies through #448 and #451–#454. These address development/build
+  advisories; the audit did not demonstrate a deployed-player P0/P1 vulnerability.
+- Keep physics version 3 and existing score namespaces unchanged.
+
+## Earlier continuously deployed updates
 
 ### Responsive HUD consistency (#428)
 

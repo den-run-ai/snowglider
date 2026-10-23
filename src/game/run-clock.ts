@@ -68,7 +68,11 @@ export function createRunClockGuard(
   // While no run is active the loop isn't running, so a menu/game-over pause is
   // inert, and the resume shift below is clamped so it can never push startTime
   // past `now` (a fresh run re-seeds startTime at start anyway).
-  let hiddenAt: number | null = null;
+  // The deferred orchestrator may finish loading after the tab was hidden, so
+  // the visibilitychange that began this pause can predate this listener. Seed
+  // from the current document state or that run would advance in the background
+  // and charge its first visible frame for the hidden interval.
+  let hiddenAt: number | null = doc.visibilityState === 'hidden' ? now() : null;
   // Set on each hidden->visible resume, consumed by the loop's next frame. On
   // browsers that STOP rAF for hidden tabs (the common case) no paused frame ever
   // runs, so the loop's `lastTime = time` reset in its isPaused() branch never
