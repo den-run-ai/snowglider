@@ -81,56 +81,36 @@
         <!-- Static inline vector art: no network request, video decoder, or second
              WebGL scene. Only the loading indicator below animates in CSS. -->
         <div class="start-visual" aria-hidden="true">
-          <svg viewBox="0 0 480 320" focusable="false" xmlns="http://www.w3.org/2000/svg">
+          <svg class="welcome-landscape" viewBox="0 0 720 280" preserveAspectRatio="xMidYMin slice" focusable="false" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <linearGradient id="welcomeSky" x2="0" y2="1">
-                <stop stop-color="#79c9db"/>
-                <stop offset="1" stop-color="#e6f6f5"/>
+                <stop stop-color="#4c8197"/>
+                <stop offset="1" stop-color="#cce8e7"/>
               </linearGradient>
-              <linearGradient id="welcomeSnow" x2="0.8" y2="1">
-                <stop stop-color="#fff"/>
-                <stop offset="1" stop-color="#c8e3ed"/>
+              <linearGradient id="welcomeSnow" x2="0.6" y2="1">
+                <stop stop-color="#f8fcf8"/>
+                <stop offset="1" stop-color="#d8ecee"/>
               </linearGradient>
               <g id="welcomePine">
-                <path d="M0-48-14-23h7L-21-7h12L-26 8H26L9-7h12L7-23h7Z" fill="#225766"/>
-                <path d="M0-48-9-30h18ZM-7-23-14-14h16ZM-9-7-19 3H4Z" fill="#f0f9fa"/>
-                <path d="M-2 7h4v12h-4z" fill="#426d76"/>
+                <path d="M0-43-10-20h5L-16-5h7L-21 11H21L9-5h7L5-20h5Z" fill="#315e69"/>
+                <path d="M0-43-7-27h11ZM-5-20-10-11h13ZM-9-5-15 4H8Z" fill="#e8f4f1"/>
+                <path d="M-1.5 9h3v10h-3Z" fill="#315e69"/>
               </g>
             </defs>
-            <path fill="url(#welcomeSky)" d="M0 0h480v320H0z"/>
-            <circle cx="390" cy="61" r="30" fill="#fdf7d8"/>
-            <path d="M0 165 58 94l53 44 65-78 87 100 73-75 69 70 75-65v230H0Z" fill="#8cb8cc"/>
-            <path d="m58 94-28 37 28-12 13 8 13-13Zm118-34-45 54 33-15 12 14 17-17 29 18Zm160 25-32 33 24-8 10 13 15-8 17 4Z" fill="#e5f4f6"/>
-            <path d="M-20 230 207 88l124 109 57-19 112 91v51H-20Z" fill="url(#welcomeSnow)"/>
-            <path d="m207 88-31 59 48 21-24 30 94 31 37-32Z" fill="#b7d7e6"/>
-            <path d="M-10 265c99-69 158-49 244-20s163 8 256-7v82H-10Z" fill="#f5fafb"/>
-            <path d="M210 166c-79 31-63 47 7 65s96 41 30 71M216 170c-69 28-56 42 9 60s100 43 32 77" fill="none" stroke="#a9cdda" stroke-width="2.5" stroke-linecap="round"/>
-            <use href="#welcomePine" transform="translate(77 223) scale(.8)"/>
-            <use href="#welcomePine" transform="translate(108 199) scale(.52)"/>
-            <use href="#welcomePine" transform="translate(366 221) scale(.68)"/>
-            <use href="#welcomePine" transform="translate(418 249) scale(1.1)"/>
-            <use href="#welcomePine" transform="translate(31 284) scale(1.05)"/>
-            <use href="#welcomePine" transform="translate(455 288) scale(.72)"/>
-            <g class="welcome-rider">
-              <ellipse cx="276" cy="277" rx="42" ry="8" fill="#7caabd" opacity=".25"/>
-              <path d="m241 269 64 9q14 2 18-5m-91 5 62 9q13 2 18-4" fill="none" stroke="#183c4d" stroke-width="5" stroke-linecap="round"/>
-              <path d="m259 259-6 13m26-12-5 16" stroke="#254e5c" stroke-width="7" stroke-linecap="round"/>
-              <path d="m253 225-29-14-8-13m8 13-14 1m80 20 20-16 7-14m-7 14 15-2" fill="none" stroke="#685d51" stroke-width="4" stroke-linecap="round"/>
-              <ellipse cx="273" cy="246" rx="28" ry="25" fill="url(#welcomeSnow)" transform="rotate(-14 273 246)"/>
-              <circle cx="273" cy="217" r="21" fill="url(#welcomeSnow)"/>
-              <circle cx="278" cy="188" r="17" fill="url(#welcomeSnow)"/>
-              <path d="M258 177h39m-35-3 2-25 23 1 3 25" fill="#173646" stroke="#173646" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="m265 167 22 1" stroke="#4cbeb7" stroke-width="5"/>
-              <path d="m262 203q16 7 29 0m-25 3-8 19-14-3" fill="none" stroke="#ea6657" stroke-width="8" stroke-linejoin="round"/>
-              <path d="m287 187 21 5-21 2Z" fill="#ef9e4d"/>
-              <g fill="#183c4d"><circle cx="277" cy="184" r="2"/><circle cx="288" cy="184" r="2"/><circle cx="279" cy="218" r="2.7"/><circle cx="278" cy="239" r="3"/><circle cx="275" cy="252" r="3"/></g>
-              <path d="m281 197 6-1" stroke="#183c4d" stroke-width="2" stroke-linecap="round"/>
-            </g>
-            <g class="welcome-powder" fill="#fff">
-              <circle cx="221" cy="266" r="4"/><circle cx="206" cy="259" r="3"/><circle cx="229" cy="253" r="2.5"/><circle cx="193" cy="269" r="2"/><circle cx="215" cy="279" r="3"/>
-            </g>
+            <path fill="url(#welcomeSky)" d="M0 0h720v280H0Z"/>
+            <circle cx="525" cy="63" r="25" fill="#fff3cf"/>
+            <path d="M0 169 78 93l59 64 87-96 104 104 91-75 79 59 88-63 134 91v103H0Z" fill="#739eae"/>
+            <path d="m78 93-27 34 24-9 15 14 12-9Zm146-32-39 43 34-15 17 17 12-12Zm195 29-34 29 32-11 20 15 9-12Zm167-4-34 25 28-9 20 15 9-7Z" fill="#d5e8e9"/>
+            <path d="M64 280 350 43l167 166 80-32 123 65v38Z" fill="url(#welcomeSnow)"/>
+            <path d="m350 43-48 95 43-18-14 37 47-15 139 67Z" fill="#9dc4d3"/>
+            <path d="m350 43 55 115-27-16-26-50-50 46Z" fill="#edf7f5"/>
+            <path d="M0 229c99-43 185-37 285-4s166 20 238-8 133-22 197-1v64H0Z" fill="#edf7f5"/>
+            <path d="M352 151c-71 25-65 39 14 56s98 38 29 73M358 154c-65 23-58 35 17 52s101 40 31 74" fill="none" stroke="#94bcca" stroke-width="2" stroke-linecap="round"/>
+            <use href="#welcomePine" transform="translate(113 226) scale(.88)"/>
+            <use href="#welcomePine" transform="translate(151 211) scale(.56)"/>
+            <use href="#welcomePine" transform="translate(555 235) scale(.74)"/>
+            <use href="#welcomePine" transform="translate(615 228) scale(1.12)"/>
           </svg>
-          <span class="start-visual-caption">One snowman. All downhill.</span>
         </div>
         <div class="start-heading-copy">
           <h1 id="gameTitle">SnowGlider<span aria-hidden="true">❄</span></h1>
