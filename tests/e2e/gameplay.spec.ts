@@ -50,50 +50,74 @@ test.describe('gameplay flow', () => {
     expect((await getControls(page))?.left).toBe(false);
   });
 
-  test('finish result overlay stays exitable when it overflows the viewport', async ({ page }) => {
-    // Regression for the "impossible to leave the share-results window" bug: on a
-    // finished run the medal/splits result panel plus the (desktop) expanded share
-    // menu makes #gameOverOverlay taller than the window. It used to center its
-    // contents with justify-content:center and no scroll, so the overflow was
-    // clipped off both ends — the RESTART button fell below the viewport with no
-    // way to reach it, trapping the player on the share screen.
-    await gotoGame(page);
+  test('finish results scroll while replay stays visible on phones and short screens', async ({ page }, testInfo) => {
+    await gotoGame(page, '?eztrees=1&intro=off');
     await startGame(page);
-
-    // A deliberately short window guarantees the result panel + share menu overflow.
-    await page.setViewportSize({ width: 820, height: 460 });
-
-    // Drive the real game-over path with a valid finish time so the full result
-    // panel (medal + splits + share controls) is built exactly as a finished run.
     await page.evaluate(() => {
       const w = window as unknown as { simElapsed: number; showGameOver: (r: string) => void };
-      // ~20s elapsed clears the leaderboard plausibility floor (MIN_VALID_SCORE_TIME
-      // = 18s) so showGameOver builds the full result panel, as a real finish would.
       w.simElapsed = 20;
       w.showGameOver('You reached the end of the slope!');
     });
-
     await expect(page.locator('#gameOverOverlay')).toBeVisible();
     await expect(page.locator('#courseResult')).toBeVisible();
 
-    // Expand the desktop per-platform share menu (X/Facebook/…) — the worst case
-    // from the bug report, which makes the overlay clearly taller than the window.
+    // A newly installed PWA version is another asynchronous result-screen child.
+    // Use the real mounting seam: it must join the scroll area, never push replay away.
+    await page.evaluate(async () => {
+      const modulePath = '/src/pwa/update-ui.ts';
+      const ui = await import(modulePath) as typeof import('../../src/pwa/update-ui.js');
+      ui.showUpdatePrompt(() => {});
+    });
+    await expect(page.locator('#gameOverContent #swUpdateBanner')).toHaveCount(1);
+
+    await page.waitForFunction(() => {
+      const terrain = (window as Window & {
+        terrainMesh?: { parent?: { children: Array<{ userData: Record<string, unknown> }> } };
+      }).terrainMesh;
+      return terrain?.parent?.children.some(child => child.userData.forestPart === 'ezBranches');
+    });
+
+    // Verify bounds BEFORE a click can auto-scroll a hidden restart into view.
+    // Include the reported iPhone dimensions, a smaller phone and short landscape.
+    for (const viewport of [{ width: 428, height: 750 }, { width: 320, height: 568 }, { width: 820, height: 360 }]) {
+      await page.setViewportSize(viewport);
+      await page.waitForFunction(({ width, height }) => innerWidth === width && innerHeight === height, viewport);
+      const layout = await page.evaluate(() => {
+        const overlay = document.getElementById('gameOverOverlay')!;
+        const content = document.getElementById('gameOverContent')!;
+        const restart = document.getElementById('restartButton')!;
+        const picker = document.getElementById('finishDifficultyPicker')!;
+        content.scrollTop = 0;
+        const button = restart.getBoundingClientRect();
+        const choices = picker.getBoundingClientRect();
+        const hit = document.elementFromPoint(button.x + button.width / 2, button.y + button.height / 2);
+        return {
+          restartVisible: button.top >= 0 && button.bottom <= innerHeight && button.left >= 0 && button.right <= innerWidth,
+          pickerVisible: choices.top >= 0 && choices.bottom <= innerHeight,
+          hit: hit === restart || restart.contains(hit),
+          outerScroll: overlay.scrollHeight - overlay.clientHeight,
+          overflow: content.scrollHeight > content.clientHeight,
+          restartTop: button.top,
+        };
+      });
+      expect(layout.restartVisible, JSON.stringify(viewport)).toBe(true);
+      expect(layout.pickerVisible, JSON.stringify(viewport)).toBe(true);
+      expect(layout.hit, 'restart is directly hit-testable without scrolling').toBe(true);
+      expect(layout.outerScroll).toBeLessThanOrEqual(1);
+      expect(layout.overflow, 'long results scroll inside their own region').toBe(true);
+      await testInfo.attach(`finish-replay-${viewport.width}x${viewport.height}`, {
+        body: await page.screenshot(), contentType: 'image/png',
+      });
+      await page.evaluate(() => { document.getElementById('gameOverContent')!.scrollTop = 10000; });
+      expect((await page.locator('#restartButton').boundingBox())!.y).toBeCloseTo(layout.restartTop, 0);
+    }
+
+    // Expanded sharing may add content but cannot displace the replay footer.
     await page.click('#shareResultBtn');
     await expect(page.locator('#shareMenu')).toBeVisible();
-
-    // The scenario is only meaningful if the overlay actually overflows.
-    const overflows = await page.evaluate(() => {
-      const ov = document.getElementById('gameOverOverlay')!;
-      return ov.scrollHeight > ov.clientHeight + 1;
-    });
-    expect(overflows, 'overlay should overflow the short viewport in this scenario').toBe(true);
-
-    // The fix: the overlay scrolls, so RESTART can be reached and clicked. On the
-    // old clipping overlay Playwright cannot bring the button into view and this
-    // click times out — exactly the user-facing "can't exit" bug.
+    const button = await page.locator('#restartButton').boundingBox();
+    expect(button!.y + button!.height).toBeLessThanOrEqual(360);
     await page.click('#restartButton');
-
-    // Clicking RESTART dismisses the overlay and resumes a live run.
     await expect(page.locator('#gameOverOverlay')).toBeHidden();
   });
 

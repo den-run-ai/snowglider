@@ -594,6 +594,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     state.gameActive = false;
     state.animationRunning = false;
     try { console.error('[SnowGlider] Fatal animation-loop error — stopping the run:', err); } catch { /* */ }
+    try { Diag.reportError(err, 'animation_loop'); } catch { /* telemetry must never block recovery */ }
     try { Diag.endRun(); } catch { /* telemetry must never block recovery */ }
     // The loop stops here, so nothing else will drive the continuous SFX gains (wind /
     // carve / avalanche bed) back down — they'd hold their last targets and keep droning
@@ -694,6 +695,12 @@ export function createMainLoop(deps: MainLoopDeps) {
         accumulator -= FIXED_DT;
         substeps++;
       }
+      // A finish/crash can show its dialog synchronously inside stepFixed. Keep
+      // the last rendered frame behind it and stop here: continuing observers
+      // would revive avalanche warnings, skiing audio and toasts after endRun.
+      // The already queued rAF still owns animationRunning, including a Restart
+      // clicked before that callback gets a chance to observe the ended run.
+      if (!state.gameActive) return;
       // Spiral-of-death guard: if we hit the substep ceiling with time still owed, drop
       // the surplus (the game slows down rather than tunnelling) and keep alpha in [0,1).
       if (substeps >= MAX_SUBSTEPS && accumulator >= FIXED_DT) {

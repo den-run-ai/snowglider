@@ -771,72 +771,10 @@ function setupButtonTouchHandlers(signal?: AbortSignal) {
     }, touchOpts);
   }
   
-  // For the restart button, we need to set up an observer since it's dynamically created
-  // when the game over screen appears
-  const gameOverObserver = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      const target = mutation.target as HTMLElement;
-      if (mutation.type === 'attributes' &&
-          mutation.attributeName === 'style' &&
-          target.id === 'gameOverOverlay' &&
-          target.style.display === 'flex') {
-        
-        // Game over overlay is now visible, add touch handler to restart button.
-        // Use the child combinator: the restart button is a direct child of the
-        // overlay, whereas the finish result panel's "Share Result" button is a
-        // nested descendant — a plain `#gameOverOverlay button` would match that
-        // share button first (depth-first) and misbind restart on touch devices.
-        const restartButton = document.querySelector('#gameOverOverlay > button');
-        if (restartButton && !restartButton.getAttribute('touch-handler-added')) {
-          restartButton.addEventListener('touchstart', (event) => {
-            event.preventDefault();
-            // Call the restartGame function directly from the global scope
-            if (typeof window.restartGame === 'function') {
-              window.restartGame();
-            }
-          }, touchOpts);
-          
-          // Mark button as having touch handler to avoid duplicates
-          restartButton.setAttribute('touch-handler-added', 'true');
-        }
-      }
-    });
-  });
-  
-  // Start observing the game over overlay
-  let delayedObserveTimer: ReturnType<typeof setTimeout> | null = null;
-  const gameOverOverlay = document.getElementById('gameOverOverlay');
-  if (gameOverOverlay) {
-    gameOverObserver.observe(gameOverOverlay, {
-      attributes: true,
-      attributeFilter: ['style']
-    });
-  } else {
-    // If game over overlay doesn't exist yet, wait a bit and try again. On mobile this
-    // setup runs before setupScene() creates #gameOverOverlay, so this branch is armed.
-    delayedObserveTimer = setTimeout(() => {
-      delayedObserveTimer = null;
-      // Bail if teardown aborted during the 1s wait: without this the stale observer
-      // could re-attach to a freshly-remounted overlay (HMR) and bind the OLD restart
-      // touch handler to the new game.
-      if (signal && signal.aborted) return;
-      const delayedOverlay = document.getElementById('gameOverOverlay');
-      if (delayedOverlay) {
-        gameOverObserver.observe(delayedOverlay, {
-          attributes: true,
-          attributeFilter: ['style']
-        });
-      }
-    }, 1000);
-  }
+  // Restart uses lifecycle's native click handler. Do not intercept touchstart:
+  // preventDefault suppresses the trusted click, and iOS audio activation is
+  // granted on touchend/click, not on the initial finger-down event.
 
-  // MutationObserver has no AbortSignal option, so disconnect it explicitly on teardown —
-  // and cancel any pending delayed-observe so it can't re-arm a stale observer on a
-  // remounted overlay (else a dev-HMR remount leaks the old observer / restart handler).
-  if (signal) signal.addEventListener('abort', () => {
-    if (delayedObserveTimer !== null) { clearTimeout(delayedObserveTimer); delayedObserveTimer = null; }
-    gameOverObserver.disconnect();
-  }, { once: true });
 }
 
 // Controls is imported directly by snowglider.js and the controls browser test

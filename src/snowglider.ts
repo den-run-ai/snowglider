@@ -41,7 +41,6 @@ import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
 import { resolveActiveDifficulty, readStoredDifficulty, storeDifficulty, runTierNeedsRebuild } from './difficulty.js';
 import { isRunTransition, runLaunchUrl } from './game/run-transition.js';
-import { resumeAudioOnPlayGesture } from './ui/play-audio-gesture.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
@@ -111,15 +110,6 @@ const {
 const player = Physics.createPlayerState(Snow.getTerrainHeight);
 const pos = player.pos;
 const velocity = player.velocity;
-
-const playSurface = document.getElementById('gameCanvas');
-if (isRunTransition() && playSurface) {
-  resumeAudioOnPlayGesture(playSurface, {
-    signal: listenerAbort.signal,
-    isPlaying: () => state.gameActive,
-    resume: () => { AudioModule.startAudio(); Sfx.unlock(); },
-  });
-}
 
 // Persisted best loaded once at module eval (may prune an invalid stored entry).
 // Score-time validation + best-time persistence live in ui/result-overlay.ts.
@@ -311,8 +301,9 @@ Diag.init(
 // Terrain/obstacle placement is baked once, so rebuild through one navigation.
 // Carry the already-requested run in a validated URL parameter: the new scene and
 // menu read the same tier even if storage is blocked, then consume the intent and
-// start automatically. Only the legacy ?test= suites suppress navigation; ordinary
-// browser automation must exercise the real player transition.
+// wait for a fresh Start gesture so browser audio activation is preserved. Only
+// the legacy ?test= suites suppress navigation; ordinary browser automation must
+// exercise the real player transition.
 function maybeReloadForRunTier(): boolean {
   if (!runTierNeedsRebuild(state.difficulty, state.builtDifficulty, Boolean(window.isTestMode))) return false;
   storeDifficulty(state.difficulty);
@@ -519,8 +510,8 @@ window.initializeGameWithAudio = function() {
   const pickedTier = startMenu?.getSelectedDifficulty?.();
   state.difficulty = resolveActiveDifficulty(pickedTier);
   // If the player picked a tier the scene wasn't built for, reload to reshape the terrain
-  // corridor/gates/obstacles/avalanche for it; the already-requested run resumes automatically after. Bail so
-  // we don't start a run against the scene that's about to be torn down.
+  // corridor/gates/obstacles/avalanche for it. The new page prepares that tier and
+  // waits for Start; do not run against the scene about to be torn down.
   if (maybeReloadForRunTier()) return;
   // Show the chosen tier's own best time (the HUD + result screen compare against this).
   state.bestTime = readStoredBestTime(state.difficulty);
