@@ -13,8 +13,8 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ## Welcome screen — 2026-11-06
 
-- Add inline alpine artwork with brief snowman/powder motion, reduced-motion support,
-  actual startup status, and a sound preference visible before Play. No video,
+- Add static inline alpine artwork, a small loading indicator with reduced-motion
+  support, actual startup status, and a sound preference visible before Play. No video,
   image download, animation library, or extra WebGL scene is needed.
 - Paint onboarding before scene setup and prepare the existing forest in the
   background. Early Play waits for the same preparation; gameplay and its clock

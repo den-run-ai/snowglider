@@ -30,9 +30,12 @@ difficulty or action on its own.
 
 ## Welcome artwork and preparation
 
-- The inline SVG mountain and snowman need no external assets or extra renderer.
-  Decorative transform/opacity motion ends after 4.5 seconds, pauses when hidden,
-  and is disabled by `prefers-reduced-motion`. Keep controls visible on short phones.
+- The static inline SVG mountain and snowman need no external assets or extra renderer.
+  Keep animation on the small HTML loading indicator: moving SVG groups caused
+  startup driver waits in the phone diagnostic, even with transform/opacity-only
+  animation. Pause the indicator when hidden and disable it with
+  `prefers-reduced-motion`; it stops when loading finishes. Keep controls visible
+  on short phones.
 - Paint the menu before building the existing game scene. Share one preparation
   promise with early Start requests; never warm up by running physics or a second
   animation loop. Report actual loading/building/warming/ready milestones, not
