@@ -1,0 +1,83 @@
+name: Onboarding startup diagnostics
+
+on:
+  push:
+    branches: ['codex/onboarding-startup-profile-20261107']
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    name: Phone startup CPU and frame evidence
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.0-noble
+    timeout-minutes: 15
+    steps:
+      - name: Checkout diagnostic harness
+        uses: actions/checkout@v6
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout original application
+        uses: actions/checkout@v6
+        with:
+          ref: 57dd378e74d5cecfa692c6b9d4771e44549f998b
+          path: base
+          persist-credentials: false
+
+      - name: Checkout assets-only application
+        uses: actions/checkout@v6
+        with:
+          ref: b6eb35b62b39fe8efd8fa888fe1cc5a07c0fdfd3
+          path: candidate
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install shared unchanged dependencies
+        working-directory: harness
+        run: npm ci
+
+      - name: Link application dependencies
+        run: |
+          ln -s "$GITHUB_WORKSPACE/harness/node_modules" "$GITHUB_WORKSPACE/base/node_modules"
+          ln -s "$GITHUB_WORKSPACE/harness/node_modules" "$GITHUB_WORKSPACE/candidate/node_modules"
+
+      - name: Typecheck diagnostic harness
+        working-directory: harness
+        run: npm run typecheck:e2e
+
+      - name: Profile original application
+        working-directory: harness
+        env:
+          CI: true
+          PLAYWRIGHT_FORCE_ASYNC_LOADER: '1'
+          RENDER_APP_DIR: ${{ github.workspace }}/base
+          RENDER_OUTPUT_DIR: ${{ github.workspace }}/startup-profile/base
+          RENDER_COMMIT: 57dd378e74d5cecfa692c6b9d4771e44549f998b
+        run: npx playwright test -c playwright.startup-profile.config.ts
+
+      - name: Profile assets-only application
+        working-directory: harness
+        env:
+          CI: true
+          PLAYWRIGHT_FORCE_ASYNC_LOADER: '1'
+          RENDER_APP_DIR: ${{ github.workspace }}/candidate
+          RENDER_OUTPUT_DIR: ${{ github.workspace }}/startup-profile/candidate
+          RENDER_COMMIT: b6eb35b62b39fe8efd8fa888fe1cc5a07c0fdfd3
+        run: npx playwright test -c playwright.startup-profile.config.ts
+
+      - name: Upload startup profiles
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: startup-profile-${{ github.run_id }}
+          path: startup-profile/
+          if-no-files-found: error
+          retention-days: 7
