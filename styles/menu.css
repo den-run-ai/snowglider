@@ -26,11 +26,10 @@
 }
 .start-dialog a { color: #74d9ff; text-decoration: underline; }
 .start-heading { text-align: center; margin-bottom: 16px; }
-.start-visual { position: relative; height: 140px; margin-bottom: 14px; overflow: hidden; border-radius: 11px; background: #bbdfe8; contain: paint; }
-/* Fit the viewBox inside the fixed-height band so narrow portrait strips keep
-   the whole rider. SVG's default aspect ratio centers the scene without crops. */
+.start-visual { position: relative; height: 140px; margin-bottom: 14px; overflow: hidden; border-radius: 11px; background: #4c8197; contain: paint; pointer-events: none; }
+/* The text-free panorama uses xMidYMid slice to fill every responsive frame.
+   Keep the central peak and ski tracks in view without letterboxed side panels. */
 .start-visual svg { position: absolute; bottom: 0; left: 0; display: block; width: 100%; height: 100%; }
-.start-visual-caption { position: absolute; left: 16px; bottom: 14px; color: #173b4b; font: 700 12px/1.3 Arial, sans-serif; }
 #gameTitle { margin: 0 0 6px; font-size: 32px; letter-spacing: -1px; animation: none; text-shadow: none; }
 #gameTitle > span { display: inline-block; margin-left: 8px; color: #80dbd0; font-size: 25px; vertical-align: 2px; }
 #gameDescription { margin: 0; max-width: none; font-size: 14px; color: #cfdef2; }
@@ -150,7 +149,6 @@ body:not(.start-screen-active) .startup-indicator { animation-play-state: paused
   .start-dialog { width: min(100%, 900px); padding: 24px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; }
   .start-heading { grid-column: 1; grid-row: 1 / 5; margin: 0; text-align: left; align-self: center; }
   .start-visual { height: 270px; margin: 0 0 20px; }
-  .start-visual-caption { font-size: 14px; }
   #gameTitle { text-align: left; font-size: 38px; }
   #gameDescription { text-align: left; }
   #startLoadingStatus { justify-content: flex-start; }
@@ -159,13 +157,11 @@ body:not(.start-screen-active) .startup-indicator { animation-play-state: paused
 }
 @media (max-width: 899px) and (max-height: 740px) {
   .start-visual { height: 84px; margin-bottom: 8px; }
-  .start-visual-caption { display: none; }
   #gameDescription br { display: none; }
 }
 @media (max-width: 519px) and (max-height: 640px) {
   .start-heading { position: relative; min-height: 90px; padding-right: 92px; text-align: left; }
   .start-visual { position: absolute; top: 0; right: 0; width: 82px; height: 90px; margin: 0; }
-  .start-visual svg { width: 135px; max-width: none; transform: translateX(-27px); }
   #gameTitle { font-size: 23px; text-align: left; }
   #gameTitle > span { font-size: 18px; margin-left: 4px; }
   #gameDescription { text-align: left; font-size: 11px; }
@@ -179,7 +175,7 @@ body:not(.start-screen-active) .startup-indicator { animation-play-state: paused
   .start-dialog { width: min(100%, 760px); display: grid; grid-template-columns: 1.1fr 1fr; gap: 8px 16px; padding: 10px 14px; }
   .start-heading { position: relative; grid-column: 1 / -1; margin: 0; min-height: 40px; padding-right: 92px; display: flex; align-items: center; justify-content: center; gap: 12px; }
   .start-visual { position: absolute; right: 0; top: 0; width: 80px; height: 40px; margin: 0; }
-  .start-visual-caption, #gameDescription { display: none; }
+  #gameDescription { display: none; }
   #startLoadingStatus { margin: 0; font-size: 11px; }
   #gameTitle { font-size: 24px; margin: 0; }
   #gameDescription { font-size: 12px; }

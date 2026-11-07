@@ -60,6 +60,42 @@ async function expectCoreMenu(page: Page): Promise<void> {
   expect(await page.evaluate(() => window.scrollY), 'the backdrop must not scroll the document').toBe(0);
 }
 
+async function expectWelcomeArt(page: Page): Promise<void> {
+  const hero = page.locator('.start-visual');
+  await expect(hero).toBeVisible();
+  await expect(hero, 'decorative artwork must not contain a text overlay').toHaveText('');
+  const art = (await hero.boundingBox())!;
+  const scene = await hero.locator('svg').evaluate((el) => {
+    const svg = el as SVGSVGElement;
+    const transform = svg.getScreenCTM()!;
+    const { x, y, width, height } = svg.viewBox.baseVal;
+    const topLeft = new DOMPoint(x, y).matrixTransform(transform);
+    const bottomRight = new DOMPoint(x + width, y + height).matrixTransform(transform);
+    const viewport = svg.getBoundingClientRect();
+    // The SVG element can fill its box while the actual viewBox is letterboxed.
+    // Check both the clipping viewport and the rendered scene coordinates.
+    return [
+      { left: viewport.left, top: viewport.top, right: viewport.right, bottom: viewport.bottom },
+      { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y },
+    ];
+  });
+  for (const [index, bounds] of scene.entries()) {
+    const label = index === 0 ? 'SVG viewport' : 'rendered scene';
+    expect(bounds.left, `${label} covers the hero's left edge`).toBeLessThanOrEqual(art.x + 1);
+    expect(bounds.top, `${label} covers the hero's top edge`).toBeLessThanOrEqual(art.y + 1);
+    expect(bounds.right, `${label} covers the hero's right edge`).toBeGreaterThanOrEqual(art.x + art.width - 1);
+    expect(bounds.bottom, `${label} covers the hero's bottom edge`).toBeGreaterThanOrEqual(art.y + art.height - 1);
+  }
+  for (const selector of ['#gameTitle', '#gameDescription', '#startLoadingStatus']) {
+    const copy = page.locator(selector);
+    if (!(await copy.isVisible())) continue;
+    const box = (await copy.boundingBox())!;
+    const overlapWidth = Math.min(art.x + art.width, box.x + box.width) - Math.max(art.x, box.x);
+    const overlapHeight = Math.min(art.y + art.height, box.y + box.height) - Math.max(art.y, box.y);
+    expect(overlapWidth <= 1 || overlapHeight <= 1, `${selector} must not overlap the artwork`).toBe(true);
+  }
+}
+
 async function expectAccountSpace(page: Page): Promise<void> {
   const account = (await page.locator('#authContainer').boundingBox())!;
   const card = (await page.locator('.start-dialog').boundingBox())!;
@@ -111,12 +147,12 @@ test('welcome warms one game silently, remembers sound, and honors reduced motio
   expect(mediaRequests.get(page), 'reload must preserve the silent welcome screen').toEqual([]);
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const decoration of ['.welcome-rider', '.welcome-powder', '.startup-indicator']) {
+  for (const decoration of ['.start-visual svg', '.startup-indicator']) {
     await expect(page.locator(decoration)).toHaveCSS('animation-name', 'none');
   }
 });
 
-test('first-load difficulty, Start, offline play, and account controls are visible without scrolling', async ({ page, hasTouch }, testInfo) => {
+test('first-load artwork and menu controls fit every viewport without overlapping or scrolling', async ({ page, hasTouch }, testInfo) => {
   // Localhost deliberately disables Firestore. Exercise the production signed-out
   // hint through the same read-only auth seam and event used by the real module.
   await expect(page.locator('#loginBtn')).toBeEnabled();
@@ -130,6 +166,7 @@ test('first-load difficulty, Start, offline play, and account controls are visib
   });
   await expect(page.locator('#startSignInHint')).toBeVisible();
   await expectCoreMenu(page);
+  await expectWelcomeArt(page);
   await expectAccountSpace(page);
   for (const provider of ['#loginBtn', '#githubLoginBtn', '#guestLoginBtn']) {
     await expectReachable(page, provider, true);
@@ -150,6 +187,7 @@ test('first-load difficulty, Start, offline play, and account controls are visib
     for (const viewport of [{ width: 320, height: 568 }, { width: 568, height: 320 }]) {
       await resizeAndSettle(page, viewport);
       await expectCoreMenu(page);
+      await expectWelcomeArt(page);
       await expectAccountSpace(page);
       for (const provider of ['#loginBtn', '#githubLoginBtn', '#guestLoginBtn']) {
         await expectReachable(page, provider, true);
