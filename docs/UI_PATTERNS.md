@@ -28,6 +28,27 @@ difficulty or action on its own.
   must not hold up local play. After a tier navigation, retry sound on the next
   gameplay gesture because browser activation does not carry across documents.
 
+## Welcome artwork and preparation
+
+- The inline SVG mountain and snowman need no external assets or extra renderer.
+  Decorative transform/opacity motion ends after 4.5 seconds, pauses when hidden,
+  and is disabled by `prefers-reduced-motion`. Keep controls visible on short phones.
+- Paint the menu before building the existing game scene. Share one preparation
+  promise with early Start requests; never warm up by running physics or a second
+  animation loop. Report actual loading/building/warming/ready milestones, not
+  simulated percentages or a minimum loading duration.
+- Required forest assets use the existing six-second fallback with identical
+  placements. On devices with `KHR_parallel_shader_compile`, submit the existing
+  scene's shaders once with `renderer.compile()` after a paint. This is early
+  submission, not a claim that every GPU upload or later shadow variant is ready.
+  Three r184's `compileAsync()` has an internal polling timer that cannot be
+  cancelled on teardown; do not race that timer with an application timeout.
+- Welcome stays silent. The sound preference can change without downloading or
+  playing the track; Play starts the existing music and effects in its gesture.
+  Honor stored mute even before scene setup, and stop both audio systems on failure.
+- A background startup error stays inline so the menu remains usable. An attempted
+  Start opens recovery. Context loss after play begins retains the recovery modal.
+
 ## Offline, account and sharing
 
 - Offline play is always discoverable. Explain that the game must finish loading

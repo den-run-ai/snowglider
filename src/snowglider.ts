@@ -54,6 +54,8 @@ import { createLifecycle } from './game/lifecycle.js';
 import { disposeGame } from './game/teardown.js';
 import { watchContextLoss } from './game/context-loss.js';
 import { showFatalErrorOverlay, resetFatalErrorOverlay } from './ui/fatal-error-overlay.js';
+import { setStartupStatus } from './boot/startup-status.js';
+import { warmupStartupScene } from './boot/startup-warmup.js';
 
 // One AbortController owns every game-lifetime DOM listener — the keyboard/touch/resize
 // handlers in Controls, plus those wired below and inside scene-setup/lifecycle (the §4
@@ -70,7 +72,17 @@ Controls.setupControls(listenerAbort.signal);
 // The orchestrator owns the run loop + the window.* publish; scene-setup owns the
 // one-shot construction. Keep the whole context object (for disposeGame) and also
 // destructure the handles the loop/lifecycle/proxies use.
-const sceneContext = setupScene(listenerAbort.signal);
+setStartupStatus('building');
+let sceneContext: ReturnType<typeof setupScene>;
+try {
+  sceneContext = setupScene(listenerAbort.signal);
+} catch (error) {
+  // Renderer creation can fail before a scene exists to dispose. Do not leave
+  // the controls of that failed module attached to the still-usable menu.
+  listenerAbort.abort();
+  Controls.resetControls();
+  throw error;
+}
 const {
   scene,
   renderer,
@@ -364,6 +376,33 @@ let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
 let getReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let testAutoStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeIntro: IntroHandle | null = null;
+let startupPreparation: Promise<void> | null = null;
+
+/** Prepare this exact scene once while the menu is visible; no render loop or
+ * physics update runs here. Optional shader submission uses the same renderer
+ * that Start will use, so it never creates a second WebGL context. */
+export function prepareGameForStart(): Promise<void> {
+  if (startupPreparation) return startupPreparation;
+  startupPreparation = (async () => {
+    if (disposed) throw new Error('WebGL context unavailable during startup.');
+    const canCompileInParallel = !window.isTestMode &&
+      renderer.extensions.has('KHR_parallel_shader_compile');
+    const ready = await warmupStartupScene({
+      assetsReady: () => Trees.treeCollidersReady(),
+      waitForAssets: () => Trees.ezForestReady(),
+      useFallback: () => Trees.abandonPendingEzBuild(),
+      // r184 compileAsync owns an uncancellable polling timer that can outlive
+      // renderer.dispose() on context loss. With the parallel extension, public
+      // compile() submits the same shader work without polling or waiting on
+      // LINK_STATUS. Let the GPU finish while the player reads the menu.
+      ...(canCompileInParallel ? { compile: () => { renderer.compile(scene, camera); } } : {}),
+      signal: listenerAbort.signal,
+    });
+    if (!ready || disposed) throw new Error('WebGL context unavailable during startup.');
+  })();
+  return startupPreparation;
+}
+
 // Names of the window.* handles this module installs (the publishGameGlobals
 // getters/setters; populated below). disposeSnowGlider deletes them so a clean unmount
 // doesn't leave the disposed scene reachable through their closures or stale APIs callable.
@@ -813,12 +852,15 @@ watchContextLoss(renderer.domElement, {
   signal: listenerAbort.signal,
   isContextLost: () => renderer.getContext().isContextLost(),
   onLost: () => {
+    const startContainer = document.getElementById('startGameContainer');
+    const menuVisible = !!startContainer && startContainer.style.display !== 'none';
     state.gameActive = false;
     state.animationRunning = false;
     try {
       disposeSnowGlider();
     } finally {
-      showFatalErrorOverlay(undefined, { reason: 'context-lost' });
+      setStartupStatus('error', new Error('WebGL context lost during startup.'), 'context-lost');
+      if (!menuVisible) showFatalErrorOverlay(undefined, { reason: 'context-lost' });
     }
   },
 });

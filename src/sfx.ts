@@ -476,6 +476,9 @@ export const Sfx = (function() {
     // Mute/unmute (driven by the shared mute button via audio.ts). Silences the whole
     // SFX bus; continuous beds keep running underneath so unmute is instant.
     setMuted: function(value: boolean) {
+      // An explicit live choice wins even when persisting it failed. Do not let
+      // the first unlock reload an older saved preference over the welcome UI.
+      prefsLoaded = true;
       muted = value;
       if (master && ctx) master.gain.setTargetAtTime(value ? 0 : MASTER_GAIN, ctx.currentTime, 0.02);
     },

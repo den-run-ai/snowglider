@@ -3,7 +3,7 @@
 #startGameContainer {
   padding: max(76px, calc(env(safe-area-inset-top) + 64px)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   height: 100dvh;
-  background: rgba(9, 20, 30, 0.88);
+  background: radial-gradient(ellipse at 20% 5%, #244c60 0, #142c3b 38%, #081722 100%);
   justify-content: safe center;
   overflow: hidden;
 }
@@ -16,7 +16,7 @@
   padding: 20px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 16px;
-  background: var(--hud-surface);
+  background: #122b39;
   box-shadow: 0 12px 44px rgba(0, 0, 0, 0.3);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -26,8 +26,32 @@
 }
 .start-dialog a { color: #74d9ff; text-decoration: underline; }
 .start-heading { text-align: center; margin-bottom: 16px; }
-#gameTitle { margin: 0 0 6px; font-size: 32px; letter-spacing: 0; animation: none; text-shadow: none; }
+.start-visual { position: relative; height: 140px; margin-bottom: 14px; overflow: hidden; border-radius: 11px; background: #bbdfe8; contain: paint; }
+.start-visual svg { position: absolute; bottom: 0; left: 0; display: block; width: 100%; height: auto; }
+.start-visual-caption { position: absolute; left: 16px; bottom: 14px; color: #173b4b; font: 700 12px/1.3 Arial, sans-serif; }
+#gameTitle { margin: 0 0 6px; font-size: 32px; letter-spacing: -1px; animation: none; text-shadow: none; }
+#gameTitle > span { display: inline-block; margin-left: 8px; color: #80dbd0; font-size: 25px; vertical-align: 2px; }
 #gameDescription { margin: 0; max-width: none; font-size: 14px; color: #cfdef2; }
+.welcome-rider { transform-origin: 274px 266px; animation: welcome-carve 4.5s ease-in-out; }
+.welcome-powder { animation: welcome-powder 2.25s ease-out 2 forwards; }
+@keyframes welcome-carve {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  50% { transform: translate(8px, -3px) rotate(3deg); }
+}
+@keyframes welcome-powder {
+  0% { transform: translate(8px, 0); opacity: 0; }
+  25% { opacity: .9; }
+  100% { transform: translate(-12px, -7px); opacity: 0; }
+}
+.start-preferences { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 6px; }
+#startSoundButton { flex-shrink: 0; min-height: 44px; padding: 8px; border: 0; border-radius: 8px; color: #c8e6eb; background: transparent; font: 600 12px/1.3 Arial, sans-serif; cursor: pointer; touch-action: manipulation; }
+#startSoundButton:hover { background: rgba(255,255,255,.08); }
+#startSoundButton[aria-pressed="false"] { color: #b2c3cf; }
+.start-preferences .start-account-note { margin: 0; text-align: left; font-size: 11px; }
+#startGameButton { background: #80dbd0; color: #102d35; border: 1px solid #9aeadd; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+#startGameButton:hover { background: #a0ebdf; }
+#startGameButton:disabled { opacity: .7; cursor: progress; }
+#startGameButton:focus-visible, #startSoundButton:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 #difficultyPicker {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -92,6 +116,7 @@ body.start-screen-active .touch-control { visibility: hidden; }
    an inactive Sound button cannot paint over result/share actions. */
 #audioControlBtn[inert] { visibility: hidden; }
 body.start-screen-active #hudRight { width: auto; max-width: calc(100vw - 24px); }
+body.start-screen-active #hudRight[inert] { visibility: hidden; }
 /* Keep guest upgrades on the same account row so opening the chip cannot cover
    the title or steal the short landscape menu's height. */
 body.start-screen-active #authContainer { display: flex; flex-direction: row-reverse; align-items: center; gap: 4px; }
@@ -103,8 +128,18 @@ body.start-screen-active #logoutBtn { min-width: 44px; padding: 4px 6px; }
 body.start-screen-active #authContainer .local-mode-notice { display: none; }
 
 #startGameContainer.run-preparing .start-dialog > :not(.start-heading) { display: none; }
-#startLoadingStatus { display: none; }
-#startGameContainer.run-preparing #startLoadingStatus { display: block; }
+#startLoadingStatus { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 18px; margin: 10px 0 0; font-size: 12px; color: #bfd5df; }
+.startup-indicator { flex: 0 0 7px; width: 7px; height: 7px; border: 1px solid #80dbd0; border-radius: 50%; animation: welcome-loading 1.4s ease-in-out infinite; }
+#startLoadingStatus[data-stage="ready"] { color: #9ce4d3; }
+#startLoadingStatus[data-stage="ready"] .startup-indicator { background: #80dbd0; animation: none; }
+#startLoadingStatus[data-stage="error"] { color: #ffd5b4; }
+#startLoadingStatus[data-stage="error"] .startup-indicator { border-color: currentColor; animation: none; }
+@keyframes welcome-loading { 50% { opacity: .35; } }
+body.onboarding-paused .welcome-rider, body.onboarding-paused .welcome-powder, body.onboarding-paused .startup-indicator,
+body:not(.start-screen-active) .welcome-rider, body:not(.start-screen-active) .welcome-powder, body:not(.start-screen-active) .startup-indicator { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .welcome-rider, .welcome-powder, .startup-indicator { animation: none; }
+}
 #startGameContainer.run-preparing #gameDescription { display: none; }
 
 @media (max-width: 600px) {
@@ -113,23 +148,60 @@ body.start-screen-active #authContainer .local-mode-notice { display: none; }
   .start-heading { margin-bottom: 10px; }
   #gameTitle { font-size: 26px; }
   #gameDescription { font-size: 13px; }
+  .start-visual { height: 120px; margin-bottom: 10px; }
   #difficultyPicker { gap: 6px; margin-bottom: 8px; }
   #difficultyPicker .difficulty-option { min-height: 62px; padding: 6px 8px; }
   #difficultyPicker .difficulty-blurb { font-size: 11px; }
   .menu-disclosure { padding: 8px; font-size: 13px; }
   .start-account-note { margin-bottom: 8px; }
 }
+@media (min-width: 900px) and (min-height: 600px) {
+  .start-dialog { width: min(100%, 900px); padding: 24px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; }
+  .start-heading { grid-column: 1; grid-row: 1 / 5; margin: 0; text-align: left; align-self: center; }
+  .start-visual { height: 270px; margin: 0 0 20px; }
+  .start-visual-caption { font-size: 14px; }
+  #gameTitle { text-align: left; font-size: 38px; }
+  #gameDescription { text-align: left; }
+  #startLoadingStatus { justify-content: flex-start; }
+  .start-play, .start-extras, .start-account-info, #startUpdateSlot { grid-column: 2; }
+  #startUpdateSlot:empty { display: none; }
+}
+@media (max-width: 899px) and (max-height: 740px) {
+  .start-visual { height: 84px; margin-bottom: 8px; }
+  .start-visual-caption { display: none; }
+  #gameDescription br { display: none; }
+}
+@media (max-width: 519px) and (max-height: 640px) {
+  .start-heading { position: relative; min-height: 90px; padding-right: 92px; text-align: left; }
+  .start-visual { position: absolute; top: 0; right: 0; width: 82px; height: 90px; margin: 0; }
+  .start-visual svg { width: 135px; max-width: none; transform: translateX(-27px); }
+  #gameTitle { font-size: 23px; text-align: left; }
+  #gameTitle > span { font-size: 18px; margin-left: 4px; }
+  #gameDescription { text-align: left; font-size: 11px; }
+  #startLoadingStatus { justify-content: flex-start; margin-top: 6px; font-size: 11px; }
+  #difficultyPicker .difficulty-option { min-height: 44px; padding: 4px 8px; }
+  #difficultyPicker .difficulty-blurb { display: none; }
+  .start-preferences .start-account-note { font-size: 10px; }
+}
 @media (min-width: 520px) and (max-height: 500px) {
   #startGameContainer { padding-top: max(62px, calc(env(safe-area-inset-top) + 56px)); padding-bottom: max(8px, env(safe-area-inset-bottom)); }
   .start-dialog { width: min(100%, 760px); display: grid; grid-template-columns: 1.1fr 1fr; gap: 8px 16px; padding: 10px 14px; }
-  .start-heading { grid-column: 1 / -1; margin: 0; }
+  .start-heading { position: relative; grid-column: 1 / -1; margin: 0; min-height: 40px; padding-right: 92px; display: flex; align-items: center; justify-content: center; gap: 12px; }
+  .start-visual { position: absolute; right: 0; top: 0; width: 80px; height: 40px; margin: 0; }
+  .start-visual-caption, #gameDescription { display: none; }
+  #startLoadingStatus { margin: 0; font-size: 11px; }
   #gameTitle { font-size: 24px; margin: 0; }
   #gameDescription { font-size: 12px; }
   #difficultyPicker { gap: 4px; margin-bottom: 6px; }
   #difficultyPicker .difficulty-option { min-height: 44px; padding: 5px 8px; }
   #difficultyPicker .difficulty-blurb { display: none; }
+  .start-play { display: contents; }
+  #difficultyPicker { grid-column: 1; grid-row: 2; margin-bottom: 0; }
+  #startMenu { grid-column: 1; grid-row: 3; }
+  .start-preferences { grid-column: 2; grid-row: 3; margin: 0; }
+  .start-preferences .start-account-note { font-size: 10px; }
   .start-account-note { margin: 4px 0 0; }
-  .start-extras { align-content: start; }
+  .start-extras { grid-column: 2; grid-row: 2; align-content: start; }
   /* Hidden children contribute no grid rows. Avoid selecting serialized style
      attributes: Safari can retain a hidden parent after the hint becomes visible. */
   .start-account-info { display: contents; }

@@ -4,6 +4,7 @@ import { gotoGame, type GameWindow } from './helpers';
 
 const difficulties = ['bunny', 'blue', 'black', 'expert'] as const;
 const disclosures = ['#startHelpDetails', '#offlinePlayDetails'] as const;
+const mediaRequests = new WeakMap<Page, string[]>();
 
 async function activate(locator: Locator, touch: boolean): Promise<void> {
   if (touch) await locator.tap();
@@ -45,6 +46,7 @@ async function expectCoreMenu(page: Page): Promise<void> {
   // Bounding boxes + actual hit testing are intentional: toBeVisible alone passes
   // for the old clipped/offscreen menu, and click() would silently scroll it first.
   await expectReachable(page, '#startGameButton', true);
+  await expectReachable(page, '#startSoundButton', true);
   for (const difficulty of difficulties) {
     await expectReachable(page, `#difficultyPicker [data-difficulty="${difficulty}"]`, true);
   }
@@ -67,8 +69,51 @@ async function expectAccountSpace(page: Page): Promise<void> {
 }
 
 test.beforeEach(async ({ page, isMobile }) => {
+  // Observe from before navigation, including requests that would otherwise
+  // finish before the menu test starts or disappear from timings on reload.
+  const requested: string[] = [];
+  mediaRequests.set(page, requested);
+  page.on('request', (request) => {
+    if (/\.(?:mp3|mp4)(?:$|[?#])/i.test(request.url())) requested.push(request.url());
+  });
   if (!isMobile) await resizeAndSettle(page, { width: 1280, height: 720 });
   await gotoGame(page);
+});
+
+test('welcome warms one game silently, remembers sound, and honors reduced motion', async ({ page, hasTouch }, testInfo) => {
+  const menu = page.locator('#startGameContainer');
+  const sound = page.locator('#startSoundButton');
+  const loading = page.locator('#startLoadingStatus');
+  await expect(loading).toHaveAttribute('data-stage', 'ready');
+  await expect(menu).toBeVisible();
+  await expectCoreMenu(page);
+  await expect(page.locator('#gameCanvas canvas')).toHaveCount(1);
+  await expect(menu.locator('canvas')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as GameWindow).gameActive)).toBe(false);
+  expect(mediaRequests.get(page), 'the welcome screen must not fetch music or video').toEqual([]);
+  await testInfo.attach('welcome-ready', { body: await page.screenshot(), contentType: 'image/png' });
+
+  await expect(sound).toHaveAttribute('aria-pressed', 'true');
+  for (const enabled of ['false', 'true', 'false']) {
+    await activate(sound, hasTouch);
+    await expect(sound).toHaveAttribute('aria-pressed', enabled);
+  }
+  expect(mediaRequests.get(page), 'changing sound preference must not fetch media before Play').toEqual([]);
+  expect(await page.evaluate(() => (window as GameWindow).gameActive)).toBe(false);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(loading).toHaveAttribute('data-stage', 'ready');
+  await expect(sound).toHaveAttribute('aria-pressed', 'false');
+  await expect(menu).toBeVisible();
+  await expectCoreMenu(page);
+  await expect(page.locator('#gameCanvas canvas')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as GameWindow).gameActive)).toBe(false);
+  expect(mediaRequests.get(page), 'reload must preserve the silent welcome screen').toEqual([]);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const decoration of ['.welcome-rider', '.welcome-powder', '.startup-indicator']) {
+    await expect(page.locator(decoration)).toHaveCSS('animation-name', 'none');
+  }
 });
 
 test('first-load difficulty, Start, offline play, and account controls are visible without scrolling', async ({ page, hasTouch }, testInfo) => {

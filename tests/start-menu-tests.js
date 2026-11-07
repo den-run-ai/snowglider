@@ -21,6 +21,8 @@ const dom = new JSDOM(`<!doctype html><html><head>
   <meta name="build-id" content="2026-06-18 12:00">
 </head><body>
   <div id="startGameContainer">
+    <p id="startLoadingStatus"><span id="startLoadingText"></span></p>
+    <button id="startSoundButton" aria-pressed="true">Sound on</button>
     <div id="difficultyPicker" role="radiogroup" aria-label="Difficulty tier"></div>
     <div id="startMenu">
       <button id="startGameButton">Start Game</button>
@@ -70,6 +72,8 @@ async function main() {
   // registers the DOMContentLoaded + game-scripts-ready listeners.
   await import('../src/ui/start-menu.ts');
   const SM = window.SnowGliderStartMenu;
+  const { AudioModule } = await import('../src/audio.ts');
+  const { setStartupStatus } = await import('../src/boot/startup-status.ts');
 
   console.log('--- module surface ---');
   check('exposes the SnowGliderStartMenu API',
@@ -85,6 +89,36 @@ async function main() {
   const aboutPanel = document.getElementById('aboutGamePanel');
   const startMenu = document.getElementById('startMenu');
   const keyboardHint = document.getElementById('keyboardHint');
+
+  console.log('\n--- silent welcome preferences and real startup status ---');
+  const soundButton = document.getElementById('startSoundButton');
+  let menuPlayback = 0;
+  const originalStartAudio = AudioModule.startAudio;
+  AudioModule.startAudio = () => { menuPlayback++; return true; };
+  soundButton.click();
+  check('welcome sound toggle persists mute and updates its accessible state',
+    window.localStorage.getItem('snowgliderMuted') === 'true'
+    && soundButton.getAttribute('aria-pressed') === 'false');
+  SM.initializeStartMenu();
+  SM.initializeStartMenu();
+  soundButton.click();
+  check('reinitializing the welcome menu does not duplicate sound listeners',
+    window.localStorage.getItem('snowgliderMuted') === 'false'
+    && soundButton.getAttribute('aria-pressed') === 'true');
+  check('changing the welcome sound preference never starts playback', menuPlayback === 0);
+  AudioModule.startAudio = originalStartAudio;
+  setStartupStatus('warming');
+  check('loading copy follows actual startup milestones',
+    document.getElementById('startLoadingStatus').dataset.stage === 'warming'
+    && /Warming/.test(document.getElementById('startLoadingText').textContent));
+  let hidden = true;
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  check('decorative motion pauses while the page is hidden', document.body.classList.contains('onboarding-paused'));
+  hidden = false;
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  check('visible menu can resume its bounded animation', !document.body.classList.contains('onboarding-paused'));
+  setStartupStatus('loading');
 
   console.log('\n--- offline badge (issue #358) ---');
   // The offline badge is mounted into #startGameContainer but stays hidden while the
@@ -159,7 +193,6 @@ async function main() {
 
   console.log('\n--- deferred start before game scripts load (080bb29) ---');
   delete window.initializeGameWithAudio; // game scripts not ready yet
-  const { AudioModule } = await import('../src/audio.ts');
   const { Sfx } = await import('../src/sfx.ts');
   const originalPlay = AudioModule.playPreloadedAudio;
   const originalUnlock = Sfx.unlock;
@@ -181,6 +214,10 @@ async function main() {
 
   console.log('\n--- game scripts arrive: honor the queued start ---');
   window.initializeGameWithAudio = () => { launches++; };
+  setStartupStatus('warming');
+  check('an available initializer cannot bypass unfinished scene warmup',
+    SM.startPendingGameIfReady() === false && launches === 0);
+  setStartupStatus('ready');
   window.dispatchEvent(new window.Event('snowglider:game-scripts-ready'));
   check('game-scripts-ready clears the pending wait and re-enables the button',
     btn.disabled === false && !btn.hasAttribute('aria-busy'));
@@ -532,6 +569,35 @@ async function main() {
   check('after re-init the badge still reveals on offline', !!badgeAfter && badgeAfter.style.display === 'block');
   window.dispatchEvent(new window.Event('online'));
   check('after re-init the badge still hides on online', !!badgeAfter && badgeAfter.style.display === 'none');
+
+  console.log('\n--- startup failure recovery ---');
+  startContainer.style.display = 'flex';
+  setStartupStatus('error', new Error('Error creating WebGL context.'));
+  check('background failure preserves the welcome screen without a modal',
+    document.getElementById('fatalErrorOverlay') === null
+    && startContainer.style.display !== 'none'
+    && btn.textContent === 'Loading help');
+  const launchesBeforeFailure = launches;
+  check('failed startup exposes recovery without starting a run', SM.startGame() === false && launches === launchesBeforeFailure);
+  check('explicit start after failure provides a reload action', !!document.getElementById('fatalErrorReloadBtn'));
+  const { resetFatalErrorOverlay } = await import('../src/ui/fatal-error-overlay.ts');
+  resetFatalErrorOverlay();
+  setStartupStatus('loading');
+  delete window.initializeGameWithAudio;
+  SM.startGame();
+  let stoppedMusic = false;
+  let stoppedEffects = false;
+  const originalEnableSound = AudioModule.enableSound;
+  const originalSfxTeardown = Sfx.teardown;
+  AudioModule.enableSound = (enable) => { stoppedMusic = !enable; };
+  Sfx.teardown = () => { stoppedEffects = true; };
+  setStartupStatus('error', new Error('Failed to fetch game module'));
+  check('failure after an early Play clears pending wait and shows recovery',
+    !btn.disabled && !btn.hasAttribute('aria-busy') && !!document.getElementById('fatalErrorReloadBtn'));
+  check('failed early Play stops both music and the procedural wind bed', stoppedMusic && stoppedEffects);
+  AudioModule.enableSound = originalEnableSound;
+  Sfx.teardown = originalSfxTeardown;
+  resetFatalErrorOverlay();
 
   console.log(`\nSTART MENU TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
