@@ -39,9 +39,8 @@ difficulty or action on its own.
   simulated percentages or a minimum loading duration.
 - Required forest assets use the existing six-second fallback with identical
   placements. “Ready” describes the scene and its required assets; GPU uploads
-  and shader compilation use the normal renderer path. An extra precompile pass
-  increased early-frame stalls in two rendering comparisons, so do not add one
-  without new startup measurements and safe teardown handling. Three r184's
+  and shader compilation use the normal renderer path. Extra shader warmup needs
+  device startup measurements and safe teardown handling. Three r184's
   `compileAsync()` also owns an internal polling timer that cannot be cancelled
   on teardown; an application timeout does not cancel that work.
 - Welcome stays silent. The sound preference can change without downloading or

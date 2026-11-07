@@ -379,8 +379,7 @@ let activeIntro: IntroHandle | null = null;
 let startupPreparation: Promise<void> | null = null;
 
 /** Prepare this exact scene once while the menu is visible; no render loop or
- * physics update runs here. Keep shaders on the ordinary render path: extra
- * precompilation increased early-frame stalls in the rendering comparison. */
+ * physics update runs here. Shader compilation stays on the normal render path. */
 export function prepareGameForStart(): Promise<void> {
   if (startupPreparation) return startupPreparation;
   startupPreparation = (async () => {
