@@ -9,12 +9,12 @@ import { gotoGame, startGame, getControls } from './helpers';
 // shared controls state and that the mobile HUD renders.
 
 // The game's document-level touch handlers only read changedTouches[].clientX/Y/
-// identifier (see controls.ts processTouchInput), so a minimal hand-built event
+// identifier (see controls.ts touch ownership), so a minimal hand-built event
 // drives the same code path cross-browser without depending on the TouchEvent /
 // Touch constructors (whose shapes differ across engines).
 async function dispatchTouch(
   page: Page,
-  type: 'touchstart' | 'touchend',
+  type: 'touchstart' | 'touchmove' | 'touchend',
   x: number,
   y: number,
 ): Promise<void> {
@@ -64,6 +64,37 @@ test.describe('mobile touch', () => {
     expect((await getControls(page))?.jump).toBe(true);
     await dispatchTouch(page, 'touchend', width * 0.5, height * 0.5);
     expect((await getControls(page))?.jump).toBe(false);
+  });
+
+  test('a canceled touch cannot resume steering after focus returns', async ({ page }) => {
+    await gotoGame(page);
+    await startGame(page);
+    const { width, height } = page.viewportSize()!;
+    const neutral = { left: false, right: false, up: false, down: false, jump: false };
+
+    await dispatchTouch(page, 'touchstart', width * 0.15, height * 0.5);
+    expect((await getControls(page))?.left).toBe(true);
+    await expect(page.locator('.touch-left')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.3)');
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('blur'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(await getControls(page)).toEqual(neutral);
+    await dispatchTouch(page, 'touchmove', width * 0.85, height * 0.5);
+    expect(await getControls(page)).toEqual(neutral);
+    for (const name of ['left', 'right']) {
+      await expect(page.locator(`.touch-${name}`)).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.07)');
+    }
+
+    await dispatchTouch(page, 'touchend', width * 0.85, height * 0.5);
+    await dispatchTouch(page, 'touchstart', width * 0.85, height * 0.5);
+    expect((await getControls(page))?.right).toBe(true);
+    await dispatchTouch(page, 'touchmove', width * 0.15, height * 0.5);
+    expect((await getControls(page))?.left).toBe(true);
+    expect((await getControls(page))?.right).toBe(false);
+    await dispatchTouch(page, 'touchend', width * 0.15, height * 0.5);
+    expect(await getControls(page)).toEqual(neutral);
   });
 
   test('mobile renders the canvas and subtle touch affordances by default (regression)', async ({ page }) => {

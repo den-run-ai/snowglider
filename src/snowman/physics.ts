@@ -204,6 +204,7 @@ export function resetSnowman(
     userData.trickGrabArmed = false;
     userData.trickGrabbing = false;
     userData.trickCameraYaw = 0;
+    userData.trickSpinApplied = 0;
     // Pose-layer spin accumulators (rate + eased bank of the spin-lean flair): clear so
     // a restart taken mid-spin never spawns with a stale body bank (the pivot carries it).
     userData.trickSpinRate = 0;
@@ -212,11 +213,31 @@ export function resetSnowman(
     // previous air phase's dedup set or count.
     userData.clearsThisAir = 0;
     userData.clearedObstacles = {};
+    userData.technique = 'glide';
+    // Reset the pose-owned transforms as well as their accumulators. Flex and
+    // Expression reset only their own child parts; neither restores the ski roots,
+    // crouch or flip pivot. Otherwise a restart briefly inherits the previous
+    // wedge/edge/flip and eases back toward neutral during the new run.
+    if (userData.leftSki) {
+      userData.leftSki.position.x = userData.leftSkiBaseX ?? -1;
+      userData.leftSki.rotation.y = 0;
+      userData.leftSki.rotation.z = 0;
+    }
+    if (userData.rightSki) {
+      userData.rightSki.position.x = userData.rightSkiBaseX ?? 1;
+      userData.rightSki.rotation.y = 0;
+      userData.rightSki.rotation.z = 0;
+    }
+    if (userData.flipPivot) {
+      userData.flipPivot.rotation.x = 0;
+      userData.flipPivot.rotation.z = 0;
+    }
   }
   
   // Force all rotations to be explicit - avoid any chance of NaN or unexpected values
   snowman.position.set(pos.x, pos.y, pos.z);
   snowman.rotation.set(0, Math.PI, 0);
+  if (snowman.scale) snowman.scale.y = 1;
   
   // Explicitly reset the rotation tracking for snowman tilt
   snowman.rotation.x = 0;
