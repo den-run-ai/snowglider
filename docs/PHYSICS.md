@@ -124,8 +124,8 @@ velocity *= (1 - (friction + skidScrub))             // skidScrub == 0 when coas
 
 ### 3.3 Ski technique (the skill layer)
 
-Layered on top of the arcade handling. **When the player gives no steering and no
-brake input, `turnForce`/accel are unchanged and `skidScrub == 0`, so coasting is
+Layered on top of the arcade handling. **When the player gives no input,
+`turnForce`/accel are unchanged and `skidScrub == 0`, so coasting is
 identical to the pre-technique physics** — see §6.
 
 There are **two** steered turns — a skidded parallel turn and a carve — plus the
@@ -138,8 +138,17 @@ they read clearly differently to drive and to watch.
 | **Parallel (skidded)** | Left/Right, uncommitted (fresh, *reversed*, or abrupt) | Skis brush sideways and **scrub speed** (`skidScrub` near full); **tighter** turn (`turnForce → 19`); skis stay flatter, body upright |
 | **Carve** | Left/Right, *committed* (held smoothly, `carveCharge > 0.6`) | **Holds speed** — the locked edge sheds ~92% of the wash-out; **wider** arc (`turnForce → 10`); skis roll onto edge + draw together with a deep body lean. The mastery turn above a parallel |
 | **Snowplow** | Down (hold ramp) | Sheds real speed, sharper planted turns (`turnForce = 24`, grip = 1.0); skis form a wedge that **deepens the longer you hold** (`plowCharge`): a tap only trims speed, a full wedge stops you — but only where the slope isn't too steep (§3.4) |
-| **Tuck**  | Up, no steer | Least friction, most speed, least control (`accel = 10` on `-z`) |
+| **Tuck**  | Up, no steer or brake, grounded | 25% less base drag (`TUCK_DRAG_FACTOR = 0.75`), with `accel = 10` on `-z` (Blue). Steering, braking, releasing Up, or taking off restores the corresponding normal drag model. |
 | **Hop turn** | Jump **+** Left/Right (grounded) | A quick edge-set pivot: snaps heading ~0.4 rad toward the steer, scrubs ~18% speed, small pop; lands on a fresh edge (see §4) |
+
+The v4 tuck corrects an advertised low-drag stance that previously kept all of
+coasting's drag. On the actual Blue surface, three seconds of Up from spawn now
+reaches 10.13 m/s (previously 7.76), while coasting is byte-identical at 3.91 m/s.
+The 60-seed, three-policy floor probe's fastest Blue finish is 21.87 s; course
+length / observed peak speed is 17.75 s, an estimate rather than a proven lower
+bound. The v4 score floor is 15 s; historical v3 records retain their 18 s floor
+and separate leaderboard. `tests/tuck-response-tests.js` covers response,
+release/brake precedence, refresh-rate equality and bounded terminal speed.
 
 **Edge engagement — carve vs. skidded parallel (issues #48 / #54).** A turn is only a
 skill if a clean, committed turn costs less speed than a panicked one. `carveCharge`
@@ -800,6 +809,7 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Base / max coast friction | 0.012 / 0.032 | `snowman.js` |
 | Turn force (parallel/snowplow/carve) | 19 / 24 / 10 (×0.85 over 18 u/s) | `snowman.js` |
 | Accel (tuck) | 10 | `snowman.js` |
+| Straight grounded tuck drag factor | 0.75 × base drag | `snowman/physics.ts` |
 | Brake decel (light → full wedge) | 3.14 → 5.68 (lerp by `plowCharge`) | `snowman.js` |
 | Plow build / release rate | 1.6 / 4.0 per s | `snowman.js` |
 | Max skid scrub (uncommitted) | 0.10 + 0.008 tax | `snowman.js` |

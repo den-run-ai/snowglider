@@ -10,14 +10,16 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Plausibility floor + upper cap. These two literals MUST equal
-    // MIN_VALID_SCORE_TIME / MAX_VALID_SCORE_TIME in src/score-limits.ts — Firestore
-    // rules cannot import JS, so the values are duplicated and kept in lockstep by the
-    // drift test in tests/score-limits-sync-tests.js. The floor (18 s) was measured
-    // empirically (issue #229, PR A): the shipped engine cannot produce a faster run, so
-    // a sub-floor write is forged and the server rejects it even from a patched client.
+    // Historical unversioned/v3 bounds remain unchanged for stored records and
+    // cached clients. The active v4 bounds below match src/score-limits.ts.
     function isValidScoreTime(time) {
       return time is number && time >= 18 && time <= 600;
+    }
+
+    // Corrected tuck drag raises attainable speed. Keep v4's conservative floor
+    // separate instead of weakening the validation of historical scores.
+    function isValidScoreTimeV4(time) {
+      return time is number && time >= 15 && time <= 600;
     }
 
     function userDocPath(userId) {
@@ -49,6 +51,10 @@ service cloud.firestore {
         'bestTimeBunnyV3',
         'bestTimeBlackV3',
         'bestTimeExpertV3',
+        'bestTimeV4',
+        'bestTimeBunnyV4',
+        'bestTimeBlackV4',
+        'bestTimeExpertV4',
         'updatedAt'
       ]);
     }
@@ -67,6 +73,10 @@ service cloud.firestore {
         && (!('bestTimeBunnyV3' in data) || isValidScoreTime(data.bestTimeBunnyV3))
         && (!('bestTimeBlackV3' in data) || isValidScoreTime(data.bestTimeBlackV3))
         && (!('bestTimeExpertV3' in data) || isValidScoreTime(data.bestTimeExpertV3))
+        && (!('bestTimeV4' in data) || isValidScoreTimeV4(data.bestTimeV4))
+        && (!('bestTimeBunnyV4' in data) || isValidScoreTimeV4(data.bestTimeBunnyV4))
+        && (!('bestTimeBlackV4' in data) || isValidScoreTimeV4(data.bestTimeBlackV4))
+        && (!('bestTimeExpertV4' in data) || isValidScoreTimeV4(data.bestTimeExpertV4))
         && (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
@@ -89,6 +99,10 @@ service cloud.firestore {
           'bestTimeBunnyV3',
           'bestTimeBlackV3',
           'bestTimeExpertV3',
+          'bestTimeV4',
+          'bestTimeBunnyV4',
+          'bestTimeBlackV4',
+          'bestTimeExpertV4',
           'updatedAt'
         ])
         && (!changedUserKeys().hasAny(['displayName']) ||
@@ -175,6 +189,38 @@ service cloud.firestore {
             !isValidScoreTime(resource.data.bestTimeExpertV3) ||
             request.resource.data.bestTimeExpertV3 <= resource.data.bestTimeExpertV3)
         )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeV4'])
+        || (
+          isValidScoreTimeV4(request.resource.data.bestTimeV4)
+          && (!('bestTimeV4' in resource.data) ||
+            !isValidScoreTimeV4(resource.data.bestTimeV4) ||
+            request.resource.data.bestTimeV4 <= resource.data.bestTimeV4)
+        )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeBunnyV4'])
+        || (
+          isValidScoreTimeV4(request.resource.data.bestTimeBunnyV4)
+          && (!('bestTimeBunnyV4' in resource.data) ||
+            !isValidScoreTimeV4(resource.data.bestTimeBunnyV4) ||
+            request.resource.data.bestTimeBunnyV4 <= resource.data.bestTimeBunnyV4)
+        )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeBlackV4'])
+        || (
+          isValidScoreTimeV4(request.resource.data.bestTimeBlackV4)
+          && (!('bestTimeBlackV4' in resource.data) ||
+            !isValidScoreTimeV4(resource.data.bestTimeBlackV4) ||
+            request.resource.data.bestTimeBlackV4 <= resource.data.bestTimeBlackV4)
+        )
+      ) && (
+        !changedUserKeys().hasAny(['bestTimeExpertV4'])
+        || (
+          isValidScoreTimeV4(request.resource.data.bestTimeExpertV4)
+          && (!('bestTimeExpertV4' in resource.data) ||
+            !isValidScoreTimeV4(resource.data.bestTimeExpertV4) ||
+            request.resource.data.bestTimeExpertV4 <= resource.data.bestTimeExpertV4)
+        )
       );
     }
 
@@ -205,6 +251,23 @@ service cloud.firestore {
           request.resource.data.time <= resource.data.time);
     }
 
+    function validLeaderboardDocV4(userId, data) {
+      return validLeaderboardKeys(data)
+        && data.user == userDocPath(userId)
+        && isValidScoreTimeV4(data.time)
+        && (!('achievedAt' in data) || data.achievedAt is timestamp)
+        && (!('displayName' in data)
+          || data.displayName == null
+          || (data.displayName is string && data.displayName.size() <= 40));
+    }
+
+    function validLeaderboardUpdateV4(userId) {
+      return validLeaderboardDocV4(userId, request.resource.data)
+        && (!('time' in resource.data) ||
+          !isValidScoreTimeV4(resource.data.time) ||
+          request.resource.data.time <= resource.data.time);
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow list: if false;
@@ -227,7 +290,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // THE ACTIVE Blue board (#403 review tail): version-namespaced alongside
+    // Historical v3 Blue board (#403 review tail): version-namespaced alongside
     // userBestTimeField/leaderboardCollectionName in src/difficulty.ts (lockstep
     // enforced by tests/remote-version-sync-tests.js). A PHYSICS_VERSION bump
     // starts a fresh board — pre-bump times were earned on a different surface/
@@ -241,6 +304,18 @@ service cloud.firestore {
       allow update: if isOwner(userId)
         && exists(userDocPath(userId))
         && validLeaderboardUpdate(userId);
+      allow delete: if false;
+    }
+
+    // Active v4 board: tuck acceleration changes require a separate score chain.
+    match /leaderboard_v4/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardDocV4(userId, request.resource.data);
+      allow update: if isOwner(userId)
+        && exists(userDocPath(userId))
+        && validLeaderboardUpdateV4(userId);
       allow delete: if false;
     }
 
@@ -279,6 +354,22 @@ service cloud.firestore {
     }
 
     match /leaderboard_v3_expert/{userId} {
+      allow get, list: if isSignedIn();
+      allow write: if false;
+    }
+
+    // v4 preserves the same unranked tier policies.
+    match /leaderboard_v4_bunny/{userId} {
+      allow get, list: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /leaderboard_v4_black/{userId} {
+      allow get, list: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /leaderboard_v4_expert/{userId} {
       allow get, list: if isSignedIn();
       allow write: if false;
     }

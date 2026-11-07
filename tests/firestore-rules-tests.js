@@ -455,16 +455,36 @@ async function main() {
     const ref = doc(alice, 'users', 'alice');
     // Every later first score is slower than the existing versions. It must
     // still be accepted, without changing those older best times.
+    const commonFloor = Math.max(...REMOTE_SCORE_SCHEMAS.map(schema => schema.minTime));
     for (const [index, schema] of REMOTE_SCORE_SCHEMAS.entries()) {
-      const fields = Object.fromEntries(schema.tiers.map(({ field }) => [field, schema.minTime + 1 + index]));
+      const fields = Object.fromEntries(schema.tiers.map(({ field }) => [field, commonFloor + 1 + index]));
       await assertSucceeds(setDoc(ref, { ...fields, updatedAt: serverTimestamp() }, { merge: true }));
       const snapshot = await assertSucceeds(getDoc(ref));
       for (const [olderIndex, older] of REMOTE_SCORE_SCHEMAS.slice(0, index + 1).entries()) {
         for (const { field } of older.tiers) {
-          if (snapshot.data()[field] !== older.minTime + 1 + olderIndex) {
+          if (snapshot.data()[field] !== commonFloor + 1 + olderIndex) {
             throw new Error(`Another schema shadowed ${field}`);
           }
         }
+      }
+    }
+  });
+
+  await runTest('cached older clients can improve scores after a newer-version run', async () => {
+    const alice = dbFor('alice');
+    const ref = doc(alice, 'users', 'alice');
+    const allFields = Object.fromEntries(REMOTE_SCORE_SCHEMAS.flatMap(schema =>
+      schema.tiers.map(({ field }) => [field, schema.minTime + 2])));
+    await assertSucceeds(setDoc(ref, { ...profile(), ...allFields }));
+    for (const schema of REMOTE_SCORE_SCHEMAS.slice(0, -1)) {
+      const olderImprovement = Object.fromEntries(schema.tiers.map(({ field }) => [field, schema.minTime + 1]));
+      await assertSucceeds(setDoc(ref, olderImprovement, { merge: true }));
+    }
+    const snapshot = await assertSucceeds(getDoc(ref));
+    for (const [index, schema] of REMOTE_SCORE_SCHEMAS.entries()) {
+      const expected = schema.minTime + (index === REMOTE_SCORE_SCHEMAS.length - 1 ? 2 : 1);
+      for (const { field } of schema.tiers) {
+        if (snapshot.data()[field] !== expected) throw new Error(`Cached-client update changed ${field}`);
       }
     }
   });

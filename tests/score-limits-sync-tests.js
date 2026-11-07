@@ -3,13 +3,14 @@
 // Lockstep guard: the leaderboard plausibility floor + upper cap live in src/score-limits.ts
 // as the single source of truth, but firestore.rules has to duplicate the two literals
 // because Firestore security rules cannot import JavaScript. This test parses the
-// isValidScoreTime() bounds out of firestore.rules and asserts they exactly equal the
+// active schema validator bounds out of firestore.rules and asserts they equal the
 // exported JS constants, so the client-side gate (scores.ts / result-overlay.ts) and the
 // server-side gate (the rules) can never silently drift apart (issue #229, PR C).
 //
 // Run: node --import ./tests/loaders/register-ts-resolve.mjs tests/score-limits-sync-tests.js
 const fs = require('fs');
 const path = require('path');
+const { REMOTE_SCORE_SCHEMAS } = require('./lib/remote-score-schemas.js');
 
 let pass = 0, fail = 0;
 function check(name, ok) {
@@ -19,16 +20,22 @@ function check(name, ok) {
 
 (async () => {
   const { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } = await import('../src/score-limits.ts');
+  const { PHYSICS_VERSION } = await import('../src/run-context.ts');
+  const schema = REMOTE_SCORE_SCHEMAS.find(candidate => candidate.version === PHYSICS_VERSION);
+  if (!schema) throw new Error('Active score schema is missing from compatibility history');
 
   const rulesPath = path.join(__dirname, '..', 'firestore.rules');
   const rules = fs.readFileSync(rulesPath, 'utf8');
 
-  // Pull the bounds straight out of the isValidScoreTime() body:
+  // Pull only the active validator's bounds; historical versions retain theirs:
   //   return time is number && time >= <MIN> && time <= <MAX>;
-  const m = rules.match(/time\s+is\s+number\s*&&\s*time\s*>=\s*([\d.]+)\s*&&\s*time\s*<=\s*([\d.]+)/);
+  const validatorBody = rules.match(new RegExp(`function ${schema.scoreValidator}\\(time\\)\\s*\\{([^}]+)\\}`))?.[1];
+  const m = validatorBody?.match(/time\s+is\s+number\s*&&\s*time\s*>=\s*([\d.]+)\s*&&\s*time\s*<=\s*([\d.]+)/);
 
   console.log('--- score-limits.ts <-> firestore.rules lockstep ---');
-  check('firestore.rules exposes an isValidScoreTime() numeric range', !!m);
+  check('firestore.rules exposes the active numeric range', !!m);
+  check('schema floor equals MIN_VALID_SCORE_TIME', schema.minTime === MIN_VALID_SCORE_TIME);
+  check('schema cap equals MAX_VALID_SCORE_TIME', schema.maxTime === MAX_VALID_SCORE_TIME);
 
   if (m) {
     const rulesMin = Number(m[1]);
