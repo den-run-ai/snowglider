@@ -1,6 +1,6 @@
 import { type Locator, type Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { gotoGame, startGame, type GameWindow } from './helpers';
+import { gotoGame, mockFirebase, startGame, type GameWindow } from './helpers';
 
 type MockUser = { uid: string; isAnonymous: boolean; displayName: string | null; email: string | null };
 type FirebaseMock = {
@@ -37,17 +37,6 @@ async function expectUsable(page: Page, selector: string): Promise<void> {
   expect(geometry.right).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
   expect(geometry.unclipped, `${selector} label is not clipped`).toBe(true);
   expect(geometry.reachable, `${selector} receives taps`).toBe(true);
-}
-
-// Keep the production auth module, markup, event bindings and popup flow. Only
-// replace the external Firebase SDK, so no real account login or score write is
-// attempted. All CDN imports re-export ONE local mock instance for state control.
-async function mockFirebase(page: Page, baseURL: string): Promise<void> {
-  await page.route('https://www.gstatic.com/firebasejs/**', route => route.fulfill({
-    contentType: 'application/javascript',
-    headers: { 'Access-Control-Allow-Origin': '*' },
-    body: `export * from ${JSON.stringify(`${baseURL}/tests/mocks/firebase.mjs`)};`,
-  }));
 }
 
 test('Google, GitHub, guest upgrade and logout remain usable across menu and results', async ({ page, hasTouch, baseURL }, testInfo) => {
