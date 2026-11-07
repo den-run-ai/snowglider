@@ -27,8 +27,8 @@
 .start-dialog a { color: #74d9ff; text-decoration: underline; }
 .start-heading { text-align: center; margin-bottom: 16px; }
 .start-visual { position: relative; height: 140px; margin-bottom: 14px; overflow: hidden; border-radius: 11px; background: #4c8197; contain: paint; pointer-events: none; }
-/* The text-free panorama uses xMidYMid slice to fill every responsive frame.
-   Keep the central peak and ski tracks in view without letterboxed side panels. */
+/* Fill every responsive frame without letterboxed side panels. Anchor the sky
+   at the top so shallow phone/tablet bands retain the sun and mountain peak. */
 .start-visual svg { position: absolute; bottom: 0; left: 0; display: block; width: 100%; height: 100%; }
 #gameTitle { margin: 0 0 6px; font-size: 32px; letter-spacing: -1px; animation: none; text-shadow: none; }
 #gameTitle > span { display: inline-block; margin-left: 8px; color: #80dbd0; font-size: 25px; vertical-align: 2px; }

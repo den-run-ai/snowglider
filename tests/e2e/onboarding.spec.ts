@@ -86,6 +86,13 @@ async function expectWelcomeArt(page: Page): Promise<void> {
     expect(bounds.right, `${label} covers the hero's right edge`).toBeGreaterThanOrEqual(art.x + art.width - 1);
     expect(bounds.bottom, `${label} covers the hero's bottom edge`).toBeGreaterThanOrEqual(art.y + art.height - 1);
   }
+  const sun = (await hero.locator('circle').boundingBox())!;
+  // The narrow portrait badge may omit the sun horizontally. In wide banners,
+  // keep the whole disk: a centered vertical crop cut it off on short screens.
+  if (sun.x + sun.width > art.x && sun.x < art.x + art.width) {
+    expect(sun.y, 'the panorama must not crop the top of the sun').toBeGreaterThanOrEqual(art.y - 1);
+    expect(sun.y + sun.height, 'the panorama must not crop the bottom of the sun').toBeLessThanOrEqual(art.y + art.height + 1);
+  }
   for (const selector of ['#gameTitle', '#gameDescription', '#startLoadingStatus']) {
     const copy = page.locator(selector);
     if (!(await copy.isVisible())) continue;
@@ -184,7 +191,10 @@ test('first-load artwork and menu controls fit every viewport without overlappin
     // screens that made Offline and even Start disappear below the fold.
     await activate(page.locator('#difficultyPicker [data-difficulty="blue"]'), hasTouch);
     await expect(page.locator('#startSignInHint')).toBeVisible();
-    for (const viewport of [{ width: 320, height: 568 }, { width: 568, height: 320 }]) {
+    for (const viewport of [
+      { width: 320, height: 568 }, { width: 568, height: 320 },
+      { width: 600, height: 800 }, { width: 800, height: 700 },
+    ]) {
       await resizeAndSettle(page, viewport);
       await expectCoreMenu(page);
       await expectWelcomeArt(page);
@@ -192,6 +202,9 @@ test('first-load artwork and menu controls fit every viewport without overlappin
       for (const provider of ['#loginBtn', '#githubLoginBtn', '#guestLoginBtn']) {
         await expectReachable(page, provider, true);
       }
+      await testInfo.attach(`welcome-${viewport.width}x${viewport.height}`, {
+        body: await page.screenshot(), contentType: 'image/png',
+      });
     }
   }
 });
