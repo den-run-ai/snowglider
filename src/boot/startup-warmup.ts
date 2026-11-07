@@ -1,5 +1,5 @@
 // Startup scheduling only: this helper never advances the simulation or creates
-// graphics resources. The orchestrator passes its existing renderer and assets.
+// graphics resources. It waits on the scene's existing asset construction.
 
 /** Let the lightweight menu paint before synchronous scene construction. Hidden
  * tabs wait for visibility, and teardown cancels outstanding animation frames. */
@@ -39,7 +39,7 @@ export function waitForStartupPaint(signal?: AbortSignal): Promise<boolean> {
 
 type WaitResult = 'complete' | 'timeout' | 'failed' | 'aborted';
 
-/** Bound optional async work and clear its deadline/listener on every outcome.
+/** Bound the asset wait and clear its deadline/listener on every outcome.
  * Late fulfillment/rejection is consumed; it cannot reopen a completed start. */
 function boundedWait(work: () => Promise<unknown>, timeoutMs: number, signal?: AbortSignal): Promise<WaitResult> {
   if (signal?.aborted) return Promise.resolve('aborted');
@@ -66,17 +66,14 @@ export interface StartupWarmupOptions {
   assetsReady: () => boolean;
   waitForAssets: () => Promise<unknown>;
   useFallback: () => void;
-  /** Submit shaders once; omitted without KHR_parallel_shader_compile. This
-   * callback must not start a completion poll or return a pending GPU wait. */
-  compile?: () => void;
   signal?: AbortSignal;
   assetTimeoutMs?: number;
 }
 
 /** Resolve true once the existing scene is safe to start. Visible/collidable
- * assets are required; optional shader submission adds no completion wait. */
+ * assets are required; already-prepared assets add no artificial waiting. */
 export async function warmupStartupScene(options: StartupWarmupOptions): Promise<boolean> {
-  const { assetsReady, waitForAssets, useFallback, compile, signal } = options;
+  const { assetsReady, waitForAssets, useFallback, signal } = options;
   if (signal?.aborted) return false;
   if (!assetsReady()) {
     const result = await boundedWait(waitForAssets, options.assetTimeoutMs ?? 6000, signal);
@@ -86,17 +83,12 @@ export async function warmupStartupScene(options: StartupWarmupOptions): Promise
     if (!assetsReady()) {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden' &&
           !await waitForStartupPaint(signal)) return false;
+      // Teardown can occur after the paint promise resolves but before this
+      // continuation runs. Never construct fallback geometry after disposal.
+      if (signal?.aborted) return false;
       useFallback();
     }
     if (!assetsReady()) throw new Error('The forest could not finish preparing. Please reload.');
-  }
-  if (signal?.aborted) return false;
-  if (compile) {
-    if (!await waitForStartupPaint(signal)) return false;
-    // An abort can occur after the paint promise resolved but before this
-    // continuation runs. Do not submit against a renderer disposed in that gap.
-    if (signal?.aborted) return false;
-    try { compile(); } catch { /* optional optimization; ordinary render remains available */ }
   }
   return !signal?.aborted;
 }

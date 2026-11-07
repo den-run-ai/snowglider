@@ -379,23 +379,16 @@ let activeIntro: IntroHandle | null = null;
 let startupPreparation: Promise<void> | null = null;
 
 /** Prepare this exact scene once while the menu is visible; no render loop or
- * physics update runs here. Optional shader submission uses the same renderer
- * that Start will use, so it never creates a second WebGL context. */
+ * physics update runs here. Keep shaders on the ordinary render path: extra
+ * precompilation increased early-frame stalls in the rendering comparison. */
 export function prepareGameForStart(): Promise<void> {
   if (startupPreparation) return startupPreparation;
   startupPreparation = (async () => {
     if (disposed) throw new Error('WebGL context unavailable during startup.');
-    const canCompileInParallel = !window.isTestMode &&
-      renderer.extensions.has('KHR_parallel_shader_compile');
     const ready = await warmupStartupScene({
       assetsReady: () => Trees.treeCollidersReady(),
       waitForAssets: () => Trees.ezForestReady(),
       useFallback: () => Trees.abandonPendingEzBuild(),
-      // r184 compileAsync owns an uncancellable polling timer that can outlive
-      // renderer.dispose() on context loss. With the parallel extension, public
-      // compile() submits the same shader work without polling or waiting on
-      // LINK_STATUS. Let the GPU finish while the player reads the menu.
-      ...(canCompileInParallel ? { compile: () => { renderer.compile(scene, camera); } } : {}),
       signal: listenerAbort.signal,
     });
     if (!ready || disposed) throw new Error('WebGL context unavailable during startup.');

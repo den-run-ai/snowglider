@@ -16,9 +16,9 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 - Add inline alpine artwork with brief snowman/powder motion, reduced-motion support,
   actual startup status, and a sound preference visible before Play. No video,
   image download, animation library, or extra WebGL scene is needed.
-- Paint onboarding before scene setup, prepare the existing forest in the background,
-  and submit shaders early on devices with parallel shader compilation. Early Play
-  waits for the same preparation; gameplay and its clock remain stopped.
+- Paint onboarding before scene setup and prepare the existing forest in the
+  background. Early Play waits for the same preparation; gameplay and its clock
+  remain stopped. Keep shader compilation on the normal renderer path.
 - Keep background startup failures inline and preserve explicit recovery. Respect
   saved mute on early Play, allow unmuting a run that began silent, and stop music
   and procedural effects if loading fails. Explicit sound choices survive storage

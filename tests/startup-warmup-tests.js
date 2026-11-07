@@ -22,7 +22,7 @@ const assert = require('node:assert/strict');
   }
   let painted = false;
   const firstPaint = waitForStartupPaint().then(ready => { painted = ready; });
-  assert.equal(frames.size, 0, 'hidden tab does not schedule startup GPU work');
+  assert.equal(frames.size, 0, 'hidden tab does not schedule scene construction');
   hidden = false;
   document.dispatchEvent(new window.Event('visibilitychange'));
   assert.equal(frames.size, 1);
@@ -41,23 +41,27 @@ const assert = require('node:assert/strict');
   assert.equal(frames.size, 0, 'cancelled paint callback is removed');
 
   const teardownAfterPaint = new AbortController();
-  let submittedAfterTeardown = false;
-  const cancelledSubmission = warmupStartupScene({
-    assetsReady: () => true,
-    waitForAssets: () => Promise.resolve(),
-    useFallback: () => {},
-    compile: () => { submittedAfterTeardown = true; },
+  let builtAfterTeardown = false;
+  hidden = true;
+  const cancelledFallback = warmupStartupScene({
+    assetsReady: () => false,
+    waitForAssets: () => Promise.reject(new Error('offline')),
+    useFallback: () => { builtAfterTeardown = true; },
     signal: teardownAfterPaint.signal,
   });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(frames.size, 0, 'asset failure in a hidden tab waits before building fallback geometry');
+  hidden = false;
+  document.dispatchEvent(new window.Event('visibilitychange'));
   tick();
   tick();
   // Disposal can run in the same task that completes the paint boundary,
   // before the warmup promise's continuation gets its turn.
   teardownAfterPaint.abort();
-  assert.equal(await cancelledSubmission, false);
-  assert.equal(submittedAfterTeardown, false, 'a completed paint never authorizes work against a disposed renderer');
+  assert.equal(await cancelledFallback, false);
+  assert.equal(builtAfterTeardown, false, 'a completed paint never authorizes fallback construction after disposal');
   assert.equal(frames.size, 0);
-  // Shader/asset timing cases need no visual scheduler; only the scheduling
+  // Asset timing cases need no visual scheduler; only the scheduling
   // tests above install one in this otherwise headless DOM.
   delete /** @type {any} */ (window).requestAnimationFrame;
   delete /** @type {any} */ (window).cancelAnimationFrame;
@@ -65,20 +69,19 @@ const assert = require('node:assert/strict');
   let assetsReady = false;
   let finishAssets = () => {};
   let fallbackCalls = 0;
-  let compileCalls = 0;
+  let preparationFinished = false;
   const pendingAssets = new Promise(resolve => { finishAssets = () => { assetsReady = true; resolve(undefined); }; });
   const preparation = warmupStartupScene({
     assetsReady: () => assetsReady,
     waitForAssets: () => pendingAssets,
     useFallback: () => { fallbackCalls++; assetsReady = true; },
-    compile: () => { compileCalls++; },
   });
+  void preparation.then(() => { preparationFinished = true; });
   await Promise.resolve();
-  assert.equal(compileCalls, 0, 'shaders wait for visible/collidable assets');
+  assert.equal(preparationFinished, false, 'readiness waits for visible/collidable assets');
   finishAssets();
   assert.equal(await preparation, true);
   assert.equal(fallbackCalls, 0);
-  assert.equal(compileCalls, 1);
 
   assetsReady = false;
   const fallbackReady = await warmupStartupScene({
@@ -98,33 +101,17 @@ const assert = require('node:assert/strict');
   });
   assert.equal(fallbackCalls, 2, 'failed asset request also selects the fallback');
 
-  // Shader submission must not own a deadline or completion poll. In r184 an
-  // outstanding compileAsync poll could outlive renderer.dispose() on context
-  // loss; readiness now returns immediately after the one-shot submission.
-  const realSetTimeout = globalThis.setTimeout;
-  let shaderTimers = 0;
-  globalThis.setTimeout = /** @type {typeof setTimeout} */ ((callback, delay, ...args) => {
-    shaderTimers++;
-    return realSetTimeout(callback, delay, ...args);
-  });
-  try {
-    assert.equal(await warmupStartupScene({
-      assetsReady: () => true,
-      waitForAssets: () => { throw new Error('already-ready assets must not reload'); },
-      useFallback: () => { throw new Error('ready assets need no fallback'); },
-      compile: () => { compileCalls++; },
-    }), true, 'shader submission adds no GPU completion wait');
-    assert.equal(shaderTimers, 0, 'shader preparation leaves no callback that can touch a disposed renderer');
-  } finally {
-    globalThis.setTimeout = realSetTimeout;
-  }
-  assert.equal(compileCalls, 2, 'each preparation submits once');
   assert.equal(await warmupStartupScene({
     assetsReady: () => true,
+    waitForAssets: () => { throw new Error('already-ready assets must not reload'); },
+    useFallback: () => { throw new Error('ready assets need no fallback'); },
+  }), true, 'already-prepared assets add no extra work');
+
+  await assert.rejects(warmupStartupScene({
+    assetsReady: () => false,
     waitForAssets: () => Promise.resolve(),
     useFallback: () => {},
-    compile: () => { throw new Error('driver declined warmup'); },
-  }), true, 'optional compile failures do not prevent ordinary rendering');
+  }), /forest could not finish preparing/, 'a broken fallback must never advertise a playable scene');
 
   const teardown = new AbortController();
   let lateAssets = () => {};
@@ -132,7 +119,6 @@ const assert = require('node:assert/strict');
     assetsReady: () => false,
     waitForAssets: () => new Promise(resolve => { lateAssets = () => resolve(undefined); }),
     useFallback: () => { throw new Error('teardown must not build fallback geometry'); },
-    compile: () => { throw new Error('teardown must not touch renderer'); },
     signal: teardown.signal,
   });
   await Promise.resolve();
@@ -141,14 +127,16 @@ const assert = require('node:assert/strict');
   lateAssets();
   await Promise.resolve();
   const immediateAbort = new AbortController();
+  let assetRequests = 0;
   const abortedBeforeAssets = warmupStartupScene({
     assetsReady: () => false,
-    waitForAssets: () => { throw new Error('cancelled work must not begin'); },
+    waitForAssets: () => { assetRequests++; return Promise.resolve(); },
     useFallback: () => { throw new Error('cancelled fallback must not begin'); },
     signal: immediateAbort.signal,
   });
   immediateAbort.abort();
   assert.equal(await abortedBeforeAssets, false);
+  assert.equal(assetRequests, 0, 'cancelled asset work must not begin');
   env.teardown();
-  console.log('Startup paints first, waits for assets, submits shaders without polling, and cancels safely.');
+  console.log('Startup paints first, waits for assets, bounds fallback recovery, and cancels safely.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

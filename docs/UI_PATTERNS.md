@@ -38,11 +38,12 @@ difficulty or action on its own.
   animation loop. Report actual loading/building/warming/ready milestones, not
   simulated percentages or a minimum loading duration.
 - Required forest assets use the existing six-second fallback with identical
-  placements. On devices with `KHR_parallel_shader_compile`, submit the existing
-  scene's shaders once with `renderer.compile()` after a paint. This is early
-  submission, not a claim that every GPU upload or later shadow variant is ready.
-  Three r184's `compileAsync()` has an internal polling timer that cannot be
-  cancelled on teardown; do not race that timer with an application timeout.
+  placements. “Ready” describes the scene and its required assets; GPU uploads
+  and shader compilation use the normal renderer path. An extra precompile pass
+  increased early-frame stalls in two rendering comparisons, so do not add one
+  without new startup measurements and safe teardown handling. Three r184's
+  `compileAsync()` also owns an internal polling timer that cannot be cancelled
+  on teardown; an application timeout does not cancel that work.
 - Welcome stays silent. The sound preference can change without downloading or
   playing the track; Play starts the existing music and effects in its gesture.
   Honor stored mute even before scene setup, and stop both audio systems on failure.
