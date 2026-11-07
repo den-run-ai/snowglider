@@ -27,7 +27,9 @@
 .start-dialog a { color: #74d9ff; text-decoration: underline; }
 .start-heading { text-align: center; margin-bottom: 16px; }
 .start-visual { position: relative; height: 140px; margin-bottom: 14px; overflow: hidden; border-radius: 11px; background: #bbdfe8; contain: paint; }
-.start-visual svg { position: absolute; bottom: 0; left: 0; display: block; width: 100%; height: auto; }
+/* Fit the viewBox inside the fixed-height band so narrow portrait strips keep
+   the whole rider. SVG's default aspect ratio centers the scene without crops. */
+.start-visual svg { position: absolute; bottom: 0; left: 0; display: block; width: 100%; height: 100%; }
 .start-visual-caption { position: absolute; left: 16px; bottom: 14px; color: #173b4b; font: 700 12px/1.3 Arial, sans-serif; }
 #gameTitle { margin: 0 0 6px; font-size: 32px; letter-spacing: -1px; animation: none; text-shadow: none; }
 #gameTitle > span { display: inline-block; margin-left: 8px; color: #80dbd0; font-size: 25px; vertical-align: 2px; }

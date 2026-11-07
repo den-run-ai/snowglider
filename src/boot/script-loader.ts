@@ -183,7 +183,14 @@ import { waitForStartupPaint } from './startup-warmup.js';
       })
       .catch((error) => {
         console.error("Failed to load or initialize game scripts:", error);
-        setStartupStatus('error', error);
+        // This single-flight attempt reset old status to loading before it
+        // began. A context-loss teardown during its import/warmup is terminal;
+        // retain that reason when the disposed preparation subsequently rejects.
+        // Other status errors must not mask this attempt's actual rejection.
+        const failure = getStartupStatus();
+        if (failure.stage !== 'error' || failure.reason !== 'context-lost') {
+          setStartupStatus('error', error);
+        }
       });
   }
 
