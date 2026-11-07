@@ -28,6 +28,30 @@ difficulty or action on its own.
   must not hold up local play. After a tier navigation, retry sound on the next
   gameplay gesture because browser activation does not carry across documents.
 
+## Welcome artwork and preparation
+
+- The static inline SVG mountain and snowman need no external assets or extra renderer.
+  Keep animation on the small HTML loading indicator: moving SVG groups caused
+  startup driver waits in the phone diagnostic, even with transform/opacity-only
+  animation. Pause the indicator when hidden and disable it with
+  `prefers-reduced-motion`; it stops when loading finishes. Keep controls visible
+  on short phones.
+- Paint the menu before building the existing game scene. Share one preparation
+  promise with early Start requests; never warm up by running physics or a second
+  animation loop. Report actual loading/building/warming/ready milestones, not
+  simulated percentages or a minimum loading duration.
+- Required forest assets use the existing six-second fallback with identical
+  placements. “Ready” describes the scene and its required assets; GPU uploads
+  and shader compilation use the normal renderer path. Extra shader warmup needs
+  device startup measurements and safe teardown handling. Three r184's
+  `compileAsync()` also owns an internal polling timer that cannot be cancelled
+  on teardown; an application timeout does not cancel that work.
+- Welcome stays silent. The sound preference can change without downloading or
+  playing the track; Play starts the existing music and effects in its gesture.
+  Honor stored mute even before scene setup, and stop both audio systems on failure.
+- A background startup error stays inline so the menu remains usable. An attempted
+  Start opens recovery. Context loss after play begins retains the recovery modal.
+
 ## Offline, account and sharing
 
 - Offline play is always discoverable. Explain that the game must finish loading

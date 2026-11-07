@@ -11,6 +11,19 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ---
 
+## Welcome screen — 2026-11-06
+
+- Add static inline alpine artwork, a small loading indicator with reduced-motion
+  support, actual startup status, and a sound preference visible before Play. No video,
+  image download, animation library, or extra WebGL scene is needed.
+- Paint onboarding before scene setup and prepare the existing forest in the
+  background. Early Play waits for the same preparation; gameplay and its clock
+  remain stopped. Keep shader compilation on the normal renderer path.
+- Keep background startup failures inline and preserve explicit recovery. Respect
+  saved mute on early Play, allow unmuting a run that began silent, and stop music
+  and procedural effects if loading fails. Explicit sound choices survive storage
+  write failure.
+
 ## 1.0.1 — 2026-10-22
 
 - Preserve faster personal bests and their world provenance when optional analytics

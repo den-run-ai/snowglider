@@ -48,7 +48,8 @@ test.describe('real WebGL context loss', () => {
       }
       if (phase === 'forest') {
         await page.getByRole('button', { name: 'Start Game', exact: true }).click();
-        await expect(page.getByText('Loading forest...', { exact: true })).toBeVisible();
+        await expect(page.locator('#startLoadingStatus')).toHaveAttribute('data-stage', 'warming');
+        await expect(page.locator('#startGameButton')).toHaveAttribute('aria-busy', 'true');
       }
       // Keep original references: disposal intentionally removes every window
       // handle. Check the retained real state and callbacks rather than reading
@@ -122,6 +123,11 @@ test.describe('real WebGL context loss', () => {
       if (phase === 'loading') {
         expect(await probe.evaluate((p) => p.phaseAtLoss.loading)).toBe(true);
         expect(await probe.evaluate((p) => p.phaseAtLoss.active)).toBe(false);
+      }
+      if (phase === 'menu') {
+        await expect(page.locator('#startLoadingStatus')).toHaveAttribute('data-stage', 'error');
+        await expect(page.locator('#fatalErrorOverlay')).toHaveCount(0);
+        await page.getByRole('button', { name: 'Loading help', exact: true }).click();
       }
       await expect(page.locator('#fatalErrorOverlay')).toBeVisible();
       await expect(page.locator('#fatalErrorTitle')).toHaveText('Graphics interrupted');
