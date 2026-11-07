@@ -95,7 +95,31 @@ async function expectWelcomeArt(page: Page): Promise<void> {
   }
   const skier = hero.locator('#welcomeSkier');
   await expect(skier, 'the welcome artwork must include the skiing snowman').toBeVisible();
-  const character = (await skier.boundingBox())!;
+  const character = await skier.evaluate((group) => {
+    // Engines inflate a rotated group's aggregate rectangle differently. Union
+    // the individual painted shapes so empty corners cannot look like clipping.
+    const shapes = [...group.querySelectorAll('*')]
+      .filter((el): el is SVGGeometryElement => el instanceof SVGGeometryElement);
+    const points = shapes.flatMap((shape) => {
+      const box = shape.getBBox();
+      const style = getComputedStyle(shape);
+      const stroke = style.stroke === 'none' ? 0 : parseFloat(style.strokeWidth) / 2;
+      const transform = shape.getScreenCTM()!;
+      return [
+        [box.x - stroke, box.y - stroke],
+        [box.x + box.width + stroke, box.y - stroke],
+        [box.x - stroke, box.y + box.height + stroke],
+        [box.x + box.width + stroke, box.y + box.height + stroke],
+      ].map(([x, y]) => new DOMPoint(x, y).matrixTransform(transform));
+    });
+    const x = Math.min(...points.map((point) => point.x));
+    const y = Math.min(...points.map((point) => point.y));
+    return {
+      x, y,
+      width: Math.max(...points.map((point) => point.x)) - x,
+      height: Math.max(...points.map((point) => point.y)) - y,
+    };
+  });
   const foreground = (await hero.locator('.welcome-snowman').boundingBox())!;
   const viewport = page.viewportSize()!;
   // Assert the actual drawing, not merely its SVG element: slice can leave the
