@@ -1,4 +1,4 @@
-name: Onboarding startup diagnostics
+name: WebKit blocked-storage startup comparison
 
 on:
   push:
@@ -8,23 +8,30 @@ permissions:
   contents: read
 
 jobs:
-  profile:
-    name: Phone startup CPU and frame evidence
+  compare:
+    name: BASE and candidate WebKit startup (five repeats each)
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.61.0-noble
     timeout-minutes: 15
     steps:
-      - name: Checkout diagnostic harness
+      - name: Checkout diagnostic configuration
         uses: actions/checkout@v6
         with:
           path: harness
           persist-credentials: false
 
-      - name: Checkout assets-only application
+      - name: Checkout exact BASE runtime and tests
         uses: actions/checkout@v6
         with:
-          ref: b6eb35b62b39fe8efd8fa888fe1cc5a07c0fdfd3
+          ref: 57dd378e74d5cecfa692c6b9d4771e44549f998b
+          path: base
+          persist-credentials: false
+
+      - name: Checkout exact candidate runtime and tests
+        uses: actions/checkout@v6
+        with:
+          ref: 6f5f1095ec6f8a668bdc3461b4728c4dcf320162
           path: candidate
           persist-credentials: false
 
@@ -37,30 +44,44 @@ jobs:
         working-directory: harness
         run: npm ci
 
-      - name: Link application dependencies
+      - name: Verify unchanged test and dependency inputs, then link dependencies
         run: |
+          cmp base/package-lock.json candidate/package-lock.json
+          cmp harness/package-lock.json candidate/package-lock.json
+          cmp base/tests/e2e/start-replay.spec.ts candidate/tests/e2e/start-replay.spec.ts
+          ln -s "$GITHUB_WORKSPACE/harness/node_modules" "$GITHUB_WORKSPACE/base/node_modules"
           ln -s "$GITHUB_WORKSPACE/harness/node_modules" "$GITHUB_WORKSPACE/candidate/node_modules"
+          mkdir -p webkit-startup-comparison
+          node -e 'require("node:fs").writeFileSync("webkit-startup-comparison/revisions.json", JSON.stringify({base:"57dd378e74d5cecfa692c6b9d4771e44549f998b",candidate:"6f5f1095ec6f8a668bdc3461b4728c4dcf320162",browser:"webkit",repeats:5,workers:1,retries:0,trace:"on",test:"tests/e2e/start-replay.spec.ts",grep:"blocked storage"},null,2))'
 
-      - name: Typecheck diagnostic harness
+      - name: Typecheck diagnostic configuration
         working-directory: harness
         run: npm run typecheck:e2e
 
-      - name: Profile assets-only application with static welcome art
+      - name: Run BASE blocked-storage case five times
         working-directory: harness
         env:
           CI: true
           PLAYWRIGHT_FORCE_ASYNC_LOADER: '1'
-          STARTUP_PROFILE_VARIANT: static-welcome
-          RENDER_APP_DIR: ${{ github.workspace }}/candidate
-          RENDER_OUTPUT_DIR: ${{ github.workspace }}/startup-profile/candidate
-          RENDER_COMMIT: b6eb35b62b39fe8efd8fa888fe1cc5a07c0fdfd3
+          STARTUP_PROFILE_APP_DIR: ${{ github.workspace }}/base
+          STARTUP_PROFILE_OUTPUT_DIR: ${{ github.workspace }}/webkit-startup-comparison/base
         run: npx playwright test -c playwright.startup-profile.config.ts
 
-      - name: Upload startup profiles
+      - name: Run candidate blocked-storage case five times
+        if: ${{ !cancelled() }}
+        working-directory: harness
+        env:
+          CI: true
+          PLAYWRIGHT_FORCE_ASYNC_LOADER: '1'
+          STARTUP_PROFILE_APP_DIR: ${{ github.workspace }}/candidate
+          STARTUP_PROFILE_OUTPUT_DIR: ${{ github.workspace }}/webkit-startup-comparison/candidate
+        run: npx playwright test -c playwright.startup-profile.config.ts
+
+      - name: Upload full first-attempt traces and comparison reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: startup-profile-${{ github.run_id }}
-          path: startup-profile/
+          name: webkit-startup-comparison-${{ github.run_id }}
+          path: webkit-startup-comparison/
           if-no-files-found: error
           retention-days: 7
