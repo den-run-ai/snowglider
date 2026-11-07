@@ -65,7 +65,7 @@ async function expectWelcomeArt(page: Page): Promise<void> {
   await expect(hero).toBeVisible();
   await expect(hero, 'decorative artwork must not contain a text overlay').toHaveText('');
   const art = (await hero.boundingBox())!;
-  const scene = await hero.locator('svg').evaluate((el) => {
+  const scene = await hero.locator('.welcome-landscape').evaluate((el) => {
     const svg = el as SVGSVGElement;
     const transform = svg.getScreenCTM()!;
     const { x, y, width, height } = svg.viewBox.baseVal;
@@ -86,20 +86,46 @@ async function expectWelcomeArt(page: Page): Promise<void> {
     expect(bounds.right, `${label} covers the hero's right edge`).toBeGreaterThanOrEqual(art.x + art.width - 1);
     expect(bounds.bottom, `${label} covers the hero's bottom edge`).toBeGreaterThanOrEqual(art.y + art.height - 1);
   }
-  const sun = (await hero.locator('circle').boundingBox())!;
+  const sun = (await hero.locator('.welcome-landscape > circle').boundingBox())!;
   // The narrow portrait badge may omit the sun horizontally. In wide banners,
   // keep the whole disk: a centered vertical crop cut it off on short screens.
   if (sun.x + sun.width > art.x && sun.x < art.x + art.width) {
     expect(sun.y, 'the panorama must not crop the top of the sun').toBeGreaterThanOrEqual(art.y - 1);
     expect(sun.y + sun.height, 'the panorama must not crop the bottom of the sun').toBeLessThanOrEqual(art.y + art.height + 1);
   }
-  for (const selector of ['#gameTitle', '#gameDescription', '#startLoadingStatus']) {
+  const skier = hero.locator('#welcomeSkier');
+  await expect(skier, 'the welcome artwork must include the skiing snowman').toBeVisible();
+  const character = (await skier.boundingBox())!;
+  const foreground = (await hero.locator('.welcome-snowman').boundingBox())!;
+  const viewport = page.viewportSize()!;
+  // Assert the actual drawing, not merely its SVG element: slice can leave the
+  // element visible while cropping off the hat, skis, or the entire snowman.
+  for (const [label, bounds] of [
+    ['artwork', art], ['foreground SVG', foreground],
+    ['screen', { x: 0, y: 0, ...viewport }],
+  ] as const) {
+    expect(character.x, `snowman fits inside the ${label}'s left edge`).toBeGreaterThanOrEqual(bounds.x - 1);
+    expect(character.y, `snowman fits inside the ${label}'s top edge`).toBeGreaterThanOrEqual(bounds.y - 1);
+    expect(character.x + character.width, `snowman fits inside the ${label}'s right edge`).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+    expect(character.y + character.height, `snowman fits inside the ${label}'s bottom edge`).toBeLessThanOrEqual(bounds.y + bounds.height + 1);
+  }
+  // The landscape badge is deliberately compact, but a tiny speck in a full
+  // phone banner must not satisfy the character-presence regression.
+  expect(character.height, 'snowman remains recognizable').toBeGreaterThanOrEqual(Math.min(120, art.height * 0.7));
+  expect(character.width, 'skis and arms remain recognizable').toBeGreaterThanOrEqual(Math.min(96, Math.min(art.width, art.height) * 0.65));
+  await expect(page.locator('#gameIntro')).toHaveText('A cheerful snowman on skis shredding mountain snow powder ⛄️⛷️🏔️');
+  if (viewport.height > viewport.width || viewport.height > 500) {
+    await expect(page.locator('#gameIntro'), 'the original intro is visible outside compact landscape').toBeVisible();
+  }
+  for (const selector of ['#gameTitle', '#gameIntro', '#gameDescription', '#startLoadingStatus']) {
     const copy = page.locator(selector);
     if (!(await copy.isVisible())) continue;
     const box = (await copy.boundingBox())!;
     const overlapWidth = Math.min(art.x + art.width, box.x + box.width) - Math.max(art.x, box.x);
     const overlapHeight = Math.min(art.y + art.height, box.y + box.height) - Math.max(art.y, box.y);
     expect(overlapWidth <= 1 || overlapHeight <= 1, `${selector} must not overlap the artwork`).toBe(true);
+    expect(await copy.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+      `${selector} must wrap without overflowing horizontally`).toBe(true);
   }
 }
 
@@ -154,7 +180,7 @@ test('welcome warms one game silently, remembers sound, and honors reduced motio
   expect(mediaRequests.get(page), 'reload must preserve the silent welcome screen').toEqual([]);
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const decoration of ['.start-visual svg', '.startup-indicator']) {
+  for (const decoration of ['.welcome-landscape', '.welcome-snowman', '.startup-indicator']) {
     await expect(page.locator(decoration)).toHaveCSS('animation-name', 'none');
   }
 });
@@ -193,6 +219,8 @@ test('first-load artwork and menu controls fit every viewport without overlappin
     await expect(page.locator('#startSignInHint')).toBeVisible();
     for (const viewport of [
       { width: 320, height: 568 }, { width: 568, height: 320 },
+      // iPhone 13 Pro Max and shorter Safari content areas with browser chrome.
+      { width: 428, height: 780 }, { width: 390, height: 664 },
       { width: 600, height: 800 }, { width: 800, height: 700 },
     ]) {
       await resizeAndSettle(page, viewport);
