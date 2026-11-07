@@ -11,6 +11,17 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ---
 
+## Ski controls and replay feedback — 2026-11-06
+
+- Reset ski stance, tuck, flip and spin presentation immediately on replay, so a
+  previous run's technique cannot leak into the next run or its camera heading.
+- Keep cancelled touch gestures neutral after reset, focus loss or tab hiding;
+  a fresh touch starts steering again. Remove camera touch listeners on teardown.
+- Make slope feedback settle consistently across display refresh rates, classify
+  steep first samples correctly, and clear the previous run's slope on replay.
+- Preserve physics tuning, control bindings, courses and score version 3. Add
+  regressions for input ownership, technique resets and refresh-rate consistency.
+
 ## Welcome screen — 2026-11-06
 
 - Add static inline alpine artwork, a small loading indicator with reduced-motion

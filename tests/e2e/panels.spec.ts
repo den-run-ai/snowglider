@@ -344,3 +344,41 @@ test('expanded guest account leaves Stats scrollable above the camera on narrow 
     }
   }
 });
+
+test('slope feedback starts in the correct band and resets with the existing scene', async ({ page, hasTouch }, testInfo) => {
+  test.skip(!['chromium', 'Mobile Safari'].includes(testInfo.project.name), 'desktop and iPhone HUD evidence');
+  test.setTimeout(120_000);
+  await openPausedGame(page, true);
+  await setExpanded(page, '#toggleStats', true, hasTouch);
+
+  // Controlled readout fixtures, over the verified real EZ-tree player scene.
+  // Drive the production reset seam; do not reset the HUD helper independently.
+  const showSlope = async (slope: number): Promise<void> => {
+    await page.evaluate(async (slope) => {
+      const path = '/src/ui/hud.ts';
+      const { updateStatsHud } = await import(/* @vite-ignore */ path) as typeof import('../../src/ui/hud.js');
+      const result: import('../../src/snowman.js').UpdateResult = {
+        isInAir: false, verticalVelocity: 0, lastTerrainHeight: 20, airTime: 0,
+        jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 0,
+        currentSpeed: 12, technique: 'snowplow', justLanded: false, landingForce: 0,
+        landingQuality: null, airScoreDelta: 0, trickName: null, obstacleCleared: null,
+        obstaclesClearedCount: 0,
+      };
+      updateStatsHud(result, (window as GameWindow).pos!, false, slope, 1 / 60);
+    }, slope);
+  };
+  await activate(page.locator('#resetBtn'), hasTouch);
+  await showSlope(0.9);
+  await expect(page.locator('#slopeValue')).toHaveText('42° (90%) ◆ Black');
+  await expect(page.locator('#groundStatus')).toHaveText('🍕 Snowplow');
+  await page.locator('#groundStatus').scrollIntoViewIfNeeded();
+  await expectInsideViewport(page, '#slopeValue');
+  await testInfo.attach('hud-controlled-steep-grade', { body: await page.screenshot(), contentType: 'image/png' });
+
+  await activate(page.locator('#resetBtn'), hasTouch);
+  await showSlope(0.1);
+  await expect(page.locator('#slopeValue')).toHaveText('6° (10%) ● Green');
+  await expect(page.locator('#toggleStats')).toHaveAttribute('aria-expanded', 'true');
+  await expectInsideViewport(page, '#slopeValue');
+  await testInfo.attach('hud-controlled-grade-after-reset', { body: await page.screenshot(), contentType: 'image/png' });
+});

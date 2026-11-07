@@ -33,7 +33,7 @@ and touch are fully interchangeable ([`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-i
 | **↓ / S** | Tap bottom of screen | **Brake — snowplow / "pizza".** A hold ramp: a tap only trims speed, a sustained hold deepens the wedge to a full stop — but only on green/blue pitches; a black-diamond slope is too steep to stop (only slows). Clamped so it never reverses uphill | [`PHYSICS.md` §3.4](PHYSICS.md#34-snowplow-brake-stop-slow-down-and-steep-slope-failure) |
 | **Space** | Tap center of screen | **Jump.** A straight pop when not steering; a *player-initiated* jump is graded on landing and can earn a capped speed boost. **Not available on ● Bunny** — see the per-tier table below | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air), [`MEANINGFUL_JUMPS.md`](MEANINGFUL_JUMPS.md) |
 | **Space + ← / →** | (center + side) | **Hop turn.** A quick grounded edge-set pivot for tight, steep terrain: snaps the heading and scrubs speed with a small pop. Rides the jump verb, so also **not available on ● Bunny** | [`PHYSICS.md` §4](PHYSICS.md#4-jumps--air) (hop turn) |
-| **V** | — | **Toggle camera view** (follow ↔ alternate) | [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input) |
+| **V** | Next view button | **Cycle camera view:** Auto → Follow → Orbit → First Person → Cameraman → Drone | [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-input) |
 | *(no input)* | — | **Idle wander** — a gentle auto-turn biased back toward center keeps an unattended snowman alive. No-input coasting is the **deterministic baseline** and must stay byte-identical | [`PHYSICS.md` §3.5](PHYSICS.md#35-automatic-turning-idle-wander), §6 |
 
 > The on-screen Reset and Restart buttons (and their touch handlers) call the

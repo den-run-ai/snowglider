@@ -505,11 +505,12 @@ function setupTouchControls(signal?: AbortSignal) {
       event.preventDefault();
     }
 
-    // Re-resolve ownership for each moved touch: entering a new region hands the
-    // touch to that control, and applyTouchOwnership releases the one it left.
+    // Re-resolve only touches acquired by touchstart. A blur, hidden transition or
+    // run reset cancels ownership; moving the still-held finger must not revive it.
+    // Entering a new region hands a live gesture to that control and releases the old.
     for (let i = 0; i < event.changedTouches.length; i++) {
       const touch = event.changedTouches[i];
-      if (!touch) continue;
+      if (!touch || !touchState.touches[touch.identifier]) continue;
       touchState.touches[touch.identifier] = {
         x: touch.clientX,
         y: touch.clientY
@@ -767,7 +768,7 @@ function setupButtonTouchHandlers(signal?: AbortSignal) {
       if (typeof window.toggleCameraView === 'function') {
         window.toggleCameraView();
       }
-    }, { passive: false });
+    }, touchOpts);
   }
   
   // For the restart button, we need to set up an observer since it's dynamically created

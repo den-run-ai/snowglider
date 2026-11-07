@@ -66,6 +66,7 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
   const D = await import('../src/difficulty.ts');
   const THREE = await import('three');
   const { createSnowman } = await import('../src/snowman/model.ts');
+  const { applySnowmanPose } = await import('../src/snowman/pose.ts');
   const AV = await import('../src/avalanche.ts');
   const update = Snowman.updateSnowman;
   const EXPERT_SKI = D.getDifficultyConfig('expert').ski;
@@ -471,12 +472,93 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
     snowman.userData.trickGrabTime = 0.4;
     snowman.userData.trickGrabArmed = true;
     snowman.userData.trickGrabbing = true;
+    snowman.userData.trickSpinApplied = 270;
     const pos = { x: 0, y: 0, z: 0 };
     const velocity = { x: 0, z: 0 };
     Snowman.resetSnowman(snowman, pos, velocity, getTerrainHeight, { initialize() {} });
     assert(snowman.userData.trickSpin === 0 && snowman.userData.trickFlip === 0
       && snowman.userData.trickGrabTime === 0 && snowman.userData.trickGrabArmed === false
-      && snowman.userData.trickGrabbing === false, 'reset must clear all trick state');
+      && snowman.userData.trickGrabbing === false && snowman.userData.trickSpinApplied === 0,
+    'reset must clear all trick state');
+  });
+
+  function poseSnapshot(snowman) {
+    const ud = snowman.userData;
+    return {
+      rotation: [snowman.rotation.x, snowman.rotation.y, snowman.rotation.z],
+      height: snowman.scale.y,
+      leftSki: [ud.leftSki.position.x, ud.leftSki.rotation.y, ud.leftSki.rotation.z],
+      rightSki: [ud.rightSki.position.x, ud.rightSki.rotation.y, ud.rightSki.rotation.z],
+      flip: [ud.flipPivot.rotation.x, ud.flipPivot.rotation.z]
+    };
+  }
+
+  function poseForTechnique(snowman, technique) {
+    Object.assign(snowman.userData, {
+      plowCharge: 1, carveCharge: 1, trickSpin: technique === 'air' ? 270 : 0,
+      trickFlip: technique === 'air' ? 180 : 0, trickGrabbing: technique === 'air'
+    });
+    for (let i = 0; i < 30; i++) {
+      applySnowmanPose(snowman, {
+        delta: 1 / 60, pos: { x: 0, y: 10, z: -50 }, velocity: { x: 4, z: -16 },
+        isInAir: technique === 'air', verticalVelocity: 4, currentSpeed: 16,
+        technique, steering: 1, getTerrainHeight
+      });
+    }
+  }
+
+  runTest('reset immediately restores the stance after braking, carving, tuck and freestyle', () => {
+    for (const technique of ['snowplow', 'carve', 'tuck', 'air']) {
+      const snowman = createSnowman(new THREE.Scene());
+      const neutral = poseSnapshot(snowman);
+      neutral.rotation = [0, Math.PI, 0];
+      poseForTechnique(snowman, technique);
+      assert(JSON.stringify(poseSnapshot(snowman)) !== JSON.stringify(neutral),
+        `${technique} must first produce a non-neutral pose`);
+      const pos = { x: 0, y: 0, z: 0 }, velocity = { x: 0, z: 0 };
+      let cameraResets = 0;
+      Snowman.resetSnowman(snowman, pos, velocity, getTerrainHeight, {
+        initialize() {
+          cameraResets++;
+          assert(JSON.stringify(poseSnapshot(snowman)) === JSON.stringify(neutral),
+            `${technique} stance must be neutral before the reset camera is initialized`);
+        }
+      });
+      assert(cameraResets === 1, 'reset still initializes the camera once');
+      assert(snowman.userData.technique === 'glide', 'restart must not advertise the previous technique');
+    }
+  });
+
+  runTest('a reset after freestyle matches a fresh run in both trajectory and pose', () => {
+    const fresh = createSnowman(new THREE.Scene());
+    const restarted = createSnowman(new THREE.Scene());
+    poseForTechnique(restarted, 'snowplow');
+    poseForTechnique(restarted, 'air');
+    function run(snowman) {
+      let seed = 15;
+      Math.random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+      const pos = { x: 0, y: 0, z: 0 }, velocity = { x: 0, z: 0 };
+      const lastTerrainHeight = Snowman.resetSnowman(snowman, pos, velocity, getTerrainHeight, { initialize() {} });
+      let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight,
+        airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+      const trajectory = [], poses = [];
+      for (let i = 0; i < 180; i++) {
+        const controls = i === 15 ? ctrl({ jump: true }) : i > 15 && i < 35 ? ctrl({ right: true }) : NONE;
+        st = update(snowman, 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity,
+          st.lastTerrainHeight, st.airTime, st.jumpCooldown, controls,
+          st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3,
+          getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, () => {},
+          [], undefined, EXPERT_SKI);
+        trajectory.push({ ...pos, vx: velocity.x, vz: velocity.z, ...st });
+        poses.push(poseSnapshot(snowman));
+      }
+      return { trajectory, poses };
+    }
+    const a = run(fresh), b = run(restarted);
+    assert(JSON.stringify(a.trajectory) === JSON.stringify(b.trajectory),
+      'reset must retain the exact fresh-run physics trajectory and landing/trick results');
+    assert(JSON.stringify(a.poses) === JSON.stringify(b.poses),
+      'a previous air phase must not leak into the new run’s stance or spin');
   });
 
   // ---------------------------------------------------------------------------

@@ -364,7 +364,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     // the terrain steepness under the player: gradient magnitude (rise/run = tan θ).
     const grad = Snow.getTerrainGradient(pos.x, pos.z);
     const slopeRatio = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
-    updateStatsHud(result, pos, player.isInAir, slopeRatio);
+    updateStatsHud(result, pos, player.isInAir, slopeRatio, frameDelta);
     // Keep the selected-tier badge in sync with the run's live difficulty (cheap:
     // only touches the DOM when the tier actually changes).
     updateLevelHud(state.difficulty);

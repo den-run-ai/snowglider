@@ -16,7 +16,7 @@ import { rewindRunStreams, isPracticeRun, getRunStamp, drawRunNonce } from '../r
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
-import { updateTimerDisplay } from '../ui/hud.js';
+import { resetStatsHud, updateTimerDisplay } from '../ui/hud.js';
 import { setupCollapsiblePanel, setPanelCollapsed, isCompactPanelViewport } from '../ui/collapsible-panel.js';
 import { announceGameStatus, closeOverlayFocus, focusGameCanvas } from '../ui/accessibility.js';
 import { usesOrbitControls, type CameraMode } from '../camera.js';
@@ -129,6 +129,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     // visible camera/snowman jump) and into its first diagnostics step (a huge
     // maxSubstepStep false tunnel-risk sample). Must run after resetPlayer().
     resetLoopState();
+    resetStatsHud();
 
     // Reset the physics/frame-rate telemetry: resetPlayer() above teleported the player
     // back to spawn (z=-15), so without this the first frame of the new run would read as
