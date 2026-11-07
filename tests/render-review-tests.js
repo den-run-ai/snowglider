@@ -46,7 +46,7 @@ async function main() {
     const same = await compareRenderReview(options);
     assert.equal(same.mode, 'review-only');
     assert.equal(same.differences, 0);
-    assert.equal(same.frames.length, 16);
+    assert.equal(same.frames.length, REVIEW_DEVICES.length * REVIEW_PHASES.length);
     assert.equal(same.approvedBaseline, null);
     assert.match(await fs.readFile(path.join(out, 'index.html'), 'utf8'), /not an approved visual baseline/);
 

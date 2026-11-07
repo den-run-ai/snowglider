@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { getTerrainGradientUncached } from './mountains/terrain.js';
 import { seatCameraAboveTerrain } from './camera-terrain.js';
+import { chooseAutoView, previewAutoTerrain, type CameraTree, type CameraRock } from './camera-auto.js';
 
 /**
  * Camera viewpoint modes (issue #305, cinematic modes #315). Manual/auto third-person
@@ -78,7 +79,7 @@ const MANUAL_HOLD_FRAMES = 90;
 const AUTO_SPEED_ZOOM = 0.2;      // extra pull-back at top speed — more of the run ahead in shot
 const AUTO_SLOPE_ZOOM = 0.35;     // extra pull-back on the steepest (expert) fall lines
 const AUTO_AIR_ZOOM = 0.45;       // extra pull-back off a jump so the landing stays framed
-const AUTO_TURN_ZOOM_IN = 0.15;   // pull IN through tight, twisty (tree-line) turns
+const AUTO_TURN_ZOOM_OUT = 0.10;  // keep the turn exit visible during tight carves
 const AUTO_PORTRAIT_ZOOM = 0.3;   // pull back on tall/portrait screens for vertical context
 const AUTO_DANGER_ZOOM = 0.4;     // widen out when an avalanche is bearing down
 // Overhead-pitch terms (radians added to the follow pitch; + lifts the camera up/over so
@@ -231,6 +232,9 @@ export interface AutoFrameContext {
    * to the 60 fps step (1/60), which keeps headless tests and older callers byte-identical.
    */
   frameDt?: number;
+  /** Existing gameplay obstacle positions, read only for sightline selection. */
+  treePositions?: readonly CameraTree[];
+  rockPositions?: readonly CameraRock[];
 }
 
 /** Reusable vectors that carry smoothing state between frames. */
@@ -274,6 +278,8 @@ export class Camera {
   orbitPitch: number;      // vertical orbit offset (radians); 0 = default framing, + = more overhead
   zoom: number;            // MANUAL follow-distance multiplier (>1 pulls back, <1 moves in). Persisted.
   autoZoom: number;        // TRANSIENT situational multiplier Auto eases; never persisted into `zoom`
+  autoHeading: number | null; // eased BEHIND-travel heading, independent of model pose/tricks
+  autoYaw: number;           // transient clear-shoulder offset, never a manual preference
   autoPitch: number;       // TRANSIENT situational overhead pitch (radians) Auto eases; additive on orbitPitch
   lastTravelHeading: number | null; // previous frame's travel heading, for the Auto turn-rate signal
   manualHoldFrames: number;// frames left before auto/follow centering resumes after a manual nudge
@@ -334,6 +340,8 @@ export class Camera {
     this.zoom = 1;
     this.autoZoom = 1;
     this.autoPitch = 0;
+    this.autoHeading = null;
+    this.autoYaw = 0;
     this.lastTravelHeading = null;
     this.manualHoldFrames = 0;
     this.minZoom = 0.5;
@@ -402,7 +410,9 @@ export class Camera {
 
   /** Jump straight to a mode (used by the on-screen camera tray). Returns it. */
   setMode(mode: CameraMode): CameraMode {
+    const enteringAuto = mode === 'auto' && this.mode !== 'auto';
     this.mode = mode;
+    if (enteringAuto || mode !== 'auto') { this.autoHeading = null; this.autoYaw = 0; }
     // Auto re-frames from the live state, so just release any manual hold. Follow is
     // the classic behind-the-player chase, so entering it recenters the orbit (keeping
     // the player's manual zoom) rather than holding the previous side/front angle for
@@ -441,6 +451,8 @@ export class Camera {
     this.zoom = 1;
     this.autoZoom = 1;
     this.autoPitch = 0;
+    this.autoHeading = null;
+    this.autoYaw = 0;
     this.lastTravelHeading = null;
     this.manualHoldFrames = 0;
     this.resetCameramanPath();
@@ -567,14 +579,14 @@ export class Camera {
    *  - `slope`      — terrain gradient magnitude (rise/run); steep/expert lines pull back AND lift,
    *                   but only once actually skiing (gated on motion so a parked/slow snowman on the
    *                   steep spawn keeps the neutral framing).
-   *  - `turnRate`   — |travel-heading change| per frame; hard, twisty carves pull IN for tight framing.
+   *  - `turnRate`   — |travel-heading change| per frame; hard carves widen the view to keep the turn exit visible.
    *  - `aspect`     — camera aspect; tall/portrait screens pull back for vertical context.
    *  - `isInAir`    — a jump pulls back AND lifts so the landing zone stays framed.
    *  - `avalancheDistance` — nearer boulders widen the shot so the slide is visible.
    */
   autoFrameTargets(
     speed: number, slope: number, turnRate: number, aspect: number,
-    isInAir: boolean, avalancheDistance: number,
+    isInAir: boolean, avalancheDistance: number, terrainRelief = 0, obstaclePressure = 0,
   ): { zoom: number; pitch: number } {
     const speedFactor = clampNum(speed / this.speedThreshold, 0, 1);
     // Fade slope framing in with motion so a parked/slow snowman on the steep spawn keeps
@@ -592,11 +604,15 @@ export class Camera {
         + (isInAir ? AUTO_AIR_ZOOM : 0)
         + portraitFactor * AUTO_PORTRAIT_ZOOM
         + dangerFactor * AUTO_DANGER_ZOOM
-        - turnFactor * AUTO_TURN_ZOOM_IN,
+        + turnFactor * AUTO_TURN_ZOOM_OUT
+        + clampNum(terrainRelief, 0, 1) * 0.2
+        + clampNum(obstaclePressure, 0, 1) * 0.15,
       AUTO_MIN_AUTOZOOM, AUTO_MAX_AUTOZOOM,
     );
     const pitch = clampNum(
-      slopeFactor * AUTO_SLOPE_PITCH + (isInAir ? AUTO_AIR_PITCH : 0),
+      slopeFactor * AUTO_SLOPE_PITCH + (isInAir ? AUTO_AIR_PITCH : 0)
+        + clampNum(terrainRelief, 0, 1) * 0.18
+        + clampNum(obstaclePressure, 0, 1) * 0.15,
       0, AUTO_MAX_AUTOPITCH,
     );
     return { zoom, pitch };
@@ -609,14 +625,14 @@ export class Camera {
   // into the next run's spawn or into Follow/Orbit (codex review, PR #306). Called once per
   // third-person frame while Auto is on and no recent manual nudge is holding. `slope`,
   // `turnRate` and `aspect` are derived by `update()`; `ctx` carries the loop-only signals.
-  applyAutoFrame(currentSpeed: number, slope = 0, turnRate = 0, aspect = 1, ctx: AutoFrameContext = {}, dtFrames = cameraFrameUnits(ctx)): void {
+  applyAutoFrame(currentSpeed: number, slope = 0, turnRate = 0, aspect = 1, ctx: AutoFrameContext = {}, dtFrames = cameraFrameUnits(ctx), terrainRelief = 0, obstaclePressure = 0): void {
     const ease = dtFrames === 1 ? AUTO_FRAME_EASE : easeFor(AUTO_FRAME_EASE, dtFrames);
     this.orbitYaw += (0 - this.orbitYaw) * ease;
     this.orbitPitch += (0 - this.orbitPitch) * ease;
     const { zoom, pitch } = this.autoFrameTargets(
       currentSpeed, slope, turnRate, aspect,
       ctx.isInAir === true,
-      ctx.avalancheDistance === undefined ? Infinity : ctx.avalancheDistance,
+      ctx.avalancheDistance === undefined ? Infinity : ctx.avalancheDistance, terrainRelief, obstaclePressure,
     );
     this.autoZoom += (zoom - this.autoZoom) * ease;
     this.autoPitch += (pitch - this.autoPitch) * ease;
@@ -701,6 +717,13 @@ export class Camera {
    * velocity when moving (yaw-flip immune) and falls back to the model yaw when stopped.
    */
   entryOffset(distance: number, yaw: number, playerPosition: THREE.Vector3, velocity?: PlanarVelocity, context: AutoFrameContext = {}): THREE.Vector3 {
+    if (this.mode === 'auto') {
+      const speed = velocity ? Math.hypot(velocity.x, velocity.z) : 0;
+      if (this.autoHeading === null) {
+        this.autoHeading = velocity && speed > 1 ? Math.atan2(-velocity.x, -velocity.z) : yaw;
+      }
+      return this.followOffset(distance, this.autoHeading + this.autoYaw);
+    }
     if (!isCinematic(this.mode)) return this.followOffset(distance, yaw);
     const speed = velocity ? Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) : 0;
     const grad = getTerrainGradientUncached(playerPosition.x, playerPosition.z);
@@ -732,6 +755,8 @@ export class Camera {
     // steep/fast/airborne Auto run re-seats at the neutral view.
     this.autoZoom = 1;
     this.autoPitch = 0;
+    this.autoHeading = null;
+    this.autoYaw = 0;
     this.lastTravelHeading = null;
     // Clear the cameraman path so a restart never trails a stale point from the prior run.
     this.resetCameramanPath();
@@ -843,7 +868,7 @@ export class Camera {
     const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
 
     // Travel-heading turn rate for the Auto situational profile: how hard the line is
-    // curving this frame (tight tree-line carves pull the camera IN). Tracked every
+    // curving this frame (tight carves widen the view toward the exit). Tracked every
     // third-person frame — including during a manual hold — so the delta is current when
     // Auto resumes. Only meaningful while actually moving; a near-stop clears the memory
     // so the first heading after it doesn't read as a huge jump.
@@ -856,6 +881,25 @@ export class Camera {
       this.lastTravelHeading = heading;
     } else {
       this.lastTravelHeading = null;
+    }
+
+    // Auto follows actual travel, not ski pose yaw (which can flip on a lip or
+    // during a turn). Preserve the last heading at a near-stop and take the short
+    // angular path so crossing +/-PI never causes a full camera revolution.
+    let terrainPreview: ReturnType<typeof previewAutoTerrain> | null = null;
+    let viewChoice = { yaw: 0, pressure: 0 };
+    if (this.mode === 'auto') {
+      const behind = currentSpeed > 1 ? Math.atan2(-velocity.x, -velocity.z) : (this.autoHeading ?? playerRotation.y);
+      this.autoHeading = this.autoHeading === null ? behind
+        : this.autoHeading + wrapAngle(behind - this.autoHeading) * easeFor(0.07, dtFrames);
+      terrainPreview = previewAutoTerrain(playerPosition, velocity);
+      const d = (this.minDistance + Math.min(1, currentSpeed / this.speedThreshold) * (this.maxDistance - this.minDistance)) * this.zoom * this.autoZoom;
+      const pitch = clampNum(this.orbitPitch + this.autoPitch, this.minPitch, this.maxPitch);
+      if (currentSpeed > 1 || context.isInAir) {
+        viewChoice = chooseAutoView(playerPosition, this.autoHeading,
+          d * Math.cos(pitch), 8 + d * Math.sin(pitch), this.autoYaw,
+          context.treePositions, context.rockPositions);
+      }
     }
 
     // Per-mode view easing (runs once a recent manual nudge has expired):
@@ -875,8 +919,10 @@ export class Camera {
       // Terrain steepness under the player (gradient magnitude, rise/run ≈ tan θ) drives the
       // expert-terrain pull-back + overhead lift; the loop's context adds jump / avalanche.
       const grad = getTerrainGradientUncached(playerPosition.x, playerPosition.z);
-      const slope = Math.sqrt(grad.x * grad.x + grad.z * grad.z);
-      this.applyAutoFrame(currentSpeed, slope, turnRate, this.camera.aspect, context, easingFrames);
+      const slope = Math.max(Math.sqrt(grad.x * grad.x + grad.z * grad.z), terrainPreview?.slope ?? 0);
+      this.applyAutoFrame(currentSpeed, slope, turnRate, this.camera.aspect, context, easingFrames,
+        terrainPreview?.relief ?? 0, viewChoice.pressure);
+      this.autoYaw += (viewChoice.yaw - this.autoYaw) * easeFor(0.045, easingFrames);
     } else if (this.mode === 'follow') {
       const ease = easingFrames === 1 ? AUTO_FRAME_EASE : easeFor(AUTO_FRAME_EASE, easingFrames);
       this.orbitYaw += (0 - this.orbitYaw) * ease;
@@ -966,7 +1012,8 @@ export class Camera {
         this.smoothingVectors.targetPosition.copy(playerPosition).add(camOffset);
       }
     } else {
-      const camOffset = this.followOffset(dynamicDistance, playerRotation.y);
+      const yaw = this.mode === 'auto' ? (this.autoHeading ?? playerRotation.y) + this.autoYaw : playerRotation.y;
+      const camOffset = this.followOffset(dynamicDistance, yaw);
       this.smoothingVectors.targetPosition.copy(playerPosition).add(camOffset);
     }
     
@@ -992,20 +1039,37 @@ export class Camera {
     const desiredLookAt = this.smoothingVectors.desiredLookAt.copy(playerPosition);
     const speedMagnitude = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
     if (speedMagnitude > 1) {
-      const lookAheadFactor = Math.min(5, speedMagnitude * 0.3);
+      const lookAheadFactor = this.mode === 'auto'
+        ? Math.min(10, speedMagnitude * 0.38) : Math.min(5, speedMagnitude * 0.3);
       desiredLookAt.x += (velocity.x / speedMagnitude) * lookAheadFactor;
       desiredLookAt.z += (velocity.z / speedMagnitude) * lookAheadFactor;
+    }
+    if (this.mode === 'auto' && (currentSpeed > 1 || context.isInAir)) {
+      // Keep the body in frame while revealing the near landing/drop. The preview
+      // is deliberately blended and vertically bounded, so a cliff cannot pull
+      // the look target far below the skier or make the view lurch at a crest.
+      const terrainY = terrainPreview?.lookHeight ?? playerPosition.y;
+      desiredLookAt.y += 3 + clampNum((terrainY - playerPosition.y) * 0.18, -4, 3);
     }
     // Cameraman's look-at ease is dt-scaled like its other eases (codex review, PR #379);
     // every other mode keeps the exact 1.0 copy, so this stays byte-identical outside cameraman.
     let lookEase = 1.0;
     if (this.mode === 'cameraman') {
       lookEase = easeFor(CAMERAMAN_LOOK_EASE, dtFrames);
+    } else if (this.mode === 'auto') {
+      lookEase = easeFor(0.16, dtFrames);
     }
     this.smoothingVectors.lookAtPosition.lerp(desiredLookAt, lookEase);
     // Run after BOTH position and look-target smoothing: checking the intended
     // unsmoothed ray does not protect the ray that is actually rendered.
     seatCameraAboveTerrain(this.camera.position, this.smoothingVectors.lookAtPosition);
+    if (this.mode === 'auto') {
+      // A clear look-ahead ray alone does not guarantee the rider is visible over
+      // an intervening ridge. Protect the body sightline independently as well.
+      seatCameraAboveTerrain(this.camera.position, {
+        x: playerPosition.x, y: playerPosition.y + 4, z: playerPosition.z,
+      });
+    }
     this.camera.lookAt(this.smoothingVectors.lookAtPosition);
     
     // Save current position for next frame
