@@ -1,6 +1,6 @@
 import { type Locator, type Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { gotoGame, startGame, type GameWindow } from './helpers';
+import { gotoGame, mockFirebase, startGame, type GameWindow } from './helpers';
 
 const panels = [
   { container: '#controlsInfo', header: '#controlsHeader', toggle: '#toggleControls', content: 'controlsContent' },
@@ -291,8 +291,19 @@ test('compact panels share space and preserve an open panel through resize and r
   await expectHudLayout(page);
 });
 
-test('expanded guest account leaves Stats scrollable above the camera on narrow phones', async ({ page, hasTouch }) => {
+test('expanded guest account leaves Stats scrollable above the camera on narrow phones', async ({ page, hasTouch, baseURL }) => {
+  await mockFirebase(page, baseURL!);
   await openPausedGame(page);
+  // The layout fixture must not race a slow CDN's local-auth fallback or the
+  // initial signed-out update. Complete that update through the shared SDK mock
+  // before showing synthetic guest controls; game readiness does not await auth.
+  await page.waitForFunction(() => window.AuthModule?.isFirebaseAvailable?.().auth === true);
+  await page.evaluate(async () => {
+    const path = '/tests/mocks/firebase.mjs';
+    const fb = await import(/* @vite-ignore */ path) as { emitAuthState(user: null): void };
+    fb.emitAuthState(null);
+  });
+  await expect(page.locator('#profileChip')).toHaveAttribute('aria-label', 'Signed-in account');
   await resizeAndSettle(page, { width: 320, height: 568 });
   await setExpanded(page, '#toggleCamera', true, hasTouch);
   await activate(page.locator('[data-cam-mode="cameraman"]'), hasTouch);
