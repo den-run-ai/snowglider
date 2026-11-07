@@ -32,6 +32,7 @@ type FrameTiming = {
 type Recording = {
   timeOriginUnixMs: number;
   initNativeMs: number;
+  staticWelcomeStyleInjectedNativeMs: number | null;
   startClickNativeMs: number | null;
   startClickUnixMs: number | null;
   installed: boolean;
@@ -81,6 +82,8 @@ async function saveTrace(session: CDPSession, filename: string): Promise<TraceCo
 
 test('profile the real phone Start and the existing 8 + 12 spawn frames', async ({ page }, testInfo) => {
   const commit = process.env.RENDER_COMMIT;
+  const variant = process.env.STARTUP_PROFILE_VARIANT || 'original';
+  expect(['original', 'static-welcome']).toContain(variant);
   expect(commit, 'the runtime must be an exact revision').toMatch(/^[0-9a-f]{40}$/);
   const appDirectory = path.resolve(process.env.RENDER_APP_DIR || '.');
   expect(execFileSync('git', ['-C', appDirectory, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()).toBe(commit);
@@ -92,15 +95,36 @@ test('profile the real phone Start and the existing 8 + 12 spawn frames', async 
   // clock before that harness replaces performance.now with simulated RAF time.
   // The capture listener runs immediately before the real Start handler, after
   // prepareRenderScenario installs its clock; no application source is changed.
-  await page.addInitScript(() => {
+  await page.addInitScript(({ variant }) => {
     const w = window as unknown as ProfileWindow;
     const nativeNow = performance.now.bind(performance);
     const recording: Recording = {
       timeOriginUnixMs: performance.timeOrigin,
-      initNativeMs: nativeNow(), startClickNativeMs: null, startClickUnixMs: null,
+      initNativeMs: nativeNow(), staticWelcomeStyleInjectedNativeMs: null,
+      startClickNativeMs: null, startClickUnixMs: null,
       installed: false, frames: [], outsideFrameRenders: []
     };
     w.__startupProfile = recording;
+    if (variant === 'static-welcome') {
+      // Install before the first body paint, without changing runtime checkout,
+      // loader timing, SVG geometry, layout, or the loading-dot animation.
+      const installStyle = () => {
+        if (!document.documentElement) return false;
+        const style = document.createElement('style');
+        style.id = 'startup-profile-static-welcome';
+        style.textContent = '.welcome-rider, .welcome-powder { animation: none !important; }';
+        document.documentElement.append(style);
+        recording.staticWelcomeStyleInjectedNativeMs = nativeNow();
+        performance.mark('startup-profile-static-welcome-installed');
+        return true;
+      };
+      if (!installStyle()) {
+        const observer = new MutationObserver(() => {
+          if (installStyle()) observer.disconnect();
+        });
+        observer.observe(document, { childList: true });
+      }
+    }
     performance.mark('startup-profile-document-init');
     const onStart = (event: Event) => {
       if (!(event.target instanceof Element) || !event.target.closest('#startGameButton')) return;
@@ -155,7 +179,7 @@ test('profile the real phone Start and the existing 8 + 12 spawn frames', async 
       };
     };
     document.addEventListener('click', onStart, true);
-  });
+  }, { variant });
 
   const session = await page.context().newCDPSession(page);
   const traceCategories = [
@@ -174,6 +198,10 @@ test('profile the real phone Start and the existing 8 + 12 spawn frames', async 
     await enterRenderPhase(page, 'spawn');
     const metrics = await measureRenderPhase(page, 'spawn');
     const recording = await page.evaluate(() => (window as unknown as ProfileWindow).__startupProfile);
+    const welcomeAnimationNames = await page.evaluate(() => Array.from(
+      document.querySelectorAll('.welcome-rider, .welcome-powder'),
+      element => getComputedStyle(element).animationName
+    ));
     const measured = recording.frames.filter(frame => frame.phase === 'measured');
     const summarize = (key: 'callbackCpuMs' | 'renderMs' | 'nonRenderCpuMs' | 'finishMs' | 'synchronizedMs') => {
       const values = measured.map(frame => frame[key]).sort((a, b) => a - b);
@@ -191,9 +219,9 @@ test('profile the real phone Start and the existing 8 + 12 spawn frames', async 
     };
     // Save raw evidence before assertions so a failed capture is still useful.
     await fs.writeFile(`${prefix}.json`, JSON.stringify({
-      schema: 1, commit, harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+      schema: 1, commit, variant, harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
       seed: REVIEW_SEED, device: testInfo.project.name, repeat: testInfo.repeatEachIndex + 1,
-      viewport: page.viewportSize(), errors, metrics, summary, recording,
+      viewport: page.viewportSize(), errors, metrics, summary, recording, welcomeAnimationNames,
       method: {
         renderer: 'Chromium SwiftShader; service-time diagnostic, not hardware GPU FPS',
         path: 'Existing prepareRenderScenario normal Start; enterRenderPhase(spawn) settles 8 frames; measureRenderPhase(spawn) measures 12',
@@ -207,7 +235,12 @@ test('profile the real phone Start and the existing 8 + 12 spawn frames', async 
         cpuSamplingIntervalUs: 1000, traceCategories
       }
     }, null, 2));
-    console.log(JSON.stringify({ commit, repeat: testInfo.repeatEachIndex + 1, summary }));
+    console.log(JSON.stringify({ commit, variant, repeat: testInfo.repeatEachIndex + 1, summary }));
+    if (variant === 'static-welcome') {
+      expect(recording.staticWelcomeStyleInjectedNativeMs).not.toBeNull();
+      expect(recording.staticWelcomeStyleInjectedNativeMs!).toBeLessThan(recording.startClickNativeMs!);
+      expect(welcomeAnimationNames).toEqual(['none', 'none']);
+    }
     expect(recording.installed, 'instrumentation runs before the actual Start handler').toBe(true);
     expect(recording.frames.map(frame => frame.index)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
     expect(recording.frames.filter(frame => frame.phase === 'settle')).toHaveLength(8);

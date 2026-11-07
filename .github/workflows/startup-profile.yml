@@ -21,13 +21,6 @@ jobs:
           path: harness
           persist-credentials: false
 
-      - name: Checkout original application
-        uses: actions/checkout@v6
-        with:
-          ref: 57dd378e74d5cecfa692c6b9d4771e44549f998b
-          path: base
-          persist-credentials: false
-
       - name: Checkout assets-only application
         uses: actions/checkout@v6
         with:
@@ -46,28 +39,18 @@ jobs:
 
       - name: Link application dependencies
         run: |
-          ln -s "$GITHUB_WORKSPACE/harness/node_modules" "$GITHUB_WORKSPACE/base/node_modules"
           ln -s "$GITHUB_WORKSPACE/harness/node_modules" "$GITHUB_WORKSPACE/candidate/node_modules"
 
       - name: Typecheck diagnostic harness
         working-directory: harness
         run: npm run typecheck:e2e
 
-      - name: Profile original application
+      - name: Profile assets-only application with static welcome art
         working-directory: harness
         env:
           CI: true
           PLAYWRIGHT_FORCE_ASYNC_LOADER: '1'
-          RENDER_APP_DIR: ${{ github.workspace }}/base
-          RENDER_OUTPUT_DIR: ${{ github.workspace }}/startup-profile/base
-          RENDER_COMMIT: 57dd378e74d5cecfa692c6b9d4771e44549f998b
-        run: npx playwright test -c playwright.startup-profile.config.ts
-
-      - name: Profile assets-only application
-        working-directory: harness
-        env:
-          CI: true
-          PLAYWRIGHT_FORCE_ASYNC_LOADER: '1'
+          STARTUP_PROFILE_VARIANT: static-welcome
           RENDER_APP_DIR: ${{ github.workspace }}/candidate
           RENDER_OUTPUT_DIR: ${{ github.workspace }}/startup-profile/candidate
           RENDER_COMMIT: b6eb35b62b39fe8efd8fa888fe1cc5a07c0fdfd3
