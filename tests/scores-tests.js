@@ -343,13 +343,9 @@ async function main() {
   }
   check('leaderboard write denormalizes the signed-in display name onto the entry',
     read(LB, 'u1')?.displayName === 'Snow');
-  check('score completion analytics are logged',
-    calls.logEvent.some(event => event.name === 'complete_run' && event.params.time === 22));
-  const completion = calls.logEvent.find(event => event.name === 'complete_run' && event.params.time === 22);
+  check('score saving does not emit lifecycle completion analytics',
+    !calls.logEvent.some(event => event.name === 'complete_run'));
   const runContext = await import('../src/run-context.ts');
-  check('score telemetry identifies difficulty and physics version without player identity',
-    completion?.params.difficulty === 'blue' && completion.params.physics_version === runContext.PHYSICS_VERSION &&
-    !('uid' in completion.params) && !('seed' in completion.params) && !('nonce' in completion.params));
   check('slower finish does not log a new-high-score event',
     !calls.logEvent.some(event => event.name === 'new_high_score'));
 
@@ -361,8 +357,10 @@ async function main() {
 
   ScoresModule.recordScore(22, 'bunny');
   await flushAll();
-  check('per-tier completion telemetry uses the recorded tier',
-    calls.logEvent.some(event => event.name === 'complete_run' && event.params.difficulty === 'bunny'));
+  const highScore = calls.logEvent.find(event => event.name === 'new_high_score');
+  check('personal-best telemetry uses the recorded tier and physics version without identity',
+    highScore?.params.difficulty === 'bunny' && highScore.params.physics_version === runContext.PHYSICS_VERSION
+    && !('uid' in highScore.params) && !('seed' in highScore.params) && !('nonce' in highScore.params));
   check('bunny finish stores the local best under the per-tier key only',
     localStorage.getItem(BTK('bunny')) === '22' &&
     localStorage.getItem(BTK('blue')) === null);
@@ -909,7 +907,7 @@ async function main() {
     claim.status === 'saved' && read('users', 'claimed')?.[F_BLUE] === 25 && read(LB, 'claimed')?.time === 25 &&
     localStorage.getItem(BTK('blue')) === '18');
   check('a save retry does not duplicate completed-run telemetry',
-    calls.logEvent.filter(event => event.name === 'complete_run').length === 1);
+    calls.logEvent.filter(event => event.name === 'complete_run').length === 0);
   resetState(ScoresModule);
   ScoresModule.initializeScores(firestoreInstance, null);
   currentAuthUser = { uid: 'anonymous', isAnonymous: true };
@@ -1120,8 +1118,8 @@ async function main() {
     check('device metadata preserves the bundled game’s canonical seed and replay nonce',
       storedStamp.seed === liveStamp.seed && storedStamp.nonce === 7 && !storedStamp.practice &&
       storedStamp.physicsVersion === liveStamp.physicsVersion);
-    check('completion analytics uses the same live physics and practice context as the save',
-      calls.logEvent.some(event => event.name === 'complete_run' && event.params.practice === 'false' &&
+    check('personal-best analytics uses the same live physics and practice context as the save',
+      calls.logEvent.some(event => event.name === 'new_high_score' && event.params.practice === 'false' &&
         event.params.physics_version === liveStamp.physicsVersion));
 
     runContext.setWorldContext(runContext.CANONICAL_WORLD_SEED, false);

@@ -7,13 +7,14 @@ import { gotoGame, mockFirebase, startGame } from './helpers';
 type FirebaseMock = {
   getFirestore(): Firestore;
   getAnalytics(): Analytics;
+  logEvent(analytics: Analytics, name: string, params?: Record<string, unknown>): void;
   doc(db: Firestore, collection: string, id: string): unknown;
   getDoc(ref: unknown): Promise<{ data(): Record<string, unknown> | undefined }>;
   seed(collection: string, id: string, value: Record<string, unknown>): void;
   setAuthCurrentUser(user: unknown): void;
   emitAuthState(user: unknown): void;
   setNextPopupResult(result: unknown): void;
-  calls: { signInWithPopup: number; logEvent: { name: string }[] };
+  calls: { signInWithPopup: number; logEvent: { name: string; params?: Record<string, unknown> }[] };
 };
 type LiveGame = Window & { gameActive?: boolean; simElapsed?: number };
 
@@ -26,6 +27,9 @@ async function connectMockScores(page: Page): Promise<void> {
     const fb = await import(path) as FirebaseMock;
     window.AuthModule.isFirebaseAvailable = () => ({ auth: true, firestore: true, analytics: true });
     window.ScoresModule.initializeScores!(fb.getFirestore(), fb.getAnalytics());
+    // Production hosts publish this SDK seam from auth.ts; localhost correctly
+    // skips Analytics initialization, so explicitly inject the same mock sink.
+    window.firebaseModules = { logEvent: (name, params) => fb.logEvent(fb.getAnalytics(), name, params) };
   });
 }
 
@@ -76,6 +80,9 @@ test('all four leaderboard tabs preserve the next run and survive account/connec
 test('a guest can save the completed Expert run after sign-in and replay with visible live stats', async ({ page, baseURL }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
+  // Install before navigation so the real loop and every startup timer share
+  // one clock. Let startup run normally until the HUD fixture is inactive.
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   await page.addInitScript(() => localStorage.setItem('snowgliderDifficulty', 'expert'));
   await mockFirebase(page, baseURL);
   await gotoGame(page, '?intro=off');
@@ -96,10 +103,29 @@ test('a guest can save the completed Expert run after sign-in and replay with vi
   await expect(page.locator('#airScoreValue')).toBeVisible();
   await expect(page.locator('#airScoreValue')).toHaveText('150');
   await expect(page.locator('#gameStatsContent')).toBeHidden();
+  // This is an eligible-save/provider-flow check, not a renderer speed test.
+  // CI's software-GPU work and remote browser roundtrips can take seconds and
+  // correctly invalidate a ranked run. Advance actual RAF/physics callbacks on
+  // a controlled clock instead; never clear or bypass the slowdown guard.
+  await page.clock.pauseAt(new Date('2026-01-01T01:00:00Z'));
+  await page.evaluate(() => window.restartGame!());
+  await page.clock.runFor(50);
+  expect(await page.evaluate(() => (window as LiveGame).gameActive)).toBe(true);
+  expect(await page.evaluate(() => (window as LiveGame).simElapsed),
+    'the eligible attempt must have real playable frames before its scripted finish').toBeGreaterThan(0);
   await page.evaluate(() => {
-    window.resetSnowman!();
     (window as LiveGame).simElapsed = 25;
     window.showGameOver!('You reached the end of the slope!');
+  });
+  // The run has ended; real user gestures and provider callbacks use normal time.
+  await page.clock.resume();
+  const completed = await page.evaluate(async () => {
+    const path = '/tests/mocks/firebase.mjs';
+    return (await import(path) as FirebaseMock).calls.logEvent.filter(event => event.name === 'complete_run');
+  });
+  expect(completed).toHaveLength(1);
+  expect(completed[0]?.params).toMatchObject({
+    difficulty: 'expert', time: 25, timing_compromised: 'false', score_eligible: 'true',
   });
   const save = page.locator('#saveScoreButton');
   await expect(save).toHaveText('Sign in & save this run');

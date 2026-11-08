@@ -1,6 +1,37 @@
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { gotoGame, type GameWindow } from './helpers';
+import { gotoGame, mockFirebase, type GameWindow } from './helpers';
+
+type RunEvent = { name: string; params: Record<string, unknown> };
+type IntroFunnelSnapshot = {
+  gameActive: boolean | undefined;
+  simElapsed: number | undefined;
+  tabRuns: string | null;
+  events: RunEvent[];
+};
+type TelemetryWindow = Window & {
+  runFunnelEvents?: RunEvent[];
+  simElapsed?: number;
+  introFunnelSnapshot?: IntroFunnelSnapshot;
+};
+
+async function collectRunEvents(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const target = window as TelemetryWindow;
+    const events: RunEvent[] = [];
+    target.runFunnelEvents = events;
+    // Localhost deliberately skips Analytics. Observe its production boundary
+    // without sending gameplay data or replacing the lifecycle implementation.
+    window.firebaseModules = {
+      logEvent: (name, params) => events.push({ name, params: params ?? {} }),
+    };
+  });
+}
+
+function runEvents(page: Page): Promise<RunEvent[]> {
+  return page.evaluate(() => ((window as TelemetryWindow).runFunnelEvents ?? [])
+    .filter(event => ['game_start', 'game_reset', 'complete_run', 'game_over'].includes(event.name)));
+}
 
 async function activate(control: Locator, hasTouch: boolean): Promise<void> {
   if (hasTouch) await control.tap();
@@ -8,7 +39,10 @@ async function activate(control: Locator, hasTouch: boolean): Promise<void> {
 }
 
 async function waitForRun(page: Page): Promise<void> {
-  await page.waitForFunction(() => (window as GameWindow).gameActive === true);
+  // gameActive flips before the first frame. Observe real simulation progress
+  // before inspecting its start event or synthesizing a terminal result.
+  await page.waitForFunction(() => (window as GameWindow).gameActive === true &&
+    ((window as TelemetryWindow).simElapsed ?? 0) > 0);
   await expect(page.locator('#startGameContainer')).toBeHidden();
   await expect(page.locator('#audioControlBtn')).toBeVisible();
   expect(new URL(page.url()).searchParams.has('play')).toBe(false);
@@ -76,12 +110,15 @@ test.describe('start and replay audio gestures', () => {
     page.on('pageerror', error => errors.push(error.message));
     let navigations = 0;
     page.on('domcontentloaded', () => { navigations++; });
+    await collectRunEvents(page);
     await gotoGame(page, '?intro=off');
     // No webdriver override: browser tests must exercise the player tier rebuild.
     await activate(page.locator('#difficultyPicker [data-difficulty="bunny"]'), hasTouch);
     await activate(page.locator('#startGameButton'), hasTouch);
     await startPreparedTier(page, hasTouch, 'bunny');
     expect(navigations).toBe(2);
+    expect((await runEvents(page)).filter(e => e.name === 'game_start').map(e => e.params.run_attempt)).toEqual(['first']);
+    expect((await runEvents(page)).some(e => e.name === 'game_reset')).toBe(false);
     await showResult(page, 'bunny');
 
     await activate(page.locator('#restartButton'), hasTouch);
@@ -89,12 +126,15 @@ test.describe('start and replay audio gestures', () => {
     await expect(page.locator('#gameOverOverlay')).toBeHidden();
     expect(navigations, 'same-tier replay reuses the existing scene').toBe(2);
     await expectAudioGesture(page);
+    expect((await runEvents(page)).filter(e => e.name === 'game_start').map(e => e.params.run_attempt)).toEqual(['first', 'second']);
     await showResult(page, 'bunny');
 
     await activate(page.locator('#finishDifficultyPicker [data-difficulty="black"]'), hasTouch);
     await activate(page.locator('#restartButton'), hasTouch);
     await startPreparedTier(page, hasTouch, 'black');
     expect(navigations, 'one new scene rebuild for the next tier').toBe(3);
+    expect((await runEvents(page)).filter(e => e.name === 'game_start').map(e => e.params.run_attempt),
+      'tier navigation preserves the bounded tab-run count').toEqual(['later']);
     // Read the actual terrain-line module: Black must have its winding scene,
     // not just a new result label on the previous Bunny mountain.
     expect(await page.evaluate(async () => {
@@ -126,6 +166,7 @@ test.describe('start and replay audio gestures', () => {
   test('a Start before scripts arrive completes once when they become ready', async ({ page, hasTouch }) => {
     let release = () => {};
     const gate = new Promise<void>(resolve => { release = resolve; });
+    await collectRunEvents(page);
     await page.route(/\/src\/snowglider\.(?:js|ts)(?:\?|$)/, async route => {
       await gate;
       await route.continue();
@@ -135,12 +176,66 @@ test.describe('start and replay audio gestures', () => {
       await activate(page.locator('#startGameButton'), hasTouch);
       await expect(page.locator('#startGameButton')).toBeDisabled();
       await expect(page.locator('#startGameButton')).toHaveAttribute('aria-busy', 'true');
+      expect(await runEvents(page), 'loading intent is not a playable start').toEqual([]);
       release();
       await waitForRun(page);
       expect(await page.evaluate(() => window.initializeGameWithAudio?.())).toBe(false);
+      expect((await runEvents(page)).filter(e => e.name === 'game_start')).toHaveLength(1);
       await expect(page.locator('#fatalErrorOverlay')).toHaveCount(0);
     } finally {
       release();
     }
+  });
+
+  test('the intro is not a playable start and late analytics preserves a finish despite score failures', async ({ page, hasTouch, baseURL }) => {
+    await collectRunEvents(page);
+    await mockFirebase(page, baseURL);
+    await gotoGame(page, '?intro=force');
+    await page.evaluate(() => {
+      delete window.firebaseModules?.logEvent;
+      // Capture the real intro boundary in-page. Remote assertions/Skip actions
+      // can arrive after its four-second animation has naturally completed on CI.
+      const observer = new MutationObserver(() => {
+        if (!document.body.classList.contains('intro-active')) return;
+        const target = window as TelemetryWindow;
+        target.introFunnelSnapshot = {
+          gameActive: (window as GameWindow).gameActive,
+          simElapsed: target.simElapsed,
+          // A queued start increments this counter even without an Analytics sink.
+          tabRuns: sessionStorage.getItem('snowgliderTabRuns'),
+          events: [...(target.runFunnelEvents ?? [])],
+        };
+        observer.disconnect();
+      });
+      observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    });
+    await activate(page.locator('#startGameButton'), hasTouch);
+    await waitForRun(page);
+    expect(await page.evaluate(() => (window as TelemetryWindow).introFunnelSnapshot),
+      'the observed fly-over has no playable frame or queued start').toEqual({
+      gameActive: false, simElapsed: 0, tabRuns: null, events: [],
+    });
+    expect(await page.evaluate(() => sessionStorage.getItem('snowgliderTabRuns')),
+      'natural intro completion hands off to exactly one actual playable start').toBe('1');
+    expect(await runEvents(page), 'play does not wait for Analytics readiness').toEqual([]);
+    await page.evaluate(() => {
+      window.AuthModule = { recordScore: () => { throw new Error('score service unavailable'); }, getCurrentUser: () => null };
+      (window as TelemetryWindow).simElapsed = 30;
+      window.showGameOver!('You reached the end of the slope!');
+      window.showGameOver!('You reached the end of the slope!');
+    });
+    await expect(page.locator('#gameOverOverlay')).toBeVisible();
+    await expect(page.locator('#restartButton')).toBeInViewport();
+    expect(await runEvents(page)).toEqual([]);
+    await page.evaluate(() => {
+      const events = (window as TelemetryWindow).runFunnelEvents!;
+      window.firebaseModules = { logEvent: (name, params) => events.push({ name, params: params ?? {} }) };
+      window.dispatchEvent(new Event('snowglider:auth-changed'));
+      window.dispatchEvent(new Event('snowglider:auth-changed'));
+    });
+    expect((await runEvents(page)).map(e => e.name)).toEqual(['game_start', 'complete_run']);
+    const completions = (await runEvents(page)).filter(e => e.name === 'complete_run');
+    expect(completions).toHaveLength(1);
+    expect(completions[0]?.params).toMatchObject({ time: 30, run_attempt: 'first', funnel_version: 2 });
   });
 });

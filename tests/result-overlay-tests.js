@@ -27,6 +27,8 @@ function check(name, condition) {
 let local;
 /** @type {(root: HTMLElement, restore?: boolean) => void} */
 let closeResultFocus = () => {};
+/** @type {(state: object, tier: import('../src/difficulty.ts').Difficulty) => void} */
+let startTelemetry = () => {};
 const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 const boardEntry = (userId, time, displayName = null) => ({
   userId, time, displayName, userRef: /** @type {any} */ ({}),
@@ -46,7 +48,7 @@ function makeDeps(/** @type {{ bestTime?: number, startTime?: number, simElapsed
       <button id="restartButton">Restart</button>
     </div>`;
   document.body.classList.add('game-active');
-  return {
+  const deps = {
     state: { gameActive: true, bestTime, startTime: startTime ?? (performance.now() - 20000), simElapsed },
     gameOverOverlay: document.getElementById('gameOverOverlay'),
     gameOverDetail: document.getElementById('gameOverDetail'),
@@ -55,6 +57,8 @@ function makeDeps(/** @type {{ bestTime?: number, startTime?: number, simElapsed
     onCrash,
     getDifficulty,
   };
+  startTelemetry(deps.state, getDifficulty ? getDifficulty() : 'blue');
+  return deps;
 }
 
 const FINISH = 'You reached the end of the slope!';
@@ -72,6 +76,7 @@ async function main() {
   const { localBestTimeKey: BTK, localBestMetaKey: BTMK, getDifficultyConfig } = await import('../src/difficulty.ts');
   const { closeOverlayFocus } = await import('../src/ui/accessibility.ts');
   const { getRunStamp } = await import('../src/run-context.ts');
+  ({ startRunTelemetry: startTelemetry } = await import('../src/run-telemetry.ts'));
   closeResultFocus = closeOverlayFocus;
   const { createShowGameOver, isValidScoreTime, readStoredBestTime } = mod;
 
@@ -142,12 +147,27 @@ async function main() {
     await settle();
     check('signed-out finish explains the leaderboard without denied reads',
       leaderboardReads === 0 && /sign in/i.test(document.getElementById('leaderboard').textContent));
-    // Ranked finish: recordScore (mocked here) owns the canonical `complete_run` event, so
-    // the overlay must emit NO finish event itself — no duplicate `complete_run` and no
-    // legacy `complete_game` (which used to double-count every finish in GA4).
-    check('ranked finish emits no finish event from the overlay (recordScore owns complete_run)',
-      !analyticsEvents.some(e => e[0] === 'complete_run' || e[0] === 'complete_game'));
+    check('ranked finish emits one completion independently of score saving',
+      analyticsEvents.filter(e => e[0] === 'complete_run').length === 1
+      && !analyticsEvents.some(e => e[0] === 'complete_game'));
     check('overlay is shown', deps.gameOverOverlay.style.display === 'flex');
+  }
+
+  // Persistence is optional; a service exception cannot erase a real finish,
+  // and duplicate result callbacks cannot record another terminal event.
+  {
+    analyticsEvents.length = 0;
+    window.AuthModule = { recordScore: () => { throw new Error('score service unavailable'); } };
+    const deps = makeDeps({ simElapsed: 30 });
+    const show = createShowGameOver(deps);
+    show(FINISH);
+    show(FINISH);
+    check('throwing score storage still emits one canonical completion',
+      analyticsEvents.filter(e => e[0] === 'complete_run').length === 1
+      && analyticsEvents.some(e => e[0] === 'complete_run' && e[1].time === 30));
+    check('duplicate terminal callback cannot add a crash to that completed attempt',
+      !analyticsEvents.some(e => e[0] === 'game_over'));
+    window.AuthModule = { recordScore: record, getCurrentUser: () => null };
   }
 
 
@@ -176,9 +196,12 @@ async function main() {
     recorded = null;
     const RC = await import('../src/run-context.ts');
     RC.setWorldContext(424242, true); // an explicit ?seed= world => practice
+    analyticsEvents.length = 0;
     const deps = makeDeps({ bestTime: Infinity });
     createShowGameOver(deps)(FINISH);
     check('practice finish does NOT submit to the leaderboard', recorded === null);
+    check('practice finish remains a completion without ranked eligibility',
+      analyticsEvents.some(e => e[0] === 'complete_run' && e[1].practice === 'true' && e[1].score_eligible === 'false'));
     check('practice finish writes NO local best',
       local.getItem(BTK('blue')) === null);
     check('practice finish does not claim a new best time',
@@ -207,10 +230,13 @@ async function main() {
   {
     local.clear();
     recorded = null;
+    analyticsEvents.length = 0;
     const deps = makeDeps({ bestTime: 40 });
     /** @type {any} */ (deps.state).timingCompromised = true;
     createShowGameOver(deps)(FINISH);
     check('compromised finish does NOT submit to the leaderboard', recorded === null);
+    check('compromised finish is counted separately from ranked finishes',
+      analyticsEvents.some(e => e[0] === 'complete_run' && e[1].timing_compromised === 'true' && e[1].score_eligible === 'false'));
     check('compromised finish writes NO local best', local.getItem(BTK('blue')) === null);
     check('compromised finish offers no account save or leaderboard',
       !document.getElementById('saveScoreActions') && document.getElementById('leaderboard').style.display === 'none');
@@ -226,8 +252,8 @@ async function main() {
       /^Your Time: \d+\.\d{2}s$/.test(deps.bestTimeDisplay.textContent));
   }
 
-  // Every canonical tier routes a finish through the same score API. The score
-  // layer owns analytics; the overlay and later Save retries must not double-count.
+  // Every canonical tier routes a finish through the same score API. The result
+  // owns completion analytics; later Save retries must not double-count.
   /** @type {import('../src/difficulty.ts').Difficulty[]} */
   const tiers = ['bunny', 'blue', 'black', 'expert'];
   for (const tier of tiers) {
@@ -241,8 +267,11 @@ async function main() {
     createShowGameOver(deps)(FINISH);
     check(`${tier} finish records its exact time and own tier once`,
       recorded === 40 && recordedTier === tier && recordCalls === 1);
-    check(`${tier} ranked finish does not duplicate score-layer analytics`,
-      !analyticsEvents.some(event => event[0] === 'complete_run' || event[0] === 'complete_game'));
+    check(`${tier} ranked finish reports exactly one completion`,
+      analyticsEvents.filter(event => event[0] === 'complete_run').length === 1
+      && analyticsEvents.some(event => event[0] === 'complete_run' && event[1].difficulty === tier
+        && event[1].score_eligible === 'true')
+      && !analyticsEvents.some(event => event[0] === 'complete_game'));
     check(`${tier} finish exposes the same sign-in/save status`,
       !!document.getElementById('saveScoreActions') && !!document.getElementById('saveScoreStatus')
       && !document.getElementById('syncStatus'));
@@ -498,7 +527,8 @@ async function main() {
       /saved to leaderboard/i.test(document.getElementById('saveScoreButton').textContent)
       && /Expert/.test(document.getElementById('saveScoreStatus').textContent));
     check('explicit save never re-records the run or duplicates analytics',
-      recordCalls === 1 && !analyticsEvents.some(event => event[0] === 'complete_run' || event[0] === 'complete_game'));
+      recordCalls === 1 && analyticsEvents.filter(event => event[0] === 'complete_run').length === 1
+      && !analyticsEvents.some(event => event[0] === 'complete_game'));
   }
 
   // --- Finish + valid time, no AuthModule.recordScore -> localStorage fallback best ---

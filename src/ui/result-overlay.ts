@@ -16,7 +16,7 @@ import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
 import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, stampLocalBestMeta, type Difficulty } from '../difficulty.js';
 import { getRunStamp } from '../run-context.js';
-import { runTelemetryContext } from '../run-telemetry.js';
+import { endRunTelemetry } from '../run-telemetry.js';
 import { resultSyncStatusCopy } from '../offline/sync-manager.js';
 import { isOnline } from '../offline/offline-state.js';
 import { readLocalBest, safeSetItem } from '../offline/offline-store.js';
@@ -224,6 +224,13 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // legitimately fast Black finish (below Blue's floor) would be treated as invalid and
     // lose its local best/ghost/result panel. Blue's floor == the global floor, unchanged.
     const hasValidFinishTime = isPlausibleForTier(finishTime, tier);
+    endRunTelemetry(state, {
+      outcome: reason === FINISH_REASON ? 'finish' : 'crash',
+      time: finishTime,
+      timingCompromised: state.timingCompromised === true,
+      scoreEligible: tierRanked && hasValidFinishTime,
+      reason,
+    });
 
     // Remove game-active class from body for styling
     document.body.classList.remove('game-active');
@@ -346,26 +353,6 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         });
         content.appendChild(saveControls.element);
       }
-
-      // Track the finish with the canonical `complete_run` event. A ranked, recordable
-      // finish already emits it from AuthModule.recordScore (scores.ts, the scoring source
-      // of truth) — emitting again here would double-count in GA4. But recordScore never
-      // runs for an unranked tier (or when the leaderboard API is absent), so emit it here
-      // for exactly those finishes; otherwise unranked runs vanish from analytics. (This
-      // replaces the old `complete_game`, which fired for EVERY finish and thus double-
-      // counted the ranked ones — a driver of inflated totals / false spikes. See
-      // docs/ANALYTICS.md.)
-      if (!(canRecordScore && tierRanked)) {
-        try {
-          if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-            window.firebaseModules.logEvent('complete_run', {
-              time: currentTime, ...runTelemetryContext(tier, state.timingCompromised),
-            });
-          }
-        } catch (e) {
-          console.log("Analytics tracking skipped:", (e as Error).message);
-        }
-      }
     } else if (reason === "You reached the end of the slope!") {
       console.warn("Finish reached with invalid elapsed time; score not recorded:", finishTime);
       bestTimeDisplay.textContent = state.bestTime !== Infinity ?
@@ -376,20 +363,6 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // For failures (tree collision, falling, etc.), don't record or update best time
       bestTimeDisplay.textContent = state.bestTime !== Infinity ? `Best Time: ${state.bestTime.toFixed(2)}s` : 'No best time yet';
       bestTimeDisplay.style.color = 'white';
-
-      // Track game over reason in Analytics
-      try {
-        // Only try to use analytics when properly initialized with modular SDK
-        if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-          // Using the direct logEvent function
-          window.firebaseModules.logEvent('game_over', {
-            reason: reason,
-            ...runTelemetryContext(tier, state.timingCompromised),
-          });
-        }
-      } catch (e) {
-        console.log("Analytics tracking skipped:", (e as Error).message);
-      }
     }
 
     // Mount the same four-level board used on the start screen. Signed-out and
