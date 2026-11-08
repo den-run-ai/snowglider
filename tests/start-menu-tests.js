@@ -21,6 +21,7 @@ const dom = new JSDOM(`<!doctype html><html><head>
   <meta name="build-id" content="2026-06-18 12:00">
 </head><body>
   <div id="startGameContainer">
+    <div class="start-dialog">
     <p id="startLoadingStatus"><span id="startLoadingText"></span></p>
     <button id="startSoundButton" aria-pressed="true">Sound on</button>
     <div id="difficultyPicker" role="radiogroup" aria-label="Difficulty tier"></div>
@@ -28,7 +29,11 @@ const dom = new JSDOM(`<!doctype html><html><head>
       <button id="startGameButton">Start Game</button>
       <button id="aboutGameButton">About</button>
     </div>
-    <div id="controlsGuide"></div>
+    <section id="dailyMountain" hidden></section>
+    <div class="start-extras">
+      <details id="startHelpDetails"><summary>How to play</summary><div id="controlsGuide"></div></details>
+      <details id="offlinePlayDetails"><summary>Offline play</summary><p>Offline help</p></details>
+    </div>
     <div id="startLeaderboard" style="display:none"></div>
     <p id="startSignInHint" style="display:none"></p>
     <div id="keyboardHint"></div>
@@ -36,6 +41,7 @@ const dom = new JSDOM(`<!doctype html><html><head>
       <button id="closeAboutButton">Close</button>
     </div>
     <div id="buildBadge"></div>
+    </div>
   </div>
   <canvas id="gameCanvas" style="display:none"></canvas>
 </body></html>`, { url: 'https://snowglider.ai/' });
@@ -119,6 +125,51 @@ async function main() {
   document.dispatchEvent(new window.Event('visibilitychange'));
   check('visible menu can resume its bounded animation', !document.body.classList.contains('onboarding-paused'));
   setStartupStatus('loading');
+
+  console.log('\n--- closing disclosures restores the compact menu without stealing focus ---');
+  const card = /** @type {HTMLElement} */ (document.querySelector('.start-dialog'));
+  const help = /** @type {HTMLDetailsElement} */ (document.getElementById('startHelpDetails'));
+  const offline = /** @type {HTMLDetailsElement} */ (document.getElementById('offlinePlayDetails'));
+  const helpSummary = /** @type {HTMLElement} */ (help.querySelector('summary'));
+  help.open = true;
+  await flush();
+  card.scrollTop = 180;
+  helpSummary.focus();
+  help.open = false;
+  await flush();
+  check('closing the last disclosure returns the card to its top and retains summary focus',
+    card.scrollTop === 0 && document.activeElement === helpSummary);
+  help.open = true;
+  await flush();
+  startMenu.classList.remove('has-daily-entry');
+  card.scrollTop = 160;
+  helpSummary.focus();
+  help.open = false;
+  await flush();
+  check('a full invitation keeps its focused summary and reading position when Help closes',
+    card.scrollTop === 160 && document.activeElement === helpSummary);
+  startMenu.classList.add('has-daily-entry');
+  help.open = true;
+  offline.open = true;
+  await flush();
+  card.scrollTop = 130;
+  help.open = false;
+  await flush();
+  check('another open disclosure preserves the current reading position', card.scrollTop === 130);
+  offline.open = false;
+  await flush();
+  check('closing the remaining disclosure restores the menu position', card.scrollTop === 0);
+  help.open = true;
+  await flush();
+  card.scrollTop = 90;
+  SM.showAbout();
+  card.scrollTop = 40;
+  help.open = false;
+  await flush();
+  check('a hidden disclosure change does not disturb About reading position', card.scrollTop === 40);
+  SM.hideAbout();
+  check('About still restores the previously saved menu scroll position', card.scrollTop === 90);
+  card.scrollTop = 0;
 
   console.log('\n--- offline badge (issue #358) ---');
   // The offline badge is mounted into #startGameContainer but stays hidden while the

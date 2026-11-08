@@ -505,16 +505,29 @@ export const CourseModule = (function () {
     if (!ghostSamples || ghost || !createSnowman || !scene) return;
     ghost = createSnowman(scene);
     // Make it a translucent blue apparition that never collides or shadows.
+    // Shaped skis use material arrays, and body/accessory materials are shared.
+    // Clone each source once without changing the live player's pooled material;
+    // the scene sweep owns all clones, including the array slots, at teardown.
+    const clones = new Map<THREE.Material, THREE.Material>();
+    function ghostMaterial(material: THREE.Material): THREE.Material {
+      const existing = clones.get(material);
+      if (existing) return existing;
+      const cloned = material.clone();
+      cloned.transparent = true;
+      cloned.opacity = 0.32;
+      if ('color' in cloned && cloned.color instanceof THREE.Color) {
+        cloned.color.lerp(new THREE.Color(0x66ccff), 0.6);
+      }
+      if ('emissive' in cloned && cloned.emissive instanceof THREE.Color) cloned.emissive.set(0x113355);
+      clones.set(material, cloned);
+      return cloned;
+    }
     ghost.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (mesh.isMesh && mesh.material) {
-        // Ghost snowman meshes use a single MeshStandardMaterial (never an array).
-        const cloned = (mesh.material as THREE.MeshStandardMaterial).clone();
-        cloned.transparent = true;
-        cloned.opacity = 0.32;
-        if (cloned.color) cloned.color.lerp(new THREE.Color(0x66ccff), 0.6);
-        if ('emissive' in cloned && cloned.emissive) cloned.emissive = new THREE.Color(0x113355);
-        mesh.material = cloned;
+        mesh.material = Array.isArray(mesh.material)
+          ? mesh.material.map(ghostMaterial)
+          : ghostMaterial(mesh.material);
         obj.castShadow = false;
         obj.receiveShadow = false;
       }

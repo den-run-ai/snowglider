@@ -22,6 +22,12 @@ test('a guest can open the same daily mountain, compare, share and retry', async
   });
   await gotoGame(page, '?intro=off');
   const dailyLink = page.locator('#dailyMountainLink');
+  // Touch activation can scroll a hidden action into view. Qualify its initial
+  // placement and target size before allowing Playwright to activate it.
+  await expect(dailyLink).toBeInViewport({ ratio: 1 });
+  const dailyEntryBounds = await dailyLink.boundingBox();
+  expect(dailyEntryBounds?.width).toBeGreaterThanOrEqual(44);
+  expect(dailyEntryBounds?.height).toBeGreaterThanOrEqual(44);
   if (testInfo.project.use.hasTouch) await dailyLink.tap();
   else await dailyLink.click();
   await expect(page).toHaveURL(/[?&]daily=\d{4}-\d{2}-\d{2}/);
@@ -64,6 +70,11 @@ test('a guest can open the same daily mountain, compare, share and retry', async
   await expect(page.locator('#bestTimeDisplay')).toContainText('Daily best: 24.50s');
   await expect(page.locator('#saveScoreButton')).toHaveCount(0);
   await expect(page.locator('#restartButton')).toBeInViewport();
+  const regularLink = page.locator('#leaveDailyRun');
+  await expect(regularLink).toBeInViewport({ ratio: 1 });
+  const regularBounds = await regularLink.boundingBox();
+  expect(regularBounds?.width).toBeGreaterThanOrEqual(44);
+  expect(regularBounds?.height).toBeGreaterThanOrEqual(44);
   await testInfo.attach('daily-finish-real-forest', { body: await page.screenshot(), contentType: 'image/png' });
   await page.locator('#shareResultBtn').click();
   await page.locator('#shareCopyBtn').click();
