@@ -106,6 +106,9 @@ async function showResult(page: Page, difficulty: string): Promise<void> {
 
 test.describe('start and replay audio gestures', () => {
   test('tier changes prepare a matching scene and wait for Start while same-tier replay is immediate', async ({ page, hasTouch }) => {
+    // Three real WebGL scenes and two replays can exceed the global 60s budget
+    // on software-rendered mobile Chromium. Keep every live-play assertion.
+    test.setTimeout(180_000);
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     let navigations = 0;
