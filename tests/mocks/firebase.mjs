@@ -110,6 +110,8 @@ let nextSetDocError = null;
 let timestampCounter = 0;
 /** @type {unknown} */
 let nextLogEventError = null;
+/** @type {unknown} */
+let nextGetAuthError = null;
 
 /**
  * @template T
@@ -432,6 +434,11 @@ export function initializeApp() {
 const authInstance = { __isAuth: true, currentUser: null };
 
 export function getAuth() {
+  if (nextGetAuthError !== null) {
+    const error = nextGetAuthError;
+    nextGetAuthError = null;
+    throw error;
+  }
   return authInstance;
 }
 
@@ -624,3 +631,6 @@ export function emitAuthState(user) {
 export function setNextLogEventError(error) {
   nextLogEventError = error;
 }
+
+/** @param {unknown} error */
+export function setNextGetAuthError(error) { nextGetAuthError = error; }

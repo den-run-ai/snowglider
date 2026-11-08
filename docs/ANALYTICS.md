@@ -1,115 +1,117 @@
-# SnowGlider Analytics
+# SnowGlider telemetry
 
-A reusable, zero-dependency reporter that pulls product analytics straight from the live
-Firebase project and renders a self-contained HTML dashboard + a JSON snapshot.
+The browser sends gameplay events and bounded diagnostic summaries to Firebase Analytics.
+The private reporter reads Firestore score/profile data and, when configured, GA4 reports.
+These answer different questions: Firestore records signed-in players and their current
+personal bests; GA4 measures visits, events and diagnostics, including signed-out players.
+Neither is a complete census when collection is blocked or unavailable.
 
-- Script: [`scripts/analytics-report.mjs`](../scripts/analytics-report.mjs)
-- Run: `npm run analytics` → writes `analytics-out/report.html` and `analytics-out/report.json`
-- Open the HTML: `npm run analytics -- --open`
-
-## Quick start
+## Private reports
 
 ```bash
-# The Firebase Admin SDK key lives in the SnowGlider checkout root (git-ignored).
-# The script auto-discovers *-firebase-adminsdk-*.json there; no flag needed.
-npm run analytics
-open analytics-out/report.html          # macOS (or --open)
+npm run analytics -- --sa /private/path/service-account.json --ga-property <numeric-id>
+npm run analytics -- --sa /private/path/service-account.json --ga-property <numeric-id> --traffic human
 ```
 
-Flags / env:
+The output is `analytics-out/report.html` and `report.json`. On POSIX systems, report files
+are owner-only (`0600`), including overwritten exports; newly created output directories
+use `0700`. Existing directory permissions are unchanged. Keep the service-account key
+outside the repository; `--sa`, `SNOWGLIDER_SA` or `GOOGLE_APPLICATION_CREDENTIALS` selects
+it. Legacy auto-discovery of ignored key files in the checkout remains supported.
 
-| Flag / env | Effect |
+| Option | Effect |
 |---|---|
-| `--sa <path>` / `SNOWGLIDER_SA` / `GOOGLE_APPLICATION_CREDENTIALS` | explicit service-account key |
-| `--redact` | hash player emails/names so the report can be shared |
-| `--out <dir>` | output directory (default `analytics-out/`) |
-| `--json-only` | skip the HTML |
-| `--open` | open the HTML when done |
-| `GA4_PROPERTY_ID=<id>` / `--ga-property <id>` | also pull GA4 engagement, events, and spike detection |
+| `--ga-property <id>` / `GA4_PROPERTY_ID` | Query a GA4 numeric property ID, not a `G-…` measurement ID |
+| `--traffic all` (default) | All traffic; explicitly includes automation and untagged events |
+| `--traffic human` | Only events explicitly tagged `is_bot=false` |
+| `--traffic bot` | Only events explicitly tagged `is_bot=true` |
+| `--redact` | Replace player names/IDs with stable pseudonyms; still a private report |
+| `--out <dir>` | Change output directory; only the default `analytics-out/` is automatically ignored |
+| `--json-only` / `--open` | Skip HTML / open HTML locally |
 
-## Data sources
+GA4 requires the **Analytics Data API** enabled on the service account's project and the
+service-account email added as a **Viewer** in GA4 → Admin → Property Access Management.
+Firebase administrator access alone does not grant GA4 report access. Missing credentials,
+disabled APIs or denied permissions are access failures, not evidence of zero traffic.
+The reporter explains GA4 failures while preserving the Firestore report. Every HTTP
+request has a 30-second deadline.
 
-1. **Cloud Firestore** (always on) — the `users` and `leaderboard` collections are the
-   first-party record of who plays and how fast they finish. Read over the Firestore REST
-   API using an Admin SDK service-account key (JWT → OAuth token, no `firebase-admin` dep).
-2. **Google Analytics 4** (opt-in) — session/event engagement + anomaly detection via the
-   Analytics Data API. **Currently offline** because the Data API is disabled on the GCP
-   project and the service account isn't a member of the GA4 property. The report degrades
-   gracefully and prints the exact enable steps. See below.
+### Interpreting the results
 
-### What the Firestore section shows
+- Gameplay scores use the current `PHYSICS_VERSION` and the complete difficulty registry,
+  including Expert. Old seasons are excluded. The server's shared score limits determine
+  plausibility. Unranked-only finishes do not imply a missing global leaderboard entry.
+- Firestore timelines show latest login/current personal-best dates, **not** visit/run
+  counts. The finish distribution includes a player's best in each completed tier; it is
+  not a distribution of every attempt. Guests are intentionally absent from Firestore.
+- GA4 totals cover **28 complete days ending yesterday**. Spike detection uses 90 complete
+  days in the **GA4 property's timezone**, preserves zero-event days, and paginates the
+  event history. It fails visibly when the timezone or full history cannot be verified.
+  Yesterday can still change as delayed events arrive; an alert is a lead to investigate.
+- Anomalies compare each day to the preceding 28-day median/MAD and require at least seven
+  days of history, 15 events, 3× baseline and robust-z ≥ 3.5. They do not establish causation
+  or distinguish a release, a new event, automation, renewed traffic or a regression.
+- Traffic filters require an event-scoped custom dimension named `is_bot`. They include
+  **only explicit tags**: old data and SDK-generated events such as page views may be
+  untagged and disappear from either filtered view. Filtered session/user metrics must
+  not be treated as a complete human audience. GA4 custom dimensions are not retroactive.
+- The report surfaces thresholding, sampling and `(other)` aggregation warnings. Event-name
+  source scanning is a coverage hint, not proof of delivered events or correct parameters;
+  parameters, asset failures and production delivery remain explicit manual checks.
 
-Overview KPIs, a player funnel (registered → completed a run → on the leaderboard),
-the **finish-time distribution** (the core balance signal), sign-in provider mix, player
-recency, activity/leaderboard timelines, the global leaderboard, and cross-collection
-**data-health** checks (e.g. leaderboard rows whose time disagrees with the profile best).
+## Gameplay and performance dimensions
 
-Two accuracy notes:
-- **Per-tier aware.** Completions, the finish-time distribution, and the leaderboard read
-  every tier's best-time field (`bestTime` / `bestTimeBunny` / `bestTimeBlack`) and every
-  tier's leaderboard collection (`leaderboard` / `leaderboard_bunny` / `leaderboard_black`),
-  so a player who finished only Bunny/Black still counts as a completion. Plausibility uses
-  the **server** validation range (`MIN/MAX_VALID_SCORE_TIME`, which `firestore.rules`
-  enforces uniformly on every tier field and collection) — not the client-side per-tier
-  practice floors — so any sub-floor value in Firestore is treated as legacy/forged,
-  excluded from stats, and surfaced under data-health.
-- The **monthly timelines are point-in-time**: Firestore keeps only each player's latest
-  `lastLogin` and current-PB `achievedAt`, so "most-recent login by month" is last-seen
-  distribution (not visit volume) and "personal best set by month" is when current PBs were
-  set (not every run). Use the GA4 daily chart for true activity over time.
+Use `complete_run` as the canonical finish event; `new_high_score` is a separate personal-best
+signal, not another finish. Run events include `difficulty`, `physics_version`, `practice`
+and `timing_compromised` context. Register dimensions needed for exploration rather than
+creating a new event for each tier or release.
 
-## Enabling GA4 (engagement, events, anomaly spikes)
+`session_health` contains bounded frame/performance summaries; `physics_anomaly` and
+`diag_note` cover specific failures. Browser errors use `client_error` and
+`unhandled_rejection`. Error telemetry must remain sanitized, rate-limited and best-effort:
+never upload profile identity, raw feedback, arbitrary exception text or full URL queries.
+Remote error fields are `error_type`, `error_code`, `source`, a validated public
+`script` path, `line`/`column`, and bounded frame/health context. `app_build` identifies
+the deployed build; `is_bot` uses explicit `true`/`false` strings. Raw messages/stacks
+remain in the local diagnostic export. GA4 is an aggregate diagnostic channel, not a
+full stack-trace or distributed tracing store.
+For local reproduction, use `?debug` and the private diagnostic export documented in
+[DIAGNOSTICS.md](DIAGNOSTICS.md).
 
-The game already logs a rich GA4 event stream, but the Data API must be turned on and the
-service account granted read access before this tool can query it:
+When validating a release, verify a human browser session's start → finish/reset events,
+error categories and frame summaries in DebugView/Realtime, then check the processed
+reports after ingestion. Keep automation separate and do not fabricate failures on a
+production audience simply to populate dashboards.
 
-1. Enable the Analytics Data API on the project:
-   `https://console.developers.google.com/apis/api/analyticsdata.googleapis.com/overview?project=sn0wglider`
-2. In GA4 → Admin → **Property Access Management**, add the service-account email
-   (`firebase-adminsdk-fbsvc@sn0wglider.iam.gserviceaccount.com`) as a **Viewer**.
-3. Copy the numeric **property id** (Admin → Property Settings) and run:
-   ```bash
-   GA4_PROPERTY_ID=<id> npm run analytics
-   ```
+## Crashlytics and tracing
 
-Once connected, the report adds an **Event anomalies & spikes** section: robust per-event
-spike detection over 90 days (median + MAD, robust-z ≥ 3.5 and ≥ 3× baseline) that names
-the exact event and day behind an anomaly alert — the reproducible view for questions like
-"what caused yesterday's spike?".
+Crashlytics is not integrated in this repository. **Web support now exists in public
+preview**: Firebase JS SDK 13.2.0 introduced it on October 30, 2026, after this app's pinned
+11.5.0 SDK. Google's current API reference explicitly advises against production use of
+the preview. Evaluate an SDK upgrade and staged integration separately, including
+source-map handling, collection controls, retention and costs. Do not assume native/mobile
+Crashlytics setup applies unchanged to this static web application.
 
-## Tracking coverage & gaps
+The preview's optional breadcrumbs also collect navigation, user-action and network trace
+information. Enabling them changes the data collected; review redaction and delivery before
+using them. This PR's GA4 diagnostics do not claim to activate Crashlytics, Firebase
+Performance Monitoring or Cloud Trace.
 
-The report scans `src/` for the analytics events the game actually logs and compares them
-to a checklist. **Tracked today** (14): `game_start`, `complete_run`, `complete_game`,
-`new_high_score`, `game_over`, `game_reset`, `login`, `share_result`, `feedback_submitted`,
-plus the diagnostics error/health seam (`client_error`, `unhandled_rejection`,
-`physics_anomaly`, `session_health`, `diag_note`).
+Official references:
 
-Recommended additions the audit flags (high → low):
+- [Firebase JS release notes](https://firebase.google.com/support/release-notes/js)
+- [Crashlytics Web API and preview status](https://firebase.google.com/docs/reference/js/crashlytics)
+- [GA4 report pagination and response metadata](https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/RunReportResponse)
 
-| Sev | Gap | Why it matters |
-|---|---|---|
-| high | `difficulty` param on run events | finish times & deaths can't be segmented by Bunny/Blue/Black tier |
-| high | stable `cause` enum on `game_over` | it currently logs free-text `reason` — high-cardinality, breaks when copy changes |
-| high | de-dup `complete_run` vs `complete_game` | both fire on one finish → double-counts, a prime suspect for event spikes |
-| high | tag/exclude bot traffic | gameplay events aren't gated on `navigator.webdriver`; E2E/crawlers inflate counts (a likely spike cause) |
-| medium | `checkpoint_passed` progression event | no mid-run signal → can't see where players drop off |
-| medium | `run_abandoned` vs finish/crash | a mid-run quit looks identical to a finish+restart |
-| medium | `avalanche_triggered` / `_survived` | the signature hazard emits nothing |
-| low | `jump` / air-time event | a headline mechanic is unmeasured |
+## Privacy
 
-## Security & privacy
+Private reports, service-account keys and production counts belong outside pull requests,
+CI logs and public artifacts. Default reports omit email addresses but contain player names,
+identifiers and activity times. `--redact` is pseudonymization, **not anonymization**; exact
+scores/timestamps and stable pseudonyms can still identify players. Review any export before
+sharing, and do not commit it even if redacted.
 
-- The service-account key is a live secret. It is **git-ignored**
-  (`*-firebase-adminsdk-*.json`) and must stay in the SnowGlider checkout, never in a
-  worktree or a commit. Rotate immediately if it is ever pushed.
-- `analytics-out/` is git-ignored — generated reports include player display names and identifiers, but omit email addresses. Use
-  `--redact` before sharing.
-
-- The game no longer copies provider email addresses into new Firestore profile writes
-  or browser auth logs. Existing Firestore email fields are left intact for compatibility;
-  removing them requires the reviewed admin migration tracked in #419.
-- Provider inference now uses the public profile-photo host only. Missing/unsupported
-  photos are reported as unknown; provider totals should not be read as exact counts.
-- Full account deletion, retention policy and historical export cleanup remain tracked
-  in #419. Do not claim a profile-field change erases Auth or Analytics data.
+The client does not add provider emails to new Firestore profile writes. Existing Auth,
+Firestore and Analytics records are not erased by this policy; historical cleanup, account
+deletion and retention remain separate administrative work tracked in #419. Provider
+inference from profile-photo hosts is approximate, not an authoritative sign-in count.

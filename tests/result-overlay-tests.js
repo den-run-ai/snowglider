@@ -216,6 +216,9 @@ async function main() {
     // finish event itself — otherwise unranked runs are dropped from analytics entirely.
     check('unranked finish still emits the canonical complete_run event',
       analyticsEvents.some(e => e[0] === 'complete_run'));
+    check('unranked finish telemetry includes difficulty and physics version',
+      analyticsEvents.some(e => e[0] === 'complete_run' && e[1]?.difficulty === 'bunny' &&
+        typeof e[1]?.physics_version === 'number'));
     check('unranked tier still saves the per-tier local best',
       typeof local.getItem(BTK('bunny')) === 'string'
       && local.getItem(BTK('blue')) === null);

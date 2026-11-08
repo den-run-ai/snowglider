@@ -19,13 +19,13 @@
 // signing a JWT with the SA private key (RS256) and exchanging it — same battle-tested
 // pattern as scripts/deploy-firestore-rules.mjs. Pure Node built-ins, zero install.
 //
-// SECRETS  live in the SnowGlider checkout, never in this worktree and never in git
+// SECRETS  should live outside the checkout and never in git
 // (.gitignore already blocks *-firebase-adminsdk-*.json). Resolution order:
 //   --sa <path>  >  $SNOWGLIDER_SA  >  $GOOGLE_APPLICATION_CREDENTIALS  >
 //   first *-firebase-adminsdk-*.json found in [cwd, this worktree, the main checkout].
 //
 // PRIVACY  the raw report embeds player names and identifiers (admin-only view). Pass
-// --redact to pseudonymize identifiers before reviewing outputs for sharing. Outputs land in ./analytics-out/
+// --redact to pseudonymize identifiers; the result remains private. Outputs land in ./analytics-out/
 // which is git-ignored — do not commit generated reports.
 //
 // USAGE
@@ -35,7 +35,8 @@
 //   node scripts/analytics-report.mjs --out dir --sa /path/to/key.json --json-only
 //   GA4_PROPERTY_ID=123456789 node scripts/analytics-report.mjs   # include GA4 metrics
 //
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync,
+  constants, openSync, closeSync, fchmodSync, fstatSync, ftruncateSync } from 'node:fs';
 import { createSign, createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -56,6 +57,7 @@ const OPTS = {
   jsonOnly: process.argv.includes('--json-only'),
   open: process.argv.includes('--open'),
   gaProperty: argVal('--ga-property') || process.env.GA4_PROPERTY_ID || null,
+  traffic: argVal('--traffic') || 'all',
 };
 
 function die(msg) {
@@ -111,6 +113,11 @@ function loadServiceAccount(path) {
 const b64url = (input) =>
   Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+// Bound every network operation; a stalled optional source must not hang the export.
+function fetchWithTimeout(url, options = {}) {
+  return fetch(url, { ...options, signal: AbortSignal.timeout(30_000) });
+}
+
 async function getAccessToken(sa, scope) {
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: 'RS256', typ: 'JWT' };
@@ -121,7 +128,7 @@ async function getAccessToken(sa, scope) {
   const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(claims))}`;
   const signature = createSign('RSA-SHA256').update(signingInput).end().sign(sa.private_key);
   const assertion = `${signingInput}.${b64url(signature)}`;
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -165,7 +172,7 @@ async function fetchCollection(token, project, collection) {
       `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/${collection}`);
     url.searchParams.set('pageSize', '300');
     if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } });
     const json = await res.json();
     if (!res.ok) throw new Error(`Firestore read ${collection} failed (HTTP ${res.status}): ${JSON.stringify(json)}`);
     for (const d of json.documents || []) {
@@ -178,7 +185,10 @@ async function fetchCollection(token, project, collection) {
 
 // ------------------------------------------------------------------------ GA4 (opt-in) ----
 // Returns { available, ...metrics } or { available:false, reason, howTo }.
-async function fetchGa4(sa) {
+export async function fetchGa4(sa, {
+  propertyId = OPTS.gaProperty, traffic = OPTS.traffic,
+  getToken = getAccessToken, nowMs = Date.now(),
+} = {}) {
   const howTo = [
     `Enable the Analytics Data API on GCP project ${sa.project_id}:`,
     `  https://console.developers.google.com/apis/api/analyticsdata.googleapis.com/overview?project=${sa.project_id}`,
@@ -186,28 +196,44 @@ async function fetchGa4(sa) {
     `  ${sa.client_email}`,
     `Find the numeric property id (Admin → Property Settings) and re-run with:`,
     `  GA4_PROPERTY_ID=<id> node scripts/analytics-report.mjs`,
+    `For --traffic human/bot, register is_bot as an event-scoped custom dimension; untagged events are excluded.`,
   ];
-  if (!OPTS.gaProperty) {
+  if (!propertyId) {
     return { available: false, reason: 'No GA4_PROPERTY_ID provided.', howTo };
   }
+  if (!/^\d+$/.test(propertyId)) throw new Error('GA4 property ID must be numeric.');
+  if (!['all', 'human', 'bot'].includes(traffic)) throw new Error('--traffic must be all, human, or bot.');
   let token;
   try {
-    token = await getAccessToken(sa, 'https://www.googleapis.com/auth/analytics.readonly');
+    token = await getToken(sa, 'https://www.googleapis.com/auth/analytics.readonly');
   } catch (e) {
     return { available: false, reason: `Could not mint an Analytics token: ${(e instanceof Error ? e.message : String(e))}`, howTo };
   }
-  const property = `properties/${OPTS.gaProperty}`;
+  const property = `properties/${propertyId}`;
+  const warnings = new Set();
+  const filter = traffic === 'all' ? {} : {
+    dimensionFilter: { filter: {
+      fieldName: 'customEvent:is_bot',
+      stringFilter: { matchType: 'EXACT', value: traffic === 'bot' ? 'true' : 'false' },
+    } },
+  };
+  if (traffic === 'all') warnings.add('Traffic includes automation and untagged events.');
+  else warnings.add('Only explicitly tagged events are included; untagged SDK events and historical data are excluded.');
   async function runReport(body) {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://analyticsdata.googleapis.com/v1beta/${property}:runReport`,
       { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body) });
+        body: JSON.stringify({ ...body, ...filter }) });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
+    const meta = json.metadata || {};
+    if (meta.subjectToThresholding) warnings.add('GA4 privacy thresholds may suppress data.');
+    if (meta.dataLossFromOtherRow) warnings.add('GA4 grouped some high-cardinality data into (other).');
+    if (meta.samplingMetadatas?.length) warnings.add('GA4 returned sampled data.');
     return json;
   }
   try {
-    const range = [{ startDate: '28daysAgo', endDate: 'today' }];
+    const range = [{ startDate: '28daysAgo', endDate: 'yesterday' }];
     const totals = await runReport({
       dateRanges: range,
       metrics: [
@@ -252,41 +278,31 @@ async function fetchGa4(sa) {
     // This is what surfaces "yesterday's spike" and, crucially, WHICH event spiked.
     let anomalies = { available: false, days: [], spikes: [] };
     try {
-      const perEvent = await runReport({
-        dateRanges: [{ startDate: '90daysAgo', endDate: 'today' }],
+      const perEvent = await fetchAllReportRows(runReport, {
+        dateRanges: [{ startDate: '90daysAgo', endDate: 'yesterday' }],
         dimensions: [{ name: 'date' }, { name: 'eventName' }],
         metrics: [{ name: 'eventCount' }],
-        orderBys: [{ dimension: { dimensionName: 'date' } }],
+        orderBys: [{ dimension: { dimensionName: 'date' } }, { dimension: { dimensionName: 'eventName' } }],
       });
       // series[event] = Map(date -> count); also a per-day grand total.
       const series = new Map();
       const dayTotals = new Map();
-      const days = new Set();
       for (const r of perEvent.rows || []) {
         const date = r.dimensionValues[0].value;
         const ev = r.dimensionValues[1].value;
         const c = Number(r.metricValues[0].value);
-        days.add(date);
         if (!series.has(ev)) series.set(ev, new Map());
         series.get(ev).set(date, c);
         dayTotals.set(date, (dayTotals.get(date) || 0) + c);
       }
-      // GA4 omits days with zero events, which would compress quiet stretches out of the
-      // baseline and make a post-lull spike compare against too few / only-active days.
-      // Rebuild the FULL requested window (90daysAgo → today, not just the span of returned
-      // rows) and zero-fill it — otherwise an early spike after a quiet start would sit on
-      // day 0 with no preceding zero-day baseline and never get evaluated. detectAnomalies
-      // reads missing days as 0. Anchor on the request window, widened to cover any observed
-      // date that falls outside it (property-timezone drift vs the runner's UTC clock).
-      const observed = [...days].sort();
-      const startYmd = ymd(Date.now() - 90 * 86400e3);
-      const endYmd = ymd(Date.now());
-      const lo = observed.length && observed[0] < startYmd ? observed[0] : startYmd;
-      const hi = observed.length && observed[observed.length - 1] > endYmd ? observed[observed.length - 1] : endYmd;
-      const sortedDays = allDaysBetween(lo, hi);
+      // Use the property's calendar, not the operator's timezone. Complete days
+      // avoid treating a still-arriving day as comparable with historical totals.
+      const timeZone = totals.metadata?.timeZone;
+      if (!timeZone) throw new Error('GA4 omitted the property timezone; anomaly window cannot be verified.');
+      const sortedDays = completeDays(nowMs, timeZone, 90);
       series.set('(all events)', dayTotals);
       anomalies = {
-        available: true, window: '90daysAgo → today',
+        available: true, window: '90daysAgo → yesterday',
         days: sortedDays,
         spikes: detectAnomalies(series, sortedDays),
       };
@@ -295,7 +311,8 @@ async function fetchGa4(sa) {
     }
 
     return {
-      available: true, propertyId: OPTS.gaProperty, window: '28daysAgo → today',
+      available: true, propertyId, window: '28daysAgo → yesterday',
+      traffic, timeZone: totals.metadata?.timeZone || null, warnings: [...warnings],
       totals: {
         activeUsers: +m[0] || 0, newUsers: +m[1] || 0, sessions: +m[2] || 0,
         engagedSessions: +m[3] || 0, engagementRate: +m[4] || 0,
@@ -306,6 +323,29 @@ async function fetchGa4(sa) {
   } catch (e) {
     return { available: false, reason: `GA4 query failed: ${(e instanceof Error ? e.message : String(e))}`, howTo };
   }
+}
+
+// GA4 defaults to a limited page. Never analyze a silently truncated event history.
+export async function fetchAllReportRows(runReport, body, pageSize = 10_000) {
+  const rows = [];
+  for (let page = 0; page < 100; page++) {
+    const report = await runReport({ ...body, limit: pageSize, offset: rows.length });
+    const next = report.rows || [];
+    rows.push(...next);
+    if (rows.length >= (report.rowCount ?? rows.length)) return { ...report, rows };
+    if (!next.length) throw new Error('GA4 pagination ended before the reported row count.');
+  }
+  throw new Error('GA4 event history exceeded the bounded report size.');
+}
+
+// Last N complete calendar dates, respecting daylight-saving transitions.
+export function completeDays(nowMs, timeZone, count) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(nowMs));
+  const part = (type) => Number(parts.find(p => p.type === type)?.value);
+  const today = Date.UTC(part('year'), part('month') - 1, part('day'));
+  return allDaysBetween(ymd(today - count * 86400e3), ymd(today - 86400e3));
 }
 
 // ------------------------------------------------------------------------- statistics ----
@@ -363,7 +403,7 @@ function allDaysBetween(minYmd, maxYmd) {
   return out;
 }
 
-function detectAnomalies(seriesByEvent, sortedDays, { minCount = 15, z = 3.5, mult = 3 } = {}) {
+export function detectAnomalies(seriesByEvent, sortedDays, { minCount = 15, z = 3.5, mult = 3 } = {}) {
   const spikes = [];
   const MADK = 1.4826; // scale MAD to be a std-dev estimate for normal data
   for (const [event, byDate] of seriesByEvent) {
@@ -396,7 +436,7 @@ function detectAnomalies(seriesByEvent, sortedDays, { minCount = 15, z = 3.5, mu
 // Scan the game source for the analytics events it actually logs, then compare against a
 // checklist of events/dimensions a game of this shape should track. Purely static — no
 // live data needed — so gaps show up even when GA4 is offline.
-function scanTrackedEvents(repoRoot) {
+export function scanTrackedEvents(repoRoot) {
   const srcDir = join(repoRoot, 'src');
   if (!existsSync(srcDir)) return null;
   const files = [];
@@ -409,9 +449,10 @@ function scanTrackedEvents(repoRoot) {
     }
   })(srcDir);
 
-  // Match logEvent(analytics|fm|window.firebaseModules, 'name') / .logEvent('name') and the
-  // diagnostics this.emit('name') sink calls (all land in GA4 via the report seam).
-  const reLog = /\.?logEvent\(\s*(?:[A-Za-z_$][\w$.]*\s*,\s*)?['"]([a-z][a-z0-9_]+)['"]/g;
+  // Include the named analytics wrappers and error capture sink; each accepts a
+  // literal event name first, except Firebase's logEvent(analytics, name). This
+  // remains a source inventory rather than proof of production delivery.
+  const reLog = /\b(?:logEvent|logScoreEvent|logAnalyticsEvent|captureError)\(\s*(?:[A-Za-z_$][\w$.]*\s*,\s*)?['"]([a-z][a-z0-9_]+)['"]/g;
   const reEmit = /\bemit\(\s*['"]([a-z][a-z0-9_]+)['"]/g;
   const found = new Map(); // event -> Set(file)
   for (const f of files) {
@@ -434,27 +475,18 @@ function scanTrackedEvents(repoRoot) {
 }
 
 // The audit checklist. `has(tracked)` decides whether the recommendation is already met.
-function auditCoverage(tracked) {
+export function auditCoverage(tracked) {
   if (!tracked) return null;
   const set = new Set(tracked.map((t) => t.event));
   const has = (...names) => names.some((n) => set.has(n));
   const recs = [
-    { key: 'difficulty-dim', severity: 'high', met: false,
-      title: 'Add a `difficulty` param to run events',
-      why: 'complete_run / complete_game / game_over / new_high_score carry no tier. Finish times and death reasons cannot be segmented by Bunny/Blue/Black, so balance regressions per tier are invisible.' },
-    { key: 'death-cause-enum', severity: 'high', met: false,
-      title: 'Send a stable `cause` enum on game_over (not free-text `reason`)',
-      why: 'game_over logs the human string ("You hit a tree!"). High-cardinality free text is hard to aggregate and silently re-buckets whenever the copy changes. Add cause: tree|rock|fall|avalanche_burial|out_of_bounds alongside it.' },
     { key: 'dup-complete', severity: 'high', met: has('complete_run') && has('complete_game'),
       metInverts: true,
       title: 'Deduplicate complete_run vs complete_game',
-      why: 'A finished run fires BOTH complete_run (scores.ts) and complete_game (result-overlay.ts). Double-counting inflates conversions and is a prime suspect for a sudden event-count spike. Pick one canonical "run_finished" event.' },
-    { key: 'error-tracking', severity: 'high', met: has('physics_anomaly', 'diag_note'),
-      title: 'Track uncaught JS errors & asset-load failures as GA4 events',
-      why: 'diagnostics.ts has the seam (physics_anomaly / diag_note) but it is disabled under webdriver and only wired for physics. Asset/network/WebGL-context-lost failures (Diag.note("asset_load_failed") has no caller) go unreported, so a broken deploy looks like a quiet traffic dip, not an error.' },
-    { key: 'bot-filtering', severity: 'high', met: false,
-      title: 'Tag/exclude automated traffic (webdriver, CI, crawlers)',
-      why: 'game_start and complete_run are gated only on file:// — not on navigator.webdriver. E2E/puppeteer runs and bots hitting the live site inflate counts and are a common cause of anomaly spikes. Add an env/is_bot param so bot traffic can be filtered in GA4.' },
+      why: 'Both finish event names appear in source. Verify their callers do not double-count one finish; complete_run is the canonical finish event.' },
+    { key: 'error-tracking', severity: 'high', met: has('client_error') && has('unhandled_rejection'),
+      title: 'Track uncaught JS errors and rejected promises as GA4 events',
+      why: 'Uncaught errors and rejected promises need explicit collection; physics-only events do not prove browser error coverage.' },
     { key: 'checkpoint', severity: 'medium', met: has('checkpoint_passed', 'checkpoint'),
       title: 'Emit a checkpoint / progression event',
       why: 'No mid-run signal exists. checkpoint_passed { index, split } would show WHERE players drop off within a run instead of only start vs finish.' },
@@ -473,7 +505,11 @@ function auditCoverage(tracked) {
     if (r.metInverts) { r.met = !r.met; } // if both events present => NOT met (it's the bug)
   }
   const gaps = recs.filter((r) => !r.met);
-  return { tracked, gaps, allRecs: recs };
+  return { tracked, gaps, allRecs: recs,
+    manualChecks: ['Verify difficulty, physics version and stable failure causes on run events.',
+      'Verify automation filtering and custom-dimension registration in GA4.',
+      'Verify asset failures, WebGL context loss, startup timing and deployed error delivery.'],
+  };
 }
 
 const monthKey = (iso) => (iso ? String(iso).slice(0, 7) : null);
@@ -562,7 +598,7 @@ export function readTiers(repoRoot = REPO_ROOT) {
 // `boardEntries` is the merged per-tier leaderboard (each row tagged with `.tier`); `tiers`
 // carries each tier's best-time field; `limits` is the SERVER validation range
 // (firestore.rules isValidScoreTime), applied uniformly to every tier — see readTiers.
-export function buildInsights(users, boardEntries, nowMs, tiers, limits) {
+export function buildInsights(users, boardEntries, nowMs, tiers, limits, { redact = OPTS.redact } = {}) {
   const usersById = new Map(users.map((u) => [u.id, u]));
   const isPlausible = (t) => num(t) && t >= limits.min && t <= limits.max;
 
@@ -606,7 +642,7 @@ export function buildInsights(users, boardEntries, nowMs, tiers, limits) {
     const u = usersById.get(uid);
     return {
       uid, time: e.time, achievedAt: e.achievedAt, tier: e.tier,
-      name: OPTS.redact ? anonName(uid) : (u?.displayName || '(unknown)'),
+      name: redact ? anonName(uid) : (u?.displayName || '(unknown)'),
     };
   }).filter((e) => isPlausible(e.time)).sort((a, b) => a.time - b.time);
   const implausibleBoardEntries = boardEntries
@@ -667,7 +703,7 @@ export function buildInsights(users, boardEntries, nowMs, tiers, limits) {
       implausibleTimes: implausibleUserTimes + implausibleBoardEntries,
       usersMissingProfile: users.filter((u) => !u.displayName).length,
     },
-    players: OPTS.redact ? users.map((u) => ({
+    players: redact ? users.map((u) => ({
       id: anonName(u.id), provider: classifyProvider(u),
       bestTime: bestOf(u), lastLogin: u.lastLogin || null,
     })) : users.map((u) => ({
@@ -767,7 +803,8 @@ function ga4Html(ga) {
   const evRows = ga.byEvent.map((e) => ({ label: e.event, count: e.count }));
   const geoRows = ga.country.map((c) => ({ label: c.country, count: c.activeUsers }));
   return `
-    <p class="muted">GA4 property ${esc(ga.propertyId)} · window ${esc(ga.window)}</p>
+    <p class="muted">GA4 property ${esc(ga.propertyId)} · window ${esc(ga.window)} · traffic ${esc(ga.traffic)} · ${esc(ga.timeZone || 'timezone unavailable')}</p>
+    ${ga.warnings?.length ? `<div class="notice">${ga.warnings.map(w => `<p>${esc(w)}</p>`).join('')}</div>` : ''}
     <div class="kpis">${kpis.map(([l, v]) => `<div class="kpi"><div class="kpi-val">${v}</div><div class="kpi-label">${esc(l)}</div></div>`).join('')}</div>
     <div class="grid2">
       <div><h3>Events (28d)</h3>${hbars(evRows, { color: '#c792ea' })}</div>
@@ -806,7 +843,7 @@ function coverageHtml(cov) {
         <p>${esc(g.why)}</p>
       </div>`).join('')}</div>`
     : '<p class="empty" style="margin-top:14px">✓ All checklist items are covered.</p>';
-  return tracked + gaps;
+  return tracked + gaps + `<h3 style="margin-top:18px">Manual verification</h3><ul>${cov.manualChecks.map(c => `<li>${esc(c)}</li>`).join('')}</ul>`;
 }
 
 function renderHtml(data) {
@@ -974,6 +1011,22 @@ function renderHtml(data) {
 </body></html>`;
 }
 
+// Both newly created and previously exported reports contain private player data.
+// Tighten only this output file, before writing; reject aliases that could change an
+// unrelated file's content or permissions. Existing parent directories are untouched.
+export function writePrivateReport(path, contents) {
+  const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | (constants.O_NOFOLLOW || 0), 0o600);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error('Report output must be a regular file with no hard-link aliases.');
+    fchmodSync(fd, 0o600);
+    ftruncateSync(fd, 0);
+    writeFileSync(fd, contents);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 // -------------------------------------------------------------------------------- main ----
 async function main() {
   const saPath = findServiceAccount();
@@ -1023,14 +1076,14 @@ async function main() {
     coverage,
   };
 
-  mkdirSync(OPTS.out, { recursive: true });
+  mkdirSync(OPTS.out, { recursive: true, mode: 0o700 });
   const jsonPath = join(OPTS.out, 'report.json');
-  writeFileSync(jsonPath, JSON.stringify(data, null, 2));
+  writePrivateReport(jsonPath, JSON.stringify(data, null, 2));
   log(`wrote ${jsonPath}`);
 
   if (!OPTS.jsonOnly) {
     const htmlPath = join(OPTS.out, 'report.html');
-    writeFileSync(htmlPath, renderHtml(data));
+    writePrivateReport(htmlPath, renderHtml(data));
     log(`wrote ${htmlPath}`);
     if (OPTS.open) {
       const opener = process.platform === 'darwin' ? 'open'

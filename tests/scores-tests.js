@@ -342,6 +342,11 @@ async function main() {
     read(LB, 'u1')?.displayName === 'Snow');
   check('score completion analytics are logged',
     calls.logEvent.some(event => event.name === 'complete_run' && event.params.time === 22));
+  const completion = calls.logEvent.find(event => event.name === 'complete_run' && event.params.time === 22);
+  const runContext = await import('../src/run-context.ts');
+  check('score telemetry identifies difficulty and physics version without player identity',
+    completion?.params.difficulty === 'blue' && completion.params.physics_version === runContext.PHYSICS_VERSION &&
+    !('uid' in completion.params) && !('seed' in completion.params) && !('nonce' in completion.params));
   check('slower finish does not log a new-high-score event',
     !calls.logEvent.some(event => event.name === 'new_high_score'));
 
@@ -353,6 +358,8 @@ async function main() {
 
   ScoresModule.recordScore(22, 'bunny');
   await flushAll();
+  check('per-tier completion telemetry uses the recorded tier',
+    calls.logEvent.some(event => event.name === 'complete_run' && event.params.difficulty === 'bunny'));
   check('bunny finish stores the local best under the per-tier key only',
     localStorage.getItem(BTK('bunny')) === '22' &&
     localStorage.getItem(BTK('blue')) === null);

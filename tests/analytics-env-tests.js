@@ -14,7 +14,7 @@ function check(name, ok) {
 }
 
 (async () => {
-  const { isAutomatedClient, withTrafficTag } = await import('../src/analytics-env.ts');
+  const { isAutomatedClient, withTrafficTag, analyticsBuildId } = await import('../src/analytics-env.ts');
 
   // Preserve and restore any real navigator so the test is isolated.
   const hadNav = 'navigator' in globalThis;
@@ -33,20 +33,39 @@ function check(name, ok) {
   setNav({ webdriver: true });
   const tagged = withTrafficTag({ time: 22 });
   check('keeps existing params', tagged.time === 22);
-  check('adds is_bot=true under automation', tagged.is_bot === true);
+  check('adds is_bot=true under automation', tagged.is_bot === 'true');
 
   setNav({ webdriver: false });
-  check('adds is_bot=false for real users', withTrafficTag({ method: 'Google' }).is_bot === false);
+  check('adds is_bot=false for real users', withTrafficTag({ method: 'Google' }).is_bot === 'false');
   check('is_bot=false keeps other params', withTrafficTag({ method: 'Google' }).method === 'Google');
 
   const src = { time: 5 };
   const out = withTrafficTag(src);
   check('does not mutate the input params', !('is_bot' in src) && out !== src);
 
-  check('handles undefined params', typeof withTrafficTag().is_bot === 'boolean');
+  check('handles undefined params', withTrafficTag().is_bot === 'false');
 
   setNav({ webdriver: true });
-  check('an explicit is_bot in params is preserved', withTrafficTag({ is_bot: false }).is_bot === false);
+  check('callers cannot disguise automated traffic', withTrafficTag({ is_bot: false }).is_bot === 'true');
+
+  const hadWindow = 'window' in globalThis;
+  const savedWindow = globalThis.window;
+  setNav({ webdriver: false });
+  const g = /** @type {any} */ (globalThis);
+  g.window = { isTestMode: true, location: { search: '' } };
+  check('test mode is tagged even without webdriver', isAutomatedClient());
+  g.window = { location: { search: '?test=unified' } };
+  check('test URL is tagged before test mode initialization', isAutomatedClient());
+  g.window = { location: { search: '?debug' } };
+  check('ordinary debug sessions remain human', !isAutomatedClient());
+  if (hadWindow) g.window = savedWindow; else delete g.window;
+
+  const savedDocument = g.document;
+  g.document = { querySelector: () => ({ getAttribute: () => '2026-11-07 12:30 UTC' }) };
+  check('fixed deployment timestamp tags events', withTrafficTag().app_build === '2026-11-07 12:30 UTC');
+  g.document = { querySelector: () => ({ getAttribute: () => 'person@example.invalid' }) };
+  check('arbitrary build metadata is excluded', analyticsBuildId() === 'unknown');
+  if (savedDocument) g.document = savedDocument; else delete g.document;
 
   // Restore.
   if (hadNav) setNav(savedNav); else delete globalThis.navigator;
