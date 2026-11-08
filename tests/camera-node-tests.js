@@ -302,9 +302,9 @@ async function main() {
     check('airborne (jump) pulls the camera back', air.zoom > neutral.zoom + 0.3);
     check('airborne (jump) lifts the camera overhead', air.pitch > 0.3);
 
-    // A hard, twisty carve pulls the camera IN for tight tree-line framing.
+    // A hard carve widens the view so the exit stays visible.
     const turn = cam.autoFrameTargets(0, 0, 0.06, 1.6, false, Infinity);
-    check('a hard carve pulls the camera IN (zoom < neutral)', turn.zoom < neutral.zoom);
+    check('a hard carve widens the view (zoom > neutral)', turn.zoom > neutral.zoom);
 
     // Tall/portrait screens pull back for vertical context; a near avalanche widens out.
     const portrait = cam.autoFrameTargets(0, 0, 0, 0.5, false, Infinity);

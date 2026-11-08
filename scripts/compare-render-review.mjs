@@ -10,7 +10,8 @@ const { PNG } = require('playwright-core/lib/utilsBundle');
 
 export const REVIEW_DEVICES = ['desktop', 'phone'];
 export const REVIEW_PHASES = ['spawn', 'downhill', 'avalanche', 'spray', 'crash',
-  'orbit-entry', 'orbit-first-update', 'orbit-second-update', 'snow-midday', 'snow-golden'];
+  'orbit-entry', 'orbit-first-update', 'orbit-second-update',
+  'auto-terrain', 'auto-jump', 'auto-obstacles', 'snow-midday', 'snow-golden'];
 const SHA = /^[0-9a-f]{40}$/;
 const escape = value => String(value).replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -102,7 +103,7 @@ export async function compareRenderReview({ baselineDir, candidateDir, outputDir
     <style>body{font:16px system-ui;margin:24px;background:#172130;color:#e9f1fa}h1{font-size:24px}.images{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}figure{margin:0}img{width:100%;height:auto}article{margin:32px 0}pre{white-space:pre-wrap}a{color:inherit}@media(max-width:700px){.images{grid-template-columns:1fr}}</style>
     <h1>SnowGlider rendering comparison</h1><p>${report.mode === 'review-only' ? 'Review evidence; differences require human assessment. This is not an approved visual baseline.' : 'Comparison against an explicitly approved commit.'}</p>
     <p>Base <code>${baseCommit}</code><br>Head <code>${headCommit}</code></p>
-    <p>Fixed practice seed and prescribed phase positions; exact 60 Hz simulation steps. Canvas captures exclude HTML overlays. Timings are CPU submission and GPU-finished service times on this runner, not device FPS guarantees.</p>
+    <p>Fixed practice seed and prescribed phase positions; exact 60 Hz simulation steps. Auto framing captures hold the same real terrain, rider pose and obstacle inputs while only the camera settles. Canvas captures exclude HTML overlays. Timings are CPU submission and GPU-finished service times on this runner, not device FPS guarantees.</p>
     <p>${report.differences}/${frames.length} images exceed ${(maxChangedRatio * 100).toFixed(2)}% changed pixels at channel threshold ${pixelThreshold}. Source baseline captures remain unchanged; this report does not approve them.</p>${cards}</html>`;
   await Promise.all([
     fs.writeFile(path.join(outputDir, 'report.json'), JSON.stringify(report, null, 2)),
