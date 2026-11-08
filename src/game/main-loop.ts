@@ -37,6 +37,7 @@ import { Physics, type PlayerState } from '../player-state.js';
 import { resolveBurialOutcome } from '../avalanche.js';
 import { comboMultiplier, comboLabel, nextComboStep } from './combo.js';
 import { getDifficultyConfig } from '../difficulty.js';
+import { startRunTelemetry, endRunTelemetry } from '../run-telemetry.js';
 import { updateStatsHud, updateTimerDisplay, updateLevelHud } from '../ui/hud.js';
 import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
 import { type SceneContext } from './scene-setup.js';
@@ -597,6 +598,10 @@ export function createMainLoop(deps: MainLoopDeps) {
     loopFailed = true;
     state.gameActive = false;
     state.animationRunning = false;
+    endRunTelemetry(state, {
+      outcome: 'crash', reason: 'runtime_error', time: state.simElapsed,
+      timingCompromised: state.timingCompromised,
+    });
     try { console.error('[SnowGlider] Fatal animation-loop error — stopping the run:', err); } catch { /* */ }
     try { Diag.reportError(err, 'animation_loop'); } catch { /* telemetry must never block recovery */ }
     try { Diag.endRun(); } catch { /* telemetry must never block recovery */ }
@@ -642,6 +647,9 @@ export function createMainLoop(deps: MainLoopDeps) {
         }
       }
       try {
+      // Count actual playable runs, after startup/intro and hidden-tab gates.
+      // The tracker is idempotent; resets prepare a fresh attempt separately.
+      startRunTelemetry(state, state.difficulty);
       // Ceiling the frame delta at the spiral guard (MAX_SUBSTEPS * FIXED_DT) so a long
       // stall (tab restore, GC pause) can't pour an unbounded backlog into the accumulator.
       const rawDelta = (time - lastTime) / 1000;

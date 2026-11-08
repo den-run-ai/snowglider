@@ -411,7 +411,7 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): void {
   if (container) mountLeaderboardPanel(container, tier);
 }
 
-function logScoreEvent(name: 'complete_run' | 'new_high_score', time: number, tier: Difficulty, stamp: ReturnType<typeof getRunStamp>): void {
+function logScoreEvent(name: 'new_high_score', time: number, tier: Difficulty, stamp: ReturnType<typeof getRunStamp>): void {
   if (!analytics) return;
   try {
     logEvent(analytics, name, withTrafficTag({
@@ -478,7 +478,6 @@ function saveScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY): Promise
 function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY): Promise<ScoreSaveResult> {
   const stamp = readCompetitiveRunStamp();
   if (!isValidScoreTime(time, tier) || !stamp) return Promise.resolve({ status: 'invalid', localSaved: false });
-  logScoreEvent('complete_run', time, tier, stamp);
   const user = getActiveUser();
   const previous = user ? getLocalBestForUser(tier, user.uid) : null;
   if (user && (previous === null || time < previous)) logScoreEvent('new_high_score', time, tier, stamp);

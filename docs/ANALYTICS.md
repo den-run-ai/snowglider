@@ -78,6 +78,35 @@ signal, not another finish. Run events include `difficulty`, `physics_version`, 
 and `timing_compromised` context. Register dimensions needed for exploration rather than
 creating a new event for each tier or release.
 
+### Playable-run funnel (version 2)
+
+Filter new funnel analysis to `funnel_version = 2`; older start/reset counts used different
+boundaries and cannot be repaired retrospectively.
+
+| Event | Boundary |
+|---|---|
+| `game_start` | First active, visible gameplay frame, after assets and any intro. Includes in-game Reset and same-level Restart; loading intent and visibility resumes do not add a start. |
+| `game_reset` | A previously playable attempt is replaced. Initial setup and repeated preparation do not count. Its context describes the replaced attempt. |
+| `complete_run` | Reaching the finish, once per attempt, whether or not score storage/auth works. `score_eligible` separates valid ranked results from practice, compromised timing and invalid score times. |
+| `game_over` | A crash, once per attempt. Fatal animation-loop failures use the fixed `runtime_error` reason; raw exceptions remain in the sanitized diagnostics channel. |
+
+`run_attempt` is bounded to `first`, `second` or `later`. A counter capped at three lives
+in `sessionStorage` so a difficulty change/reload in the same tab preserves replay context.
+It contains no account identifier, run seed, nonce or timestamp. If storage is blocked,
+the count falls back to this page's memory. This is a **tab-run category**, not a first-ever
+player or a GA4-session identifier; browser session restoration can retain the counter. Register
+`run_attempt`, `funnel_version` and `score_eligible` as event-scoped dimensions for GA4
+explorations. Use GA4's audience/cohort tools separately for next-day returns.
+
+The result boundary owns completion telemetry; score saving and later sign-in/retry do not
+emit another `complete_run`. When Analytics initializes late, up to 16 whole attempts are
+held in memory and flushed in order on active frames or auth readiness, including after a
+finish. No event payload is persisted. Overflow and throwing sinks discard whole attempts
+so a dropped start does not leave an orphan completion. Counts remain best-effort when
+Analytics is blocked, absent or the page closes before delivery. Missing events are not
+proof that a player never started or finished.
+Closing/backgrounding a tab is not automatically a crash or abandonment event.
+
 `session_health` contains bounded frame/performance summaries; `physics_anomaly` and
 `diag_note` cover specific failures. Browser errors use `client_error` and
 `unhandled_rejection`. Error telemetry must remain sanitized, rate-limited and best-effort:

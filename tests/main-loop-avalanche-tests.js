@@ -38,6 +38,8 @@ async function main() {
   const { Snow } = await import('../src/snow.ts');
   const { EffectsModule } = await import('../src/effects.ts');
   const { Sfx } = await import('../src/sfx.ts');
+  const { AudioModule } = await import('../src/audio.ts');
+  const { createLifecycle } = await import('../src/game/lifecycle.ts');
 
   const realAddAirScore = CourseModule.addAirScore;
   const realFlashDodge = CourseModule.flashDodge;
@@ -75,7 +77,7 @@ async function main() {
           this.z = z;
         }
       },
-      rotation: { x: 0, y: Math.PI, z: 0, copy() {} },
+      rotation: { x: 0, y: Math.PI, z: 0, copy() {}, set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
       userData: {
         targetRotationY: Math.PI,
         currentRotX: 0,
@@ -131,6 +133,7 @@ async function main() {
       camera: { position: { x: 0, y: 0, z: 0 }, fov: 75, updateProjectionMatrix() {} },
       renderer: overrides.renderer ?? { render() {}, setSize() {} },
       renderQuality: overrides.renderQuality,
+      runClockGuard: overrides.runClockGuard,
       cameraManager: { update() {}, handleResize() {} },
       directionalLight: overrides.directionalLight ?? {
         position: { set() {}, copy() {} },
@@ -160,6 +163,60 @@ async function main() {
   /** @param {{loop: any}} h @param {number} n */
   function stepFrames(h, n, t0) {
     for (let f = 1; f <= n; f++) h.loop.animate(t0 + f * STEP_MS);
+  }
+
+  // Drive the real reset + loop boundary. Construction, intro preparation and
+  // hidden-tab frames must not inflate starts; active reset and replay must.
+  {
+    const events = [];
+    window.firebaseModules = { logEvent: (name, params) => events.push({ name, params }) };
+    let paused = true;
+    const h = makeLoop({
+      state: { gameActive: false },
+      runClockGuard: { isPaused: () => paused, consumeResumed: () => false },
+    });
+    const lifecycle = createLifecycle(/** @type {any} */ ({
+      state: h.state, player: h.player, snowman: h.snowman,
+      cameraManager: { initialize() {} },
+      gameOverOverlay: document.createElement('div'),
+      restartButton: document.createElement('button'),
+      startLoop: h.loop.startLoop, resetLoopState: h.loop.resetLoopState,
+    }));
+    lifecycle.resetSnowman();
+    h.loop.startLoop();
+    check('preparing a run emits neither reset nor start', events.length === 0);
+    h.state.gameActive = true;
+    h.loop.startLoop();
+    check('a hidden start waits for an actual playable frame', events.length === 0);
+    paused = false;
+    h.loop.animate(performance.now());
+    h.loop.animate(performance.now());
+    check('first visible gameplay emits exactly one start',
+      events.length === 1 && events[0].name === 'game_start' && events[0].params.run_attempt === 'first');
+    lifecycle.resetSnowman();
+    h.loop.animate(performance.now());
+    check('in-game Reset emits one reset and a second playable start',
+      events.filter(e => e.name === 'game_reset').length === 1
+      && events.filter(e => e.name === 'game_start').length === 2
+      && events.at(-1).params.run_attempt === 'second');
+    h.state.gameActive = false;
+    h.state.animationRunning = false;
+    const savedEnableSound = AudioModule.enableSound;
+    const savedUnlock = Sfx.unlock;
+    try {
+      AudioModule.enableSound = () => {};
+      Sfx.unlock = () => {};
+      lifecycle.restartGame();
+    } finally {
+      AudioModule.enableSound = savedEnableSound;
+      Sfx.unlock = savedUnlock;
+    }
+    h.loop.animate(performance.now());
+    check('Restart emits another start without requiring a new page initialization',
+      events.filter(e => e.name === 'game_reset').length === 2
+      && events.filter(e => e.name === 'game_start').length === 3
+      && events.at(-1).params.run_attempt === 'later');
+    delete window.firebaseModules;
   }
 
   {
