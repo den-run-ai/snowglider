@@ -4,7 +4,7 @@ import type * as THREE from 'three';
 import type { GameState, SceneContext } from '../../src/game/scene-setup.js';
 import type { PlayerState } from '../../src/player-state.js';
 import resultContract from '../helpers/browser-results.js';
-import { mockFirebase } from './helpers';
+import { mockFirebase } from './helpers.js';
 
 export const RENDER_PHASES = ['spawn', 'downhill', 'avalanche', 'spray', 'crash'] as const;
 export type RenderPhase = typeof RENDER_PHASES[number];

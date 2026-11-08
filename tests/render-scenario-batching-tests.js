@@ -23,12 +23,25 @@ async function main() {
   browser.window = browser;
   const realm = vm.createContext(browser);
   const initScripts = [];
+  const routes = [];
+  let currentUrl = 'about:blank';
   const stopAfterBoot = new Error('pre-boot probe completed');
   const bootPage = /** @type {import('@playwright/test').Page} */ (/** @type {unknown} */ ({
     on() {},
+    async route(pattern, handler) {
+      assert.equal(currentUrl, 'about:blank', 'Firebase interception must be registered before navigation');
+      routes.push({ pattern, handler });
+    },
+    url() {
+      assert.notEqual(currentUrl, 'about:blank', 'resolve the Firebase mock origin only after navigation commits');
+      return currentUrl;
+    },
     async addInitScript(callback) { initScripts.push(callback); },
     async emulateMedia() {},
     async goto(url) {
+      assert.equal(routes.length, 1, 'rendering must install the existing Firebase SDK mock');
+      assert.equal(routes[0].pattern, 'https://www.gstatic.com/firebasejs/**');
+      currentUrl = new URL(url, 'https://example.test:4173').href;
       // Execute the real init callback at the browser's pre-navigation boundary.
       // The test stops after the app-boot probe; graphics setup is tested below.
       for (const callback of initScripts) vm.runInContext(`(${callback.toString()})()`, realm);
@@ -37,6 +50,13 @@ async function main() {
       assert.equal(browser.navigator.webdriver, false, 'keep the actual player renderer path');
       assert.equal(new URL(url, 'https://example.test').searchParams.get('eztrees'), '1');
       assert.equal(preferences.get('snowgliderMuted'), 'true');
+      const responses = [];
+      await routes[0].handler({ async fulfill(response) { responses.push(response); } });
+      assert.deepEqual(responses, [{
+        contentType: 'application/javascript',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: 'export * from "https://example.test:4173/tests/mocks/firebase.mjs";',
+      }], 'the SDK response must resolve the committed page origin, including its review-server port');
       globalThis.window = browser;
       Math.random = () => { audioRandomDraws++; return .5; };
       Sfx.setMuted(true);
@@ -135,7 +155,7 @@ async function main() {
   } finally {
     globalThis.window = savedWindow;
   }
-  console.log('Render scenarios: pre-boot audio isolation, 100 frames, 10 browser calls, exact quantiles, phase ordering and nonempty particles verified.');
+  console.log('Render scenarios: pre-boot Firebase/audio isolation, live-origin SDK routing, 100 frames, 10 browser calls, exact quantiles, phase ordering and nonempty particles verified.');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });
