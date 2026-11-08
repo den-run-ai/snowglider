@@ -280,6 +280,7 @@ export class Camera {
   autoZoom: number;        // TRANSIENT situational multiplier Auto eases; never persisted into `zoom`
   autoHeading: number | null; // eased BEHIND-travel heading, independent of model pose/tricks
   autoYaw: number;           // transient clear-shoulder offset, never a manual preference
+  autoEntryDistance: number; // initialize/first update share the same live-speed seat
   autoPitch: number;       // TRANSIENT situational overhead pitch (radians) Auto eases; additive on orbitPitch
   lastTravelHeading: number | null; // previous frame's travel heading, for the Auto turn-rate signal
   manualHoldFrames: number;// frames left before auto/follow centering resumes after a manual nudge
@@ -342,6 +343,7 @@ export class Camera {
     this.autoPitch = 0;
     this.autoHeading = null;
     this.autoYaw = 0;
+    this.autoEntryDistance = this.minDistance;
     this.lastTravelHeading = null;
     this.manualHoldFrames = 0;
     this.minZoom = 0.5;
@@ -758,6 +760,13 @@ export class Camera {
     this.autoHeading = null;
     this.autoYaw = 0;
     this.lastTravelHeading = null;
+    // A moving Auto entry starts at its live-speed follow distance. Keeping the
+    // same value for the first update avoids a 15 -> 25 unit correction through
+    // the fast entry ease on the next frame. With no velocity, spawn stays neutral.
+    const entrySpeed = velocity ? Math.hypot(velocity.x, velocity.z) : 0;
+    this.autoEntryDistance = this.mode === 'auto' && Number.isFinite(entrySpeed)
+      ? this.minDistance + Math.min(1, entrySpeed / this.speedThreshold) * (this.maxDistance - this.minDistance)
+      : this.minDistance;
     // Clear the cameraman path so a restart never trails a stale point from the prior run.
     this.resetCameramanPath();
     // Reset the frame clock up front so entryOffset() reads phase 0 for the cinematic
@@ -793,11 +802,12 @@ export class Camera {
       this.smoothingVectors.lookAtPosition.copy(lookTarget);
     } else {
       // Original third-person camera initialization
-      // Start with the base distance of minDistance - will adjust dynamically during
-      // gameplay. entryOffset() folds in the current orbit/zoom (neutral by default) for
+      // Auto starts at its live-speed distance; other modes keep their original
+      // minDistance entry. entryOffset() folds in the current orbit/zoom (neutral by default) for
       // auto/follow/orbit, and the cinematic pose directly for cameraman/drone so a mode
       // switch seats at the advertised framing rather than the Follow pose (codex, PR #319).
-      const camOffset = this.entryOffset(this.minDistance, playerRotation.y, playerPosition, velocity);
+      const entryDistance = this.mode === 'auto' ? this.autoEntryDistance : this.minDistance;
+      const camOffset = this.entryOffset(entryDistance, playerRotation.y, playerPosition, velocity);
 
       // Place camera exactly where it should be in its final position
       const initialPos = new THREE.Vector3(playerPosition.x, playerPosition.y, playerPosition.z).add(camOffset);
@@ -847,7 +857,8 @@ export class Camera {
       // offset) for auto/follow/orbit, or the cinematic pose directly for cameraman/drone so
       // the first rendered frame is already the advertised view, not the Follow pose then an
       // ease from it (codex review, PR #319).
-      const camOffset = this.entryOffset(this.minDistance, playerRotation.y, playerPosition, velocity, context);
+      const entryDistance = this.mode === 'auto' ? this.autoEntryDistance : this.minDistance;
+      const camOffset = this.entryOffset(entryDistance, playerRotation.y, playerPosition, velocity, context);
 
       // Set camera directly to its final position
       const camPos = new THREE.Vector3().copy(playerPosition).add(camOffset);

@@ -110,6 +110,33 @@ async function main() {
   console.log('PASS: Auto reframing agrees at 30/60/144 Hz, honors manual hold, and resets across modes/runs');
 
   const { getTerrainHeightUncached } = await import('../src/mountains/terrain.ts');
+  // Exercise the actual mode-entry order with a moving subject: initialize,
+  // first render frame, then regular frames. Auto must not seat at 15 units and
+  // lurch to its 25-unit speed rig through the initial high-smoothing window.
+  for (const hz of [30, 60, 144]) {
+    for (const aspect of [390 / 844, 16 / 9]) {
+      const moving = new THREE.Vector3(0, getTerrainHeightUncached(0, -30), -30);
+      const view = new Camera(new THREE.Scene());
+      view.camera.aspect = aspect;
+      view.camera.updateProjectionMatrix();
+      view.initialize(moving, rot, { x: 0, z: -20 });
+      assert(Math.abs(view.camera.position.z - moving.z - 25) < 1e-8,
+        'moving Auto initialization must use its live-speed distance');
+      const previous = view.camera.position.clone();
+      let maxStep = 0;
+      for (let frame = 0; frame < Math.ceil(hz / 4); frame++) {
+        moving.z -= 20 / hz;
+        moving.y = getTerrainHeightUncached(moving.x, moving.z);
+        view.update(moving, rot, { x: 0, z: -20 }, getTerrainHeightUncached, { frameDt: 1 / hz });
+        if (frame === 0) assert(Math.abs(view.camera.position.z - moving.z - 25) < 1e-8,
+          'first update must retain the same speed-based entry distance');
+        maxStep = Math.max(maxStep, view.camera.position.distanceTo(previous));
+        previous.copy(view.camera.position);
+      }
+      assert(maxStep < 3, `Auto entry lunges ${maxStep} units in one frame at ${hz} Hz`);
+    }
+  }
+  console.log('PASS: moving Auto initialize/first/regular frames share the live-speed seat without an entry lurch');
   for (const aspect of [390 / 844, 16 / 9]) {
     for (const speed of [3, 10, 20]) {
       for (const z of [-40, -80, -145, -200, -250]) {
