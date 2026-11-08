@@ -257,6 +257,13 @@ body.game-active #localModeNotice { display: none; }
   .provider-icon { width: 20px; height: 20px; }
   #authContainer { padding: 3px; }
 }
+/* On short landscape screens the collapsed camera fits in the left column.
+   Stats can use the right column down to the action row, leaving enough room
+   for a complete scrollable stat below the persistent time/level/air summary. */
+@media (min-width: 480px) and (max-height: 500px) {
+  #hudRight { max-height: calc(100dvh - var(--hud-top) - var(--hud-bottom) - 56px); }
+  #cameraControls.collapsed { max-width: var(--hud-column); }
+}
 @media (prefers-reduced-motion: reduce) {
   .panel-chevron { transition: none; }
 }
