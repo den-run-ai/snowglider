@@ -73,7 +73,8 @@ export function buildErrorReport(error: unknown, source: string, fallbackMessage
     params: {
       error_type: ERROR_TYPES.has(name) ? name : 'Error',
       error_code: ERROR_CODES.has(code) ? code : 'unknown',
-      source: ERROR_SOURCES.has(source) ? source : 'caught_error',
+      // `source` is a GA campaign parameter; keep diagnostics in its own namespace.
+      error_source: ERROR_SOURCES.has(source) ? source : 'caught_error',
       ...location,
     },
     local: { message: message.slice(0, 1000), stack },

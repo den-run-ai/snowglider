@@ -185,6 +185,35 @@ async function fetchCollection(token, project, collection) {
 }
 
 // ------------------------------------------------------------------------ GA4 (opt-in) ----
+// Metadata is useful even on an empty response. Keep server-provided details bounded
+// and use a generic warning when a reason has no usable fields.
+function truncationWarning(reason) {
+  const text = (value, limit) => {
+    if (typeof value !== 'string') return '';
+    const bounded = value.slice(0, limit).replace(/\s+/g, ' ').trim();
+    return bounded + (value.length > limit ? '…' : '');
+  };
+  const details = [];
+  if (reason && typeof reason === 'object' && !Array.isArray(reason)) {
+    const type = text(reason.dataTruncationType, 96);
+    const date = text(reason.dataTruncationDate, 40);
+    const message = text(reason.dataTruncationMessage, 240);
+    if (type) details.push(type);
+    if (date) details.push(`before ${date}`);
+    if (Array.isArray(reason.dataTruncationDateRanges)) {
+      for (const range of reason.dataTruncationDateRanges.slice(0, 3)) {
+        const start = text(range?.startDate, 40);
+        const end = text(range?.endDate, 40);
+        if (start && end) details.push(`${start} → ${end}`);
+      }
+      if (reason.dataTruncationDateRanges.length > 3) details.push('additional date ranges omitted');
+    }
+    if (message) details.push(message);
+  }
+  return `GA4 data truncation: ${details.length ? details.join('; ')
+    : 'report data may be incomplete (reason details unavailable).'}`;
+}
+
 // Returns { available, ...metrics } or { available:false, reason, howTo }.
 export async function fetchGa4(sa, {
   propertyId = OPTS.gaProperty, traffic = OPTS.traffic, hostname = OPTS.hostname,
@@ -220,6 +249,7 @@ export async function fetchGa4(sa, {
   }
   const property = `properties/${propertyId}`;
   const warnings = new Set();
+  let truncationWarningCount = 0;
   const expressions = [];
   if (traffic !== 'all') expressions.push({ filter: {
     fieldName: 'customEvent:is_bot',
@@ -244,6 +274,18 @@ export async function fetchGa4(sa, {
     if (meta.subjectToThresholding) warnings.add('GA4 privacy thresholds may suppress data.');
     if (meta.dataLossFromOtherRow) warnings.add('GA4 grouped some high-cardinality data into (other).');
     if (meta.samplingMetadatas?.length) warnings.add('GA4 returned sampled data.');
+    if (meta.dataTruncationReasons !== undefined) {
+      const reasons = Array.isArray(meta.dataTruncationReasons) ? meta.dataTruncationReasons : [null];
+      const omitted = 'GA4 data truncation: additional reasons omitted.';
+      for (const reason of reasons.slice(0, 20)) {
+        const warning = truncationWarning(reason);
+        if (warnings.has(warning)) continue;
+        if (truncationWarningCount >= 20) { warnings.add(omitted); break; }
+        warnings.add(warning);
+        truncationWarningCount++;
+      }
+      if (reasons.length > 20) warnings.add(omitted);
+    }
     return json;
   }
   try {

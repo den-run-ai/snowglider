@@ -4,7 +4,7 @@
   // the two literals are duplicated from src/score-limits.ts (the single source of truth);
   // tests/score-limits-sync-tests.js asserts they stay equal. Floor measured in issue #229
   // (PR A); see score-limits.ts for the derivation.
-  const MIN_VALID_SCORE_TIME = 18;
+  const MIN_VALID_SCORE_TIME = 15;
   const MAX_VALID_SCORE_TIME = 600;
 
   /** @param {number} time */

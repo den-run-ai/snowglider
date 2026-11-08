@@ -61,9 +61,11 @@ request has a 30-second deadline.
   **only explicit tags**: old data and SDK-generated events such as page views may be
   untagged and disappear from either filtered view. Filtered session/user metrics must
   not be treated as a complete human audience. GA4 custom dimensions are not retroactive.
-- The report surfaces thresholding, sampling and `(other)` aggregation warnings. Event-name
-  source scanning is a coverage hint, not proof of delivered events or correct parameters;
-  parameters, asset failures and production delivery remain explicit manual checks.
+- The report surfaces thresholding, sampling, `(other)` aggregation and data-truncation
+  warnings from every response, including empty reports and later pages. Historical
+  retention or other truncation can omit events: zero rows do not prove there were none.
+  Event-name source scanning is a coverage hint, not proof of delivered events or correct
+  parameters; parameters, asset failures and production delivery remain explicit manual checks.
 
 Analytics initializes only on `snowglider.ai` and `www.snowglider.ai`. Local, LAN,
 preview and fork hosts skip the Analytics SDK, including its automatic page-view/session
@@ -80,11 +82,12 @@ creating a new event for each tier or release.
 `diag_note` cover specific failures. Browser errors use `client_error` and
 `unhandled_rejection`. Error telemetry must remain sanitized, rate-limited and best-effort:
 never upload profile identity, raw feedback, arbitrary exception text or full URL queries.
-Remote error fields are `error_type`, `error_code`, `source`, a validated public
+Remote error fields are `error_type`, `error_code`, `error_source`, a validated public
 `script` path, `line`/`column`, and bounded frame/health context. `app_build` identifies
 the deployed build; `is_bot` uses explicit `true`/`false` strings. Raw messages/stacks
 remain in the local diagnostic export. GA4 is an aggregate diagnostic channel, not a
-full stack-trace or distributed tracing store.
+full stack-trace or distributed tracing store. The diagnostic `error_source` field is
+separate from GA campaign attribution; do not use the campaign `source` parameter for errors.
 For local reproduction, use `?debug` and the private diagnostic export documented in
 [DIAGNOSTICS.md](DIAGNOSTICS.md).
 

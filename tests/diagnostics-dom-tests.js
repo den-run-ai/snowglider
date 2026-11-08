@@ -94,11 +94,11 @@ async function main() {
   D.Diag.reportError(new TypeError(privateText), 'animation_loop');
   const caughtErr = events.find((e) => e.event === 'client_error');
   check('caught error: reports type and recovery source', !!caughtErr &&
-    caughtErr.data.error_type === 'TypeError' && caughtErr.data.source === 'animation_loop');
+    caughtErr.data.error_type === 'TypeError' && caughtErr.data.error_source === 'animation_loop');
   check('caught error: attaches the current run context', !!caughtErr &&
     caughtErr.data.frames === 90 && caughtErr.data.health === 'bad');
   check('caught error: excludes message and stack from transport', !!caughtErr &&
-    !('message' in caughtErr.data) && !('stack' in caughtErr.data) &&
+    !('message' in caughtErr.data) && !('stack' in caughtErr.data) && !('source' in caughtErr.data) &&
     !JSON.stringify(caughtErr.data).includes(privateText));
   check('caught error: local diagnostic dump preserves debugging text',
     D.Diag.dump().errors.some(n => n.message === privateText));
@@ -122,7 +122,7 @@ async function main() {
     lineno: 42, colno: 7, error: new ReferenceError(privateText) });
   window.dispatchEvent(errEvt);
   check('global error: captures a safe source position', events.length === 1 &&
-    events[0].data.source === 'window_error' && events[0].data.line === 42 && events[0].data.column === 7);
+    events[0].data.error_source === 'window_error' && events[0].data.line === 42 && events[0].data.column === 7);
   check('global error: excludes message, stack and filename URLs',
     !JSON.stringify(events).includes(privateText) && !JSON.stringify(events).includes('token=secret'));
 

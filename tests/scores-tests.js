@@ -107,6 +107,7 @@ async function flushAll() {
 let BTK, BTMK, LB, LB_BUNNY, LB_BLACK, F_BLUE, F_BUNNY, F_BLACK;
 async function main() {
   const Difficulty = await import('../src/difficulty.ts');
+  const { MIN_VALID_SCORE_TIME: scoreFloor } = await import('../src/score-limits.ts');
   ({ localBestTimeKey: BTK, localBestMetaKey: BTMK } = Difficulty);
   LB = Difficulty.leaderboardCollectionName('blue');
   LB_BUNNY = Difficulty.leaderboardCollectionName('bunny');
@@ -129,13 +130,13 @@ async function main() {
       'isFirestoreAvailable', 'isValidScoreTime'].every(key => typeof ScoresModule[key] === 'function'));
   check('score validation rejects impossible, sub-floor and non-finite times',
     ScoresModule.isValidScoreTime(0.01) === false &&
-    ScoresModule.isValidScoreTime(14) === false &&     // below the 18 s plausibility floor (PR C)
-    ScoresModule.isValidScoreTime(17.99) === false &&  // just under the floor
+    ScoresModule.isValidScoreTime(scoreFloor - 1) === false &&
+    ScoresModule.isValidScoreTime(scoreFloor - 0.01) === false &&
     ScoresModule.isValidScoreTime(600.01) === false &&
     ScoresModule.isValidScoreTime(Infinity) === false &&
     ScoresModule.isValidScoreTime(/** @type {any} */ ('20')) === false);
   check('score validation accepts plausible numeric times at/above the floor',
-    ScoresModule.isValidScoreTime(18) === true &&
+    ScoresModule.isValidScoreTime(scoreFloor) === true &&
     ScoresModule.isValidScoreTime(600) === true &&
     ScoresModule.isValidScoreTime(25.43) === true);
 
@@ -471,9 +472,9 @@ async function main() {
     user: doc(firestoreInstance, 'users', 'bad-fast'),
     time: 0.01
   });
-  seed(LB, 'sub-floor', {              // forged sub-18s entry: must be filtered (PR C)
+  seed(LB, 'sub-floor', {              // forged sub-floor entry: must be filtered
     user: doc(firestoreInstance, 'users', 'sub-floor'),
-    time: 14
+    time: scoreFloor - 1
   });
   seed(LB, 'missing-user', {
     time: 24

@@ -9,11 +9,12 @@ async function main() {
   }), sensitive, '', Infinity, 12);
   assert.equal(report.params.error_type, 'TypeError');
   assert.equal(report.params.error_code, 'unknown');
-  assert.equal(report.params.source, 'caught_error');
+  assert.equal(report.params.error_source, 'caught_error');
   assert.equal(report.params.line, 0);
   assert.equal(report.params.column, 12);
   assert.ok(!JSON.stringify(report.params).includes(sensitive));
   assert.ok(!('message' in report.params) && !('stack' in report.params));
+  assert.ok(!('source' in report.params), 'error diagnostics must not use the GA campaign source parameter');
   assert.ok(report.local.message.includes(sensitive));
   assert.ok(report.local.stack.includes(sensitive));
   assert.ok(Object.values(report.params).every(v => typeof v !== 'string' || v.length <= 100));

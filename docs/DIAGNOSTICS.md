@@ -75,7 +75,7 @@ pipeline** (`window.firebaseModules.logEvent`, the same seam `game_start`/`game_
   trivial/empty run emits nothing.
 - **`client_error` / `unhandled_rejection`** — uncaught browser errors and promise
   rejections, plus recovery boundaries calling `Diag.reportError(error, source)`.
-  Events contain allowlisted `error_type`, `error_code`, and `source`, a same-origin
+  Events contain allowlisted `error_type`, `error_code`, and `error_source`, a same-origin
   static-code `script`/`line`/`column`, and `frames`/`fps`/`speedMax`/`health`.
   Query strings, fragments, external script URLs, messages and stacks are excluded.
   Identical groups emit once; at most 20 distinct groups are uploaded per recorder
