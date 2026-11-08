@@ -4,17 +4,20 @@
 restart/audio, camera, snow-relief and copy fixes (#461–#467, #471–#472), reviewed on
 [main `51fc83b`](https://github.com/den-run-ai/snowglider/commit/51fc83b0ee83d22a1453c155356e4851b48427a6).
 [All-level leaderboards (#473)](https://github.com/den-run-ai/snowglider/pull/473)
-add ranking for Bunny, Blue, Black and Expert, account-owned records and explicit
+have shipped ranking for Bunny, Blue, Black and Expert, account-owned records and explicit
 post-run sign-in/save. Keep every difficulty, including Black, playable as a guest.
 Offer an account after an earned result; keep Play again immediately available.
+The source stack also includes the attempt funnel (#475), daily mountain and friend
+challenge (#474/#477), and opt-in local performance capture (#479). Their remaining
+release and physical-device acceptance is tracked below.
 
-### Next delivery sequence
+### Current delivery and acceptance sequence
 
-| Order | Work | Acceptance |
+| Order | Work | Source status and remaining acceptance |
 |---|---|---|
-| 1 | Qualify #473 and the player funnel | Cross-browser and production-build play → finish → replay → sign-in/save flows pass, including service failures and account changes. Measure actual playable first/second runs and one terminal outcome per attempt, independently of score saving; separate known automation ([ANALYTICS.md](ANALYTICS.md)). |
-| 2 | Daily mountain + “beat my run” challenge | A guest opens the same named mountain, plays, compares and retries, then can optionally save. Fix the course and gameplay RNG inputs under an explicit challenge identity with difficulty and physics/rules version. Arbitrary `?seed=` worlds remain practice-only; daily records must have their own eligibility and namespace. Keep fastest time and air score separate. |
-| 3 | One focused skiing/visual pass | Use #381 for an open slope, an optional technical line and a memorable finish. Evaluate phone-size readability, controls and audio on physical iPhone/Android hardware; record sustained frame times, stalls, quality changes and restart resource trends before setting tighter budgets. |
+| 1 | Qualify saving and use the player funnel | #473 all-level saving is deployed; real-provider popup/callback, shared-device, reconnect and service-failure acceptance remains. #475 source measures actual playable first/second/later attempts and one terminal outcome per attempt independently of score saving. Qualify the exact release's cross-browser and production-build play → finish → replay → sign-in/save flows; analyze funnel version 2 and separate known automation ([ANALYTICS.md](ANALYTICS.md)). |
+| 2 | Daily mountain + “beat my run” challenge | #474/#477 source implements a guest-playable named UTC mountain, isolated device personal bests, finish comparison, replay and friend links. Course and gameplay RNG inputs are locked to challenge identity, difficulty and physics/rules version. Global daily leaderboards and account saving remain open and need their own eligible namespace and server rules ([DAILY_CHALLENGE.md](DAILY_CHALLENGE.md)). Arbitrary `?seed=` worlds remain practice-only; fastest time and air score stay separate. |
+| 3 | One focused skiing/visual pass and physical-phone evidence | Use #381 for an open slope, an optional technical line and a memorable finish. #479 source adds opt-in local capture across replays: frame-time distributions, stalls, quality changes and renderer resource checkpoints ([DIAGNOSTICS.md](DIAGNOSTICS.md)). Physical iPhone/Android readability, controls, audio, sustained performance and thermal qualification remain open; the capture does not measure temperature or establish thermal causation. |
 | 4 | Small distribution pilot | Prepare a guest-compatible portal build and real gameplay clips once the play/replay loop is qualified. Resolve or replace the music covered by #418 before using it in promotional clips or a new monetized distribution. |
 | 5 | Heading-relative skiing experiment (#244) | Prototype behind an experimental configuration; compare S-turns, braking, traverses and landings, then test hands-on before a deliberate ranked physics/version change. |
 
@@ -96,7 +99,7 @@ These exist today and generally don't need re-inventing — the gaps below build
 - Background music (simplified native HTML5 audio, single track)
 - Procedural sound effects (`src/sfx.ts`: wind, carving swish, jump/land, avalanche rumble, crash/finish)
 - Timer with best-time tracking
-- Optional Firebase auth + separate per-level time leaderboards; #473 adds explicit post-run save and account-owned bests
+- Optional Firebase auth + separate per-level time leaderboards; #473 shipped explicit post-run save and account-owned bests
 - Mobile touch controls
 - A comprehensive test suite
 
@@ -169,13 +172,14 @@ The replacement work is tracked in **#381** — attack the static descent by dee
 - **Weather progression:** tie the wind field (#253) + fog density to descent depth for whiteout stretches — tension via visibility, cosmetic-first so the byte-identical no-input baseline stays safe.
 - **Scoring depth:** near-miss bonuses on trees/rocks/the avalanche edge through the combo system (`src/game/combo.ts`).
 
-### 6. Progression and replay hooks — ◐ partial (#56, #247, #473)
+### 6. Progression and replay hooks — ◐ partial (#56, #247, #473, #474/#477)
 
 The next attempt needs a clear goal and an immediate replay action.
 
 - **Implemented:** Bunny, Blue, Black and Expert have distinct course/tuning configurations, start/result pickers and separate local bests, splits and ghost records. The seeded course line drives terrain, gates, obstacles and per-tier avalanche behavior; the follow-the-line harness checks winnability.
-- **All-level ranking (#473):** all four tiers are ranked in the current source. Physics v4 floors are 15 / 15 / 10 / 10 seconds for Bunny / Blue / Black / Expert, with a 600-second cap ([score-limits.ts](../src/score-limits.ts)); historical schemas keep their old bounds. Save/restore uses account-owned bests, while the device best remains separate. Qualify real provider flows and exact-head CI before treating that release as accepted.
-- **Next:** a daily mountain and a friend challenge with explicit, reproducible identity; split comparison, optional personal ghost, and small earned cosmetics can follow. Keep replay available through sign-in or save failures.
+- **All-level ranking (#473):** all four tiers are ranked and deployed. Physics v4 floors are 15 / 15 / 10 / 10 seconds for Bunny / Blue / Black / Expert, with a 600-second cap ([score-limits.ts](../src/score-limits.ts)); historical schemas keep their old bounds. Save/restore uses account-owned bests, while the device best remains separate. Real-provider and shared-device acceptance remains.
+- **Daily mountain and friend challenge (#474/#477):** implemented in this source stack with a named UTC course, locked reproducible identity, isolated device personal bests, target comparison and replay/share actions. Global daily boards and account saving remain open. The #475 funnel records actual playable first/second/later attempts and terminal outcomes independently of saving, with bounded daily/friend attribution.
+- **Next:** qualify the daily play/compare/retry loop and measure repeat runs; extend daily saving under separate rules and ownership. Split comparison, optional personal ghost and small earned cosmetics can follow. Keep replay available through sign-in or save failures.
 - **Later:** achievements, missions and cross-player ghosts. The existing hidden-ghost implementation is a foundation, not an already-visible replay feature.
 
 ### 7. Game feel ("juice") and visual readability — ◐ partial (#56)
@@ -250,7 +254,7 @@ The delivery sequence at the top is current. This original phase table records t
 | **P0 — Make it feel like a game** | Give runs a shape | Finish line, checkpoints, split times, result screen, medals, restart/replay flow | ✅ shipped (#56) |
 | **P1 — Make skiing skillful** | Reward technique | Carving / snowplow / straight-line modes, speed loss on turns, terrain-dependent friction, meaningful jumps | ◐ mostly shipped (#56, #136, #146, #191, #186, #286) — carve/snowplow/tuck + the carve-vs-skid speed trade-off + parallel/hop turns + distinct carve-vs-parallel (#48) all land; **meaningful jumps (#47) shipped end-to-end** — grade + boost (#186) then the JP-1…JP-7 completion stack (#286): scored clears, the avalanche-dodge window, impact grading + Expert wipeouts, Expert kickers, and a style/combo chain (jumps round 2 #245 substantially done); per-tier ski feel via difficulty tiers (#240); heading-relative velocity (#244) still queued; ski poles (#52) still open |
 | **P2 — Make it memorable** | Atmosphere & drama | Better mountain visuals, avalanche warning, expressive snowman, scarf/poles, intro fly-over, ghost racer | ◐ avalanche warning + ghost infrastructure (visible ghost disabled), visible sky (**#2 closed**), intro fly-over (#51), mountain visuals/textures (#17) + sun shadow/AO/contact shadows (#18/#17), the avalanche powder cloud (#187), wind (#253), and the **expressive snowman + scarf (#53)** shipped; ski poles (#52) still open |
-| **P3 — Make it social / AI** | Retention | Daily challenge, ghost leaderboard, AI coach, shareable replay | ◐ started — **difficulty tiers (#247)** add per-tier leaderboards + ghosts and a seeded procedural course line (the "named difficulties" AI-angle item); desktop/mobile share (#177/#31) ships. Daily challenge, cross-player ghost leaderboard (#235), and the AI coach remain open |
+| **P3 — Make it social / AI** | Retention | Daily challenge, ghost leaderboard, AI coach, shareable replay | ◐ partial — **difficulty tiers (#247)** add per-tier leaderboards + ghosts and a seeded procedural course line; desktop/mobile share (#177/#31) and all-level account-owned saving (#473) shipped. The current source implements the named UTC daily mountain, device bests and friend challenge (#474/#477), plus the attempt funnel (#475). Global daily boards/account saving, cross-player ghost leaderboard (#235) and the AI coach remain open |
 
 ---
 
@@ -475,4 +479,4 @@ fooled by a bot that *plays* superhumanly within physics limits — attestation 
 forgery, it does not prove a human. Keep this as a separate backend decision after
 qualifying current all-level saving and the daily challenge loop.
 
-*The next product milestone is a guest-playable daily mountain with a reproducible friend challenge. Use second runs and later returns to evaluate it before broadening cosmetics, options or promotion.*
+*The daily mountain and reproducible friend challenge are implemented in the current source. Qualify the guest play/compare/retry loop, use the version 2 funnel to evaluate second runs and later returns, and collect physical-phone evidence with the opt-in local capture before broadening cosmetics, options or promotion. Global daily ranking/account saving and real-provider, audio and sustained-device acceptance remain open.*
