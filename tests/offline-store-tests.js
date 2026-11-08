@@ -41,7 +41,7 @@ async function main() {
   check('localBestSplitsKey(blue) is suffixed for blue too', store.localBestSplitsKey('blue') === 'snowgliderBestSplits_blue');
   check('localGhostKey(bunny) matches the course.ts scheme', store.localGhostKey('bunny') === 'snowgliderGhost_bunny');
 
-  // --- isPlausibleTierTime uses the TIER'S OWN floor (not the global 18 s) ---
+  // --- isPlausibleTierTime uses the TIER'S OWN floor (not the global Blue floor) ---
   check('valid mid-range time accepted (blue)', store.isPlausibleTierTime('blue', 30) === true);
   check('time at the blue floor accepted', store.isPlausibleTierTime('blue', MIN) === true);
   check('sub-floor blue time rejected', store.isPlausibleTierTime('blue', MIN - 1) === false);
@@ -49,9 +49,9 @@ async function main() {
   check('NaN rejected', store.isPlausibleTierTime('blue', NaN) === false);
   check('Infinity rejected', store.isPlausibleTierTime('blue', Infinity) === false);
   check('string rejected', store.isPlausibleTierTime('blue', '30') === false);
-  // Black/Expert legitimately finish below Blue's 18 s floor (their floor is 13 s).
-  check('Black time below the Blue floor is valid (15 s)', store.isPlausibleTierTime('black', 15) === true);
-  check('Expert time below the Blue floor is valid (15 s)', store.isPlausibleTierTime('expert', 15) === true);
+  // Black/Expert legitimately finish below Blue's 15 s floor (their floor is 13 s).
+  check('Black time below the Blue floor is valid (14 s)', store.isPlausibleTierTime('black', 14) === true);
+  check('Expert time below the Blue floor is valid (14 s)', store.isPlausibleTierTime('expert', 14) === true);
   check('Black time below the BLACK floor rejected (12 s)', store.isPlausibleTierTime('black', 12) === false);
 
   // --- Throw-safe primitives never throw when storage is unavailable ---
@@ -80,13 +80,17 @@ async function main() {
   ls.setItem(store.localBestTimeKey('black'), '15');
   check('readLocalBest preserves a valid fast Black best (15 s)', store.readLocalBest('black', ls) === 15);
   check('valid Black best not purged', ls.getItem(store.localBestTimeKey('black')) === '15');
-  check('saveLocalBestIfBetter accepts a sub-18 s Black best', store.saveLocalBestIfBetter('black', 14, ls) === true);
+  check('saveLocalBestIfBetter accepts a sub-Blue-floor Black best', store.saveLocalBestIfBetter('black', 14, ls) === true);
   check('Black best updated to 14', store.readLocalBest('black', ls) === 14);
 
   // --- saveLocalBestIfBetter: first write, improvement, no-regression, invalid ---
   ls.reset();
+  const historicalBestKey = `snowgliderBestTime_v${PV - 1}`;
+  ls.setItem(historicalBestKey, '20');
+  check('a previous-version best does not populate the active board', store.readLocalBest('blue', ls) === null);
   check('save first valid best writes', store.saveLocalBestIfBetter('blue', 40, ls) === true);
   check('stored best is 40', store.readLocalBest('blue', ls) === 40);
+  check('a new-version best preserves the historical record', ls.getItem(historicalBestKey) === '20');
   check('faster time improves the best', store.saveLocalBestIfBetter('blue', 35, ls) === true);
   check('stored best is now 35', store.readLocalBest('blue', ls) === 35);
   check('slower time does NOT regress the best', store.saveLocalBestIfBetter('blue', 50, ls) === false);
