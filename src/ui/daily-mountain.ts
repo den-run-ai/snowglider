@@ -19,7 +19,7 @@ function link(text: string, href: string): HTMLAnchorElement {
   return a;
 }
 
-/** A compact menu card; selecting a daily always loads its exact world first. */
+/** Selecting a daily always loads its exact world before the next Start gesture. */
 export function renderDailyMountainMenu(tier: Difficulty): void {
   const container = document.getElementById('dailyMountain');
   if (!container) return;
@@ -28,6 +28,24 @@ export function renderDailyMountainMenu(tier: Difficulty): void {
   const active = parsed.kind === 'daily' ? parsed.challenge : null;
   const date = active?.date ?? today;
   const challenge = createDailyChallenge(date, tier);
+  const startMenu = document.getElementById('startMenu');
+  document.getElementById('dailyMountainLink')?.remove();
+  startMenu?.classList.toggle('has-daily-entry', parsed.kind === 'none');
+  container.hidden = parsed.kind === 'none';
+  if (parsed.kind === 'none') {
+    // Ordinary welcome must keep Play, difficulty, sound and Help reachable on
+    // short phones. Use its existing action row; the invitation has the details.
+    const dailyLink = link('Daily mountain', buildDailyChallengeUrl(challenge, window.location.href));
+    dailyLink.id = 'dailyMountainLink';
+    dailyLink.setAttribute('aria-label', `Daily mountain: ${challenge.name}`);
+    dailyLink.title = `Ride today’s mountain: ${challenge.name}`;
+    dailyLink.addEventListener('click', () => {
+      dailyLink.href = buildDailyChallengeUrl(createDailyChallenge(utcDayString(new Date()), tier), window.location.href);
+    });
+    startMenu?.append(dailyLink);
+    container.replaceChildren();
+    return;
+  }
   const title = document.createElement('h2');
   title.textContent = active ? `🏔 ${challenge.name}` : '🏔 Daily mountain';
   const description = document.createElement('p');
@@ -45,16 +63,8 @@ export function renderDailyMountainMenu(tier: Difficulty): void {
     const best = readDailyBest(challenge);
     if (best !== null) description.textContent += ` Device best: ${(best / 1000).toFixed(2)}s.`;
     if (date !== today) actions.append(link('Today’s mountain', buildDailyChallengeUrl(createDailyChallenge(today, tier), window.location.href)));
-  } else {
-    description.textContent = `${challenge.name} · A fresh challenge each day. Finish, retry, then challenge a friend.`;
-    const dailyLink = link('Ride today’s mountain', buildDailyChallengeUrl(challenge, window.location.href));
-    dailyLink.id = 'dailyMountainLink';
-    dailyLink.addEventListener('click', () => {
-      dailyLink.href = buildDailyChallengeUrl(createDailyChallenge(utcDayString(new Date()), tier), window.location.href);
-    });
-    actions.append(dailyLink);
   }
-  if (parsed.kind !== 'none') actions.append(link('Regular mountain', regularMountainUrl(window.location.href, tier)));
+  actions.append(link('Regular mountain', regularMountainUrl(window.location.href, tier)));
   const note = document.createElement('small');
   note.textContent = 'Free to play · Daily bests stay on this device · New mountain at 00:00 UTC';
   container.replaceChildren(title, description, actions, note);

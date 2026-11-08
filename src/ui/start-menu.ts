@@ -364,6 +364,20 @@ import { renderDailyMountainMenu } from './daily-mountain.js';
     // gesture unlocks music and SFX synchronously, before starting the run.
     consumeRunLaunch();
     const startContainer = document.getElementById('startGameContainer');
+    const card = startContainer?.querySelector<HTMLElement>('.start-dialog');
+    const disclosures = card?.querySelectorAll<HTMLDetailsElement>('.start-extras > details');
+    disclosures?.forEach((details) => {
+      details.addEventListener('toggle', () => {
+        if (details.open || card?.classList.contains('about-open')) return;
+        // Full daily/error invitations may still need vertical reading space.
+        // Keep their focused summary in place instead of jumping above it.
+        if (!card?.querySelector('#startMenu.has-daily-entry')) return;
+        // Closing the last long disclosure returns to the same compact menu.
+        // Native focus stays on its summary; do not retain a landscape scroll
+        // offset that leaves the difficulty choices above the visible card.
+        if (card && !card.querySelector('.start-extras > details[open]')) card.scrollTop = 0;
+      }, listenerOptions);
+    });
     const account = document.getElementById('authContainer');
     if (startContainer) openOverlayFocus(startContainer, {
       initialFocus: document.getElementById('startGameButton'),

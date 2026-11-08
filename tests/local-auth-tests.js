@@ -64,6 +64,13 @@ function loadLocalAuth({ html, url }) {
 
 async function main() {
   console.log('--- local-auth.js (local-mode fallback) ---');
+  // Use the real game stamp: this also detects drift in the classic script's
+  // inlined canonical seed / physics version without another loader or fixture.
+  const runContext = await import('../src/run-context.ts');
+  runContext.setWorldContext(runContext.CANONICAL_WORLD_SEED, false);
+  runContext.rewindRunStreams(7);
+  const canonicalStamp = runContext.getRunStamp();
+  const versionedKey = `snowgliderBestTime_v${runContext.PHYSICS_VERSION}`;
 
   // ---------------------------------------------------------------------------
   // Scenario A: file:// protocol with full auth/leaderboard DOM present.
@@ -128,17 +135,17 @@ async function main() {
   // window seam scene-setup publishes. With the seam present, a new best writes
   // the same _meta sidecar the module-graph paths write; without it (degraded
   // boot), recording still works and simply leaves no stamp.
-  a.window.__snowgliderGetRunStamp = () => ({ seed: 777, physicsVersion: 1 });
+  a.window.__snowgliderGetRunStamp = runContext.getRunStamp;
   Scores.recordScore(30);
   // With the seam present the key derives from the stamp's version (#403 review):
   // the write lands in that version's namespace, stamped alongside.
   check('local-auth writes the stamp-versioned competitive key via the seam',
-    a.localStorage.getItem('snowgliderBestTime_v1') === '30');
+    a.localStorage.getItem(versionedKey) === '30');
   check('local-auth stamps a new best via the window seam',
-    a.localStorage.getItem('snowgliderBestTime_v1_meta') === JSON.stringify({ seed: 777, physicsVersion: 1 }));
+    a.localStorage.getItem(versionedKey + '_meta') === JSON.stringify(canonicalStamp));
   delete a.window.__snowgliderGetRunStamp;
-  a.localStorage.removeItem('snowgliderBestTime_v1');
-  a.localStorage.removeItem('snowgliderBestTime_v1_meta');
+  a.localStorage.removeItem(versionedKey);
+  a.localStorage.removeItem(versionedKey + '_meta');
   Scores.recordScore(25);
   check('an absent seam degrades gracefully (best still recorded, no stamp)',
     a.localStorage.getItem('snowgliderBestTime') === '25' &&
@@ -147,17 +154,18 @@ async function main() {
   // Stale-sidecar invalidation (Codex review PR #407): a PREVIOUS run's stamp
   // must never survive to describe a NEW best. With the seam ABSENT, a new best
   // clears any existing sidecar rather than leaving the old attribution.
-  a.window.__snowgliderGetRunStamp = () => ({ seed: 111, physicsVersion: 1 });
+  a.window.__snowgliderGetRunStamp = runContext.getRunStamp;
   Scores.recordScore(20);
   delete a.window.__snowgliderGetRunStamp;
-  Scores.recordScore(19.5); // new best with NO seam -> the old seed-111 stamp must go
+  a.localStorage.setItem('snowgliderBestTime_meta', JSON.stringify(canonicalStamp));
+  Scores.recordScore(19.5); // new historical best with NO seam -> stale stamp must go
   check('a seam-less new best clears the previous run\'s stale stamp',
     a.localStorage.getItem('snowgliderBestTime') === '19.5' &&
     a.localStorage.getItem('snowgliderBestTime_meta') === null);
   // And with the seam present but the META write failing, the old sidecar is
   // cleared first — the record ends up unstamped, never mis-stamped. (With the
   // seam present the write lands in the stamp-versioned namespace, #403 review.)
-  a.window.__snowgliderGetRunStamp = () => ({ seed: 222, physicsVersion: 1 });
+  a.window.__snowgliderGetRunStamp = runContext.getRunStamp;
   Scores.recordScore(19);
   const realLsSet = a.localStorage.setItem;
   a.localStorage.setItem = (k, v) => { if (String(k).endsWith('_meta')) throw new Error('quota'); return realLsSet(k, v); };
@@ -165,9 +173,104 @@ async function main() {
   a.localStorage.setItem = realLsSet;
   delete a.window.__snowgliderGetRunStamp;
   check('a failed stamp write leaves the new best unstamped (stale sidecar cleared)',
-    a.localStorage.getItem('snowgliderBestTime_v1') === '18.5' &&
-    a.localStorage.getItem('snowgliderBestTime_v1_meta') === null);
-  a.localStorage.removeItem('snowgliderBestTime_v1');
+    a.localStorage.getItem(versionedKey) === '18.5' &&
+    a.localStorage.getItem(versionedKey + '_meta') === null);
+  a.localStorage.removeItem(versionedKey);
+
+  // A live game context is authoritative. Reject bad provenance BEFORE reading
+  // or writing any record, including the historical fallback key. Exercise both
+  // public score entry points; every invalid finish is faster than the fixture.
+  a.localStorage.setItem(versionedKey, '25');
+  a.localStorage.setItem(versionedKey + '_meta', JSON.stringify(canonicalStamp));
+  const storedBeforeInvalid = JSON.stringify(a.localStorage._raw());
+  const storageMethods = {
+    getItem: a.localStorage.getItem,
+    setItem: a.localStorage.setItem,
+    removeItem: a.localStorage.removeItem,
+  };
+  let storageCalls = 0;
+  for (const name of ['getItem', 'setItem', 'removeItem']) {
+    a.localStorage[name] = (...args) => { storageCalls++; return storageMethods[name](...args); };
+  }
+  /** @type {Array<[string, unknown]>} */
+  const invalidStamps = [
+    ['practice world', { ...canonicalStamp, practice: true }],
+    ['noncanonical seed', { ...canonicalStamp, seed: canonicalStamp.seed + 1 }],
+    ['null seed', { ...canonicalStamp, seed: null }],
+    ['missing seed', { ...canonicalStamp, seed: undefined }],
+    ['string seed', { ...canonicalStamp, seed: String(canonicalStamp.seed) }],
+    ['old physics version', { ...canonicalStamp, physicsVersion: canonicalStamp.physicsVersion - 1 }],
+    ['future physics version', { ...canonicalStamp, physicsVersion: canonicalStamp.physicsVersion + 1 }],
+    ['missing physics version', { ...canonicalStamp, physicsVersion: undefined }],
+    ['string physics version', { ...canonicalStamp, physicsVersion: String(canonicalStamp.physicsVersion) }],
+    ['malformed practice flag', { ...canonicalStamp, practice: 'false' }],
+    ['null practice flag', { ...canonicalStamp, practice: null }],
+    ['negative nonce', { ...canonicalStamp, nonce: -1 }],
+    ['fractional nonce', { ...canonicalStamp, nonce: 0.5 }],
+    ['unsafe nonce', { ...canonicalStamp, nonce: Number.MAX_SAFE_INTEGER + 1 }],
+    ['nonfinite nonce', { ...canonicalStamp, nonce: Infinity }],
+    ['NaN nonce', { ...canonicalStamp, nonce: NaN }],
+    ['string nonce', { ...canonicalStamp, nonce: '7' }],
+    ['null stamp', null],
+    ['undefined stamp', undefined],
+    ['primitive stamp', 'canonical'],
+    ['empty stamp', {}],
+  ];
+  for (const [label, stamp] of invalidStamps) {
+    // Deliberately violate the typed boot seam to exercise its runtime boundary.
+    a.window.__snowgliderGetRunStamp = /** @type {any} */ (() => stamp);
+    const results = [await Scores.recordScore(16), await Scores.saveScore(16)];
+    check(`${label} is rejected without storage access`,
+      results.every(result => result.status === 'invalid' && result.localSaved === false)
+      && storageCalls === 0 && JSON.stringify(a.localStorage._raw()) === storedBeforeInvalid);
+    storageCalls = 0;
+  }
+  a.window.__snowgliderGetRunStamp = () => { throw new Error('run stamp unavailable'); };
+  const brokenResult = await Auth.recordScore(16);
+  check('a throwing live getter fails closed through AuthModule delegation',
+    brokenResult.status === 'invalid' && !brokenResult.localSaved && storageCalls === 0);
+  a.window.__snowgliderGetRunStamp = null;
+  const malformedResult = await Scores.saveScore(16);
+  check('a present nonfunction seam is rejected rather than treated as absent',
+    malformedResult.status === 'invalid' && !malformedResult.localSaved && storageCalls === 0);
+  Object.defineProperty(a.window, '__snowgliderGetRunStamp', {
+    configurable: true,
+    get() { throw new Error('run stamp property unavailable'); },
+  });
+  const propertyResult = await Scores.recordScore(16);
+  check('a throwing seam property is rejected without changing either namespace',
+    propertyResult.status === 'invalid' && !propertyResult.localSaved && storageCalls === 0
+    && JSON.stringify(a.localStorage._raw()) === storedBeforeInvalid);
+  delete a.window.__snowgliderGetRunStamp;
+  delete a.window.ScoresModule;
+  a.window.__snowgliderGetRunStamp = () => ({ ...canonicalStamp, practice: true });
+  const noScoresResults = [await Auth.recordScore(16), await Auth.saveScore(16)];
+  check('AuthModule direct fallback also rejects practice runs without storage access',
+    noScoresResults.every(result => result.status === 'invalid' && !result.localSaved)
+    && storageCalls === 0 && JSON.stringify(a.localStorage._raw()) === storedBeforeInvalid);
+  a.window.ScoresModule = Scores;
+  Object.assign(a.localStorage, storageMethods);
+
+  // One capture controls validation, key choice AND metadata. A later read of a
+  // changed getter cannot put another world's stamp on an accepted finish.
+  let stampReads = 0;
+  a.window.__snowgliderGetRunStamp = () => ++stampReads === 1
+    ? canonicalStamp : { ...canonicalStamp, practice: true };
+  const capturedResult = await Scores.saveScore(16);
+  check('canonical guest saving uses one consistent live-stamp snapshot',
+    capturedResult.status === 'local' && capturedResult.localSaved && stampReads === 1
+    && a.localStorage.getItem(versionedKey) === '16'
+    && a.localStorage.getItem(versionedKey + '_meta') === JSON.stringify(canonicalStamp));
+  a.window.__snowgliderGetRunStamp = () => ({
+    seed: runContext.CANONICAL_WORLD_SEED, physicsVersion: runContext.PHYSICS_VERSION,
+  });
+  const compatibleResult = await Scores.saveScore(15.5);
+  check('legacy live stamps retain the real score helper defaults for optional fields',
+    compatibleResult.status === 'local' && compatibleResult.localSaved
+    && a.localStorage.getItem(versionedKey + '_meta') === JSON.stringify({ ...canonicalStamp, nonce: 0 }));
+  a.localStorage.removeItem(versionedKey);
+  a.localStorage.removeItem(versionedKey + '_meta');
+  delete a.window.__snowgliderGetRunStamp;
 
   // --- Per-tier local best (D2): a tiered finish uses the per-tier key, not Blue ---
   a.localStorage.removeItem('snowgliderBestTime');
