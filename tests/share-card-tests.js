@@ -24,12 +24,12 @@ function clearGlobal(name) {
 }
 
 // A fake 2D context that records what the card drew.
-function makeCtx2d(calls) {
+function makeCtx2d(calls, opts = {}) {
   return {
     set fillStyle(_) {}, set font(_) {}, set textAlign(_) {}, set textBaseline(_) {},
     createLinearGradient() { calls.gradients++; return { addColorStop() {} }; },
     fillRect() { calls.fillRect++; },
-    fillText(t) { calls.texts.push(t); },
+    fillText(t) { if (opts.drawThrows) throw new Error('context lost'); calls.texts.push(t); },
     drawImage() { calls.drawImage++; },
   };
 }
@@ -37,10 +37,13 @@ function makeCtx2d(calls) {
 // Install document/Image/URL stubs. opts toggles the failure branches.
 function installDom(opts = {}) {
   const calls = { gradients: 0, fillRect: 0, drawImage: 0, texts: [], clicked: 0, revoked: 0, removed: 0 };
-  const anchor = { click() { calls.clicked++; } };
+  const anchor = { click() { if (opts.clickThrows) throw new Error('download blocked'); calls.clicked++; } };
   const canvas = {
     width: 0, height: 0,
-    getContext: () => (opts.noCtx ? null : makeCtx2d(calls)),
+    getContext: () => {
+      if (opts.contextThrows) throw new Error('canvas unavailable');
+      return opts.noCtx ? null : makeCtx2d(calls, opts);
+    },
     toBlob: (cb) => {
       if (opts.toBlobThrows) throw new Error('toBlob boom');
       cb(opts.nullBlob ? null : { type: 'image/png', size: 1 });
@@ -99,6 +102,13 @@ async function main() {
   installDom({ noCtx: true });
   check('no 2d context -> null', (await composeShareCard({ frameDataUrl: null, time: 1, isBest: false, url: 'https://x/' })) === null);
 
+  installDom({ contextThrows: true });
+  check('throwing getContext degrades to null instead of rejecting the share menu',
+    (await composeShareCard({ frameDataUrl: null, time: 42, isBest: false, url: 'https://x/' })) === null);
+  installDom({ drawThrows: true });
+  check('lost drawing context degrades to null instead of rejecting',
+    (await composeShareCard({ frameDataUrl: null, time: 42, isBest: false, url: 'https://x/' })) === null);
+
   let dom = installDom();
   const best = await composeShareCard({ frameDataUrl: null, time: 42.13, isBest: true, url: 'https://snowglider.ai/' });
   check('no-frame (gradient) card -> blob', !!best);
@@ -115,6 +125,23 @@ async function main() {
   check('captured frame is drawn as the cover background', dom.calls.drawImage === 1);
   check('non-best card shows the RUN COMPLETE headline', dom.calls.texts.some((t) => /RUN COMPLETE/.test(t)));
   check('time guard renders 10.00s', dom.calls.texts.includes('10.00s'));
+
+  for (const [difficulty, label] of [['bunny', 'Bunny'], ['blue', 'Blue'], ['black', 'Black'], ['expert', 'Expert']]) {
+    dom = installDom();
+    await composeShareCard(/** @type {any} */ ({
+      frameDataUrl: null, time: 42.13, isBest: true, difficulty, airScore: 125, url: 'https://snowglider.ai/?ref=tw',
+    }));
+    check(`${label} image includes the same level and air score as its post`,
+      dom.calls.texts.includes(`${label} · Air score: 125`) && dom.calls.texts.includes('42.13s'));
+    check(`${label} card footer omits tracking queries`, dom.calls.texts.includes('snowglider.ai'));
+  }
+  dom = installDom();
+  await composeShareCard({
+    frameDataUrl: null, time: 42, isBest: true, difficulty: 'black', practice: true, url: 'https://snowglider.ai/',
+  });
+  check('practice images cannot claim a new personal best',
+    dom.calls.texts.includes('PRACTICE RUN') && !dom.calls.texts.includes('NEW PERSONAL BEST')
+    && !dom.calls.texts.includes('Can you beat it?'));
 
   // A frame that fails to load falls back to the gradient.
   dom = installDom({ imgError: true });
@@ -138,6 +165,10 @@ async function main() {
   dom = installDom();
   check('downloadBlob -> true and clicks an anchor', downloadBlob(/** @type {any} */ ({ type: 'image/png' }), 'run.png') === true && dom.calls.clicked === 1);
   check('downloadBlob removes the temp anchor', dom.calls.removed === 1);
+  dom = installDom({ clickThrows: true });
+  check('failed downloads remove the temporary anchor and release the screenshot URL',
+    downloadBlob(/** @type {any} */ ({ type: 'image/png' })) === false
+    && dom.calls.removed === 1 && dom.calls.revoked === 1);
   installDom({ noObjectUrl: true });
   check('no URL.createObjectURL -> false', downloadBlob(/** @type {any} */ ({ type: 'image/png' })) === false);
   clearGlobal('document');

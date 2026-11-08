@@ -26,13 +26,16 @@ g.window = window;
 g.document = window.document;
 g.File = window.File || g.File;
 
+/** @type {string[]} */
+const drawnText = [];
+
 // Give jsdom canvases a working (fake) 2D context + toBlob so composeShareCard
 // returns a blob (jsdom has no real canvas backend).
 window.HTMLCanvasElement.prototype.getContext = /** @type {any} */ (function () {
   return {
     set fillStyle(_) {}, set font(_) {}, set textAlign(_) {}, set textBaseline(_) {},
     createLinearGradient() { return { addColorStop() {} }; },
-    fillRect() {}, fillText() {}, drawImage() {},
+    fillRect() {}, fillText(t) { drawnText.push(t); }, drawImage() {},
   };
 });
 window.HTMLCanvasElement.prototype.toBlob = function (cb) { cb(/** @type {any} */ ({ type: 'image/png', size: 1 })); };
@@ -53,6 +56,7 @@ async function main() {
 
   function mount(opts) {
     document.body.innerHTML = '';
+    drawnText.length = 0;
     const el = buildShareControls(opts);
     document.body.appendChild(el);
     return el;
@@ -107,9 +111,10 @@ async function main() {
   check('image action announces preparation until the PNG is ready',
     imageBtn.disabled && imageBtn.getAttribute('aria-busy') === 'true');
   await tick();
+  check('desktop image label describes downloading the PNG', /download run image/i.test(imageBtn.textContent));
   imageBtn.click();
   await tick();
-  check('desktop save-image downloads the card', /image saved/i.test(imageBtn.textContent));
+  check('desktop image action truthfully reports starting a download', /download started/i.test(imageBtn.textContent));
 
   // ---- Save image, mobile: file-shares the card to the native sheet. ----
   console.log('\n--- save image (mobile file share) ---');
@@ -124,6 +129,7 @@ async function main() {
   root = mount({ time: 30, isBest: false, getCapture: () => null });
   const imageBtn2 = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
   await tick();
+  check('mobile image label describes the native share action', /share run image/i.test(imageBtn2.textContent));
   imageBtn2.click();
   check('prepared image starts native sharing synchronously inside the tap',
     Array.isArray(sharedFiles) && sharedFiles.length === 1);
@@ -148,7 +154,7 @@ async function main() {
   console.log('\n--- mobile primary native share (image) ---');
   /** @type {any} */
   let nativeShared = null;
-  setNavigator({ share: async (d) => { nativeShared = d; }, maxTouchPoints: 5, userAgent: 'iPhone' });
+  setNavigator({ share: async (d) => { nativeShared = d; }, canShare: () => true, maxTouchPoints: 5, userAgent: 'iPhone' });
   root = mount({ time: 42.13, isBest: true });
   await tick();
   /** @type {HTMLElement} */ (root.querySelector('#shareResultBtn')).click();
@@ -203,6 +209,7 @@ async function main() {
   let cancelledCopies = 0;
   setNavigator({
     share: async () => { throw Object.assign(new Error('cancel'), { name: 'AbortError' }); },
+    canShare: () => true,
     clipboard: { writeText: async () => { cancelledCopies++; } },
     maxTouchPoints: 5,
   });
@@ -229,6 +236,48 @@ async function main() {
   fallbackPrimary.click();
   check('the primary action can collapse the native fallback menu',
     /** @type {HTMLElement} */ (root.querySelector('#shareMenu')).style.display === 'none');
+
+  console.log('\n--- completed run context reaches all share surfaces ---');
+  copied = null;
+  opened.length = 0;
+  setNavigator({ clipboard: { writeText: async t => { copied = t; } } });
+  root = mount({ time: 42.13, isBest: true, difficulty: 'expert', airScore: 125, practice: true });
+  await tick();
+  const contextualCopy = /** @type {HTMLButtonElement} */ (root.querySelector('#shareCopyBtn'));
+  check('copy label describes the complete result payload', /copy result.*link/i.test(contextualCopy.textContent));
+  contextualCopy.click();
+  /** @type {HTMLButtonElement} */ (root.querySelector('#share-x-btn')).click();
+  await tick();
+  check('copy and social intent retain the completed tier, points and practice status',
+    /practice run on Expert/.test(copied) && /Air score: 125/.test(copied)
+    && opened.some(url => /practice run on Expert/.test(decodeURIComponent(url))));
+  check('the prepared PNG has matching context and no competitive claim',
+    drawnText.includes('Expert · Air score: 125') && drawnText.includes('PRACTICE RUN')
+    && !drawnText.includes('NEW PERSONAL BEST'));
+
+  console.log('\n--- visible share actions cannot open competing native sheets ---');
+  let concurrentCalls = 0;
+  /** @type {() => void} */
+  let resolveShare = () => {};
+  setNavigator({
+    canShare: () => true, maxTouchPoints: 5,
+    share: () => { concurrentCalls++; return new Promise(resolve => { resolveShare = () => resolve(undefined); }); },
+  });
+  root = mount({ time: 42.13, isBest: true, difficulty: 'black' });
+  await tick();
+  const busyPrimary = /** @type {HTMLButtonElement} */ (root.querySelector('#shareResultBtn'));
+  const busyImage = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
+  busyPrimary.click();
+  busyImage.click();
+  check('primary sharing blocks a second image share', concurrentCalls === 1 && busyPrimary.disabled && busyImage.disabled);
+  resolveShare();
+  await tick();
+  check('native completion restores both actions', !busyPrimary.disabled && !busyImage.disabled);
+  busyImage.click();
+  busyPrimary.click();
+  check('image sharing also blocks the primary action', concurrentCalls === 2 && busyPrimary.disabled && busyImage.disabled);
+  resolveShare();
+  await tick();
 
   // ---- Touch defusing: button taps must NOT reach controls.ts's document-level
   // touch handlers. Those preventDefault() every touch, and on mobile a

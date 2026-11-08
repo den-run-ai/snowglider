@@ -3,8 +3,8 @@
 // Headless, c8-instrumented coverage for src/ui/start-menu.ts (the start screen).
 //
 // start-menu.ts is a side-effect ES module: importing it runs an IIFE that registers
-// the menu's DOM handlers and exposes window.SnowGliderStartMenu. It imports only
-// `../audio.js` (no Firebase/CDN), so we just set up jsdom and `import` the real `.ts`
+// the menu's DOM handlers and exposes window.SnowGliderStartMenu. Its UI modules
+// need no live Firebase/CDN, so we set up jsdom and import the real `.ts`
 // under the existing .js->.ts resolve hook — Node type-strips it and c8 instruments it
 // with correct source-mapped lines. Run via the `test:start-menu` npm script.
 //
@@ -13,8 +13,8 @@
 //   6429cfa "Preserve start gesture after deferred load"
 // plus the build badge, about panel, and keyboard handlers; and the onboarding
 // refresh added in PR #111 — the build-version footer (#buildBadge), the optional
-// sign-in hint, the Global Top Times preview, and the XSS-safe name escaping
-// (refreshStartAccountUI + escapeHtml).
+// sign-in hint, the shared four-level leaderboard, and XSS-safe player names.
+// Board browsing must never change the selected next run.
 const { JSDOM } = require('jsdom');
 
 const dom = new JSDOM(`<!doctype html><html><head>
@@ -164,7 +164,7 @@ async function main() {
     blackOpt.classList.contains('selected') && !blueOpt.classList.contains('selected'));
 
   // Roving-tabindex arrow keys: only the selected option is tabbable, and arrows
-  // move + select the prev/next tier so keyboard-only players can reach all three.
+  // move + select the prev/next tier so keyboard-only players can reach all four.
   window.localStorage.setItem('snowgliderDifficulty', 'blue');
   SM.buildDifficultyPicker();
   const tabbable = Array.from(picker.querySelectorAll('.difficulty-option'))
@@ -292,18 +292,18 @@ async function main() {
   check('clicking Start runs the start flow (after async audio unlock)',
     launches === 1 && startContainer.style.display === 'none');
 
-  console.log('\n--- onboarding: optional sign-in hint + Global Top Times (refreshStartAccountUI) ---');
+  console.log('\n--- onboarding: sign-in and the shared four-level leaderboard ---');
   const refresh = SM.refreshStartAccountUI;
   const lb = document.getElementById('startLeaderboard');
   const hint = document.getElementById('startSignInHint');
   check('exposes refreshStartAccountUI', typeof refresh === 'function');
 
-  function setAccount({ firebase, authState, getLeaderboard }) {
+  function setAccount({ firebase, authState, getLeaderboard = undefined, getLeaderboardResult = undefined }) {
     window.AuthModule = {
       isFirebaseAvailable: () => firebase,
       getAuthState: () => authState
     };
-    window.ScoresModule = getLeaderboard ? { getLeaderboard } : {};
+    window.ScoresModule = { getLeaderboard, getLeaderboardResult };
   }
   function resetAccountDom() {
     lb.style.display = 'none';
@@ -316,10 +316,10 @@ async function main() {
     await flush();
     await flush();
   }
+  const boardText = () => lb.querySelector('.leaderboard-body')?.textContent || '';
 
-  // Signed out (real auth present): show the hint, hide the leaderboard. The
-  // Firestore rules deny leaderboard reads for signed-out users, so we must not
-  // even attempt the read — no false "No times yet", no permission error.
+  // Signed-out players can inspect the four levels and their device best, but
+  // cannot issue Firestore reads or see a misleading empty leaderboard.
   resetAccountDom();
   let leaderboardReads = 0;
   setAccount({
@@ -330,66 +330,80 @@ async function main() {
   refresh();
   await settle();
   check('signed out: sign-in hint shown', hint.style.display === 'block');
-  check('signed out: leaderboard hidden', lb.style.display === 'none');
-  check('signed out: getLeaderboard is NOT called (Firestore rules deny it)',
-    leaderboardReads === 0);
+  check('signed out: all four leaderboard levels remain available with a sign-in explanation',
+    lb.style.display === 'block' && lb.querySelectorAll('[data-leaderboard-tier]').length === 4
+    && /sign in/i.test(boardText()) && !lb.querySelector('table'));
+  check('signed out: getLeaderboard is NOT called (Firestore rules deny it)', leaderboardReads === 0);
 
-  // Offline gate (issue #358, Codex): even with real auth + Firestore initialized and
-  // signed out on a ranked tier, the sign-in hint + leaderboard preview must hide when
-  // offline — the connectivity handler re-runs refreshStartAccountUI, which now factors
-  // in navigator.onLine. Drive onLine and fire the window events the handler listens on.
+  // Connectivity changes update the existing panel without pretending the
+  // leaderboard is empty or reading it while offline, even for a signed-in user.
   let online = true;
   Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
-  resetAccountDom();
+  online = false;
+  window.dispatchEvent(new window.Event('offline'));
+  await settle();
+  check('going offline hides the online sign-in hint', hint.style.display === 'none');
+  check('going offline preserves the board with an explicit offline state',
+    lb.style.display === 'block' && /offline/i.test(boardText()) && leaderboardReads === 0);
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me' }, isSignedIn: true },
+    getLeaderboard: () => { leaderboardReads++; return []; }
+  });
+  refresh();
+  await settle();
+  check('signed-in offline players also skip leaderboard reads',
+    leaderboardReads === 0 && /offline/i.test(boardText()));
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: null, isSignedIn: false },
     getLeaderboard: () => []
   });
-  refresh();
-  await settle();
-  check('online + signed out + ranked: sign-in hint shown', hint.style.display === 'block');
-  online = false;
-  window.dispatchEvent(new window.Event('offline'));
-  await settle();
-  check('going offline hides the sign-in hint', hint.style.display === 'none');
-  check('going offline hides the leaderboard preview', lb.style.display === 'none');
   online = true;
   window.dispatchEvent(new window.Event('online'));
   await settle();
-  check('back online re-shows the sign-in hint', hint.style.display === 'block');
+  check('back online restores the sign-in hint and signed-out status',
+    hint.style.display === 'block' && /sign in/i.test(boardText()));
 
-  // Auth up but Firestore disabled (localhost/127.0.0.1 + file:// fallback): the
-  // hint advertises leaderboard saving that can't work there, so it must stay
-  // hidden even when signed out.
+  // Authentication may be available before Firestore. Sign-in is still useful,
+  // but an unavailable read must be distinct from a confirmed empty board.
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: false },
     authState: { user: null, isSignedIn: false },
-    getLeaderboard: () => []
+    getLeaderboardResult: async () => ({ status: 'unavailable', scores: [] })
   });
   refresh();
   await settle();
-  check('signed out + Firestore disabled: sign-in hint hidden', hint.style.display === 'none');
-  check('signed out + Firestore disabled: leaderboard hidden', lb.style.display === 'none');
+  check('available authentication remains discoverable before Firestore is ready',
+    hint.style.display === 'block' && /sign in/i.test(boardText()));
+  setAccount({
+    firebase: { auth: true, firestore: false },
+    authState: { user: { uid: 'u1' }, isSignedIn: true },
+    getLeaderboardResult: async () => ({ status: 'unavailable', scores: [] })
+  });
+  refresh();
+  await settle();
+  check('unavailable leaderboard shows Retry without claiming there are no times',
+    lb.style.display === 'block' && /couldn.t load/i.test(boardText())
+    && /retry/i.test(lb.querySelector('.leaderboard-action')?.textContent || '')
+    && !/no .*times yet/i.test(boardText()));
 
-  // Signed in, empty leaderboard -> preview hidden (an empty [] is indistinguishable
-  // from a swallowed read error, so we never claim "No times yet"), hint hidden.
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: { uid: 'u1', displayName: 'Ada' }, isSignedIn: true },
-    getLeaderboard: () => []
+    getLeaderboardResult: async () => ({ status: 'ready', scores: [] })
   });
   refresh();
   await settle();
   check('signed in: sign-in hint hidden', hint.style.display === 'none');
-  check('signed in + empty/unavailable leaderboard: preview hidden (no false empty state)',
-    lb.style.display === 'none');
+  check('a confirmed empty board stays visible with the selected level in its empty state',
+    lb.style.display === 'block' && /no .*Blue times yet/i.test(boardText()) && !lb.querySelector('table'));
 
-  // Signed in, populated leaderboard -> top-5 table with 2-decimal times.
+  // Start and result screens share the same top-ten limit and formatting.
   resetAccountDom();
-  const many = Array.from({ length: 7 }, (_, i) => ({ userId: 'p' + i, time: 10 + i }));
+  const many = Array.from({ length: 12 }, (_, i) => ({ userId: 'p' + i, time: 20 + i }));
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
@@ -398,15 +412,14 @@ async function main() {
   refresh();
   await settle();
   check('populated leaderboard is shown', lb.style.display === 'block');
-  check('leaderboard renders at most the top 5 rows (+1 header)',
-    lb.querySelectorAll('table tr').length === 6);
-  check('leaderboard formats times to 2 decimals', lb.innerHTML.includes('10.00s'));
+  check('leaderboard renders at most ten rows plus a header', lb.querySelectorAll('table tr').length === 11);
+  check('leaderboard formats times to two decimals', lb.textContent.includes('20.00s'));
 
-  // Unranked tier (Bunny/Black): no global-board onboarding — hint hidden when signed
-  // out, and the board is neither fetched nor rendered when signed in.
+  // All four tiers are ranked. Browsing another board must never change the
+  // difficulty picker, persisted choice, or launch a game.
   resetAccountDom();
   window.localStorage.setItem('snowgliderDifficulty', 'bunny');
-  SM.buildDifficultyPicker(); // selectedDifficulty -> bunny (unranked)
+  SM.buildDifficultyPicker();
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: null, isSignedIn: false },
@@ -414,110 +427,143 @@ async function main() {
   });
   refresh();
   await settle();
-  check('unranked tier hides the sign-in hint (signed out, Firestore up)',
-    hint.style.display === 'none');
-  resetAccountDom();
-  let unrankedReads = 0;
+  check('Bunny players have the same sign-in/save path as Blue players',
+    hint.style.display === 'block' && /sign in/i.test(boardText()));
+  const viewedTiers = [];
   setAccount({
     firebase: { auth: true, firestore: true },
-    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
-    getLeaderboard: () => { unrankedReads++; return many; }
+    authState: { user: { uid: 'me' }, isSignedIn: true },
+    getLeaderboard: tier => { viewedTiers.push(tier); return many; }
   });
   refresh();
   await settle();
-  check('unranked tier hides the board and skips the fetch (signed in)',
-    lb.style.display === 'none' && unrankedReads === 0);
-  window.localStorage.setItem('snowgliderDifficulty', 'blue'); // restore for the rest
+  const launchesBeforeBrowsing = launches;
+  for (const tier of ['bunny', 'blue', 'black', 'expert']) {
+    /** @type {HTMLButtonElement} */ (lb.querySelector(`[data-leaderboard-tier="${tier}"]`)).click();
+    await settle();
+    check(`${tier} leaderboard fetches and marks its own selected tab`,
+      viewedTiers.at(-1) === tier && !!lb.querySelector('table')
+      && lb.querySelector(`[data-leaderboard-tier="${tier}"]`).getAttribute('aria-pressed') === 'true');
+  }
+  check('browsing all leaderboards leaves the next run and saved preference unchanged',
+    SM.getSelectedDifficulty() === 'bunny' && window.localStorage.getItem('snowgliderDifficulty') === 'bunny'
+    && launches === launchesBeforeBrowsing);
+  window.dispatchEvent(new window.Event('snowglider:account-bests-changed'));
+  await settle();
+  check('restored account bests preserve the board being browsed',
+    viewedTiers.at(-1) === 'expert'
+    && lb.querySelector('[data-leaderboard-tier="expert"]').getAttribute('aria-pressed') === 'true');
+  window.dispatchEvent(new window.Event('snowglider:auth-changed'));
+  await settle();
+  check('auth refresh preserves the viewed tier independently of the next run',
+    viewedTiers.at(-1) === 'expert' && SM.getSelectedDifficulty() === 'bunny');
+  window.localStorage.setItem('snowgliderDifficulty', 'blue');
   SM.buildDifficultyPicker();
 
-  // Current user is highlighted and shown by display name.
+  // Own rows prefer the active profile name and retain an explicit identity marker.
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: { uid: 'me', displayName: 'Ada Lovelace' }, isSignedIn: true },
-    getLeaderboard: () => [{ userId: 'other', time: 12.3 }, { userId: 'me', time: 13.5 }]
-  });
-  refresh();
-  await settle();
-  check('current user row gets the current-user-score class',
-    !!lb.querySelector('tr.current-user-score'));
-  check('current user shown by display name', lb.innerHTML.includes('Ada Lovelace'));
-
-  // Other players show their denormalized leaderboard-doc name; entries written
-  // before the field existed fall back to 'Anonymous' (never 'Player N').
-  resetAccountDom();
-  setAccount({
-    firebase: { auth: true, firestore: true },
-    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
     getLeaderboard: () => [
-      { userId: 'rival', time: 11.1, displayName: 'Rival' },
-      { userId: 'legacy', time: 12.2 },
-      { userId: 'me', time: 13.3 }
+      { userId: 'other', time: 20.3 },
+      { userId: 'me', time: 21.5, displayName: 'Older public name' }
     ]
   });
   refresh();
   await settle();
-  check('other players render their denormalized display name',
-    lb.innerHTML.includes('Rival'));
-  check('entries without a denormalized name fall back to Anonymous',
-    lb.innerHTML.includes('Anonymous') && !lb.innerHTML.includes('Player 2'));
+  check('current user row gets the current-user-score class', !!lb.querySelector('tr.current-user-score'));
+  check('own row displays the current profile name and the you marker',
+    lb.querySelector('tr.current-user-score').textContent.includes('Ada Lovelace (you)'));
 
-  // XSS: a malicious display name is HTML-escaped (escapeHtml), not injected live.
-  // Covers BOTH the viewer's own auth-profile name and another player's
-  // denormalized leaderboard-doc name (the stored-XSS vector).
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: true },
-    authState: { user: { uid: 'me', displayName: '<img src=x onerror=alert(1)>' }, isSignedIn: true },
+    authState: { user: { uid: 'me', displayName: null }, isSignedIn: true },
     getLeaderboard: () => [
-      { userId: 'me', time: 9.9 },
-      { userId: 'evil', time: 10.1, displayName: '<img src=y onerror=alert(2)>' }
+      { userId: 'rival', time: 20.1, displayName: 'Rival' },
+      { userId: 'legacy', time: 21.2 },
+      { userId: 'me', time: 22.3 }
     ]
   });
   refresh();
   await settle();
-  check('malicious display name is escaped (no live <img> injected)',
-    lb.querySelector('img') === null && lb.innerHTML.includes('&lt;img'));
-  check('another player\'s malicious denormalized name is escaped too',
-    lb.innerHTML.includes('&lt;img src=y'));
+  check('other players render their denormalized display name', lb.textContent.includes('Rival'));
+  check('unnamed opponents use Skier instead of invented identities',
+    lb.textContent.includes('Skier') && !lb.textContent.includes('Player 2'));
+  check('an unnamed own row still identifies the signed-in player',
+    lb.querySelector('tr.current-user-score').textContent.includes('You (you)'));
 
-  // getLeaderboard rejection is swallowed and hides the board.
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: null }, isSignedIn: true },
+    getLeaderboard: () => [{ userId: 'me', time: 23, displayName: 'Saved public name' }]
+  });
+  refresh();
+  await settle();
+  check('own row falls back to its denormalized name when the profile has no name',
+    lb.querySelector('tr.current-user-score').textContent.includes('Saved public name (you)'));
+
+  // Both own and other players' score names remain text, never live HTML.
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: true },
-    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
-    getLeaderboard: () => Promise.reject(new Error('offline'))
+    authState: { user: { uid: 'me', displayName: '<img src=z onerror=alert(3)>' }, isSignedIn: true },
+    getLeaderboard: () => [
+      { userId: 'me', time: 20.9, displayName: '<img src=x onerror=alert(1)>' },
+      { userId: 'evil', time: 21.1, displayName: '<img src=y onerror=alert(2)>' }
+    ]
   });
-  lb.style.display = 'block';
   refresh();
   await settle();
-  check('getLeaderboard rejection hides the leaderboard', lb.style.display === 'none');
+  check('own malicious profile name is escaped with no live image',
+    lb.querySelector('img') === null && lb.textContent.includes('<img src=z onerror=alert(3)> (you)'));
+  check('another player\'s malicious denormalized name is also text',
+    lb.textContent.includes('<img src=y onerror=alert(2)>') && lb.innerHTML.includes('&lt;img src=y'));
 
-  // ScoresModule present but without getLeaderboard (defensive) -> board hidden.
+  // Read failures preserve the view with a working retry and no stale rows.
+  resetAccountDom();
+  let attempts = 0;
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me' }, isSignedIn: true },
+    getLeaderboard: () => {
+      attempts++;
+      return attempts === 1 ? Promise.reject(new Error('network unavailable')) : [{ userId: 'me', time: 24 }];
+    }
+  });
+  refresh();
+  await settle();
+  check('read rejection shows a retry instead of hiding the board or showing empty rows',
+    lb.style.display === 'block' && /couldn.t load/i.test(boardText()) && !lb.querySelector('table'));
+  /** @type {HTMLButtonElement} */ (lb.querySelector('.leaderboard-action')).click();
+  await settle();
+  check('Retry reads again and replaces the error with fresh times',
+    attempts === 2 && boardText().includes('24.00s'));
+
   resetAccountDom();
   window.AuthModule = {
     isFirebaseAvailable: () => ({ auth: true, firestore: true, analytics: false }),
     getAuthState: () => ({ user: /** @type {any} */ ({ uid: 'me' }), isSignedIn: true })
   };
   window.ScoresModule = {};
-  lb.style.display = 'block';
   refresh();
   await settle();
-  check('ScoresModule without getLeaderboard hides the leaderboard',
-    lb.style.display === 'none');
+  check('missing leaderboard reader leaves a visible unavailable state and Retry',
+    lb.style.display === 'block' && /unavailable/i.test(boardText())
+    && !!lb.querySelector('.leaderboard-action') && !lb.querySelector('table'));
 
-  // Stale-read guard: a signed-in getLeaderboard() still in flight when the player
-  // logs out must NOT re-show the board after the logout refresh has hidden it.
+  // An already-started read cannot repopulate private rows after logout.
   resetAccountDom();
-  /** @type {any} */ let resolveSlow;
-  const slow = new Promise((res) => { resolveSlow = res; });
+  /** @type {(rows: any) => void} */ let resolveSlow;
+  const slow = new Promise(res => { resolveSlow = res; });
   setAccount({
     firebase: { auth: true, firestore: true },
-    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
+    authState: { user: { uid: 'me' }, isSignedIn: true },
     getLeaderboard: () => slow
   });
-  refresh(); // signed-in read starts, in flight (unresolved)
-  // Player logs out before it resolves; the newer refresh hides the board.
+  refresh();
+  await settle();
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: null, isSignedIn: false },
@@ -525,36 +571,45 @@ async function main() {
   });
   refresh();
   await settle();
-  check('logout hides the board while the prior signed-in read is still in flight',
-    lb.style.display === 'none');
-  resolveSlow([{ userId: 'me', time: 5.0 }]); // the stale signed-in read finally resolves
+  check('logout replaces the in-flight view with sign-in status',
+    /sign in/i.test(boardText()) && !lb.querySelector('table'));
+  resolveSlow([{ userId: 'me', time: 25, displayName: 'Stale private result' }]);
   await settle();
-  check('stale in-flight leaderboard read is discarded after logout (board stays hidden)',
-    lb.style.display === 'none');
+  check('stale signed-in completion cannot overwrite the logged-out view',
+    /sign in/i.test(boardText()) && !lb.querySelector('table') && !lb.textContent.includes('Stale private result'));
 
-  // The start menu re-renders when auth.ts broadcasts snowglider:auth-changed
-  // (login/logout), so signing in from the start screen isn't stale until reload.
-  // Here we change account state but do NOT call refresh() directly — the wired
-  // listener must do it in response to the event.
+  // The auth event alone must refresh the account UI without a reload.
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: { uid: 'me', displayName: 'Signed In' }, isSignedIn: true },
-    getLeaderboard: () => [{ userId: 'me', time: 7.25 }]
+    getLeaderboard: () => [{ userId: 'me', time: 27.25 }]
   });
   window.dispatchEvent(new window.Event('snowglider:auth-changed'));
   await settle();
-  check('snowglider:auth-changed re-renders the account UI without a manual refresh',
-    lb.style.display === 'block' && lb.innerHTML.includes('7.25s'));
+  check('auth-changed refreshes the leaderboard without a manual call',
+    lb.style.display === 'block' && lb.textContent.includes('27.25s'));
 
-  // No AuthModule/ScoresModule at all (file:// / offline) -> everything hidden.
+  // Anonymous Firebase accounts cannot read registered-player leaderboards.
+  leaderboardReads = 0;
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'guest', isAnonymous: true }, isSignedIn: true },
+    getLeaderboard: () => { leaderboardReads++; return []; }
+  });
+  window.dispatchEvent(new window.Event('snowglider:auth-changed'));
+  await settle();
+  check('anonymous auth shows sign-in status and never reads registered-player scores',
+    leaderboardReads === 0 && /sign in/i.test(boardText()) && !lb.querySelector('table'));
+
   resetAccountDom();
   window.AuthModule = undefined;
   window.ScoresModule = undefined;
   refresh();
   await settle();
-  check('no auth/scores modules: sign-in hint hidden', hint.style.display === 'none');
-  check('no auth/scores modules: leaderboard hidden', lb.style.display === 'none');
+  check('no auth/scores modules: online sign-in hint is hidden', hint.style.display === 'none');
+  check('no backend modules: local board remains visible without fabricated remote times',
+    lb.style.display === 'block' && /sign in/i.test(boardText()) && !lb.querySelector('table'));
 
   // Re-initializing the menu must tear down the prior connectivity watcher (rather
   // than stack a second one) and must not duplicate the offline badge. After a

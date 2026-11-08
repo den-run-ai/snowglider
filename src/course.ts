@@ -305,8 +305,11 @@ export const CourseModule = (function () {
   // Bank air-score points earned this run (from a graded manual-jump landing in the
   // physics kernel). Reset to 0 each run in reset(); surfaced on the result screen.
   function addAirScore(points: number) {
-    if (points > 0) airScore += points;
+    if (Number.isFinite(points) && points > 0) airScore += points;
   }
+
+  /** Read the points already banked by the simulation, without changing the run. */
+  function getAirScore(): number { return airScore; }
 
   // ---------------------------------------------------------------------------
   // Gate / finish meshes
@@ -921,6 +924,9 @@ export const CourseModule = (function () {
     panel.appendChild(buildShareControls({
       time: totalTime,
       isBest,
+      difficulty: getDifficulty ? getDifficulty() : DEFAULT_DIFFICULTY,
+      airScore,
+      practice: getRunStamp().practice || !compareBest,
       getCapture: getCaptureContext,
     }));
 
@@ -972,6 +978,7 @@ export const CourseModule = (function () {
     flashClear,
     flashDodge,
     addAirScore,
+    getAirScore,
     hideHud,
     onFinish,
     teardown,

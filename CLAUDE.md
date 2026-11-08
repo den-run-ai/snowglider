@@ -17,7 +17,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/run-context.ts` - Named RNG streams for one deterministic run (issue #400). GAMEPLAY streams (`physics`/`avalanche`/`hazards`/`course`) are pure `Math.random` passthroughs while unseeded (the production default — byte-identical to the frozen baseline and the `Math.random = makeRng(seed)` harnesses), and independent seed-derived PRNGs once `setRunSeed` is called (the ranked/replay seam: same seed ⇒ same auto-turns and boulder field at any refresh rate). COSMETIC streams (`snowParticles`/`avalanchePowder`/`cameraEffects`) are ALWAYS private (never global), so particle activity can't perturb gameplay RNG; the per-frame particle emitters (ski spray, avalanche powder) run on 60 Hz-referenced accumulators, so the budget-per-second is render-rate independent. `PHYSICS_VERSION` anchors future score/ghost records. Gated by `npm run test:run-context`-style suites: `tests/run-context-tests.js` (unit + behavioral isolation) and `tests/verification/rng_frame_rate_harness.js` (seeded runs byte-identical at 30/60/144 Hz under per-frame cosmetic pollution)
 - `src/avalanche.ts` - Avalanche system with snow boulder physics and burial detection
 - `src/snowtracks.ts` - Temporary ski tracks (cosmetic fading grooves, terrain-aware, never touches physics; not a snow-accumulation model)
-- `src/difficulty.ts` - Bunny, Blue, Black and Expert tuning, course layouts and per-tier score namespaces. Only Blue is ranked; measure all-tier finish distributions with `npm run test:floor` before changing floors/ranking.
+- `src/difficulty.ts` - Bunny, Blue, Black and Expert tuning, course layouts and separate ranked score namespaces. Measure all-tier finish distributions with `npm run test:floor` before changing floors/ranking.
 - `src/course.ts` - Checkpoint gates, split timing, ghost racing, and result screen
 - `src/effects.ts` - Avalanche warning UI and camera juice (speed FOV, shake)
 - `src/intro.ts` - Cinematic "fly over the mountain" intro at game start (issue #51; skippable, skipped under test/automation/reduced-motion)
@@ -262,8 +262,10 @@ the risky one is still in review.
 - Anonymous guests are kept OUT of Firestore and the global leaderboard: `auth.ts`
   passes `null` to `ScoresModule.setCurrentUser` and `scores.ts` `getActiveUser()`
   skips `isAnonymous` users. A guest who later signs in with a real provider is
-  upgraded in place via `linkWithPopup` (same uid), and `syncUserData` backfills
-  their local best time to the leaderboard. Preserve this guard when touching auth/scores.
+  upgraded in place via `linkWithPopup` (same uid). A completed guest run is claimed
+  only through the result's explicit sign-in-and-save action. Never import the shared
+  device best into an account: automatic backfill uses UID-owned records only.
+  Preserve these ownership guards when touching auth/scores.
   For guests the provider buttons are **folded behind the chip** (click `#profileChip`
   to unfold `#authUI`) so the upgrade stays reachable without cluttering the panel.
 - Set `window.FIREBASE_MANUAL_INIT = true` to prevent 404 errors 
@@ -281,7 +283,10 @@ the risky one is still in review.
 - Both modules maintain backward compatibility with existing code
 - Best times are stored locally in localStorage by default
 - When authenticated, best times are synced to Firebase Firestore
-- Leaderboard displays top 10 fastest times from all players
+- The shared start/result leaderboard displays a separate top 10 for each level.
+- Time determines ranking; air points remain a separate live/run-sharing score.
+- Save status is confirmed only after both the account best and board write settle;
+  pending saves are durable and tied to a UID, tier, world seed and physics version.
 - ScoresModule handles Firebase service availability gracefully
 - Supports local development mode with localStorage fallback
 - Auth and Scores modules initialize in the correct dependency order

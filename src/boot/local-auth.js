@@ -6,12 +6,16 @@
   // (PR A); see score-limits.ts for the derivation.
   const MIN_VALID_SCORE_TIME = 15;
   const MAX_VALID_SCORE_TIME = 600;
+  /** @type {Record<string, number>} */
+  const MIN_SCORE_TIME_BY_DIFFICULTY = { bunny: 15, blue: MIN_VALID_SCORE_TIME, black: 10, expert: 10 };
 
-  /** @param {number} time */
-  function isValidScoreTime(time) {
-    return typeof time === 'number' &&
+  /** @param {number} time @param {string=} tier */
+  function isValidScoreTime(time, tier) {
+    const floor = MIN_SCORE_TIME_BY_DIFFICULTY[tier || 'blue'];
+    return typeof floor === 'number' &&
+      typeof time === 'number' &&
       Number.isFinite(time) &&
-      time >= MIN_VALID_SCORE_TIME &&
+      time >= floor &&
       time <= MAX_VALID_SCORE_TIME;
   }
 
@@ -33,6 +37,43 @@
     return (!tier || tier === 'blue') ? base : base + '_' + tier;
   }
 
+  /**
+   * Preserve the fastest result even when only the classic fallback is available.
+   * Storage restrictions must not throw out of the finish handler or report a
+   * persistent save that did not happen.
+   * @param {number} time
+   * @param {string=} tier
+   * @returns {{status: 'local' | 'unavailable' | 'invalid', localSaved: boolean}}
+   */
+  function recordLocalBest(time, tier) {
+    if (!isValidScoreTime(time, tier)) return { status: 'invalid', localSaved: false };
+    try {
+      const key = localBestTimeKey(tier);
+      const raw = localStorage.getItem(key);
+      const bestTime = raw === null ? NaN : Number(raw);
+      if (!isValidScoreTime(bestTime, tier) || time < bestTime) {
+        // Clear the old stamp BEFORE replacing its time; a failed remove cannot
+        // leave a new result described by the previous run's provenance.
+        localStorage.removeItem(key + '_meta');
+        localStorage.setItem(key, String(time));
+        try {
+          if (typeof window.__snowgliderGetRunStamp === 'function') {
+            localStorage.setItem(key + '_meta', JSON.stringify(window.__snowgliderGetRunStamp()));
+          }
+        } catch (e) { /* the local time is valid; no stamp means it stays historical */ }
+      }
+      return { status: 'local', localSaved: true };
+    } catch (e) {
+      console.warn('Local score storage is unavailable; the finished run remains visible.', e);
+      return { status: 'unavailable', localSaved: false };
+    }
+  }
+
+  /** @param {number} time @param {string=} tier */
+  function saveLocalScore(time, tier) {
+    return Promise.resolve(recordLocalBest(time, tier));
+  }
+
   function installScoresModule() {
     window.ScoresModule = {
       initializeScores: function () {
@@ -41,51 +82,8 @@
       setCurrentUser: function () {
         console.log("ScoresModule: setCurrentUser called in local mode");
       },
-      /** @param {number} time @param {string=} tier */
-      recordScore: function (time, tier) {
-        if (!isValidScoreTime(time)) {
-          console.warn("Skipping local score record (Invalid time value):", time);
-          return;
-        }
-
-        const key = localBestTimeKey(tier);
-        const localBestTimeStr = localStorage.getItem(key);
-        const localBestTime = localBestTimeStr ? parseFloat(localBestTimeStr) : null;
-        // Inline (not isValidScoreTime) so the `typeof` check narrows localBestTime
-        // from `number | null` to `number` for the `time < localBestTime` use below
-        // under strictNullChecks.
-        const hasValidLocalBest = typeof localBestTime === 'number' &&
-          Number.isFinite(localBestTime) &&
-          localBestTime >= MIN_VALID_SCORE_TIME &&
-          localBestTime <= MAX_VALID_SCORE_TIME;
-        if (localBestTimeStr && !hasValidLocalBest) {
-          console.warn("Ignoring invalid local best time:", localBestTimeStr);
-          localStorage.removeItem(key);
-        }
-
-        const isNewPersonalBest = !hasValidLocalBest || time < localBestTime;
-
-        if (isNewPersonalBest) {
-          localStorage.setItem(key, time.toString());
-          // Run-provenance stamp (#400): mirror the module-graph write paths. This is
-          // a CLASSIC script (no ES imports), so it reads the deliberate window seam
-          // scene-setup publishes at module load; the seam is defined by finish time
-          // (recordScore only runs after a full game session). Best-effort: absent
-          // seam or blocked storage must never break local-mode score recording —
-          // but a PREVIOUS run's sidecar must never survive to describe the NEW
-          // time (Codex review PR #407): clear it first, so an absent seam or a
-          // failed stamp write leaves the record unstamped, not mis-stamped.
-          try {
-            localStorage.removeItem(key + '_meta');
-            if (typeof window.__snowgliderGetRunStamp === 'function') {
-              localStorage.setItem(key + '_meta', JSON.stringify(window.__snowgliderGetRunStamp()));
-            }
-          } catch (e) { /* stamp is best-effort; the cleared sidecar stays cleared */ }
-          console.log("New local best time recorded:", time);
-        } else {
-          console.log("Score recorded, but not a new local best time:", time);
-        }
-      },
+      recordScore: saveLocalScore,
+      saveScore: saveLocalScore,
       displayLeaderboard: function () {
         console.log("Leaderboard not available in local file mode");
         const leaderboardElement = document.getElementById('leaderboard');
@@ -94,6 +92,7 @@
         }
       },
       getLeaderboard: function () { return Promise.resolve([]); },
+      getLeaderboardResult: function () { return Promise.resolve({ status: 'unavailable', scores: [] }); },
       updateUserBestTime: function () {
         console.log("updateUserBestTime not available in local file mode");
       },
@@ -121,23 +120,30 @@
           localModeNotice.style.color = 'white';
           localModeNotice.style.padding = '8px';
           localModeNotice.style.textAlign = 'center';
-          localModeNotice.innerHTML = '&#127968; Local Mode<br>Auth disabled';
+          localModeNotice.textContent = 'Playing locally. Sign-in is unavailable; your best times stay on this device.';
           authContainer.appendChild(localModeNotice);
+        }
+      },
+      openSignIn: function () {
+        const notice = /** @type {HTMLElement | null} */ (document.querySelector('#authContainer .local-mode-notice'));
+        if (notice) {
+          notice.setAttribute('tabindex', '-1');
+          notice.focus();
         }
       },
       /** @param {number} time @param {import('../difficulty.js').Difficulty=} tier */
       recordScore: function (time, tier) {
-        if (!isValidScoreTime(time)) {
-          console.warn("Skipping local score record (Invalid time value):", time);
-          return;
-        }
-
         if (window.ScoresModule && typeof window.ScoresModule.recordScore === 'function') {
-          window.ScoresModule.recordScore(time, tier);
-        } else {
-          localStorage.setItem(localBestTimeKey(tier), time.toString());
-          console.log("Score recorded locally:", time);
+          return window.ScoresModule.recordScore(time, tier);
         }
+        return saveLocalScore(time, tier);
+      },
+      /** @param {number} time @param {import('../difficulty.js').Difficulty=} tier */
+      saveScore: function (time, tier) {
+        if (window.ScoresModule && typeof window.ScoresModule.saveScore === 'function') {
+          return window.ScoresModule.saveScore(time, tier);
+        }
+        return saveLocalScore(time, tier);
       },
       /** @param {import('../difficulty.js').Difficulty=} tier */
       displayLeaderboard: function (tier) {

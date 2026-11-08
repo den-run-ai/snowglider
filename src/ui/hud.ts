@@ -64,7 +64,7 @@ let lastLevelTier: Difficulty | null = null;
 // precision for the live readout, and keeps the values consistent wherever the
 // panel's time elements are written.
 export function formatStatTime(seconds: number): string {
-  return seconds !== Infinity ? `${seconds.toFixed(1)}s` : '--';
+  return Number.isFinite(seconds) && seconds >= 0 ? `${seconds.toFixed(1)}s` : '--';
 }
 
 // Drop only per-run display history; replay/reset must not rewire the panels.
@@ -211,14 +211,20 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
 // Update the live run timer during gameplay. `elapsed` is the loop's SIMULATION
 // clock (#402) — accumulated fixed steps, the same value the finish records —
 // so the running readout and the final score can never disagree under a stall.
-export function updateTimerDisplay(gameActive: boolean, elapsed: number): void {
+export function updateTimerDisplay(gameActive: boolean, elapsed: number, airScore = 0): void {
   if (gameActive) {
     const currentTime = elapsed;
 
     // Update the current time element in game stats
     const currentTimeElement = document.getElementById('currentTime');
     if (currentTimeElement) {
-      currentTimeElement.textContent = formatStatTime(currentTime);
+      const text = formatStatTime(currentTime);
+      if (currentTimeElement.textContent !== text) currentTimeElement.textContent = text;
+    }
+    const airScoreElement = document.getElementById('airScoreValue');
+    if (airScoreElement) {
+      const text = String(Number.isFinite(airScore) ? Math.max(0, Math.round(airScore)) : 0);
+      if (airScoreElement.textContent !== text) airScoreElement.textContent = text;
     }
   }
 }

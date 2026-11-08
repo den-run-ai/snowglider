@@ -22,6 +22,9 @@ import { isOnline } from '../offline/offline-state.js';
 import { readLocalBest, safeSetItem } from '../offline/offline-store.js';
 import { announceGameStatus, closeOverlayFocus, openOverlayFocus } from './accessibility.js';
 import { setPanelCollapsed } from './collapsible-panel.js';
+import { mountLeaderboardPanel, type LeaderboardPanel } from './leaderboard-panel.js';
+import { createResultSaveControls, type ResultSaveControls } from './result-save.js';
+import type { ScoreSaveResult } from '../scores.js';
 
 export function isValidScoreTime(time: number): boolean {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
@@ -34,7 +37,7 @@ export function isValidScoreTime(time: number): boolean {
 }
 
 // Tier-aware plausibility: a finish/best is valid for a tier if it clears that tier's
-// own floor (Blue == 18 s == the global floor, so Blue is unchanged). This matters now
+// own floor. This matters now
 // that Black plays faster and can legitimately finish below Blue's 18 s floor — using
 // the global floor there would drop a valid fast Black run's local best/ghost/panel.
 export function isPlausibleForTier(time: number, tier: Difficulty = DEFAULT_DIFFICULTY): boolean {
@@ -48,7 +51,14 @@ export function readStoredBestTime(tier: Difficulty = DEFAULT_DIFFICULTY): numbe
 }
 
 function persistLocalBest(tier: Difficulty, time: number): void {
-  if (safeSetItem(localBestTimeKey(tier), String(time))) stampLocalBestMeta(tier);
+  try {
+    // Another tab may have improved the device best after this run started.
+    // If the read fails, preserve the unread record instead of overwriting it.
+    const raw = localStorage.getItem(localBestTimeKey(tier));
+    const existing = raw === null ? null : Number(raw);
+    if (existing !== null && isPlausibleForTier(existing, tier) && existing <= time) return;
+    if (safeSetItem(localBestTimeKey(tier), String(time))) stampLocalBestMeta(tier);
+  } catch { /* the completed result remains usable without browser storage */ }
 }
 
 function getSignedInUser() {
@@ -142,13 +152,12 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
   }
   const content = resultContent;
   const actions = replayActions;
-  let presentationEpoch = 0;
+  let saveControls: ResultSaveControls | null = null;
+  let leaderboardPanel: LeaderboardPanel | null = null;
 
   return function showGameOver(reason: string) {
     // The tier this run was played on; routes the score/best/leaderboard per tier.
     const tier: Difficulty = getDifficulty ? getDifficulty() : readStoredDifficulty();
-    // Unranked tiers (Bunny/Black for now) are practice-only: local best/ghost still
-    // work, but nothing is submitted to the global board until their floors are measured.
     // Ranked-eligibility for THIS run: the tier must be ranked AND the world must
     // be canonical — a ?seed= practice world reads as unranked through the WHOLE
     // overlay (Codex review PR #407): no login prompt, no "saved" status copy,
@@ -163,8 +172,13 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       window._testShowGameOverOverride(reason);
       return;
     }
-    const resultEpoch = ++presentationEpoch;
     closeOverlayFocus(gameOverOverlay, false);
+    saveControls?.dispose();
+    saveControls?.element.remove();
+    saveControls = null;
+    leaderboardPanel?.dispose();
+    leaderboardPanel = null;
+    let initialSave: Promise<ScoreSaveResult> | void = undefined;
     state.gameActive = false;
     deps.onEndRun?.();
     AudioModule.clearMessages();
@@ -189,6 +203,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // (tree/rock/fall/avalanche burial). No-op until the SFX engine is unlocked.
     try { Sfx.endRun(reason === FINISH_REASON ? 'finish' : 'crash'); } catch { /* never block the overlay */ }
 
+    // Refresh a device best improved by another tab while this run was active.
+    const deviceBest = readLocalBest(tier);
+    if (deviceBest !== null && deviceBest < state.bestTime) state.bestTime = deviceBest;
     // Capture the best time BEFORE the finish branch updates it, so the result
     // screen can report the delta and whether this run set a new record.
     const previousBest = state.bestTime;
@@ -204,7 +221,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       ? state.simElapsed
       : (performance.now() - state.startTime) / 1000;
     // Validate against the RUN's tier floor, not the global Blue floor — otherwise a
-    // legitimately fast Black finish (below Blue's 18 s) would be treated as invalid and
+    // legitimately fast Black finish (below Blue's floor) would be treated as invalid and
     // lose its local best/ghost/result panel. Blue's floor == the global floor, unchanged.
     const hasValidFinishTime = isPlausibleForTier(finishTime, tier);
 
@@ -250,7 +267,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // auth + persistence); otherwise fall back to persisting a new local best.
       if (canRecordScore && tierRanked) {
         try {
-          window.AuthModule.recordScore?.(currentTime, tier);
+          initialSave = window.AuthModule.recordScore?.(currentTime, tier);
         } catch (error) {
           // Classic local-auth fallback can throw when browser storage is denied.
           // The completed run and Play again must remain available even then.
@@ -310,7 +327,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         // claim a local best/ghost exist (Codex review PR #409).
         timingCompromised: state.timingCompromised === true,
       });
-      if (syncCopy && !document.getElementById('syncStatus')) {
+      if (syncCopy && !tierRanked && !document.getElementById('syncStatus')) {
         const syncStatus = document.createElement('p');
         syncStatus.id = 'syncStatus';
         syncStatus.textContent = syncCopy;
@@ -320,21 +337,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         content.appendChild(syncStatus);
       }
 
-      // Show login prompt if not logged in — only on ranked tiers AND while online,
-      // where signing in actually saves to the global board (unranked tiers are local
-      // practice only; offline the sync-status line above already explains the state).
-      if (!signedInUser && tierRanked && online) {
-        const loginPrompt = document.createElement('p');
-        loginPrompt.textContent = 'Sign in to race for a place on the Blue leaderboard.';
-        loginPrompt.style.color = '#4285F4';
-        loginPrompt.style.fontStyle = 'italic';
-        loginPrompt.style.margin = '10px 0';
-
-        // Insert before restart button
-        if (!document.getElementById('loginPrompt')) {
-          loginPrompt.id = 'loginPrompt';
-          content.appendChild(loginPrompt);
-        }
+      if (tierRanked) {
+        saveControls = createResultSaveControls({
+          time: currentTime,
+          tier,
+          initialSave,
+          onSaved: () => leaderboardPanel?.refresh(),
+        });
+        content.appendChild(saveControls.element);
       }
 
       // Track the finish with the canonical `complete_run` event. A ranked, recordable
@@ -382,55 +392,16 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       }
     }
 
-    // Get leaderboard if user is logged in — ranked tiers only (unranked tiers have
-    // no global board to show).
-    if (getSignedInUser() && tierRanked) {
-      // Get the leaderboard element
-      const leaderboardElement = document.getElementById('leaderboard');
-
-      if (leaderboardElement) {
-        // Add to game over overlay if not already there
-        if (leaderboardElement.parentNode !== content) {
-          content.appendChild(leaderboardElement);
-        }
-        // Always re-show it on a ranked finish — the element may already be parented but
-        // hidden by the else-branch below from a prior unranked replay (Blue → Black →
-        // Blue would otherwise refresh the board's contents while leaving it display:none).
-        leaderboardElement.style.display = 'block';
-      }
-
-      // Display leaderboard for the run's tier. displayLeaderboard is the call that
-      // refreshes the board's CONTENTS — the block above only re-shows the element. If a
-      // future AuthModule implementation ever lacks it, a silent `?.` no-op would leave the
-      // just-shown board displaying a STALE leaderboard from a prior finish. Fail loudly and
-      // hide the board instead, so a missing seam surfaces rather than misleading the player.
-      const authModule = window.AuthModule;
-      if (typeof authModule.displayLeaderboard === 'function') {
-        const onLeaderboardError = (error: unknown) => {
-          Diag.reportError(error, 'result_leaderboard');
-          // An old request may reject after Restart or a later result. Do not hide
-          // the next run's board when that old completion arrives.
-          if (resultEpoch === presentationEpoch && !state.gameActive && leaderboardElement) {
-            leaderboardElement.style.display = 'none';
-          }
-        };
-        try {
-          void Promise.resolve(authModule.displayLeaderboard(tier)).catch(onLeaderboardError);
-        } catch (error) {
-          onLeaderboardError(error);
-        }
+    // Mount the same four-level board used on the start screen. Signed-out and
+    // offline players see an explicit status without a denied Firestore request.
+    const leaderboardElement = document.getElementById('leaderboard');
+    if (leaderboardElement) {
+      if (tierRanked) {
+        content.appendChild(leaderboardElement);
+        leaderboardPanel = mountLeaderboardPanel(leaderboardElement, tier);
       } else {
-        console.error('result-overlay: AuthModule.displayLeaderboard is unavailable; hiding the leaderboard to avoid showing a stale board.');
-        if (leaderboardElement) leaderboardElement.style.display = 'none';
+        leaderboardElement.style.display = 'none';
       }
-    } else {
-      // No global board for this result (unranked tier, or signed out): hide any
-      // leaderboard a previous RANKED finish left visible in the overlay. Without this,
-      // the finish-screen picker lets a signed-in player finish ranked Blue (board shown),
-      // switch to unranked Bunny/Black, and replay — and the stale Blue board would still
-      // show on that unranked finish even though the tier has no global board (Codex #255).
-      const leaderboardElement = document.getElementById('leaderboard');
-      if (leaderboardElement) leaderboardElement.style.display = 'none';
     }
 
     // Build the result screen (splits + medal) on a finish; otherwise just clear
@@ -445,7 +416,11 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
           // slow-motion trajectory is as non-comparable as its time (#403 review).
           const panel = CourseModule.onFinish(finishTime, previousBest,
             state.timingCompromised !== true);
-          if (panel) content.appendChild(panel);
+          if (panel) {
+            // Keep save/sign-in immediately below the finish time on short
+            // screens; the detailed splits and sharing follow, then the board.
+            content.insertBefore(panel, leaderboardElement?.parentNode === content ? leaderboardElement : null);
+          }
         } catch (e) {
           console.warn("Result screen failed:", (e as Error).message);
           Diag.reportError(e, 'course_result');
@@ -479,10 +454,23 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     const account = document.getElementById('authContainer');
     const accountParent = account?.parentNode;
     const accountNext = account?.nextSibling ?? null;
-    if (account) content.appendChild(account);
+    if (account) {
+      content.insertBefore(account, saveControls?.element.nextSibling ?? (leaderboardElement?.parentNode === content ? leaderboardElement : null));
+    }
+    const refreshResultBoard = () => leaderboardPanel?.refresh();
+    window.addEventListener('snowglider:auth-changed', refreshResultBoard);
+    window.addEventListener('snowglider:account-bests-changed', refreshResultBoard);
+    window.addEventListener('online', refreshResultBoard);
+    window.addEventListener('offline', refreshResultBoard);
     openOverlayFocus(gameOverOverlay, {
       initialFocus: restartButton,
       onClose: () => {
+        saveControls?.dispose();
+        leaderboardPanel?.dispose();
+        window.removeEventListener('snowglider:auth-changed', refreshResultBoard);
+        window.removeEventListener('snowglider:account-bests-changed', refreshResultBoard);
+        window.removeEventListener('online', refreshResultBoard);
+        window.removeEventListener('offline', refreshResultBoard);
         if (account && accountParent) {
           accountParent.insertBefore(account, accountNext?.parentNode === accountParent ? accountNext : null);
         }

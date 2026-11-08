@@ -12,10 +12,13 @@ const { join } = require('node:path');
   globalThis.fetch = async () => { throw new Error('Analytics unit tests must not access the network'); };
   try {
     const { readTiers, buildInsights, completeDays, fetchAllReportRows, fetchGa4,
-      detectAnomalies, scanTrackedEvents, auditCoverage, writePrivateReport } = await import('../scripts/analytics-report.mjs');
+      detectAnomalies, scanTrackedEvents, auditCoverage, writePrivateReport, readScoreLimits } = await import('../scripts/analytics-report.mjs');
     const D = await import('../src/difficulty.ts');
     const { PHYSICS_VERSION } = await import('../src/run-context.ts');
-    const { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } = await import('../src/score-limits.ts');
+    const { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME, MIN_SCORE_TIME_BY_DIFFICULTY } = await import('../src/score-limits.ts');
+    const limits = readScoreLimits();
+    assert.deepEqual(limits, { min: MIN_VALID_SCORE_TIME, max: MAX_VALID_SCORE_TIME,
+      minByTier: MIN_SCORE_TIME_BY_DIFFICULTY });
     const tiers = readTiers();
     assert.deepEqual(tiers, D.DIFFICULTIES.map(({ id, ranked }) => ({
       id, ranked, field: D.userBestTimeField(id), collection: D.leaderboardCollectionName(id),
@@ -30,21 +33,44 @@ const { join } = require('node:path');
       { id: 'historical', displayName: 'Historical', email: 'private-old@example.test',
         bestTime: 19, bestTimeExpert: 20, [`bestTimeV${PHYSICS_VERSION - 1}`]: 21 },
     ];
-    const board = [{ user: 'users/current', time: 25, tier: 'blue', achievedAt: '2026-09-08T00:00:00Z' }];
+    const board = [{ id: 'current', user: 'users/current', time: 25, tier: 'blue', achievedAt: '2026-09-08T00:00:00Z' }];
     const insights = buildInsights(users, board, Date.parse('2026-09-08'), tiers,
-      { min: MIN_VALID_SCORE_TIME, max: MAX_VALID_SCORE_TIME });
+      limits);
     assert.equal(insights.kpis.completedRun, 2, 'current Blue and Expert finishes count; historical-only does not');
     assert.equal(insights.kpis.medianBestTime, 27.5, 'a faster legacy or prior-version Blue best cannot shadow the current version');
     assert.equal(insights.health.staleBoard, 0, 'current board rows compare against current user fields');
-    assert.equal(insights.health.completedNotOnBoard, 0, 'Expert-only unranked finish needs no global board');
+    assert.equal(insights.health.completedNotOnBoard, 1, 'Expert finish requires its own current board record');
     assert.equal(insights.players.find(u => u.id === 'historical').bestTime, null);
     assert(!JSON.stringify(insights).includes('@example.test'), 'private emails stay out of exports');
 
     const redacted = buildInsights(users, board, Date.parse('2026-09-08'), tiers,
-      { min: MIN_VALID_SCORE_TIME, max: MAX_VALID_SCORE_TIME }, { redact: true });
+      limits, { redact: true });
     assert(!JSON.stringify(redacted.players).includes('Current'));
     assert(redacted.players.every(u => u.id.startsWith('player_')));
     assert.equal(redacted.leaderboard[0].name, redacted.players[0].id);
+
+    const multiTier = { id: 'multi', [D.userBestTimeField('blue')]: 25,
+      [D.userBestTimeField('black')]: 12, [D.userBestTimeField('expert')]: 11,
+      [D.userBestTimeField('bunny')]: 12 };
+    const partialBoard = [{ id: 'multi', user: 'users/multi', time: 25, tier: 'blue' }];
+    const tierInsights = buildInsights([multiTier], partialBoard, 0, tiers, limits);
+    assert.equal(tierInsights.plausibility.excludedUserTimes, 1,
+      '12 seconds is valid for Black but remains below Bunny and Blue floors');
+    assert.equal(tierInsights.players[0].bestTime, 11, 'Expert uses its own floor');
+    assert.equal(tierInsights.health.completedNotOnBoard, 1,
+      'presence on Blue must not hide a missing Black or Expert board record');
+    const completeBoard = [...partialBoard, { id: 'multi', user: 'users/multi', time: 12, tier: 'black' },
+      { id: 'multi', user: 'users/multi', time: 11, tier: 'expert' }];
+    const completeInsights = buildInsights([multiTier], completeBoard, 0, tiers, limits);
+    assert.equal(completeInsights.health.completedNotOnBoard, 0);
+    assert.equal(completeInsights.kpis.leaderboardEntries, 3);
+    const malformedBoard = buildInsights([multiTier], [
+      { id: 'different-user', user: 'users/multi', time: 25, tier: 'blue' },
+      { id: 'multi', user: 42, time: 12, tier: 'black' },
+    ], 0, tiers, limits);
+    assert.equal(malformedBoard.kpis.leaderboardEntries, 0, 'malformed and mismatched owner references never rank');
+    assert.equal(malformedBoard.health.orphanBoard, 2);
+    assert.equal(malformedBoard.health.completedNotOnBoard, 1);
 
     // UTC has already rolled into tomorrow while the property is still on today.
     const now = Date.parse('2026-11-08T01:30:00Z');
@@ -232,12 +258,12 @@ const { join } = require('node:path');
         assert.equal(statSync(outside).mode, beforeMode, 'unrelated permissions stay unchanged');
       }
       const source = readFileSync(join(__dirname, '..', 'src', 'difficulty.ts'), 'utf8');
-      writeFileSync(join(temp, 'src', 'difficulty.ts'), source.replace('ranked: false', 'ranked: true'));
+      writeFileSync(join(temp, 'src', 'difficulty.ts'), source.replace('ranked: true', 'ranked: false'));
       writeFileSync(join(temp, 'src', 'run-context.ts'), `export const PHYSICS_VERSION = ${PHYSICS_VERSION + 1};`);
       const next = readTiers(temp);
       assert(next.every(t => t.field.endsWith(`V${PHYSICS_VERSION + 1}`)
         && t.collection.startsWith(`leaderboard_v${PHYSICS_VERSION + 1}`)));
-      assert.equal(next.find(t => t.id === 'bunny').ranked, true);
+      assert.equal(next.find(t => t.id === 'bunny').ranked, false);
       writeFileSync(join(temp, 'src', 'run-context.ts'), 'export const PHYSICS_VERSION = NaN;');
       assert.throws(() => readTiers(temp), /Could not read the current physics version/);
     } finally {

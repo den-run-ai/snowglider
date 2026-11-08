@@ -21,7 +21,11 @@ function schemaForVersion(version) {
       tier,
       field: `bestTime${tier === 'blue' ? '' : tier[0].toUpperCase() + tier.slice(1)}${fieldSuffix}`,
       board: `leaderboard${boardSuffix}${tier === 'blue' ? '' : `_${tier}`}`,
-      ranked: tier === 'blue'
+      ranked: version >= 4 || tier === 'blue',
+      minTime: version >= 4 ? (tier === 'black' || tier === 'expert' ? 10 : 15) : 18,
+      scoreValidator: version >= 4 ? `isValidScoreTime${tier === 'blue' ? '' : tier[0].toUpperCase() + tier.slice(1)}V${version}` : 'isValidScoreTime',
+      leaderboardDocValidator: version >= 4 ? `validLeaderboardDoc${tier === 'blue' ? '' : tier[0].toUpperCase() + tier.slice(1)}V${version}` : 'validLeaderboardDoc',
+      leaderboardUpdateValidator: version >= 4 ? `validLeaderboardUpdate${tier === 'blue' ? '' : tier[0].toUpperCase() + tier.slice(1)}V${version}` : 'validLeaderboardUpdate'
     }))
   };
 }

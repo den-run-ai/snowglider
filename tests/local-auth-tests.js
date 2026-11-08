@@ -62,7 +62,7 @@ function loadLocalAuth({ html, url }) {
   return { window: dom.window, document: dom.window.document, localStorage };
 }
 
-function main() {
+async function main() {
   console.log('--- local-auth.js (local-mode fallback) ---');
 
   // ---------------------------------------------------------------------------
@@ -101,6 +101,9 @@ function main() {
     Scores.isFirestoreAvailable() === false);
   check('ScoresModule.isValidScoreTime exposes the validator',
     Scores.isValidScoreTime(42) === true && Scores.isValidScoreTime(0) === false);
+  check('local validation accepts the steep-course floor and rejects unknown levels',
+    Scores.isValidScoreTime(12, 'black') && Scores.isValidScoreTime(12, 'expert')
+    && !Scores.isValidScoreTime(12, 'blue') && !Scores.isValidScoreTime(40, 'bogus'));
 
   // --- ScoresModule.recordScore branches ---
   Scores.recordScore('not-a-number'); // invalid -> early return, no write
@@ -192,6 +195,32 @@ function main() {
   Auth.initializeAuth(); // notice already present -> the append guard short-circuits
   check('initializeAuth does not duplicate the local-mode notice',
     authContainer.querySelectorAll('.local-mode-notice').length === 1);
+  Auth.openSignIn();
+  check('local sign-in entry explains the unavailable service and moves focus to its notice',
+    a.document.activeElement === authContainer.querySelector('.local-mode-notice')
+    && /Sign-in is unavailable/.test(a.document.activeElement.textContent));
+  const unavailableBoard = await Scores.getLeaderboardResult('expert');
+  check('local leaderboard status is unavailable rather than a false empty online board',
+    unavailableBoard.status === 'unavailable' && unavailableBoard.scores.length === 0);
+
+  // Disabled storage and quota failures cannot throw through the finish handler
+  // or claim that the run was saved. The result remains visible for a retry.
+  const getBeforeFailure = a.localStorage.getItem;
+  a.localStorage.getItem = () => { throw new Error('blocked storage'); };
+  const blockedSave = await Scores.saveScore(17, 'black');
+  a.localStorage.getItem = getBeforeFailure;
+  check('blocked storage returns an honest save failure instead of throwing',
+    blockedSave.status === 'unavailable' && blockedSave.localSaved === false);
+  const setBeforeFailure = a.localStorage.setItem;
+  a.localStorage.setItem = () => { throw new Error('quota exceeded'); };
+  const quotaSave = await Scores.recordScore(17, 'expert');
+  a.localStorage.setItem = setBeforeFailure;
+  check('a storage quota failure never reports a persistent local save',
+    quotaSave.status === 'unavailable' && quotaSave.localSaved === false);
+  const recoveredSave = await Scores.saveScore(12, 'expert');
+  check('a later retry persists the steep-course result when storage recovers',
+    recoveredSave.status === 'local' && recoveredSave.localSaved === true
+    && a.localStorage.getItem('snowgliderBestTime_expert') === '12');
 
   // --- AuthModule.recordScore: delegates to ScoresModule when present ---
   a.localStorage.setItem('snowgliderBestTime', '99');
@@ -203,12 +232,12 @@ function main() {
   // --- AuthModule.recordScore: localStorage fallback when ScoresModule is absent ---
   delete a.window.ScoresModule;
   Auth.recordScore(25);
-  check('AuthModule.recordScore falls back to localStorage without ScoresModule',
-    a.localStorage.getItem('snowgliderBestTime') === '25');
+  check('AuthModule fallback preserves a faster best when ScoresModule is absent',
+    a.localStorage.getItem('snowgliderBestTime') === '20');
   Auth.recordScore(30, 'black'); // tiered finish in the no-ScoresModule fallback
   check('AuthModule.recordScore fallback honors the per-tier key',
     a.localStorage.getItem('snowgliderBestTime_black') === '30' &&
-    a.localStorage.getItem('snowgliderBestTime') === '25');
+    a.localStorage.getItem('snowgliderBestTime') === '20');
 
   // --- AuthModule.displayLeaderboard: no ScoresModule, #leaderboard present ---
   Auth.displayLeaderboard();
@@ -267,4 +296,4 @@ function main() {
     });
 }
 
-main();
+main().catch(err => { console.error('local-auth test crashed:', err); process.exit(1); });

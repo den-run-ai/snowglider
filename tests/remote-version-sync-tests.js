@@ -52,7 +52,16 @@ function inspectRules(source, schemas) {
       new RegExp(`${validator}\\(data\\.time\\)`).test(boardDoc)
       && new RegExp(`${validator}\\(resource\\.data\\.time\\)`).test(boardUpdate)
       && boardUpdate.includes(`${schema.leaderboardDocValidator}(userId, request.resource.data)`));
-    for (const { field, board, ranked } of schema.tiers) {
+    for (const { field, board, ranked, minTime, scoreValidator, leaderboardDocValidator, leaderboardUpdateValidator } of schema.tiers) {
+      const validator = esc(scoreValidator);
+      const tierBounds = blockAfter(rules, `function ${scoreValidator}(time)`);
+      record(`${field}: preserves tier floor/cap ${minTime}/${schema.maxTime}`,
+        new RegExp(`time\\s+is\\s+number\\s*&&\\s*time\\s*>=\\s*${minTime}\\s*&&\\s*time\\s*<=\\s*${schema.maxTime}\\s*;`).test(tierBounds));
+      const tierDoc = blockAfter(rules, `function ${leaderboardDocValidator}(userId, data)`);
+      const tierUpdate = blockAfter(rules, `function ${leaderboardUpdateValidator}(userId)`);
+      record(`${board}: uses its own tier bounds`,
+        new RegExp(`${validator}\\(data\\.time\\)`).test(tierDoc)
+        && new RegExp(`${validator}\\(resource\\.data\\.time\\)`).test(tierUpdate));
       const quoted = `'${field}'`;
       const escaped = esc(field);
       record(`${field}: create allowlist`, createKeys.includes(quoted));
@@ -64,8 +73,8 @@ function inspectRules(source, schemas) {
       const boardBlock = blockAfter(rules, `match /${board}/{userId}`);
       record(`${board}: authenticated reads`, /allow\s+get,\s*list:\s*if\s+isSignedIn\(\)/.test(boardBlock));
       if (ranked) {
-        record(`${board}: validated create`, new RegExp(`allow\\s+create:[^;]*${esc(schema.leaderboardDocValidator)}\\(`).test(boardBlock));
-        record(`${board}: validated update`, new RegExp(`allow\\s+update:[^;]*${esc(schema.leaderboardUpdateValidator)}\\(`).test(boardBlock));
+        record(`${board}: validated create`, new RegExp(`allow\\s+create:[^;]*${esc(leaderboardDocValidator)}\\(`).test(boardBlock));
+        record(`${board}: validated update`, new RegExp(`allow\\s+update:[^;]*${esc(leaderboardUpdateValidator)}\\(`).test(boardBlock));
       } else {
         record(`${board}: unranked writes denied`, /allow\s+write:\s*if\s+false/.test(boardBlock));
       }
@@ -91,7 +100,8 @@ function inspectRules(source, schemas) {
     SHIPPED_REMOTE_VERSIONS.every((v, i, all) => Number.isInteger(v) && v >= 3 && (i === 0 || v > all[i - 1])));
   const active = REMOTE_SCORE_SCHEMAS.find(schema => schema.version === PHYSICS_VERSION);
   if (active) {
-    for (const { tier, field, board } of active.tiers) {
+    for (const { tier, field, board, ranked, minTime } of active.tiers) {
+      check(`${tier}: ranking and score floor match active schema`, D.getDifficultyConfig(tier).ranked === ranked && D.getDifficultyConfig(tier).minScoreTime === minTime);
       check(`${tier}: client field matches registered active schema`, D.userBestTimeField(tier) === field);
       check(`${tier}: client board matches registered active schema`, D.leaderboardCollectionName(tier) === board);
     }

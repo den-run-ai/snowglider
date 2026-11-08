@@ -239,7 +239,7 @@
       </ul>
     </div>
     <p class="touch-note"><strong>On a phone or tablet</strong><br>Hold the left or right control to steer, the top-center control to speed up, or the bottom-center control to brake<span id="touchJumpNote">. Tap the center to jump</span>.</p>
-            <p class="physics-era-notice">Each difficulty has its own personal best. Choose Blue to compete on the global leaderboard.</p>
+            <p class="physics-era-notice">Race for the fastest time on Bunny, Blue, Black or Expert. Each level has its own leaderboard and personal best. Air points celebrate your jumps and tricks.</p>
             <p id="keyboardHint">Press <span class="key">Enter</span> or <span class="key">Space</span> to start from the play button.</p>
             <div id="buildBadge" aria-label="build version"></div>
           </div>
@@ -266,8 +266,11 @@
         </div>
       </div>
       <div class="start-account-info">
-        <p id="startSignInHint" style="display:none;">Want to join the Blue leaderboard? Sign in above with Google or GitHub.</p>
-        <div id="startLeaderboard" style="display:none;"></div>
+        <p id="startSignInHint" style="display:none;">Sign in or create your account with Google or GitHub to save your times on every level.</p>
+        <details id="leaderboardsDetails" class="menu-details">
+          <summary class="menu-disclosure">🏆 Leaderboards <span class="panel-chevron" aria-hidden="true"></span></summary>
+          <div id="startLeaderboard"></div>
+        </details>
       </div>
       <div id="startUpdateSlot"></div>
     <div id="aboutGamePanel" role="dialog" aria-labelledby="aboutGameTitle">
@@ -292,7 +295,7 @@
       </ul>
       <section class="about-account" aria-labelledby="aboutAccountTitle">
         <h3 id="aboutAccountTitle">Jump straight in</h3>
-        <p>No sign-in needed. Your best times stay on this device. Sign in with Google or GitHub to join the Blue leaderboard.</p>
+        <p>No sign-in needed. Your best times stay on this device. Sign in with Google or GitHub to join the leaderboard for any level.</p>
       </section>
       <details class="about-credits menu-details">
         <summary class="menu-disclosure">Music &amp; credits <span class="panel-chevron" aria-hidden="true"></span></summary>
@@ -426,18 +429,14 @@
   <!-- Game Stats Container - Combined stats window -->
   <div id="gameStatsContainer" class="hud-panel">
     <div id="gameStatsHeader" class="hud-panel-header">
-      <h3>📊 Stats</h3>
+      <h3><span aria-hidden="true">⏱</span> <span class="visually-hidden">Run time </span><span id="currentTime">0.0s</span></h3>
       <button id="toggleStats" class="panel-disclosure" type="button" aria-label="Toggle game stats options" aria-controls="gameStatsContent" aria-expanded="true"><span class="panel-chevron" aria-hidden="true"></span></button>
     </div>
+    <div id="liveRunSummary" aria-label="Current level and air points">
+      <span id="levelValue">■ Blue</span>
+      <span title="Points for jumps and tricks. Leaderboards rank finish times.">Air <strong id="airScoreValue">0</strong></span>
+    </div>
     <div id="gameStatsContent">
-      <div class="stat-item">
-        <span class="stat-label">Level</span>
-        <span id="levelValue" class="stat-value">■ Blue</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-label">Current Time</span>
-        <span id="currentTime" class="stat-value">0.0s</span>
-      </div>
       <div class="stat-item">
         <span class="stat-label">Slope</span>
         <span id="slopeValue" class="stat-value">0° (0%)</span>

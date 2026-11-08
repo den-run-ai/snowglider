@@ -841,7 +841,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       compensateShadowBiasForElevation(directionalLight, sunDirScratch.y, Sky.getMiddaySunElevationSin());
 
       updateCamera(frameDelta);
-      updateTimerDisplay(state.gameActive, state.simElapsed); // HUD shows the SIM clock (#402) — matches the recorded finish time
+      updateTimerDisplay(state.gameActive, state.simElapsed, CourseModule.getAirScore()); // Same simulation clock and banked points as the finish result.
 
       // Camera juice: speed-based FOV + shake. Apply for the render only, then revert
       // the positional offset so the camera manager's own smoothing stays clean.

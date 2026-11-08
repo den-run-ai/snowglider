@@ -607,6 +607,43 @@ canvas { display: block; }
   opacity: 0.8;
 }
 
+/* Shared leaderboard: every level has the same rows, status and touch controls. */
+#startLeaderboard.leaderboard-panel { max-height: none; overflow: visible; padding: 12px; }
+#startLeaderboard.leaderboard-panel > h3 { display: none; }
+.leaderboard-panel { width: 100%; box-sizing: border-box; text-align: left; }
+.leaderboard-panel h3 { margin: 8px 0; font-size: 18px; }
+.leaderboard-help, .leaderboard-best, .leaderboard-panel .lb-empty {
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #c5d7e8;
+}
+.leaderboard-levels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.leaderboard-levels button, .leaderboard-action, #saveScoreButton {
+  min-height: 44px;
+  min-width: 0;
+  padding: 8px 6px;
+  border: 1px solid #657c96;
+  border-radius: 9px;
+  background: #233950;
+  color: white;
+  font: 600 13px/1.2 Arial, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.leaderboard-levels button[aria-pressed="true"] { background: #a7dbff; border-color: #a7dbff; color: #132535; }
+.leaderboard-levels button:focus-visible, .leaderboard-action:focus-visible, #saveScoreButton:focus-visible { outline: 3px solid #ffd46c; outline-offset: 2px; }
+.leaderboard-panel table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.leaderboard-panel th, .leaderboard-panel td { padding: 7px 5px; text-align: left; overflow-wrap: anywhere; }
+.leaderboard-panel th:first-child, .leaderboard-panel td:first-child { width: 36px; }
+.leaderboard-panel th:last-child, .leaderboard-panel td:last-child { width: 68px; text-align: right; font-variant-numeric: tabular-nums; }
+.leaderboard-panel .current-user-score { background: rgba(140, 208, 255, 0.13); }
+#saveScoreActions { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+#saveScoreButton { background: #296a4b; border-color: #75bd93; }
+#saveScoreButton:disabled { cursor: default; opacity: 0.75; }
+#saveScoreStatus { margin: 0; color: #c5d7e8; font-size: 13px; line-height: 1.5; }
+#saveScoreActions + #authContainer { margin-top: 4px; }
+
 /* Optional sign-in hint under the menu */
 #startSignInHint {
   margin: 0 0 12px;

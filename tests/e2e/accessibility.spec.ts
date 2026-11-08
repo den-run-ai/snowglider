@@ -113,7 +113,7 @@ test('real-player release notice, About, and EZ mountain screenshots', async ({ 
   await gotoGame(page, '?eztrees=1');
   await page.locator('#startHelpDetails > summary').click();
   await expect(page.locator('.physics-era-notice')).toBeVisible();
-  await expect(page.locator('.physics-era-notice')).toContainText('Each difficulty has its own personal best. Choose Blue to compete on the global leaderboard.');
+  await expect(page.locator('.physics-era-notice')).toContainText('Race for the fastest time on Bunny, Blue, Black or Expert. Each level has its own leaderboard and personal best. Air points celebrate your jumps and tricks.');
   await testInfo.attach('help-and-leaderboard-note', { body: await page.screenshot(), contentType: 'image/png' });
   await page.locator('#aboutGameButton').click();
   await testInfo.attach('about-screen', { body: await page.screenshot(), contentType: 'image/png' });

@@ -156,6 +156,20 @@ body.start-screen-active #gameStatsContainer { visibility: hidden; }
 .stat-label { font-size: 11px; color: #c2cfdd; }
 .stat-value { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 
+/* Time, level and earned points stay visible when the details auto-fold. */
+#currentTime, #airScoreValue { font-variant-numeric: tabular-nums; }
+#liveRunSummary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px 8px;
+  color: #d6e7f6;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 #courseHud {
   position: fixed;
   top: var(--hud-top);
@@ -242,6 +256,13 @@ body.game-active #localModeNotice { display: none; }
   .provider-btn { min-width: 0; width: 44px; font-size: 9px; padding: 4px 2px; }
   .provider-icon { width: 20px; height: 20px; }
   #authContainer { padding: 3px; }
+}
+/* On short landscape screens the collapsed camera fits in the left column.
+   Stats can use the right column down to the action row, leaving enough room
+   for a complete scrollable stat below the persistent time/level/air summary. */
+@media (min-width: 480px) and (max-height: 500px) {
+  #hudRight { max-height: calc(100dvh - var(--hud-top) - var(--hud-bottom) - 56px); }
+  #cameraControls.collapsed { max-width: var(--hud-column); }
 }
 @media (prefers-reduced-motion: reduce) {
   .panel-chevron { transition: none; }

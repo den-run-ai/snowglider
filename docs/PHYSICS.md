@@ -146,7 +146,7 @@ coasting's drag. On the actual Blue surface, three seconds of Up from spawn now
 reaches 10.13 m/s (previously 7.76), while coasting is byte-identical at 3.91 m/s.
 The 60-seed, three-policy floor probe's fastest Blue finish is 21.87 s; course
 length / observed peak speed is 17.75 s, an estimate rather than a proven lower
-bound. The v4 score floor is 15 s; historical v3 records retain their 18 s floor
+bound. Blue's v4 score floor is 15 s; historical v3 records retain their 18 s floor
 and separate leaderboard. `tests/tuck-response-tests.js` covers response,
 release/brake precedence, refresh-rate equality and bounded terminal speed.
 

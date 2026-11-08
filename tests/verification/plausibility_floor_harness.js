@@ -15,7 +15,7 @@ try { Object.defineProperty(global, 'navigator', { value: { webdriver: false }, 
   const { DIFFICULTIES } = await import('../../src/difficulty.ts');
   const { CourseModule } = await import('../../src/course.ts');
   const { FIXED_DT } = await import('../../src/game/main-loop.ts');
-  const { MIN_VALID_SCORE_TIME } = await import('../../src/score-limits.ts');
+  const { MIN_SCORE_TIME_BY_DIFFICULTY } = await import('../../src/score-limits.ts');
   const { JUMP_BOOST_CAP, JUMP_BOOST_PER_SEC, LANDING_CLEAN_ALIGN } = await import('../../src/snowman/physics.ts');
 
   console.log('=== Per-tier finish distributions and plausibility-floor evidence ===');
@@ -47,15 +47,16 @@ try { Object.defineProperty(global, 'navigator', { value: { webdriver: false }, 
     // This is a conservative STARTING CANDIDATE relative to observed speed, not
     // a mathematically safe bound: an untested policy may exceed that speed.
     const candidate = Math.max(1, Math.floor(speedEquivalent * 0.85));
-    const rejected = finishes.filter(r => r.time < MIN_VALID_SCORE_TIME).length;
+    const floor = MIN_SCORE_TIME_BY_DIFFICULTY[config.id];
+    const rejected = finishes.filter(r => r.time < floor).length;
     console.log(`    ${config.id}: fastest sampled ${fastest.toFixed(2)}s | distance / observed peak ${speedEquivalent.toFixed(2)}s | review candidate ${candidate}s`);
-    console.log(`    configured floor ${config.minScoreTime}s (${config.ranked ? 'ranked' : 'practice'}); shared server floor ${MIN_VALID_SCORE_TIME}s would reject ${rejected}/${finishes.length} measured finishes`);
+    console.log(`    configured floor ${config.minScoreTime}s (${config.ranked ? 'ranked' : 'practice'}); tier client/server floor ${floor}s would reject ${rejected}/${finishes.length} measured finishes`);
     // A currently ranked floor must at least accept every honest sampled finish.
-    if (config.ranked && finishes.some(r => r.time < config.minScoreTime || r.time < MIN_VALID_SCORE_TIME)) failed++;
+    if (config.ranked && finishes.some(r => r.time < config.minScoreTime || r.time < floor)) failed++;
   }
   console.log('\nLimits: fixed canonical tier terrain, 60 gameplay seeds, one corridor-following controller, three jump policies; hazards cleared.');
   console.log('A sampled maximum speed is NOT a proven speed cap. Faster untested lines are not evidence of forgery.');
   console.log('Ranking additionally needs tier-aware client/server floors, server-rule tests/deployment, avalanche G5, and actual-player validation.');
-  console.log(`\nPLAUSIBILITY FLOOR HARNESS: ${failed ? 'FAIL' : 'OK'} (${failed} failed gates; measurements do not enable ranked tiers)`);
+  console.log(`\nPLAUSIBILITY FLOOR HARNESS: ${failed ? 'FAIL' : 'OK'} (${failed} failed gates; per-tier score bounds validated)`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error('FATAL', e); process.exit(1); });

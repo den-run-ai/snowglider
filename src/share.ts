@@ -11,6 +11,8 @@
 //   - shareResult(data): native Web Share API when available, otherwise a
 //     clipboard fallback; best-effort Analytics, and it never rejects.
 
+import type { Difficulty } from './difficulty.js';
+
 /** Canonical public page, used when the current URL is local/dev/unparseable. */
 const PUBLIC_URL = 'https://snowglider.ai/';
 
@@ -18,7 +20,35 @@ const PUBLIC_URL = 'https://snowglider.ai/';
 const SHARE_TITLE = 'SnowGlider';
 
 /** Query params that only make sense on a dev/test page; never leak them. */
-const LOCAL_ONLY_PARAMS = ['test'];
+const LOCAL_ONLY_PARAMS = [
+  'test', 'seed', 'play', 'gallery', 'debug', 'debugTouchZones',
+  'hideTouchControls', 'quality', 'snowdepth', 'eztrees', 'classictrees',
+  'intro', 'sw', 'no-sw',
+];
+
+/** The completed run's context, captured before a player changes levels. */
+export interface ResultShareContext {
+  difficulty?: Difficulty;
+  airScore?: number;
+  /** Custom mountains are shareable, but are never advertised as ranked bests. */
+  practice?: boolean;
+}
+
+const LEVEL_NAMES: Record<Difficulty, string> = {
+  bunny: 'Bunny', blue: 'Blue', black: 'Black', expert: 'Expert',
+};
+
+/** Human-readable level name shared by the result copy and image. */
+export function shareDifficultyLabel(difficulty?: Difficulty): string {
+  return difficulty && Object.prototype.hasOwnProperty.call(LEVEL_NAMES, difficulty)
+    ? LEVEL_NAMES[difficulty] : '';
+}
+
+/** Air score is a separate flourish; it does not replace the downhill time. */
+export function shareAirScoreLabel(airScore?: number): string {
+  return typeof airScore === 'number' && Number.isSafeInteger(airScore) && airScore > 0
+    ? `Air score: ${airScore}` : '';
+}
 
 /** Deterministic share payload produced by {@link buildResultShareData}. */
 export interface ResultShareData {
@@ -54,6 +84,8 @@ export function cleanShareUrl(href?: string | null): string {
     return PUBLIC_URL;
   }
   for (const param of LOCAL_ONLY_PARAMS) url.searchParams.delete(param);
+  url.username = '';
+  url.password = '';
   url.hash = '';
   return url.toString();
 }
@@ -82,12 +114,18 @@ export function formatRunSeconds(time: number): string {
 export function buildResultShareData(
   time: number,
   isNewBest: boolean,
-  href?: string | null
+  href?: string | null,
+  context: ResultShareContext = {}
 ): ResultShareData {
   const seconds = formatRunSeconds(time);
-  const text = isNewBest
-    ? `New SnowGlider personal best: ${seconds}s. Can you beat it?`
-    : `I finished SnowGlider in ${seconds}s. Can you beat my run?`;
+  const level = shareDifficultyLabel(context.difficulty);
+  const airScore = shareAirScoreLabel(context.airScore);
+  const air = airScore ? ` ${airScore}.` : '';
+  const text = context.practice
+    ? `SnowGlider practice run${level ? ` on ${level}` : ''}: ${seconds}s.${air} Try the mountain!`
+    : isNewBest
+      ? `New SnowGlider${level ? ` ${level}` : ''} personal best: ${seconds}s.${air} Can you beat it?`
+      : `I finished SnowGlider${level ? ` on ${level}` : ''} in ${seconds}s.${air} Can you beat my run?`;
   const url = cleanShareUrl(href === undefined ? currentHref() : href);
   return { title: SHARE_TITLE, text, url };
 }
@@ -134,7 +172,7 @@ export function logPlatformShare(platform: SharePlatform): void {
 }
 
 /**
- * Copy the run's "message + link" to the clipboard (the explicit "Copy link"
+ * Copy the run's "message + link" to the clipboard (the explicit "Copy result"
  * action in the desktop menu). Resolves true on success; logs a best-effort
  * Analytics event. Never rejects.
  */
@@ -277,10 +315,10 @@ export async function shareImageFile(
   } catch {
     return 'unavailable';
   }
-  // `canShare` gates files: if it exists and rejects them, native file share is
-  // unsupported here — fall back rather than throwing a TypeError on share().
+  // A text-only implementation may silently ignore the unknown `files` field.
+  // Require positive capability detection before claiming to share the PNG.
   try {
-    if (typeof nav.canShare === 'function' && !nav.canShare({ files: [file] })) return 'unavailable';
+    if (typeof nav.canShare !== 'function' || !nav.canShare({ files: [file] })) return 'unavailable';
     await nav.share({ files: [file], title: data.title, text: `${data.text} ${data.url}` });
     logShareEvent('image');
     return 'shared';
