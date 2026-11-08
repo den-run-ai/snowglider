@@ -18,12 +18,16 @@ import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-u
 import { initInstallPrompt, type InstallPromptController } from '../pwa/install-prompt.js';
 import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessibility.js';
 import { getStartupStatus, showStartupError, subscribeStartupStatus, type StartupStatus } from '../boot/startup-status.js';
+import { parseDailyChallenge } from '../daily-challenge.js';
+import { renderDailyMountainMenu } from './daily-mountain.js';
 
 (function () {
   let startGamePending = false;
   // A navigation cannot carry the Restart button's user activation. Prepare the
   // selected course, then wait for Start in this document before audio/gameplay.
   const preparingNewTier = isRunTransition();
+  const dailyInvitation = parseDailyChallenge(window.location.search);
+  const invalidInvitation = dailyInvitation.kind === 'invalid' || dailyInvitation.kind === 'unsupported';
   // The player's chosen difficulty tier, remembered across sessions in
   // localStorage. The picker writes it; the game reads the persisted value at run
   // start (src/snowglider.ts) so changing the pick then starting takes effect.
@@ -143,6 +147,7 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
   }
 
   function startGame() {
+    if (invalidInvitation) return false;
     const startContainer = document.getElementById('startGameContainer');
     // Click/touch compatibility events and retained callbacks must not reset an
     // already-starting run or create a second loop/intro.
@@ -205,8 +210,10 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
       return;
     }
 
-    startButton.disabled = waiting;
-    startButton.textContent = waiting ? 'Preparing run…' : preparingNewTier ? 'Start run' : 'Start Game';
+    startButton.disabled = waiting || invalidInvitation;
+    startButton.textContent = invalidInvitation ? 'Choose a mountain below'
+      : waiting ? 'Preparing run…' : dailyInvitation.kind === 'daily' ? 'Start daily run'
+        : preparingNewTier ? 'Start run' : 'Start Game';
     if (waiting) {
       startButton.setAttribute('aria-busy', 'true');
     } else {
@@ -246,9 +253,11 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
         else refreshStartAccountUI();
         // Keep the controls guide + touch-note honest for the newly-selected tier.
         updateJumpCopy();
+        renderDailyMountainMenu(id);
       },
     });
     updateJumpCopy();
+    renderDailyMountainMenu(selectedDifficulty);
   }
 
   function getSelectedDifficulty(): Difficulty {
@@ -327,6 +336,7 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
     }, listenerOptions);
     const updateMotionVisibility = () => {
       document.body.classList.toggle('onboarding-paused', document.hidden);
+      if (!document.hidden) renderDailyMountainMenu(getSelectedDifficulty());
     };
     updateMotionVisibility();
     document.addEventListener('visibilitychange', updateMotionVisibility, listenerOptions);

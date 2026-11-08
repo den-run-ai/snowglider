@@ -224,8 +224,10 @@ async function main() {
   // ---------- wiring contracts ----------
   console.log('\n--- wiring contracts (source level) ---');
   const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
-  check('setupScene selects a CONCRETE world before the build (canonical unless ?seed=)',
-    /setWorldContext\(urlSeed \?\? CANONICAL_WORLD_SEED, urlSeed !== null\)/.test(read('src/game/scene-setup.ts')));
+  const sceneSource = read('src/game/scene-setup.ts');
+  const selectionAt = sceneSource.indexOf('configureDailySession(window.location.search)');
+  check('setupScene locks a concrete canonical/practice/daily world before construction',
+    selectionAt >= 0 && selectionAt < sceneSource.indexOf('new THREE.Scene()'));
   // The nonce draw must be gated on a CONCRETE world seed: with runSeed null the
   // gameplay streams are Math.random passthroughs (the frozen-baseline and
   // seeded-harness mode), so an unconditional draw would consume a global value

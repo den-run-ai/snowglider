@@ -145,7 +145,8 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   const primary = document.createElement('button');
   primary.id = 'shareResultBtn';
   primary.type = 'button';
-  primary.textContent = PRIMARY_LABEL;
+  const primaryLabel = opts.dailyChallenge ? '🔗 Challenge a friend' : PRIMARY_LABEL;
+  primary.textContent = primaryLabel;
   styleButton(primary, true);
   defuseTouch(primary);
 
@@ -272,26 +273,26 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
     syncBusy();
     primary.textContent = '⏳ Preparing…';
     try {
-      // Mobile/touch: share the screenshot card itself so the run image rides
-      // along into the OS sheet (available targets depend on the device and
-      // installed apps). Fall back to a text+link share when the image
-      // can't be built or this browser can't file-share.
+      // A daily challenge is an invitation to play: make the URL the primary
+      // native payload. Some image destinations discard accompanying text.
+      // The separate image action stays available on every device. Ordinary
+      // results retain their image-first flow with a text/link fallback.
       const blob = preparedCard;
-      if (blob) {
+      if (blob && !opts.dailyChallenge) {
         const imgOutcome = await shareImageFile(blob, data);
-        if (imgOutcome === 'shared') { flash(primary, '✅ Shared!', PRIMARY_LABEL); return; }
-        if (imgOutcome === 'cancelled') { primary.textContent = PRIMARY_LABEL; return; }
+        if (imgOutcome === 'shared') { flash(primary, '✅ Shared!', primaryLabel); return; }
+        if (imgOutcome === 'cancelled') { primary.textContent = primaryLabel; return; }
         // 'unavailable' (no file-share support) -> fall through to text+link.
       }
       const outcome = await shareResult(data);
-      if (outcome === 'shared') flash(primary, '✅ Shared!', PRIMARY_LABEL);
-      else if (outcome === 'copied') flash(primary, '✅ Result copied!', PRIMARY_LABEL);
-      else if (outcome === 'cancelled') primary.textContent = PRIMARY_LABEL;
+      if (outcome === 'shared') flash(primary, '✅ Shared!', primaryLabel);
+      else if (outcome === 'copied') flash(primary, '✅ Result copied!', primaryLabel);
+      else if (outcome === 'cancelled') primary.textContent = primaryLabel;
       else {
         // A native/clipboard failure must not strand a mobile player: offer the
         // same explicit web targets and copy action as desktop, ready for a new tap.
         setMenuOpen(true);
-        flash(primary, 'Choose a sharing option below', PRIMARY_LABEL);
+        flash(primary, 'Choose a sharing option below', primaryLabel);
       }
     } finally {
       nativeBusy = false;

@@ -25,6 +25,19 @@
   font: 14px/1.4 Arial, sans-serif;
 }
 .start-dialog a { color: #74d9ff; text-decoration: underline; }
+.daily-mountain { margin-top: 12px; padding: 12px; border: 1px solid #8ddbd74d; border-radius: 12px; background: #5bc8be12; text-align: left; }
+.daily-mountain h2 { margin: 0 0 5px; font-size: 16px; color: #d7fff7; }
+.daily-mountain p { margin: 0 0 6px; font-size: 12px; line-height: 1.45; }
+.daily-mountain small { color: #b6cbd2; font-size: 10px; }
+.daily-mountain-actions { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.daily-mountain-actions a { display: inline-flex; align-items: center; min-height: 40px; font-size: 13px; font-weight: 700; }
+.daily-mountain-result { width: min(380px, 88vw); margin: 4px 0 8px; color: #d7fff7; }
+.daily-mountain-result h3 { margin: 0 0 6px; font-size: 16px; }
+.daily-mountain-result p { margin: 0; font-size: 14px; line-height: 1.4; }
+@media (max-height: 500px) and (orientation: landscape) {
+  .daily-mountain { grid-column: 1 / -1; margin-top: 4px; padding: 6px 10px; }
+  .daily-mountain p { margin-bottom: 0; }
+}
 .start-heading { text-align: center; margin-bottom: 16px; }
 .start-visual { position: relative; height: 140px; margin-bottom: 14px; overflow: hidden; border-radius: 11px; background: #4c8197; contain: paint; pointer-events: none; }
 /* Fill every responsive frame without letterboxed side panels. Anchor the sky

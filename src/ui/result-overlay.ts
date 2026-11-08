@@ -25,6 +25,9 @@ import { setPanelCollapsed } from './collapsible-panel.js';
 import { mountLeaderboardPanel, type LeaderboardPanel } from './leaderboard-panel.js';
 import { createResultSaveControls, type ResultSaveControls } from './result-save.js';
 import type { ScoreSaveResult } from '../scores.js';
+import { getDailyChallenge } from '../daily-session.js';
+import { readDailyBest, recordDailyBest, type DailyBestResult } from '../daily-records.js';
+import { buildDailyResultSummary, regularMountainUrl } from './daily-mountain.js';
 
 export function isValidScoreTime(time: number): boolean {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
@@ -158,6 +161,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
   return function showGameOver(reason: string) {
     // The tier this run was played on; routes the score/best/leaderboard per tier.
     const tier: Difficulty = getDifficulty ? getDifficulty() : readStoredDifficulty();
+    const daily = getDailyChallenge();
+    let dailyResult: DailyBestResult | null = null;
     // Ranked-eligibility for THIS run: the tier must be ranked AND the world must
     // be canonical — a ?seed= practice world reads as unranked through the WHOLE
     // overlay (Codex review PR #407): no login prompt, no "saved" status copy,
@@ -204,11 +209,12 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     try { Sfx.endRun(reason === FINISH_REASON ? 'finish' : 'crash'); } catch { /* never block the overlay */ }
 
     // Refresh a device best improved by another tab while this run was active.
-    const deviceBest = readLocalBest(tier);
+    const deviceBest = daily ? null : readLocalBest(tier);
     if (deviceBest !== null && deviceBest < state.bestTime) state.bestTime = deviceBest;
     // Capture the best time BEFORE the finish branch updates it, so the result
     // screen can report the delta and whether this run set a new record.
-    const previousBest = state.bestTime;
+    const previousDailyBest = daily ? readDailyBest(daily) : null;
+    const previousBest = daily ? previousDailyBest === null ? Infinity : previousDailyBest / 1000 : state.bestTime;
 
     // The finish time IS the simulation clock (#402): the loop accumulates it in
     // fixed steps and publishes it as state.simElapsed, so a stalled run records
@@ -224,6 +230,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // legitimately fast Black finish (below Blue's floor) would be treated as invalid and
     // lose its local best/ghost/result panel. Blue's floor == the global floor, unchanged.
     const hasValidFinishTime = isPlausibleForTier(finishTime, tier);
+    if (daily && reason === FINISH_REASON && hasValidFinishTime) {
+      dailyResult = recordDailyBest(daily, getRunStamp(), tier, finishTime, state.timingCompromised);
+    }
 
     // Remove game-active class from body for styling
     document.body.classList.remove('game-active');
@@ -330,7 +339,13 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       if (syncCopy && !tierRanked && !document.getElementById('syncStatus')) {
         const syncStatus = document.createElement('p');
         syncStatus.id = 'syncStatus';
-        syncStatus.textContent = syncCopy;
+        syncStatus.textContent = daily
+          ? dailyResult?.status === 'saved' || dailyResult?.status === 'unchanged'
+            ? 'Daily best saved on this device. Daily runs stay separate from the regular leaderboards.'
+            : dailyResult?.status === 'unavailable'
+              ? 'Browser storage is unavailable. You can still share this finish or play again.'
+              : 'This attempt was not saved. Restart to try the daily mountain again.'
+          : syncCopy;
         syncStatus.style.color = '#9fd0f5';
         syncStatus.style.fontStyle = 'italic';
         syncStatus.style.margin = '10px 0';
@@ -392,6 +407,24 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       }
     }
 
+    document.getElementById('dailyRunResult')?.remove();
+    document.getElementById('leaveDailyRun')?.remove();
+    if (daily) {
+      const best = readDailyBest(daily);
+      bestTimeDisplay.textContent = reason === FINISH_REASON && hasValidFinishTime
+        ? dailyResult?.status === 'ineligible'
+          ? `Your Time: ${finishTime.toFixed(2)}s (not comparable)`
+          : `Your Time: ${finishTime.toFixed(2)}s${best === null ? '' : ` · Daily best: ${(best / 1000).toFixed(2)}s`}`
+        : best === null ? 'Finish this daily mountain to set your first time.' : `Daily best on this device: ${(best / 1000).toFixed(2)}s`;
+      const summary = buildDailyResultSummary(finishTime, dailyResult, reason === FINISH_REASON && hasValidFinishTime);
+      if (summary) content.appendChild(summary);
+      const regular = document.createElement('a');
+      regular.id = 'leaveDailyRun';
+      regular.textContent = 'Regular mountain';
+      regular.href = regularMountainUrl(window.location.href, tier);
+      actions.appendChild(regular);
+    }
+
     // Mount the same four-level board used on the start screen. Signed-out and
     // offline players see an explicit status without a denied Firestore request.
     const leaderboardElement = document.getElementById('leaderboard');
@@ -415,7 +448,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
           // A timing-compromised run may not commit ghost/splits either — its
           // slow-motion trajectory is as non-comparable as its time (#403 review).
           const panel = CourseModule.onFinish(finishTime, previousBest,
-            state.timingCompromised !== true);
+            state.timingCompromised !== true, dailyResult ?? undefined);
           if (panel) {
             // Keep save/sign-in immediately below the finish time on short
             // screens; the detailed splits and sharing follow, then the board.

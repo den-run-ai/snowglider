@@ -3,8 +3,8 @@
 // Focused, headless coverage for src/share.ts — the social-sharing helper behind
 // the finish result screen's "Share Result" button (see CHANGELOG #157).
 //
-// share.ts imports nothing (no three.js / Firebase / DOM module), so we import the
-// REAL `.ts` directly — Node 23 type-strips it and c8 instruments it with correct
+// share.ts uses the pure daily-challenge identity helper (no renderer/Firebase/DOM
+// module). We import the REAL `.ts` with the resolver hook; c8 instruments it with correct
 // source-mapped lines. The Web Share / clipboard / Analytics seams are reached via
 // the `navigator` and `window` globals, so each case installs a small stub and
 // restores it afterwards. Run via the `test:share` npm script (`node tests/share-tests.js`).

@@ -53,6 +53,7 @@ global.URL.revokeObjectURL = () => {};
 
 async function main() {
   const { buildShareControls } = await import('../src/ui/share-menu.ts');
+  const { createDailyChallenge } = await import('../src/daily-challenge.ts');
 
   function mount(opts) {
     document.body.innerHTML = '';
@@ -254,6 +255,39 @@ async function main() {
   check('the prepared PNG has matching context and no competitive claim',
     drawnText.includes('Expert · Air score: 125') && drawnText.includes('PRACTICE RUN')
     && !drawnText.includes('NEW PERSONAL BEST'));
+
+  console.log('\n--- daily primary shares the playable invitation even when a PNG is ready ---');
+  /** @type {ShareData[]} */
+  const dailyShares = [];
+  setNavigator({
+    share: async data => { dailyShares.push(data); },
+    canShare: () => true,
+    maxTouchPoints: 5,
+    userAgent: 'iPhone',
+  });
+  const dailyChallenge = createDailyChallenge('2026-11-08', 'black');
+  const dailyUrl = 'https://snowglider.ai/?daily=2026-11-08&level=black&cv=1&pv=4&beat=24500';
+  root = mount({
+    time: 24.5, isBest: true, difficulty: 'black', practice: true,
+    dailyChallenge, dailyEligible: true, getCapture: () => null,
+  });
+  await tick();
+  const dailyPrimary = /** @type {HTMLButtonElement} */ (root.querySelector('#shareResultBtn'));
+  const dailyImage = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
+  check('daily image is ready before the primary action is exercised', !dailyImage.disabled);
+  check('daily primary invites a friend to play', /Challenge a friend/.test(dailyPrimary.textContent));
+  dailyPrimary.click();
+  check('daily primary synchronously shares text and the exact versioned target URL without a file',
+    dailyShares.length === 1 && !dailyShares[0]?.files
+    && dailyShares[0]?.url === dailyUrl && /Can you beat my run\?/.test(dailyShares[0]?.text ?? ''));
+  await tick();
+  check('the separate daily image action remains available after sharing the invitation', !dailyImage.disabled);
+  dailyImage.click();
+  check('daily image still synchronously file-shares its PNG and invitation',
+    dailyShares.length === 2 && dailyShares[1]?.files?.length === 1
+    && dailyShares[1]?.files?.[0]?.type === 'image/png'
+    && dailyShares[1]?.text?.includes(dailyUrl) === true);
+  await tick();
 
   console.log('\n--- visible share actions cannot open competing native sheets ---');
   let concurrentCalls = 0;
