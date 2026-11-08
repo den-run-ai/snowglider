@@ -1,22 +1,59 @@
 # SnowGlider — Feature Gap Analysis & Roadmap
 
-**Release update (2026-09-08).** The freeze audit is being resolved in #406–#410,
-#421 and #427. Physics v3 unifies terrain, isolates RNG streams, synchronizes avalanche
-and run clocks, and versions local/remote records. The final hardening removes
-camera/history cache contamination, normalizes camera timing and improves keyboard,
-touch and accessible controls. Comparable PBs/boards start fresh; historical data is
-retained. The old scenery/expression/jump/mobile implementation trackers have been
-reconciled with main. Remaining work includes per-tier ranking proof (#247), physical
-heading/spins (#244), real-phone audio (#249), visual acceptance (#246/#297), night
-rendering (#300), and privacy/licensing follow-ups (#419/#418). Ghost rendering remains
-intentionally hidden; restoring a useful replay experience needs a focused design.
+**Current priorities (2026-11-08).** Build on the shipped control, acceleration,
+restart/audio, camera, snow-relief and copy fixes (#461–#467, #471–#472), reviewed on
+[main `51fc83b`](https://github.com/den-run-ai/snowglider/commit/51fc83b0ee83d22a1453c155356e4851b48427a6).
+[All-level leaderboards (#473)](https://github.com/den-run-ai/snowglider/pull/473)
+add ranking for Bunny, Blue, Black and Expert, account-owned records and explicit
+post-run sign-in/save. Keep every difficulty, including Black, playable as a guest.
+Offer an account after an earned result; keep Play again immediately available.
 
+### Next delivery sequence
+
+| Order | Work | Acceptance |
+|---|---|---|
+| 1 | Qualify #473 and the player funnel | Cross-browser and production-build play → finish → replay → sign-in/save flows pass, including service failures and account changes. Measure actual playable first/second runs and one terminal outcome per attempt, independently of score saving; separate known automation ([ANALYTICS.md](ANALYTICS.md)). |
+| 2 | Daily mountain + “beat my run” challenge | A guest opens the same named mountain, plays, compares and retries, then can optionally save. Fix the course and gameplay RNG inputs under an explicit challenge identity with difficulty and physics/rules version. Arbitrary `?seed=` worlds remain practice-only; daily records must have their own eligibility and namespace. Keep fastest time and air score separate. |
+| 3 | One focused skiing/visual pass | Use #381 for an open slope, an optional technical line and a memorable finish. Evaluate phone-size readability, controls and audio on physical iPhone/Android hardware; record sustained frame times, stalls, quality changes and restart resource trends before setting tighter budgets. |
+| 4 | Small distribution pilot | Prepare a guest-compatible portal build and real gameplay clips once the play/replay loop is qualified. Resolve or replace the music covered by #418 before using it in promotional clips or a new monetized distribution. |
+| 5 | Heading-relative skiing experiment (#244) | Prototype behind an experimental configuration; compare S-turns, braking, traverses and landings, then test hands-on before a deliberate ranked physics/version change. |
+
+Optimize voluntary second runs and later returns. Account creation supports saving
+what the player earned. A device best can belong to another skier: automatic sync
+uses UID-owned records only; claiming a guest finish requires the explicit result
+save. See [scores.ts](../src/scores.ts) and [result-save.ts](../src/ui/result-save.ts).
+
+### Reconciled open trackers
+
+The implementation listed here is already present; retain the remaining acceptance
+or architectural work instead of opening another broad implementation issue.
+
+| Tracker | Implemented foundation | Remaining acceptance/scope |
+|---|---|---|
+| [#246 snow depth](https://github.com/den-run-ai/snowglider/issues/246) | #349–#353: persistent compaction/refill, terrain-material sampling, mobile scaling and fresh-cut trails ([snow-depth.ts](../src/mountains/snow-depth.ts)). | Packed/powder readability, tint strength and trail lifetime review; sustained physical-phone performance. The field has no terrain-height or grip effect. |
+| [#253 wind](https://github.com/den-run-ai/snowglider/issues/253) | Shared field, snow drift, apparent-wind scarf, tree sway and wind/forest audio; tree snow-load shedding is also present ([wind.ts](../src/wind.ts), [tree-shed.ts](../src/tree-shed.ts), [sfx.ts](../src/sfx.ts)). | Optional wind indicator/debug controls; gameplay wind force remains deferred. Real-phone audio acceptance stays in #249. |
+| [#297 lighting/snow](https://github.com/den-run-ai/snowglider/issues/297) | Original light/sky stack and its type fix are merged, as are #442–#447 batching, adaptive quality and capture tooling; #465/#467 add readable surface relief. | Low-sun shadow quality and downhill horizon captures at p=0/0.5/1 on desktop/mobile GPUs; separately reviewed modern color conversion with an approved baseline. |
+| [#403 deterministic world](https://github.com/den-run-ai/snowglider/issues/403) | Canonical world/RNG streams, shared terrain, fixed-step timing and versioned provenance; #438–#447 browser, context-loss, input, terrain camera sightline, batching and quality work are merged. | Serializable SimulationState and immutable WorldBuildResult; obstacle/near-plane camera clearance beyond the implemented terrain sightline check. |
+| [#248 rendering acceptance](https://github.com/den-run-ai/snowglider/issues/248) / [draft #219](https://github.com/den-run-ai/snowglider/pull/219) | Perf budgets and exact BASE/HEAD scene comparisons shipped via #220/#447 ([render-review.yml](../.github/workflows/render-review.yml)). | Persistent approved scene/overlay baselines. Extract the useful overlay work from #219 and reconcile it with the newer capture pipeline. |
+| [#419 account privacy](https://github.com/den-run-ai/snowglider/issues/419) | New profile writes, browser logs and report output omit provider email. | Retention/controller policy, historical-field cleanup and authenticated export/deletion across Auth, profiles, every board/version and applicable Analytics/local data, with partial-failure/retry handling. Complete this before aggressively promoting account creation. |
+| [#418 music provenance](https://github.com/den-run-ai/snowglider/issues/418) | Attribution and third-party notices are present. | Resolve the applicable grant for the exact bundled track and record a retain/replace decision. Attribution alone does not resolve the provenance issue. |
+
+Physics/score version **4** is current after #463; historical records remain separate
+([run-context.ts](../src/run-context.ts), [PHYSICS.md](PHYSICS.md)). Ghost trajectories
+and splits exist, but visible ghost rendering is deliberately disabled by
+`GHOST_VISIBLE = false` in [course.ts](../src/course.ts). Start replay improvements
+with useful split deltas and an optional personal ghost before expanding that layer.
+
+Browser emulation, draw-call ceilings and the rendering harness's synchronized
+service timings do not establish sustained phone FPS, thermal behavior, physical
+audio acceptance or real OAuth-provider behavior. Preserve those acceptance items
+when automated checks pass. The older dated reviews below are historical context.
 
 *A synthesis of multiple review passes on the Three.js skiing game at [snowglider.ai](https://snowglider.ai) ([repo](https://github.com/den-run-ai/snowglider)).*
 
 ---
 
-## Status
+## Implementation history
 
 This roadmap began as a feature-gap analysis. Its **top recommendation — the "skill & structure" layer — shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56)**: checkpoint gates + finish line, live split timing and a result screen, ghost racing, an avalanche warning UI, and a first snowplow/carve/tuck ski-technique pass. See [`CHANGELOG.md`](CHANGELOG.md) for that work in detail.
 
@@ -59,7 +96,7 @@ These exist today and generally don't need re-inventing — the gaps below build
 - Background music (simplified native HTML5 audio, single track)
 - Procedural sound effects (`src/sfx.ts`: wind, carving swish, jump/land, avalanche rumble, crash/finish)
 - Timer with best-time tracking
-- Firebase auth + global leaderboard (finishes can record scores when logged in)
+- Optional Firebase auth + separate per-level time leaderboards; #473 adds explicit post-run save and account-owned bests
 - Mobile touch controls
 - A comprehensive test suite
 
@@ -67,7 +104,7 @@ These exist today and generally don't need re-inventing — the gaps below build
 
 - **Course structure:** checkpoint gates down the fall line + a gold finish arch; progress bar and "m to finish" HUD
 - **Split timing + result screen:** per-checkpoint splits with ±delta vs. your best, a finish result panel with a medal and an improvement line
-- **Ghost racing:** your best run recorded and replayed as a translucent ghost, with an AHEAD/BEHIND readout
+- **Ghost infrastructure:** best-run trajectories and splits are recorded; the translucent ghost and its in-run delta are currently hidden (`GHOST_VISIBLE = false`)
 - **Avalanche telegraphing:** warning banner, "distance behind you" danger meter, red vignette, proximity camera shake
 - **Game feel:** speed-based FOV, camera shake on hard landings
 - **Ski technique (first pass):** snowplow brake, carve/skid, tuck, and terrain-dependent grip — *intentionally thin* at first; the carve-vs-skid speed trade-off was later deepened in #136 (see Finding 2)
@@ -132,15 +169,14 @@ The replacement work is tracked in **#381** — attack the static descent by dee
 - **Weather progression:** tie the wind field (#253) + fog density to descent depth for whiteout stretches — tension via visibility, cosmetic-first so the byte-identical no-input baseline stays safe.
 - **Scoring depth:** near-miss bonuses on trees/rocks/the avalanche edge through the combo system (`src/game/combo.ts`).
 
-### 6. Progression and replay hooks — ◐ partial (#56, difficulty tiers #247)
+### 6. Progression and replay hooks — ◐ partial (#56, #247, #473)
 
-Timer/best-time and leaderboard existed, but there was no reason to play 20 runs.
+The next attempt needs a clear goal and an immediate replay action.
 
-- **Shipped (#56):** ghost replay ("beat your ghost") and medals/tiers on the result screen.
-- **Shipped (difficulty tiers, #247):** the first real progression axis — **● Bunny / ■ Blue / ◆ Black** tiers with a start-screen and finish-screen picker ([#237](https://github.com/den-run-ai/snowglider/pull/237)/[#255](https://github.com/den-run-ai/snowglider/pull/255)), **per-tier local ghosts + best splits** ([#238](https://github.com/den-run-ai/snowglider/pull/238)), **per-tier Firestore leaderboards + best times** (sibling `leaderboard_bunny`/`leaderboard_black` boards, [#239](https://github.com/den-run-ai/snowglider/pull/239)), and a first *felt* per-tier ski feel ([#240](https://github.com/den-run-ai/snowglider/pull/240)) — Blue is the frozen default (byte-identical), Bunny/Black ship **unranked** until per-tier plausibility floors + a winnability gate pass. The config spine + kernel tuning API ([#236](https://github.com/den-run-ai/snowglider/pull/236)) keeps the physics kernel pure (only `config.ski` enters it). This directly delivers the "difficulty tiers (kids/bunny vs. expert)" item below.
-- **Shipped ("the line is the difficulty", D3.2):** the [#254](https://github.com/den-run-ai/snowglider/pull/254)/[#257](https://github.com/den-run-ai/snowglider/pull/257)/[#261](https://github.com/den-run-ai/snowglider/pull/261)/[#263](https://github.com/den-run-ai/snowglider/pull/263) stack merged — a seeded winding course line now drives terrain (a banked corridor), gates, obstacles, and a per-tier avalanche so Black is *shaped* harder, not just steeper, gated by a follow-the-line winnability harness. A live **Level** HUD row ([#266](https://github.com/den-run-ai/snowglider/pull/266)) shows the selected tier during play.
-- **In flight (○):** the **ranked flip** (D3.3: re-measured per-tier plausibility floors + `ranked:true` for Bunny/Black) — the D3.2 winnability gate is its prerequisite, now in place. Per-tier ranked boards also depend on the leaderboard-floor work (**#235**).
-- **Remaining (○):** a daily seeded course, unlockable cosmetics (scarves/skis/hats), achievements, missions ("near-miss 5 trees in one run," "travel 1000 m without jumping"), and per-course / per-day leaderboards instead of a single global list.
+- **Implemented:** Bunny, Blue, Black and Expert have distinct course/tuning configurations, start/result pickers and separate local bests, splits and ghost records. The seeded course line drives terrain, gates, obstacles and per-tier avalanche behavior; the follow-the-line harness checks winnability.
+- **All-level ranking (#473):** all four tiers are ranked in the current source. Physics v4 floors are 15 / 15 / 10 / 10 seconds for Bunny / Blue / Black / Expert, with a 600-second cap ([score-limits.ts](../src/score-limits.ts)); historical schemas keep their old bounds. Save/restore uses account-owned bests, while the device best remains separate. Qualify real provider flows and exact-head CI before treating that release as accepted.
+- **Next:** a daily mountain and a friend challenge with explicit, reproducible identity; split comparison, optional personal ghost, and small earned cosmetics can follow. Keep replay available through sign-in or save failures.
+- **Later:** achievements, missions and cross-player ghosts. The existing hidden-ghost implementation is a foundation, not an already-visible replay feature.
 
 ### 7. Game feel ("juice") and visual readability — ◐ partial (#56)
 
@@ -152,30 +188,33 @@ A skiing game lives on speed readability and mountain atmosphere.
 - **Shipped (#201):** a live **Slope/incline HUD** readout (degrees + %) replacing the static Best-Time stats row, color-tiered to the measured run so the player can read terrain steepness at a glance (`src/ui/hud.ts`; best-time persistence and the result screen are untouched).
 - **Shipped (#18, #17 — shadows & snow readability):** a **player-following sun shadow** (`src/game/sun-shadow.ts`) — the directional light's shadow camera was on three.js's default ±5-unit box centred on the world origin, so the snowman (which spawns at `z=-15` and skis far downhill) cast **no shadow for essentially the whole run**; the frustum now tracks the player so the contact shadow is present end-to-end; a **cavity / ambient-occlusion snow shading** term darkens concave hollows/gullies so the terrain stops reading as flat white; and **obstacle contact shadows** (a single instanced AO decal under each tree/large rock) ground the trees so they no longer read as pasted-on. All build-time / render-only — the physics height field is untouched (see [`SNOW_RENDERING.md`](SNOW_RENDERING.md)).
 - **Shipped (#253, Phase A):** the first **weather variation** — a shared deterministic **wind field** (`src/wind.ts`) that blows the snowfall sideways and the ski splash downwind. It has since grown consumers across the scene: the red **scarf streams in the apparent wind** ([#259](https://github.com/den-run-ai/snowglider/pull/259)), the **forest sways** in the same field (a GPU vertex sway, [#265](https://github.com/den-run-ai/snowglider/pull/265)), and the **ambient audio bed** is tied to the wind with a resonant gust **"howl"** ([#271](https://github.com/den-run-ai/snowglider/pull/271)/[#272](https://github.com/den-run-ai/snowglider/pull/272)). All cosmetic-only (no `pos`/`velocity`), so the physics invariant is byte-identical; an optional gameplay wind *force* (tier-gated) is the deferred follow-up.
-- **Remaining (○):** a real **snow-accumulation model** (now tracked as **#246** — persistent `SnowDepthField`: snowfall raises depth, skis compact tracks, tracks refill over time — visual-only first, fed into the terrain material; the current ski tracks are transient feedback, not accumulation); deeper weather variation and a day→sunset→night skybox; and depth cues. *(Stronger slope contrast + obstacle silhouettes shipped via the cavity/AO shading + contact shadows above.)*
-- **Open issues:** lighting/shadows and snow/tree/rock/snowman textures (**#17** snow surface + de-banded fBm terrain (#197) + dynamic trails + cavity/AO shading + contact shadows now ◐ partial; only the snowman material is left). Lighting/shadows (**#18**) ✅ addressed (hemisphere fill + player-following sun shadow). Intro fly-over (**#51**) ✅ shipped (`src/intro.ts`). Visible sky (**#2**) ✅ **closed** — atmospheric sky + sun + horizon fog + a bounded golden-hour↔midday sun cycle (#163); clouds / a full night path remain possible future polish.
+- **Shipped (#246, visual-only v1):** persistent `SnowDepthField` compaction/refill, terrain-material sampling and mobile scaling (#349–#353); transient tracks now supply the fresh-cut cue. Remaining work is visual tuning/physical-device acceptance, deeper weather variation and the separate night path (#300). The field does not alter terrain height or ski grip.
+- **Current visual work:** snowman/debris snow materials (#299), snow depth and the light/sky stack are implemented. Preserve #246/#297 acceptance for the rendered result. The latest relief (#465/#467) changes shading; playable moguls, banks and rollers require geometry and the authoritative terrain query to agree. A full night path remains separate (#300).
 
-### 8. Audio consistency and completion — ◐ partial
+### 8. Audio consistency and completion — ◐ physical-device acceptance remains
 
-Audio has since been rewritten to a simplified, dependency-free native HTML5 implementation (single background-music track) and re-enabled (`AUDIO_ENABLED = true`); the full history is in [`CHANGELOG.md`](CHANGELOG.md). **Sound effects beyond music shipped (#158):** `src/sfx.ts`, a procedural Web Audio engine (no binary assets) covering speed-scaled wind, a technique-keyed carving swish, an avalanche rumble, and jump/land/crash/finish one-shots. It remains **partially integrated**: the in-page audio control button is still disabled in `index.html`, and mobile playback for both music and effects (iOS Safari silent switch, Android Chrome) is not yet verified on real devices.
+Native HTML5 background music and procedural Web Audio effects are integrated.
+[audio.ts](../src/audio.ts) creates the in-game mute button and shares its preference
+with SFX; start/replay preserve user-gesture playback and explicit playback intent
+(#462). The control is already present and does not need re-enabling in `index.html`.
 
-- **Done:** sound effects beyond music — wind that scales with speed, carving swish on turns, a crash/thud on wipeout, plus jump/land and an avalanche rumble (**#158**, `src/sfx.ts`).
-- **Add / finish:** complete the mobile integration (real-device verification of music + SFX, now tracked as **#249**) and the in-page audio control button.
-- **Open issue:** mobile music-disable button (**#50**) ✅ **fixed in [#173](https://github.com/den-run-ai/snowglider/pull/173)** and **closed** — the mute toggle fires on `touchstart`; it was later subsumed by the systemic mobile dead-button fix (Finding 10) that stops the gameplay touch handler swallowing taps on *any* interactive control. Remaining audio gaps are the in-page control button and real-device mobile verification (**#249**).
+- **Remaining:** physical iOS Safari/Android Chrome playback, silent-switch/interruption and resume acceptance (#249). Automated browser coverage cannot sign this off.
+- **Before new promotion/distribution:** resolve or replace the disputed bundled music (#418); procedural SFX do not use that track.
 
-### 9. Pause/save and quality-of-life controls — ○ open
+### 9. Pause/save and quality-of-life controls — ◐ partial
 
-Basic product completeness is missing, which is especially felt on mobile.
+Backgrounding already pauses physics and timing together ([run-clock.ts](../src/game/run-clock.ts)); explicit pause/save-state UX remains separate (#39).
 
 - **Add:** pause/resume/save state, restart confirmation, remappable controls, controller support, sensitivity settings, camera FOV control, and mobile calibration.
 - **Shipped (adjacent):** an **in-game feedback / feature-request form** ([#258](https://github.com/den-run-ai/snowglider/issues/258) (PR #260), `src/ui/feedback.ts`) — a start-screen "💬 Feedback" button that opens a GitHub *prefilled* new-issue URL (keyless; the player submits under their own account) with optional diagnostics, and fires a `feedback_submitted` Analytics event. Structured issue templates live under `.github/ISSUE_TEMPLATE/`.
 - **Open issue:** implement game state for pause/save (**#39**).
 
-### 10. Mobile-first control polish — ○ open
+### 10. Mobile-first control polish — ◐ implemented controls, device acceptance remains
 
 Touch controls exist, but this game is a natural fit for richer mobile input.
 
-- **Add:** gyro/tilt steering, haptics, swipe-to-jump, a simpler mobile HUD, and **performance scaling** (toggle shadows / reduce particle counts when framerate drops below ~30 FPS).
+- **Implemented:** responsive panels, touch ownership/cancellation and replay fixes, plus adaptive DPR/shadow quality ([render-quality.ts](../src/game/render-quality.ts), #446).
+- **Next:** validate sensitivity, comfortable control placement, camera assistance and sustained performance on physical phones. Treat stable 60 fps with a graceful 30 fps fallback as proposed targets until a device baseline exists; gyro/tilt, haptics and extra gestures are optional later work.
 - **UI:** keep the game-over screen, score counter, and menus as responsive HTML/CSS overlaying the `<canvas>` for crisp mobile readability, rather than baked into the 3D scene.
 - **Shipped (bug class):** a **systemic mobile dead-button fix** — the gameplay touch handlers (`controls.ts`) `preventDefault()` every touch for ski steering, which suppressed the synthesized `click` and left *any* click-bound button drawn over the canvas dead on mobile. Rather than the ~6 accumulated one-off rescues (restart, share, audio, auth, …), the handlers now bail on touches that land on an interactive control (`button, a, input, …, [role="button"]`), covering current and future buttons; the finish-screen share buttons and Start-menu About/Close/logout were the last casualties. This clears much of the substance behind **#37** (about-game / music buttons mobile-friendly).
 - **Open issues:** gyro/tilt controls (**#24**), more visible touchscreen controls (**#25**), make all buttons (about-game, music selection) mobile-friendly (**#37** — the dead-button class is now fixed; richer/visible controls remain).
@@ -204,13 +243,13 @@ Given the `.ai` domain, at least one AI-flavored feature is a natural fit and a 
 
 ## Recommended Roadmap
 
-A phased plan that several of the review passes converge on:
+The delivery sequence at the top is current. This original phase table records the foundations already delivered and the larger ideas they support:
 
 | Phase | Goal | Ship | Status |
 |-------|------|------|--------|
 | **P0 — Make it feel like a game** | Give runs a shape | Finish line, checkpoints, split times, result screen, medals, restart/replay flow | ✅ shipped (#56) |
 | **P1 — Make skiing skillful** | Reward technique | Carving / snowplow / straight-line modes, speed loss on turns, terrain-dependent friction, meaningful jumps | ◐ mostly shipped (#56, #136, #146, #191, #186, #286) — carve/snowplow/tuck + the carve-vs-skid speed trade-off + parallel/hop turns + distinct carve-vs-parallel (#48) all land; **meaningful jumps (#47) shipped end-to-end** — grade + boost (#186) then the JP-1…JP-7 completion stack (#286): scored clears, the avalanche-dodge window, impact grading + Expert wipeouts, Expert kickers, and a style/combo chain (jumps round 2 #245 substantially done); per-tier ski feel via difficulty tiers (#240); heading-relative velocity (#244) still queued; ski poles (#52) still open |
-| **P2 — Make it memorable** | Atmosphere & drama | Better mountain visuals, avalanche warning, expressive snowman, scarf/poles, intro fly-over, ghost racer | ◐ avalanche warning + ghost racer (#56), visible sky (**#2 closed**), intro fly-over (#51), mountain visuals/textures (#17) + sun shadow/AO/contact shadows (#18/#17), the avalanche powder cloud (#187), wind (#253), and the **expressive snowman + scarf (#53)** shipped; ski poles (#52) still open |
+| **P2 — Make it memorable** | Atmosphere & drama | Better mountain visuals, avalanche warning, expressive snowman, scarf/poles, intro fly-over, ghost racer | ◐ avalanche warning + ghost infrastructure (visible ghost disabled), visible sky (**#2 closed**), intro fly-over (#51), mountain visuals/textures (#17) + sun shadow/AO/contact shadows (#18/#17), the avalanche powder cloud (#187), wind (#253), and the **expressive snowman + scarf (#53)** shipped; ski poles (#52) still open |
 | **P3 — Make it social / AI** | Retention | Daily challenge, ghost leaderboard, AI coach, shareable replay | ◐ started — **difficulty tiers (#247)** add per-tier leaderboards + ghosts and a seeded procedural course line (the "named difficulties" AI-angle item); desktop/mobile share (#177/#31) ships. Daily challenge, cross-player ghost leaderboard (#235), and the AI coach remain open |
 
 ---
@@ -371,17 +410,17 @@ Many recommendations align with the maintainer's backlog, which is a good sign t
 | Freestyle ski tricks | #32 | ◐ first pass shipped — Expert-tier spins/flips/grabs (#32) + style/combo chain (JP-7, #286); *physical* spins (heading-relative velocity, #244) remain |
 | Pause/save game state | #39 | ○ open |
 | Social media sharing | #31 | ✅ **closed** — desktop platform menu + Instagram screenshot card (#177), OG-image fix (#193); native share on mobile |
-| Difficulty tiers (● Bunny / ■ Blue / ◆ Black) | #247 | ◐ in progress — config spine + kernel tuning (#236), pickers (#237/#255), per-tier ghosts/splits (#238), per-tier leaderboards (#239), felt per-tier ski feel unranked (#240) all merged; "the line is the difficulty" D3.2 stack (#254/#257/#261/#263) **merged** (course-line spine + terrain corridor + gates/obstacles on the line + per-tier avalanche & winnability gate), Level-during-play HUD (#266) merged; ranked flip (D3.3: re-measured floors + `ranked:true`) pending |
+| Difficulty tiers (Bunny / Blue / Black / Expert) | #247, #473 | ◐ course/tuning/pickers, local records and winnability gates implemented; #473 enables all four v4 boards with per-tier floors and account-owned saving. Live-provider qualification remains. |
 | Gameplay tuning (steeper slope, fewer bumps, drop the "forward" button) | #27 | ○ open (partly served by per-tier feel #240) |
 | More visible touchscreen controls; mobile-friendly buttons | #25, #37 | ◐ mobile dead-button class fixed systemically (finish/share/About/logout now tap-through); richer/more-visible controls open |
 | Gyro/tilt controls | #24 | ○ open |
 | Lighting and shadows | #18 | ✅ **closed** — hemisphere fill light (#168) + player-following sun shadow with a frustum fix (`src/game/sun-shadow.ts`) so the snowman casts a contact shadow for the whole run |
-| Textures (snow, trees, rocks, snowman) | #17 | ◐ partial — snow-surface texture (grid-line fix → isotropic powder), de-banded domain-warped **fBm terrain** (#197), snow-capped rocks, tree bark/foliage, dynamic ski trails, a realistic **rock-colour palette + cliff outcrops + terrain↔tree biome tinting** (#203), plus **cavity/AO snow shading** + **obstacle contact shadows** ([`SNOW_RENDERING.md`](SNOW_RENDERING.md)) shipped; snowman texture open |
+| Textures (snow, trees, rocks, snowman) | #17, #246, #297 | ◐ procedural materials, shaped rocks, snowman/debris snow material, persistent snow depth and readable relief are implemented; visual and physical-device acceptance remain. |
 | Ski shape redesign (sidecut / camber / shovel) | #189 | ✅ **closed** — shaped lofted-geometry skis with sidecut/camber/shovel/tail/binding/steel edge + cosmetic flex (#198) |
 | Visible sky | #2 | ✅ **closed** — atmospheric sky + sun + horizon fog + a bounded golden-hour↔midday **sun cycle** shipped (`src/sky.ts`, #163); clouds / full night path remain optional polish |
-| Persistent snow-depth field (visual-only v1) | #246 | ○ open — tracks the real snow-accumulation model (Finding 7) |
+| Persistent snow-depth field (visual-only v1) | #246 | ◐ implementation shipped; packed-tint/trail-lifetime and physical-device acceptance remain |
 | Meaningful jumps, round 2 (scored clears + avalanche dodge + combos) | #245 | ✅ substantially shipped — the JP-1…JP-7 completion stack (#286): scored clears (JP-2), the avalanche-dodge window (JP-3), impact grading + Expert wipeouts (JP-4), Expert kickers (JP-6), and the style/combo chain (JP-7); only *physical* spins (#244) remain, tracked separately |
-| Heading-relative velocity (real carving) | #244 | ○ open — extends the kernel tuning API (#236), lands before Black turn-tuning |
+| Heading-relative velocity (real carving) | #244 | ○ experimental follow-up; current Black tuning already exists. Promote only after control evaluation and deliberate versioning. |
 
 ### Infrastructure, tooling & exploratory
 
@@ -390,14 +429,14 @@ several landed after this roadmap was first written):
 
 | Theme | Issue(s) | Status |
 |-------|----------|--------|
-| TypeScript / ES-module migration | #35, #84, #98 | ✅ shipped — closed (all `src/` is `.ts`, `strict: true`, Vite bundle) |
+| TypeScript / ES-module migration | #35, #84, #98 | ✅ shipped — strict TypeScript app modules, with two classic boot `.js` files; remaining legacy harness/operator/EZ-Tree declaration work is tracked in #367 and [TYPE_SAFETY.md](TYPE_SAFETY.md). |
 | Refactor `index.html` into CSS + main | #33 | ✅ Stage R1 shipped (`styles/main.css` + `src/boot/*` + `src/ui/start-menu.ts`) |
-| Refactor `snowglider` into a thinner UI/game module | #34 | ✅ **closed** — typed `GameState` + `src/player-state.ts` **plus the scene/loop/UI extraction (Stages R2/R3)**: `src/game/{scene-setup,main-loop,lifecycle}.ts` + `src/ui/{hud,result-overlay,collapsible-panel}.ts`, leaving `snowglider.ts` a ~380-line coordinator |
+| Refactor `snowglider` into a thinner UI/game module | #34 | ✅ **closed** — typed `GameState` + `src/player-state.ts` **plus the scene/loop/UI extraction (Stages R2/R3)**: `src/game/{scene-setup,main-loop,lifecycle}.ts` + `src/ui/{hud,result-overlay,collapsible-panel}.ts`, leaving `snowglider.ts` as the coordinator |
 | Improve test coverage for RED files (scores, auth, controls, start-menu) | #126 | ✅ **closed** — coverage layers landed (#128–#131) |
 | Update three.js + validate testing/audio | #29 | ✅ **closed** — r160 upgrade (#75/#76) + native-audio rewrite |
 | Frame-rate-independent physics (fixed-timestep, no tunneling) + runtime diagnostics | #209 | ✅ shipped — fixed-timestep accumulator in `main-loop.ts` (physics on a 1/60 grid, render interpolation), avalanche friction made FPS-independent, and a read-only telemetry layer (`src/diagnostics.ts`, [`DIAGNOSTICS.md`](DIAGNOSTICS.md)) that watches the tunneling/runaway-speed bug class live |
-| Rendering test tiers (perf/draw-call budget + visual regression) | #248 | ◐ perf-budget spec landed (#220); Playwright visual-regression tier is an opt-in draft (#219) |
-| Leaderboard floor: production deploy + purge + deferred global-ghost | #235 | ○ open — prerequisite for flipping Bunny/Black to ranked (per-tier floors) |
+| Rendering test tiers (perf/draw-call budget + visual regression) | #248 | ◐ perf budgets (#220) and exact BASE/HEAD scene comparisons (#447) shipped; DOM-overlay coverage and approved persistent baselines remain |
+| Leaderboard floors, historical data and global ghosts | #235, #473 | ◐ current v4 per-tier floors and all-level boards implemented; historical cleanup and cross-player ghost work remain separate. No historical data purge is implied. |
 | Ghost-attested score submissions (anti-cheat ceiling) | — | ○ design sketch — see [Anti-cheat ceiling](#anti-cheat-ceiling-ghost-attested-submissions) below |
 | Leaderboard unavailable / sign-in dropout + testing | #28 | ◐ scores/auth hardening + tests (#67, #73, #128/#129); Firestore-rules deploy now automated via the Rules REST API (#250/#264) |
 | Performance monitoring via Firebase | #30 | ○ open |
@@ -407,13 +446,12 @@ several landed after this roadmap was first written):
 
 #### Anti-cheat ceiling: ghost-attested submissions
 
-The current server-side defenses are strong for a static-hosted game — the empirically
-measured 18 s plausibility floor and 600 s cap enforced in `firestore.rules` (kept in
-lockstep with `src/score-limits.ts` by `tests/score-limits-sync-tests.js`), monotonic
-best-time updates, key allowlists, and client-write-locked unranked boards. But the
-ceiling is inherent: scoring is **client-authoritative**, so a patched client can forge
-any time ≥ 18 s. No rules change can close this — rules cannot validate a trajectory.
-
+Current Firestore rules enforce account ownership, key allowlists, monotonic bests
+and v4 per-tier time bounds: 15 seconds for Bunny/Blue, 10 seconds for Black/Expert,
+and a 600-second cap ([firestore.rules](../firestore.rules), [score-limits.ts](../src/score-limits.ts)).
+Historical namespaces retain their original validators. Scoring remains
+**client-authoritative**: a patched client can forge a plausible time within its
+tier's accepted range. These checks do not validate a trajectory or prove a human.
 When the leaderboard has enough players to attract cheating, the destination is
 **ghost-attested submissions**. The infrastructure mostly exists: every best run is
 already recorded as timestamped position samples for ghost racing (`recordSamples` /
@@ -427,14 +465,14 @@ Admin SDK:
 - checkpoint gates crossed in order at plausible split times;
 - start/finish positions match the course (`z = -15` → `FINISH_Z`).
 
-Then lock client writes on the ranked boards with `allow write: if false` — the exact
-pattern `leaderboard_bunny`/`leaderboard_black` already use, so the rules shape is
-proven in this repo.
+Then lock direct client writes on the affected ranked boards with `allow write: if false`;
+the server would own validated submissions. The current v4 boards still accept
+owner-authenticated client writes.
 
 Costs and limits, stated honestly: this is the project's first backend (Blaze plan,
 cold starts, a deploy surface beyond GitHub Pages), and a replay validator can still be
 fooled by a bot that *plays* superhumanly within physics limits — attestation bounds
-forgery, it does not prove a human. Prerequisites first: per-tier measured floors
-(#235) and the D3.3 ranked flip reusing the same leaderboard validators.
+forgery, it does not prove a human. Keep this as a separate backend decision after
+qualifying current all-level saving and the daily challenge loop.
 
-*The higher-level structural gaps — a finish line and objective feedback, scoring depth, progression/replay hooks, and the AI features — were the items the tracker was quieter on; #56 delivered the first of these (course + result + ghost), and the **difficulty-tier stack (#247)** is now delivering per-tier leaderboards/ghosts and a seeded procedural course line. The remaining biggest open wins are a daily/seeded challenge, a cross-player ghost leaderboard (#235), and the AI coach.*
+*The next product milestone is a guest-playable daily mountain with a reproducible friend challenge. Use second runs and later returns to evaluate it before broadening cosmetics, options or promotion.*

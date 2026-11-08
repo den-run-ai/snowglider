@@ -4,7 +4,7 @@
 > symlink to this file, so Claude Code and Codex (and other agents) read identical guidance.
 
 ## Project Overview
-SnowGlider is a Three.js animation/game featuring a snowman skiing on natural backcountry mountain terrain. It is a **Vite-bundled, ES-module TypeScript** app — the TypeScript migration is complete (all `src/` is `.ts` under `"strict": true`): `index.html` loads the bundle entry `src/main.ts` (plus the `boot/`/`ui/` module scripts) as `<script type="module">`, and `npm run build` emits static `dist/` output for GitHub Pages. The core files are:
+SnowGlider is a Three.js animation/game featuring a snowman skiing on natural backcountry mountain terrain. It is a **Vite-bundled, ES-module TypeScript** app — the app modules are TypeScript under `"strict": true` (two classic boot scripts remain `.js`): `index.html` loads the bundle entry `src/main.ts` (plus the `boot/`/`ui/` module scripts) as `<script type="module">`, and `npm run build` emits static `dist/` output for GitHub Pages. The core files are:
 - `index.html` - Main entry point and UI (loads the Vite bundle entry `src/main.ts`)
 - `auth.html` - Standalone Firebase authentication page (loads the `auth.ts` module)
 - `src/main.ts` - ES-module bundle entry; imports every game module into one graph
@@ -14,11 +14,11 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/mountains.ts` - Natural backcountry terrain generation facade. Mesh and gameplay sample one triangle-interpolated height field; the bounded grid-corner cache is read-order independent. `heightMap` is a diagnostic mesh snapshot, not gameplay memoization.
 - `src/trees.ts` - Tree creation and placement throughout the mountain (facade over `src/mountains/trees.ts`)
 - `src/mountains/ez-forest.ts` - EZ-Tree evergreen archetype provider (issue #282): seeded low-poly pine geometry from `@dgreenheck/ez-tree` (lazy ~4 MB chunk), rendered by `trees.ts` through the shared instanced/tint/sway/snow pipeline with a static near/far LOD split. Default for players; automation/headless keep the stylized cones (`?eztrees=1` opts in, `?classictrees` opts out) so seeded RNG streams and existing suites stay byte-identical. Headless-safe (scoped `document` shim) and RNG-stream-neutral (private xorshift for THREE uuid draws); perf pinned by the `?eztrees=1` budget in `tests/e2e/perf-budget.spec.ts` (`npm run test:ez-forest` for the unit suite)
-- `src/run-context.ts` - Named RNG streams for one deterministic run (issue #400). GAMEPLAY streams (`physics`/`avalanche`/`hazards`/`course`) are pure `Math.random` passthroughs while unseeded (the production default — byte-identical to the frozen baseline and the `Math.random = makeRng(seed)` harnesses), and independent seed-derived PRNGs once `setRunSeed` is called (the ranked/replay seam: same seed ⇒ same auto-turns and boulder field at any refresh rate). COSMETIC streams (`snowParticles`/`avalanchePowder`/`cameraEffects`) are ALWAYS private (never global), so particle activity can't perturb gameplay RNG; the per-frame particle emitters (ski spray, avalanche powder) run on 60 Hz-referenced accumulators, so the budget-per-second is render-rate independent. `PHYSICS_VERSION` anchors future score/ghost records. Gated by `npm run test:run-context`-style suites: `tests/run-context-tests.js` (unit + behavioral isolation) and `tests/verification/rng_frame_rate_harness.js` (seeded runs byte-identical at 30/60/144 Hz under per-frame cosmetic pollution)
+- `src/run-context.ts` - Canonical world identity, physics version and private named RNG streams. The live game always selects a concrete world seed (`CANONICAL_WORLD_SEED` by default); arbitrary `?seed=` worlds are practice-only. World streams (`hazards`/`course`) derive from that seed, while canonical runs use a fresh crypto-sourced nonce for run-scoped `physics`/`avalanche` variation. Cosmetic streams are always private. Global-`Math.random` passthrough is a harness compatibility mode via `setRunSeed(null)`, not the production default. Current `PHYSICS_VERSION = 4`; physics/world changes that affect comparable results require coordinated record/rules versioning. See `docs/PHYSICS.md`, `tests/run-context-tests.js` and `tests/verification/rng_frame_rate_harness.js`.
 - `src/avalanche.ts` - Avalanche system with snow boulder physics and burial detection
-- `src/snowtracks.ts` - Temporary ski tracks (cosmetic fading grooves, terrain-aware, never touches physics; not a snow-accumulation model)
+- `src/snowtracks.ts` - Transient, terrain-aware fresh-cut ski grooves; persistent visual memory is implemented separately by `src/mountains/snow-depth.ts` (compaction/refill, material sampling and mobile scaling). Neither layer changes terrain height, friction or scoring.
 - `src/difficulty.ts` - Bunny, Blue, Black and Expert tuning, course layouts and separate ranked score namespaces. Measure all-tier finish distributions with `npm run test:floor` before changing floors/ranking.
-- `src/course.ts` - Checkpoint gates, split timing, ghost racing, and result screen
+- `src/course.ts` - Checkpoint gates, splits, ghost trajectory persistence and result screen. Visible ghost rendering and its live delta are intentionally disabled (`GHOST_VISIBLE = false`); do not describe them as a currently visible feature.
 - `src/effects.ts` - Avalanche warning UI and camera juice (speed FOV, shake)
 - `src/intro.ts` - Cinematic "fly over the mountain" intro at game start (issue #51; skippable, skipped under test/automation/reduced-motion)
 - `src/camera.ts` - Camera management system. Six viewpoint modes cycled by `V` (auto/follow/orbit/firstPerson/cameraman/drone; `toggleCameraMode()` is a back-compat wrapper that advances the cycle). Layers a full-360° orbit yaw + clamped pitch and a distance/height `zoom` multiplier on the classic follow rig — all neutral at their defaults, so spawn framing is unchanged. **Auto** recenters the orbit behind travel and frames the action *situationally* (issue #305 P3+): it eases a transient distance `autoZoom` + overhead `autoPitch` toward a target profile built from cosmetic-only signals — speed, terrain steepness (biggest pull-back + lift on **expert/steep** lines so the drop stays in shot), **jumps** (`isInAir` → pull back + lift to keep the landing framed), avalanche proximity, turn rate (tight tree-line carves pull *in*), and portrait screen aspect. The situational transients never write the persisted manual `zoom`/`orbitPitch` and are dropped on mode-change/restart, so Follow/Orbit/FP and the next run's spawn stay neutral. **Orbit** holds the player's manual yaw/pitch/zoom. **Cameraman** and **Drone** are two cinematic follow cameras (issue #315): cameraman is a low/close/side-trailing handheld chase (gentle weave), drone is a high/far slowly-circling aerial chase — both take their pose profile (angle/pitch/distance) from the pure `cinematicTargets`, lean into **steep/expert terrain and jumps** with extra pull-back + overhead lift (motion-gated so the steep spawn stays neutral), and drive the deterministic oscillation/circle off the camera's own `frameCount` (no wall-clock, sim byte-identical). **Drone** places itself via `cinematicOffset` (mirroring `followOffset`'s math + terrain clamp), circling the rider. **Cameraman** instead follows the snowman's ACTUAL travelled path (issue #357): it records distance-spaced path samples (`recordCameramanPath`, frame-rate independent like SnowTrails), samples a point a fixed distance back along the trail (`sampleCameramanTrail`, keyed off the rider's **continuous** travelled distance so the trail point never stalls-then-jumps a sample spacing) and sits just off to one side of it — the side/trailing basis comes from the path's **distance-windowed average direction** (chord of the last `CAMERAMAN_HEADING_WINDOW` units of path, eased — **not the instantaneous `playerRotation.y`**, and not the local tangent either), so neither a terrain/pose yaw flip (the old `yaw + angle` orbit bug) nor ordinary carved S-turns swing the camera around the rider: it **holds its lane while the rider turns** and comes around only when the new direction persists for ~a window of travel (a collapsed chord — hairpin doubling back / near-stop — just holds the heading). Its situational slope/jump pull-back profile is **eased** (`CAMERAMAN_PROFILE_EASE`, mirroring Auto's `autoZoom`/`autoPitch`) rather than stepped, so a terrain-gradient change glides the framing instead of lunging it — and all three cameraman eases (profile/heading/look) are **dt-scaled** off the loop's `AutoFrameContext.frameDt` (the camera updates on the render frame, so a constant per-call factor would converge faster at 144 Hz than 30 Hz); the lifecycle mode-switch passes the live `player.velocity` into `cameraManager.initialize` so a mid-run cinematic entry frames from real travel, not a momentarily-flipped yaw. Its look-at is eased too (the shared `desiredLookAt` scratch, ease factor 1.0 for every other mode = byte-identical copy). The path state resets on `initialize`/`resetView`/`setMode('cameraman')` so a restart or mode re-entry never trails a stale point. `usesOrbitControls(mode)` (auto/follow/orbit only) gates the manual view controls, so FP + the cinematic modes ignore Q/E/±/wheel/drag and the tray orbit/zoom widgets. The loop feeds the jump/avalanche signals via an optional `AutoFrameContext` on `cameraManager.update`; slope/turn/aspect the camera derives itself. Input (Q/E orbit, C recenter, +/−/wheel zoom, mouse-drag orbit, and the `#cameraControls` tray) is wired in `src/game/lifecycle.ts`; camera math (incl. the pure `autoFrameTargets`/`cinematicTargets` profiles) is headless-tested (`npm run test:camera`).
@@ -40,7 +40,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `docs/ARCHITECTURE.md` - Module system, load order, game loop, and Firebase/scoring subsystem
 - `docs/PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
 - `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
-- `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis (includes the now-shipped R2/R3 refactor stages)
+- `docs/ROADMAP.md` - Current delivery sequence, shipped foundations and remaining acceptance/architecture work; start/replay and all-level saving precede the daily mountain/friend challenge.
 - `docs/ASSETS.md` - Release-based screenshot hosting tools and the migration runbook; existing branch URLs remain live until migrated.
 - `.claude/skills/webgpu-threejs-tsl/` - Vendored Claude Code skill: WebGPU renderer + TSL (Three.js Shading Language) reference for any future WebGPU work. Reference docs only (excluded from eslint); provenance and local API corrections are recorded in its `UPSTREAM.md`.
 - `.claude/skills/snowglider-dev/` - Claude Code skill: SnowGlider's engineering-discipline playbook, distilled from the commit history, Codex review threads, and issues. Encodes the hard invariants (byte-identical no-input physics, seeded-`Math.random` neutrality, fixed-timestep frame-rate independence, terrain two-formula `MUST MATCH`, teardown safety, automation gating, the `window.*` seam) and the recurring Codex/regression bug classes (shared-flag repurposing, state leaking across mode/run boundaries, teardown gaps, async races, incomplete consumer updates, within-frame ordering, perf-budget, deploy ordering). `SKILL.md` is the pre-flight checklist + bug-class self-check; `references/` holds the depth (`invariants.md`, `bug-classes.md`, `workflow.md`). Complements this file (the *what*) with the *how not to break it*.
@@ -56,7 +56,11 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - Run lint: `npm run lint` (eslint)
 - Run all Node tests: `npm test` (auto-discovering runner — see below)
 - Run Node tests with coverage: `npm run test:coverage`
-- Run browser tests: `npm run test:browser` (puppeteer)
+- Run browser tests: `npm run test:browser` (Puppeteer)
+- Run all TypeScript checks: `npm run typecheck:all` (source, checked JS/tests, worker and E2E)
+- Run cross-browser/mobile flows: `npm run test:e2e` (the script supplies the required Playwright loader environment)
+- Run production-build offline acceptance: `npm run test:pwa`
+- Capture exact-revision rendering evidence: `npm run test:render-review`; follow `.github/workflows/render-review.yml` for BASE/HEAD comparison and approved-baseline mode
 - Run specific tests: 
   - `npm run test:terrain` - Terrain generation tests
   - `npm run test:physics` - Physics simulation tests
@@ -212,7 +216,7 @@ the risky one is still in review.
 - **Dependencies**: Three.js via npm (`three@0.184.0`) — bundled by Vite, import-mapped from `node_modules` in raw source (no CDN); Firebase v11.5.0
 - **Imports**: ES module `import`/`export` throughout; cross-module imports use a `.js` specifier that resolves to the `.ts` source (e.g. `import { Mountains } from './mountains.js'`)
 - **Error Handling**: Validation with boundary checks, meaningful console logging
-- **Testing**: Browser-based with visual feedback, unified test runner
+- **Testing**: Node logic/invariant suites, browser gameplay checks, cross-browser/mobile Playwright, production-build PWA acceptance, Firestore emulator tests and separate rendering evidence. Match validation to the risk; automation is not physical-device or real-provider acceptance.
 - **Firebase**: Authentication and leaderboard implementation via Firebase
 
 ## Best Practices
@@ -232,10 +236,10 @@ the risky one is still in review.
 - Provide visual feedback for touch controls on mobile devices
 - Automatically detect device type to enable appropriate controls
 ## Audio Implementation (ENABLED — simplified native HTML5)
-- **Audio is enabled** via `AUDIO_ENABLED = true` in `src/audio.ts`. The current implementation is the simplified, dependency-free native HTML5 `<audio>` approach: a single background-music track (`assets/skullbeatz_bad_cat.mp3`), two state variables (`muted`, `initialized`), loaded on first play, with no visibility-change handling (the browser manages it). Howler.js and Three.js Audio were both removed.
+- **Audio is enabled** via `AUDIO_ENABLED = true` in `src/audio.ts`. The dependency-free native HTML5 `<audio>` implementation uses one track (`assets/skullbeatz_bad_cat.mp3`), mute preference, initialization and explicit playback intent; it loads on a play gesture. Howler.js and Three.js Audio were removed. Track provenance remains unresolved in [#418](https://github.com/den-run-ai/snowglider/issues/418); attribution is present, but retain/replace needs a recorded decision before using it for new promotional clips or monetized distribution.
 - To disable: set `AUDIO_ENABLED = false` in `src/audio.ts` (all public methods early-exit).
 - The previous Howler.js API surface is kept as no-op/Promise stubs for backward compatibility (`preloadAudio`, `playPreloadedAudio`, `resumeAudioContext`, `changeTrack`, `addAudioListener`, …), so the existing callers in `index.html` keep working without change.
-- **Caveats:** the in-page audio control button CSS is still commented out in `index.html`, and while desktop and the automated suite pass, mobile playback (iOS Safari silent switch, Android Chrome) is **not yet verified on real devices** — test thoroughly there before relying on it.
+- The in-page `#audioControlBtn` is created by `audio.ts` and controls music plus SFX; it is already enabled. Start/replay preserve gesture playback and mute intent. Real-device iOS Safari/Android Chrome playback, silent-switch behavior, interruptions and resume still require acceptance in [#249](https://github.com/den-run-ai/snowglider/issues/249).
 - Treat audio changes as high risk: mobile browsers require a user gesture to start audio and can suspend the context.
 - **Sound effects (`src/sfx.ts`, issue #158)** are a SEPARATE subsystem from the music: a procedural Web Audio engine that synthesises every effect at runtime (oscillators + filtered noise), so it ships **no binary assets**. Coverage: a speed-scaled wind/ambient bed, a ski-edge swish keyed off technique, an avalanche rumble that crescendos with proximity, and jump/land/crash/finish one-shots. Disable with `SFX_ENABLED = false` in `src/sfx.ts`.
   - The Web Audio **context is created/resumed only inside the start/restart-button gesture** (`Sfx.unlock()`), which is what mobile autoplay policy requires. iOS still routes Web Audio through the hardware silent switch — same caveat as the music; **mobile not yet verified on real devices.**
@@ -274,22 +278,33 @@ the risky one is still in review.
 - Include visual state indicators during the authentication process
 - Maintain automatic detection between development and production environments
 - GitHub/Apple require server-side Firebase console config (OAuth app; Apple Service ID).
-  GitHub + Google + Anonymous are enabled on the `sn0wglider` project; Apple is not,
-  which is why its button is omitted for now.
+  Google, GitHub and Guest buttons are exposed by the current UI; Apple is omitted.
+  Mocked provider tests establish client behavior, not live console configuration or
+  a successful real-provider session. Verify the latter when qualifying a release.
 
 ## Scoring and Leaderboard Implementation
 - User scoring and leaderboard functionality is managed by the ScoresModule in `scores.ts`
 - AuthModule delegates to ScoresModule for all score-related operations
 - Both modules maintain backward compatibility with existing code
-- Best times are stored locally in localStorage by default
-- When authenticated, best times are synced to Firebase Firestore
-- The shared start/result leaderboard displays a separate top 10 for each level.
+- All four difficulties (Bunny, Blue, Black, Expert) remain guest-playable, including Black. Each has its own ranked v4 board in the current source; account sign-in is for publishing/saving, not entering a difficulty.
+- Device bests are stored locally; account records use UID-owned storage and version/world provenance. Never assign the shared device best to the next signed-in account. An explicit post-run save may claim that completed guest run.
+- The shared start/result leaderboard displays a separate top 10 for each level. Current floors are 15 / 15 / 10 / 10 seconds (Bunny / Blue / Black / Expert), capped at 600 seconds; preserve lockstep client/fallback/Firestore validation and historical schemas.
 - Time determines ranking; air points remain a separate live/run-sharing score.
 - Save status is confirmed only after both the account best and board write settle;
   pending saves are durable and tied to a UID, tier, world seed and physics version.
 - ScoresModule handles Firebase service availability gracefully
 - Supports local development mode with localStorage fallback
-- Auth and Scores modules initialize in the correct dependency order
+- Auth and Scores modules initialize in the correct dependency order; preserve the live `__snowgliderGetRunStamp` seam used by separately copied Firebase modules in production. Practice, noncanonical, stale-version or timing-compromised finishes cannot become canonical records.
+- Play again remains available while a save is pending or fails. Real-provider popup/callback, shared-device and reconnect flows require release qualification; passing mocked Firebase tests alone is insufficient.
+- New profile writes/logs/report output omit provider email. Retention, historical-field purge and full account export/deletion across Auth, profiles, all board versions and applicable Analytics/local data remain open in [#419](https://github.com/den-run-ai/snowglider/issues/419); omission of new writes does not delete old data.
+
+## Release and Acceptance Gates
+
+- The actual publication chain is in [.github/workflows/ci.yml](.github/workflows/ci.yml): `deploy-rules` waits for `test` and production-build `pwa`; `build-pages` waits for those checks and `deploy-rules`; `deploy-pages` also waits for cross-browser `e2e`. Rules publish before the new client, and failed rules or browser gates block publication. These deploy jobs run only on `main`, not PRs.
+- Firestore rules are deployed automatically through `scripts/deploy-firestore-rules.mjs` using the CI service-account secret. Treat older manual-deploy guidance as historical; maintain backward compatibility while the older client is still serving.
+- Verify checks on the exact proposed head and verify the main rules/Pages deployment after merge. A source review or a green earlier head does not qualify a newer tree.
+- `render-review.yml` captures exact BASE/HEAD scenes with a pinned browser. Missing/blank/incomplete captures fail; pixel diffs become an acceptance gate only with an explicitly approved baseline. Its synchronized service timings and resource counts are diagnostic, not sustained device FPS or GPU-byte measurements.
+- Keep physical-phone controls/audio, sustained frame-time/thermal behavior, low-sun/horizon visual acceptance and real OAuth-provider flows explicit. Use real-player screenshots (`?eztrees=1` and an attached EZ branch check) for visuals; mobile emulation is not a physical-device sign-off. Reconcile #248/#219 around the current capture system rather than duplicating it.
 
 ## Avalanche System Implementation
 - AvalancheSystem class in `avalanche.ts` manages snow boulder physics
@@ -307,7 +322,7 @@ the risky one is still in review.
 - Flag changes that can break skiing physics, terrain height consistency, tree collision detection, avalanche behavior, camera tracking, touch controls, authentication, score syncing, or GitHub Pages deployment.
 - Treat missing tests as important when gameplay mechanics, shared module contracts, Firebase behavior, or CI/CD workflows change.
 - Check that GitHub Actions remain least-privileged and do not publish generated folders, dependency directories, coverage reports, test artifacts, or local-only files.
-- Verify that GitHub Pages deployment runs only after the test job succeeds.
+- Verify the complete rules-before-client and test/PWA/cross-browser publication gates above, including exact-head checks and the successful main deployment.
 - Preserve local development and `file://` fallbacks when reviewing Firebase/auth changes.
 - Treat audio changes as high risk because mobile browsers require user gestures and can suspend audio contexts.
 - Prefer concrete bug findings over style-only comments. Avoid broad refactor suggestions unless they directly reduce a clear risk in the changed code.
