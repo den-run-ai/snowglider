@@ -1,6 +1,11 @@
-import { test, expect } from './fixtures';
+// Performance probes deliberately use the uninstrumented Playwright fixture.
+// Precise V8 coverage changes frame cost and its stop/serialization can exhaust
+// the test timeout after all frame assertions have passed. Other E2E specs keep
+// the shared coverage fixture; rendering evidence must measure the player path.
+import { test, expect, devices } from '@playwright/test';
 import { gotoGame, startGame } from './helpers';
-import { devices } from '@playwright/test';
+import type * as THREE from 'three';
+import type { SceneContext } from '../../src/game/scene-setup.js';
 import { RENDER_PHASES, prepareRenderScenario, enterRenderPhase, measureRenderPhase, assertRenderPhase } from './render-scenarios';
 
 // Boot the real game, sample renderer.info after warm frames, and pin ceilings
@@ -20,7 +25,8 @@ import { RENDER_PHASES, prepareRenderScenario, enterRenderPhase, measureRenderPh
 // 186 calls / 219898 triangles / 212 geometries and, on retry, 207 / 222480 / 228.
 // After rock batching, PR #445 measured 135 calls / 221026 triangles / 141
 // geometries. This restores the earlier 185-geometry cap. Other ceilings retain
-// the pre-chunk guards.
+// the pre-chunk guards. These historical ceilings now explicitly measure Follow
+// composition; Auto's wider, terrain-aware composition has its own gate below.
 const BUDGET = {
   calls: 800, // instancing must keep this well below a per-tree mesh scene
   triangles: 350_000, // color and shadow triangles vary with the player camera
@@ -69,6 +75,21 @@ const EZ_BUDGET = {
   // -object shader regression would blow this into the dozens, well past 43.
   programs: 43, // measured peak 42 (41 scenery stack + 1 snow-depth terrain program)
 };
+
+// Auto reveals more existing forest chunks and scenery immediately. Exact
+// BASE/HEAD review (0d1b5fd → 3884075) measured desktop spawn 189→314 geometries
+// and 43→46 programs, but end-of-course 322→338 and 47→47. CI fc9fbe8 measured
+// startup EZ320/46; classic231/29. This bounded full-course envelope allows the
+// already-built resources into view, while retaining the draw/triangle ceilings.
+// Repeated-view residency and exact scene identity checks below reject growth.
+const AUTO_EZ_BUDGET = { ...EZ_BUDGET, geometries: 350, programs: 48 };
+
+async function selectFollowForBudget(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as Window & Pick<SceneContext, 'cameraManager'>;
+    w.cameraManager.setMode('follow');
+  });
+}
 
 /** Seed Math.random BEFORE any game script runs so the forest layout (tree count,
  *  placement, snow patches) is identical on every CI run. Without this the random
@@ -147,6 +168,7 @@ test.describe('rendering perf / draw-call budget @chromium', () => {
     await seedDeterministicLayout(page);
     await page.setViewportSize({ width: 1280, height: 720 });
     await gotoGame(page);
+    await selectFollowForBudget(page);
     await startGame(page);
 
     const peak = await sampleRendererPeak(page);
@@ -159,6 +181,7 @@ test.describe('rendering perf / draw-call budget @chromium', () => {
     await seedDeterministicLayout(page);
     await page.setViewportSize({ width: 1280, height: 720 });
     await gotoGame(page, '?eztrees=1');
+    await selectFollowForBudget(page);
     await startGame(page);
 
     // The EZ forest is appended asynchronously once the archetype chunk loads;
@@ -172,6 +195,77 @@ test.describe('rendering perf / draw-call budget @chromium', () => {
     const peak = await sampleRendererPeak(page);
     console.log('[perf-budget:eztrees] renderer.info peak over warm frames:', JSON.stringify(peak));
     expectWithinBudget(peak, EZ_BUDGET);
+  });
+
+  test('Auto reveals existing scene resources and plateaus across repeated terrain views', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const errors = await prepareRenderScenario(page);
+    const evidence = await page.evaluate(() => {
+      const w = window as unknown as Window & Pick<SceneContext, 'scene' | 'renderer' | 'camera' | 'cameraManager' | 'snowman'> & {
+        getTerrainHeight: (x: number, z: number) => number;
+      };
+      const inventory = () => {
+        const geometries = new Set<string>(), materials = new Set<string>();
+        w.scene.traverse(object => {
+          const mesh = object as THREE.Mesh;
+          if (mesh.geometry) geometries.add(mesh.geometry.uuid);
+          for (const material of mesh.material ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) : []) {
+            materials.add(material.uuid);
+          }
+        });
+        return { geometries: [...geometries].sort(), materials: [...materials].sort() };
+      };
+      const original = inventory();
+      const passes = [];
+      const velocity = { x: 0, z: -16 };
+      let maximumZoom = 1, maximumPitch = 0;
+      w.cameraManager.setMode('auto');
+      // The deterministic RAF clock stays paused: no physics, particle, lighting
+      // or debris updates can account for changes in this camera-only inventory.
+      for (let pass = 0; pass < 3; pass++) {
+        const peak = { calls: 0, triangles: 0, geometries: 0, textures: 0, programs: 0 };
+        for (const z of [-15, -65, -115, -160]) {
+          const isInAir = z === -115;
+          w.snowman.position.set(0, w.getTerrainHeight(0, z) + (isInAir ? 7 : 0), z);
+          w.cameraManager.initialize(w.snowman.position, w.snowman.rotation, velocity);
+          for (let frame = 0; frame < 180; frame++) {
+            w.cameraManager.update(w.snowman.position, w.snowman.rotation, velocity, w.getTerrainHeight, {
+              frameDt: 1 / 60, isInAir,
+              treePositions: window.treePositions ?? [], rockPositions: window.rockPositions ?? [],
+            });
+            // Capture the entry trajectory and fully settled three-second Auto
+            // view. Intermediate camera math needs no GPU submission: the wider
+            // final framing must fit the budget as well as the first 20 frames.
+            if (frame >= 20 && frame !== 179) continue;
+            w.renderer.render(w.scene, w.camera);
+            const info = w.renderer.info;
+            peak.calls = Math.max(peak.calls, info.render.calls);
+            peak.triangles = Math.max(peak.triangles, info.render.triangles);
+            peak.geometries = Math.max(peak.geometries, info.memory.geometries);
+            peak.textures = Math.max(peak.textures, info.memory.textures);
+            peak.programs = Math.max(peak.programs, info.programs?.length ?? 0);
+            maximumZoom = Math.max(maximumZoom, w.cameraManager.autoZoom);
+            maximumPitch = Math.max(maximumPitch, w.cameraManager.autoPitch);
+          }
+        }
+        w.renderer.getContext().finish();
+        passes.push({ peak, inventory: inventory() });
+      }
+      return { original, passes, mode: w.cameraManager.mode, maximumZoom, maximumPitch };
+    });
+    expect(evidence.mode).toBe('auto');
+    expect(evidence.maximumZoom, 'probe exercised adaptive zoom').toBeGreaterThan(1.1);
+    expect(evidence.maximumPitch, 'probe exercised adaptive pitch').toBeGreaterThan(0.1);
+    for (const pass of evidence.passes) {
+      expectWithinBudget(pass.peak, AUTO_EZ_BUDGET);
+      expect(pass.inventory, 'camera must retain the exact scene geometry/material identities').toEqual(evidence.original);
+    }
+    const residency = (peak: PerfInfo) => ({ geometries: peak.geometries, textures: peak.textures, programs: peak.programs });
+    expect(residency(evidence.passes[1]!.peak), 'second sweep reuses first-sweep GPU residency').toEqual(residency(evidence.passes[0]!.peak));
+    expect(residency(evidence.passes[2]!.peak), 'third sweep must not accumulate resources').toEqual(residency(evidence.passes[1]!.peak));
+    console.log('[perf-budget:auto] frozen terrain sweeps:', JSON.stringify(evidence.passes.map(pass => pass.peak)));
+    expect(errors).toEqual([]);
   });
 });
 
