@@ -166,9 +166,20 @@ function wirePanel(
   };
   view.addEventListener('touchend', releaseTouch, captureOpts);
   view.addEventListener('touchcancel', releaseTouch, captureOpts);
-  view.addEventListener('keydown', () => {
-    keyboardInput = true;
-    if (content?.contains(container.ownerDocument.activeElement)) refreshIdle();
+  view.addEventListener('keydown', (event) => {
+    const target = event.target instanceof view.Element ? event.target : null;
+    const focusInContent = content?.contains(container.ownerDocument.activeElement);
+    // Match input ownership: buttons own activation, while fields own adjustment
+    // and text entry. WASD/arrows on a clicked button still belong to skiing.
+    const panelKey = event.key === 'Tab' || !!(focusInContent && (
+      target?.closest('input, select, textarea, [contenteditable="true"], [role="radio"], [role="slider"]')
+      || ((event.key === 'Enter' || event.key === ' ') && target?.closest('button, a, [role="button"]'))
+    ));
+    const wasKeyboardInput = keyboardInput;
+    keyboardInput = panelKey;
+    // Returning to skiing releases a keyboard-navigation hold once. Repeated
+    // movement keydowns must neither pause folding nor restart its countdown.
+    if (focusInContent && (panelKey || wasKeyboardInput)) refreshIdle();
   }, captureOpts);
   view.addEventListener('pointerdown', () => {
     const wasKeyboardFocus = keyboardInput && content?.contains(container.ownerDocument.activeElement);

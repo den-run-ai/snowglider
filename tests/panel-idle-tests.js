@@ -146,6 +146,48 @@ async function main() {
   assert.equal(panel.collapsed(), true, 'mouse/touch focus does not silently pin a panel');
   assert.equal(document.activeElement, panel.toggle, 'idle folding moves hidden focus to disclosure');
 
+  // Native button clicks leave focus behind, but ordinary in-run buttons still
+  // allow WASD/arrows to ski. Those keys must not turn that stale focus into a pin.
+  const action = document.getElementById('ControlsAction');
+  for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd']) {
+    panel.open();
+    pointer(action, 'pointerdown');
+    action.focus();
+    pointer(window, 'pointerup');
+    action.click();
+    for (let i = 0; i < 4; i++) {
+      action.dispatchEvent(new window.KeyboardEvent('keydown', { key, repeat: i > 0, bubbles: true }));
+      tick(1000);
+    }
+    assert.equal(panel.collapsed(), true, `${key} held after clicking a panel button still allows idle folding`);
+  }
+
+  panel.open();
+  pointer(panel.range, 'pointerdown');
+  panel.range.focus();
+  pointer(window, 'pointerup');
+  panel.range.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  tick(12000);
+  assert.equal(panel.collapsed(), false, 'arrow adjustment of a focused range keeps its panel open');
+  document.getElementById('outside').focus();
+  await Promise.resolve();
+  tick(4000);
+  assert.equal(panel.collapsed(), true);
+
+  panel.open();
+  document.getElementById('outside').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+  action.focus();
+  tick(12000);
+  assert.equal(panel.collapsed(), false, 'Tab navigation to a panel button keeps its panel open');
+  action.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  tick(12000);
+  assert.equal(panel.collapsed(), false, 'keyboard button activation retains keyboard navigation');
+  for (let i = 0; i < 4; i++) {
+    action.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'w', repeat: i > 0, bubbles: true }));
+    tick(1000);
+  }
+  assert.equal(panel.collapsed(), true, 'resuming skiing releases a prior keyboard-navigation hold');
+
   panel.open();
   for (let i = 0; i < 4; i++) {
     document.getElementById('outside').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
