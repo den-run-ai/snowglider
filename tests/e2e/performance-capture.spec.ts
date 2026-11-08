@@ -10,6 +10,11 @@ async function activate(button: Locator, touch: boolean): Promise<void> {
 }
 
 test('debug capture exports live frames across a restart using touch-safe controls', async ({ page, hasTouch, baseURL }, testInfo) => {
+  // This functional capture needs real frames on both sides of a native Reset.
+  // Isolated software-GL Chromium can consume 60s before that second sample;
+  // allow the full flow without changing frames, controls, scene or assertions.
+  // Renderer budgets and physical-device performance acceptance are separate.
+  test.setTimeout(180_000);
   await mockFirebase(page, baseURL);
   // Exercise the real player diagnostics/forest path, not the automation fallback.
   await page.addInitScript(() => Object.defineProperty(navigator, 'webdriver', { get: () => false }));

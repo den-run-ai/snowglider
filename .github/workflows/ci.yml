@@ -177,7 +177,8 @@ jobs:
 
       # Capture observes real frame intervals while keeping the full player scene.
       # Run all six browser/device cases alone, without V8 coverage overhead; keep
-      # their frame counts, native downloads, assertions and timeouts unchanged.
+      # their real frame counts, native downloads and assertions. The spec bounds
+      # this functional flow separately from renderer/device performance budgets.
       - name: Run local performance capture without competing browser scenes
         if: ${{ !cancelled() }}
         run: npm run test:e2e -- performance-capture.spec.ts --workers=1
