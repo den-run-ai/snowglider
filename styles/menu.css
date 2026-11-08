@@ -105,8 +105,8 @@
 .start-dialog.about-open { display: block; width: min(100%, 620px); }
 .start-dialog.about-open > :not(#aboutGamePanel) { display: none; }
 .about-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 16px; padding: 0 0 12px; border-bottom: 1px solid rgba(255, 255, 255, .16); background: #122b39; }
-/* Cover the card's padding too, so scrolled copy cannot peek above the header. */
-.about-header::before { content: ""; position: absolute; inset: -24px -24px 0; z-index: -1; background: #122b39; }
+/* Cover the padding above the sticky header without widening its scroll area. */
+.about-header::before { content: ""; position: absolute; inset: -24px 0 0; z-index: -1; background: #122b39; }
 #aboutGameTitle { margin: 0; color: #80dbd0; font-size: clamp(19px, 5vw, 24px); line-height: 1.2; }
 #closeAboutButton { flex-shrink: 0; color: #edf7f5; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .2); border-radius: 8px; }
 #closeAboutButton:hover { background: rgba(255, 255, 255, .16); }
