@@ -4,6 +4,7 @@ import type * as THREE from 'three';
 import type { GameState, SceneContext } from '../../src/game/scene-setup.js';
 import type { PlayerState } from '../../src/player-state.js';
 import resultContract from '../helpers/browser-results.js';
+import { mockFirebase } from './helpers';
 
 export const RENDER_PHASES = ['spawn', 'downhill', 'avalanche', 'spray', 'crash'] as const;
 export type RenderPhase = typeof RENDER_PHASES[number];
@@ -59,6 +60,9 @@ export async function prepareRenderScenario(page: Page): Promise<string[]> {
   page.on('console', message => {
     if (resultContract.isRendererFailure(message.text())) errors.push(message.text());
   });
+  // Rendering probes keep the real auth module/UI but do not exercise Google's
+  // network. Use the existing SDK mock; all uncaught page errors still fail.
+  await mockFirebase(page);
   await page.addInitScript(() => {
     // Muting only changes gain: Sfx.unlock still builds a noise buffer using the
     // global RNG also consumed by crash debris. Disable both constructors before
