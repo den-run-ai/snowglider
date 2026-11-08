@@ -7,6 +7,8 @@ import resultContract from '../helpers/browser-results.js';
 
 export const RENDER_PHASES = ['spawn', 'downhill', 'avalanche', 'spray', 'crash'] as const;
 export type RenderPhase = typeof RENDER_PHASES[number];
+export const AUTO_REVIEW_PHASES = ['auto-terrain', 'auto-jump', 'auto-obstacles'] as const;
+export type AutoReviewPhase = typeof AUTO_REVIEW_PHASES[number];
 export const REVIEW_SEED = 0x531060d5;
 
 // Derive the published scene/player handles from their checked producers, so
@@ -271,4 +273,72 @@ export async function setObstructedOrbitFrame(page: Page, update: 0 | 1 | 2): Pr
       camera: w.camera.position.toArray()
     };
   }, update);
+}
+
+/** Controlled camera poses over the actual seeded player terrain/forest. Both
+ * revisions receive identical body/velocity/obstacle inputs; only camera updates
+ * advance while each pose settles. These are framing comparisons, not physics
+ * replays or evidence that a scripted skier completed these maneuvers. */
+export async function setAutoReviewFrame(page: Page, phase: AutoReviewPhase) {
+  return page.evaluate(phase => {
+    const w = window as unknown as RenderWindow;
+    window.resetSnowman!();
+    const manager = w.cameraManager;
+    manager.resetView();
+    manager.setMode('auto');
+    let x = 0, z = -70;
+    // Select a real changing grade deterministically, rather than modifying the
+    // height sampler while displaying an unrelated terrain mesh.
+    let strongestChange = -Infinity;
+    for (let candidate = -45; candidate >= -170; candidate -= 2) {
+      const start = w.getTerrainHeight(0, candidate);
+      const middle = w.getTerrainHeight(0, candidate - 10);
+      const end = w.getTerrainHeight(0, candidate - 20);
+      const change = Math.abs(middle - (start + end) / 2);
+      if (change > strongestChange) { strongestChange = change; z = candidate; }
+    }
+    let obstacle: { x: number; y: number; z: number; scale: number } | null = null;
+    if (phase === 'auto-obstacles') {
+      // Place a real evergreen between the standard trailing seat and rider.
+      // The camera receives the unchanged collision arrays used by gameplay.
+      for (const tree of window.treePositions ?? []) {
+        if (tree.z < -60 && tree.z > -180 && Math.abs(tree.x) < 45 &&
+            tree.scale >= 1 && (!obstacle || tree.scale > obstacle.scale)) obstacle = tree;
+      }
+      if (!obstacle) throw new Error('Auto review requires a real nearby evergreen');
+      x = obstacle.x;
+      z = obstacle.z - 10;
+    }
+    const isInAir = phase === 'auto-jump';
+    w.pos.x = x;
+    w.pos.z = z;
+    w.pos.y = w.getTerrainHeight(x, z) + (isInAir ? 7 : 0);
+    w.velocity.x = 0;
+    w.velocity.z = -16;
+    w.snowman.position.set(w.pos.x, w.pos.y, w.pos.z);
+    w.snowman.rotation.set(0, 0, 0);
+    manager.initialize(w.snowman.position, w.snowman.rotation, w.velocity);
+    const context = {
+      frameDt: 1 / 60, isInAir,
+      treePositions: window.treePositions ?? [],
+      rockPositions: window.rockPositions ?? [],
+    };
+    for (let frame = 0; frame < 180; frame++) {
+      manager.update(w.snowman.position, w.snowman.rotation, w.velocity, w.getTerrainHeight, context);
+    }
+    w.renderer.render(w.scene, w.camera);
+    const rider = w.snowman.position.clone();
+    rider.y += 2.5;
+    const landing = w.snowman.position.clone();
+    landing.z -= 14;
+    landing.y = w.getTerrainHeight(landing.x, landing.z) + 0.5;
+    return {
+      phase, camera: w.camera.position.toArray(), lookAt: manager.smoothingVectors.lookAtPosition.toArray(),
+      clearance: w.camera.position.y - w.getTerrainHeight(w.camera.position.x, w.camera.position.z),
+      distance: w.camera.position.distanceTo(w.snowman.position),
+      autoZoom: manager.autoZoom, autoPitch: manager.autoPitch,
+      riderNdc: rider.project(w.camera).toArray(), landingNdc: landing.project(w.camera).toArray(),
+      position: { ...w.pos }, velocity: { ...w.velocity }, obstacle, terrainChange: strongestChange,
+    };
+  }, phase);
 }

@@ -435,6 +435,11 @@ First run needs the browsers: `npx playwright install chromium webkit`.
 
 `npm run test:e2e` is intentionally **not** part of `npm test`; CI runs it as its
 own `e2e` job, and the Pages deployment waits for that job to pass.
+CI runs `perf-budget.spec.ts` first with one Chromium worker so its full-scene
+GPU probes cannot compete with other browser scenes. The remaining functional
+matrix then runs in parallel with V8 coverage. Both stages retain their own HTML
+reports and block deployment on failure; frame counts, resource ceilings and
+test timeouts are unchanged. The functional stage still runs if a probe fails.
 
 ## Test Implementation Details
 
