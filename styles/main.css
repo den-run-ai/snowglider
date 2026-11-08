@@ -280,14 +280,6 @@ canvas { display: block; }
   100% { transform: scale(1); }
 }
 
-#gameDescription {
-  font-size: 16px; /* Reduced from 18px */
-  max-width: 600px;
-  text-align: center;
-  margin-bottom: 15px; /* Reduced from 30px */
-  line-height: 1.4; /* Slightly reduced from 1.5 */
-}
-
 #controlsGuide {
   background-color: rgba(255, 255, 255, 0.1);
   border-radius: 10px;
@@ -779,12 +771,6 @@ body.start-screen-active #authContainer {
   #gameTitle {
     font-size: 32px;
     margin-bottom: 5px;
-  }
-
-  #gameDescription {
-    font-size: 14px;
-    margin-bottom: 10px;
-    max-width: 90%;
   }
 
   #controlsGuide {
