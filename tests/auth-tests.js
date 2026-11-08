@@ -540,6 +540,54 @@ async function main() {
     authUI.style.display === 'flex' && profileUI.classList.contains('guest') === false);
   fb.emitAuthState(null);
 
+  // Analytics is optional: a transport exception after successful sign-in cannot
+  // masquerade as a failed login or stop an in-place guest upgrade from updating UI.
+  const alertsBeforeTelemetryFailure = alerts.length;
+  fb.emitAuthState({ uid: 'guestTelemetry', isAnonymous: true });
+  fb.setAuthCurrentUser({ uid: 'guestTelemetry', isAnonymous: true });
+  fb.setNextLinkResult({ resolve: { user: { uid: 'upgradedTelemetry', isAnonymous: false,
+    displayName: 'Upgrade', email: 'upgrade@example.invalid' } } });
+  fb.setNextLogEventError(new Error('analytics unavailable'));
+  loginBtn.dispatchEvent(new window.Event('click'));
+  await flush(); await flush();
+  check('telemetry failure cannot block successful guest upgrade UI',
+    AuthModule.getCurrentUser()?.uid === 'upgradedTelemetry');
+  check('telemetry failure cannot create a false sign-in error alert',
+    alerts.length === alertsBeforeTelemetryFailure);
+  fb.emitAuthState(null);
+  fb.setAuthCurrentUser(null);
+  fb.setNextLogEventError(new Error('analytics unavailable'));
+  window.document.getElementById('guestLoginBtn').dispatchEvent(new window.Event('click'));
+  await flush(); await flush();
+  check('telemetry failure cannot turn successful guest sign-in into an alert',
+    alerts.length === alertsBeforeTelemetryFailure);
+
+  fb.setNextGetAuthError(new Error('auth unavailable'));
+  AuthModule.initializeAuth(config);
+  const partialAvailability = AuthModule.isFirebaseAvailable();
+  check('analytics remains available when authentication initialization fails',
+    partialAvailability.auth === false && partialAvailability.analytics === true);
+
+  // Preview/LAN deployments must not initialize the production Analytics SDK,
+  // while the existing authentication and Firestore behavior remains available.
+  const analyticsInitializations = calls.getAnalytics;
+  dom.reconfigure({ url: 'https://preview.local/' });
+  AuthModule.initializeAuth(config);
+  const previewAvailability = AuthModule.isFirebaseAvailable();
+  check('preview host does not initialize Analytics or collect automatic SDK events',
+    calls.getAnalytics === analyticsInitializations && previewAvailability.analytics === false);
+  check('preview host retains Auth and Firestore availability',
+    previewAvailability.auth === true && previewAvailability.firestore === true);
+  const previewEvents = calls.logEvent.length;
+  window.firebaseModules.logEvent('game_start');
+  check('an existing analytics wrapper becomes inert on non-production hosts',
+    calls.logEvent.length === previewEvents);
+
+  dom.reconfigure({ url: 'https://www.snowglider.ai/' });
+  AuthModule.initializeAuth(config);
+  check('public www host initializes Analytics',
+    calls.getAnalytics === analyticsInitializations + 1 && AuthModule.isFirebaseAvailable().analytics === true);
+
   console.log(`\nAUTH TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

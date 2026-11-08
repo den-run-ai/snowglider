@@ -16,6 +16,7 @@ import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
 import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, stampLocalBestMeta, type Difficulty } from '../difficulty.js';
 import { getRunStamp } from '../run-context.js';
+import { runTelemetryContext } from '../run-telemetry.js';
 import { resultSyncStatusCopy } from '../offline/sync-manager.js';
 import { isOnline } from '../offline/offline-state.js';
 import { readLocalBest, safeSetItem } from '../offline/offline-store.js';
@@ -123,6 +124,25 @@ export interface ResultOverlayDeps {
 export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) => void {
   const { state, gameOverOverlay, gameOverDetail, restartButton, bestTimeDisplay, onCrash, getDifficulty, finishDifficultyPicker, setPickerTier } = deps;
   const FINISH_REASON = "You reached the end of the slope!";
+  // Results may grow with splits, sharing, authentication and the leaderboard.
+  // Keep replay outside that scrolling content so it is always reachable.
+  let resultContent = gameOverOverlay.querySelector<HTMLElement>('#gameOverContent');
+  let replayActions = gameOverOverlay.querySelector<HTMLElement>('#gameOverActions');
+  if (!resultContent || !replayActions) {
+    resultContent = document.createElement('div');
+    resultContent.id = 'gameOverContent';
+    replayActions = document.createElement('div');
+    replayActions.id = 'gameOverActions';
+    for (const child of Array.from(gameOverOverlay.children)) {
+      if (child !== restartButton && child !== finishDifficultyPicker) resultContent.appendChild(child);
+    }
+    if (finishDifficultyPicker) replayActions.appendChild(finishDifficultyPicker);
+    replayActions.appendChild(restartButton);
+    gameOverOverlay.append(resultContent, replayActions);
+  }
+  const content = resultContent;
+  const actions = replayActions;
+  let presentationEpoch = 0;
 
   return function showGameOver(reason: string) {
     // The tier this run was played on; routes the score/best/leaderboard per tier.
@@ -143,6 +163,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       window._testShowGameOverOverride(reason);
       return;
     }
+    const resultEpoch = ++presentationEpoch;
     closeOverlayFocus(gameOverOverlay, false);
     state.gameActive = false;
     deps.onEndRun?.();
@@ -269,9 +290,13 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // later), guest (sign in to sync), or a stale board during a Firestore outage.
       const signedInUser = getSignedInUser();
       const online = isOnline();
-      const firestoreAvailable = !!(window.AuthModule
-        && typeof window.AuthModule.isFirebaseAvailable === 'function'
-        && window.AuthModule.isFirebaseAvailable().firestore);
+      let firestoreAvailable = false;
+      try {
+        firestoreAvailable = window.AuthModule?.isFirebaseAvailable?.().firestore === true;
+      } catch (error) {
+        // Service availability is optional; a broken SDK must not trap a finished run.
+        Diag.reportError(error, 'result_firebase_status');
+      }
       const syncCopy = resultSyncStatusCopy({
         online,
         firestoreAvailable,
@@ -292,7 +317,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         syncStatus.style.color = '#9fd0f5';
         syncStatus.style.fontStyle = 'italic';
         syncStatus.style.margin = '10px 0';
-        gameOverOverlay.insertBefore(syncStatus, restartButton);
+        content.appendChild(syncStatus);
       }
 
       // Show login prompt if not logged in — only on ranked tiers AND while online,
@@ -308,7 +333,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         // Insert before restart button
         if (!document.getElementById('loginPrompt')) {
           loginPrompt.id = 'loginPrompt';
-          gameOverOverlay.insertBefore(loginPrompt, restartButton);
+          content.appendChild(loginPrompt);
         }
       }
 
@@ -323,7 +348,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       if (!(canRecordScore && tierRanked)) {
         try {
           if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-            window.firebaseModules.logEvent('complete_run', { time: currentTime });
+            window.firebaseModules.logEvent('complete_run', {
+              time: currentTime, ...runTelemetryContext(tier, state.timingCompromised),
+            });
           }
         } catch (e) {
           console.log("Analytics tracking skipped:", (e as Error).message);
@@ -346,7 +373,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
           // Using the direct logEvent function
           window.firebaseModules.logEvent('game_over', {
-            reason: reason
+            reason: reason,
+            ...runTelemetryContext(tier, state.timingCompromised),
           });
         }
       } catch (e) {
@@ -362,8 +390,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
 
       if (leaderboardElement) {
         // Add to game over overlay if not already there
-        if (leaderboardElement.parentNode !== gameOverOverlay) {
-          gameOverOverlay.insertBefore(leaderboardElement, restartButton);
+        if (leaderboardElement.parentNode !== content) {
+          content.appendChild(leaderboardElement);
         }
         // Always re-show it on a ranked finish — the element may already be parented but
         // hidden by the else-branch below from a prior unranked replay (Blue → Black →
@@ -378,7 +406,19 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // hide the board instead, so a missing seam surfaces rather than misleading the player.
       const authModule = window.AuthModule;
       if (typeof authModule.displayLeaderboard === 'function') {
-        authModule.displayLeaderboard(tier);
+        const onLeaderboardError = (error: unknown) => {
+          Diag.reportError(error, 'result_leaderboard');
+          // An old request may reject after Restart or a later result. Do not hide
+          // the next run's board when that old completion arrives.
+          if (resultEpoch === presentationEpoch && !state.gameActive && leaderboardElement) {
+            leaderboardElement.style.display = 'none';
+          }
+        };
+        try {
+          void Promise.resolve(authModule.displayLeaderboard(tier)).catch(onLeaderboardError);
+        } catch (error) {
+          onLeaderboardError(error);
+        }
       } else {
         console.error('result-overlay: AuthModule.displayLeaderboard is unavailable; hiding the leaderboard to avoid showing a stale board.');
         if (leaderboardElement) leaderboardElement.style.display = 'none';
@@ -405,9 +445,10 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
           // slow-motion trajectory is as non-comparable as its time (#403 review).
           const panel = CourseModule.onFinish(finishTime, previousBest,
             state.timingCompromised !== true);
-          if (panel) gameOverOverlay.insertBefore(panel, restartButton);
+          if (panel) content.appendChild(panel);
         } catch (e) {
           console.warn("Result screen failed:", (e as Error).message);
+          Diag.reportError(e, 'course_result');
         }
       } else {
         CourseModule.hideHud();
@@ -420,10 +461,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // so "Play again on" defaults to the current tier and the player can switch + replay.
     if (finishDifficultyPicker) {
       if (setPickerTier) setPickerTier(tier);
-      gameOverOverlay.insertBefore(finishDifficultyPicker, restartButton);
+      actions.insertBefore(finishDifficultyPicker, restartButton);
     }
 
     gameOverOverlay.style.display = 'flex';
+    content.scrollTop = 0;
+    gameOverOverlay.scrollTop = 0;
+    const heading = gameOverOverlay.querySelector('#gameOverMessage');
+    if (heading) heading.textContent = reason === FINISH_REASON ? 'RUN COMPLETE' : 'GAME OVER';
     gameOverOverlay.setAttribute('role', 'dialog');
     gameOverOverlay.setAttribute('aria-label', reason === FINISH_REASON ? 'Run complete' : 'Run ended');
     if (gameOverDetail.id) gameOverOverlay.setAttribute('aria-describedby', gameOverDetail.id);
@@ -434,7 +479,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     const account = document.getElementById('authContainer');
     const accountParent = account?.parentNode;
     const accountNext = account?.nextSibling ?? null;
-    if (account) gameOverOverlay.insertBefore(account, finishDifficultyPicker ?? restartButton);
+    if (account) content.appendChild(account);
     openOverlayFocus(gameOverOverlay, {
       initialFocus: restartButton,
       onClose: () => {

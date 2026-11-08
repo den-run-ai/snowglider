@@ -11,6 +11,42 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ---
 
+## Finish and restart recovery — 2026-11-07
+
+- Keep Restart and all four difficulty choices visible while results, sharing,
+  account controls and update notices scroll inside the finish dialog.
+- Stop the terminal frame before gameplay observers can revive avalanche warnings
+  or audio. Optional leaderboard/status failures no longer block the result screen.
+- Use the native replay click to unlock mobile audio. After a difficulty rebuild,
+  prepare the course and wait for Start run instead of starting a silent descent.
+- Report caught animation and result failures through the existing GA4 client-error
+  path. Production event data and physical-device audio remain unverified.
+- Preserve physics tuning, course layouts, score version and stored mute preferences.
+
+## Ski controls and replay feedback — 2026-11-06
+
+- Reset ski stance, tuck, flip and spin presentation immediately on replay, so a
+  previous run's technique cannot leak into the next run or its camera heading.
+- Keep cancelled touch gestures neutral after reset, focus loss or tab hiding;
+  a fresh touch starts steering again. Remove camera touch listeners on teardown.
+- Make slope feedback settle consistently across display refresh rates, classify
+  steep first samples correctly, and clear the previous run's slope on replay.
+- Preserve physics tuning, control bindings, courses and score version 3. Add
+  regressions for input ownership, technique resets and refresh-rate consistency.
+
+## Welcome screen — 2026-11-06
+
+- Add static inline alpine artwork, a small loading indicator with reduced-motion
+  support, actual startup status, and a sound preference visible before Play. No video,
+  image download, animation library, or extra WebGL scene is needed.
+- Paint onboarding before scene setup and prepare the existing forest in the
+  background. Early Play waits for the same preparation; gameplay and its clock
+  remain stopped. Keep shader compilation on the normal renderer path.
+- Keep background startup failures inline and preserve explicit recovery. Respect
+  saved mute on early Play, allow unmuting a run that began silent, and stop music
+  and procedural effects if loading fails. Explicit sound choices survive storage
+  write failure.
+
 ## 1.0.1 — 2026-10-22
 
 - Preserve faster personal bests and their world provenance when optional analytics

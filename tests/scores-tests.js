@@ -107,6 +107,7 @@ async function flushAll() {
 let BTK, BTMK, LB, LB_BUNNY, LB_BLACK, F_BLUE, F_BUNNY, F_BLACK;
 async function main() {
   const Difficulty = await import('../src/difficulty.ts');
+  const { MIN_VALID_SCORE_TIME: scoreFloor } = await import('../src/score-limits.ts');
   ({ localBestTimeKey: BTK, localBestMetaKey: BTMK } = Difficulty);
   LB = Difficulty.leaderboardCollectionName('blue');
   LB_BUNNY = Difficulty.leaderboardCollectionName('bunny');
@@ -129,13 +130,13 @@ async function main() {
       'isFirestoreAvailable', 'isValidScoreTime'].every(key => typeof ScoresModule[key] === 'function'));
   check('score validation rejects impossible, sub-floor and non-finite times',
     ScoresModule.isValidScoreTime(0.01) === false &&
-    ScoresModule.isValidScoreTime(14) === false &&     // below the 18 s plausibility floor (PR C)
-    ScoresModule.isValidScoreTime(17.99) === false &&  // just under the floor
+    ScoresModule.isValidScoreTime(scoreFloor - 1) === false &&
+    ScoresModule.isValidScoreTime(scoreFloor - 0.01) === false &&
     ScoresModule.isValidScoreTime(600.01) === false &&
     ScoresModule.isValidScoreTime(Infinity) === false &&
     ScoresModule.isValidScoreTime(/** @type {any} */ ('20')) === false);
   check('score validation accepts plausible numeric times at/above the floor',
-    ScoresModule.isValidScoreTime(18) === true &&
+    ScoresModule.isValidScoreTime(scoreFloor) === true &&
     ScoresModule.isValidScoreTime(600) === true &&
     ScoresModule.isValidScoreTime(25.43) === true);
 
@@ -342,6 +343,11 @@ async function main() {
     read(LB, 'u1')?.displayName === 'Snow');
   check('score completion analytics are logged',
     calls.logEvent.some(event => event.name === 'complete_run' && event.params.time === 22));
+  const completion = calls.logEvent.find(event => event.name === 'complete_run' && event.params.time === 22);
+  const runContext = await import('../src/run-context.ts');
+  check('score telemetry identifies difficulty and physics version without player identity',
+    completion?.params.difficulty === 'blue' && completion.params.physics_version === runContext.PHYSICS_VERSION &&
+    !('uid' in completion.params) && !('seed' in completion.params) && !('nonce' in completion.params));
   check('slower finish does not log a new-high-score event',
     !calls.logEvent.some(event => event.name === 'new_high_score'));
 
@@ -353,6 +359,8 @@ async function main() {
 
   ScoresModule.recordScore(22, 'bunny');
   await flushAll();
+  check('per-tier completion telemetry uses the recorded tier',
+    calls.logEvent.some(event => event.name === 'complete_run' && event.params.difficulty === 'bunny'));
   check('bunny finish stores the local best under the per-tier key only',
     localStorage.getItem(BTK('bunny')) === '22' &&
     localStorage.getItem(BTK('blue')) === null);
@@ -464,9 +472,9 @@ async function main() {
     user: doc(firestoreInstance, 'users', 'bad-fast'),
     time: 0.01
   });
-  seed(LB, 'sub-floor', {              // forged sub-18s entry: must be filtered (PR C)
+  seed(LB, 'sub-floor', {              // forged sub-floor entry: must be filtered
     user: doc(firestoreInstance, 'users', 'sub-floor'),
-    time: 14
+    time: scoreFloor - 1
   });
   seed(LB, 'missing-user', {
     time: 24

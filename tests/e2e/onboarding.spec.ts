@@ -4,6 +4,7 @@ import { gotoGame, type GameWindow } from './helpers';
 
 const difficulties = ['bunny', 'blue', 'black', 'expert'] as const;
 const disclosures = ['#startHelpDetails', '#offlinePlayDetails'] as const;
+const mediaRequests = new WeakMap<Page, string[]>();
 
 async function activate(locator: Locator, touch: boolean): Promise<void> {
   if (touch) await locator.tap();
@@ -45,6 +46,7 @@ async function expectCoreMenu(page: Page): Promise<void> {
   // Bounding boxes + actual hit testing are intentional: toBeVisible alone passes
   // for the old clipped/offscreen menu, and click() would silently scroll it first.
   await expectReachable(page, '#startGameButton', true);
+  await expectReachable(page, '#startSoundButton', true);
   for (const difficulty of difficulties) {
     await expectReachable(page, `#difficultyPicker [data-difficulty="${difficulty}"]`, true);
   }
@@ -58,6 +60,99 @@ async function expectCoreMenu(page: Page): Promise<void> {
   expect(await page.evaluate(() => window.scrollY), 'the backdrop must not scroll the document').toBe(0);
 }
 
+async function expectWelcomeArt(page: Page): Promise<void> {
+  const hero = page.locator('.start-visual');
+  await expect(hero).toBeVisible();
+  await expect(hero, 'decorative artwork must not contain a text overlay').toHaveText('');
+  const art = (await hero.boundingBox())!;
+  const scene = await hero.locator('.welcome-landscape').evaluate((el) => {
+    const svg = el as SVGSVGElement;
+    const transform = svg.getScreenCTM()!;
+    const { x, y, width, height } = svg.viewBox.baseVal;
+    const topLeft = new DOMPoint(x, y).matrixTransform(transform);
+    const bottomRight = new DOMPoint(x + width, y + height).matrixTransform(transform);
+    const viewport = svg.getBoundingClientRect();
+    // The SVG element can fill its box while the actual viewBox is letterboxed.
+    // Check both the clipping viewport and the rendered scene coordinates.
+    return [
+      { left: viewport.left, top: viewport.top, right: viewport.right, bottom: viewport.bottom },
+      { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y },
+    ];
+  });
+  for (const [index, bounds] of scene.entries()) {
+    const label = index === 0 ? 'SVG viewport' : 'rendered scene';
+    expect(bounds.left, `${label} covers the hero's left edge`).toBeLessThanOrEqual(art.x + 1);
+    expect(bounds.top, `${label} covers the hero's top edge`).toBeLessThanOrEqual(art.y + 1);
+    expect(bounds.right, `${label} covers the hero's right edge`).toBeGreaterThanOrEqual(art.x + art.width - 1);
+    expect(bounds.bottom, `${label} covers the hero's bottom edge`).toBeGreaterThanOrEqual(art.y + art.height - 1);
+  }
+  const sun = (await hero.locator('.welcome-landscape > circle').boundingBox())!;
+  // The narrow portrait badge may omit the sun horizontally. In wide banners,
+  // keep the whole disk: a centered vertical crop cut it off on short screens.
+  if (sun.x + sun.width > art.x && sun.x < art.x + art.width) {
+    expect(sun.y, 'the panorama must not crop the top of the sun').toBeGreaterThanOrEqual(art.y - 1);
+    expect(sun.y + sun.height, 'the panorama must not crop the bottom of the sun').toBeLessThanOrEqual(art.y + art.height + 1);
+  }
+  const skier = hero.locator('#welcomeSkier');
+  await expect(skier, 'the welcome artwork must include the skiing snowman').toBeVisible();
+  const character = await skier.evaluate((group) => {
+    // Engines inflate a rotated group's aggregate rectangle differently. Union
+    // the individual painted shapes so empty corners cannot look like clipping.
+    const shapes = [...group.querySelectorAll('*')]
+      .filter((el): el is SVGGeometryElement => el instanceof SVGGeometryElement);
+    const points = shapes.flatMap((shape) => {
+      const box = shape.getBBox();
+      const style = getComputedStyle(shape);
+      const stroke = style.stroke === 'none' ? 0 : parseFloat(style.strokeWidth) / 2;
+      const transform = shape.getScreenCTM()!;
+      return [
+        [box.x - stroke, box.y - stroke],
+        [box.x + box.width + stroke, box.y - stroke],
+        [box.x - stroke, box.y + box.height + stroke],
+        [box.x + box.width + stroke, box.y + box.height + stroke],
+      ].map(([x, y]) => new DOMPoint(x, y).matrixTransform(transform));
+    });
+    const x = Math.min(...points.map((point) => point.x));
+    const y = Math.min(...points.map((point) => point.y));
+    return {
+      x, y,
+      width: Math.max(...points.map((point) => point.x)) - x,
+      height: Math.max(...points.map((point) => point.y)) - y,
+    };
+  });
+  const foreground = (await hero.locator('.welcome-snowman').boundingBox())!;
+  const viewport = page.viewportSize()!;
+  // Assert the actual drawing, not merely its SVG element: slice can leave the
+  // element visible while cropping off the hat, skis, or the entire snowman.
+  for (const [label, bounds] of [
+    ['artwork', art], ['foreground SVG', foreground],
+    ['screen', { x: 0, y: 0, ...viewport }],
+  ] as const) {
+    expect(character.x, `snowman fits inside the ${label}'s left edge`).toBeGreaterThanOrEqual(bounds.x - 1);
+    expect(character.y, `snowman fits inside the ${label}'s top edge`).toBeGreaterThanOrEqual(bounds.y - 1);
+    expect(character.x + character.width, `snowman fits inside the ${label}'s right edge`).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+    expect(character.y + character.height, `snowman fits inside the ${label}'s bottom edge`).toBeLessThanOrEqual(bounds.y + bounds.height + 1);
+  }
+  // The landscape badge is deliberately compact, but a tiny speck in a full
+  // phone banner must not satisfy the character-presence regression.
+  expect(character.height, 'snowman remains recognizable').toBeGreaterThanOrEqual(Math.min(120, art.height * 0.7));
+  expect(character.width, 'skis and arms remain recognizable').toBeGreaterThanOrEqual(Math.min(96, Math.min(art.width, art.height) * 0.65));
+  await expect(page.locator('#gameIntro')).toHaveText('A cheerful snowman on skis shredding mountain snow powder ⛄️⛷️🏔️');
+  if (viewport.height > viewport.width || viewport.height > 500) {
+    await expect(page.locator('#gameIntro'), 'the original intro is visible outside compact landscape').toBeVisible();
+  }
+  for (const selector of ['#gameTitle', '#gameIntro', '#gameDescription', '#startLoadingStatus']) {
+    const copy = page.locator(selector);
+    if (!(await copy.isVisible())) continue;
+    const box = (await copy.boundingBox())!;
+    const overlapWidth = Math.min(art.x + art.width, box.x + box.width) - Math.max(art.x, box.x);
+    const overlapHeight = Math.min(art.y + art.height, box.y + box.height) - Math.max(art.y, box.y);
+    expect(overlapWidth <= 1 || overlapHeight <= 1, `${selector} must not overlap the artwork`).toBe(true);
+    expect(await copy.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+      `${selector} must wrap without overflowing horizontally`).toBe(true);
+  }
+}
+
 async function expectAccountSpace(page: Page): Promise<void> {
   const account = (await page.locator('#authContainer').boundingBox())!;
   const card = (await page.locator('.start-dialog').boundingBox())!;
@@ -67,11 +162,54 @@ async function expectAccountSpace(page: Page): Promise<void> {
 }
 
 test.beforeEach(async ({ page, isMobile }) => {
+  // Observe from before navigation, including requests that would otherwise
+  // finish before the menu test starts or disappear from timings on reload.
+  const requested: string[] = [];
+  mediaRequests.set(page, requested);
+  page.on('request', (request) => {
+    if (/\.(?:mp3|mp4)(?:$|[?#])/i.test(request.url())) requested.push(request.url());
+  });
   if (!isMobile) await resizeAndSettle(page, { width: 1280, height: 720 });
   await gotoGame(page);
 });
 
-test('first-load difficulty, Start, offline play, and account controls are visible without scrolling', async ({ page, hasTouch }, testInfo) => {
+test('welcome warms one game silently, remembers sound, and honors reduced motion', async ({ page, hasTouch }, testInfo) => {
+  const menu = page.locator('#startGameContainer');
+  const sound = page.locator('#startSoundButton');
+  const loading = page.locator('#startLoadingStatus');
+  await expect(loading).toHaveAttribute('data-stage', 'ready');
+  await expect(menu).toBeVisible();
+  await expectCoreMenu(page);
+  await expect(page.locator('#gameCanvas canvas')).toHaveCount(1);
+  await expect(menu.locator('canvas')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as GameWindow).gameActive)).toBe(false);
+  expect(mediaRequests.get(page), 'the welcome screen must not fetch music or video').toEqual([]);
+  await testInfo.attach('welcome-ready', { body: await page.screenshot(), contentType: 'image/png' });
+
+  await expect(sound).toHaveAttribute('aria-pressed', 'true');
+  for (const enabled of ['false', 'true', 'false']) {
+    await activate(sound, hasTouch);
+    await expect(sound).toHaveAttribute('aria-pressed', enabled);
+  }
+  expect(mediaRequests.get(page), 'changing sound preference must not fetch media before Play').toEqual([]);
+  expect(await page.evaluate(() => (window as GameWindow).gameActive)).toBe(false);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(loading).toHaveAttribute('data-stage', 'ready');
+  await expect(sound).toHaveAttribute('aria-pressed', 'false');
+  await expect(menu).toBeVisible();
+  await expectCoreMenu(page);
+  await expect(page.locator('#gameCanvas canvas')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as GameWindow).gameActive)).toBe(false);
+  expect(mediaRequests.get(page), 'reload must preserve the silent welcome screen').toEqual([]);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const decoration of ['.welcome-landscape', '.welcome-snowman', '.startup-indicator']) {
+    await expect(page.locator(decoration)).toHaveCSS('animation-name', 'none');
+  }
+});
+
+test('first-load artwork and menu controls fit every viewport without overlapping or scrolling', async ({ page, hasTouch }, testInfo) => {
   // Localhost deliberately disables Firestore. Exercise the production signed-out
   // hint through the same read-only auth seam and event used by the real module.
   await expect(page.locator('#loginBtn')).toBeEnabled();
@@ -85,6 +223,7 @@ test('first-load difficulty, Start, offline play, and account controls are visib
   });
   await expect(page.locator('#startSignInHint')).toBeVisible();
   await expectCoreMenu(page);
+  await expectWelcomeArt(page);
   await expectAccountSpace(page);
   for (const provider of ['#loginBtn', '#githubLoginBtn', '#guestLoginBtn']) {
     await expectReachable(page, provider, true);
@@ -102,13 +241,22 @@ test('first-load difficulty, Start, offline play, and account controls are visib
     // screens that made Offline and even Start disappear below the fold.
     await activate(page.locator('#difficultyPicker [data-difficulty="blue"]'), hasTouch);
     await expect(page.locator('#startSignInHint')).toBeVisible();
-    for (const viewport of [{ width: 320, height: 568 }, { width: 568, height: 320 }]) {
+    for (const viewport of [
+      { width: 320, height: 568 }, { width: 568, height: 320 },
+      // iPhone 13 Pro Max and shorter Safari content areas with browser chrome.
+      { width: 428, height: 780 }, { width: 390, height: 664 },
+      { width: 600, height: 800 }, { width: 800, height: 700 },
+    ]) {
       await resizeAndSettle(page, viewport);
       await expectCoreMenu(page);
+      await expectWelcomeArt(page);
       await expectAccountSpace(page);
       for (const provider of ['#loginBtn', '#githubLoginBtn', '#guestLoginBtn']) {
         await expectReachable(page, provider, true);
       }
+      await testInfo.attach(`welcome-${viewport.width}x${viewport.height}`, {
+        body: await page.screenshot(), contentType: 'image/png',
+      });
     }
   }
 });

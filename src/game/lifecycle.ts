@@ -6,6 +6,7 @@
 
 import { Controls } from '../controls.js';
 import { getDifficultyConfig } from '../difficulty.js';
+import { runTelemetryContext } from '../run-telemetry.js';
 import { Snow } from '../snow.js';
 import { Flex } from '../snowman-flex.js';
 import { Expression } from '../snowman-expression.js';
@@ -16,7 +17,7 @@ import { rewindRunStreams, isPracticeRun, getRunStamp, drawRunNonce } from '../r
 import { CourseModule } from '../course.js';
 import { EffectsModule } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
-import { updateTimerDisplay } from '../ui/hud.js';
+import { resetStatsHud, updateTimerDisplay } from '../ui/hud.js';
 import { setupCollapsiblePanel, setPanelCollapsed, isCompactPanelViewport } from '../ui/collapsible-panel.js';
 import { announceGameStatus, closeOverlayFocus, focusGameCanvas } from '../ui/accessibility.js';
 import { usesOrbitControls, type CameraMode } from '../camera.js';
@@ -129,6 +130,7 @@ export function createLifecycle(deps: LifecycleDeps) {
     // visible camera/snowman jump) and into its first diagnostics step (a huge
     // maxSubstepStep false tunnel-risk sample). Must run after resetPlayer().
     resetLoopState();
+    resetStatsHud();
 
     // Reset the physics/frame-rate telemetry: resetPlayer() above teleported the player
     // back to spawn (z=-15), so without this the first frame of the new run would read as
@@ -153,7 +155,7 @@ export function createLifecycle(deps: LifecycleDeps) {
       // Only try to use analytics when properly initialized with modular SDK
       if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function' && window.location.protocol !== 'file:') {
         // Using the direct logEvent function
-        window.firebaseModules.logEvent('game_reset');
+        window.firebaseModules.logEvent('game_reset', runTelemetryContext(state.difficulty));
       }
     } catch (e) {
       console.log("Analytics tracking skipped:", (e as Error).message);

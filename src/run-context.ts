@@ -55,8 +55,12 @@ export type CosmeticStreamName = 'snowParticles' | 'avalanchePowder' | 'cameraEf
  *  than wall clock — a stalled frame pays sim time, not wall time, and a
  *  stall-heavy run is flagged timing-compromised instead of ranked. Same
  *  world, different collision/timing outcomes than v2, so v2 records are not
- *  comparable to v3 runs. */
-export const PHYSICS_VERSION = 3;
+ *  comparable to v3 runs.
+ *
+ *  v4: holding a straight tuck reduces drag as well as applying acceleration.
+ *  No-input coasting is unchanged, but input-driven times are no longer
+ *  comparable with v3. Keep historical personal bests and boards separate. */
+export const PHYSICS_VERSION = 4;
 
 /** Small, fast, well-distributed deterministic PRNG (same family the test
  *  fixtures use). Never global: each stream owns one instance. */

@@ -46,8 +46,9 @@ For every frame the main loop feeds it (`Diag.record(...)`), it classifies:
   the health verdict with reasons.
 - **Bug-report export.** `window.__snowgliderDiag.dump()` returns *and downloads* a JSON
   trace — config, running summary, health verdict, recent frames, and any `note()`s —
-  ready to attach to a GitHub issue. `snapshot()` returns it without downloading;
-  `reset()` clears the trace; `overlay(true|false)` toggles the HUD.
+  plus bounded raw error messages/stacks. Inspect this private download before sharing.
+  `snapshot()` omits raw errors, so the in-game feedback form receives only the aggregate
+  error fields. `reset()` clears the trace; `overlay(true|false)` toggles the HUD.
 
 ## Aggregation: Firebase Analytics + global error capture
 
@@ -72,20 +73,37 @@ pipeline** (`window.firebaseModules.logEvent`, the same seam `game_start`/`game_
   one-and-done run (finish/crash, then leave without pressing Reset) is sampled exactly once.
   All three paths share one de-duped flush, so a run is never double-counted; a
   trivial/empty run emits nothing.
-- **`client_error` / `unhandled_rejection`** — the app had **no** `window.onerror` /
-  `unhandledrejection` handler, so an uncaught throw in the rAF loop (a real "freezes"
-  candidate) vanished silently. `Diag` installs both, attaching the message/stack plus the
-  current physics snapshot as context.
+- **`client_error` / `unhandled_rejection`** — uncaught browser errors and promise
+  rejections, plus recovery boundaries calling `Diag.reportError(error, source)`.
+  Events contain allowlisted `error_type`, `error_code`, and `error_source`, a same-origin
+  static-code `script`/`line`/`column`, and `frames`/`fps`/`speedMax`/`health`.
+  Query strings, fragments, external script URLs, messages and stacks are excluded.
+  Identical groups emit once; at most 20 distinct groups are uploaded per recorder
+  lifetime, across run restarts. Counts represent reported groups, not every throw.
+  Raw text remains only in the explicit local `dump()` download. Hostile error getters
+  and an unavailable Analytics transport cannot interrupt recovery.
 - **`diag_note`** — the generic `Diag.note(category, detail)` seam lets **other
   subsystems** (asset loaders, avalanche, camera) report anomalies into the same pipeline,
   so diagnostics is not limited to the physics kernel. e.g.
-  `Diag.note('asset_load_failed', { url })`.
+  `Diag.note('asset_load_failed', { asset: 'tree_model' })`. Use fixed labels and
+  numeric measurements only; never include private input or credential URLs.
 
 The sink is wrapped so a telemetry failure can never throw into the game loop, is gated
 exactly like the other `logEvent` call sites (modular SDK present, not `file://`), and is
 inert under automation (the recorder is off there). Swapping the sink for a dedicated
 error monitor (Sentry / self-hosted GlitchTip) later is a one-line change at the `init()`
-call site — `Diag` itself stays decoupled from the transport.
+call site — `Diag` itself stays decoupled from the transport. Events also carry
+`is_bot` and the validated `app_build` deployment timestamp from the shared Analytics wrapper.
+
+These are Analytics events, not Crashlytics reports. This app uses Firebase 11.5.0
+and does not initialize Crashlytics. Firebase's [Web Crashlytics API](https://firebase.google.com/docs/reference/js/crashlytics)
+arrived in [13.2.0 public preview](https://firebase.google.com/support/release-notes/js);
+adding it is a separate SDK/configuration change. A layout that hides Restart below a
+scrollable result, a stale avalanche banner, or a swallowed audio-play rejection does
+not automatically produce `client_error`. Use the browser regression tests for those
+behaviors; event counts alone cannot establish that a player encountered them. Checking
+recorded production events also requires access to the GA4 property (see
+[`ANALYTICS.md`](ANALYTICS.md)); source instrumentation is not proof of delivery.
 
 ## Design constraints (shared with `sfx`/`intro`/`debris`)
 

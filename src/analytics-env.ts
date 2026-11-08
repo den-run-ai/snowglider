@@ -11,22 +11,39 @@
  * this).
  *
  * Tagging rather than suppressing keeps the events visible for debugging and lets the
- * reporter split human vs. bot later; GA4 coerces the boolean to "true"/"false" for the
- * custom dimension, which filters cleanly.
+ * reporter split human vs. bot later. Use explicit "true"/"false" strings so the
+ * custom dimension has the same representation across SDK transports.
  */
+
+/** Collect production Analytics only on the game's public hosts. Preview, LAN,
+ * localhost and fork deployments must not initialize the production GA4 SDK. */
+export function shouldCollectAnalytics(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === 'snowglider.ai' || host === 'www.snowglider.ai';
+}
 
 /** True when the page is driven by browser automation (Playwright/Puppeteer/Selenium). */
 export function isAutomatedClient(): boolean {
-  return typeof navigator !== 'undefined' && navigator.webdriver === true;
+  if (typeof navigator !== 'undefined' && navigator.webdriver === true) return true;
+  if (typeof window === 'undefined') return false;
+  return window.isTestMode === true || new URLSearchParams(window.location?.search || '').has('test');
+}
+
+/** A bounded deployment label lets reports distinguish stale clients after a
+ * deploy. Only the build plugin's fixed timestamp format (or dev) is accepted. */
+export function analyticsBuildId(): string {
+  const value = typeof document !== 'undefined'
+    ? document.querySelector('meta[name="build-id"]')?.getAttribute('content') || '' : '';
+  return value === 'dev' || /^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/.test(value) ? value : 'unknown';
 }
 
 /**
  * Return a shallow copy of `params` with a stable `is_bot` traffic tag added. Never
- * mutates the input, so callers can pass a literal safely. An explicit `is_bot` already
- * present in `params` is preserved.
+ * mutates the input. The environment owns this tag: callers cannot disguise an
+ * automated run by overriding it. Explicit strings match GA4 custom-dimension filters.
  */
 export function withTrafficTag(
   params?: Record<string, unknown>,
 ): Record<string, unknown> {
-  return { is_bot: isAutomatedClient(), ...(params ?? {}) };
+  return { ...(params ?? {}), is_bot: isAutomatedClient() ? 'true' : 'false', app_build: analyticsBuildId() };
 }

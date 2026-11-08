@@ -1,15 +1,8 @@
-// Phase 2 (issue #84): converted to an ES module so it imports AudioModule from
-// the real src module instead of reading the window.AudioModule bridge. index.html
-// loads it as `<script type="module">` (deferred, like every module script), so it
-// still registers its DOMContentLoaded handler before that event fires.
-//
-// Phase 3.11 (issue #84): renamed `.js` -> `.ts`. No type surface to promote (this
-// is a boot orchestration script with implicitly-`any` DOM helper params under the
-// current non-strict config); the only edit is the JSDoc `(window)` cast → `as`.
-// The `../audio.js` import specifier is unchanged — Vite/tsc Bundler resolve it to
-// audio.ts.
-import { AudioModule } from '../audio.js';
-import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
+// Deferred startup driver: paint onboarding, load the shared game scene, and
+// publish real preparation milestones. Optional authentication runs independently;
+// music is loaded only by the player's Play gesture.
+import { getStartupStatus, setStartupStatus } from './startup-status.js';
+import { waitForStartupPaint } from './startup-warmup.js';
 
 (function () {
   const GAME_SCRIPT_ORDER: string[] = [
@@ -138,26 +131,16 @@ import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
       });
   }
 
-  function preloadAudio() {
-    setTimeout(() => {
-      if (AudioModule && typeof AudioModule.preloadAudio === 'function') {
-        AudioModule.preloadAudio('bad_cat')
-          .then(() => {
-            console.log("Audio pre-loaded and ready for user interaction");
-          })
-          .catch((err) => {
-            console.warn("Could not pre-load audio:", err);
-          });
-      }
-    }, 500);
-  }
-
   function announceGameScriptsReady() {
     window.SnowGliderGameScriptsReady = true;
     window.dispatchEvent(new CustomEvent('snowglider:game-scripts-ready'));
   }
 
+  let initialization: Promise<void> | null = null;
+
   function initializeGameScripts() {
+    if (initialization) return;
+    setStartupStatus('loading');
     const firebaseBoot = window.SnowGliderFirebase;
     // Authentication is optional. A slow/unreachable provider must not delay local
     // play behind its timeout; keep the bootstrap's fallback/late-auth path running
@@ -171,7 +154,8 @@ import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
       })
       .catch((error: unknown) => console.warn('Sign-in unavailable; local play remains ready.', error));
 
-    loadScriptsInOrder(GAME_SCRIPT_ORDER)
+    initialization = loadScriptsInOrder(GAME_SCRIPT_ORDER)
+      .then(() => waitForStartupPaint())
       .then(() => {
         // snowglider.js (the orchestrator) is now an ES module loaded by the
         // bundle entry's deferred dynamic-import hook (GAME_SCRIPT_ORDER above is
@@ -184,15 +168,29 @@ import { showFatalErrorOverlay } from '../ui/fatal-error-overlay.js';
           ? loadOrchestrator()
           : Promise.reject(new Error('SnowGlider orchestrator loader unavailable (src/main.js did not run)'));
       })
-      .then(() => {
+      .then(async (orchestrator) => {
+        if (getStartupStatus().stage === 'error') throw getStartupStatus().error;
+        setStartupStatus('warming');
+        const prepare = (orchestrator as { prepareGameForStart?: () => Promise<void> } | undefined)?.prepareGameForStart;
+        if (prepare) await prepare();
+        // Context loss during background preparation has already disposed the
+        // scene. Never overwrite that failure with a ready announcement.
+        if (getStartupStatus().stage === 'error') throw getStartupStatus().error;
         loadTests();
         console.log("Main game script loaded.");
+        setStartupStatus('ready');
         announceGameScriptsReady();
-        preloadAudio();
       })
       .catch((error) => {
         console.error("Failed to load or initialize game scripts:", error);
-        showFatalErrorOverlay(error);
+        // This single-flight attempt reset old status to loading before it
+        // began. A context-loss teardown during its import/warmup is terminal;
+        // retain that reason when the disposed preparation subsequently rejects.
+        // Other status errors must not mask this attempt's actual rejection.
+        const failure = getStartupStatus();
+        if (failure.stage !== 'error' || failure.reason !== 'context-lost') {
+          setStartupStatus('error', error);
+        }
       });
   }
 

@@ -59,6 +59,7 @@ function fakeSnowman() {
   await import(pathToFileURL(path.join(__dirname, '..', 'loaders', 'register-ts-resolve.mjs')).href);
   const { Snowman } = await import('../../src/snowman.ts');
   const { livePhysicsLoop, FIXED_DT, MAX_SUBSTEPS } = await import('../helpers/live-physics-loop.mjs');
+  const { Diag, classifyFrame, DEFAULT_CONFIG } = await import('../../src/diagnostics.ts');
   const terrain = await import('../../src/mountains/terrain.ts');
   const { Trees } = await import('../../src/mountains/trees.ts');
   const { addRocks } = await import('../../src/mountains/rocks.ts');
@@ -241,6 +242,41 @@ function fakeSnowman() {
   console.log('\n--- 3) No NaN/Infinity in pos/velocity at any render rate [GATING] ---');
   console.log('  PASS:', !anyNonFinite ? 'all positions/velocities stayed finite ✅' : 'a run went non-finite ❌');
   if (anyNonFinite) hardFail = true;
+
+  // --- 4) Diagnostics measure wall time; collision risk measures fixed steps ---
+  // Exercise the shipped loop, intercepting only the recorder transport. A one-second
+  // stall still runs at most eight physics steps, but must remain one second in the
+  // performance sample. Otherwise FPS bottoms out at 7.5 and stall time disappears.
+  const savedRecord = Diag.record;
+  /** @type {import('../../src/diagnostics.ts').FrameSample[]} */
+  const samples = [];
+  let stalled;
+  try {
+    Diag.record = (sample) => samples.push(sample);
+    stalled = runAccumulated(12345, [1, 0], () => UP);
+  } finally { Diag.record = savedRecord; }
+  const sample = samples[0];
+  const flags = sample && classifyFrame(null, sample, {
+    ...DEFAULT_CONFIG, frameCapSec: MAX_SUBSTEPS * FIXED_DT,
+  });
+  const realStall = samples.length === 1 && sample.dt === 1 && flags.fps === 1 &&
+    flags.clamped && !flags.tunnelRisk && stalled.steps === MAX_SUBSTEPS &&
+    sample.step === stalled.maxFixedStep;
+  console.log('\n--- 4) Performance telemetry preserves stalls and excludes zero-time frames [GATING] ---');
+  console.log(realStall ? '  PASS:' : '  FAIL:', realStall ? '1 s / 1 FPS reported with bounded collision-time displacement ✅' :
+    'stall duration was clamped, zero-time frame counted, or collision step changed ❌');
+  if (!realStall) hardFail = true;
+
+  samples.length = 0;
+  try {
+    Diag.record = (value) => samples.push(value);
+    runAccumulated(12345, [FIXED_DT, FIXED_DT / 2], () => UP);
+  } finally { Diag.record = savedRecord; }
+  const fastFrame = samples.length === 2 && Math.abs(samples[1].dt - FIXED_DT / 2) < 1e-12 &&
+    samples[1].step === 0;
+  console.log(fastFrame ? '  PASS:' : '  FAIL:', fastFrame ? 'positive high-refresh frames without a physics step still count ✅' :
+    'a valid high-refresh frame was dropped or given a false collision step ❌');
+  if (!fastFrame) hardFail = true;
 
   // --- Diagnostic: what the accumulator fixes (the pre-accumulator variable-dt loop) ---
   // Drive the kernel DIRECTLY at the capped 10 FPS delta (no accumulator) and show the

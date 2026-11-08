@@ -65,6 +65,7 @@ export const db = {
  *   setDoc: Array<{ path: string, data: DocData, options: any }>,
  *   getDocs: Query[],
  *   logEvent: Array<{ name: string, params: any }>,
+ *   getAnalytics: number,
  *   signInWithPopup: number,
  *   signInAnonymously: number,
  *   linkWithPopup: number,
@@ -78,6 +79,7 @@ export const calls = {
   setDoc: [],
   getDocs: [],
   logEvent: [],
+  getAnalytics: 0,
   // firebase-auth.js call counters (used by the auth harness)
   signInWithPopup: 0,
   signInAnonymously: 0,
@@ -110,6 +112,8 @@ let nextSetDocError = null;
 let timestampCounter = 0;
 /** @type {unknown} */
 let nextLogEventError = null;
+/** @type {unknown} */
+let nextGetAuthError = null;
 
 /**
  * @template T
@@ -185,6 +189,7 @@ export function reset() {
   calls.setDoc = [];
   calls.getDocs = [];
   calls.logEvent = [];
+  calls.getAnalytics = 0;
   calls.signInWithPopup = 0;
   calls.signInAnonymously = 0;
   calls.linkWithPopup = 0;
@@ -403,6 +408,7 @@ export function getDocs(q) {
 
 // ---- firebase-analytics.js surface ----
 export function getAnalytics() {
+  calls.getAnalytics++;
   return analyticsInstance;
 }
 
@@ -432,6 +438,11 @@ export function initializeApp() {
 const authInstance = { __isAuth: true, currentUser: null };
 
 export function getAuth() {
+  if (nextGetAuthError !== null) {
+    const error = nextGetAuthError;
+    nextGetAuthError = null;
+    throw error;
+  }
   return authInstance;
 }
 
@@ -624,3 +635,6 @@ export function emitAuthState(user) {
 export function setNextLogEventError(error) {
   nextLogEventError = error;
 }
+
+/** @param {unknown} error */
+export function setNextGetAuthError(error) { nextGetAuthError = error; }

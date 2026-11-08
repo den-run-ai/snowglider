@@ -16,6 +16,11 @@ import type {
   UpdateResult
 } from './index.js';
 
+// A straight grounded tuck is the low-drag stance advertised by the controls.
+// Keep 75% of coast drag so speed still converges; steering, braking, releasing
+// Up, and airborne motion immediately use their existing drag models.
+export const TUCK_DRAG_FACTOR = 0.75;
+
 // --- Manual-jump landing grade (meaningful jumps #47, §3.2/§3.3) -------------
 // Tunables, mirrored in PHYSICS.md §10. A *manual* jump's landing is graded by
 // `alignment`, the cosine between the horizontal heading and the fall line at
@@ -204,6 +209,7 @@ export function resetSnowman(
     userData.trickGrabArmed = false;
     userData.trickGrabbing = false;
     userData.trickCameraYaw = 0;
+    userData.trickSpinApplied = 0;
     // Pose-layer spin accumulators (rate + eased bank of the spin-lean flair): clear so
     // a restart taken mid-spin never spawns with a stale body bank (the pivot carries it).
     userData.trickSpinRate = 0;
@@ -212,11 +218,31 @@ export function resetSnowman(
     // previous air phase's dedup set or count.
     userData.clearsThisAir = 0;
     userData.clearedObstacles = {};
+    userData.technique = 'glide';
+    // Reset the pose-owned transforms as well as their accumulators. Flex and
+    // Expression reset only their own child parts; neither restores the ski roots,
+    // crouch or flip pivot. Otherwise a restart briefly inherits the previous
+    // wedge/edge/flip and eases back toward neutral during the new run.
+    if (userData.leftSki) {
+      userData.leftSki.position.x = userData.leftSkiBaseX ?? -1;
+      userData.leftSki.rotation.y = 0;
+      userData.leftSki.rotation.z = 0;
+    }
+    if (userData.rightSki) {
+      userData.rightSki.position.x = userData.rightSkiBaseX ?? 1;
+      userData.rightSki.rotation.y = 0;
+      userData.rightSki.rotation.z = 0;
+    }
+    if (userData.flipPivot) {
+      userData.flipPivot.rotation.x = 0;
+      userData.flipPivot.rotation.z = 0;
+    }
   }
   
   // Force all rotations to be explicit - avoid any chance of NaN or unexpected values
   snowman.position.set(pos.x, pos.y, pos.z);
   snowman.rotation.set(0, Math.PI, 0);
+  if (snowman.scale) snowman.scale.y = 1;
   
   // Explicitly reset the rotation tracking for snowman tilt
   snowman.rotation.x = 0;
@@ -841,10 +867,15 @@ export function stepSnowmanPhysics(
       velocity.x += Math.sin(turnPhase * 0.3) * (turnAmplitude * 0.7) * delta * turnIntensity * currentTurnDirection;
     }
     
-    // Apply friction to slow down. Base friction is unchanged when not steering
-    // (skidScrub == 0), so straight-line/coasting behaviour is identical to before;
-    // hard turns at speed add edge-skid drag on top.
-    const totalFriction = friction + skidScrub;
+    // Tucking used to retain the full speed-ramped coast drag despite promising
+    // a low-drag stance: Up quickly plateaued after its initial acceleration.
+    // Give only a straight, unbraked tuck its bounded drag relief. The force is
+    // unchanged, so steering still trades speed for control and brake always wins.
+    // The no-input path uses the exact original arithmetic (not even a ×1).
+    const tuckFriction = controls.up && !snowplow && steering === 0
+      ? friction * TUCK_DRAG_FACTOR
+      : friction;
+    const totalFriction = tuckFriction + skidScrub;
     const totalDrag = dragFactor(totalFriction);
     velocity.x *= totalDrag;
     velocity.z *= totalDrag;

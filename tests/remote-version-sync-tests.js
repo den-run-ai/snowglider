@@ -1,7 +1,8 @@
 // @ts-check
 // Firestore cannot import the client's versioned names. Check every shipped
 // schema, including historical versioned fields that survive on users/{uid}.
-// Replacing V3 with V4 would otherwise reject profile updates on existing users.
+// Replacing the active version instead of appending its successor would reject
+// profile updates on users whose stored documents contain historical fields.
 // Run: node --import ./tests/loaders/register-ts-resolve.mjs tests/remote-version-sync-tests.js
 const fs = require('fs');
 const path = require('path');
@@ -45,6 +46,12 @@ function inspectRules(source, schemas) {
     const bounds = blockAfter(rules, `function ${schema.scoreValidator}(time)`);
     record(`${schema.label}: preserves score floor/cap ${schema.minTime}/${schema.maxTime}`,
       new RegExp(`time\\s+is\\s+number\\s*&&\\s*time\\s*>=\\s*${schema.minTime}\\s*&&\\s*time\\s*<=\\s*${schema.maxTime}\\s*;`).test(bounds));
+    const boardDoc = blockAfter(rules, `function ${schema.leaderboardDocValidator}(userId, data)`);
+    const boardUpdate = blockAfter(rules, `function ${schema.leaderboardUpdateValidator}(userId)`);
+    record(`${schema.label}: leaderboard uses its own score bounds`,
+      new RegExp(`${validator}\\(data\\.time\\)`).test(boardDoc)
+      && new RegExp(`${validator}\\(resource\\.data\\.time\\)`).test(boardUpdate)
+      && boardUpdate.includes(`${schema.leaderboardDocValidator}(userId, request.resource.data)`));
     for (const { field, board, ranked } of schema.tiers) {
       const quoted = `'${field}'`;
       const escaped = esc(field);
@@ -57,8 +64,8 @@ function inspectRules(source, schemas) {
       const boardBlock = blockAfter(rules, `match /${board}/{userId}`);
       record(`${board}: authenticated reads`, /allow\s+get,\s*list:\s*if\s+isSignedIn\(\)/.test(boardBlock));
       if (ranked) {
-        record(`${board}: validated create`, /allow\s+create:[^;]*validLeaderboardDoc/.test(boardBlock));
-        record(`${board}: validated update`, /allow\s+update:[^;]*validLeaderboardUpdate/.test(boardBlock));
+        record(`${board}: validated create`, new RegExp(`allow\\s+create:[^;]*${esc(schema.leaderboardDocValidator)}\\(`).test(boardBlock));
+        record(`${board}: validated update`, new RegExp(`allow\\s+update:[^;]*${esc(schema.leaderboardUpdateValidator)}\\(`).test(boardBlock));
       } else {
         record(`${board}: unranked writes denied`, /allow\s+write:\s*if\s+false/.test(boardBlock));
       }
@@ -104,11 +111,14 @@ function inspectRules(source, schemas) {
   console.log('\n--- rules preserve every shipped schema ---');
   for (const { name, ok } of inspectRules(rules, REMOTE_SCORE_SCHEMAS)) check(name, ok);
 
-  console.log('\n--- regression: a future active-only V4 replacement is rejected ---');
-  const replacement = rules.replace(/V3\b/g, 'V4').replace(/_v3\b/g, '_v4').replace(/_v3_/g, '_v4_');
-  const nextSchema = schemaForVersion(4);
-  check('mutation supplies a complete, valid V4 schema', inspectRules(replacement, [nextSchema]).every(result => result.ok));
-  check('mutation cannot drop historical V3 fields or boards',
+  console.log('\n--- regression: replacing the active schema drops historical compatibility ---');
+  const nextVersion = PHYSICS_VERSION + 1;
+  const replacement = rules
+    .replace(new RegExp(`V${PHYSICS_VERSION}\\b`, 'g'), `V${nextVersion}`)
+    .replace(new RegExp(`_v${PHYSICS_VERSION}(?=\\b|_)`, 'g'), `_v${nextVersion}`);
+  const nextSchema = schemaForVersion(nextVersion);
+  check(`mutation supplies a complete, valid V${nextVersion} schema`, inspectRules(replacement, [nextSchema]).every(result => result.ok));
+  check('mutation cannot drop previously shipped fields or boards',
     inspectRules(replacement, REMOTE_SCORE_SCHEMAS).some(result => !result.ok));
   const missingCreateKey = rules.replace("        'bestTimeV3',", '');
   check('missing V3 create allowlist entry fails despite update references',

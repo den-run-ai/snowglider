@@ -9,16 +9,20 @@
 // unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
 import { getDifficultyConfig, storeDifficulty, type Difficulty } from '../difficulty.js';
-import { consumeRunLaunch, initialRunDifficulty } from '../game/run-transition.js';
+import { consumeRunLaunch, initialRunDifficulty, isRunTransition } from '../game/run-transition.js';
 import { Sfx } from '../sfx.js';
 import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPickerHandle } from './difficulty-picker.js';
 import { isOnline, watchConnectivity } from '../offline/offline-state.js';
 import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-ui.js';
 import { initInstallPrompt, type InstallPromptController } from '../pwa/install-prompt.js';
 import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessibility.js';
+import { getStartupStatus, showStartupError, subscribeStartupStatus, type StartupStatus } from '../boot/startup-status.js';
 
 (function () {
   let startGamePending = false;
+  // A navigation cannot carry the Restart button's user activation. Prepare the
+  // selected course, then wait for Start in this document before audio/gameplay.
+  const preparingNewTier = isRunTransition();
   // The player's chosen difficulty tier, remembered across sessions in
   // localStorage. The picker writes it; the game reads the persisted value at run
   // start (src/snowglider.ts) so changing the pick then starting takes effect.
@@ -41,6 +45,38 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
   // The install-prompt controller; re-init disposes the prior one so we never stack
   // duplicate beforeinstallprompt listeners or leave a second chip behind.
   let installPrompt: InstallPromptController | null = null;
+  let unwatchStartup: (() => void) | null = null;
+
+  function updateStartupStatus(status: StartupStatus) {
+    const loading = document.getElementById('startLoadingStatus');
+    const text = document.getElementById('startLoadingText');
+    if (loading) loading.dataset.stage = status.stage;
+    if (text) text.textContent = {
+      loading: 'Loading the mountain…',
+      building: 'Preparing your run…',
+      warming: 'Warming up the mountain…',
+      ready: 'Ready to ride',
+      error: 'Couldn’t prepare the mountain',
+    }[status.stage];
+    if (preparingNewTier && status.stage !== 'error') {
+      const waiting = status.stage !== 'ready';
+      document.getElementById('startGameContainer')?.classList.toggle('run-preparing', waiting);
+      setStartButtonWaiting(waiting);
+    }
+    if (status.stage === 'error') {
+      const wasPending = startGamePending;
+      startGamePending = false;
+      setStartButtonWaiting(false);
+      // An early Play gesture may already have unlocked audio. A failed boot
+      // must not leave its soundtrack running over the recovery screen.
+      AudioModule.enableSound(false);
+      Sfx.teardown();
+      const button = document.getElementById('startGameButton');
+      if (button) button.textContent = 'Loading help';
+      document.getElementById('startGameContainer')?.classList.remove('run-preparing');
+      if (wasPending) showStartupError();
+    }
+  }
 
   // Mount the offline badge into the start container and keep its visibility in sync
   // with connectivity. Idempotent: re-init tears down the prior watcher first so we
@@ -196,6 +232,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     // Click/touch compatibility events and retained callbacks must not reset an
     // already-starting run or create a second loop/intro.
     if (!startContainer || startContainer.style.display === 'none') return false;
+    if (showStartupError()) return false;
     // Unlock inside the original user gesture, even when scripts are still loading.
     // Audio readiness never blocks play; the browser still enforces autoplay policy.
     try {
@@ -208,7 +245,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     const gameCanvas = document.getElementById('gameCanvas');
     const canInitializeGame = typeof window.initializeGameWithAudio === 'function';
 
-    if (!gameCanvas || !canInitializeGame) {
+    if (!gameCanvas || !canInitializeGame || getStartupStatus().stage !== 'ready') {
       startGamePending = true;
       setStartButtonWaiting(true);
       console.log("Start requested before game scripts finished loading; deferring until ready.");
@@ -234,7 +271,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
 
   function startPendingGameIfReady() {
     const gameCanvas = document.getElementById('gameCanvas');
-    if (!gameCanvas || typeof window.initializeGameWithAudio !== 'function') {
+    if (!gameCanvas || typeof window.initializeGameWithAudio !== 'function' || getStartupStatus().stage !== 'ready') {
       return false;
     }
 
@@ -254,7 +291,7 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     }
 
     startButton.disabled = waiting;
-    startButton.textContent = waiting ? 'Preparing run…' : 'Start Game';
+    startButton.textContent = waiting ? 'Preparing run…' : preparingNewTier ? 'Start run' : 'Start Game';
     if (waiting) {
       startButton.setAttribute('aria-busy', 'true');
     } else {
@@ -300,6 +337,14 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
 
   function getSelectedDifficulty(): Difficulty {
     return pickerHandle ? pickerHandle.getSelected() : selectedDifficulty;
+  }
+
+  function updateSoundButton() {
+    const button = document.getElementById('startSoundButton');
+    if (!button) return;
+    const muted = AudioModule.getStatus().muted;
+    button.textContent = muted ? '♪ Sound off' : '♫ Sound on';
+    button.setAttribute('aria-pressed', String(!muted));
   }
 
   function showAbout() {
@@ -356,15 +401,26 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
     menuListeners?.abort();
     menuListeners = new window.AbortController();
     const listenerOptions = { signal: menuListeners.signal };
+    // Read preferences before an early Play gesture. This never downloads or
+    // starts audio; the welcome screen stays silent until the player starts.
+    AudioModule.init();
+    updateSoundButton();
+    document.getElementById('startSoundButton')?.addEventListener('click', () => {
+      AudioModule.setMuted(!AudioModule.getStatus().muted);
+      updateSoundButton();
+    }, listenerOptions);
+    const updateMotionVisibility = () => {
+      document.body.classList.toggle('onboarding-paused', document.hidden);
+    };
+    updateMotionVisibility();
+    document.addEventListener('visibilitychange', updateMotionVisibility, listenerOptions);
     addBuildBadge();
     setupOfflineBadge();
     setupInstallPrompt();
     buildDifficultyPicker();
-    if (consumeRunLaunch()) {
-      startGamePending = true;
-      setStartButtonWaiting(true);
-      document.getElementById('startGameContainer')?.classList.add('run-preparing');
-    }
+    // Consume the URL intent without queuing a synthetic start. The fresh Start
+    // gesture unlocks music and SFX synchronously, before starting the run.
+    consumeRunLaunch();
     const startContainer = document.getElementById('startGameContainer');
     const account = document.getElementById('authContainer');
     if (startContainer) openOverlayFocus(startContainer, {
@@ -377,6 +433,8 @@ import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessib
       startPendingGameIfReady();
       refreshStartAccountUI();
     }
+    unwatchStartup?.();
+    unwatchStartup = subscribeStartupStatus(updateStartupStatus);
 
     const startGameButton = document.getElementById('startGameButton');
     if (startGameButton) {

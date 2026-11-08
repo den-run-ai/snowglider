@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { JSDOM } = require('jsdom');
 
 async function main() {
-  const dom = new JSDOM('<!doctype html><body><div id="gameOverOverlay"></div></body>', {
+  const dom = new JSDOM('<!doctype html><body><button id="cameraToggleBtn">View</button><div id="gameOverOverlay"></div></body>', {
     url: 'https://snowglider.ai/',
   });
   const { window } = dom;
@@ -22,12 +22,12 @@ async function main() {
   const key = (type, text, code = '', repeat = false) => document.dispatchEvent(
     new window.KeyboardEvent(type, { key: text, code, repeat, bubbles: true }),
   );
-  const touch = (type, id) => {
+  const touch = (type, id, x = window.innerWidth * 5 / 6, target = /** @type {EventTarget} */ (document)) => {
     const event = new window.Event(type, { bubbles: true, cancelable: true });
     Object.defineProperty(event, 'changedTouches', { value: [
-      { identifier: id, clientX: window.innerWidth * 5 / 6, clientY: window.innerHeight / 2 },
+      { identifier: id, clientX: x, clientY: window.innerHeight / 2 },
     ] });
-    document.dispatchEvent(event);
+    target.dispatchEvent(event);
   };
   const allReleased = () => assert.ok(Object.values(controls).every(value => value === false));
   try {
@@ -90,6 +90,24 @@ async function main() {
     allReleased();
     console.log('PASS: disabling jump clears every physical owner without releasing other controls');
 
+    touch('touchmove', 39);
+    allReleased(); // only touchstart may acquire a new gesture
+    touch('touchstart', 39);
+    assert.equal(controls.right, true);
+    touch('touchmove', 39, window.innerWidth / 6);
+    assert.equal(controls.left, true, 'an owned gesture can still drag between regions');
+    assert.equal(controls.right, false, 'dragging releases the previous region');
+    Controls.resetControls();
+    touch('touchmove', 39);
+    allReleased(); // restart/reset cancels the old gesture until the finger lifts
+    touch('touchend', 39);
+    touch('touchstart', 39);
+    assert.equal(controls.right, true, 'a fresh touch works after cancellation');
+    touch('touchcancel', 39);
+    touch('touchmove', 39);
+    allReleased();
+    console.log('PASS: only a fresh touchstart acquires control; reset/cancel cannot revive stale touches');
+
     const pad = /** @type {HTMLElement} */ (document.querySelector('.touch-right'));
     const idleColor = pad.style.backgroundColor;
     for (const loseFocus of [
@@ -106,6 +124,8 @@ async function main() {
       assert.equal(pad.style.backgroundColor, idleColor, 'lost focus clears the painted touch hold');
       visibility = 'visible';
       document.dispatchEvent(new window.Event('visibilitychange'));
+      touch('touchmove', 40);
+      allReleased(); // the old finger cannot revive steering after returning
       key('keydown', 's', 'KeyS', true);
       allReleased(); // an OS repeat cannot reacquire ownership cleared on focus loss
       key('keyup', 's', 'KeyS');
@@ -118,7 +138,14 @@ async function main() {
     }
     console.log('PASS: blur/hidden clear keyboard, touch ownership and visual state; visible preserves input');
 
+    let cameraToggles = 0;
+    window.toggleCameraView = () => { cameraToggles++; };
+    const cameraButton = document.getElementById('cameraToggleBtn');
+    touch('touchstart', 42, 0, cameraButton);
+    assert.equal(cameraToggles, 1, 'camera touch invokes the live handler once');
     ac.abort();
+    touch('touchstart', 43, 0, cameraButton);
+    assert.equal(cameraToggles, 1, 'abort removes the camera button touch handler');
     controls.left = true; // sentinel: removed blur/hidden listeners must not clear this
     window.dispatchEvent(new window.Event('blur'));
     visibility = 'hidden';
@@ -129,6 +156,15 @@ async function main() {
     assert.equal(controls.up, false);
     assert.equal(controls.right, false);
     console.log('PASS: abort removes keyboard, touch and focus-loss handlers');
+    const remount = new window.AbortController();
+    try {
+      Controls.setupControls(remount.signal);
+      touch('touchstart', 44, 0, cameraButton);
+      assert.equal(cameraToggles, 2, 'remount binds one camera touch handler without stale duplicates');
+    } finally {
+      remount.abort();
+    }
+    console.log('PASS: camera button touch handler follows teardown and remount');
   } finally {
     ac.abort();
     Controls.resetControls();

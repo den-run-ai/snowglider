@@ -20,6 +20,7 @@ import { SnowmanDebris } from '../debris.js';
 import { AudioModule } from '../audio.js';
 import { Sky } from '../sky.js';
 import { configureSunShadow } from './sun-shadow.js';
+import { createSnowLighting } from './snow-lighting.js';
 import { createRenderQuality, resolveRenderQualityMode } from './render-quality.js';
 import type { RockPosition } from '../mountains.js';
 import type { TreePosition } from '../trees.js';
@@ -184,49 +185,18 @@ export function setupScene(signal?: AbortSignal) {
   // Create game over overlay
   const gameOverOverlay = document.createElement('div');
   gameOverOverlay.id = 'gameOverOverlay';
-  gameOverOverlay.style.position = 'fixed';
-  gameOverOverlay.style.top = '0';
-  gameOverOverlay.style.left = '0';
-  gameOverOverlay.style.width = '100%';
-  gameOverOverlay.style.height = '100%';
-  gameOverOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-  gameOverOverlay.style.display = 'flex';
-  gameOverOverlay.style.flexDirection = 'column';
-  gameOverOverlay.style.alignItems = 'center';
-  // `safe center` keeps the contents centered when they fit, but falls back to
-  // top-alignment when they're taller than the viewport instead of clipping the
-  // overflow off both ends (the flex-centering overflow trap). Combined with the
-  // vertical scroll below, this keeps the whole stack — crucially the RESTART
-  // button at the bottom — reachable on short screens or when the finish result
-  // panel + expanded share menu make the overlay taller than the viewport.
-  gameOverOverlay.style.justifyContent = 'safe center';
-  // Allow the overlay itself to scroll when its contents overflow, so nothing
-  // (GAME OVER header, result panel, RESTART) becomes unreachable.
-  gameOverOverlay.style.overflowY = 'auto';
-  gameOverOverlay.style.boxSizing = 'border-box';
-  gameOverOverlay.style.padding = '24px 16px';
-  gameOverOverlay.style.setProperty('-webkit-overflow-scrolling', 'touch');
-  gameOverOverlay.style.zIndex = '1000';
   gameOverOverlay.style.display = 'none'; // Initially hidden
 
   // Game over message
   const gameOverMessage = document.createElement('h1');
   gameOverMessage.id = 'gameOverMessage';
   gameOverMessage.textContent = 'GAME OVER';
-  gameOverMessage.style.color = 'white';
-  gameOverMessage.style.fontFamily = 'Arial, sans-serif';
-  gameOverMessage.style.fontSize = '48px';
-  gameOverMessage.style.marginBottom = '20px';
   gameOverOverlay.appendChild(gameOverMessage);
 
   // Detailed message (shows reason for game over)
   const gameOverDetail = document.createElement('p');
   gameOverDetail.id = 'gameOverDetail';
   gameOverDetail.textContent = '';
-  gameOverDetail.style.color = 'white';
-  gameOverDetail.style.fontFamily = 'Arial, sans-serif';
-  gameOverDetail.style.fontSize = '24px';
-  gameOverDetail.style.marginBottom = '30px';
   gameOverOverlay.appendChild(gameOverDetail);
 
   // Restart button
@@ -242,7 +212,6 @@ export function setupScene(signal?: AbortSignal) {
   restartButton.style.border = 'none';
   restartButton.style.borderRadius = '8px';
   restartButton.style.cursor = 'pointer';
-  restartButton.style.minWidth = '200px';
   restartButton.style.setProperty('-webkit-tap-highlight-color', 'rgba(255, 255, 255, 0.5)');
   restartButton.style.touchAction = 'manipulation'; // Removes delay on mobile devices
   restartButton.style.userSelect = 'none';
@@ -269,38 +238,9 @@ export function setupScene(signal?: AbortSignal) {
   // Set up the audio UI (the mute button; skipped if audio is disabled)
   AudioModule.setupUI();
 
-  // --- Lighting ---
-  // Intensities are pre-multiplied by Math.PI to preserve the original r134
-  // brightness under three.js physically-correct lighting (forced on since the
-  // r165 removal of `useLegacyLights`); see the renderer setup note above.
-  //
-  // A HemisphereLight (issue #18) is the scene fill: pale sky-blue from above, a
-  // cooler snow-bounce from below. Unlike a uniform ambient it shades by surface
-  // orientation, so the procedural snow/rock normal maps and slope shading (issue
-  // #17) read instead of washing flat. A small ambient floor keeps nothing pure black.
-  //
-  // Snow-readability rebalance (issue #17 follow-up): the old split (directional
-  // 0.8π vs. fill ≈0.5) cast such hard shadows on the bumpy terrain that every
-  // mogul read as a grey band — the "grey lines" that survived the texture fix,
-  // because they are terrain *shadows*, not a texture. Real deep powder under an
-  // open sky is low-contrast: bright almost everywhere with soft shading. So the
-  // hard sun is dialed down (0.8π → 0.5π) and the orientation-aware sky fill up
-  // (hemi 0.45π → 0.62π, ambient 0.15π → 0.26π) — the slope still shapes, but the
-  // shadows go gentle instead of grey. Peak white stays roughly the same.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.26 * Math.PI));
-  scene.add(new THREE.HemisphereLight(0xdcebfb, 0xbcc7d4, 0.62 * Math.PI));
-  // Warm midday key (issue #17 palette / completion-plan PR-V3): the SNOW_RENDERING.md
-  // core principle is warm sun + cool skylight (sunlit snow ≈ #FFF6E6). With near-white
-  // snow albedo the sunlit warmth can only come from the LIGHT, so the directional key
-  // is a slightly-desaturated warm white (#FFF4E6) instead of pure 0xffffff. Peak white
-  // on flats is unaffected — the hemisphere+ambient fill already saturates flats to
-  // white, so the warm key only tints the midtones/shadowed pitches (the sun cycle
-  // captures this as its midday dirColor endpoint). The cool fill (hemisphere/ambient)
-  // is untouched, keeping the warm-sun/cool-shadow relationship true at every phase.
-  const directionalLight = new THREE.DirectionalLight(0xfff4e6, 0.5 * Math.PI);
-  directionalLight.position.set(50, 100, 50);
-  directionalLight.castShadow = true;
-  scene.add(directionalLight);
+  // Bounded warm sun + cool sky fill keeps snow below the framebuffer ceiling.
+  // The old fill/key sum exceeded 1.2, clipping the normal/concavity cues to white.
+  const directionalLight = createSnowLighting(scene);
   // Player-following sun shadow (issue #18): the default DirectionalLight shadow box is a
   // ±5 volume at the origin, so the snowman (spawns at z=-15, skis downhill) sat outside it
   // and cast no contact shadow for the whole run. Widen + bias the frustum here; the main

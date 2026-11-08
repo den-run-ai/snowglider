@@ -6,6 +6,7 @@ import {
   RENDER_PHASES, REVIEW_SEED, prepareRenderScenario, enterRenderPhase,
   measureRenderPhase, assertRenderPhase, captureRenderCanvas, setObstructedOrbitFrame
 } from '../e2e/render-scenarios';
+import { SNOW_PHASES, prepareSnowFrame, enterSnowPhase, measureSnowSurface } from '../e2e/snow-rendering-scenarios';
 
 test('capture prescribed player phases for an explicit revision', async ({ page }, testInfo) => {
   const commit = process.env.RENDER_COMMIT;
@@ -32,9 +33,43 @@ test('capture prescribed player phases for an explicit revision', async ({ page 
     await fs.writeFile(path.join(output, image), await captureRenderCanvas(page));
     frames.push({ image, metrics });
   }
+  // Reload the actual player scene so both revisions begin from the exact static
+  // midday endpoint. The game clock stays frozen while the real sun cycle moves
+  // to golden hour; geometry, textures and camera stay identical between shots.
+  const snowErrors = await prepareRenderScenario(page);
+  await prepareSnowFrame(page);
+  for (const phase of SNOW_PHASES) {
+    await enterSnowPhase(page, phase);
+    const { lit, shade } = await measureSnowSurface(page);
+    console.log('Snow render review', JSON.stringify({ commit, project: testInfo.project.name, phase, lit, shade }));
+    const image = `${testInfo.project.name}-snow-${phase}.png`;
+    await fs.writeFile(path.join(output, image), await captureRenderCanvas(page));
+    frames.push({ image, metrics: { phase: `snow-${phase}`, lit, shade } });
+  }
   expect(errors, 'capture failed due to uncaught page/shader errors').toEqual([]);
+  expect(snowErrors, 'snow capture failed due to uncaught page/shader errors').toEqual([]);
   await fs.writeFile(path.join(output, `${testInfo.project.name}.json`), JSON.stringify({
     schema: 1, commit, seed: REVIEW_SEED, device: testInfo.project.name,
     viewport: page.viewportSize(), frames
   }, null, 2));
+});
+
+// Run the same finish fixture against both exact revisions. Capture the entire
+// viewport so review shows whether replay is reachable without scrolling; keep
+// these UI images separate from the established canvas/physics comparison.
+test('capture the finish dialog and replay controls', async ({ page }, testInfo) => {
+  const output = path.resolve(process.env.RENDER_OUTPUT_DIR || 'test-results/render-review');
+  await fs.mkdir(output, { recursive: true });
+  if (testInfo.project.name === 'phone') await page.setViewportSize({ width: 428, height: 750 });
+  const errors = await prepareRenderScenario(page);
+  await enterRenderPhase(page, 'downhill');
+  await page.evaluate(() => {
+    const w = window as unknown as { simElapsed: number; showGameOver: (reason: string) => void };
+    w.simElapsed = 20;
+    w.showGameOver('You reached the end of the slope!');
+  });
+  await expect(page.locator('#gameOverOverlay')).toBeVisible();
+  await expect(page.locator('#courseResult')).toBeVisible();
+  await page.screenshot({ path: path.join(output, `${testInfo.project.name}-finish-dialog.png`), animations: 'disabled' });
+  expect(errors).toEqual([]);
 });

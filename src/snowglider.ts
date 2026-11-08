@@ -34,6 +34,7 @@ import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
+import { runTelemetryContext } from './run-telemetry.js';
 import { noop } from './noop.js';
 import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
@@ -41,7 +42,6 @@ import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
 import { resolveActiveDifficulty, readStoredDifficulty, storeDifficulty, runTierNeedsRebuild } from './difficulty.js';
 import { isRunTransition, runLaunchUrl } from './game/run-transition.js';
-import { resumeAudioOnPlayGesture } from './ui/play-audio-gesture.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
@@ -54,6 +54,8 @@ import { createLifecycle } from './game/lifecycle.js';
 import { disposeGame } from './game/teardown.js';
 import { watchContextLoss } from './game/context-loss.js';
 import { showFatalErrorOverlay, resetFatalErrorOverlay } from './ui/fatal-error-overlay.js';
+import { setStartupStatus } from './boot/startup-status.js';
+import { warmupStartupScene } from './boot/startup-warmup.js';
 
 // One AbortController owns every game-lifetime DOM listener — the keyboard/touch/resize
 // handlers in Controls, plus those wired below and inside scene-setup/lifecycle (the §4
@@ -70,7 +72,17 @@ Controls.setupControls(listenerAbort.signal);
 // The orchestrator owns the run loop + the window.* publish; scene-setup owns the
 // one-shot construction. Keep the whole context object (for disposeGame) and also
 // destructure the handles the loop/lifecycle/proxies use.
-const sceneContext = setupScene(listenerAbort.signal);
+setStartupStatus('building');
+let sceneContext: ReturnType<typeof setupScene>;
+try {
+  sceneContext = setupScene(listenerAbort.signal);
+} catch (error) {
+  // Renderer creation can fail before a scene exists to dispose. Do not leave
+  // the controls of that failed module attached to the still-usable menu.
+  listenerAbort.abort();
+  Controls.resetControls();
+  throw error;
+}
 const {
   scene,
   renderer,
@@ -99,15 +111,6 @@ const {
 const player = Physics.createPlayerState(Snow.getTerrainHeight);
 const pos = player.pos;
 const velocity = player.velocity;
-
-const playSurface = document.getElementById('gameCanvas');
-if (isRunTransition() && playSurface) {
-  resumeAudioOnPlayGesture(playSurface, {
-    signal: listenerAbort.signal,
-    isPlaying: () => state.gameActive,
-    resume: () => { AudioModule.startAudio(); Sfx.unlock(); },
-  });
-}
 
 // Persisted best loaded once at module eval (may prune an invalid stored entry).
 // Score-time validation + best-time persistence live in ui/result-overlay.ts.
@@ -275,6 +278,7 @@ Diag.init(
     ),
   },
   {
+    reportReady: () => typeof window.firebaseModules?.logEvent === 'function',
     report: (event, data) => {
       try {
         if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function' &&
@@ -299,8 +303,9 @@ Diag.init(
 // Terrain/obstacle placement is baked once, so rebuild through one navigation.
 // Carry the already-requested run in a validated URL parameter: the new scene and
 // menu read the same tier even if storage is blocked, then consume the intent and
-// start automatically. Only the legacy ?test= suites suppress navigation; ordinary
-// browser automation must exercise the real player transition.
+// wait for a fresh Start gesture so browser audio activation is preserved. Only
+// the legacy ?test= suites suppress navigation; ordinary browser automation must
+// exercise the real player transition.
 function maybeReloadForRunTier(): boolean {
   if (!runTierNeedsRebuild(state.difficulty, state.builtDifficulty, Boolean(window.isTestMode))) return false;
   storeDifficulty(state.difficulty);
@@ -364,6 +369,25 @@ let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
 let getReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let testAutoStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeIntro: IntroHandle | null = null;
+let startupPreparation: Promise<void> | null = null;
+
+/** Prepare this exact scene once while the menu is visible; no render loop or
+ * physics update runs here. Shader compilation stays on the normal render path. */
+export function prepareGameForStart(): Promise<void> {
+  if (startupPreparation) return startupPreparation;
+  startupPreparation = (async () => {
+    if (disposed) throw new Error('WebGL context unavailable during startup.');
+    const ready = await warmupStartupScene({
+      assetsReady: () => Trees.treeCollidersReady(),
+      waitForAssets: () => Trees.ezForestReady(),
+      useFallback: () => Trees.abandonPendingEzBuild(),
+      signal: listenerAbort.signal,
+    });
+    if (!ready || disposed) throw new Error('WebGL context unavailable during startup.');
+  })();
+  return startupPreparation;
+}
+
 // Names of the window.* handles this module installs (the publishGameGlobals
 // getters/setters; populated below). disposeSnowGlider deletes them so a clean unmount
 // doesn't leave the disposed scene reachable through their closures or stale APIs callable.
@@ -488,8 +512,8 @@ window.initializeGameWithAudio = function() {
   const pickedTier = startMenu?.getSelectedDifficulty?.();
   state.difficulty = resolveActiveDifficulty(pickedTier);
   // If the player picked a tier the scene wasn't built for, reload to reshape the terrain
-  // corridor/gates/obstacles/avalanche for it; the already-requested run resumes automatically after. Bail so
-  // we don't start a run against the scene that's about to be torn down.
+  // corridor/gates/obstacles/avalanche for it. The new page prepares that tier and
+  // waits for Start; do not run against the scene about to be torn down.
   if (maybeReloadForRunTier()) return;
   // Show the chosen tier's own best time (the HUD + result screen compare against this).
   state.bestTime = readStoredBestTime(state.difficulty);
@@ -598,7 +622,7 @@ window.initializeGameWithAudio = function() {
   // Track game start in analytics if available
   try {
     if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-      window.firebaseModules.logEvent('game_start');
+      window.firebaseModules.logEvent('game_start', runTelemetryContext(state.difficulty));
     }
   } catch (e) {
     console.log("Analytics tracking skipped:", (e as Error).message);
@@ -813,12 +837,15 @@ watchContextLoss(renderer.domElement, {
   signal: listenerAbort.signal,
   isContextLost: () => renderer.getContext().isContextLost(),
   onLost: () => {
+    const startContainer = document.getElementById('startGameContainer');
+    const menuVisible = !!startContainer && startContainer.style.display !== 'none';
     state.gameActive = false;
     state.animationRunning = false;
     try {
       disposeSnowGlider();
     } finally {
-      showFatalErrorOverlay(undefined, { reason: 'context-lost' });
+      setStartupStatus('error', new Error('WebGL context lost during startup.'), 'context-lost');
+      if (!menuVisible) showFatalErrorOverlay(undefined, { reason: 'context-lost' });
     }
   },
 });

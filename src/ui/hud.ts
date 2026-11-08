@@ -34,7 +34,7 @@ const RAD_TO_DEG = 180 / Math.PI;
 // its difficulty tier — flicker. Smooth the *display* value with an exponential
 // moving average so it reads steadily; the physics is untouched (it uses its own raw
 // per-frame gradient). `null` until the first sample seeds it; reset on a new run.
-const SLOPE_SMOOTH = 0.12;       // EMA weight on each new sample (~0.4s settle @60fps)
+const SLOPE_SMOOTH = 0.12;       // reference EMA weight at 60 Hz
 const SLOPE_TIER_HYST = 0.03;    // deadband around each tier edge so the label/colour
                                  // doesn't dither when the pitch hovers on a boundary
 const SLOPE_TIERS = [
@@ -67,13 +67,18 @@ export function formatStatTime(seconds: number): string {
   return seconds !== Infinity ? `${seconds.toFixed(1)}s` : '--';
 }
 
-// Wire up the Game Stats panel collapse/swipe behavior.
-export function initializeGameStats(signal?: AbortSignal): void {
+// Drop only per-run display history; replay/reset must not rewire the panels.
+export function resetStatsHud(): void {
   // Re-seed the slope EMA + tier so a new run doesn't drift in from the last run.
   smoothedSlope = null;
   slopeTierIdx = 0;
   // Force the level badge to repaint on the next frame of the new run.
   lastLevelTier = null;
+}
+
+// Wire up the Game Stats panel collapse/swipe behavior.
+export function initializeGameStats(signal?: AbortSignal): void {
+  resetStatsHud();
   // Game stats panel collapse/swipe behavior (shared with the Controls panel).
   setupCollapsiblePanel({
     name: 'game stats',
@@ -118,7 +123,7 @@ export function updateLevelHud(difficulty: Difficulty): void {
 // Per-frame stats readout: color-coded speed, altitude, terrain slope, and the
 // ground / jump / ski-technique indicator. `slopeRatio` is the terrain gradient
 // magnitude under the player (rise/run = tan θ), supplied by the run loop.
-export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: boolean, slopeRatio: number): void {
+export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: boolean, slopeRatio: number, frameDelta = 1 / 60): void {
   // Convert the metric world speed into real skiing units (km/h and mph).
   const speedMps = result.currentSpeed;
   const speedText = `${Math.round(speedMps * MPS_TO_KMH)} km/h (${Math.round(speedMps * MPS_TO_MPH)} mph)`;
@@ -153,17 +158,24 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
   // EMA of the noisy per-frame gradient, and the difficulty tier only changes once
   // the smoothed pitch is past an edge by SLOPE_TIER_HYST, so neither flickers.
   const slopeElement = document.getElementById('slopeValue');
-  if (slopeElement) {
-    smoothedSlope = smoothedSlope === null
-      ? slopeRatio
-      : smoothedSlope + (slopeRatio - smoothedSlope) * SLOPE_SMOOTH;
+  if (slopeElement && Number.isFinite(slopeRatio) && slopeRatio >= 0) {
+    if (smoothedSlope === null) {
+      smoothedSlope = slopeRatio;
+      // There is no previous band to retain on the first sample of a run.
+      slopeTierIdx = SLOPE_EDGES.filter(edge => slopeRatio > edge).length;
+    } else {
+      // Preserve the 60 Hz feel at every refresh rate, including no-step frames.
+      const dt = Number.isFinite(frameDelta) ? Math.max(0, frameDelta) : 1 / 60;
+      const weight = 1 - Math.pow(1 - SLOPE_SMOOTH, dt * 60);
+      smoothedSlope += (slopeRatio - smoothedSlope) * weight;
+    }
     const slope = smoothedSlope;
     // Hysteresis: step up only when clearly above the current band's top edge, and
-    // down only when clearly below its bottom edge (one step per frame; the EMA
-    // never jumps a whole band in a frame).
-    if (slopeTierIdx < SLOPE_EDGES.length && slope > SLOPE_EDGES[slopeTierIdx]! + SLOPE_TIER_HYST) {
+    // down only when clearly below its bottom edge. A slow frame can cross both.
+    while (slopeTierIdx < SLOPE_EDGES.length && slope > SLOPE_EDGES[slopeTierIdx]! + SLOPE_TIER_HYST) {
       slopeTierIdx++;
-    } else if (slopeTierIdx > 0 && slope < SLOPE_EDGES[slopeTierIdx - 1]! - SLOPE_TIER_HYST) {
+    }
+    while (slopeTierIdx > 0 && slope < SLOPE_EDGES[slopeTierIdx - 1]! - SLOPE_TIER_HYST) {
       slopeTierIdx--;
     }
     const tier = SLOPE_TIERS[slopeTierIdx]!;

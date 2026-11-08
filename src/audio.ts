@@ -16,7 +16,7 @@
 // Design principles:
 // 1. Native HTML5 Audio element - no library dependencies
 // 2. Single track only (bad_cat) - no track switching complexity
-// 3. Only 2 state variables - muted and initialized
+// 3. Minimal state - preferences, initialization, and explicit playback intent
 // 4. No pre-loading - load when user clicks play
 // 5. No visibility change handling - let browser manage it
 // 6. No retry prompts - if it doesn't work, it doesn't work
@@ -50,6 +50,9 @@ export const AudioModule = (function() {
   let audio: HTMLAudioElement | null = null;
   let muted = false;
   let initialized = false;
+  // A muted Play still records intent, so an in-game unmute can create the track.
+  // Preference changes on the welcome screen never opt into playback.
+  let playbackRequested = false;
   // Live showMessage() toasts (node + auto-remove timer) so teardown() can clear any that
   // are still on screen — they're fixed-position z-index:3000 divs that would otherwise
   // linger over the host page after an unmount until their timeout fires.
@@ -150,6 +153,7 @@ export const AudioModule = (function() {
       if (initialized) return { initialized: true };
 
       loadPreferences();
+      Sfx.setMuted(muted);
       initialized = true;
       console.log('[Audio] Initialized (simplified)');
       return { initialized: true };
@@ -157,11 +161,17 @@ export const AudioModule = (function() {
 
     setupUI: function() {
       if (!AUDIO_ENABLED) return;
+      AudioModule.init();
       createUI();
     },
 
     startAudio: function() {
-      if (!AUDIO_ENABLED || muted) return false;
+      if (!AUDIO_ENABLED) return false;
+      // The Play gesture can arrive before the deferred scene has initialized.
+      // Hydrate preferences synchronously before constructing or playing media.
+      AudioModule.init();
+      playbackRequested = true;
+      if (muted) return false;
 
       const el = createAudio();
       el.play().then(() => {
@@ -172,29 +182,31 @@ export const AudioModule = (function() {
       return true;
     },
 
-    toggleMute: function() {
+    // Update the shared preference without starting media. The welcome screen
+    // uses this API; only Play or an in-game unmute may request playback.
+    setMuted: function(value: boolean) {
       if (!AUDIO_ENABLED) return false;
-
-      muted = !muted;
+      AudioModule.init();
+      muted = value;
       savePreferences();
 
-      // The single mute button governs both subsystems: the background music here
-      // and the procedural sound effects (#158), which share the 'snowgliderMuted'
-      // preference key.
+      // The single mute preference governs background music and procedural SFX.
       Sfx.setMuted(muted);
+      if (muted && audio) audio.pause();
 
-      if (audio) {
-        if (muted) {
-          audio.pause();
-        } else {
-          audio.play().catch(() => {});
-        }
-      }
-
-      // Update button if exists
       const btn = document.getElementById('audioControlBtn');
       if (btn) updateButtonUI(btn);
+      return muted;
+    },
 
+    toggleMute: function() {
+      if (!AUDIO_ENABLED) return false;
+      AudioModule.init();
+      AudioModule.setMuted(!muted);
+
+      // If the run began muted, there is no element to resume yet. This method
+      // runs within the sound-button gesture, so it can create and play it now.
+      if (!muted && playbackRequested) AudioModule.startAudio();
       return muted;
     },
 
@@ -275,6 +287,7 @@ export const AudioModule = (function() {
       const btn = document.getElementById('audioControlBtn');
       btn?.parentNode?.removeChild(btn);
       initialized = false;
+      playbackRequested = false;
     }
   };
 })();

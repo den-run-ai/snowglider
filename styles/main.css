@@ -396,47 +396,73 @@ canvas { display: block; }
   background-color: rgba(12, 16, 24, 0.6);
 }
 
-/* Finish/game-over overlay difficulty picker: same option styling as the start screen
-   (via the shared classes above), laid out to match. Lets the player switch tier and
-   replay without reloading. */
-#finishDifficultyPicker {
+/* The result details scroll independently; replay never leaves the viewport. */
+#gameOverOverlay {
+  position: fixed;
+  inset: 0;
+  height: 100%;
+  height: 100dvh;
+  z-index: 1000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  overflow: hidden;
+  background: rgba(12, 18, 28, 0.94);
+  color: white;
+  font-family: Arial, sans-serif;
+}
+#gameOverContent {
+  width: min(100%, 440px);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  text-align: center;
+}
+#gameOverContent > * { box-sizing: border-box; max-width: 100%; }
+#gameOverMessage { font-size: clamp(26px, 6vw, 36px); margin: 4px 0 8px; }
+#gameOverDetail { font-size: 16px; line-height: 1.4; margin: 0 0 10px; }
+#gameOverContent #bestTimeDisplay { margin: 8px 0 12px; }
+#gameOverContent #courseResult { width: 100%; text-align: left; }
+#gameOverContent #authContainer { position: static; width: fit-content; margin: 12px auto; }
+#gameOverActions {
+  flex-shrink: 0;
+  width: min(100%, 440px);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  width: 280px;
-  max-width: 86vw;
-  margin: 2px 0 18px;
+  align-items: stretch;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.18);
+  background: #111925;
 }
-
+#gameOverOverlay button { flex-shrink: 0; }
+#finishDifficultyPicker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
 #finishDifficultyPicker .difficulty-heading {
+  grid-column: 1 / -1;
   font-size: 12px;
   color: #cfd8e3;
   text-align: center;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-
-/* Compact on the finish screen: drop the per-tier blurbs (already learned on the start
-   screen) so adding the picker above RESTART keeps the overlay short. */
-#finishDifficultyPicker .difficulty-option { padding: 6px 12px; }
+#finishDifficultyPicker .difficulty-option { min-width: 0; min-height: 44px; padding: 6px 4px; align-items: center; justify-content: center; }
+#finishDifficultyPicker .difficulty-name { font-size: 13px; }
 #finishDifficultyPicker .difficulty-blurb { display: none; }
+#gameOverActions #restartButton { width: 100%; min-height: 48px; }
 
-/* Keep the game-over overlay escapable. The result panel + leaderboard + this difficulty
-   picker can exceed the viewport on short/mobile screens; overflow-y:auto makes it scroll.
-   This pairs with `justify-content: safe center` (set inline in game/scene-setup.ts): plain
-   `center` + scrolling can strand overflow above the scroll origin, leaving GAME OVER or
-   RESTART unreachable, whereas `safe center` falls back to top-alignment when it overflows
-   so the whole panel scrolls into reach. flex-shrink:0 keeps RESTART from being squeezed. */
-#gameOverOverlay {
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-#gameOverOverlay button { flex-shrink: 0; }
-#gameOverOverlay #authContainer {
-  position: static;
-  margin: 8px 0 16px;
-  flex-shrink: 0;
-  max-width: 280px;
+@media (max-height: 430px) and (min-width: 480px) {
+  #gameOverActions { width: min(100%, 680px); flex-direction: row; align-items: end; }
+  #gameOverActions #restartButton { width: 150px; min-width: 150px; }
+  #gameOverActions #finishDifficultyPicker { flex: 1; }
 }
 
 #startMenu {

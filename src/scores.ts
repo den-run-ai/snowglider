@@ -46,6 +46,7 @@ import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-au
 // literals because rules can't import JS, and a drift test keeps them in lockstep.
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from './score-limits.js';
 import { withTrafficTag } from './analytics-env.js';
+import { runTelemetryContext } from './run-telemetry.js';
 // Per-tier scoring storage names. Blue maps to the original un-suffixed names, so the
 // default-tier paths/fields/keys (and every existing caller/test that passes no tier)
 // are byte-for-byte unchanged.
@@ -753,10 +754,10 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
 }
 
 /** Analytics is optional: a telemetry failure must never interrupt score persistence. */
-function logScoreEvent(name: 'complete_run' | 'new_high_score', time: number): void {
+function logScoreEvent(name: 'complete_run' | 'new_high_score', time: number, tier: Difficulty): void {
   if (!analytics) return;
   try {
-    logEvent(analytics, name, withTrafficTag({ time }));
+    logEvent(analytics, name, withTrafficTag({ time, ...runTelemetryContext(tier) }));
   } catch (error) {
     console.warn('Score analytics unavailable:', error);
   }
@@ -798,7 +799,7 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
     ? localBestTime
     : time;
 
-  logScoreEvent('complete_run', time);
+  logScoreEvent('complete_run', time, tier);
   const userAtTimeOfRecord = getActiveUser();
 
   if (userAtTimeOfRecord && !firestore && window.navigator.onLine &&
@@ -815,7 +816,7 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
     // The authoritative sync confirms both writes or queues this captured owner
     // for retry, including synchronous SDK exceptions and rejected promises.
     syncBestTimeWithRetry(userAtTimeOfRecord.uid, effectiveBestTime, tier);
-    if (isNewLocalBest) logScoreEvent('new_high_score', time);
+    if (isNewLocalBest) logScoreEvent('new_high_score', time, tier);
   }
 
   // Store a retry marker when a real user's ranked run cannot sync now. The
