@@ -27,7 +27,7 @@ test('keyboard About and feedback contain focus and return it without starting a
   const feedback = page.getByRole('button', { name: /Feedback/ });
   await feedback.focus();
   await page.keyboard.press('Space');
-  await expect(page.getByRole('dialog', { name: /Send Feedback/ })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: /Send feedback/i })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Your feedback' })).toBeFocused();
   await page.keyboard.type('wasd v');
   await expect(page.locator('#startGameContainer')).toBeVisible();
@@ -113,8 +113,8 @@ test('real-player release notice, About, and EZ mountain screenshots', async ({ 
   await gotoGame(page, '?eztrees=1');
   await page.locator('#startHelpDetails > summary').click();
   await expect(page.locator('.physics-era-notice')).toBeVisible();
-  await expect(page.locator('.physics-era-notice')).toContainText(/earlier records (are retained|are kept) separately/i);
-  await testInfo.attach('physics-v3-start-screen', { body: await page.screenshot(), contentType: 'image/png' });
+  await expect(page.locator('.physics-era-notice')).toContainText('Each difficulty has its own personal best. Choose Blue to compete on the global leaderboard.');
+  await testInfo.attach('help-and-leaderboard-note', { body: await page.screenshot(), contentType: 'image/png' });
   await page.locator('#aboutGameButton').click();
   await testInfo.attach('about-screen', { body: await page.screenshot(), contentType: 'image/png' });
   await page.keyboard.press('Escape');

@@ -354,6 +354,28 @@ async function main() {
   startPanel.remove();
   standaloneDisclosure.remove();
 
+  console.log('\n--- feedback panel owns native touch scrolling ---');
+  // Feedback is appended directly to body, outside the start-menu touch boundary.
+  // Exercise its real non-interactive copy so a scroll cannot become ski input or
+  // release a separate finger/key that was already held when the modal opened.
+  const { openFeedback } = await import('../src/ui/feedback.ts');
+  dispatchTouch('touchstart', document, heldPoint);
+  keydown('ArrowUp');
+  const controlsBeforeFeedbackTouch = JSON.stringify(Controls.getControls());
+  openFeedback();
+  const feedbackCopy = document.querySelector('#feedbackPanel > p');
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    const event = dispatchTouch(type, feedbackCopy,
+      [{ identifier: 84, clientX: W / 6, clientY: H / 2 }]);
+    check(`${type} on feedback copy allows native scrolling`, !event.defaultPrevented);
+    check(`${type} on feedback copy preserves held gameplay inputs`,
+      JSON.stringify(Controls.getControls()) === controlsBeforeFeedbackTouch);
+  }
+  document.getElementById('feedbackCancel').click();
+  document.getElementById('feedbackOverlay').remove();
+  dispatchTouch('touchend', document, heldPoint);
+  keyup('ArrowUp');
+
   console.log('\n--- interactive UI controls: touch passthrough (mobile) ---');
   // A tap on any interactive control (button/link/form field) drawn over the canvas
   // must be left to the browser: NOT preventDefaulted, so the synthesized click still

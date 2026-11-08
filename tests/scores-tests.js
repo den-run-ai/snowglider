@@ -565,7 +565,7 @@ async function main() {
   ScoresModule.displayLeaderboard();
   await flushAll();
   check('offline displayLeaderboard renders the offline message',
-    document.getElementById('leaderboard').innerHTML.includes('offline'));
+    document.getElementById('leaderboard').innerHTML.includes('Go online to see the leaderboard.'));
   env.setOnline(true);
 
   console.log('\n--- displayLeaderboard: renders ranked table and highlights current user ---');
@@ -580,8 +580,8 @@ async function main() {
   ScoresModule.displayLeaderboard();
   await flushAll();
   let lbHtml = document.getElementById('leaderboard').innerHTML;
-  check('displayLeaderboard renders the Top 10 Times table',
-    lbHtml.includes('Top 10 Times') && lbHtml.includes('<table>'));
+  check('displayLeaderboard renders the Top 10 times table',
+    lbHtml.includes('Top 10 times') && lbHtml.includes('<table>'));
   check('displayLeaderboard renders rows ascending with formatted times',
     lbHtml.includes('19.34s') && lbHtml.includes('20.00s') &&
     lbHtml.indexOf('19.34s') < lbHtml.indexOf('20.00s'));
@@ -647,8 +647,8 @@ async function main() {
   ScoresModule.initializeScores(firestoreInstance, analyticsInstance);
   ScoresModule.displayLeaderboard();
   await flushAll();
-  check('empty leaderboard renders the no-scores message',
-    document.getElementById('leaderboard').innerHTML.includes('No scores recorded yet'));
+  check('empty leaderboard invites the first time',
+    document.getElementById('leaderboard').innerHTML.includes('No times yet. Set the first one!'));
 
   console.log('\n--- displayLeaderboard: unavailable Firestore, failed reinitialization ---');
   resetState(ScoresModule);

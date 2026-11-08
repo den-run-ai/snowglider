@@ -160,7 +160,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   const imageBtn = document.createElement('button');
   imageBtn.id = 'shareImageBtn';
   imageBtn.type = 'button';
-  const imageLabel = '📸 Save image (Instagram)';
+  const imageLabel = '📸 Save run image';
   imageBtn.textContent = imageLabel;
   styleButton(imageBtn, false);
   defuseTouch(imageBtn);
@@ -182,7 +182,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   // this caveat lives inside the desktop-only menu.)
   const igHint = document.createElement('p');
   igHint.id = 'shareInstagramHint';
-  igHint.textContent = 'Instagram has no web sharing — use “Save image”, then upload the photo in the app.';
+  igHint.textContent = 'For Instagram, save your run image and post it in the app.';
   Object.assign(igHint.style, {
     margin: '10px 2px 0', fontSize: '11px', lineHeight: '1.4', color: 'rgba(255,255,255,0.6)',
     fontFamily: 'Arial, sans-serif',
@@ -231,7 +231,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   async function handleImage(): Promise<void> {
     if (imageBusy) return;
     imageBusy = true;
-    imageBtn.textContent = '⏳ Building image…';
+    imageBtn.textContent = '⏳ Preparing image…';
     try {
       const blob = preparedCard || await cardReady;
       if (!blob) { flash(imageBtn, '⚠️ Image unavailable', imageLabel); return; }
@@ -241,7 +241,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
       if (outcome === 'cancelled') { imageBtn.textContent = imageLabel; return; }
       // Desktop (or no file share): download it; Instagram has no web post API,
       // so the player uploads the saved PNG in the app manually.
-      flash(imageBtn, downloadBlob(blob) ? '✅ Image saved — open Instagram' : '⚠️ Image unavailable', imageLabel);
+      flash(imageBtn, downloadBlob(blob) ? '✅ Image saved!' : '⚠️ Image unavailable', imageLabel);
     } finally {
       imageBusy = false;
     }

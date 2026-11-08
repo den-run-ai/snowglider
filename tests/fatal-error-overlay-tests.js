@@ -6,7 +6,7 @@
 // The overlay turns the old "silent frozen screen" failure mode (rAF rescheduled at the
 // top of the frame, so a throwing frame spins forever) into a one-tap reload. These
 // tests drive the module directly under jsdom: it builds once, re-shows idempotently,
-// surfaces the error message, and its Reload button invokes the recovery action.
+// explains recovery, and its Reload button invokes the recovery action.
 
 'use strict';
 
@@ -33,7 +33,9 @@ async function main() {
     check('overlay is visible', el.style.display === 'flex');
     check('overlay sits above the game-over overlay (z-index 1000)', Number(el.style.zIndex) > 1000);
     check('has a Reload button', !!document.getElementById('fatalErrorReloadBtn'));
-    check('surfaces the error message', /module boom/.test(document.getElementById('fatalErrorMessage').textContent));
+    check('explains recovery without exposing raw error details',
+      /Reload to start a new run/.test(document.getElementById('fatalErrorMessage').textContent)
+      && !/module boom/.test(document.getElementById('fatalErrorMessage').textContent));
   }
 
   // --- Idempotent: a second call reuses the same node (no duplicates) ---
@@ -42,7 +44,9 @@ async function main() {
     const again = showFatalErrorOverlay(new Error('second boom'));
     check('reuses the single overlay node', again === first);
     check('only one overlay exists in the DOM', document.querySelectorAll('#fatalErrorOverlay').length === 1);
-    check('updates the message on re-show', /second boom/.test(document.getElementById('fatalErrorMessage').textContent));
+    check('re-show keeps useful recovery guidance without raw error details',
+      /Reload to start a new run/.test(document.getElementById('fatalErrorMessage').textContent)
+      && !/second boom/.test(document.getElementById('fatalErrorMessage').textContent));
   }
 
   // --- The Reload button invokes the (injected) recovery action ---
@@ -78,7 +82,7 @@ async function main() {
     check('runtime context loss has an accurate title',
       document.getElementById('fatalErrorTitle').textContent === 'Graphics interrupted');
     check('runtime context loss explains that the run stopped and needs a reload',
-      /game has stopped.*Reload to start a new run/.test(document.getElementById('fatalErrorMessage').textContent));
+      /graphics stopped responding.*Reload to start a new run/.test(document.getElementById('fatalErrorMessage').textContent));
     check('context recovery takes focus on Reload', document.activeElement.id === 'fatalErrorReloadBtn');
     showFatalErrorOverlay(new Error('other error'));
     check('ordinary errors reset the context-loss title',

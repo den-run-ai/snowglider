@@ -506,7 +506,7 @@ function handleSignInError(reason: unknown) {
   const error = readAuthError(reason);
   console.error("Sign-in error:", error.code, error.message);
   if (error.code === 'auth/popup-blocked') {
-    alert('Popup blocked by browser. Please allow popups for this site and try again.');
+    alert('Your browser blocked the sign-in window. Allow pop-ups for SnowGlider, then try again.');
   } else if (error.code === 'auth/popup-closed-by-user' ||
              error.code === 'auth/cancelled-popup-request') {
     // Benign: the user closed the popup, or a second sign-in superseded this one
@@ -514,14 +514,14 @@ function handleSignInError(reason: unknown) {
     console.log('Sign-in cancelled (popup closed or superseded):', error.code);
   } else if (error.code === 'auth/account-exists-with-different-credential') {
     // The email is already linked to a different provider.
-    alert('An account already exists with this email using a different sign-in method. ' +
-          'Please sign in with that method instead.');
+    alert('This email is already linked to another sign-in option. ' +
+          'Use that option to continue.');
   } else if (error.code === 'auth/operation-not-allowed') {
     // The provider isn't enabled in the Firebase console yet (e.g. Apple before
     // its Service ID is set up). Show a friendly message instead of the raw error.
     alert("That sign-in method isn't available yet. Please use another option.");
   } else {
-    alert(`Error during sign-in: ${error.message}`);
+    alert('We couldn’t sign you in. Try again, or choose another sign-in option.');
   }
   resetAuthButtons(); // Re-enable buttons on any error to allow a retry
 }
@@ -536,7 +536,7 @@ function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
 
   if (!auth) {
     console.error("Auth service not available. Cannot sign in.");
-    alert("Authentication service is currently unavailable. Please try again later.");
+    alert('Sign-in is unavailable right now. You can still start a run without signing in.');
     resetAuthButtons();
     return;
   }
@@ -585,7 +585,7 @@ function signInAsGuest(btn: HTMLButtonElement) {
 
   if (!auth) {
     console.error("Auth service not available. Cannot start guest session.");
-    alert("Authentication service is currently unavailable. Please try again later.");
+    alert('Sign-in is unavailable right now. You can still start a run without signing in.');
     resetAuthButtons();
     return;
   }
@@ -688,7 +688,7 @@ function setupAuthButtons() {
         })
         .catch((error: unknown) => {
             console.error("Logout error:", error);
-            alert(`Error signing out: ${readAuthError(error).message}`); // Inform user of logout error
+            alert('We couldn’t sign you out. Please try again.'); // Inform user of logout error
         })
         .finally(() => {
           // Reset button state regardless of success/failure

@@ -776,7 +776,7 @@ export const CourseModule = (function () {
     // practice note instead.
     if (getRunStamp().practice) {
       return buildResultPanel(totalTime, previousBest, false, false,
-        { key: 'finish', icon: '\u{1F9EA}', label: 'Practice run \u2014 seeded world (not ranked)' }, false);
+        { key: 'finish', icon: '\u{1F9EA}', label: 'Practice run \u2014 custom mountain' }, false);
     }
     if (!recordEligible) {
       return buildResultPanel(totalTime, previousBest, false, false,
@@ -840,8 +840,8 @@ export const CourseModule = (function () {
       improve.style.color = '#dfe6e9';
     } else if (isFirst || !Number.isFinite(previousBest)) {
       improve.textContent = GHOST_VISIBLE
-        ? 'Set the time to beat — your ghost will race you next run.'
-        : 'Set the time to beat — try to beat it on your next run.';
+        ? 'Your first finish! Race your ghost next time.'
+        : 'Your first finish! Beat this time on your next run.';
       improve.style.color = '#74b9ff';
     } else if (isBest) {
       const d = totalTime - previousBest;

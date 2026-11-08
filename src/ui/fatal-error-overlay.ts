@@ -65,7 +65,7 @@ export function showFatalErrorOverlay(err?: unknown, opts: FatalErrorOverlayOpti
 
     const body = document.createElement('div');
     body.id = 'fatalErrorMessage';
-    body.textContent = "The game hit an unexpected error. This is usually a stale cache after an update — reloading fixes it.";
+    body.textContent = 'An unexpected error stopped the game. Reload to start a new run.';
     Object.assign(body.style, {
       fontSize: '15px', maxWidth: '420px', lineHeight: '1.4', color: '#cfd8e3',
     } as Partial<CSSStyleDeclaration>);
@@ -86,8 +86,8 @@ export function showFatalErrorOverlay(err?: unknown, opts: FatalErrorOverlayOpti
     document.body.appendChild(overlay);
   }
 
-  // Surface a short, non-sensitive hint of the error for debugging without dumping a
-  // full stack at the player. Cosmetic only; the reload is the real recovery.
+  // The caller logs technical details; keep the player-facing message focused on
+  // recovery. Cosmetic only; the reload is the real recovery.
   const detail = overlay.querySelector<HTMLElement>('#fatalErrorMessage');
   const title = overlay.querySelector<HTMLElement>('#fatalErrorTitle');
   if (title) title.textContent = opts.reason === 'context-lost'
@@ -95,12 +95,10 @@ export function showFatalErrorOverlay(err?: unknown, opts: FatalErrorOverlayOpti
   if (detail) {
     const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
     detail.textContent = opts.reason === 'context-lost'
-      ? 'The browser lost its graphics connection. The game has stopped. Reload to start a new run.'
+      ? 'The game’s graphics stopped responding. Reload to start a new run.'
       : /WebGL.*context|context.*WebGL/i.test(msg)
-      ? 'This browser could not start 3D graphics. Enable hardware acceleration or try a browser with WebGL support, then reload.'
-      : msg
-        ? `The game hit an unexpected error (“${msg}”). Try reloading to load a fresh copy of the game.`
-        : 'The game hit an unexpected error. Try reloading to load a fresh copy of the game.';
+      ? 'Your browser couldn’t start the game’s 3D graphics. Try another browser or turn on hardware acceleration, then reload.'
+      : 'An unexpected error stopped the game. Reload to start a new run.';
   }
 
   overlay.style.display = 'flex';

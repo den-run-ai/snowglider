@@ -7,7 +7,7 @@
        (vite.config.js); the "dev" placeholder only shows if served without Vite. -->
   <meta name="build-id" content="dev">
   <title>SnowGlider — ski a snowman down the mountain</title>
-  <meta name="description" content="Race a snowman down a procedurally generated backcountry mountain — dodge trees, launch off jumps, and outrun the avalanche. Beat the clock and your own best time. Free in your browser, no install.">
+  <meta name="description" content="Take a little snowman on a big downhill adventure. Carve through trees, catch some air, and race to the finish. Play free in your browser.">
   <link rel="canonical" href="https://snowglider.ai/">
 
   <!-- Social link previews (Open Graph + Twitter Card). Facebook, LinkedIn, X,
@@ -20,7 +20,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="SnowGlider">
   <meta property="og:title" content="SnowGlider — ski a snowman down the mountain">
-  <meta property="og:description" content="Race a snowman down a procedurally generated backcountry mountain — dodge trees, launch off jumps, and outrun the avalanche. Beat the clock and your own best time. Free in your browser, no install.">
+  <meta property="og:description" content="Take a little snowman on a big downhill adventure. Carve through trees, catch some air, and race to the finish. Play free in your browser.">
   <meta property="og:url" content="https://snowglider.ai/">
   <meta property="og:image" content="https://raw.githubusercontent.com/den-run-ai/snowglider/assets/og-image/og-card.png">
   <meta property="og:image:width" content="1200">
@@ -28,7 +28,7 @@
   <meta property="og:image:alt" content="SnowGlider — a snowman skiing down a snowy backcountry mountain">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="SnowGlider — ski a snowman down the mountain">
-  <meta name="twitter:description" content="Race a snowman down a procedurally generated backcountry mountain — dodge trees, launch off jumps, and outrun the avalanche. Free in your browser.">
+  <meta name="twitter:description" content="Take a little snowman on a big downhill adventure. Carve through trees, catch some air, and race to the finish. Play free in your browser.">
   <meta name="twitter:image" content="https://raw.githubusercontent.com/den-run-ai/snowglider/assets/og-image/og-card.png">
 
   <link rel="stylesheet" href="styles/main.css">
@@ -178,8 +178,8 @@
         </div>
         <div class="start-heading-copy">
           <h1 id="gameTitle">SnowGlider<span aria-hidden="true">❄</span></h1>
-          <p id="gameIntro">A cheerful snowman on skis shredding mountain snow powder <span>⛄️⛷️🏔️</span></p>
-          <p id="gameDescription">Carve past trees. Hit the checkpoints.<br> Outrun the avalanche.</p>
+          <p id="gameIntro">A little snowman. A big downhill adventure.</p>
+          <p id="gameDescription">Carve through trees. Race to the finish.</p>
         </div>
         <div id="startStatus"></div>
         <p id="startLoadingStatus" role="status" aria-live="polite" aria-atomic="true"><span class="startup-indicator" aria-hidden="true"></span><span id="startLoadingText">Preparing mountain…</span></p>
@@ -200,18 +200,18 @@
           <summary class="menu-disclosure">How to play <span class="panel-chevron" aria-hidden="true"></span></summary>
           <div class="menu-details-body">
     <div id="controlsGuide">
-      <h3>Controls</h3>
+      <h3>Keyboard</h3>
       <div class="control-row">
         <span><span class="key">←</span> <span class="key">A</span></span>
-        <span>Turn Left</span>
+        <span>Turn left</span>
       </div>
       <div class="control-row">
         <span><span class="key">→</span> <span class="key">D</span></span>
-        <span>Turn Right</span>
+        <span>Turn right</span>
       </div>
       <div class="control-row">
         <span><span class="key">↑</span> <span class="key">W</span></span>
-        <span>Accelerate</span>
+        <span>Tuck to speed up</span>
       </div>
       <div class="control-row">
         <span><span class="key">↓</span> <span class="key">S</span></span>
@@ -225,32 +225,19 @@
       </div>
       <div class="control-row">
         <span><span class="key">V</span></span>
-        <span>Toggle Chase View</span>
+        <span>Change camera view</span>
       </div>
-      <h4 class="control-subhead">⛷️ Ski Techniques</h4>
-      <div class="control-row">
-        <span><span class="key">←</span><span class="key">→</span></span>
-        <span>Parallel turn — steer to brush the skis &amp; scrub speed for a tighter turn</span>
-      </div>
-      <div class="control-row">
-        <span><span class="key">←</span><span class="key">→</span> hold</span>
-        <span>Carve — hold a smooth turn: skis edge in, lean hard, hold speed (wide arc)</span>
-      </div>
-      <div class="control-row">
-        <span><span class="key">↓</span><span class="key">S</span></span>
-        <span>Snowplow / pizza — wedge the tips together: tap to slow, hold to stop (too steep = only slows)</span>
-      </div>
-      <div class="control-row">
-        <span><span class="key">↑</span><span class="key">W</span></span>
-        <span>Tuck — straight-line (no steering) for maximum speed; fold into a low aero crouch</span>
-      </div>
-      <div class="control-row" id="hopControlRow">
-        <span><span class="key">Space</span>+<span class="key">←</span><span class="key">→</span></span>
-        <span>Hop turn — quick pivot for tight, steep terrain</span>
-      </div>
+      <h4 class="control-subhead">Ski tips</h4>
+      <ul class="help-tips">
+        <li><strong>Quick turns:</strong> Tap left or right for a tighter turn.</li>
+        <li><strong>Carving:</strong> Hold a turn for a smooth, wide arc.</li>
+        <li><strong>Braking:</strong> Hold down to slow or stop. On steep slopes, brake early.</li>
+        <li><strong>Tucking:</strong> Hold up on a clear, straight stretch to gain speed.</li>
+        <li id="hopControlRow"><strong>Hop turns:</strong> Jump while steering to turn in the air.</li>
+      </ul>
     </div>
-    <p class="touch-note">📱 On touch devices: tap the left/right of the screen to steer, top/bottom for speed<span id="touchJumpNote">, and the center to jump</span>.</p>
-            <p class="physics-era-notice">Personal bests and the leaderboard use the current mountain and avalanche timing. Earlier records are kept separately.</p>
+    <p class="touch-note"><strong>On a phone or tablet</strong><br>Hold the left or right control to steer, the top-center control to speed up, or the bottom-center control to brake<span id="touchJumpNote">. Tap the center to jump</span>.</p>
+            <p class="physics-era-notice">Each difficulty has its own personal best. Choose Blue to compete on the global leaderboard.</p>
             <p id="keyboardHint">Press <span class="key">Enter</span> or <span class="key">Space</span> to start from the play button.</p>
             <div id="buildBadge" aria-label="build version"></div>
           </div>
@@ -258,8 +245,16 @@
         <details id="offlinePlayDetails" class="menu-details">
           <summary class="menu-disclosure">Offline play <span class="panel-chevron" aria-hidden="true"></span></summary>
           <div class="menu-details-body" id="offlinePlayContent">
-            <p>Open SnowGlider online once and let it finish loading. Then return in the same browser to play offline. Best times stay on this device; the global leaderboard and sign-in need a connection.</p>
-            <p>On iPhone or iPad, use Safari’s Share → Add to Home Screen. In Chrome, use the browser’s Install option when available.</p>
+            <ol class="offline-steps">
+              <li><strong>Load once online.</strong> Open SnowGlider and wait until your run is ready.</li>
+              <li><strong>Come back offline.</strong> Use the same browser on this device. Your best times stay here, too.</li>
+            </ol>
+            <p>Sign-in and the global leaderboard need an internet connection.</p>
+            <h4 class="control-subhead">Add it to your home screen</h4>
+            <ul class="help-tips">
+              <li><strong>iPhone or iPad:</strong> In Safari, tap Share, then Add to Home Screen.</li>
+              <li><strong>Chrome:</strong> Choose Install in the browser menu, if available.</li>
+            </ul>
             <div id="startInstallSlot"></div>
           </div>
         </details>
@@ -269,18 +264,42 @@
         </div>
       </div>
       <div class="start-account-info">
-        <p id="startSignInHint" style="display:none;">Optional: sign in above to save your Blue best time to the global leaderboard.</p>
+        <p id="startSignInHint" style="display:none;">Want to join the Blue leaderboard? Sign in above with Google or GitHub.</p>
         <div id="startLeaderboard" style="display:none;"></div>
       </div>
       <div id="startUpdateSlot"></div>
     <div id="aboutGamePanel" role="dialog" aria-labelledby="aboutGameTitle">
-      <h3 id="aboutGameTitle">About SnowGlider</h3>
-      <p>SnowGlider is a 3D skiing game where you guide a snowman down a procedurally generated backcountry mountain.</p>
-      <p>Reach the finish as fast as you can: pass through the checkpoint gates, watch your split times, and beat the fastest run you've recorded.</p>
-      <p>Keep an eye uphill — once you've descended far enough, an avalanche of tumbling snow boulders gives chase. Get caught and it's game over.</p>
-      <p>Sign in with Google or GitHub to save your Blue run to the global leaderboard. Made with Three.js and a lot of love for winter sports.</p>
-      <p>Music: <a href="https://www.newgrounds.com/audio/listen/376737" target="_blank" rel="noopener">“Bad Cat [Master Version]” by Skullbeatz</a>, used under <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="license noopener">CC BY-SA 3.0</a>. See the <a href="THIRD_PARTY_NOTICES.md">third-party notices</a>.</p>
-      <button id="closeAboutButton" class="menu-button">Close</button>
+      <header class="about-header">
+        <h2 id="aboutGameTitle">About SnowGlider</h2>
+        <button id="closeAboutButton" class="menu-button" type="button" aria-label="Close About">Close</button>
+      </header>
+      <p class="about-intro">A little snowman. A big downhill adventure.</p>
+      <p class="about-lead">Leave fresh tracks, dodge the trees, and make it to the bottom with your carrot nose intact.</p>
+      <ul class="about-highlights">
+        <li>
+          <span class="about-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 3c-5 4 8 5 3 9s-5 6-1 9M14 3c-5 4 8 5 3 9s-5 6-1 9"/></svg></span>
+          <div><h3>Find your line</h3><p>Follow the checkpoint gates, carve the turns, and chase a faster finish.</p></div>
+        </li>
+        <li>
+          <span class="about-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m2 20 8-16 6 11 2-5 5 10H2Z"/><path d="m7 10 3 3 3-3"/></svg></span>
+          <div><h3>Pick your pace</h3><p>Learn the ropes on Bunny, race on Blue, or take on steeper slopes and jumps on Black and Expert.</p></div>
+        </li>
+        <li>
+          <span class="about-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 3 3-3M9 20l3-3 3 3M3.6 10.6l4.1-1.1-1.1-4.1M17.4 18.6l-1.1-4.1 4.1-1.1M6.6 18.6l1.1-4.1-4.1-1.1M20.4 10.6l-4.1-1.1 1.1-4.1"/></svg></span>
+          <div><h3>Stay ahead of the avalanche</h3><p>On Blue and above, the snow gives chase. Prefer a calmer ride? Bunny has no avalanche.</p></div>
+        </li>
+      </ul>
+      <section class="about-account" aria-labelledby="aboutAccountTitle">
+        <h3 id="aboutAccountTitle">Jump straight in</h3>
+        <p>No sign-in needed. Your best times stay on this device. Sign in with Google or GitHub to join the Blue leaderboard.</p>
+      </section>
+      <details class="about-credits menu-details">
+        <summary class="menu-disclosure">Music &amp; credits <span class="panel-chevron" aria-hidden="true"></span></summary>
+        <div class="menu-details-body">
+          <p>Music: <a href="https://www.newgrounds.com/audio/listen/376737" target="_blank" rel="noopener">“Bad Cat [Master Version]” by Skullbeatz</a>, used under <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="license noopener">CC BY-SA 3.0</a>.</p>
+          <p>Made with Three.js. <a href="THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">Full credits &amp; licenses</a>.</p>
+        </div>
+      </details>
     </div>
 
     </div>
@@ -297,15 +316,15 @@
       <div id="controlsContent">
         <div class="control-item">
           <span class="key-badge">←/A</span>
-          <span>Turn Left</span>
+          <span>Turn left</span>
         </div>
         <div class="control-item">
           <span class="key-badge">→/D</span>
-          <span>Turn Right</span>
+          <span>Turn right</span>
         </div>
         <div class="control-item">
           <span class="key-badge">↑/W</span>
-          <span>Accelerate</span>
+          <span>Tuck to speed up</span>
         </div>
         <div class="control-item">
           <span class="key-badge">↓/S</span>
@@ -321,17 +340,17 @@
         </div>
         <div class="control-item">
           <span class="key-badge">Q/E</span>
-          <span>Orbit left / right (360°)</span>
+          <span>Rotate the camera</span>
         </div>
         <div class="control-item">
           <span class="key-badge">C</span>
-          <span>Recenter behind snowman</span>
+          <span>Center behind the snowman</span>
         </div>
         <div class="control-item">
           <span class="key-badge">+/− / wheel</span>
           <span>Zoom in / out</span>
         </div>
-        <h4 class="control-subhead">⛷️ Ski Techniques</h4>
+        <h4 class="control-subhead">⛷️ Ski tips</h4>
         <div class="control-item">
           <span class="key-badge">←/→</span>
           <span>Parallel — tighter turns</span>
@@ -350,7 +369,7 @@
         </div>
         <div class="control-item">
           <span class="key-badge">Space+←/→</span>
-          <span>Hop turn — on steeps</span>
+          <span>Hop turn — jump and steer</span>
         </div>
       </div>
     </div>

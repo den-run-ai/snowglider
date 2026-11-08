@@ -55,7 +55,7 @@ test('Google, GitHub, guest upgrade and logout remain usable across menu and res
   page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.accept(); });
   await activate(page.locator('#loginBtn'), hasTouch);
   await expect.poll(() => dialogs.length).toBe(1);
-  expect(dialogs[0]).toMatch(/allow popups/i);
+  expect(dialogs[0]).toMatch(/allow pop-ups/i);
   await expect(page.locator('#loginBtn')).toBeEnabled();
 
   await page.evaluate(async () => {

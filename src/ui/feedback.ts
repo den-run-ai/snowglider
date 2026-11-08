@@ -4,8 +4,8 @@
 // keyless and safe to ship inside a static GitHub-Pages client:
 //
 //   1. GitHub - we never hold a write token in the browser (embedding one would
-//      leak it to every visitor). Instead "Submit" opens GitHub's *prefilled*
-//      new-issue form (title / body / labels filled from the player's input plus
+//      leak it to every visitor). Instead "Continue to GitHub" opens GitHub's
+//      *prefilled* new-issue form (title / body / labels filled from the player's input plus
 //      optional runtime context). The player previews it and submits on
 //      github.com under their OWN account. No server, no Cloud Function, no
 //      secret in the bundle.
@@ -41,9 +41,9 @@ interface CategoryMeta {
 
 // Order here drives the radio order in the modal; `feature` is the default.
 export const FEEDBACK_CATEGORIES: Record<FeedbackCategory, CategoryMeta> = {
-  feature: { label: '✨ Feature request', titlePrefix: '[Feature] ', issueLabels: ['enhancement', FEEDBACK_LABEL] },
-  bug:     { label: '🐞 Bug report',      titlePrefix: '[Bug] ',     issueLabels: ['bug', FEEDBACK_LABEL] },
-  general: { label: '💬 General feedback', titlePrefix: '[Feedback] ', issueLabels: [FEEDBACK_LABEL] },
+  feature: { label: 'Feature request', titlePrefix: '[Feature] ', issueLabels: ['enhancement', FEEDBACK_LABEL] },
+  bug:     { label: 'Bug report',      titlePrefix: '[Bug] ',     issueLabels: ['bug', FEEDBACK_LABEL] },
+  general: { label: 'General feedback', titlePrefix: '[Feedback] ', issueLabels: [FEEDBACK_LABEL] },
 };
 
 const DEFAULT_CATEGORY: FeedbackCategory = 'feature';
@@ -92,8 +92,8 @@ export interface FeedbackContext {
 export function collectContext(includeDiagnostics: boolean): FeedbackContext {
   const ctx: FeedbackContext = {};
   // ALL of the following is device/page context gated behind the opt-in checkbox
-  // ("Include diagnostics (build, device, physics trace)"). With the box unchecked
-  // we attach nothing, so an ordinary submission never leaks the URL (which can
+  // (device details, game version, page link, and recent game activity). With the
+  // box unchecked we attach nothing, so an ordinary submission never leaks the URL (which can
   // carry query-string state), the viewport, or the user-agent — only the player's
   // own message goes into the issue.
   if (!includeDiagnostics) return ctx;
@@ -228,18 +228,21 @@ function buildModal(): HTMLDivElement {
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-labelledby', 'feedbackTitle');
   Object.assign(panel.style, {
-    background: '#1c2230', color: '#fff', width: 'min(440px, 92vw)',
-    maxHeight: '90vh', overflowY: 'auto', borderRadius: '14px', padding: '20px',
+    background: '#1c2230', color: '#fff', width: 'min(440px, calc(100vw - 24px))',
+    boxSizing: 'border-box', maxHeight: 'calc(100vh - 24px)',
+    overflowY: 'auto', borderRadius: '14px', padding: '20px',
     boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
   });
+  // Unsupported dynamic viewport units leave the vh fallback above in place.
+  panel.style.maxHeight = 'calc(100dvh - 24px)';
 
   const heading = document.createElement('h3');
   heading.id = 'feedbackTitle';
-  heading.textContent = '💬 Send Feedback';
+  heading.textContent = 'Send feedback';
   Object.assign(heading.style, { margin: '0 0 6px', fontSize: '20px' });
 
   const blurb = document.createElement('p');
-  blurb.textContent = 'Tell us what to build or fix. Submit opens a prefilled GitHub issue you confirm under your own account.';
+  blurb.textContent = 'Found a bug or have an idea? Tell us below. You’ll review and post your feedback on GitHub.';
   Object.assign(blurb.style, { margin: '0 0 14px', fontSize: '13px', color: 'rgba(255,255,255,0.7)', lineHeight: '1.4' });
 
   // Category radios.
@@ -275,7 +278,7 @@ function buildModal(): HTMLDivElement {
   diagCheck.type = 'checkbox';
   diagCheck.id = 'feedbackIncludeDiagnostics';
   diagRow.appendChild(diagCheck);
-  diagRow.appendChild(document.createTextNode('Include diagnostics (build, device, physics trace)'));
+  diagRow.appendChild(document.createTextNode('Include device details, game version, page link, and recent game activity'));
 
   const error = document.createElement('p');
   error.id = 'feedbackError';
@@ -289,9 +292,9 @@ function buildModal(): HTMLDivElement {
   const submit = document.createElement('button');
   submit.id = 'feedbackSubmit';
   submit.type = 'button';
-  submit.textContent = 'Submit on GitHub →';
+  submit.textContent = 'Continue to GitHub →';
   Object.assign(submit.style, {
-    flex: '1', padding: '10px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+    flex: '1', minHeight: '44px', padding: '10px', borderRadius: '10px', border: 'none', cursor: 'pointer',
     fontWeight: '700', fontSize: '14px', color: '#fff',
     background: 'linear-gradient(90deg,#0984e3,#74b9ff)',
   });
@@ -301,7 +304,7 @@ function buildModal(): HTMLDivElement {
   cancel.type = 'button';
   cancel.textContent = 'Cancel';
   Object.assign(cancel.style, {
-    padding: '10px 16px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+    minHeight: '44px', padding: '10px 16px', borderRadius: '10px', border: 'none', cursor: 'pointer',
     fontWeight: '700', fontSize: '14px', color: '#fff', background: 'rgba(255,255,255,0.14)',
   });
 
@@ -341,7 +344,7 @@ function buildModal(): HTMLDivElement {
   submit.addEventListener('click', () => {
     const message = textarea.value.trim();
     if (!message) {
-      error.textContent = 'Please describe your feedback first.';
+      error.textContent = 'Add a few details first.';
       error.style.display = 'block';
       textarea.focus();
       return;

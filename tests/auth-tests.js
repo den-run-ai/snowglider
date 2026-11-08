@@ -213,7 +213,7 @@ async function main() {
   logoutBtn.dispatchEvent(new window.Event('click'));
   await flush();
   await flush();
-  check('sign-out failure alerts the user', alerts.some(a => /network down/.test(a)));
+  check('sign-out failure explains how to retry', alerts.some(a => /sign you out.*try again/i.test(a)));
   check('sign-out failure re-enables the logout button',
     logoutBtn.disabled === false && logoutBtn.textContent === 'Logout');
   fb.emitAuthState(null);
@@ -260,24 +260,25 @@ async function main() {
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
   check('popup-blocked: shows an alert and re-enables the button',
-    alerts.length === 1 && /popup/i.test(alerts[0]) && loginBtn.disabled === false);
+    alerts.length === 1 && /sign-in window/i.test(alerts[0]) && loginBtn.disabled === false);
 
   // unknown error: generic alert.
   alerts.length = 0;
   fb.setNextPopupResult({ reject: { code: 'auth/internal-error', message: 'boom' } });
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
-  check('unknown error: shows a generic alert', alerts.length === 1 && /boom/.test(alerts[0]));
+  check('unknown error: shows recovery guidance without raw service details',
+    alerts.length === 1 && /Try again/.test(alerts[0]) && !/boom/.test(alerts[0]));
 
-  // Promise rejection values are not guaranteed FirebaseError objects. Preserve
-  // useful plain strings and recover controls even when no message/code exists.
+  // Promise rejection values are not guaranteed FirebaseError objects. Give
+  // recovery guidance and release controls even when no message/code exists.
   for (const reason of ['network failed', null, undefined, { code: 42, message: { invalid: true } }]) {
     alerts.length = 0;
     fb.setNextPopupResult({ reject: reason });
     loginBtn.dispatchEvent(new window.Event('click'));
     await flush();
     check('malformed rejection produces a useful message and releases sign-in controls',
-      alerts.length === 1 && /network failed|Unknown error/.test(alerts[0]) && loginBtn.disabled === false);
+      alerts.length === 1 && /Try again/.test(alerts[0]) && loginBtn.disabled === false);
   }
 
   console.log('\n--- GitHub & Apple provider sign-in ---');

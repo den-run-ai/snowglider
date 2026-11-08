@@ -186,39 +186,40 @@ export interface ResultSyncState {
   timingCompromised?: boolean;
 }
 
-/** Practice-tier copy (unranked): local best + ghost only, no global board. */
-export const RESULT_UNRANKED_COPY = 'Practice tier — local best and ghost only.';
+/** Practice-tier copy (unranked): best times stay local, no global board. */
+export const RESULT_UNRANKED_COPY = 'Practice run. Best times stay on this device.';
 /**
  * Practice-WORLD copy (?seed=..., #403): unlike an unranked TIER — where the local
  * best and ghost still commit — a seeded practice world records nothing at all
  * (no leaderboard, no local best, no ghost), so the copy must not claim records
  * exist (Codex review PR #407).
  */
-export const RESULT_PRACTICE_WORLD_COPY = 'Seeded practice world — times are shown but nothing is saved.';
+export const RESULT_PRACTICE_WORLD_COPY = 'Custom mountain. You can see your time, but nothing is saved.';
 /**
  * Timing-compromised copy (#403 review): the run dropped enough stalled wall time
  * that its sim clock ran in slow motion, so NOTHING was recorded — not the PB,
  * not the ghost/splits, not the board. Must not reuse the unranked-TIER copy,
- * which promises a local best and ghost.
+ * which describes local best times.
  */
-export const RESULT_TIMING_COMPROMISED_COPY = 'Heavy stalls detected — this run was not recorded.';
-/** Offline copy: saved locally, will sync when back online + signed in. */
-export const RESULT_OFFLINE_COPY = 'Saved locally. Global leaderboard will sync when you are online and signed in.';
-/** Anonymous-guest copy: saved locally, sign in to sync future eligible scores. */
-export const RESULT_GUEST_COPY = 'Saved locally. Sign in to sync future eligible scores.';
+export const RESULT_TIMING_COMPROMISED_COPY = 'Slowdowns affected the timer. This run was not recorded.';
+/** Offline copy: explain how to return to the board without promising a saved write. */
+export const RESULT_OFFLINE_COPY = 'You’re offline. Go online and sign in to compete on the Blue leaderboard.';
+/** Anonymous-guest copy: invite sign-in for future runs without promising a saved write. */
+export const RESULT_GUEST_COPY = 'Playing as a guest. Sign in before your next Blue run to compete on the leaderboard.';
 /**
  * Firestore-outage copy: online + signed-in + ranked, but the leaderboard read/write
  * couldn't reach Firestore. The result overlay's leaderboard panel shows "Leaderboard
  * unavailable" in this path (not a cached board), so the copy must NOT claim the last
- * online board is shown (Codex #362). The score is saved locally and queued for sync.
+ * online board is shown (Codex #362). Local persistence and retry storage are
+ * best-effort, so it must not claim a successful save either.
  */
-export const RESULT_LEADERBOARD_UNAVAILABLE_COPY = 'Score saved locally. Global leaderboard is temporarily unavailable.';
+export const RESULT_LEADERBOARD_UNAVAILABLE_COPY = 'The leaderboard is unavailable right now. You can keep playing.';
 
 /**
  * The honest sync-status line for the result screen, or null when nothing extra needs
  * saying (a normal online signed-in sync, or a signed-out online run where the existing
- * "Log in to save your score" prompt already covers it). Pure so the copy is unit
- * tested. Precedence: practice world > unranked practice tier > offline > anonymous
+ * sign-in prompt already covers it). Pure so the copy is unit tested.
+ * Precedence: practice world > timing compromised > unranked practice tier > offline > anonymous
  * guest > signed-out (defer to the login prompt) > (online, signed-in, Firestore down)
  * leaderboard-unavailable.
  */

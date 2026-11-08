@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
   assert.equal(getStartupStatus().stage, 'error');
   assert.equal(document.querySelector('#fatalErrorOverlay'), null, 'background failure keeps the onboarding artwork visible');
   assert.equal(showStartupError(), true, 'Start can open actionable recovery');
-  assert.match(document.querySelector('#fatalErrorMessage').textContent, /WebGL support/);
+  assert.match(document.querySelector('#fatalErrorMessage').textContent, /3D graphics.*hardware acceleration/);
   assert.ok(document.querySelector('#fatalErrorReloadBtn'));
   assert.notEqual(window.SnowGliderGameScriptsReady, true);
   resetFatalErrorOverlay();
