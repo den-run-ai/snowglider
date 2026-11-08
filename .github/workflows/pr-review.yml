@@ -34,6 +34,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install verified reviewdog
+        timeout-minutes: 4
+        run: bash scripts/install-reviewdog.sh
+
       - name: Review JavaScript changes
         uses: reviewdog/action-eslint@v1.34.0
         with:
