@@ -97,9 +97,9 @@ hide a surface artifact can reintroduce whiteout.
 
 | Element | Value | Role |
 |---|---|---|
-| `AmbientLight` | `0xffffff` at `0.12 * Math.PI` | Low uniform floor |
-| `HemisphereLight` | sky `0xdcebfb` / ground `0xbcc7d4` at `0.50 * Math.PI` | Cool, orientation-dependent sky and snow-bounce fill |
-| `DirectionalLight` | `0xfff4e6` at `0.38 * Math.PI`, position `(50, 100, 50)` | Warm midday key and cast shadows |
+| `AmbientLight` | `0xffffff` at `0.16 * Math.PI` | Low uniform floor |
+| `HemisphereLight` | sky `0xdcebfb` / ground `0xbcc7d4` at `0.60 * Math.PI` | Cool, orientation-dependent sky and snow-bounce fill |
+| `DirectionalLight` | `0xfff4e6` at `0.24 * Math.PI`, position `(50, 100, 50)` | Warm midday key and cast shadows |
 | Sky (`src/sky.ts`) | Preetham atmospheric sky, `exposure 0.45` | Bright azure sky + visible sun aligned to the directional light |
 | Fog / distance | horizon-tinted `Fog`, near `140` / far `750` | Distant snow fades cool and hazy |
 

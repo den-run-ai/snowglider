@@ -7,9 +7,9 @@ import * as THREE from 'three';
 export function createSnowLighting(scene: THREE.Scene): THREE.DirectionalLight {
   // Three's diffuse BRDF divides by PI. These coefficients are the effective
   // diffuse budgets in our legacy linear-output pipeline (not display exposure).
-  scene.add(new THREE.AmbientLight(0xffffff, 0.12 * Math.PI));
-  scene.add(new THREE.HemisphereLight(0xdcebfb, 0xbcc7d4, 0.50 * Math.PI));
-  const sun = new THREE.DirectionalLight(0xfff4e6, 0.38 * Math.PI);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.16 * Math.PI));
+  scene.add(new THREE.HemisphereLight(0xdcebfb, 0xbcc7d4, 0.60 * Math.PI));
+  const sun = new THREE.DirectionalLight(0xfff4e6, 0.24 * Math.PI);
   sun.position.set(50, 100, 50);
   sun.castShadow = true;
   scene.add(sun);

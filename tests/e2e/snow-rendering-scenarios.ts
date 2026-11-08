@@ -54,7 +54,13 @@ export async function enterSnowPhase(page: Page, phase: SnowPhase): Promise<void
 export async function measureSnowSurface(page: Page) {
   return page.evaluate(async () => {
     const w = window as unknown as SnowWindow;
-    const threePath = '/node_modules/three/build/three.module.js';
+    // Reuse the app's already loaded Three module (including Vite's version
+    // query), so the probe shares its color-management singleton. Importing a
+    // second raw build can silently give the diagnostic a different color space.
+    const threePath = performance.getEntriesByType('resource').find(entry =>
+      /\/node_modules\/(?:\.vite\/deps\/three\.js|three\/build\/three\.module(?:\.min)?\.js)(?:\?|$)/.test(entry.name)
+    )?.name;
+    if (!threePath) throw new Error('Cannot locate the actual Three module used by the game');
     const T = await import(/* @vite-ignore */ threePath) as typeof import('three');
     const scene = new T.Scene();
     const terrain = new T.Mesh(w.terrainMesh.geometry, w.terrainMesh.material);
