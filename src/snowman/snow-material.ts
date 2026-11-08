@@ -4,9 +4,9 @@
 // WHY: the terrain snow gained a mottled near-white albedo, micro-relief normal map
 // and cavity shading (#17), so the snowman's flat `0xffffff, roughness 0.9` spheres —
 // and the crash debris chunks that mimic them — read as plastic against it. This
-// module reuses the SAME texture generators the terrain uses (mountains/snow-surface)
-// re-tiled to snowman scale, and matches the terrain's roughness, so "snowman snow ≈
-// ground snow" under both sun-cycle endpoints.
+// module uses the fine-grain generators in mountains/snow-surface, re-tiled to
+// snowman scale. Its hand-packed powder stays matte; the terrain has a separate
+// metre-scale wind-relief and roughness field.
 //
 // OWNERSHIP (load-bearing, mirrors the tree pools): a single module-level material is
 // shared by every snowman body sphere AND every debris fragment. Debris must NOT
@@ -24,7 +24,7 @@ import * as THREE from 'three';
 import { createSnowAlbedoTexture, createSnowNormalTexture } from '../mountains/snow-surface.js';
 import { SNOW_ROUGHNESS_SURFACE } from '../mountains/snow-palette.js';
 
-/** Matches the terrain snow material — single-sourced from the shared snow palette. */
+/** Matte hand-packed powder, single-sourced from the shared snow palette. */
 export const SNOWMAN_SNOW_ROUGHNESS = SNOW_ROUGHNESS_SURFACE;
 /** Faint granulation only — the balls are hand-packed snow, softer than the slope. */
 export const SNOWMAN_SNOW_NORMAL_SCALE = 0.1;

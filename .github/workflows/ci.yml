@@ -156,15 +156,34 @@ jobs:
           path: test-results/hud-review/
           retention-days: 14
 
+      # These probes render the full player scene, including GPU synchronization.
+      # Run them alone so software-GL scenes do not compete with each other or
+      # the interactive browser matrix. Frame counts, budgets and timeouts stay
+      # in the unchanged specs; a failed probe must still block deployment.
+      - name: Run Chromium renderer budgets without competing browser scenes
+        if: ${{ !cancelled() }}
+        run: npm run test:e2e -- perf-budget.spec.ts --project=chromium --workers=1
+        env:
+          CI: true
+          PLAYWRIGHT_HTML_OUTPUT_DIR: test-results/render-budget-report
+
+      - name: Upload renderer budget report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: playwright-report-render-budget
+          path: test-results/render-budget-report/
+          retention-days: 7
+
       # panels.spec.ts gates shared disclosure geometry, keyboard/touch behavior,
       # compact resize/orientation and six camera modes on desktop Chromium/WebKit
       # plus iPhone Safari and Android Chrome in portrait AND landscape. Screenshot
       # attachments in the HTML report show both collapsed and expanded player HUDs.
       - name: Run Playwright E2E and responsive HUD gate (desktop, iOS, Android)
-        # A review-image failure keeps the job red but must not suppress the
-        # browser regression results needed to diagnose the application itself.
+        # A review-image or renderer-budget failure keeps the job red but must
+        # not suppress the independent browser regression evidence.
         if: ${{ !cancelled() }}
-        run: npm run test:e2e
+        run: npm run test:e2e -- --grep-invert 'perf-budget\.spec\.ts'
         env:
           CI: true
           # Collect Chromium V8 coverage during the e2e run; globalTeardown writes

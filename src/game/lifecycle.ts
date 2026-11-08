@@ -6,6 +6,7 @@
 
 import { Controls } from '../controls.js';
 import { getDifficultyConfig } from '../difficulty.js';
+import { runTelemetryContext } from '../run-telemetry.js';
 import { Snow } from '../snow.js';
 import { Flex } from '../snowman-flex.js';
 import { Expression } from '../snowman-expression.js';
@@ -154,7 +155,7 @@ export function createLifecycle(deps: LifecycleDeps) {
       // Only try to use analytics when properly initialized with modular SDK
       if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function' && window.location.protocol !== 'file:') {
         // Using the direct logEvent function
-        window.firebaseModules.logEvent('game_reset');
+        window.firebaseModules.logEvent('game_reset', runTelemetryContext(state.difficulty));
       }
     } catch (e) {
       console.log("Analytics tracking skipped:", (e as Error).message);

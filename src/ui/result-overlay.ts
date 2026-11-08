@@ -16,6 +16,7 @@ import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
 import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, stampLocalBestMeta, type Difficulty } from '../difficulty.js';
 import { getRunStamp } from '../run-context.js';
+import { runTelemetryContext } from '../run-telemetry.js';
 import { resultSyncStatusCopy } from '../offline/sync-manager.js';
 import { isOnline } from '../offline/offline-state.js';
 import { readLocalBest, safeSetItem } from '../offline/offline-store.js';
@@ -347,7 +348,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       if (!(canRecordScore && tierRanked)) {
         try {
           if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-            window.firebaseModules.logEvent('complete_run', { time: currentTime });
+            window.firebaseModules.logEvent('complete_run', {
+              time: currentTime, ...runTelemetryContext(tier, state.timingCompromised),
+            });
           }
         } catch (e) {
           console.log("Analytics tracking skipped:", (e as Error).message);
@@ -370,7 +373,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
           // Using the direct logEvent function
           window.firebaseModules.logEvent('game_over', {
-            reason: reason
+            reason: reason,
+            ...runTelemetryContext(tier, state.timingCompromised),
           });
         }
       } catch (e) {

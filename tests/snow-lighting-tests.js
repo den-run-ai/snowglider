@@ -54,8 +54,10 @@ async function main() {
   const facing = new THREE.Vector3(0.4, 1, 0.4).normalize();
   const away = new THREE.Vector3(-0.4, 1, -0.4).normalize();
   assert.ok(diffuse(flat).every(c => c > 0.80), 'midday powder stays bright');
-  assert.ok(diffuse(facing)[0] - diffuse(away)[0] > 0.07, 'sun-facing and lee slopes remain distinct');
-  assert.ok(diffuse(flat)[0] - diffuse(flat, true)[0] > 0.16, 'contact shadows remain visible');
+  // The previous fill-heavy rig passed the clipping guard but flattened both
+  // terrain and normal-map relief. Require a meaningful sun/lee separation too.
+  assert.ok(diffuse(facing)[0] - diffuse(away)[0] > 0.18, 'sun-facing and lee slopes reveal their form');
+  assert.ok(diffuse(flat)[0] - diffuse(flat, true)[0] > 0.26, 'cast shadows retain a clear directional light contribution');
   Sky.teardown();
   console.log(`PASS: snow highlights, cool fill and slope contrast across 90-second cycle (peak diffuse ${peak.toFixed(4)})`);
 }

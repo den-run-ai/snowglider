@@ -11,7 +11,8 @@ import { forestDensityField } from './noise.js';
 import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
 import { CAVITY_COLOR, SNOW_SHADE } from './snow-palette.js';
 import { DEFAULT_WIND_CONFIG } from '../wind.js';
-import { snowMottle, snowGrain } from './snow-texture.js';
+import { snowMottle, snowGrain, snowRelief, SNOW_RELIEF_TILE_SIZE } from './snow-texture.js';
+import { withPrivateThreeRandom } from '../scenery/scenery-rng.js';
 
 // Cavity / ambient-occlusion shading (issue #17 follow-up). The shipped slope tint
 // keys off slope *magnitude* (normal tilt), so it darkens steep faces but leaves
@@ -147,6 +148,91 @@ export function createSnowNormalTexture(): THREE.CanvasTexture {
   // project disables ColorManagement, so this is belt-and-suspenders.)
   tex.colorSpace = THREE.NoColorSpace;
   return tex;
+}
+
+/**
+ * Terrain-only snow skin. All three maps describe the same shallow wind-shaped
+ * surface: lighting follows its slopes, cool occlusion sits in its hollows, and
+ * exposed compressed shoulders catch broader sun reflections than loose powder.
+ * The hand-packed snowman keeps the smaller-grain generators above.
+ *
+ * Baking once keeps the fragment shader on Three's standard material path and
+ * composes with the packed-track roughness hook. Mipmaps naturally fade unresolved
+ * ribs in distant views. No geometry, gameplay RNG or per-frame CPU work changes.
+ */
+export function createTerrainSnowTextures(): {
+  albedo: THREE.CanvasTexture;
+  normal: THREE.CanvasTexture;
+  roughness: THREE.CanvasTexture;
+} {
+  // 12.5cm texels resolve the half-metre ribs without a 512px bake's 4x startup
+  // work/memory. Keep all physical derivative/occlusion distances in metres.
+  const size = 256;
+  const spacing = SNOW_RELIEF_TILE_SIZE / size;
+  const hollowRadius = Math.round(0.5 / spacing);
+  const heights = new Float32Array(size * size);
+  const crust = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const sample = snowRelief(x / size, y / size);
+      heights[y * size + x] = sample.height;
+      crust[y * size + x] = sample.crust;
+    }
+  }
+  const makeCanvas = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const context = canvas.getContext('2d')!;
+    return { canvas, context, image: context.createImageData(size, size) };
+  };
+  const albedo = makeCanvas(), normal = makeCanvas(), roughness = makeCanvas();
+  const heightAt = (x: number, y: number) => heights[((y + size) % size) * size + (x + size) % size]!;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const index = y * size + x;
+      const rgba = index * 4;
+      // Central derivatives are slopes in metres/metre, independent of bake size.
+      const dx = (heightAt(x + 1, y) - heightAt(x - 1, y)) / (2 * spacing);
+      const dy = (heightAt(x, y + 1) - heightAt(x, y - 1)) / (2 * spacing);
+      const length = Math.hypot(dx, dy, 1);
+      normal.image.data[rgba] = (0.5 - dx / length * 0.5) * 255;
+      normal.image.data[rgba + 1] = (0.5 - dy / length * 0.5) * 255;
+      normal.image.data[rgba + 2] = (0.5 + 0.5 / length) * 255;
+      normal.image.data[rgba + 3] = 255;
+      // Half-metre neighbourhood: tint the actual concave pockets, not arbitrary
+      // dark flecks. The tiny cool shift supplies depth even in diffuse skylight.
+      const neighbourMean = (heightAt(x - hollowRadius, y) + heightAt(x + hollowRadius, y) +
+        heightAt(x, y - hollowRadius) + heightAt(x, y + hollowRadius)) * 0.25;
+      const hollow = Math.min(1, Math.max(0, (neighbourMean - heights[index]!) * 16));
+      const mottle = snowMottle(x / size, y / size);
+      const base = 248 + mottle * 8;
+      albedo.image.data[rgba] = base - hollow * 28;
+      albedo.image.data[rgba + 1] = base - hollow * 20;
+      albedo.image.data[rgba + 2] = base - hollow * 7;
+      albedo.image.data[rgba + 3] = 255;
+      const rough = Math.min(0.96, Math.max(0.58, 0.93 - crust[index]! * 0.40)) * 255;
+      roughness.image.data[rgba] = rough;
+      roughness.image.data[rgba + 1] = rough; // Three reads roughness from green.
+      roughness.image.data[rgba + 2] = rough;
+      roughness.image.data[rgba + 3] = 255;
+    }
+  }
+  for (const target of [albedo, normal, roughness]) target.context.putImageData(target.image, 0, 0);
+  // Albedo + normal replace the two existing textures, retaining their UUID draw
+  // count/order. Only the additional roughness texture needs the private stream.
+  const albedoMap = new THREE.CanvasTexture(albedo.canvas);
+  const normalMap = new THREE.CanvasTexture(normal.canvas);
+  const roughnessMap = withPrivateThreeRandom(() => new THREE.CanvasTexture(roughness.canvas));
+  for (const texture of [albedoMap, normalMap, roughnessMap]) {
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(300 / SNOW_RELIEF_TILE_SIZE, 400 / SNOW_RELIEF_TILE_SIZE);
+    // Bake row y is texture +v, including the normal's -dH/dv green channel.
+    // CanvasTexture's default Y flip would invert that derivative relative to
+    // the matching albedo/roughness features (lit hollows, shaded shoulders).
+    texture.flipY = false;
+  }
+  normalMap.colorSpace = roughnessMap.colorSpace = THREE.NoColorSpace;
+  return { albedo: albedoMap, normal: normalMap, roughness: roughnessMap };
 }
 
 /**

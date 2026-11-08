@@ -87,81 +87,71 @@ async function main() {
   window.dispatchEvent(new window.KeyboardEvent('keydown', { key: '`' }));
   check('hotkey: backtick shows it again', !!document.getElementById('diagOverlay'));
 
-  // Recovery boundaries catch failures before the global handlers can see them.
-  // They must still report through the same guarded transport with run context.
+  // Error transport contains bounded aggregate fields; free-form error text stays
+  // only in the explicit local dump and cannot leak account details to GA4.
   events.length = 0;
-  D.Diag.reportError(new Error('caught frame failure'), 'animation_loop');
+  const privateText = 'person@example.invalid token=do-not-upload';
+  D.Diag.reportError(new TypeError(privateText), 'animation_loop');
   const caughtErr = events.find((e) => e.event === 'client_error');
-  check('caught error: reports once without a window error event', events.length === 1);
-  check('caught error: preserves message, source and stack', !!caughtErr &&
-    caughtErr.data.message === 'caught frame failure' && caughtErr.data.source === 'animation_loop' &&
-    String(caughtErr.data.stack).includes('caught frame failure'));
+  check('caught error: reports type and recovery source', !!caughtErr &&
+    caughtErr.data.error_type === 'TypeError' && caughtErr.data.error_source === 'animation_loop');
   check('caught error: attaches the current run context', !!caughtErr &&
     caughtErr.data.frames === 90 && caughtErr.data.health === 'bad');
-  D.Diag.reportError({ message: 'm'.repeat(400), stack: 's'.repeat(700) }, 'c'.repeat(120));
-  const bounded = events[events.length - 1].data;
-  check('caught error: bounds external text', bounded.message.length === 300 &&
-    bounded.stack.length === 600 && bounded.source.length === 100);
-  D.Diag.reportError('storage unavailable', 'course_result');
-  check('caught error: bare string failures remain readable',
-    events[events.length - 1].data.message === 'storage unavailable');
-  D.Diag.reportError(Object.defineProperty({}, 'message', {
-    get() { throw new Error('malformed error payload'); }
-  }), 'course_result');
-  check('caught error: throwing error getters cannot interrupt recovery',
-    events[events.length - 1].data.message === 'error');
+  check('caught error: excludes message and stack from transport', !!caughtErr &&
+    !('message' in caughtErr.data) && !('stack' in caughtErr.data) && !('source' in caughtErr.data) &&
+    !JSON.stringify(caughtErr.data).includes(privateText));
+  check('caught error: local diagnostic dump preserves debugging text',
+    D.Diag.dump().errors.some(n => n.message === privateText));
+  check('public feedback snapshot excludes raw error text',
+    !JSON.stringify(D.Diag.snapshot()).includes(privateText));
+  D.Diag.reportError(new TypeError('another copy'), 'animation_loop');
+  check('caught error: repeated failures at the same site are sent once', events.length === 1);
+  D.Diag.reset();
+  D.Diag.reportError(new TypeError('after restart'), 'animation_loop');
+  check('caught error: restarting cannot reset the upload budget', events.length === 1);
 
   D.Diag.init(undefined, { report: () => { throw new Error('analytics offline'); } });
   let reportThrew = false;
-  try { D.Diag.reportError(new Error('caught'), 'animation_loop'); } catch { reportThrew = true; }
+  try { D.Diag.reportError(new RangeError('caught'), 'animation_loop'); } catch { reportThrew = true; }
   check('caught error: a broken transport cannot interrupt recovery', !reportThrew);
   D.Diag.init(undefined, { report: (event, data) => events.push({ event, data }) });
 
-  // --- global error + unhandledrejection capture ------------------------------
   events.length = 0;
   const errEvt = new window.Event('error');
-  Object.assign(errEvt, { message: 'kaboom', filename: 'snowglider.ts', lineno: 42, error: new Error('kaboom') });
+  Object.assign(errEvt, { message: privateText, filename: 'https://example.invalid/?token=secret',
+    lineno: 42, colno: 7, error: new ReferenceError(privateText) });
   window.dispatchEvent(errEvt);
-  const clientErr = events.find((e) => e.event === 'client_error');
-  check('error: window.onerror is captured and reported', !!clientErr && clientErr.data.message === 'kaboom');
-  check('error: capture attaches physics context (health level)', !!clientErr && typeof clientErr.data.health === 'string');
+  check('global error: captures a safe source position', events.length === 1 &&
+    events[0].data.error_source === 'window_error' && events[0].data.line === 42 && events[0].data.column === 7);
+  check('global error: excludes message, stack and filename URLs',
+    !JSON.stringify(events).includes(privateText) && !JSON.stringify(events).includes('token=secret'));
 
-  const rejEvt = new window.Event('unhandledrejection');
-  Object.assign(rejEvt, { reason: new Error('promise blew up') });
-  window.dispatchEvent(rejEvt);
-  check('error: unhandledrejection is captured and reported',
-    events.some((e) => e.event === 'unhandled_rejection' && /promise blew up/.test(String(e.data.message))));
+  const hostile = new Proxy({}, { get() { throw new Error('hostile error getter'); } });
+  window.dispatchEvent(Object.assign(new window.Event('unhandledrejection'), { reason: hostile }));
+  check('rejection: hostile fields still produce one safe error report',
+    events.some(e => e.event === 'unhandled_rejection' && e.data.error_type === 'Error'));
+  window.dispatchEvent(Object.assign(new window.Event('unhandledrejection'), { reason: privateText }));
+  check('rejection: raw string failures are retained only locally',
+    D.Diag.dump().errors.some(n => n.message === privateText) &&
+    !JSON.stringify(events).includes(privateText));
 
-  // a rejection whose reason is a bare string (no .message / .stack) is still captured.
-  events.length = 0;
-  window.dispatchEvent(Object.assign(new window.Event('unhandledrejection'), { reason: 'plain string reason' }));
-  check('error: a non-Error rejection reason is still captured',
-    events.some((e) => e.event === 'unhandled_rejection' && /plain string reason/.test(String(e.data.message))));
-
-  events.length = 0;
-  window.dispatchEvent(Object.assign(new window.Event('unhandledrejection'), {
-    reason: { message: 'cross-realm error', stack: 'external stack' }
-  }));
-  check('error: structural error payload retains its message and stack',
-    events.some((e) => e.data.message === 'cross-realm error' && e.data.stack === 'external stack'));
-  window.dispatchEvent(Object.assign(new window.Event('unhandledrejection'), {
-    reason: { message: 'invalid stack', stack: { nested: 'not text' } }
-  }));
-  check('error: malformed stack payload is omitted from diagnostics',
-    events.some((e) => e.data.message === 'invalid stack' && e.data.stack === ''));
-
-  // a bare error event (no message / filename / lineno / error) still reports via fallbacks.
-  events.length = 0;
-  window.dispatchEvent(new window.Event('error'));
-  check('error: a bare error event reports with fallbacks (message "error", empty stack)',
-    events.some((e) => e.event === 'client_error' && e.data.message === 'error' && e.data.stack === ''));
-
-  // --- init() is idempotent: a second call must not double-install handlers ----
+  // Re-init removes handlers before installing the new pair.
   D.Diag.init({ ...D.DEFAULT_CONFIG }, { report: (event, data) => events.push({ event, data }) });
   events.length = 0;
-  window.dispatchEvent(Object.assign(new window.Event('error'), { message: 'once', error: new Error('once') }));
-  check('init: error handlers are installed once (one report per error, not duplicated)',
-    events.filter((e) => e.event === 'client_error').length === 1);
+  window.dispatchEvent(Object.assign(new window.Event('error'), { message: 'once',
+    lineno: 99, error: new Error('once') }));
+  check('init: error handlers are installed once', events.length === 1);
+
+  let reportReady = false;
+  D.Diag.init(undefined, { report: (event, data) => events.push({ event, data }),
+    reportReady: () => reportReady });
+  events.length = 0;
+  D.Diag.reportError(new SyntaxError('before Firebase'), 'animation_loop');
+  check('startup: unavailable transport does not consume the error budget', events.length === 0);
+  reportReady = true;
+  D.Diag.reportError(new SyntaxError('after Firebase'), 'animation_loop');
+  D.Diag.reportError(new SyntaxError('repeated after Firebase'), 'animation_loop');
+  check('startup: the same error delivers once after transport readiness', events.length === 1);
 
   // --- teardown(): removes the window listeners + overlay + __snowgliderDiag ----
   // (dispose-audit). After teardown the error capture is gone, the bug-report API is

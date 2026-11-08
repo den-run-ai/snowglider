@@ -728,7 +728,11 @@ export function createMainLoop(deps: MainLoopDeps) {
       // is still recorded for that render frame (maxSubstepStep stays 0 → no tunnel flag).
       if (result) {
         renderObservers(frameDelta, result, ev);
-        recordDiag(frameDelta, result, maxSubstepStep);
+        // Only physics/cosmetics use the capped delta. Reporting that cap instead of
+        // wall time hid long stalls (every >=133 ms frame appeared to run at 7.5 FPS).
+        // Start/resume can deliberately reseed lastTime to this timestamp; those zero
+        // intervals are not real frames and would inflate the average FPS.
+        if (rawDelta > 0) recordDiag(rawDelta, result, maxSubstepStep);
       }
 
       // Advance the shared wind field (issue #253). Deterministic and cosmetic-only —
