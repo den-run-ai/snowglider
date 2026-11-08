@@ -59,7 +59,8 @@ function leaderboardEntry(db, userId, time, extra = {}) {
 
 function dbFor(uid) {
   return testEnv.authenticatedContext(uid, {
-    email: `${uid}@snowglider.test`
+    email: `${uid}@snowglider.test`,
+    firebase: { sign_in_provider: 'password' }
   }).firestore();
 }
 
@@ -390,21 +391,21 @@ async function main() {
   // The same append-only history drives the fast drift gate. Exercise real rules
   // for every old field and collection, even after the client moves to V4+.
   for (const schema of REMOTE_SCORE_SCHEMAS) {
-    for (const { field, board, ranked } of schema.tiers) {
+    for (const { field, board, ranked, minTime } of schema.tiers) {
       await runTest(`${field}: floor/cap, monotonic updates and corrupt-score repair`, async () => {
         const alice = dbFor('alice');
         const ref = doc(alice, 'users', 'alice');
         const write = time => setDoc(ref, { [field]: time, updatedAt: serverTimestamp() }, { merge: true });
-        await assertFails(write(schema.minTime - 0.01));
+        await assertFails(write(minTime - 0.01));
         await assertFails(write(schema.maxTime + 1));
-        await assertSucceeds(write(schema.minTime + 2));
-        await assertFails(write(schema.minTime + 3));
-        await assertFails(write(schema.minTime - 0.01));
-        await assertSucceeds(write(schema.minTime));
+        await assertSucceeds(write(minTime + 2));
+        await assertFails(write(minTime + 3));
+        await assertFails(write(minTime - 0.01));
+        await assertSucceeds(write(minTime));
         await seed(async admin => {
           await setDoc(doc(admin, 'users', 'alice'), { [field]: 0.01 });
         });
-        await assertSucceeds(write(schema.minTime + 1));
+        await assertSucceeds(write(minTime + 1));
       });
 
       await runTest(`${board}: preserved read/write policy and score validation`, async () => {
@@ -413,26 +414,41 @@ async function main() {
         const write = time => setDoc(ref, leaderboardEntry(alice, 'alice', time));
         await assertSucceeds(setDoc(doc(alice, 'users', 'alice'), profile(), { merge: true }));
         if (ranked) {
-          await assertFails(write(schema.minTime - 0.01));
+          await assertFails(write(minTime - 0.01));
           await assertFails(write(schema.maxTime + 1));
-          await assertSucceeds(write(schema.minTime + 2));
-          await assertFails(write(schema.minTime + 3));
-          await assertSucceeds(write(schema.minTime));
-          await assertFails(setDoc(doc(alice, board, 'bob'), leaderboardEntry(alice, 'bob', schema.minTime)));
+          await assertSucceeds(write(minTime + 2));
+          await assertFails(write(minTime + 3));
+          await assertSucceeds(write(minTime));
+          await assertFails(setDoc(doc(alice, board, 'bob'), leaderboardEntry(alice, 'bob', minTime)));
         } else {
-          await assertFails(write(schema.minTime + 2));
+          await assertFails(write(minTime + 2));
           // Cover updates too: a write-denied board must stay denied if a row
           // already exists from an admin import or an older deployment.
           await seed(async admin => {
-            await setDoc(doc(admin, board, 'alice'), leaderboardEntry(admin, 'alice', schema.minTime + 2));
+            await setDoc(doc(admin, board, 'alice'), leaderboardEntry(admin, 'alice', minTime + 2));
           });
-          await assertFails(write(schema.minTime + 1));
+          await assertFails(write(minTime + 1));
         }
         await assertSucceeds(getDocs(query(collection(alice, board), orderBy('time', 'asc'), limit(10))));
         await assertFails(getDocs(query(collection(anonDb(), board), orderBy('time', 'asc'), limit(10))));
       });
     }
   }
+
+  await runTest('anonymous Firebase identities cannot write any score or profile', async () => {
+    const guest = testEnv.authenticatedContext('guest', {
+      firebase: { sign_in_provider: 'anonymous' }
+    }).firestore();
+    const active = REMOTE_SCORE_SCHEMAS.at(-1);
+    await assertFails(setDoc(doc(guest, 'users', 'guest'), profile('Guest'), { merge: true }));
+    await seed(async admin => {
+      await setDoc(doc(admin, 'users', 'guest'), profile('Guest'));
+    });
+    for (const { field, board, minTime } of active.tiers) {
+      await assertFails(setDoc(doc(guest, 'users', 'guest'), { [field]: minTime }, { merge: true }));
+      await assertFails(setDoc(doc(guest, board, 'guest'), leaderboardEntry(guest, 'guest', minTime)));
+    }
+  });
 
   await runTest('historical score fields do not block profile-only updates', async () => {
     const alice = dbFor('alice');

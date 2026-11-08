@@ -16,12 +16,12 @@
 import {
   buildResultShareData, shareResult, copyShareMessage, buildShareLinks,
   SHARE_PLATFORMS, prefersNativeShare, shareImageFile, logPlatformShare,
-  type SharePlatform,
+  type SharePlatform, type ResultShareContext,
 } from '../share.js';
 import { buildShareCardBlob, downloadBlob, type CaptureContext } from '../share-card.js';
 
 /** Options for {@link buildShareControls}. */
-export interface ShareControlsOptions {
+export interface ShareControlsOptions extends ResultShareContext {
   time: number;
   isBest: boolean;
   /**
@@ -139,7 +139,7 @@ function makeSocialRow(data: ReturnType<typeof buildResultShareData>): HTMLDivEl
  */
 export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   const container = document.createElement('div');
-  const data = buildResultShareData(opts.time, opts.isBest);
+  const data = buildResultShareData(opts.time, opts.isBest, undefined, opts);
 
   // --- Primary button (always present; id kept for tests/touch wiring). ---
   const primary = document.createElement('button');
@@ -160,7 +160,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   const imageBtn = document.createElement('button');
   imageBtn.id = 'shareImageBtn';
   imageBtn.type = 'button';
-  const imageLabel = '📸 Save run image';
+  const imageLabel = prefersNativeShare() ? '📸 Share run image' : '📸 Download run image';
   imageBtn.textContent = imageLabel;
   styleButton(imageBtn, false);
   defuseTouch(imageBtn);
@@ -168,7 +168,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   const copyBtn = document.createElement('button');
   copyBtn.id = 'shareCopyBtn';
   copyBtn.type = 'button';
-  const copyLabel = '🔗 Copy link';
+  const copyLabel = '🔗 Copy result + link';
   copyBtn.textContent = copyLabel;
   styleButton(copyBtn, false);
   defuseTouch(copyBtn);
@@ -176,13 +176,11 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   // Copy link lives in the (desktop) toggle menu next to the per-platform links.
   menu.appendChild(copyBtn);
 
-  // Desktop-only note: Instagram has no web share-intent URL, so on desktop the
-  // only path is "Save image" + a manual upload. (On mobile the primary share
-  // and "Save image" both file-share the PNG straight into the Instagram app, so
-  // this caveat lives inside the desktop-only menu.)
+  // Platform link intents cannot attach the card. File sharing offers the OS
+  // targets available on that device; the player can also upload the PNG manually.
   const igHint = document.createElement('p');
   igHint.id = 'shareInstagramHint';
-  igHint.textContent = 'For Instagram, save your run image and post it in the app.';
+  igHint.textContent = 'For Instagram, download your run image and post it in the app. Facebook and LinkedIn share the game link; add your copied result or image to include your score.';
   Object.assign(igHint.style, {
     margin: '10px 2px 0', fontSize: '11px', lineHeight: '1.4', color: 'rgba(255,255,255,0.6)',
     fontFamily: 'Arial, sans-serif',
@@ -195,7 +193,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
    *  share so the screenshot rides along on both. */
   function currentCardBlob(): Promise<Blob | null> {
     const ctx = opts.getCapture ? opts.getCapture() : null;
-    return buildShareCardBlob(ctx, opts.time, opts.isBest, data.url);
+    return buildShareCardBlob(ctx, opts.time, opts.isBest, data.url, opts);
   }
 
   // Image decoding and canvas.toBlob finish in later tasks. Prepare once while
@@ -203,13 +201,26 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
   // activation (Safari may reject a share after awaiting image preparation).
   // An immediate primary tap shares text instead of waiting for the PNG.
   let preparedCard: Blob | null = null;
-  imageBtn.disabled = true;
-  imageBtn.setAttribute('aria-busy', 'true');
+  let preparingCard = true;
+  let imageBusy = false;
+  let nativeBusy = false;
+
+  // Both visible actions can open the same OS sheet. Keep them mutually
+  // exclusive so a second tap cannot trigger InvalidStateError and a download.
+  function syncBusy(): void {
+    primary.disabled = imageBusy || nativeBusy;
+    imageBtn.disabled = preparingCard || imageBusy || nativeBusy;
+    if (imageBusy || nativeBusy) primary.setAttribute('aria-busy', 'true');
+    else primary.removeAttribute('aria-busy');
+    if (preparingCard || imageBusy || nativeBusy) imageBtn.setAttribute('aria-busy', 'true');
+    else imageBtn.removeAttribute('aria-busy');
+  }
+  syncBusy();
   imageBtn.textContent = '⏳ Preparing image…';
   const cardReady = Promise.resolve().then(currentCardBlob).catch(() => null).then(blob => {
     preparedCard = blob;
-    imageBtn.disabled = false;
-    imageBtn.removeAttribute('aria-busy');
+    preparingCard = false;
+    syncBusy();
     imageBtn.textContent = imageLabel;
     return blob;
   });
@@ -227,10 +238,10 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
     event.stopPropagation();
   });
 
-  let imageBusy = false;
   async function handleImage(): Promise<void> {
-    if (imageBusy) return;
+    if (imageBusy || nativeBusy) return;
     imageBusy = true;
+    syncBusy();
     imageBtn.textContent = '⏳ Preparing image…';
     try {
       const blob = preparedCard || await cardReady;
@@ -241,9 +252,10 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
       if (outcome === 'cancelled') { imageBtn.textContent = imageLabel; return; }
       // Desktop (or no file share): download it; Instagram has no web post API,
       // so the player uploads the saved PNG in the app manually.
-      flash(imageBtn, downloadBlob(blob) ? '✅ Image saved!' : '⚠️ Image unavailable', imageLabel);
+      flash(imageBtn, downloadBlob(blob) ? '✅ Download started' : '⚠️ Image unavailable', imageLabel);
     } finally {
       imageBusy = false;
+      syncBusy();
     }
   }
   imageBtn.addEventListener('click', () => { void handleImage(); });
@@ -254,17 +266,15 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
     });
   });
 
-  let nativeBusy = false;
   async function handlePrimaryNative(): Promise<void> {
-    if (nativeBusy) return;
+    if (nativeBusy || imageBusy) return;
     nativeBusy = true;
-    primary.disabled = true;
-    primary.setAttribute('aria-busy', 'true');
+    syncBusy();
     primary.textContent = '⏳ Preparing…';
     try {
       // Mobile/touch: share the screenshot card itself so the run image rides
-      // along into the OS sheet (which lists Instagram / Stories and every other
-      // installed social app). Fall back to a text+link share when the image
+      // along into the OS sheet (available targets depend on the device and
+      // installed apps). Fall back to a text+link share when the image
       // can't be built or this browser can't file-share.
       const blob = preparedCard;
       if (blob) {
@@ -275,7 +285,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
       }
       const outcome = await shareResult(data);
       if (outcome === 'shared') flash(primary, '✅ Shared!', PRIMARY_LABEL);
-      else if (outcome === 'copied') flash(primary, '✅ Link copied!', PRIMARY_LABEL);
+      else if (outcome === 'copied') flash(primary, '✅ Result copied!', PRIMARY_LABEL);
       else if (outcome === 'cancelled') primary.textContent = PRIMARY_LABEL;
       else {
         // A native/clipboard failure must not strand a mobile player: offer the
@@ -285,8 +295,7 @@ export function buildShareControls(opts: ShareControlsOptions): HTMLDivElement {
       }
     } finally {
       nativeBusy = false;
-      primary.disabled = false;
-      primary.removeAttribute('aria-busy');
+      syncBusy();
     }
   }
 

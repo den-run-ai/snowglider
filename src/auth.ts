@@ -42,6 +42,28 @@ let firestore: Firestore | null = null;
 let analytics: Analytics | null = null;
 let currentUser: User | null = null;
 let firebaseApp: FirebaseApp | null = null; // Keep track of the app instance
+let authInitialization = 0;
+let authSession = 0;
+let unsubscribeAuth: (() => void) | null = null;
+let syncUserTimer: ReturnType<typeof setTimeout> | null = null;
+let accountRestoreOnlineListenerBound = false;
+const boundAuthButtons = new WeakSet<HTMLElement>();
+const boundAuthContainers = new WeakSet<HTMLElement>();
+// Some provider collisions do not include a reusable credential. Remember only
+// which button needs a fresh popup gesture; never retain an OAuth token here.
+let existingAccountRetry: { uid: string; buttonId: string } | null = null;
+
+function invalidateUserSync(): number {
+  authSession += 1;
+  if (syncUserTimer !== null) clearTimeout(syncUserTimer);
+  syncUserTimer = null;
+  existingAccountRetry = null;
+  return authSession;
+}
+
+function isCurrentUserSession(user: User, session: number): boolean {
+  return session === authSession && currentUser?.uid === user.uid && !currentUser.isAnonymous;
+}
 
 // Import Firebase modules
 import {
@@ -50,6 +72,7 @@ import {
   GithubAuthProvider,
   OAuthProvider, // Apple (and other generic OAuth) via OAuthProvider('apple.com')
   signInWithPopup, // Popup flow for every federated provider
+  signInWithCredential, // Reuse an existing account's credential after a guest-link collision
   signInAnonymously, // "Play as guest" — no account required
   linkWithPopup, // Upgrade a guest in place so their uid + progress carries over
   signOut as firebaseSignOut,
@@ -60,19 +83,20 @@ import {
   type Auth,
   type AuthProvider,
   type UserCredential,
+  type OAuthCredential,
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
 import {
   getFirestore,
   doc,
+  getDoc,
   setDoc,
   serverTimestamp,
   type Firestore
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { getAnalytics, logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
-import { initializeApp, type FirebaseApp, type FirebaseOptions } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
+import { initializeApp, type FirebaseApp, type FirebaseOptions, type FirebaseError } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-app.js";
 import ScoresModule from "./scores.js";
-import { DIFFICULTIES, localBestTimeKey, localBestProvenanceCompatible, type Difficulty } from "./difficulty.js";
-import { safeGetItem, safeRemoveItem } from "./offline/offline-store.js";
+import { DIFFICULTIES, userBestTimeField, type Difficulty } from "./difficulty.js";
 import { shouldCollectAnalytics, withTrafficTag } from "./analytics-env.js";
 
 /** Promise rejections are untrusted: Firebase errors normally expose string
@@ -96,6 +120,12 @@ function logAnalyticsEvent(name: string, params?: Record<string, unknown>): void
 
 // Initialize Firebase Auth
 function initializeAuth(firebaseConfig: FirebaseOptions) {
+  const initialization = ++authInitialization;
+  unsubscribeAuth?.();
+  unsubscribeAuth = null;
+  invalidateUserSync();
+  currentUser = null;
+  ScoresModule.setCurrentUser(null);
   try {
     // Initialize Firebase app and services
     console.log("Initializing new Firebase app instance in AuthModule");
@@ -178,7 +208,8 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
 
       // Set up auth state observer - This handles UI updates after login/logout
       console.log("Attaching onAuthStateChanged listener..."); // Log before attaching
-      onAuthStateChanged(auth, user => {
+      unsubscribeAuth = onAuthStateChanged(auth, user => {
+        if (initialization !== authInitialization) return;
         console.log(">>> onAuthStateChanged triggered <<<"); // Log entry into the callback
         if (user) {
           handleSignedInUser(user);
@@ -190,20 +221,23 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
     } else {
       // Handle case where auth failed to initialize
       console.error("Auth service failed to initialize. Auth features disabled.");
-      updateUIForLoggedOutUser(); // Show logged-out state
-      resetAuthButtons(); // Ensure buttons are usable (though login will fail)
+      handleSignedOutUser();
     }
   } catch (e) {
     // Catch errors during initializeApp or other setup steps
     const err = readAuthError(e);
     console.error("Firebase setup failed:", err.message, e instanceof Error ? e.stack : undefined);
     auth = firestore = analytics = null; // Ensure services are null on failure
-    updateUIForLoggedOutUser();
-    resetAuthButtons();
+    ScoresModule.initializeScores(null, null);
+    handleSignedOutUser();
   }
 
   // Set up login/logout buttons (even if auth failed, to avoid errors)
   setupAuthButtons();
+  if (!accountRestoreOnlineListenerBound) {
+    accountRestoreOnlineListenerBound = true;
+    window.addEventListener('online', restoreAccountBestsAfterReconnect);
+  }
   // The initial markup disables providers while their handlers are loading.
   // Authentication is optional, so game startup does not wait for this module.
   resetAuthButtons();
@@ -228,6 +262,7 @@ function notifyAuthChanged() {
 function handleSignedInUser(user: User) {
   console.log("Auth state changed: User IS signed in",
     user.isAnonymous ? '(anonymous guest)' : '');
+  const session = invalidateUserSync();
   currentUser = user;
 
   // Anonymous guests are intentionally kept OUT of Firestore and the global
@@ -235,7 +270,7 @@ function handleSignedInUser(user: User) {
   // We tell ScoresModule there is no signed-in user, so a guest's best time is
   // tracked locally (localStorage) only. When they later upgrade to a real
   // provider (linkWithPopup, same uid), this runs again with isAnonymous === false
-  // and syncUserData backfills that local best to the leaderboard.
+  // and an explicit result-screen save can attach their finish to the account.
   if (user.isAnonymous) {
     // Keep the provider buttons (#authUI) visible so the guest can upgrade IN
     // PLACE via linkWithPopup — those buttons are the only entry point to the
@@ -251,7 +286,10 @@ function handleSignedInUser(user: User) {
     // null. syncUserData now backfills the local bests independently of the profile write
     // (confirm-or-queue), so a restored user with a pending ranked best is never dropped
     // just because Firestore isn't ready yet (Codex #362). Small delay to let auth settle.
-    setTimeout(() => syncUserData(user), 100);
+    syncUserTimer = setTimeout(() => {
+      syncUserTimer = null;
+      if (isCurrentUserSession(user, session)) syncUserData(user, session);
+    }, 100);
   }
 
   resetAuthButtons(); // Ensure buttons are in default state after successful login
@@ -262,6 +300,7 @@ function handleSignedInUser(user: User) {
 // Apply the signed-out state (also covers a failed/cleared session).
 function handleSignedOutUser() {
   console.log("Auth state changed: User IS signed out");
+  invalidateUserSync();
   currentUser = null;
   ScoresModule.setCurrentUser(null); // Clear user in ScoresModule
   updateUIForLoggedOutUser();
@@ -400,6 +439,34 @@ function updateUIForGuestUser() {
   updateProfileDisclosure(true);
 }
 
+// Reveal the same provider controls from a completed run. Moving the auth panel
+// into a dialog does not replace its buttons or navigate away from the run. The
+// provider itself still opens only from its own click/touch gesture.
+function openSignIn(): void {
+  if (currentUser && !currentUser.isAnonymous) return;
+  const container = document.getElementById('authContainer');
+  if (container) {
+    container.hidden = false;
+    container.inert = false;
+    container.classList.remove('collapsed');
+    container.removeAttribute('aria-hidden');
+  }
+  const authUI = document.getElementById('authUI');
+  if (!authUI) return;
+  authUI.hidden = false;
+  authUI.inert = false;
+  authUI.removeAttribute('aria-hidden');
+  authUI.style.display = 'flex';
+  if (currentUser?.isAnonymous) {
+    document.getElementById('profileUI')?.classList.add('expanded');
+    updateProfileDisclosure(true, true);
+  }
+  const firstProvider = PROVIDER_BUTTONS.map(({ id }) =>
+    document.getElementById(id) as HTMLButtonElement | null
+  ).find(button => button && !button.disabled);
+  firstProvider?.focus();
+}
+
 // Provider metadata for the buttons in #authUI. Each federated provider maps a
 // button id -> default label + analytics method + a factory that builds a fresh
 // Firebase auth provider (providers are single-use, so we build one per sign-in).
@@ -410,14 +477,16 @@ type ProviderButton = {
   short: string;   // compact label shown under the brand icon in #authUI
   method: string;
   makeProvider: () => AuthProvider;
+  credentialFromError: (error: FirebaseError) => OAuthCredential | null;
 };
 
 const PROVIDER_BUTTONS: ProviderButton[] = [
   {
     id: 'loginBtn',
-    label: 'Login with Google',
+    label: 'Sign in with Google',
     short: 'Google',
     method: 'GooglePopup',
+    credentialFromError: error => GoogleAuthProvider.credentialFromError(error),
     makeProvider: () => {
       const provider = new GoogleAuthProvider();
       provider.addScope('profile');
@@ -428,9 +497,10 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
   },
   {
     id: 'githubLoginBtn',
-    label: 'Login with GitHub',
+    label: 'Sign in with GitHub',
     short: 'GitHub',
     method: 'GitHubPopup',
+    credentialFromError: error => GithubAuthProvider.credentialFromError(error),
     makeProvider: () => {
       const provider = new GithubAuthProvider();
       provider.addScope('read:user'); // Public profile only; no repo scopes
@@ -442,6 +512,7 @@ const PROVIDER_BUTTONS: ProviderButton[] = [
     label: 'Sign in with Apple',
     short: 'Apple',
     method: 'ApplePopup',
+    credentialFromError: error => OAuthProvider.credentialFromError(error),
     makeProvider: () => {
       const provider = new OAuthProvider('apple.com');
       provider.addScope('email');
@@ -532,50 +603,60 @@ function handleSignInError(reason: unknown) {
 // fall back to a normal sign-in (the local best time still reconciles through
 // syncUserData on the resulting auth-state change).
 function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
-  if (btn.disabled) return; // already in flight
-
+  if (btn.disabled) return;
   if (!auth) {
-    console.error("Auth service not available. Cannot sign in.");
     alert('Sign-in is unavailable right now. You can still start a run without signing in.');
     resetAuthButtons();
     return;
   }
+  if (window.navigator.onLine === false) {
+    alert('You are offline. Your run stays on this device; reconnect to sign in and save it to your account.');
+    return;
+  }
 
+  const flowAuth = auth;
+  const initialization = authInitialization;
+  const session = authSession;
+  const guest = flowAuth.currentUser;
+  const existingAccount = !!guest && existingAccountRetry?.uid === guest.uid
+    && existingAccountRetry.buttonId === meta.id;
+  existingAccountRetry = null;
+  const upgrading = !!guest?.isAnonymous && !existingAccount;
   setAuthButtonsBusy(btn);
   const provider = meta.makeProvider();
-  const guest = auth.currentUser;
-  const upgrading = !!guest && guest.isAnonymous;
-  console.log(`Sign-in initiated (${meta.method})${upgrading ? ' as guest upgrade' : ''}.`);
-
-  // Tracks whether we upgraded the guest IN PLACE (linkWithPopup kept the same
-  // uid). Only that path applies the user directly, because it may not re-fire
-  // onAuthStateChanged. The credential-already-in-use fallback below is a real new
-  // sign-in (different uid), which the observer DOES fire for — so we leave it off.
   let linkedInPlace = false;
+  const stillActive = () => initialization === authInitialization && auth === flowAuth;
 
-  const flow: Promise<UserCredential> = upgrading
+  const flow: Promise<UserCredential | null> = upgrading
     ? linkWithPopup(guest, provider)
-        .then(result => { linkedInPlace = true; return result; })
-        .catch((error: unknown) => {
-          const { code } = readAuthError(error);
-          if (code === 'auth/credential-already-in-use' ||
-              code === 'auth/email-already-in-use') {
-            console.log('Guest upgrade: provider account already exists, signing in instead.');
-            return signInWithPopup(auth!, provider);
-          }
-          throw error;
-        })
-    : signInWithPopup(auth, provider);
+      .then(result => { linkedInPlace = true; return result; })
+      .catch((error: unknown) => {
+        if (!stillActive() || session !== authSession) return null;
+        const { code } = readAuthError(error);
+        if (code !== 'auth/credential-already-in-use' && code !== 'auth/email-already-in-use') throw error;
+        let credential: OAuthCredential | null = null;
+        try { credential = meta.credentialFromError(error as FirebaseError); }
+        catch { /* malformed/unavailable credentials require a fresh user gesture */ }
+        if (credential) return signInWithCredential(flowAuth, credential);
+        // An awaited popup failure has lost transient user activation on mobile.
+        // A second popup must be initiated by a NEW tap, not this promise callback.
+        existingAccountRetry = { uid: guest.uid, buttonId: meta.id };
+        resetAuthButtons();
+        alert(`This ${meta.short} account already exists. Choose ${meta.short} again to sign in and save your run.`);
+        openSignIn();
+        return null;
+      })
+    : signInWithPopup(flowAuth, provider);
 
-  flow
-    .then(result => {
-      console.log(`Popup sign-in successful (${meta.method})`);
-      logAnalyticsEvent('login', { method: meta.method });
-      if (linkedInPlace) {
-        handleSignedInUser(result.user);
-      }
-    })
-    .catch(handleSignInError);
+  flow.then(result => {
+    if (!result || !stillActive() || (session !== authSession && currentUser?.uid !== result.user.uid)) return;
+    logAnalyticsEvent('login', { method: meta.method });
+    if (linkedInPlace && (session === authSession || currentUser?.uid === result.user.uid)) {
+      handleSignedInUser(result.user);
+    }
+  }).catch(error => {
+    if (stillActive() && session === authSession) handleSignInError(error);
+  });
 }
 
 // Anonymous "play as guest" — no account, no popup. onAuthStateChanged then runs
@@ -590,14 +671,26 @@ function signInAsGuest(btn: HTMLButtonElement) {
     return;
   }
 
+  if (window.navigator.onLine === false) {
+    alert('You are offline. You can play now without signing in; your best times stay on this device.');
+    return;
+  }
+  const flowAuth = auth;
+  const initialization = authInitialization;
+  const session = authSession;
   setAuthButtonsBusy(btn);
   console.log("Guest sign-in initiated (anonymous).");
-  signInAnonymously(auth)
-    .then(() => {
-      console.log('Guest (anonymous) sign-in successful.');
+  signInAnonymously(flowAuth)
+    .then(result => {
+      if (initialization !== authInitialization || auth !== flowAuth
+          || (session !== authSession && currentUser?.uid !== result.user.uid)) return;
       logAnalyticsEvent('login', { method: 'Anonymous' });
     })
-    .catch(handleSignInError);
+    .catch(error => {
+      if (initialization === authInitialization && auth === flowAuth && session === authSession) {
+        handleSignInError(error);
+      }
+    });
 }
 
 // Bind click + touchend for an auth button. We bind both because, on the game
@@ -610,7 +703,8 @@ function signInAsGuest(btn: HTMLButtonElement) {
 // gesture on iOS.
 function bindAuthButton(id: string, handler: (btn: HTMLButtonElement) => void) {
   const btn = document.getElementById(id) as HTMLButtonElement | null;
-  if (!btn) return;
+  if (!btn || boundAuthButtons.has(btn)) return;
+  boundAuthButtons.add(btn);
   const onActivate = (e: Event) => {
     if (e) e.preventDefault();
     handler(btn);
@@ -632,7 +726,8 @@ function setupAuthButtons() {
   // a guest can reveal the "sign in to save" upgrade options. For a fully signed-in
   // user it does nothing (login options stay hidden).
   const profileChip = document.getElementById('profileChip');
-  if (profileChip) {
+  if (profileChip && !boundAuthButtons.has(profileChip)) {
+    boundAuthButtons.add(profileChip);
     const toggleGuestUpgrade = (e: Event) => {
       if (e) e.preventDefault();
       if (!currentUser || !currentUser.isAnonymous) return;
@@ -646,13 +741,18 @@ function setupAuthButtons() {
     };
     profileChip.addEventListener('click', toggleGuestUpgrade);
     profileChip.addEventListener('touchend', toggleGuestUpgrade, { passive: false });
-    document.getElementById('authContainer')?.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape' || profileChip.getAttribute('aria-expanded') !== 'true') return;
+  }
+  const authContainer = document.getElementById('authContainer');
+  if (authContainer && !boundAuthContainers.has(authContainer)) {
+    boundAuthContainers.add(authContainer);
+    authContainer.addEventListener('keydown', (event) => {
+      const chip = document.getElementById('profileChip');
+      if (event.key !== 'Escape' || chip?.getAttribute('aria-expanded') !== 'true') return;
       const authUI = document.getElementById('authUI');
       if (authUI) authUI.style.display = 'none';
       document.getElementById('profileUI')?.classList.remove('expanded');
       updateProfileDisclosure(true);
-      profileChip.focus();
+      chip.focus();
       event.stopPropagation();
     });
   }
@@ -664,7 +764,8 @@ function setupAuthButtons() {
   // is the tap-complete gesture; its preventDefault() stops the duplicate click, and
   // the `disabled` guard means the click/touchend pair can't sign out twice.
   const logoutBtn = document.getElementById('logoutBtn') as HTMLButtonElement;
-  if (logoutBtn) {
+  if (logoutBtn && !boundAuthButtons.has(logoutBtn)) {
+    boundAuthButtons.add(logoutBtn);
     const onLogout = (e: Event) => {
       if (e) e.preventDefault();
 
@@ -703,52 +804,66 @@ function setupAuthButtons() {
   }
 }
 
-// Backfill EACH ranked tier's local-only best to the global board via
-// ScoresModule.syncBestTimeWithRetry, which confirms the sync OR (if Firestore is
-// unavailable / the write fails) queues a durable uid+tier pending marker for a later
-// reconnect/auth-restore retry. This is the ONE automatic path that pushes a best earned
-// signed-out/offline, so it is DECOUPLED from profile persistence (Codex #362): a real
-// signed-in user with a ranked local best must always confirm-or-queue regardless of
-// profile-write success, Firestore readiness, reconnect timing, or account switches.
-// Reads localStorage only, so it works with or without a live Firestore. Anonymous users
-// and unranked tiers are never routed to the global leaderboard (trust model preserved).
+// Restore only this account's already-owned bests. The device-wide personal best
+// may belong to a different skier on a shared device; it is never evidence of
+// account ownership. Claiming a guest finish is an explicit result-screen save.
 function backfillRankedLocalBestsWithRetry(user: User): void {
-  if (!user || user.isAnonymous) return;
+  if (user.isAnonymous) return;
   for (const cfg of DIFFICULTIES) {
     if (!cfg.ranked) continue;
-    const key = localBestTimeKey(cfg.id);
-    // Throw-safe storage access (offline-store helpers): a blocked / private-mode / sandboxed
-    // context makes localStorage.getItem throw. Since this runs before syncUserData's try
-    // block, a raw getItem would abort the whole sign-in/profile sync — degrade to "no best
-    // found" instead (Codex #362).
-    const raw = safeGetItem(key);
-    if (!raw) continue;
-    const bestTime = parseFloat(raw);
-    if (!ScoresModule.isValidScoreTime(bestTime)) {
-      console.warn(`Ignoring invalid local best time (${cfg.id}) during sign-in sync:`, raw);
-      safeRemoveItem(key);
-      continue;
+    const bestTime = ScoresModule.getLocalBestForUser(cfg.id, user.uid);
+    if (bestTime === null || !ScoresModule.isValidScoreTime(bestTime, cfg.id)) continue;
+    void ScoresModule.syncBestTimeWithRetry(user.uid, bestTime, cfg.id);
+  }
+}
+
+// Populate an account's current-version bests on a new device, independently of
+// the profile write and local backfill. The shared device PB is never changed.
+async function restoreRemoteAccountBests(user: User, session: number, db: Firestore): Promise<void> {
+  try {
+    const snapshot = await getDoc(doc(db, 'users', user.uid));
+    if (!isCurrentUserSession(user, session) || !snapshot.exists()) return;
+    const value: unknown = snapshot.data();
+    if (!value || typeof value !== 'object') return;
+    const data = value as Record<string, unknown>;
+    let restored = false;
+    for (const cfg of DIFFICULTIES) {
+      if (!cfg.ranked) continue;
+      const time = data[userBestTimeField(cfg.id)];
+      if (ScoresModule.isValidScoreTime(time, cfg.id) &&
+          ScoresModule.rememberAccountBest(user.uid, time, cfg.id)) restored = true;
     }
-    // PROVENANCE GATE (Codex review PR #407): only backfill a best whose sidecar
-    // stamp matches the current world (seed + physics version). An unstamped or
-    // other-world best stays a local/historical record — it was earned on a
-    // different obstacle field and would contaminate the comparable board. (The
-    // record is NOT deleted: it remains visible locally as a historical best.)
-    if (!localBestProvenanceCompatible(cfg.id)) {
-      console.log(`Local best time (${cfg.id}) has no compatible world stamp; keeping it local, not syncing.`);
-      continue;
+    if (restored) {
+      window.dispatchEvent(new CustomEvent('snowglider:account-bests-changed', {
+        detail: { userId: user.uid }
+      }));
     }
-    console.log(`Found local best time (${cfg.id}), attempting to sync:`, bestTime);
-    ScoresModule.syncBestTimeWithRetry(user.uid, bestTime, cfg.id);
+  } catch (error) {
+    if (!isCurrentUserSession(user, session)) return;
+    // A failed read must not cancel an owned local save or the profile update.
+    console.warn('Could not restore account bests:', error);
+  }
+}
+
+// A new device may have no pending local writes to drive the score queue's online
+// retry. Fetch its account bests when connectivity returns without repeating the
+// profile write; every response still belongs to the captured auth session.
+function restoreAccountBestsAfterReconnect(): void {
+  const user = currentUser;
+  const session = authSession;
+  if (!user || user.isAnonymous || window.navigator.onLine === false) return;
+  if (!firestore && !reinitializeFirestore()) return;
+  if (firestore && isCurrentUserSession(user, session)) {
+    void restoreRemoteAccountBests(user, session, firestore);
   }
 }
 
 // Reconcile a signed-in user on auth restore. Score backfill is INDEPENDENT of profile
-// persistence: it always runs first (confirm-or-queue), then the profile doc is written
-// only if Firestore is available. So a failed/absent profile write no longer strands the
-// player's local bests (Codex #362).
-function syncUserData(user: User) {
-  if (!user || user.isAnonymous) return;
+// persistence: it always runs first (confirm-or-queue). Remote bests are read and the
+// profile doc is written independently when Firestore is available, so neither request
+// can strand a local score or prevent a new device from loading its account bests.
+function syncUserData(user: User, session: number) {
+  if (!isCurrentUserSession(user, session)) return;
 
   // Score sync first, and unconditionally — never gated by the profile write below.
   backfillRankedLocalBestsWithRetry(user);
@@ -759,6 +874,7 @@ function syncUserData(user: User) {
   }
 
   try {
+    void restoreRemoteAccountBests(user, session, firestore);
     const userDocRef = doc(firestore, 'users', user.uid);
     // Use setDoc with merge:true to create or update user profile.
     setDoc(userDocRef, {
@@ -770,6 +886,7 @@ function syncUserData(user: User) {
       console.log("User data synced/updated in Firestore.");
     })
     .catch((error: unknown) => {
+      if (!isCurrentUserSession(user, session)) return;
       console.error("Error saving user data to Firestore:", error);
       // Handle potential Firestore unavailability errors. Score backfill already ran above,
       // so disabling Firestore here no longer risks dropping the player's local bests.
@@ -779,15 +896,16 @@ function syncUserData(user: User) {
         console.warn("Firestore became unavailable during user data sync. Disabling Firestore features.");
         firestore = null; // Disable Firestore for subsequent operations
         ScoresModule.initializeScores(null, analytics);
-        ScoresModule.displayLeaderboard();
+        notifyAuthChanged(); // The view preserves its selected leaderboard tier.
       }
     });
   } catch (error) {
     // Catch synchronous errors, though unlikely here.
+    if (!isCurrentUserSession(user, session)) return;
     console.error("Unexpected error in syncUserData:", error);
     firestore = null; // Assume Firestore is problematic
     ScoresModule.initializeScores(null, analytics);
-    ScoresModule.displayLeaderboard();
+    notifyAuthChanged();
   }
 }
 
@@ -890,6 +1008,7 @@ function reinitializeFirestore() {
 // --- AuthModule Export ---
 const AuthModule = {
   initializeAuth,
+  openSignIn,
   getCurrentUser,
   isUserSignedIn,
   getUserIdToken,
@@ -897,6 +1016,7 @@ const AuthModule = {
 
   // Delegated methods to ScoresModule (tier optional; omitted => default Blue)
   recordScore: (time: number, tier?: Difficulty) => ScoresModule.recordScore(time, tier),
+  saveScore: (time: number, tier?: Difficulty) => ScoresModule.saveScore(time, tier),
   displayLeaderboard: (tier?: Difficulty) => ScoresModule.displayLeaderboard(tier),
   
   // Export utilities for debugging or potential external use

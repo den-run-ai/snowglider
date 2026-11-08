@@ -10,8 +10,8 @@
 //
 // Trust rules preserved (do not weaken):
 //   - Anonymous guests NEVER queue — they stay local-only until they upgrade to a real
-//     provider (which reuses the uid and syncUserData backfills them).
-//   - Only RANKED tiers queue (Bunny/Black/Expert are practice — local best/ghost only).
+//     provider and explicitly save the finished run.
+//   - Only ranked tiers queue; each level has its own current-physics board.
 //   - Flush only when online AND Firestore is ready AND a real user is signed in; the
 //     marker is left in place otherwise, so a failed/again-offline attempt is retried.
 //   - The synced value flows through updateUserBestTime, which compares against the
@@ -73,7 +73,7 @@ export interface SyncDeps {
   /** The authoritative sync (scores.updateUserBestTime) — safe/idempotent, never
    *  downgrades. It resolves `true` only when the personal-best write actually SETTLES,
    *  so the flush clears a marker only on that confirmed success and KEEPS it otherwise. */
-  sync: (uid: string, time: number, tier: Difficulty) => Promise<boolean> | boolean | void;
+  sync: (uid: string, time: number, tier: Difficulty) => Promise<boolean> | boolean;
   isOnline?: () => boolean;
   storage?: StorageLike | null;
 }
@@ -118,8 +118,7 @@ export function queueFailedSync(uid: string, tier: Difficulty, time: number, dep
 /**
  * Flush queued pending syncs. No-ops unless online, Firestore is ready, and a real user
  * is signed in. For each queued RANKED tier it awaits the authoritative sync and clears
- * that tier's marker ONLY when the write is CONFIRMED (sync resolves anything but
- * `false`); a rejection or an explicit `false` leaves the durable marker so a transient
+ * that tier's marker ONLY when the write is CONFIRMED (sync resolves `true`); a rejection or an explicit `false` leaves the durable marker so a transient
  * Firestore failure can never delete the only retry record (Codex #362). Returns the
  * tiers it actually cleared. Never throws.
  */
@@ -139,6 +138,11 @@ export async function flushPendingSync(deps: SyncDeps): Promise<Difficulty[]> {
     // A's score into B's user doc + leaderboard entry. Leave a foreign entry untouched for its
     // own owner's reconnect/sign-in retry (Codex #362).
     if (entry.uid !== user.uid) continue;
+    // Authentication can change while the previous tier's request is awaiting.
+    // Stop the old flush before starting another write under a new session.
+    const active = deps.getActiveUser();
+    if (!isSyncEligibleUser(active) || active.uid !== user.uid ||
+        !(deps.isOnline ?? defaultIsOnline)() || !deps.isFirestoreReady()) break;
     // Belt-and-suspenders: a tier that became un-ranked (config change) can't reach the
     // global board, so drop this user's marker without syncing.
     if (!getDifficultyConfig(tier).ranked) {
@@ -147,8 +151,8 @@ export async function flushPendingSync(deps: SyncDeps): Promise<Difficulty[]> {
     }
     let confirmed = false;
     try {
-      // `false` ⇒ the write did not settle (guard/skip/failure) → keep the marker.
-      confirmed = (await deps.sync(user.uid, entry.time, tier)) !== false;
+      // Only an explicit confirmation may remove durable retry intent.
+      confirmed = (await deps.sync(user.uid, entry.time, tier)) === true;
     } catch {
       // A rejection leaves the marker for the next flush (reconnect / next sign-in).
       confirmed = false;
@@ -203,9 +207,9 @@ export const RESULT_PRACTICE_WORLD_COPY = 'Custom mountain. You can see your tim
  */
 export const RESULT_TIMING_COMPROMISED_COPY = 'Slowdowns affected the timer. This run was not recorded.';
 /** Offline copy: explain how to return to the board without promising a saved write. */
-export const RESULT_OFFLINE_COPY = 'You’re offline. Go online and sign in to compete on the Blue leaderboard.';
+export const RESULT_OFFLINE_COPY = 'You’re offline. Connect and sign in to save this finish to its leaderboard.';
 /** Anonymous-guest copy: invite sign-in for future runs without promising a saved write. */
-export const RESULT_GUEST_COPY = 'Playing as a guest. Sign in before your next Blue run to compete on the leaderboard.';
+export const RESULT_GUEST_COPY = 'Playing as a guest. Sign in or register to save this finish to its leaderboard.';
 /**
  * Firestore-outage copy: online + signed-in + ranked, but the leaderboard read/write
  * couldn't reach Firestore. The result overlay's leaderboard panel shows "Leaderboard

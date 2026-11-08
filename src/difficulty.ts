@@ -14,7 +14,7 @@
 //
 // This module is intentionally dependency-free (it only reads the score-limits
 // floor), so it can be imported by the physics kernel without pulling in THREE.
-import { MIN_VALID_SCORE_TIME } from './score-limits.js';
+import { MIN_SCORE_TIME_BY_DIFFICULTY } from './score-limits.js';
 import { getRunStamp, PHYSICS_VERSION, CANONICAL_WORLD_SEED } from './run-context.js';
 // Type-only import: the lane shape lives next to the centerline primitive it feeds
 // (course-line.ts, also THREE-free), and `import type` erases at build time so this
@@ -214,14 +214,10 @@ export interface DifficultyConfig {
   blurb: string;            // one-line description for the start-screen picker
   seed: number;             // base seed (derives the per-tier RNG streams in a later PR)
   ski: SnowmanPhysicsTuning;
-  // Whether this tier submits to the global per-tier leaderboard. Bunny/Black ship
-  // UNRANKED (practice only — local best/ghost still work) until their plausibility
-  // floors are measured + a winnability gate passes; flipped on in a later stacked PR.
+  // Each ranked tier submits to its own physics-versioned leaderboard.
   ranked: boolean;
-  // Per-tier leaderboard plausibility floor (seconds). Blue is the MEASURED shipped
-  // floor (score-limits.ts). Bunny/Black are PROVISIONAL illustrative values and MUST
-  // be re-measured with tests/verification/plausibility_floor_harness.js before the
-  // per-tier leaderboards ship ranked (a later stacked PR).
+  // Conservative per-tier score floor (seconds), measured by test:floor and kept
+  // in sync with the client, offline store and Firestore rules.
   minScoreTime: number;
   // The descent centerline shape (course-line.ts reads this + `seed`). Bunny/Blue are
   // STRAIGHT (`curviness 0` ⇒ `laneX ≡ 0`), so their terrain/gates/obstacles stay
@@ -264,8 +260,8 @@ const BUNNY: DifficultyConfig = {
   blurb: 'Easy — the gentlest way down. No jumps, just carving.',
   seed: 1001,
   ski: BUNNY_PHYSICS_TUNING,
-  ranked: false, // unranked until its floor is measured (D3 follow-up)
-  minScoreTime: 28, // PROVISIONAL — re-measure before ranked
+  ranked: true, // independently ranked after the per-tier floor / winnability gates
+  minScoreTime: MIN_SCORE_TIME_BY_DIFFICULTY.bunny,
   line: STRAIGHT_LINE, // easy tier stays a straight fall line
   // Bunny has NO avalanche — the easy tier is a calm learning run. `enabled: false` keeps
   // the AvalancheSystem inert (main-loop skips the trigger), and triggerDistance Infinity is
@@ -280,7 +276,7 @@ const BLUE: DifficultyConfig = {
   seed: 1002,
   ski: BLUE_PHYSICS_TUNING,
   ranked: true, // the classic, measured, ranked board
-  minScoreTime: MIN_VALID_SCORE_TIME, // the measured shipped floor (18 s)
+  minScoreTime: MIN_SCORE_TIME_BY_DIFFICULTY.blue,
   line: STRAIGHT_LINE, // the classic straight run — byte-identical to today
   avalanche: BLUE_AVALANCHE, // today's exact slide — the byte-identical guardrail
 };
@@ -291,8 +287,8 @@ const BLACK: DifficultyConfig = {
   blurb: 'Hard — for confident skiers.',
   seed: 1003,
   ski: BLACK_PHYSICS_TUNING,
-  ranked: false, // unranked until its floor is measured (D3 follow-up)
-  minScoreTime: 13, // PROVISIONAL — re-measure before ranked
+  ranked: true, // independently ranked after the per-tier floor / winnability gates
+  minScoreTime: MIN_SCORE_TIME_BY_DIFFICULTY.black,
   // The winding corridor — "the line is the difficulty". A ±18 u serpentine of ~5
   // turns over the run; the fixed seed (1003) makes it identical for everyone. Tuned
   // for real against Black's #240 physics in a later D3.2 sub-PR (terrain + winnability).
@@ -312,16 +308,16 @@ const BLACK: DifficultyConfig = {
 
 // Expert (◆◆ double black): the tier after Hard. Same winding corridor + heavy slide
 // as Black (values copied, own seed so the line is its own course), same ski feel —
-// what changes is the unlocked freestyle trick system (ski.freestyleTricks). Unranked
-// practice tier like Bunny/Black until its floor is measured (D3 follow-up).
+// what changes is the unlocked freestyle trick system (ski.freestyleTricks). It
+// competes on its own board, with its own measured plausibility floor.
 const EXPERT: DifficultyConfig = {
   id: 'expert',
   label: '◆◆ Expert',
   blurb: 'Expert — freestyle: spin, flip & grab in the air.',
   seed: 1004,
   ski: EXPERT_PHYSICS_TUNING,
-  ranked: false, // unranked until its floor is measured (D3 follow-up)
-  minScoreTime: 13, // PROVISIONAL — re-measure before ranked (mirrors Black)
+  ranked: true, // independently ranked after the per-tier floor / winnability gates
+  minScoreTime: MIN_SCORE_TIME_BY_DIFFICULTY.expert,
   // Black's serpentine, re-seeded: the same difficulty of line, its own fixed course.
   line: { curviness: 1, amplitude: 18, controlPoints: 5 },
   terrain: { channelHalfWidth: 7, wallRamp: 9, wallHeight: 10 },
@@ -390,9 +386,13 @@ export function localBestMetaKey(tier: Difficulty = DEFAULT_DIFFICULTY): string 
  *  gstatic CDN modules, and result-overlay.ts is part of the game orchestrator
  *  graph that must still boot when the CDN is blocked and the local fallback is
  *  installed (Codex review, PR #407 P1). */
-export function stampLocalBestMeta(tier: Difficulty = DEFAULT_DIFFICULTY): void {
+export function stampLocalBestMeta(
+  tier: Difficulty = DEFAULT_DIFFICULTY,
+  stamp: ReturnType<typeof getRunStamp> = getRunStamp(),
+): void {
   try {
-    localStorage.setItem(localBestMetaKey(tier), JSON.stringify(getRunStamp()));
+    // Copied Firebase modules pass the live bundled game's captured stamp.
+    localStorage.setItem(localBestMetaKey(tier), JSON.stringify(stamp));
   } catch {
     // Storage write failed (quota, private mode): the time itself already saved,
     // but a PREVIOUS run's sidecar may still sit under this key — leaving it

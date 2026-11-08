@@ -11,6 +11,22 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ---
 
+## Leaderboards and saved runs — 2026-11-08
+
+- Rank Bunny, Blue, Black and Expert separately with one shared start/result
+  leaderboard, per-level top tens, account/device bests and honest loading states.
+- Add explicit sign-in/register-and-save after a finish, retain that run during
+  authentication, and distinguish local, queued and confirmed account saves.
+- Keep device records separate from account-owned progress; restore account bests
+  on sign-in/reconnect, persist retry intent before network work, and reconcile
+  interrupted private/public best writes without allowing slower races to win.
+- Load one scoring instance at startup and use the live game's run provenance
+  in the separately loaded Firebase modules as well as the local fallback.
+- Keep simulation time and air points visible in collapsed Stats and include
+  level, time, air points and practice context in social text and image shares.
+- Align current per-level score floors across client, fallback, rules and analytics;
+  retain existing physics, course generation, score version and historical boards.
+
 ## Finish and restart recovery — 2026-11-07
 
 - Keep Restart and all four difficulty choices visible while results, sharing,

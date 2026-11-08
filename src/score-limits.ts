@@ -1,15 +1,23 @@
 /**
  * Active leaderboard score-time bounds (physics v4).
  *
- * The corrected tuck drag produced a fastest clean Blue run of 21.87 s across
- * 180 sampled policies/seeds, with a measured peak speed of 10.14 m/s. Dividing
- * the 180-unit course by that observed peak gives a 17.75 s estimate, not a
- * proven global lower bound. A conservative 15 s floor leaves headroom below
- * that estimate; the harness must be rerun when movement changes.
+ * `npm run test:floor` measures 60 seeds × three jump policies for each tier.
+ * Fastest sampled finishes: Bunny 33.18s, Blue 21.87s, Black 21.73s, Expert 20.38s.
+ * Course distance / observed peak speed is only an estimate, not a proven lower
+ * bound. The conservative review candidates were 22 / 15 / 10 / 10 seconds.
+ * Bunny retains the previously accepted 15-second score floor so enabling its
+ * board cannot reject an older accepted device record. Black and Expert need
+ * their own lower floor; neither inherits Blue's slower physics limit.
  *
- * Firestore's v4 validator and the classic local-auth fallback duplicate these
- * literals; tests/score-limits-sync-tests.js guards them. Historical rules keep
- * their original 18 s floor so existing data and cached clients remain valid.
+ * Firestore rules and the classic local-auth fallback duplicate these literals;
+ * tests/score-limits-sync-tests.js guards drift. Historical remote eras keep
+ * their original bounds and are never combined with these current boards.
  */
 export const MIN_VALID_SCORE_TIME = 15;
 export const MAX_VALID_SCORE_TIME = 600;
+export const MIN_SCORE_TIME_BY_DIFFICULTY = {
+  bunny: 15,
+  blue: MIN_VALID_SCORE_TIME,
+  black: 10,
+  expert: 10,
+} as const;

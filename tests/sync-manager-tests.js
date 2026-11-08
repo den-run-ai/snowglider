@@ -28,10 +28,10 @@ async function main() {
   check('real signed-in user eligible', sm.isSyncEligibleUser(REAL_USER) === true);
   check('user with empty uid not eligible', sm.isSyncEligibleUser({ uid: '', isAnonymous: false }) === false);
 
-  // --- shouldQueuePending (blue = ranked, black = unranked) ---
+  // --- shouldQueuePending: all four tiers are independently ranked ---
   check('queue: eligible + ranked + cannot sync now', sm.shouldQueuePending(REAL_USER, 'blue', false) === true);
   check('no queue: eligible + ranked but CAN sync now', sm.shouldQueuePending(REAL_USER, 'blue', true) === false);
-  check('no queue: unranked tier', sm.shouldQueuePending(REAL_USER, 'black', false) === false);
+  check('queue: Black has its own ranked queue', sm.shouldQueuePending(REAL_USER, 'black', false) === true);
   check('no queue: anonymous guest', sm.shouldQueuePending(GUEST, 'blue', false) === false);
   check('no queue: signed out', sm.shouldQueuePending(null, 'blue', false) === false);
 
@@ -58,7 +58,7 @@ async function main() {
   ls = createLocalStorageMock();
   check('does NOT queue an anonymous guest', sm.queueOfflineBest('blue', 30, deps({ user: GUEST, online: false, storage: ls })) === false);
   ls = createLocalStorageMock();
-  check('does NOT queue an unranked tier', sm.queueOfflineBest('black', 30, deps({ online: false, storage: ls })) === false);
+  check('queues a ranked Black result offline', sm.queueOfflineBest('black', 30, deps({ online: false, storage: ls })) === true);
 
   // --- queueFailedSync: an ONLINE attempt that didn't confirm still queues (Codex #362) ---
   // Takes the ORIGINAL uid EXPLICITLY (captured before the async write), not getActiveUser —
@@ -74,8 +74,8 @@ async function main() {
   check('queueFailedSync refuses an empty uid',
     sm.queueFailedSync('', 'blue', 30, deps({ storage: ls })) === false);
   ls = createLocalStorageMock();
-  check('queueFailedSync does NOT queue an unranked tier',
-    sm.queueFailedSync('u1', 'black', 30, deps({ storage: ls })) === false);
+  check('queueFailedSync retains a failed Black save',
+    sm.queueFailedSync('u1', 'black', 30, deps({ storage: ls })) === true);
 
   // --- hasPendingSync (drives the reconnect reinit decision; scoped by uid) ---
   ls = createLocalStorageMock();
@@ -128,13 +128,13 @@ async function main() {
   await sm.flushPendingSync(deps({ user: GUEST, firestore: true, online: true, storage: ls, sync: (u, t, ti) => { anon.push(ti); return true; } }));
   check('flush no-ops for an anonymous user (marker retained)', anon.length === 0 && store.getPendingSync('u1', 'blue', ls) !== null);
 
-  // A tier that became unranked is cleared without syncing.
+  // A newly ranked Black marker now syncs to its own board.
   ls = createLocalStorageMock();
-  // Force a pending entry on an unranked tier directly (bypass the queue eligibility).
+  // Use the lower Black floor, independently of Blue.
   store.markPendingSync('black', 20, 'u1', { recordedAt: 1, storage: ls });
   const unrankedSync = [];
   await sm.flushPendingSync(deps({ firestore: true, online: true, storage: ls, sync: (u, t, ti) => { unrankedSync.push(ti); return true; } }));
-  check('flush drops an unranked pending tier without syncing', unrankedSync.length === 0 && store.getPendingSync('u1', 'black', ls) === null);
+  check('flush confirms a pending Black result', unrankedSync.length === 1 && unrankedSync[0] === 'black' && store.getPendingSync('u1', 'black', ls) === null);
 
   // A marker owned by a DIFFERENT user is NOT synced (shared browser: user A queued, user B
   // is now signed in). Both entries coexist under their own composite keys; the flush syncs
@@ -160,6 +160,35 @@ async function main() {
     } }));
   check('flush does NOT clear a marker rewritten to a better time mid-sync (Codex #362)',
     raceFlushed.length === 0 && store.getPendingSync('u1', 'blue', ls)?.time === 25);
+
+  // An absent return is not proof that anything reached the server.
+  ls = createLocalStorageMock();
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
+  await sm.flushPendingSync(deps({ firestore: true, online: true, storage: ls, sync: () => undefined }));
+  check('an undefined sync result cannot clear durable retry intent', store.getPendingSync('u1', 'blue', ls)?.time === 25);
+
+  // Account switching while the first tier awaits must stop the rest of that
+  // owner's flush. The next signed-in user must not inherit its remaining work.
+  ls = createLocalStorageMock();
+  store.markPendingSync('blue', 25, 'u1', { recordedAt: 1, storage: ls });
+  store.markPendingSync('black', 20, 'u1', { recordedAt: 2, storage: ls });
+  let liveUser = REAL_USER;
+  const switchedTiers = [];
+  await sm.flushPendingSync({
+    getActiveUser: () => liveUser,
+    isFirestoreReady: () => true,
+    isOnline: () => true,
+    storage: ls,
+    sync: async (_uid, _time, tier) => {
+      switchedTiers.push(tier);
+      liveUser = { uid: 'other-account', isAnonymous: false };
+      return true;
+    },
+  });
+  check('account switch stops a multi-tier flush after the confirmed current request',
+    switchedTiers.length === 1 && switchedTiers[0] === 'blue' && store.getPendingSync('u1', 'blue', ls) === null);
+  check('the previous account’s remaining tier is preserved for its own retry',
+    store.getPendingSync('u1', 'black', ls)?.time === 20 && store.getPendingSync('other-account', 'black', ls) === null);
 
   // --- resultSyncStatusCopy precedence ---
   const S = (o) => Object.assign({ online: true, firestoreAvailable: true, ranked: true, signedIn: true, anonymous: false }, o);

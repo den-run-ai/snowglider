@@ -245,11 +245,8 @@ function maxTrajDiff(a, b) {
     frozenKeys.every((k) =>
       D.getDifficultyConfig('expert').ski[k] === D.getDifficultyConfig('black').ski[k]));
 
-  check('ranked: only Blue is ranked for now (Bunny/Black/Expert unranked until floors measured)',
-    D.getDifficultyConfig('blue').ranked === true
-    && D.getDifficultyConfig('bunny').ranked === false
-    && D.getDifficultyConfig('black').ranked === false
-    && D.getDifficultyConfig('expert').ranked === false);
+  check('all four measured levels have independent ranked boards',
+    D.DIFFICULTIES.every(config => config.ranked));
 
   console.log('--- Per-tier course line (the `line` block, fed to course-line.ts) ---');
   const lineKeys = ['curviness', 'amplitude', 'controlPoints'];

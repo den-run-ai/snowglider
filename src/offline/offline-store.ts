@@ -62,10 +62,9 @@ export interface PendingSyncEntry {
 
 /**
  * Is `time` a plausible, storable score for `tier`? Uses the TIER'S OWN plausibility
- * floor (`getDifficultyConfig(tier).minScoreTime`), mirroring result-overlay.ts
- * `isPlausibleForTier` — Blue's floor is the global 18 s, but Black/Expert legitimately
- * finish below that (their floor is 13 s), so validating a local best against the
- * global floor would wrongly purge a valid fast Black/Expert time. Every read/write
+ * floor (`getDifficultyConfig(tier).minScoreTime`), shared by the result overlay
+ * and score module. Black/Expert use a lower floor than Blue; validating their
+ * records against the default floor would wrongly purge a valid fast run. Every read/write
  * path here is tier-aware for exactly this reason (Codex #359). Rejects
  * NaN/Infinity/strings without throwing.
  */
@@ -131,7 +130,7 @@ export function readLocalBest(tier: Difficulty, storage?: StorageLike | null): n
   const key = localBestTimeKey(tier);
   const raw = safeGetItem(key, storage);
   if (raw === null || raw === '') return null;
-  const value = parseFloat(raw);
+  const value = Number(raw);
   if (isPlausibleTierTime(tier, value)) return value;
   safeRemoveItem(key, storage);
   return null;
@@ -149,9 +148,18 @@ export function saveLocalBestIfBetter(
   storage?: StorageLike | null
 ): boolean {
   if (!isPlausibleTierTime(tier, time)) return false;
-  const existing = readLocalBest(tier, storage);
-  if (existing !== null && existing <= time) return false;
-  return safeSetItem(localBestTimeKey(tier), String(time), storage);
+  try {
+    const target = resolveStorage(storage);
+    if (!target) return false;
+    const raw = target.getItem(localBestTimeKey(tier));
+    const existing = raw === null ? null : Number(raw);
+    if (isPlausibleTierTime(tier, existing) && existing <= time) return false;
+    target.setItem(localBestTimeKey(tier), String(time));
+    return true;
+  } catch {
+    // A failed read is not an absent record. Preserve an unread faster best.
+    return false;
+  }
 }
 
 // --- Pending-sync marker ------------------------------------------------------
@@ -175,7 +183,10 @@ function pendingKey(uid: string, tier: Difficulty): string {
  * time (or an ownerless marker) into a later leaderboard sync. Never throws.
  */
 export function readPendingSync(storage?: StorageLike | null): Record<string, PendingSyncEntry> {
-  const raw = safeGetItem(PENDING_SYNC_KEY, storage);
+  return parsePendingSync(safeGetItem(PENDING_SYNC_KEY, storage));
+}
+
+function parsePendingSync(raw: string | null): Record<string, PendingSyncEntry> {
   if (!raw) return {};
   let parsed: unknown;
   try {
@@ -246,9 +257,17 @@ export function markPendingSync(
 ): boolean {
   if (!isPlausibleTierTime(tier, time)) return false;
   // A marker MUST carry its owner so the flush never syncs it to a different user (Codex #362).
-  if (typeof uid !== 'string' || uid.length === 0) return false;
+  if (typeof uid !== 'string' || uid.length === 0 || uid.includes(PENDING_KEY_SEP)) return false;
   const storage = opts?.storage;
-  const map = readPendingSync(storage);
+  let map: Record<string, PendingSyncEntry>;
+  try {
+    const target = resolveStorage(storage);
+    if (!target) return false;
+    map = parsePendingSync(target.getItem(PENDING_SYNC_KEY));
+  } catch {
+    // Never replace an unread queue: it may contain another account's work.
+    return false;
+  }
   const key = pendingKey(uid, tier);
   // Keep the faster time for THIS (uid, tier). A different user's entry lives under its own
   // key, so it is neither consulted here nor clobbered below.

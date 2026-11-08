@@ -54,12 +54,11 @@
     if (!head) {
       return;
     }
-    const scoresScript = document.createElement('script');
-    scoresScript.type = 'module';
-    scoresScript.id = 'scoresScript';
-    scoresScript.src = 'src/scores.js';
-    head.appendChild(scoresScript);
-
+    // auth imports and publishes its ScoresModule dependency. Loading scores
+    // independently would create a second instance in Vite dev: the injected
+    // /src/scores.js URL differs from auth's rewritten /src/scores.ts import.
+    // Then the visible board could use a different user/Firestore connection
+    // from AuthModule.recordScore. Keep one module graph for both operations.
     const authScript = document.createElement('script');
     authScript.type = 'module';
     authScript.id = 'authScript';

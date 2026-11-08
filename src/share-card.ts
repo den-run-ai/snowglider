@@ -14,8 +14,8 @@
 //   - composeShareCard(opts): draws that frame as the background of a portrait
 //     1080x1350 card (Instagram-friendly) and overlays the time/branding text.
 
-import * as THREE from 'three';
-import { formatRunSeconds } from './share.js';
+import type * as THREE from 'three';
+import { formatRunSeconds, shareDifficultyLabel, shareAirScoreLabel, type ResultShareContext } from './share.js';
 
 /** Renderer/scene/camera needed to grab the current game frame. */
 export interface CaptureContext {
@@ -25,12 +25,12 @@ export interface CaptureContext {
 }
 
 /** Inputs for {@link composeShareCard}. */
-export interface ShareCardOptions {
+export interface ShareCardOptions extends ResultShareContext {
   /** PNG data URL of the game frame, or null to fall back to a gradient. */
   frameDataUrl: string | null;
   time: number;
   isBest: boolean;
-  /** Public URL printed on the card (host shown, scheme stripped). */
+  /** Public URL printed on the card (path retained; query/scheme stripped). */
   url: string;
 }
 
@@ -97,72 +97,85 @@ export async function composeShareCard(opts: ShareCardOptions): Promise<Blob | n
   } catch {
     return null;
   }
-  canvas.width = CARD_W;
-  canvas.height = CARD_H;
-  const g = canvas.getContext('2d');
-  if (!g) return null;
+  try {
+    canvas.width = CARD_W;
+    canvas.height = CARD_H;
+    const g = canvas.getContext('2d');
+    if (!g) return null;
 
-  // --- Background: captured frame (cover) or a sky-blue gradient fallback. ---
-  const frame = opts.frameDataUrl ? await loadImage(opts.frameDataUrl) : null;
-  if (frame && frame.width > 0 && frame.height > 0) {
-    drawCover(g, frame, CARD_W, CARD_H);
-  } else {
-    const sky = g.createLinearGradient(0, 0, 0, CARD_H);
-    sky.addColorStop(0, '#74b9ff');
-    sky.addColorStop(1, '#0984e3');
-    g.fillStyle = sky;
-    g.fillRect(0, 0, CARD_W, CARD_H);
-  }
-
-  // --- Scrims so text stays legible over any frame. ---
-  const top = g.createLinearGradient(0, 0, 0, 220);
-  top.addColorStop(0, 'rgba(8,16,32,0.72)');
-  top.addColorStop(1, 'rgba(8,16,32,0)');
-  g.fillStyle = top;
-  g.fillRect(0, 0, CARD_W, 220);
-
-  const bottom = g.createLinearGradient(0, CARD_H * 0.5, 0, CARD_H);
-  bottom.addColorStop(0, 'rgba(8,16,32,0)');
-  bottom.addColorStop(1, 'rgba(8,16,32,0.9)');
-  g.fillStyle = bottom;
-  g.fillRect(0, CARD_H * 0.5, CARD_W, CARD_H * 0.5);
-
-  // --- Text overlay. ---
-  const cx = CARD_W / 2;
-  const family = 'Arial, Helvetica, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'alphabetic';
-
-  // Top brand.
-  g.fillStyle = '#ffffff';
-  g.font = `bold 60px ${family}`;
-  g.fillText('⛄ SnowGlider', cx, 110);
-
-  // Headline (best vs finish) + big time.
-  g.fillStyle = '#74b9ff';
-  g.font = `bold 54px ${family}`;
-  g.fillText(opts.isBest ? 'NEW PERSONAL BEST' : 'RUN COMPLETE', cx, CARD_H - 360);
-
-  g.fillStyle = '#ffffff';
-  g.font = `bold 200px ${family}`;
-  g.fillText(`${formatRunSeconds(opts.time)}s`, cx, CARD_H - 200);
-
-  g.font = `48px ${family}`;
-  g.fillStyle = '#dfe6e9';
-  g.fillText('Can you beat it?', cx, CARD_H - 130);
-
-  // Footer URL (host only, scheme stripped).
-  g.font = `bold 40px ${family}`;
-  g.fillStyle = '#74b9ff';
-  g.fillText(opts.url.replace(/^https?:\/\//, '').replace(/\/$/, ''), cx, CARD_H - 70);
-
-  return new Promise((resolve) => {
-    try {
-      canvas.toBlob((blob) => resolve(blob), PNG);
-    } catch {
-      resolve(null);
+    // --- Background: captured frame (cover) or a sky-blue gradient fallback. ---
+    const frame = opts.frameDataUrl ? await loadImage(opts.frameDataUrl) : null;
+    if (frame && frame.width > 0 && frame.height > 0) {
+      drawCover(g, frame, CARD_W, CARD_H);
+    } else {
+      const sky = g.createLinearGradient(0, 0, 0, CARD_H);
+      sky.addColorStop(0, '#74b9ff');
+      sky.addColorStop(1, '#0984e3');
+      g.fillStyle = sky;
+      g.fillRect(0, 0, CARD_W, CARD_H);
     }
-  });
+
+    // --- Scrims so text stays legible over any frame. ---
+    const top = g.createLinearGradient(0, 0, 0, 220);
+    top.addColorStop(0, 'rgba(8,16,32,0.72)');
+    top.addColorStop(1, 'rgba(8,16,32,0)');
+    g.fillStyle = top;
+    g.fillRect(0, 0, CARD_W, 220);
+
+    const bottom = g.createLinearGradient(0, CARD_H * 0.5, 0, CARD_H);
+    bottom.addColorStop(0, 'rgba(8,16,32,0)');
+    bottom.addColorStop(1, 'rgba(8,16,32,0.9)');
+    g.fillStyle = bottom;
+    g.fillRect(0, CARD_H * 0.5, CARD_W, CARD_H * 0.5);
+
+    // --- Text overlay. ---
+    const cx = CARD_W / 2;
+    const family = 'Arial, Helvetica, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+
+    // Top brand.
+    g.fillStyle = '#ffffff';
+    g.font = `bold 60px ${family}`;
+    g.fillText('⛄ SnowGlider', cx, 110);
+
+    // Headline (best vs finish) + big time.
+    g.fillStyle = '#74b9ff';
+    g.font = `bold 54px ${family}`;
+    g.fillText(opts.practice ? 'PRACTICE RUN' : opts.isBest ? 'NEW PERSONAL BEST' : 'RUN COMPLETE', cx, CARD_H - 440);
+
+    // Keep the level and optional air score visible on every shared result, so
+    // times from different mountains are never mistaken for the same leaderboard.
+    const context = [shareDifficultyLabel(opts.difficulty), shareAirScoreLabel(opts.airScore)].filter(Boolean).join(' · ');
+    if (context) {
+      g.font = `bold 38px ${family}`;
+      g.fillStyle = '#dfe6e9';
+      g.fillText(context, cx, CARD_H - 375, CARD_W - 96);
+    }
+
+    g.fillStyle = '#ffffff';
+    g.font = `bold 200px ${family}`;
+    g.fillText(`${formatRunSeconds(opts.time)}s`, cx, CARD_H - 200, CARD_W - 96);
+
+    g.font = `48px ${family}`;
+    g.fillStyle = '#dfe6e9';
+    g.fillText(opts.practice ? 'Try the mountain!' : 'Can you beat it?', cx, CARD_H - 130);
+
+    // Keep the playable path, but omit tracking queries from the printed URL.
+    g.font = `bold 40px ${family}`;
+    g.fillStyle = '#74b9ff';
+    g.fillText(opts.url.replace(/^https?:\/\//, '').split(/[?#]/, 1)[0]!.replace(/\/$/, ''), cx, CARD_H - 70, CARD_W - 96);
+
+    return new Promise((resolve) => {
+      try {
+        canvas.toBlob((blob) => resolve(blob), PNG);
+      } catch {
+        resolve(null);
+      }
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -174,10 +187,11 @@ export async function buildShareCardBlob(
   ctx: CaptureContext | null,
   time: number,
   isBest: boolean,
-  url: string
+  url: string,
+  context: ResultShareContext = {}
 ): Promise<Blob | null> {
   const frameDataUrl = captureGameFrame(ctx);
-  return composeShareCard({ frameDataUrl, time, isBest, url });
+  return composeShareCard({ ...context, frameDataUrl, time, isBest, url });
 }
 
 /**
@@ -189,19 +203,35 @@ export function downloadBlob(blob: Blob, filename = 'snowglider-run.png'): boole
       typeof URL.createObjectURL !== 'function') {
     return false;
   }
+  let objectUrl: string | null = null;
+  let a: HTMLAnchorElement | null = null;
+  let attached = false;
+  let started = false;
   try {
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    objectUrl = URL.createObjectURL(blob);
+    a = document.createElement('a');
     a.href = objectUrl;
     a.download = filename;
     a.rel = 'noopener';
     document.body.appendChild(a);
+    attached = true;
     a.click();
-    document.body.removeChild(a);
-    // Revoke after the download has had a chance to start.
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 4000);
+    started = true;
     return true;
   } catch {
     return false;
+  } finally {
+    if (attached && a) {
+      try { document.body.removeChild(a); } catch { /* already detached */ }
+    }
+    if (objectUrl !== null) {
+      const revoke = (): void => {
+        try { URL.revokeObjectURL(objectUrl!); } catch { /* unsupported / disposed */ }
+      };
+      // Keep a successful download alive long enough for the browser to read it;
+      // failures still release the URL instead of leaking a screenshot Blob.
+      if (started) setTimeout(revoke, 4000);
+      else revoke();
+    }
   }
 }

@@ -177,7 +177,7 @@ async function fetchCollection(token, project, collection) {
     const json = await res.json();
     if (!res.ok) throw new Error(`Firestore read ${collection} failed (HTTP ${res.status}): ${JSON.stringify(json)}`);
     for (const d of json.documents || []) {
-      docs.push({ id: d.name.split('/').pop(), ...decodeFields(d.fields || {}) });
+      docs.push({ ...decodeFields(d.fields || {}), id: d.name.split('/').pop() });
     }
     pageToken = json.nextPageToken;
   } while (pageToken);
@@ -605,14 +605,23 @@ function anonName(id) {
 // so the reporter never folds forged/legacy times — the sub-floor scores the app itself
 // rejects via isValidScoreTime — into the finish-time distribution or leaderboard. Falls
 // back to the firestore.rules range if the file moves.
-function readScoreLimits(repoRoot) {
-  const fallback = { min: 4, max: 600 };
-  try {
-    const src = readFileSync(join(repoRoot, 'src', 'score-limits.ts'), 'utf8');
-    const min = src.match(/MIN_VALID_SCORE_TIME\s*=\s*([\d.]+)/);
-    const max = src.match(/MAX_VALID_SCORE_TIME\s*=\s*([\d.]+)/);
-    return { min: min ? Number(min[1]) : fallback.min, max: max ? Number(max[1]) : fallback.max };
-  } catch { return fallback; }
+export function readScoreLimits(repoRoot = REPO_ROOT) {
+  const src = readFileSync(join(repoRoot, 'src', 'score-limits.ts'), 'utf8');
+  const min = Number(src.match(/MIN_VALID_SCORE_TIME\s*=\s*([\d.]+)/)?.[1]);
+  const max = Number(src.match(/MAX_VALID_SCORE_TIME\s*=\s*([\d.]+)/)?.[1]);
+  const block = src.match(/MIN_SCORE_TIME_BY_DIFFICULTY\s*=\s*\{([^}]+)\}/)?.[1];
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !block) {
+    throw new Error('Could not read current score limits; refusing inaccurate analytics.');
+  }
+  const minByTier = Object.fromEntries(readTiers(repoRoot).map(({ id }) => {
+    const value = block.match(new RegExp(`\\b${id}:\\s*(MIN_VALID_SCORE_TIME|[\\d.]+)`))?.[1];
+    const floor = value === 'MIN_VALID_SCORE_TIME' ? min : Number(value);
+    if (!Number.isFinite(floor) || floor <= 0 || floor > max) {
+      throw new Error(`Could not read score floor for ${id}.`);
+    }
+    return [id, floor];
+  }));
+  return { min, max, minByTier };
 }
 
 // All configured tiers and their CURRENT physics-version remote names. Historical
@@ -620,12 +629,8 @@ function readScoreLimits(repoRoot) {
 // timing metrics. Parse the source to keep the plain-Node CLI dependency-free;
 // analytics-report-tests checks these names against the actual TypeScript helpers.
 //
-// NOTE on the floor: plausibility is NOT judged against the client per-tier floors
-// (difficulty.ts minScoreTime — those gate LOCAL practice bests). firestore.rules
-// validates EVERY tier field and EVERY leaderboard collection against the single global
-// isValidScoreTime (>= MIN_VALID_SCORE_TIME, <= MAX), so any value in Firestore below that
-// global floor is forged/legacy regardless of tier. The reporter therefore uses the SERVER
-// floor for all tiers — see buildInsights.
+// Current server rules use the same per-tier floors as score-limits.ts. Historical
+// schemas have separate bounds and must not be mixed into current rankings.
 export function readTiers(repoRoot = REPO_ROOT) {
   const src = readFileSync(join(repoRoot, 'src', 'difficulty.ts'), 'utf8').replace(/\/\/[^\n]*/g, '');
   const context = readFileSync(join(repoRoot, 'src', 'run-context.ts'), 'utf8');
@@ -652,25 +657,23 @@ export function readTiers(repoRoot = REPO_ROOT) {
 
 // --------------------------------------------------------------------- build insights ----
 // `boardEntries` is the merged per-tier leaderboard (each row tagged with `.tier`); `tiers`
-// carries each tier's best-time field; `limits` is the SERVER validation range
-// (firestore.rules isValidScoreTime), applied uniformly to every tier — see readTiers.
+// carries each tier's best-time field; `limits` mirrors the current server ranges.
 export function buildInsights(users, boardEntries, nowMs, tiers, limits, { redact = OPTS.redact } = {}) {
   const usersById = new Map(users.map((u) => [u.id, u]));
-  const isPlausible = (t) => num(t) && t >= limits.min && t <= limits.max;
+  const isPlausible = (time, tier) => num(time)
+    && time >= (limits.minByTier?.[tier] ?? limits.min) && time <= limits.max;
 
   // Every current-version tier best, including Expert. A player who finished only
-  // an unranked tier still counts, but each time is judged against the
-  // SERVER floor the write had to clear, so a forged sub-floor value is excluded whatever
-  // its tier field.
+  // an unranked tier still counts; each time must clear its own server floor.
   const userBests = (u) => tiers
     .map((t) => ({ tier: t.id, time: u[t.field] }))
     .filter((b) => num(b.time));
-  const completed = users.filter((u) => userBests(u).some((b) => isPlausible(b.time)));
-  const bestTimes = users.flatMap((u) => userBests(u).filter((b) => isPlausible(b.time)).map((b) => b.time));
-  const implausibleUserTimes = users.flatMap(userBests).filter((b) => !isPlausible(b.time)).length;
+  const completed = users.filter((u) => userBests(u).some((b) => isPlausible(b.time, b.tier)));
+  const bestTimes = users.flatMap((u) => userBests(u).filter((b) => isPlausible(b.time, b.tier)).map((b) => b.time));
+  const implausibleUserTimes = users.flatMap(userBests).filter((b) => !isPlausible(b.time, b.tier)).length;
   // The single fastest PLAUSIBLE time each user has across tiers (for the players table).
   const bestOf = (u) => {
-    const plausible = userBests(u).filter((b) => isPlausible(b.time)).map((b) => b.time);
+    const plausible = userBests(u).filter((b) => isPlausible(b.time, b.tier)).map((b) => b.time);
     return plausible.length ? Math.min(...plausible) : null;
   };
 
@@ -693,32 +696,37 @@ export function buildInsights(users, boardEntries, nowMs, tiers, limits, { redac
 
   // Merged per-tier leaderboard, plausible rows only, fastest first. Skip rows with no
   // `user` reference — malformed/legacy docs the in-game board also ignores (scores.ts).
-  const board = boardEntries.filter((e) => e.user).map((e) => {
-    const uid = e.user.split('/').pop();
+  const referencedUid = (e) => typeof e.user === 'string'
+    ? e.user.match(/(?:^|\/)users\/([^/]+)$/)?.[1] ?? null : null;
+  const validIdentity = (e) => referencedUid(e) !== null && e.id === referencedUid(e)
+    && tiers.some((t) => t.id === e.tier);
+  const board = boardEntries.filter(validIdentity).map((e) => {
+    const uid = referencedUid(e);
     const u = usersById.get(uid);
     return {
       uid, time: e.time, achievedAt: e.achievedAt, tier: e.tier,
       name: redact ? anonName(uid) : (u?.displayName || '(unknown)'),
     };
-  }).filter((e) => isPlausible(e.time)).sort((a, b) => a.time - b.time);
+  }).filter((e) => isPlausible(e.time, e.tier)).sort((a, b) => a.time - b.time);
   const implausibleBoardEntries = boardEntries
-    .filter((e) => num(e.time) && !isPlausible(e.time)).length;
+    .filter((e) => num(e.time) && !isPlausible(e.time, e.tier)).length;
 
   // Health / consistency checks.
   const boardUids = new Set(board.map((b) => b.uid));
   // Only a plausible RANKED-tier best is *expected* on a global board — unranked tiers
   // have no board by design, so an unranked-only completion is a normal
   // state, not a "finished but not on leaderboard" anomaly.
-  const rankedFields = tiers.filter((t) => t.ranked).map((t) => t.field);
+  const rankedTiers = tiers.filter((t) => t.ranked);
   const completedNotOnBoard = users.filter((u) =>
-    rankedFields.some((f) => isPlausible(u[f])) && !boardUids.has(u.id)).length;
+    rankedTiers.some((t) => isPlausible(u[t.field], t.id)
+      && !board.some((b) => b.uid === u.id && b.tier === t.id))).length;
   let staleBoard = 0;
-  for (const e of boardEntries) {
-    const u = usersById.get((e.user || '').split('/').pop());
+  for (const e of boardEntries.filter(validIdentity)) {
+    const u = usersById.get(referencedUid(e));
     const uBest = u && tiers.find((t) => t.id === e.tier) ? u[tiers.find((t) => t.id === e.tier).field] : undefined;
     if (num(uBest) && num(e.time) && Math.abs(uBest - e.time) > 0.5) staleBoard++;
   }
-  const orphanBoard = boardEntries.filter((e) => !usersById.has((e.user || '').split('/').pop())).length;
+  const orphanBoard = boardEntries.filter((e) => !validIdentity(e) || !usersById.has(referencedUid(e))).length;
   // Everything the report SHOWS as "leaderboard" (KPI count, tier set, PB-by-month timeline)
   // uses the filtered `board` — valid rows only — so forged/malformed docs never create
   // phantom entries/bars. Raw `boardEntries` is kept only for provenance (meta) and the
@@ -751,7 +759,7 @@ export function buildInsights(users, boardEntries, nowMs, tiers, limits, { redac
     })),
     tiers: tiersWithData,
     plausibility: {
-      min: limits.min, max: limits.max,
+      min: limits.min, max: limits.max, minByTier: limits.minByTier ?? {},
       excludedUserTimes: implausibleUserTimes, excludedBoardEntries: implausibleBoardEntries,
     },
     health: {
@@ -985,7 +993,7 @@ function renderHtml(data) {
 
   <section>
     <h2>Finish-time distribution</h2>
-    <p class="hint">Best finish times across all tiers — the core game-balance signal. Times are kept only if they clear the server validation range (${I.plausibility.min}–${I.plausibility.max}s, enforced by firestore.rules on every tier)${(I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries) ? `; <b>${I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries}</b> implausible/forged time(s) excluded` : ''}.</p>
+    <p class="hint">Best finish times across all tiers — the core game-balance signal. Times are kept only if they clear the server validation range (${Object.entries(I.plausibility.minByTier).map(([tier, floor]) => `${esc(tier)} ≥ ${floor}s`).join(", ") || `≥ ${I.plausibility.min}s`}; maximum ${I.plausibility.max}s)${(I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries) ? `; <b>${I.plausibility.excludedUserTimes + I.plausibility.excludedBoardEntries}</b> implausible/forged time(s) excluded` : ''}.</p>
     ${I.bestTime.stats ? `<div class="stats-line">
       <span>fastest <b>${fmtTime(I.bestTime.stats.min)}</b></span>
       <span>p25 <b>${fmtTime(I.bestTime.stats.p25)}</b></span>
@@ -1053,7 +1061,7 @@ function renderHtml(data) {
     <div class="health-flags">
       <div class="flag${I.health.completedNotOnBoard ? ' warn' : ''}"><b>${I.health.completedNotOnBoard}</b>finished a run but not on leaderboard</div>
       <div class="flag${I.health.staleBoard ? ' warn' : ''}"><b>${I.health.staleBoard}</b>leaderboard time ≠ profile best time</div>
-      <div class="flag${I.health.orphanBoard ? ' warn' : ''}"><b>${I.health.orphanBoard}</b>leaderboard rows with no user doc</div>
+      <div class="flag${I.health.orphanBoard ? ' warn' : ''}"><b>${I.health.orphanBoard}</b>leaderboard rows with a missing or invalid user reference</div>
       <div class="flag${I.health.implausibleTimes ? ' warn' : ''}"><b>${I.health.implausibleTimes}</b>implausible/forged times (excluded from stats)</div>
       <div class="flag${I.health.usersMissingProfile ? ' warn' : ''}"><b>${I.health.usersMissingProfile}</b>users missing display name</div>
     </div>

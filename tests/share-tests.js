@@ -28,7 +28,7 @@ async function main() {
   const {
     buildResultShareData, cleanShareUrl, shareMessage, shareResult,
     buildShareLinks, prefersNativeShare, shareImageFile, copyShareMessage,
-    formatRunSeconds, SHARE_PLATFORMS
+    formatRunSeconds, shareAirScoreLabel, SHARE_PLATFORMS
   } = await import('../src/share.ts');
 
   // ---- buildResultShareData: deterministic copy ----
@@ -45,10 +45,32 @@ async function main() {
   check('NaN/garbage time collapses to 0.00s', buildResultShareData(NaN, false, 'https://snowglider.ai/').text.includes('0.00s'));
   check('negative time collapses to 0.00s', buildResultShareData(-5, false, 'https://snowglider.ai/').text.includes('0.00s'));
 
+  // Every tier must be distinguishable in a post; air score stays a separate metric.
+  for (const [difficulty, label] of [['bunny', 'Bunny'], ['blue', 'Blue'], ['black', 'Black'], ['expert', 'Expert']]) {
+    const context = /** @type {any} */ ({ difficulty, airScore: 125 });
+    const result = buildResultShareData(42.13, true, 'https://snowglider.ai/', context);
+    check(`${label} share names its level, time and air score`,
+      result.text === `New SnowGlider ${label} personal best: 42.13s. Air score: 125. Can you beat it?`);
+  }
+  const practice = buildResultShareData(42.13, true, 'https://snowglider.ai/?seed=7', {
+    difficulty: 'expert', airScore: 125, practice: true,
+  });
+  check('practice share does not claim a competitive best or challenge time',
+    practice.text === 'SnowGlider practice run on Expert: 42.13s. Air score: 125. Try the mountain!');
+  check('air score only describes banked positive whole points',
+    [undefined, 0, -1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1].every(v => shareAirScoreLabel(v) === ''));
+  check('unknown tier input is not reflected into the result',
+    !buildResultShareData(42.13, false, null, /** @type {any} */ ({ difficulty: 'constructor' })).text.includes('constructor'));
+
   // ---- cleanShareUrl: stable public links ----
   console.log('\n--- cleanShareUrl ---');
   check('strips the local-only ?test= param', cleanShareUrl('https://snowglider.ai/?test=unified') === 'https://snowglider.ai/');
   check('strips ?test= but keeps other params', cleanShareUrl('https://snowglider.ai/?test=unified&ref=tw') === 'https://snowglider.ai/?ref=tw');
+  check('share links remove practice/run/debug settings without losing referrals',
+    cleanShareUrl('https://snowglider.ai/?seed=7&play=expert&debug=physics&quality=low&eztrees=1&no-sw&sw=reset&ref=tw')
+    === 'https://snowglider.ai/?ref=tw');
+  check('share links never retain URL credentials',
+    cleanShareUrl('https://player:secret@snowglider.ai/?ref=tw') === 'https://snowglider.ai/?ref=tw');
   check('strips the hash fragment', cleanShareUrl('https://snowglider.ai/#section') === 'https://snowglider.ai/');
   check('keeps a clean public url unchanged', cleanShareUrl('https://snowglider.ai/') === 'https://snowglider.ai/');
   check('keeps another public origin (e.g. GitHub Pages)', cleanShareUrl('https://den-run-ai.github.io/snowglider/') === 'https://den-run-ai.github.io/snowglider/');
@@ -181,6 +203,10 @@ async function main() {
   const blob = new Blob(['fake-png'], { type: 'image/png' });
   setGlobal('navigator', {});
   check('no navigator.share -> image share unavailable', (await shareImageFile(blob, data)) === 'unavailable');
+  let unverifiedFileShares = 0;
+  setGlobal('navigator', { share: async () => { unverifiedFileShares++; } });
+  check('text-only share implementations must not silently discard the image',
+    (await shareImageFile(blob, data)) === 'unavailable' && unverifiedFileShares === 0);
   setGlobal('navigator', { share: async () => {}, canShare: () => false });
   check('canShare rejects files -> unavailable', (await shareImageFile(blob, data)) === 'unavailable');
   setGlobal('navigator', { share: async () => {}, canShare: () => { throw new Error('permissions policy'); } });

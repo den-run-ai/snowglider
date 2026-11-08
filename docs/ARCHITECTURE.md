@@ -49,8 +49,9 @@ remaining **classic** (non-module) scripts. They branch on protocol:
   modules themselves no longer load from `file://`, so this path now matters only
   as the auth/score fallback, not as a way to run the whole game offline.
 - **`http(s)://`** — `firebase-bootstrap.js` `loadAuthModules()` injects
-  `src/scores.js` then `src/auth.js` as `type="module"` scripts. These two are
-  loaded *conditionally at runtime* (the game runs without Firebase) rather than
+  `src/auth.js` as a `type="module"` script; auth imports and publishes the single
+  scoring instance it initializes. They are loaded *conditionally at runtime*
+  (the game runs without Firebase) rather than
   from the `main.ts` bundle graph, and they fall back to the `local-auth.js`
   stubs if they don't load in time.
 
@@ -396,18 +397,20 @@ The full input → effect → technique map (keyboard + touch) is consolidated i
 
 ## 7. Auth, scoring & persistence
 
-**Sign-in providers.** `auth.ts` offers popup-based **Google, GitHub, and Apple**
-sign-in plus an **anonymous "Play as Guest"** option. Each `#authUI` button is wired
-by id from a `PROVIDER_BUTTONS` table (Google `signInWithPopup`, GitHub
-`GithubAuthProvider`, Apple `OAuthProvider('apple.com')`) with `signInAsGuest`
-calling `signInAnonymously`; a button absent from the DOM is skipped, so markup can
-ship ahead of the server-side provider config. A signed-in **anonymous guest who
-picks a real provider is upgraded in place via `linkWithPopup`** (same uid, progress
-carries over); if that provider account already exists it falls back to a normal
-`signInWithPopup`. Anonymous guests are deliberately kept **out of Firestore and the
-global leaderboard** — `auth.ts` passes `null` to `ScoresModule.setCurrentUser` and
-`scores.ts` `getActiveUser()` skips `isAnonymous` users — so a guest's best time
-stays in `localStorage` until they upgrade, at which point `syncUserData` backfills it.
+**Sign-in providers.** `auth.ts` exposes popup-based **Google and GitHub** sign-in
+and an anonymous **Play as Guest** option. First provider sign-in creates the
+account. The provider table also supports Apple, whose button remains omitted
+until server configuration is ready. Guests upgrade through `linkWithPopup`;
+an existing provider account uses the recovered credential via
+`signInWithCredential`, or a fresh provider click if no credential is available.
+This avoids attempting a second popup after the original browser gesture expires.
+
+Anonymous users never read or write competitive Firestore data. A guest can keep
+a finished result open, choose **Sign in & save this run**, then use a provider.
+The result controller retains that exact time and level and explicitly claims it
+for the signed-in account. Ordinary sign-in never imports a shared device best.
+Save retries stay attached to their original UID; late auth/read/write responses
+cannot relabel another account's result.
 
 Three runtime modes, auto-detected:
 
@@ -422,17 +425,43 @@ Three runtime modes, auto-detected:
 > (`npm start`) even in "local" development. The mock still matters for
 > graceful degradation when Firebase is unreachable on a real origin.
 
-Scoring flow (`scores.ts` `recordScore(time)`): always writes a new local best to
-`localStorage` first; then, only when the user is signed in, Firestore is
-available, **and** this run matches or beats the local best
-(`shouldSyncBestTime`), it syncs the run's `time` via `updateUserBestTime` (which
-also updates the `leaderboard` collection). Otherwise the Firestore write is
-skipped.
+**Competitive scores.** Bunny, Blue, Black and Expert each have a ranked top ten.
+Rank uses the fastest valid finish time, with air points displayed separately.
+The HUD's simulation time and air points remain visible when Stats is collapsed.
+The result, save operation, analytics and share text use one completed-run snapshot.
+Practice worlds and timing-compromised runs do not submit competitive scores.
 
-Persistence keys:
+`recordScore(time, tier)` records finish analytics once and delegates to
+`saveScore(time, tier)`. The latter saves local progress and attempts account sync;
+manual retries and post-finish sign-in use it without duplicating completion events.
+A UID/tier pending marker is written **before** network work. Both the private
+account best and its public leaderboard mirror must be server-confirmed before
+the result says saved. Cached/pending snapshots cannot establish confirmation;
+slower out-of-order saves cannot replace a faster best. A four-second confirmation
+deadline returns a queued state while the SDK operation can finish later.
+`snowglider:score-synced` updates a still-open result when confirmation arrives.
 
-- `localStorage`: `snowgliderBestTime`, `snowgliderBestSplits`, `snowgliderGhost`.
-- Firestore collections: `users` (profiles + best times), `leaderboard` (top times).
+**Persistence and retrieval.** Namespace helpers in `difficulty.ts` include the
+level and current physics version. `users/{uid}` holds one current-version best
+field per tier; each tier's versioned leaderboard holds one document per UID.
+Historical versions remain separate. Local device bests/splits/ghosts remain
+usable without sign-in. Additional UID-owned best records carry UID, canonical
+seed, time and physics version and are the only source for automatic backfill.
+On sign-in and reconnect, `auth.ts` restores validated account bests from the user
+document without overwriting device bests. Views refresh through
+`snowglider:account-bests-changed` while preserving the level being browsed.
+
+Active v4 minimum times are Bunny **15s**, Blue **15s**, Black **10s**, Expert
+**10s**, with a **600s** maximum. These conservative plausibility bounds match
+client validation, local fallback, the analytics report and Firestore rules.
+`npm run test:floor` samples 60 seeds × three jump policies × four tiers;
+its measurements are evidence for reviewing bounds, not a proof against cheating.
+
+`ui/leaderboard-panel.ts` is the single start/result view. Its level tabs are
+independent of the next run's difficulty. Signed-out, offline, failed and
+confirmed-empty reads have distinct states, stale responses are discarded, and
+player names are rendered as text. `ui/result-save.ts` owns explicit save/retry
+actions and removes its auth/connectivity listeners on replay.
 
 When reviewing auth/scoring changes, **preserve the `file://` and `localhost`
 fallbacks** — they are what keep the game runnable without a Firebase project.
@@ -453,8 +482,9 @@ fallbacks** — they are what keep the game runnable without a Firebase project.
   (`main.ts`).
 - **End-to-end** Playwright specs (`tests/e2e/`) run cross-browser + mobile
   viewports alongside the Puppeteer suite.
-- **Deployment** is GitHub Pages, gated so Pages publishes only after the test job
-  passes. Vite builds the Pages artifact into `dist/`; a CI guard rejects raw
+- **Deployment** is GitHub Pages, gated on tests, PWA validation and successful
+  Firestore-rule deployment so new clients cannot precede their permissions.
+  Vite builds the Pages artifact into `dist/`; a CI guard rejects raw
   TypeScript in the artifact. Workflows must stay least-privileged and must not
   publish `node_modules/`, `coverage/`, or test artifacts.
 

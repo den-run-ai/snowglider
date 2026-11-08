@@ -99,8 +99,10 @@ async function main() {
       SF && typeof SF.waitForAuthModule === 'function' && typeof SF.initializeAuthModule === 'function');
     check('production: not file protocol, not local dev',
       SF.isFileProtocol === false && SF.isLocalDevelopment === false);
-    check('loadAuthModules appends the scores + auth module scripts',
-      !!document.getElementById('scoresScript') && !!document.getElementById('authScript'));
+    check('production loads only auth, which owns the shared scores import',
+      document.querySelectorAll('script[type="module"]').length === 1
+      && document.getElementById('authScript')?.getAttribute('src') === 'src/auth.js'
+      && !document.getElementById('scoresScript'));
     check('sets FIREBASE_MANUAL_INIT + __FIREBASE_DEFAULTS__',
       window.FIREBASE_MANUAL_INIT === true && typeof window.__FIREBASE_DEFAULTS__ === 'object');
 
@@ -175,7 +177,9 @@ async function main() {
     document.dispatchEvent(new window.Event('DOMContentLoaded'));
     const devNotice = [...document.querySelectorAll('body > div')].find(d => /Dev Mode/.test(d.innerHTML));
     check('local dev appends a "Local Dev Mode" notice', !!devNotice);
-    check('local dev still appends the auth module script', !!document.getElementById('authScript'));
+    check('local dev has one auth entry and no separate .js scores instance',
+      document.querySelectorAll('script[type="module"]').length === 1
+      && !!document.getElementById('authScript') && !document.getElementById('scoresScript'));
   }
 
   // ===========================================================================
@@ -185,9 +189,9 @@ async function main() {
     const { window, document } = bootEnv('file:///Users/x/snowglider/index.html');
     const SF = window.SnowGliderFirebase;
     check('file protocol detected', SF.isFileProtocol === true);
-    check('file protocol does NOT append module scripts', !document.getElementById('authScript'));
+    check('file protocol does NOT append module scripts', document.querySelectorAll('script[type="module"]').length === 0);
     await SF.waitForAuthModule();
-    check('file protocol installs the local AuthModule', !!window.AuthModule);
+    check('file protocol still installs both local score and auth modules', !!window.AuthModule && !!window.ScoresModule);
     document.dispatchEvent(new window.Event('DOMContentLoaded'));
     const fileNotice = [...document.querySelectorAll('body > div')].find(d => /File Mode/.test(d.innerHTML));
     check('file protocol appends a "Local File Mode" notice', !!fileNotice);

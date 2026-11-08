@@ -8,6 +8,7 @@
 // under the current non-strict config. The `../audio.js` import specifier is
 // unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
+import { mountLeaderboardPanel, type LeaderboardPanel } from './leaderboard-panel.js';
 import { getDifficultyConfig, storeDifficulty, type Difficulty } from '../difficulty.js';
 import { consumeRunLaunch, initialRunDifficulty, isRunTransition } from '../game/run-transition.js';
 import { Sfx } from '../sfx.js';
@@ -31,10 +32,8 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
   // Handle to the shared picker widget; getSelectedDifficulty reads through it so the
   // live selection stays the single source of truth across rebuilds.
   let pickerHandle: DifficultyPickerHandle | null = null;
-  // Monotonic token for refreshStartAccountUI: bumped on every call so a slow
-  // in-flight leaderboard read can detect that a newer refresh superseded it
-  // (e.g. the player logged out mid-read) and discard its now-stale result.
-  let accountRefreshSeq = 0;
+  let leaderboardHandle: LeaderboardPanel | null = null;
+  let leaderboardContainer: HTMLElement | null = null;
   let scrollBeforeAbout = 0;
 
   // Handle to the offline-mode badge + its connectivity subscription. The badge is
@@ -118,113 +117,29 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
     }
   }
 
-  function escapeHtml(value: string) {
-    return String(value).replace(/[&<>"']/g, (ch) => {
-      switch (ch) {
-        case '&': return '&amp;';
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '"': return '&quot;';
-        default: return '&#39;';
-      }
-    });
-  }
-
-  // Populate the start-screen leaderboard preview and the optional sign-in hint.
-  // Reuses the live AuthModule/ScoresModule (the in-game #authContainer keeps the
-  // actual sign-in/profile state), so this only reads state — it never duplicates
-  // the auth wiring. Safe to call repeatedly; degrades to hidden when Firestore is
-  // unavailable (file:// / localhost / offline).
+  // The same level-switching view is used here and on the finish screen.
   function refreshStartAccountUI() {
     const auth = window.AuthModule;
-    const scores = window.ScoresModule;
-    const seq = ++accountRefreshSeq;
-
-    const firebase = auth && typeof auth.isFirebaseAvailable === 'function'
-      ? auth.isFirebaseAvailable()
-      : { auth: false, firestore: false };
-    const authState = auth && typeof auth.getAuthState === 'function'
-      ? auth.getAuthState()
-      : { user: null, isSignedIn: false };
-
-    // Unranked tiers (Bunny/Black) have no global board: don't advertise the
-    // sign-in benefit or fetch/render their (empty, write-denied) leaderboard.
-    const ranked = getDifficultyConfig(selectedDifficulty).ranked;
-
     const hint = document.getElementById('startSignInHint');
-    if (hint) {
-      // Only show when signing in can actually deliver the advertised benefit:
-      // a RANKED tier is selected, real auth AND Firestore are up (the
-      // localhost/127.0.0.1 + file:// fallbacks skip Firestore, so leaderboard writes
-      // are no-ops there), the player is signed out, AND we're online — offline, the
-      // global leaderboard is unreachable so advertising it would be misleading.
-      hint.style.display = (ranked && firebase.auth && firebase.firestore && !authState.isSignedIn && isOnline()) ? 'block' : 'none';
-    }
-
+    let canSignIn = false;
+    let signedIn = false;
+    try {
+      canSignIn = auth?.isFirebaseAvailable?.().auth === true && isOnline();
+      const user = auth?.getCurrentUser?.() ?? auth?.getAuthState?.().user;
+      signedIn = !!user && !user.isAnonymous;
+    } catch { /* The local board remains usable when auth is unavailable. */ }
+    if (hint) hint.style.display = canSignIn && !signedIn ? 'block' : 'none';
     const lb = document.getElementById('startLeaderboard');
-    if (!lb) {
-      return;
+    if (!lb) return;
+    if (lb !== leaderboardContainer || !lb.querySelector('.leaderboard-levels')) {
+      leaderboardHandle?.dispose();
+      leaderboardContainer = lb;
+      leaderboardHandle = mountLeaderboardPanel(lb, selectedDifficulty);
+    } else {
+      // Account restoration and connectivity updates must preserve the level
+      // someone is browsing, independently of their next run's difficulty.
+      leaderboardHandle?.refresh();
     }
-    // The Firestore rules only permit leaderboard get/list for signed-in users
-    // (firestore.rules: `allow get, list: if isSignedIn()`). Reading while signed
-    // out is denied — ScoresModule.getLeaderboard() swallows that into an empty
-    // array (without disabling Firestore), which would otherwise render a
-    // misleading "No times yet" preview and log a permission error on every
-    // signed-out start screen. So only read once signed in; signed-out players get
-    // the sign-in hint instead.
-    // Also hide the preview when offline: getLeaderboard() would fail/return stale and
-    // the offline badge already communicates the degraded state (Codex #359).
-    if (!ranked || !authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function' || !isOnline()) {
-      lb.style.display = 'none';
-      return;
-    }
-
-    // Show the board for the currently-selected tier (the picker is the tier toggle).
-    Promise.resolve(scores.getLeaderboard(selectedDifficulty))
-      .then((list) => {
-        // Discard a superseded read: if another refresh ran after this one (e.g.
-        // the player logged out while this signed-in read was in flight), don't
-        // clobber its result — otherwise a slow read could re-show the leaderboard
-        // on a now signed-out start screen (Firestore rules forbid that read).
-        if (seq !== accountRefreshSeq) {
-          return;
-        }
-        if (!Array.isArray(list) || list.length === 0) {
-          // getLeaderboard() resolves [] for BOTH a genuinely empty board and a
-          // swallowed read error (offline / transient Firestore failure), and
-          // isFirebaseAvailable() can still report Firestore "available" — so the
-          // two are indistinguishable here. Hide the preview rather than risk a
-          // false "No times yet" during an outage.
-          lb.style.display = 'none';
-          return;
-        }
-
-        // authState + list are now typed via the AuthModuleApi/ScoresModuleApi boot
-        // seams (types/globals.d.ts), so the .uid/.displayName/.time accesses below are
-        // type-checked directly — no local `any` narrowing needed.
-        const me = authState.user ?? null;
-        const tierLabel = getDifficultyConfig(selectedDifficulty).label;
-        let html = `<h3>🏆 ${tierLabel} Top Times</h3><table><tr><th>#</th><th>Player</th><th>Time</th></tr>`;
-        list.slice(0, 5).forEach((entry, index) => {
-          const isMe = me && entry.userId === me.uid;
-          // Other players show their denormalized leaderboard-doc name (written by
-          // ScoresModule.updateLeaderboard); entries from before the field existed
-          // fall back to 'Anonymous'. Untrusted — escapeHtml below is mandatory.
-          const name = isMe ? (me?.displayName || 'You') : (entry.displayName ?? 'Anonymous');
-          html += `<tr class="${isMe ? 'current-user-score' : ''}"><td>${index + 1}</td><td>${escapeHtml(name)}</td><td>${Number(entry.time).toFixed(2)}s</td></tr>`;
-        });
-        html += '</table>';
-        lb.innerHTML = html;
-        lb.style.display = 'block';
-      })
-      .catch(() => {
-        // Same staleness guard: don't let a superseded read's failure hide a board
-        // that a newer refresh has since populated.
-        if (seq !== accountRefreshSeq) {
-          return;
-        }
-        lb.style.display = 'none';
-      });
   }
 
   function startGame() {
@@ -327,7 +242,8 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
         selectedDifficulty = id;
         storeDifficulty(id);
         // Swap the start-screen leaderboard preview to the newly-selected tier's board.
-        refreshStartAccountUI();
+        if (leaderboardHandle) leaderboardHandle.setTier(id);
+        else refreshStartAccountUI();
         // Keep the controls guide + touch-note honest for the newly-selected tier.
         updateJumpCopy();
       },
@@ -510,6 +426,7 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
   // so signing in from the elevated start-screen control immediately swaps the
   // sign-in hint for the leaderboard instead of leaving stale state until reload.
   window.addEventListener('snowglider:auth-changed', refreshStartAccountUI);
+  window.addEventListener('snowglider:account-bests-changed', refreshStartAccountUI);
 
   window.SnowGliderStartMenu = {
     startGame,

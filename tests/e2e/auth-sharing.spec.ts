@@ -133,12 +133,22 @@ test('Google, GitHub, guest upgrade and logout remain usable across menu and res
 });
 
 test('all social targets fit narrow results and native share fallback remains reachable', async ({ page, hasTouch }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('snowgliderDifficulty', 'expert'));
   await gotoGame(page);
   await startGame(page);
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
+    const coursePath = '/src/course.ts';
+    const { CourseModule } = await import(/* @vite-ignore */ coursePath) as typeof import('../../src/course.js');
+    CourseModule.addAirScore(125);
     // Set the live simulation clock through the existing test seam, then take
     // the REAL successful-finish path (panel placement, focus, account controls,
     // and scrolling included). No independently assembled result fixture.
+    Object.defineProperty(navigator, 'share', {
+      configurable: true, value: () => Promise.reject(new Error('native sharing unavailable')),
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: () => Promise.reject(new Error('clipboard denied')) },
+    });
     (window as unknown as Window & { simElapsed: number }).simElapsed = 30;
     window.showGameOver?.('You reached the end of the slope!');
     // Record any deferred start toast that tries to appear after results. Keep
@@ -153,12 +163,6 @@ test('all social targets fit narrow results and native share fallback remains re
       observer.disconnect();
       resolve(staleToast);
     }, 1700));
-    Object.defineProperty(navigator, 'share', {
-      configurable: true, value: () => Promise.reject(new Error('native sharing unavailable')),
-    });
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true, value: { writeText: () => Promise.reject(new Error('clipboard denied')) },
-    });
     w.__shareOpened = [];
     window.open = url => { w.__shareOpened!.push(String(url)); return null; };
   });
@@ -170,6 +174,8 @@ test('all social targets fit narrow results and native share fallback remains re
   await activate(page.locator('#shareResultBtn'), hasTouch);
   await expect(page.locator('#shareMenu')).toBeVisible();
   await expect(page.locator('#courseResult')).not.toContainText(/Infinity|NaN/);
+  await expect(page.locator('#resultDifficulty')).toContainText('Expert');
+  await expect(page.locator('#resultAirScore')).toContainText('125');
   // If software rendering made this run ineligible, the course card must
   // agree with the overlay's explicit "not recorded" status.
   if (await page.locator('#syncStatus').filter({ hasText: /not recorded/i }).count()) {
@@ -185,17 +191,136 @@ test('all social targets fit narrow results and native share fallback remains re
     body: await page.screenshot(), contentType: 'image/png',
   });
   await page.evaluate(() => {
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } });
+    const w = window as Window & { __shareCopied?: string[] };
+    w.__shareCopied = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: (text: string) => {
+      w.__shareCopied!.push(text);
+      return Promise.resolve();
+    } } });
   });
   await expectUsable(page, '#shareCopyBtn');
+  await expect(page.locator('#shareCopyBtn')).toHaveText('🔗 Copy result + link');
   await activate(page.locator('#shareCopyBtn'), hasTouch);
   await expect(page.locator('#shareCopyBtn')).toHaveText(/Copied/);
+  const copied = await page.evaluate(() => (window as Window & { __shareCopied?: string[] }).__shareCopied);
+  expect(copied).toHaveLength(1);
+  expect(copied![0]).toContain('Expert');
+  expect(copied![0]).toContain('30.00s');
+  expect(copied![0]).toContain('Air score: 125');
+  expect(copied![0]).toContain('https://snowglider.ai/');
   await page.locator('#shareCopyBtn').focus();
   await page.keyboard.press('Escape');
   await expect(page.locator('#shareResultBtn')).toBeFocused();
   await expect(page.locator('#shareMenu')).toBeHidden();
   await expect(page.locator('#gameOverOverlay')).toBeVisible();
   await expectUsable(page, '#shareImageBtn');
+  await expect(page.locator('#shareImageBtn')).toHaveText(hasTouch ? '📸 Share run image' : '📸 Download run image');
   expect(await page.evaluate(() => (window as Window & { __resultToastCheck?: Promise<boolean> }).__resultToastCheck),
     'no delayed Get Ready toast appears over results').toBe(false);
+});
+
+
+type NativeShareProbe = {
+  calls: Array<{
+    text: string;
+    url: string;
+    files: Array<{ name: string; type: string; size: number }>;
+    userActivation: boolean | null;
+  }>;
+  copies: string[];
+  cancel: boolean;
+};
+
+test('native sharing attaches a prepared PNG only with confirmed file support', async ({ page, hasTouch, baseURL }) => {
+  test.skip(!hasTouch, 'The native sheet is the mobile sharing path.');
+  await mockFirebase(page, baseURL);
+  await page.addInitScript(() => {
+    localStorage.setItem('snowgliderDifficulty', 'black');
+    const w = window as unknown as Window & { __nativeShareProbe: NativeShareProbe };
+    w.__nativeShareProbe = { calls: [], copies: [], cancel: false };
+    Object.defineProperty(navigator, 'share', { configurable: true, value: (data: ShareData) => {
+      w.__nativeShareProbe.calls.push({
+        text: data.text ?? '',
+        url: data.url ?? '',
+        files: (data.files ?? []).map(file => ({ name: file.name, type: file.type, size: file.size })),
+        userActivation: navigator.userActivation?.isActive ?? null,
+      });
+      return w.__nativeShareProbe.cancel
+        ? Promise.reject(new DOMException('Share cancelled', 'AbortError')) : Promise.resolve();
+    } });
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: (text: string) => { w.__nativeShareProbe.copies.push(text); return Promise.resolve(); },
+    } });
+  });
+  await gotoGame(page, '?intro=off');
+  await startGame(page);
+  await page.evaluate(async () => {
+    const coursePath = '/src/course.ts';
+    const { CourseModule } = await import(/* @vite-ignore */ coursePath) as typeof import('../../src/course.js');
+    CourseModule.addAirScore(125);
+    (window as unknown as Window & { simElapsed: number }).simElapsed = 30;
+    window.showGameOver?.('You reached the end of the slope!');
+  });
+  const primary = page.locator('#shareResultBtn');
+  const image = page.locator('#shareImageBtn');
+  await expect(image).toBeEnabled(); // exercise a ready PNG, not the cold-text fallback
+  await expect(image).toHaveText('📸 Share run image');
+  let downloads = 0;
+  page.on('download', () => { downloads++; });
+  const probe = () => page.evaluate(() => (window as unknown as Window & { __nativeShareProbe: NativeShareProbe }).__nativeShareProbe);
+
+  // Some older native implementations ignore unknown `files` rather than
+  // rejecting. Without canShare, the primary action must share text explicitly.
+  await activate(primary, hasTouch);
+  await expect.poll(async () => (await probe()).calls.length).toBe(1);
+  expect((await probe()).calls[0]!.files).toHaveLength(0);
+  expect((await probe()).calls[0]!.url).toBe('https://snowglider.ai/');
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false });
+  });
+  await activate(primary, hasTouch);
+  await expect.poll(async () => (await probe()).calls.length).toBe(2);
+  expect((await probe()).calls[1]!.files).toHaveLength(0);
+
+  // Once PNG support is confirmed, the same original tap must reach native
+  // sharing with the real composed File and the completed run's exact context.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: (data: ShareData) =>
+      data.files?.length === 1 && data.files[0]?.type === 'image/png',
+    });
+  });
+  await activate(primary, hasTouch);
+  await expect.poll(async () => (await probe()).calls.length).toBe(3);
+  const successful = (await probe()).calls[2]!;
+  expect(successful.files).toHaveLength(1);
+  expect(successful.files[0]).toMatchObject({ name: 'snowglider-run.png', type: 'image/png' });
+  expect(successful.files[0]!.size).toBeGreaterThan(0);
+  expect(successful.text).toContain('Black');
+  expect(successful.text).toContain('30.00s');
+  expect(successful.text).toContain('Air score: 125');
+  expect(successful.text).toContain('https://snowglider.ai/');
+  // Engines without UserActivation cannot expose this observation; engines that
+  // do must still have the tap's activation when share() is invoked.
+  if (successful.userActivation !== null) expect(successful.userActivation).toBe(true);
+
+  await page.evaluate(() => { (window as unknown as Window & { __nativeShareProbe: NativeShareProbe }).__nativeShareProbe.cancel = true; });
+  await activate(image, hasTouch);
+  await expect.poll(async () => (await probe()).calls.length).toBe(4);
+  await expect(image).toBeEnabled();
+  expect((await probe()).copies).toHaveLength(0);
+  expect(downloads, 'cancelled native image share must not download automatically').toBe(0);
+  await expect(page.locator('#shareMenu')).toBeHidden();
+
+  // Explicitly asking for an image still works without file-share support, and
+  // reports only that the browser download started, not that a file was saved.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined });
+  });
+  const downloaded = page.waitForEvent('download');
+  await activate(image, hasTouch);
+  expect((await downloaded).suggestedFilename()).toBe('snowglider-run.png');
+  await expect(image).toHaveText('✅ Download started');
+  expect((await probe()).calls).toHaveLength(4);
 });

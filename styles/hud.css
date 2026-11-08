@@ -156,6 +156,20 @@ body.start-screen-active #gameStatsContainer { visibility: hidden; }
 .stat-label { font-size: 11px; color: #c2cfdd; }
 .stat-value { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 
+/* Time, level and earned points stay visible when the details auto-fold. */
+#currentTime, #airScoreValue { font-variant-numeric: tabular-nums; }
+#liveRunSummary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px 8px;
+  color: #d6e7f6;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 #courseHud {
   position: fixed;
   top: var(--hud-top);

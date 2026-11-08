@@ -49,10 +49,10 @@ async function main() {
   check('NaN rejected', store.isPlausibleTierTime('blue', NaN) === false);
   check('Infinity rejected', store.isPlausibleTierTime('blue', Infinity) === false);
   check('string rejected', store.isPlausibleTierTime('blue', '30') === false);
-  // Black/Expert legitimately finish below Blue's 15 s floor (their floor is 13 s).
+  // Black/Expert legitimately finish below Blue's 15 s floor (their floor is 10 s).
   check('Black time below the Blue floor is valid (14 s)', store.isPlausibleTierTime('black', 14) === true);
   check('Expert time below the Blue floor is valid (14 s)', store.isPlausibleTierTime('expert', 14) === true);
-  check('Black time below the BLACK floor rejected (12 s)', store.isPlausibleTierTime('black', 12) === false);
+  check('Black time below the BLACK floor rejected (9 s)', store.isPlausibleTierTime('black', 9) === false);
 
   // --- Throw-safe primitives never throw when storage is unavailable ---
   const bad = throwingStorage();
@@ -75,13 +75,31 @@ async function main() {
   ls.setItem(store.localBestTimeKey('blue'), String(MIN - 5)); // implausible / sub-floor for BLUE
   check('readLocalBest null on implausible value', store.readLocalBest('blue', ls) === null);
   check('readLocalBest purged the implausible value', ls.getItem(store.localBestTimeKey('blue')) === null);
-  // The SAME 13 s value is a VALID Black best (Black's floor is 13 s) — must be preserved,
+  // A 15 s value is a VALID Black best (Black's floor is 10 s) — must be preserved,
   // not purged (Codex #359: tier-aware local-best validation).
   ls.setItem(store.localBestTimeKey('black'), '15');
   check('readLocalBest preserves a valid fast Black best (15 s)', store.readLocalBest('black', ls) === 15);
   check('valid Black best not purged', ls.getItem(store.localBestTimeKey('black')) === '15');
   check('saveLocalBestIfBetter accepts a sub-Blue-floor Black best', store.saveLocalBestIfBetter('black', 14, ls) === true);
   check('Black best updated to 14', store.readLocalBest('black', ls) === 14);
+
+  ls.setItem(store.localBestTimeKey('blue'), '20 seconds');
+  check('partially numeric local data is rejected rather than parsed as a score', store.readLocalBest('blue', ls) === null);
+
+  // Storage can deny reads while permitting writes. Treating that failure as an
+  // empty store used to overwrite unread faster records and other users' queues.
+  ls.setItem(store.localBestTimeKey('blue'), '20');
+  store.markPendingSync('blue', 25, 'original-owner', { storage: ls });
+  const originalQueue = ls.getItem(store.PENDING_SYNC_KEY);
+  const unreadable = {
+    getItem() { throw new Error('reads blocked'); },
+    setItem: (key, value) => ls.setItem(key, value),
+    removeItem: key => ls.removeItem(key),
+  };
+  check('an unreadable best cannot be overwritten even when writes would work',
+    store.saveLocalBestIfBetter('blue', 30, unreadable) === false && ls.getItem(store.localBestTimeKey('blue')) === '20');
+  check('an unreadable retry queue cannot be overwritten by a new account',
+    store.markPendingSync('blue', 22, 'new-owner', { storage: unreadable }) === false && ls.getItem(store.PENDING_SYNC_KEY) === originalQueue);
 
   // --- saveLocalBestIfBetter: first write, improvement, no-regression, invalid ---
   ls.reset();

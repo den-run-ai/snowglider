@@ -198,11 +198,15 @@ test.describe('mobile share buttons', () => {
     await startGame(page);
 
     // Surface the finish result panel (which owns the share controls) without
-    // skiing the whole course: set the simulation clock past the 18s minimum-valid-
+    // skiing the whole course: set the simulation clock past the minimum-valid-
     // time plausibility floor (src/score-limits.ts), then drive the real game-over
     // finish path. This builds #courseResult inside the (z-index 1000, full-screen)
     // game-over overlay.
     await page.evaluate(() => {
+      // Keep the real mobile touch/click path while preventing an external OS
+      // sheet from consuming the second tap. PNG support is explicit.
+      Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} });
+      Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
       const w = window as unknown as { simElapsed: number; showGameOver: (r: string) => void };
       w.simElapsed = 20;
       w.showGameOver('You reached the end of the slope!');
@@ -212,6 +216,8 @@ test.describe('mobile share buttons', () => {
     const imageBtn = page.locator('#shareImageBtn');
     await expect(shareBtn).toBeVisible();
     await expect(imageBtn).toBeVisible();
+    await expect(imageBtn).toBeEnabled();
+    await expect(imageBtn).toHaveText('📸 Share run image');
 
     // Count real click events on each visible share button. The listeners fire
     // synchronously during click dispatch, so a tap that produces a click bumps the

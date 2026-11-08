@@ -19,8 +19,9 @@ function check(name, ok) {
 }
 
 (async () => {
-  const { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } = await import('../src/score-limits.ts');
+  const { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME, MIN_SCORE_TIME_BY_DIFFICULTY } = await import('../src/score-limits.ts');
   const { PHYSICS_VERSION } = await import('../src/run-context.ts');
+  const { getDifficultyConfig } = await import('../src/difficulty.ts');
   const schema = REMOTE_SCORE_SCHEMAS.find(candidate => candidate.version === PHYSICS_VERSION);
   if (!schema) throw new Error('Active score schema is missing from compatibility history');
 
@@ -55,6 +56,18 @@ function check(name, ok) {
   if (laMin && laMax) {
     check('local-auth.js floor equals MIN_VALID_SCORE_TIME', Number(laMin[1]) === MIN_VALID_SCORE_TIME);
     check('local-auth.js cap equals MAX_VALID_SCORE_TIME', Number(laMax[1]) === MAX_VALID_SCORE_TIME);
+  }
+
+  // Every tier's read/write/store paths must agree with the literal server range.
+  const mapBody = localAuth.match(/MIN_SCORE_TIME_BY_DIFFICULTY\s*=\s*\{([^}]+)\}/)?.[1] ?? '';
+  for (const { tier, minTime, scoreValidator } of schema.tiers) {
+    const floor = MIN_SCORE_TIME_BY_DIFFICULTY[tier];
+    const body = rules.match(new RegExp(`function ${scoreValidator}\\(time\\)\\s*\\{([^}]+)\\}`))?.[1];
+    const range = body?.match(/time\s+is\s+number\s*&&\s*time\s*>=\s*([\d.]+)\s*&&\s*time\s*<=\s*([\d.]+)/);
+    check(`${tier}: config and schema use the same score floor`, getDifficultyConfig(tier).minScoreTime === floor && minTime === floor);
+    check(`${tier}: rules validate the same floor and ceiling`, !!range && Number(range[1]) === floor && Number(range[2]) === MAX_VALID_SCORE_TIME);
+    const literal = mapBody.match(new RegExp(`${tier}:\\s*(MIN_VALID_SCORE_TIME|[\\d.]+)`))?.[1];
+    check(`${tier}: local fallback validates the same floor`, (literal === 'MIN_VALID_SCORE_TIME' ? MIN_VALID_SCORE_TIME : Number(literal)) === floor);
   }
 
   // Sanity on the constants themselves so a typo (e.g. min > max, non-finite) is caught.

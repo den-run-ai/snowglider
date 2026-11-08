@@ -67,6 +67,8 @@ export const db = {
  *   logEvent: Array<{ name: string, params: any }>,
  *   getAnalytics: number,
  *   signInWithPopup: number,
+ *   signInWithCredential: number,
+ *   authUnsubscribe: number,
  *   signInAnonymously: number,
  *   linkWithPopup: number,
  *   signOut: number,
@@ -82,6 +84,8 @@ export const calls = {
   getAnalytics: 0,
   // firebase-auth.js call counters (used by the auth harness)
   signInWithPopup: 0,
+  signInWithCredential: 0,
+  authUnsubscribe: 0,
   signInAnonymously: 0,
   linkWithPopup: 0,
   signOut: 0,
@@ -105,6 +109,10 @@ export const analyticsInstance = { __analytics: true };
 let pendingWritePath = null;
 /** @type {{ promise: Promise<unknown>, resolve: (value?: unknown) => void, reject: (reason?: unknown) => void } | null} */
 let pendingWrite = null;
+/** @type {string | null} */
+let pendingReadPath = null;
+/** @type {{ promise: Promise<unknown>, resolve: (value?: unknown) => void, reject: (reason?: unknown) => void, metadata: { fromCache?: boolean, hasPendingWrites?: boolean } } | null} */
+let pendingRead = null;
 /** When set, the next setDoc() to this exact path rejects with the error (one-shot);
  *  nothing is written. Drives write-failure paths like the rules-skew fallback.
  *  @type {{ path: string, error: unknown } | null} */
@@ -157,14 +165,17 @@ function getCollectionStore(name) {
   return store;
 }
 
-/** @param {DocRef} ref */
-function makeDocSnap(ref) {
+/** @param {DocRef} ref
+ * @param {{ fromCache?: boolean, hasPendingWrites?: boolean }} [metadata]
+ */
+function makeDocSnap(ref, metadata = {}) {
   const store = getCollectionStore(ref.collectionName);
   const value = store.get(ref.id);
   return {
     id: ref.id,
     exists: () => value !== undefined,
-    data: () => clone(value)
+    data: () => clone(value),
+    metadata: { fromCache: false, hasPendingWrites: false, ...metadata }
   };
 }
 
@@ -191,12 +202,16 @@ export function reset() {
   calls.logEvent = [];
   calls.getAnalytics = 0;
   calls.signInWithPopup = 0;
+  calls.signInWithCredential = 0;
+  calls.authUnsubscribe = 0;
   calls.signInAnonymously = 0;
   calls.linkWithPopup = 0;
   calls.signOut = 0;
   calls.setPersistence = 0;
   pendingWritePath = null;
   pendingWrite = null;
+  pendingReadPath = null;
+  pendingRead = null;
   nextSetDocError = null;
   nextLogEventError = null;
   timestampCounter = 0;
@@ -242,6 +257,25 @@ export function setPendingWrite(path) {
   pendingWritePath = path;
   pendingWrite = { promise, resolve, reject };
   return pendingWrite;
+}
+
+/** Hold one getDoc response until the controller settles, including optional SDK
+ * snapshot metadata for cached or unacknowledged server results.
+ * @param {string} path
+ * @param {{ fromCache?: boolean, hasPendingWrites?: boolean }} [metadata]
+ */
+export function setPendingRead(path, metadata = {}) {
+  /** @type {(value?: unknown) => void} */
+  let resolve = () => {};
+  /** @type {(reason?: unknown) => void} */
+  let reject = () => {};
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  pendingReadPath = path;
+  pendingRead = { promise, resolve, reject, metadata };
+  return pendingRead;
 }
 
 // ---- firebase-firestore.js surface ----
@@ -332,6 +366,12 @@ export function serverTimestamp() {
 /** @param {DocRef} ref */
 export function getDoc(ref) {
   calls.getDoc.push(ref.path);
+  if (pendingReadPath === ref.path && pendingRead) {
+    const read = pendingRead;
+    pendingReadPath = null;
+    pendingRead = null;
+    return read.promise.then(() => makeDocSnap(ref, read.metadata));
+  }
   return Promise.resolve(makeDocSnap(ref));
 }
 
@@ -447,6 +487,8 @@ export function getAuth() {
 }
 
 export class GoogleAuthProvider {
+  /** @param {{ credential?: unknown }} error */
+  static credentialFromError(error) { return error.credential || null; }
   constructor() {
     /** @type {string[]} */
     this.scopes = [];
@@ -465,6 +507,8 @@ export class GoogleAuthProvider {
 
 // GitHub provider — same shape as Google (no-arg constructor).
 export class GithubAuthProvider {
+  /** @param {{ credential?: unknown }} error */
+  static credentialFromError(error) { return error.credential || null; }
   constructor() {
     this.providerId = 'github.com';
     /** @type {string[]} */
@@ -484,6 +528,8 @@ export class GithubAuthProvider {
 
 // Generic OAuth provider — Apple uses new OAuthProvider('apple.com').
 export class OAuthProvider {
+  /** @param {{ credential?: unknown }} error */
+  static credentialFromError(error) { return error.credential || null; }
   /** @param {string} providerId */
   constructor(providerId) {
     this.providerId = providerId;
@@ -500,6 +546,13 @@ export class OAuthProvider {
   setCustomParameters(params) {
     this.params = params;
   }
+}
+
+// Reuses the token returned from a failed anonymous link without opening a popup.
+export function signInWithCredential() {
+  calls.signInWithCredential++;
+  if (nextPopupResult && 'reject' in nextPopupResult) return Promise.reject(nextPopupResult.reject);
+  return Promise.resolve(nextPopupResult ? nextPopupResult.resolve : { user: { uid: 'existing-1' } });
 }
 
 export function signInWithPopup() {
@@ -559,6 +612,10 @@ export function signOut() {
  */
 export function onAuthStateChanged(_auth, callback) {
   authStateCallback = callback;
+  return () => {
+    calls.authUnsubscribe++;
+    if (authStateCallback === callback) authStateCallback = null;
+  };
 }
 
 export function setPersistence() {

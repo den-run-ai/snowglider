@@ -68,22 +68,22 @@ export default defineConfig({
       // this is where the touch-control and responsive HUD specs run.
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testMatch: /(mobile|panels|onboarding|auth-sharing|start-replay)\.spec\.ts/,
+      testMatch: /(mobile|panels|onboarding|auth-sharing|start-replay|leaderboard)\.spec\.ts/,
     },
     {
       name: 'Mobile Safari landscape',
       use: { ...devices['iPhone 13 landscape'] },
-      testMatch: /(panels|onboarding|auth-sharing|start-replay)\.spec\.ts/,
+      testMatch: /(panels|onboarding|auth-sharing|start-replay|leaderboard)\.spec\.ts/,
     },
     {
       name: 'Android Chrome',
       use: { ...devices['Pixel 7'] },
-      testMatch: /(panels|onboarding|auth-sharing|start-replay)\.spec\.ts/,
+      testMatch: /(panels|onboarding|auth-sharing|start-replay|leaderboard)\.spec\.ts/,
     },
     {
       name: 'Android Chrome landscape',
       use: { ...devices['Pixel 7 landscape'] },
-      testMatch: /(panels|onboarding|auth-sharing|start-replay)\.spec\.ts/,
+      testMatch: /(panels|onboarding|auth-sharing|start-replay|leaderboard)\.spec\.ts/,
     },
   ],
   webServer: {

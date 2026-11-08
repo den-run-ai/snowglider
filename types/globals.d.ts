@@ -11,7 +11,7 @@ import type { FirebaseOptions } from 'firebase/app';
 import type { Firestore } from 'firebase/firestore';
 import type { Analytics } from 'firebase/analytics';
 import type { Difficulty } from '../src/difficulty.js';
-import type { LeaderboardScore } from '../src/scores.js';
+import type { LeaderboardScore, ScoreSaveResult } from '../src/scores.js';
 
 declare global {
   // three.js r160 is single-sourced from npm. Every src module and every browser
@@ -90,10 +90,12 @@ declare global {
     isUserSignedIn?(): boolean;
     getUserIdToken?(forceRefresh?: boolean): Promise<string | null>;
     reinitializeFirestore?(): boolean;
-    recordScore?(time: number, tier?: Difficulty): void;
+    recordScore?(time: number, tier?: Difficulty): Promise<ScoreSaveResult> | void;
+    saveScore?(time: number, tier?: Difficulty): Promise<ScoreSaveResult>;
     displayLeaderboard?(tier?: Difficulty): void;
     signOut?(): Promise<void>;
     getAuthState?(): AuthState;
+    openSignIn?(): void;
     isFirebaseAvailable?(): FirebaseAvailability;
   }
 
@@ -103,9 +105,16 @@ declare global {
   interface ScoresModuleApi {
     initializeScores?: (firestore: Firestore | null, analytics: Analytics | null) => void;
     setCurrentUser?(user: User | null): void;
-    recordScore?(time: number, tier?: Difficulty): void;
+    recordScore?(time: number, tier?: Difficulty): Promise<ScoreSaveResult> | void;
+    saveScore?(time: number, tier?: Difficulty): Promise<ScoreSaveResult>;
+    getLocalBestForUser?(tier: Difficulty, uid: string): number | null;
+    rememberAccountBest?(uid: string, time: number, tier: Difficulty): boolean | void;
     displayLeaderboard?(tier?: Difficulty): void;
     getLeaderboard?(tier?: Difficulty): Promise<LeaderboardScore[]>;
+    getLeaderboardResult?(tier?: Difficulty): Promise<{
+      status: 'ready' | 'offline' | 'signed-out' | 'unavailable';
+      scores: LeaderboardScore[];
+    }>;
     updateUserBestTime?(uid: string, time: number, tier?: Difficulty): Promise<boolean> | void;
     updateLeaderboard?(uid: string, time: number, tier?: Difficulty): Promise<boolean> | void;
     syncBestTimeWithRetry?(uid: string, time: number, tier: Difficulty): void;
@@ -114,7 +123,7 @@ declare global {
     // the boundary (the decoder purpose), matching the exported guard's `unknown` input.
     // (Return stays `boolean`, not a `time is number` predicate: the reduced local-mode
     // shim in boot/local-auth.js is a classic JS function that can't declare a predicate.)
-    isValidScoreTime?(time: unknown): boolean;
+    isValidScoreTime?(time: unknown, tier?: Difficulty): boolean;
     leaderboardRow?(rank: number, name: string, photoURL: string | null,
                     time: number, isCurrentUser: boolean): HTMLTableRowElement;
   }
@@ -223,10 +232,11 @@ declare global {
     treePositions?: TreePosition[];
     rockPositions?: Array<{ x: number; y: number; z: number; size: number; topY?: number }>;
     isTestMode?: boolean;
-    /** Boot seam (#400): run-provenance stamp getter for the classic-script
-     *  local-auth fallback, which cannot import ES modules. Published by
-     *  setupScene; read at recordScore time. */
-    __snowgliderGetRunStamp?: () => { seed: number | null; physicsVersion: number };
+    /** Live run provenance for the classic local-auth fallback and separately
+     *  copied Firebase scoring graph. Published by setupScene; read at save time. */
+    __snowgliderGetRunStamp?: () => {
+      seed: number | null; physicsVersion: number; nonce?: number; practice?: boolean;
+    };
     // Lifecycle/input callbacks snowglider.js publishes for controls.js + buttons.
     toggleCameraView?: () => unknown;
     resetSnowman?: () => void;
