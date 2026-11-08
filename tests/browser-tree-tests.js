@@ -90,22 +90,21 @@ import { Snow as Utils } from '../src/snow.js';
     // The forest is now rendered with InstancedMesh (one draw per geometry/material)
     // instead of a Group-of-Meshes per tree, so there is no per-tree scene object to
     // count. Each tree contributes EXACTLY one trunk instance, so the trunk
-    // InstancedMesh's `.count` must equal the collision array length — a stronger,
+    // chunks' summed `.count` must equal the collision array length — a stronger,
     // exact check than the old ±10% Group tally.
     function testTreePositionArray() {
       // Find the instanced forest meshes; identify the trunk mesh by its userData tag.
       let forestMeshCount = 0;
-      let trunkMesh = null;
+      let trunkInstances = 0;
       for (let i = 0; i < scene.children.length; i++) {
         const object = scene.children[i];
         if (object.name === 'forestInstanced' && object.isInstancedMesh) {
           forestMeshCount++;
-          if (object.userData && object.userData.forestPart === 'trunk') trunkMesh = object;
+          if (object.userData && ['trunk', 'ezBranches'].includes(object.userData.forestPart)) trunkInstances += object.count;
         }
       }
 
       const collisionTrees = treePositions.length;
-      const trunkInstances = trunkMesh ? trunkMesh.count : 0;
 
       console.log(`Instanced forest meshes in scene: ${forestMeshCount}`);
       console.log(`Trunk instances: ${trunkInstances}`);

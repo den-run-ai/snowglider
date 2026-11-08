@@ -16,7 +16,7 @@ const { JSDOM } = require('jsdom');
 // ---- jsdom environment with the auth UI markup auth.js expects ----
 const dom = new JSDOM(`<!doctype html><html><body>
   <div id="authUI" style="display:flex">
-    <button id="loginBtn">Login with Google</button>
+    <button id="loginBtn" disabled aria-busy="true">Login with Google</button>
     <button id="githubLoginBtn">Login with GitHub</button>
     <!-- appleLoginBtn is icon-style (svg + .provider-label) to exercise the
          label-span branch of setButtonLabel/resetAuthButtons. -->
@@ -77,7 +77,18 @@ let pass = 0, fail = 0;
 function check(name, cond) { console.log(`  ${cond ? 'PASS ✅' : 'FAIL ❌'}: ${name}`); cond ? pass++ : fail++; }
 const flush = () => new Promise(r => setTimeout(r, 0)); // let queued promise callbacks run
 
+// Versioned competitive best-time key builders (#403 review), bound in main().
+// LB/LB_BUNNY and F_BUNNY are the ACTIVE (version-namespaced) remote board
+// collections / users-doc field the sync paths write, resolved from the seams so
+// a PHYSICS_VERSION bump keeps these assertions on the live schema.
+let BTK, BTMK, LB, LB_BUNNY, F_BUNNY;
 async function main() {
+  const Difficulty = await import('../src/difficulty.ts');
+  ({ localBestTimeKey: BTK, localBestMetaKey: BTMK } = Difficulty);
+  LB = Difficulty.leaderboardCollectionName('blue');
+  LB_BUNNY = Difficulty.leaderboardCollectionName('bunny');
+  F_BUNNY = Difficulty.userBestTimeField('bunny');
+
   console.log('--- AuthModule load & init ---');
   const { AuthModule, fb } = await loadAuthModule();
   check('module exposes the expected public surface',
@@ -85,6 +96,9 @@ async function main() {
       'getAuthState', 'isFirebaseAvailable'].every(k => typeof AuthModule[k] === 'function'));
 
   AuthModule.initializeAuth(config);
+  check('auth initialization releases the loading state after wiring providers',
+    !window.document.getElementById('loginBtn').hasAttribute('disabled')
+    && !window.document.getElementById('loginBtn').hasAttribute('aria-busy'));
   check('onAuthStateChanged listener was registered', typeof fb.getAuthStateCallback() === 'function');
   check('auth persistence was set (browserLocalPersistence)', calls.setPersistence === 1);
 
@@ -123,6 +137,7 @@ async function main() {
   loginBtn.dispatchEvent(new window.Event('click'));
   check('click disables the button and shows "Signing In..."',
     loginBtn.disabled === true && /Signing In/.test(loginBtn.textContent));
+  check('sign-in exposes its pending state to assistive technology', loginBtn.getAttribute('aria-busy') === 'true');
   check('signInWithPopup was invoked once', calls.signInWithPopup === 1);
 
   // A second click while in-flight must NOT open a second popup (disabled guard).
@@ -254,6 +269,17 @@ async function main() {
   await flush();
   check('unknown error: shows a generic alert', alerts.length === 1 && /boom/.test(alerts[0]));
 
+  // Promise rejection values are not guaranteed FirebaseError objects. Preserve
+  // useful plain strings and recover controls even when no message/code exists.
+  for (const reason of ['network failed', null, undefined, { code: 42, message: { invalid: true } }]) {
+    alerts.length = 0;
+    fb.setNextPopupResult({ reject: reason });
+    loginBtn.dispatchEvent(new window.Event('click'));
+    await flush();
+    check('malformed rejection produces a useful message and releases sign-in controls',
+      alerts.length === 1 && /network failed|Unknown error/.test(alerts[0]) && loginBtn.disabled === false);
+  }
+
   console.log('\n--- GitHub & Apple provider sign-in ---');
   const githubBtn = /** @type {HTMLButtonElement} */ (window.document.getElementById('githubLoginBtn'));
   const appleBtn = /** @type {HTMLButtonElement} */ (window.document.getElementById('appleLoginBtn'));
@@ -317,17 +343,23 @@ async function main() {
     window.document.getElementById('profileName').textContent === 'Guest');
   check('anonymous guest: avatar has a generated glyph + background color',
     profileAvatar.textContent.length > 0 && /rgb\(/.test(profileAvatar.style.backgroundColor));
+  check('guest chip exposes its name, target, and collapsed state',
+    profileChip.getAttribute('aria-label') === 'Sign-in options for Guest'
+    && profileChip.getAttribute('aria-controls') === 'authUI'
+    && profileChip.getAttribute('aria-expanded') === 'false'
+    && !profileChip.hasAttribute('disabled'));
   // Clicking the chip unfolds #authUI so the guest can pick a provider to upgrade.
   profileChip.dispatchEvent(new window.Event('click'));
   check('anonymous guest: clicking the chip reveals the provider buttons for upgrade',
     authUI.style.display === 'flex' && profileUI.classList.contains('expanded'));
+  check('guest chip expanded state follows the visible options', profileChip.getAttribute('aria-expanded') === 'true');
   check('anonymous guest: AuthModule still reports signed-in (for UI/onboarding)',
     AuthModule.isUserSignedIn() === true);
   AuthModule.recordScore(22.34); // guest finishes a run (valid time; only the guest guard should block it)
   await flush();
   check('anonymous guest: recordScore writes NO leaderboard entry for the guest',
-    fb.read('leaderboard', 'guest1') === undefined &&
-    !calls.setDoc.some(c => c.path === 'leaderboard/guest1'));
+    fb.read(LB, 'guest1') === undefined &&
+    !calls.setDoc.some(c => c.path === `${LB}/guest1`));
   localStorage.clear(); // isolate from the backstop test below
   fb.emitAuthState(null);
 
@@ -373,9 +405,16 @@ async function main() {
   // (see scores.ts: "the on-login syncUserData reconciliation re-applies it").
   // Write through the injected global store auth.ts reads (jsdom's window.localStorage
   // is read-only, so the harness's window.localStorage = global alias did not take).
-  localStorage.setItem('snowgliderBestTime', '19.5');
+  // Backfill now requires a compatible provenance stamp on the best (Codex review
+  // PR #407): stamp fixtures with the CURRENT run stamp so they read as same-world.
+  const RCa = await import('../src/run-context.ts');
+  const stampCompatible = (key) => localStorage.setItem(`${key}_meta`,
+    JSON.stringify({ seed: RCa.getRunStamp().seed, nonce: 0, physicsVersion: RCa.PHYSICS_VERSION }));
+  localStorage.setItem(BTK('blue'), '19.5');
+  stampCompatible(BTK('blue'));
   // An unranked tier's local best must NOT be published to the global board on sign-in.
-  localStorage.setItem('snowgliderBestTime_bunny', '40');
+  localStorage.setItem(BTK('bunny'), '40');
+  stampCompatible(BTK('bunny'));
   fb.setNextPopupResult(null);
   fb.emitAuthState({ uid: 'sync1', email: 's@g.ai', displayName: 'Sync', photoURL: null });
   // syncUserData is scheduled 100ms after sign-in; wait past it with margin, then let
@@ -386,10 +425,94 @@ async function main() {
   await flush();
   check('syncUserData writes the user profile doc on sign-in',
     !!fb.read('users', 'sync1') && fb.read('users', 'sync1').displayName === 'Sync');
+  check('profile sync does not persist the private provider email',
+    !Object.hasOwn(fb.read('users', 'sync1'), 'email'));
   check('syncUserData backfills a valid local best to the leaderboard',
-    !!fb.read('leaderboard', 'sync1') && fb.read('leaderboard', 'sync1').time === 19.5);
+    !!fb.read(LB, 'sync1') && fb.read(LB, 'sync1').time === 19.5);
   check('syncUserData does NOT backfill an unranked tier best to the global board',
-    !fb.read('leaderboard_bunny', 'sync1') && !fb.read('users', 'sync1').bestTimeBunny);
+    !fb.read(LB_BUNNY, 'sync1') && !fb.read('users', 'sync1')[F_BUNNY]);
+
+  // PROVENANCE GATE (Codex review PR #407): an UNSTAMPED (legacy/other-world) local
+  // best is kept local — neither backfilled to the board nor queued for retry.
+  localStorage.setItem(BTK('blue'), '19.2');
+  localStorage.removeItem(`${BTK('blue')}_meta`);
+  localStorage.removeItem('snowgliderPendingSync');
+  fb.emitAuthState({ uid: 'unstamped1', email: 'u@g.ai', displayName: 'Unstamped', photoURL: null });
+  await new Promise(r => setTimeout(r, 250));
+  await flush(); await flush(); await flush();
+  {
+    const storeEarly = await import('../src/offline/offline-store.ts');
+    check('an unstamped legacy local best is NOT backfilled on sign-in (kept local)',
+      !fb.read(LB, 'unstamped1') &&
+      !storeEarly.getPendingSync('unstamped1', 'blue', localStorage));
+    check('the unstamped legacy best itself is preserved locally',
+      localStorage.getItem(BTK('blue')) === '19.2');
+  }
+
+  // --- Codex #362: score backfill is DECOUPLED from profile persistence ---
+  // Invariant: a real signed-in user with a ranked local best must confirm-or-queue the
+  // sync regardless of profile-write success, Firestore readiness, or account switches.
+  const store = await import('../src/offline/offline-store.ts');
+
+  // (A2) Blocked/private storage: reading a local best throws. The throw-safe backfill must
+  // degrade gracefully, NOT abort the sign-in/profile sync (Codex #362). Firestore is still
+  // available here (the sync1 profile write above succeeded), so the profile doc must still
+  // be written. Scope the throw to the best-time keys so the rest of the sign-in flow works.
+  const origGetItem = localStorage.getItem.bind(localStorage);
+  localStorage.getItem = (k) => {
+    if (String(k).startsWith('snowgliderBestTime')) throw new Error('storage blocked');
+    return origGetItem(k);
+  };
+  try {
+    fb.emitAuthState({ uid: 'blockedfs1', email: 'b@g.ai', displayName: 'Blocked', photoURL: null });
+    await new Promise(r => setTimeout(r, 250));
+    await flush(); await flush(); await flush();
+  } finally {
+    localStorage.getItem = origGetItem;
+  }
+  check('sign-in sync survives storage that throws — profile still written (Codex #362)',
+    !!fb.read('users', 'blockedfs1') && fb.read('users', 'blockedfs1').displayName === 'Blocked');
+
+  // (B) A failed PROFILE write on sign-in never DROPS the local best: because backfill is
+  // decoupled from the profile write, the best is either synced (backfill's own write went
+  // through) OR queued (it didn't) — never lost. Assert the confirm-OR-queue invariant
+  // directly so it's race-independent.
+  localStorage.removeItem('snowgliderPendingSync');
+  localStorage.setItem(BTK('blue'), '20.5'); // a fresh local-only best (ranked Blue)
+  stampCompatible(BTK('blue'));
+  fb.setNextSetDocError('users/syncfail1', { code: 'unavailable' }); // a user-doc write fails
+  fb.emitAuthState({ uid: 'syncfail1', email: 'f@g.ai', displayName: 'Fail', photoURL: null });
+  await new Promise(r => setTimeout(r, 250)); // past the 100ms syncUserData timer
+  await flush(); await flush(); await flush();
+  check('a failed sign-in write never drops the local best — synced OR queued (Codex #362)',
+    fb.read(LB, 'syncfail1')?.time === 20.5 ||
+    store.getPendingSync('syncfail1', 'blue', localStorage)?.time === 20.5);
+
+  // (C) A real user signing in while Firestore is NULL must STILL queue local bests —
+  // handleSignedInUser now always calls syncUserData, and backfill runs even without a live
+  // Firestore. First drive Firestore to null via a failed profile write for a user with NO
+  // local best (so nothing is queued for them), then sign in a user who does have one.
+  localStorage.removeItem(BTK('blue'));
+  localStorage.removeItem('snowgliderPendingSync');
+  fb.setNextSetDocError('users/nullfs0', { code: 'unavailable' }); // profile write fails -> Firestore nulled
+  fb.emitAuthState({ uid: 'nullfs0', email: 'z@g.ai', displayName: 'Z', photoURL: null });
+  await new Promise(r => setTimeout(r, 250));
+  await flush(); await flush(); await flush();
+  localStorage.setItem(BTK('blue'), '21'); // a fresh local ranked best
+  stampCompatible(BTK('blue'));
+  fb.emitAuthState({ uid: 'nullfs1', email: 'n@g.ai', displayName: 'NoFs', photoURL: null });
+  await new Promise(r => setTimeout(r, 250));
+  await flush(); await flush(); await flush();
+  check('a real sign-in with Firestore null still queues the local best (Codex #362)',
+    store.getPendingSync('nullfs1', 'blue', localStorage)?.time === 21);
+
+  // (D) An anonymous guest sign-in never routes a local best to the global leaderboard.
+  localStorage.setItem(BTK('blue'), '22');
+  fb.emitAuthState({ uid: 'guestX', email: null, displayName: null, photoURL: null, isAnonymous: true });
+  await new Promise(r => setTimeout(r, 250));
+  await flush(); await flush(); await flush();
+  check('an anonymous guest sign-in does not queue a local best (Codex #362)',
+    store.getPendingSync('guestX', 'blue', localStorage) === null);
 
   // getUserIdToken delegates to the signed-in user's getIdToken (with forceRefresh).
   fb.emitAuthState({ uid: 'tok1', email: 't@g.ai', displayName: 'Tok', photoURL: null,
@@ -416,6 +539,54 @@ async function main() {
   check('guest without a chip: provider buttons stay visible (not folded)',
     authUI.style.display === 'flex' && profileUI.classList.contains('guest') === false);
   fb.emitAuthState(null);
+
+  // Analytics is optional: a transport exception after successful sign-in cannot
+  // masquerade as a failed login or stop an in-place guest upgrade from updating UI.
+  const alertsBeforeTelemetryFailure = alerts.length;
+  fb.emitAuthState({ uid: 'guestTelemetry', isAnonymous: true });
+  fb.setAuthCurrentUser({ uid: 'guestTelemetry', isAnonymous: true });
+  fb.setNextLinkResult({ resolve: { user: { uid: 'upgradedTelemetry', isAnonymous: false,
+    displayName: 'Upgrade', email: 'upgrade@example.invalid' } } });
+  fb.setNextLogEventError(new Error('analytics unavailable'));
+  loginBtn.dispatchEvent(new window.Event('click'));
+  await flush(); await flush();
+  check('telemetry failure cannot block successful guest upgrade UI',
+    AuthModule.getCurrentUser()?.uid === 'upgradedTelemetry');
+  check('telemetry failure cannot create a false sign-in error alert',
+    alerts.length === alertsBeforeTelemetryFailure);
+  fb.emitAuthState(null);
+  fb.setAuthCurrentUser(null);
+  fb.setNextLogEventError(new Error('analytics unavailable'));
+  window.document.getElementById('guestLoginBtn').dispatchEvent(new window.Event('click'));
+  await flush(); await flush();
+  check('telemetry failure cannot turn successful guest sign-in into an alert',
+    alerts.length === alertsBeforeTelemetryFailure);
+
+  fb.setNextGetAuthError(new Error('auth unavailable'));
+  AuthModule.initializeAuth(config);
+  const partialAvailability = AuthModule.isFirebaseAvailable();
+  check('analytics remains available when authentication initialization fails',
+    partialAvailability.auth === false && partialAvailability.analytics === true);
+
+  // Preview/LAN deployments must not initialize the production Analytics SDK,
+  // while the existing authentication and Firestore behavior remains available.
+  const analyticsInitializations = calls.getAnalytics;
+  dom.reconfigure({ url: 'https://preview.local/' });
+  AuthModule.initializeAuth(config);
+  const previewAvailability = AuthModule.isFirebaseAvailable();
+  check('preview host does not initialize Analytics or collect automatic SDK events',
+    calls.getAnalytics === analyticsInitializations && previewAvailability.analytics === false);
+  check('preview host retains Auth and Firestore availability',
+    previewAvailability.auth === true && previewAvailability.firestore === true);
+  const previewEvents = calls.logEvent.length;
+  window.firebaseModules.logEvent('game_start');
+  check('an existing analytics wrapper becomes inert on non-production hosts',
+    calls.logEvent.length === previewEvents);
+
+  dom.reconfigure({ url: 'https://www.snowglider.ai/' });
+  AuthModule.initializeAuth(config);
+  check('public www host initializes Analytics',
+    calls.getAnalytics === analyticsInitializations + 1 && AuthModule.isFirebaseAvailable().analytics === true);
 
   console.log(`\nAUTH TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

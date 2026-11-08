@@ -5,12 +5,12 @@
  * Usage: node tests/puppeteer-runner.js
  */
 
-const puppeteer = require('puppeteer');
 const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
+const { isRendererFailure, validateBrowserResults } = require('./helpers/browser-results');
 const {
   startBrowserCoverage,
   foldPageCoverage,
@@ -19,7 +19,7 @@ const {
 } = require('./coverage/browser-coverage');
 
 const PORT = process.env.TEST_PORT || 8081;  // Use different port to avoid conflicts
-const TEST_TIMEOUT = 120000; // 2 minutes for all tests
+const TEST_TIMEOUT = 90000; // Existing whole-suite deadline, now a failing outcome
 const RESULTS_DIR = path.join(__dirname, '..', 'test-results');
 const ROOT = path.join(__dirname, '..');
 // Opt-in browser coverage (step 2 of the honest-coverage work). Off by default so
@@ -28,6 +28,124 @@ const ROOT = path.join(__dirname, '..');
 // test, so instrumenting that one page captures the full browser surface.
 const COLLECT_COVERAGE = process.env.BROWSER_COVERAGE === '1' || process.env.BROWSER_COVERAGE === 'true';
 const COVERAGE_DIR = path.join(ROOT, 'coverage', 'browser');
+
+// A renderer blocked in JavaScript cannot fire its own timeout. Keep the deadline
+// in Node as well, including on the cleanup path after a stuck protocol request.
+async function withNodeDeadline(operation, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(`${label} timed out after ${timeoutMs}ms (Node deadline)`);
+          error.name = 'BrowserDeadlineError';
+          reject(error);
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function collectBrowserResults(page, timeoutMs = TEST_TIMEOUT, graceMs = 1000) {
+  return withNodeDeadline(() => page.evaluate((timeoutMs) => {
+    return new Promise((resolve) => {
+      let interval;
+      let deadline;
+      const snapshot = () => ({
+        ...window._unifiedTestCounts,
+        expectedSuites: window._unifiedExpectedSuites,
+        summaryText: document.getElementById('unified-test-summary')?.textContent || 'N/A'
+      });
+      const finish = (timeout) => {
+        clearInterval(interval);
+        clearTimeout(deadline);
+        resolve({ ...snapshot(), timeout });
+      };
+      const checkResults = () => {
+        const counts = window._unifiedTestCounts;
+        const expected = window._unifiedExpectedSuiteCount;
+        if (Number.isInteger(expected) && expected > 0 && counts?.completed?.length >= expected) {
+          finish(false);
+          return true;
+        }
+        return false;
+      };
+      if (checkResults()) return;
+      interval = setInterval(checkResults, 1000);
+      deadline = setTimeout(() => finish(true), timeoutMs);
+    });
+  // The page's timer is installed after the CDP round trip. Give a responsive
+  // page time to return its partial timeout snapshot before Node aborts a hang.
+  }, timeoutMs), timeoutMs + graceMs, 'Browser test results');
+}
+
+async function writeBrowserArtifacts(page, initialResults, {
+  resultsDir = RESULTS_DIR, consoleLogs = [], pageErrors = [], rendererErrors = [],
+  collectCoverage = null, timeoutMs = 15000
+} = {}) {
+  let results = { ...initialResults, initialSnapshot: initialResults };
+  let artifactsComplete = false;
+  const artifactFailures = [];
+  const artifactWarnings = [];
+  const persist = () => {
+    results.pageErrors = [...pageErrors];
+    results.rendererErrors = [...rendererErrors];
+    results.artifactWarnings = [...artifactWarnings];
+    results.artifactsComplete = artifactsComplete;
+    results.validationFailures = [...validateBrowserResults(results, pageErrors, rendererErrors), ...artifactFailures,
+      ...(artifactsComplete ? [] : ['Browser artifact collection is incomplete'])];
+    fs.writeFileSync(path.join(resultsDir, 'console-logs.txt'), consoleLogs.join('\n'));
+    fs.writeFileSync(path.join(resultsDir, 'results.json'), JSON.stringify(results, null, 2));
+  };
+  fs.mkdirSync(resultsDir, { recursive: true });
+  // Preserve evidence before any further CDP request; never upload a stale image
+  // from an earlier run if this page cannot be captured.
+  fs.rmSync(path.join(resultsDir, 'test-results.png'), { force: true });
+  persist();
+  if (collectCoverage) {
+    try {
+      await withNodeDeadline(collectCoverage, timeoutMs, 'Browser coverage');
+    } catch (error) {
+      // Ordinary coverage instrumentation errors remain best-effort. A stalled
+      // protocol operation is a runner failure, not successful coverage collection.
+      (error instanceof Error && error.name === 'BrowserDeadlineError' ? artifactFailures : artifactWarnings).push((error instanceof Error ? error.message : String(error)));
+    }
+  }
+  try {
+    await withNodeDeadline(() => page.screenshot({
+      path: path.join(resultsDir, 'test-results.png'), fullPage: true
+    }), timeoutMs, 'Browser screenshot');
+  } catch (error) {
+    artifactFailures.push(`Screenshot failed: ${(error instanceof Error ? error.message : String(error))}`);
+  }
+  try {
+    const latest = await withNodeDeadline(() => page.evaluate(() => ({
+      ...window._unifiedTestCounts,
+      expectedSuites: window._unifiedExpectedSuites
+    })), timeoutMs, 'Final browser results');
+    // A later successful snapshot cannot erase the original whole-suite timeout.
+    results = { ...results, ...latest, timeout: !!(results.timeout || latest?.timeout) };
+  } catch (error) {
+    artifactFailures.push(`Final result read failed: ${(error instanceof Error ? error.message : String(error))}`);
+  }
+  artifactsComplete = true;
+  persist();
+  return results;
+}
+
+async function closeBrowser(browser, timeoutMs = 5000) {
+  try {
+    await withNodeDeadline(() => browser.close(), timeoutMs, 'Browser cleanup');
+  } catch (error) {
+    // Puppeteer's graceful close may itself be blocked behind the dead renderer.
+    // Kill only the browser process launched by this runner, then propagate failure.
+    browser.process()?.kill('SIGKILL');
+    throw error;
+  }
+}
 
 // Ensure results directory exists
 if (!fs.existsSync(RESULTS_DIR)) {
@@ -57,7 +175,7 @@ function assertPortAvailable(port) {
     const probe = net.createServer();
 
     probe.once('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
+      if ('code' in err && err.code === 'EADDRINUSE') {
         reject(new Error(`Port ${port} is already in use; refusing to run browser tests against a pre-existing server`));
         return;
       }
@@ -107,13 +225,14 @@ async function startServer() {
   // Record an early exit (e.g. `--strictPort` and the port was already taken, so
   // Vite refuses to start) so we can fail loudly instead of probing whatever else
   // is on the port.
+  /** @type {{ code: number | null, signal: NodeJS.Signals | null } | null} */
   let exitInfo = null;
   server.on('exit', (code, signal) => {
     exitInfo = { code, signal };
   });
 
   const startupError = new Promise((_resolve, reject) => {
-    server.on('error', (err) => reject(new Error(`Failed to start server: ${err.message}`)));
+    server.on('error', (err) => reject(new Error(`Failed to start server: ${(err instanceof Error ? err.message : String(err))}`)));
   });
 
   // Poll Vite's own endpoint for up to ~30s (its first cold dep-optimize is slow).
@@ -143,23 +262,32 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/** @param {import('puppeteer').Browser} browser */
 async function runStartMenuRaceRegression(browser) {
   console.log('Running start menu race regression...');
 
   const page = await browser.newPage();
   const errors = [];
+  const rendererErrors = [];
+  /** @type {() => void} */
   let releaseSnowgliderScript;
+  /** @type {() => void} */
   let snowgliderRequestSeen;
 
+  /** @type {Promise<void>} */
   const releaseSnowgliderScriptPromise = new Promise(resolve => {
     releaseSnowgliderScript = resolve;
   });
+  /** @type {Promise<void>} */
   const snowgliderRequestSeenPromise = new Promise(resolve => {
     snowgliderRequestSeen = resolve;
   });
 
   page.on('pageerror', (err) => {
-    errors.push(err.message);
+    errors.push((err instanceof Error ? err.message : String(err)));
+  });
+  page.on('console', (msg) => {
+    if (isRendererFailure(msg.text())) rendererErrors.push(msg.text());
   });
 
   await page.setRequestInterception(true);
@@ -193,8 +321,8 @@ async function runStartMenuRaceRegression(browser) {
     await page.click('#startGameButton');
 
     await page.waitForFunction(() => {
-      const button = document.getElementById('startGameButton');
-      return button && button.disabled && button.getAttribute('aria-busy') === 'true';
+      const button = document.querySelector('button#startGameButton');
+      return button instanceof HTMLButtonElement && button.disabled && button.getAttribute('aria-busy') === 'true';
     }, { timeout: 5000 });
 
     const pendingState = await page.evaluate(() => {
@@ -222,21 +350,6 @@ async function runStartMenuRaceRegression(browser) {
     releaseSnowgliderScript();
 
     await page.waitForFunction(() => {
-      const button = document.getElementById('startGameButton');
-      const startContainer = document.getElementById('startGameContainer');
-      const gameCanvas = document.getElementById('gameCanvas');
-      return button &&
-        startContainer &&
-        gameCanvas &&
-        !button.disabled &&
-        button.getAttribute('aria-busy') !== 'true' &&
-        startContainer.style.display !== 'none' &&
-        typeof window.initializeGameWithAudio === 'function';
-    }, { timeout: 30000 });
-
-    await page.click('#startGameButton');
-
-    await page.waitForFunction(() => {
       const startContainer = document.getElementById('startGameContainer');
       const gameCanvas = document.getElementById('gameCanvas');
       return startContainer &&
@@ -245,11 +358,11 @@ async function runStartMenuRaceRegression(browser) {
         gameCanvas.style.display === 'block';
     }, { timeout: 30000 });
 
-    if (errors.some(error => error.includes("Cannot read properties of null"))) {
-      throw new Error(`Unexpected null DOM access error: ${errors.join('; ')}`);
+    if (errors.length || rendererErrors.length) {
+      throw new Error(`Start-menu page/renderer errors: ${[...errors, ...rendererErrors].join('; ')}`);
     }
 
-    console.log('PASS: start menu re-enables Start for a gesture-backed deferred start');
+    console.log('PASS: queued Start completes when scripts arrive without another click');
   } finally {
     releaseSnowgliderScript();
     await page.close();
@@ -261,13 +374,15 @@ async function runBrowserTests() {
   let browser;
   
   try {
+    // Puppeteer 25 is ESM-only; keep this CommonJS runner's import asynchronous.
+    const { default: puppeteer } = await import('puppeteer');
     // Start the dev server
     server = await startServer();
     
     // Launch browser
     console.log('Launching browser...');
     browser = await puppeteer.launch({
-      headless: 'new',
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -287,15 +402,17 @@ async function runBrowserTests() {
       try {
         await startBrowserCoverage(page);
       } catch (covErr) {
-        console.warn('Browser coverage: failed to start:', covErr.message);
+        console.warn('Browser coverage: failed to start:', (covErr instanceof Error ? covErr.message : String(covErr)));
       }
     }
 
     // Collect console logs
     const consoleLogs = [];
+    const rendererErrors = [];
     page.on('console', (msg) => {
       const text = msg.text();
       consoleLogs.push(`[${msg.type()}] ${text}`);
+      if (isRendererFailure(text)) rendererErrors.push(text);
       
       // Print test results and important events to stdout
       if (text.includes('PASS:') || text.includes('FAIL:') || 
@@ -308,19 +425,25 @@ async function runBrowserTests() {
     // Track errors
     const errors = [];
     page.on('pageerror', (err) => {
-      errors.push(err.message);
-      console.error('Page error:', err.message);
+      errors.push((err instanceof Error ? err.message : String(err)));
+      console.error('Page error:', (err instanceof Error ? err.message : String(err)));
     });
     
     // Navigate to test page
     console.log('Loading test page...');
     await page.goto(`http://127.0.0.1:${PORT}/index.html?test=unified`, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 30000
     });
-    
-    // Wait for page to be fully ready
-    await page.waitForSelector('canvas', { timeout: 10000 });
+
+    // Tests run while audio/provider requests may remain active. Network idleness
+    // is unrelated to app readiness and can time out after suites have already
+    // passed. Require the real game canvas and initialized runner instead; result
+    // collection below still enforces every declared suite, errors and its deadline.
+    await page.waitForFunction(() => window.SnowGliderGameScriptsReady === true &&
+      !!document.querySelector('#gameCanvas canvas') &&
+      Number.isInteger(window._unifiedExpectedSuiteCount) && window._unifiedExpectedSuiteCount > 0,
+    { timeout: 30000 });
     console.log('Canvas loaded');
     
     // Simulate user interaction to trigger audio tests and unlock audio context.
@@ -330,115 +453,30 @@ async function runBrowserTests() {
     try {
       await page.mouse.click(5, 5);
     } catch (clickErr) {
-      console.warn('Audio-unlock click skipped:', clickErr.message);
+      console.warn('Audio-unlock click skipped:', (clickErr instanceof Error ? clickErr.message : String(clickErr)));
     }
     await new Promise(r => setTimeout(r, 1000));
     
     // Wait for tests to complete
     console.log('Running tests...');
     
-    const results = await page.evaluate(() => {
-      return new Promise((resolve) => {
-        let pollCount = 0;
-        
-        const checkResults = () => {
-          pollCount++;
-          
-          // Log state periodically
-          if (pollCount % 10 === 0) {
-            const counts = window._unifiedTestCounts;
-            const hasRunner = !!window._unifiedTestResults;
-            console.log(`Poll ${pollCount}: runner=${hasRunner}, counts=${JSON.stringify(counts)}`);
-          }
-          
-          // Check if unified test runner has completed
-          const summary = document.getElementById('unified-test-summary');
-          if (summary && summary.textContent.includes('ALL TESTS COMPLETED')) {
-            const counts = window._unifiedTestCounts || { passed: 0, failed: 0 };
-            resolve({
-              passed: counts.passed,
-              failed: counts.failed,
-              completed: counts.completed || [],
-              summaryText: summary.textContent
-            });
-            return true;
-          }
-          
-          // Also check if tests completed but summary text isn't updated. This
-          // must use the runner's expected count; resolving at a hard-coded lower
-          // count can silently skip later suites.
-          const counts = window._unifiedTestCounts;
-          const expectedSuiteCount = window._unifiedExpectedSuiteCount || 7;
-          if (counts && counts.completed && counts.completed.length >= expectedSuiteCount) {
-            resolve({
-              passed: counts.passed,
-              failed: counts.failed,
-              completed: counts.completed,
-              summaryText: summary ? summary.textContent : 'N/A'
-            });
-            return true;
-          }
-          
-          return false;
-        };
-        
-        // Check immediately
-        if (checkResults()) return;
-        
-        // Poll for completion every second
-        const interval = setInterval(() => {
-          if (checkResults()) {
-            clearInterval(interval);
-          }
-        }, 1000);
-        
-        // Timeout after 90 seconds
-        setTimeout(() => {
-          clearInterval(interval);
-          const counts = window._unifiedTestCounts || { passed: 0, failed: 0 };
-          const runnerActive = !!window._unifiedTestRunnerActive;
-          resolve({
-            passed: counts.passed,
-            failed: counts.failed,
-            completed: counts.completed || [],
-            timeout: true,
-            runnerActive: runnerActive
-          });
-        }, 90000);
-      });
-    });
-    
-    // Stop and persist browser coverage now that the suite has finished but the
-    // page is still alive. Best-effort: never let coverage break the test run.
-    if (COLLECT_COVERAGE) {
-      try {
+    let results;
+    try {
+      results = await collectBrowserResults(page);
+    } catch (error) {
+      results = { timeout: true, collectionError: (error instanceof Error ? error.message : String(error)) };
+    }
+    results = await writeBrowserArtifacts(page, results, {
+      consoleLogs, pageErrors: errors, rendererErrors,
+      collectCoverage: COLLECT_COVERAGE ? async () => {
         const coverageMap = createCoverageMap();
         await foldPageCoverage(page, coverageMap, ROOT);
         fs.mkdirSync(COVERAGE_DIR, { recursive: true });
         writeBrowserReports(coverageMap, COVERAGE_DIR);
         console.log(`Browser coverage written: ${coverageMap.files().filter(f => f.includes(`${path.sep}src${path.sep}`)).length} src files -> ${path.relative(ROOT, COVERAGE_DIR)}/lcov.info`);
-      } catch (covErr) {
-        console.warn('Browser coverage: failed to write report:', covErr.message);
-      }
-    }
-
-    // Take a screenshot of results
-    await page.screenshot({
-      path: path.join(RESULTS_DIR, 'test-results.png'),
-      fullPage: true
+      } : null
     });
-    
-    // Save console logs
-    fs.writeFileSync(
-      path.join(RESULTS_DIR, 'console-logs.txt'),
-      consoleLogs.join('\n')
-    );
-    
-    // Save results JSON
-    fs.writeFileSync(
-      path.join(RESULTS_DIR, 'results.json'),
-      JSON.stringify(results, null, 2)
-    );
+    const failures = results.validationFailures;
     
     // Print summary
     console.log('\n========================================');
@@ -446,7 +484,7 @@ async function runBrowserTests() {
     console.log('========================================');
     console.log(`Passed: ${results.passed}`);
     console.log(`Failed: ${results.failed}`);
-    console.log(`Completed suites: ${results.completed.join(', ')}`);
+    console.log(`Completed suites: ${(results.completed || []).join(', ')}`);
     
     if (results.timeout) {
       console.log('WARNING: Tests timed out before completion');
@@ -459,27 +497,29 @@ async function runBrowserTests() {
     
     console.log('========================================\n');
     
-    // Return exit code based on results
-    return results.failed > 0 ? 1 : 0;
+    for (const failure of failures) console.error(`FAIL: ${failure}`);
+    return failures.length > 0 ? 1 : 0;
     
   } catch (error) {
-    console.error('Test runner error:', error.message);
+    console.error('Test runner error:', (error instanceof Error ? error.message : String(error)));
     return 1;
   } finally {
-    // Cleanup
-    if (browser) {
-      await browser.close();
-    }
-    if (server) {
-      server.kill();
+    // Always release the server, even if browser shutdown fails or hangs.
+    try {
+      if (browser) await closeBrowser(browser);
+    } finally {
+      if (server) server.kill();
     }
   }
 }
 
-// Run tests
-runBrowserTests().then((exitCode) => {
-  process.exit(exitCode);
-}).catch((err) => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+module.exports = { collectBrowserResults, writeBrowserArtifacts, closeBrowser };
+
+if (require.main === module) {
+  runBrowserTests().then((exitCode) => {
+    process.exit(exitCode);
+  }).catch((err) => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}

@@ -33,12 +33,14 @@ import './sfx.js';
 import './sky.js';
 import './wind.js';
 import './intro.js';
+import { initServiceWorker } from './pwa/register-sw.js';
+import { showUpdatePrompt } from './pwa/update-ui.js';
 
 /** Revision of the three.js build pulled from npm and bundled by Vite. */
 export const BUNDLED_THREE_REVISION = THREE.REVISION;
 
 if (typeof window !== 'undefined') {
-  (window as any).__SNOWGLIDER_BUNDLE__ = {
+  window.__SNOWGLIDER_BUNDLE__ = {
     threeRevision: THREE.REVISION
   };
 
@@ -56,7 +58,27 @@ if (typeof window !== 'undefined') {
   // Vite still bundles it into the shared module graph (one Snow/Snowman/etc.
   // instance), while raw-source serving resolves it to /src/snowglider.js (the
   // request the puppeteer start-menu regression intercepts).
-  (window as any).__loadSnowGliderOrchestrator = () => import('./snowglider.js');
+  window.__loadSnowGliderOrchestrator = () => import('./snowglider.js');
+
+  // Rock review gallery (issue #385 PR 1): `?gallery=rocks` swaps the deferred
+  // orchestrator import for the gallery module, so the page boots the real scene
+  // pipeline (same setupScene, lights, terrain, sky) laid out with the fixed rock
+  // samples instead of starting the game. A review harness only — the classic
+  // script-loader awaits whichever module this hook returns, so the game never
+  // double-boots on a gallery page. Lazy: the gallery chunk loads only here.
+  if (/[?&]gallery=rocks\b/.test(window.location.search)) {
+    window.__loadSnowGliderOrchestrator = () =>
+      import('./visual/rock-gallery.js').then(async (m) => {
+        await m.initRockGallery();
+        return m;
+      });
+  }
+
+  // Register the offline service worker (issue #358, PR 3). Self-gating: it no-ops
+  // under ?test= / auth.html / insecure origins and runs the ?sw=reset hatch instead
+  // of registering when asked. A waiting update surfaces the "New version available"
+  // banner only on a safe (start) screen; sw.ts never activates a new bundle mid-run.
+  initServiceWorker({ onUpdateReady: (apply) => showUpdatePrompt(apply) });
 }
 
 console.log(`[snowglider] bundled three.js r${THREE.REVISION}`);

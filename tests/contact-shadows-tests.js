@@ -34,29 +34,31 @@ async function main() {
   check('never casts or receives shadows (it IS the fake shadow)', mesh.castShadow === false && mesh.receiveShadow === false);
   check('added to the scene', scene.children.includes(mesh));
 
-  // Decode instance 0 (tree, scale 1 -> radius 1.6 -> quad span 3.2) and check it sits on
+  // Decode instance 0 (tree, scale 1 -> radius 1.15 -> quad span 2.3) and check it sits on
   // the terrain at the obstacle's x/z.
   const m = new THREE.Matrix4();
   const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
   mesh.getMatrixAt(0, m); m.decompose(p, q, s);
   check('blob 0 centred on the tree x/z', approx(p.x, 5) && approx(p.z, -20));
   check('blob 0 sits just above the terrain height', approx(p.y, getH(5, -20) + 0.05));
-  check('blob 0 sized to the tree footprint (radius 1.6 -> span 3.2)', approx(s.x, 3.2) && approx(s.z, 3.2));
+  check('blob 0 sized to the tree footprint (radius 1.15 -> span 2.3)', approx(s.x, 2.3) && approx(s.z, 2.3));
 
-  // Instance 1 is the tiny tree -> radius floored to 0.8 -> span 1.6.
+  // Instance 1 is the tiny tree -> radius floored to 0.65 -> span 1.3.
   mesh.getMatrixAt(1, m); m.decompose(p, q, s);
-  check('tiny obstacle radius is floored (span 1.6, not 0.32)', approx(s.x, 1.6));
+  check('tiny obstacle radius is floored (span 1.3, not 0.23)', approx(s.x, 1.3));
 
-  // Instance 2 is the rock (size 2 -> radius 2.3 -> span 4.6).
+  // Instance 2 is the rock (size 2 -> radius 1.9 -> span 3.8).
   mesh.getMatrixAt(2, m); m.decompose(p, q, s);
-  check('rock blob sized by rock.size (radius 2.3 -> span 4.6)', approx(s.x, 4.6) && approx(p.x, 30));
+  check('rock blob sized by rock.size (radius 1.9 -> span 3.8)', approx(s.x, 3.8) && approx(p.x, 30));
 
   console.log('\n--- contact-shadows: edge cases ---');
   check('no obstacles -> returns null (no empty draw)', addContactShadows(new THREE.Scene(), [], [], getH) === null);
   // mesh.material is typed Material | Material[]; this build uses a single MeshBasicMaterial.
   const mat = /** @type {any} */ (mesh.material);
   check('headless build has no texture map (document-guarded), did not throw', mat.map === null);
-  check('material is a soft transparent black overlay', mat.transparent === true && mat.depthWrite === false);
+  check('material is a soft transparent overlay', mat.transparent === true && mat.depthWrite === false);
+  check('material is subtle cool-grey AO, not a black high-opacity stain',
+    mat.color.getHex() === 0x6f7f91 && mat.opacity <= 0.16);
 
   // The decal builder must be fed EVERY rendered rock, not just the collision subset
   // (Codex review #243): addRocks fills the optional out-array with all rendered rocks.

@@ -1,16 +1,24 @@
-// snowtracks.ts - Temporary ski-track overlay (issue #17 follow-up).
+// snowtracks.ts - Transient ski-track overlay (issue #17 follow-up).
 //
 // The static surface never "did anything" as the snowman moved, so the slope read
 // as inert. This adds a transient track overlay: the skis carve faint grooves as
 // the snowman moves, and each groove fades over a few seconds (reading as fresh
 // snow settling back over it).
 //
-// Scope honesty (per PR #181 review): this is *temporary track feedback*, NOT a
-// snow-accumulation model. It does not model falling snow building up depth on the
-// surface or persistent compaction. A real accumulation pass would be a low-res
-// persistent `SnowDepthField` (snowfall raises depth, skis compact it into a track
-// mask, tracks refill over time, rocks/trees sample the same coverage) fed into the
-// terrain material — a separate, larger effort tracked as a follow-up.
+// TWO-LAYER SNOW MEMORY (#246). The persistent `SnowDepthField` that the "scope honesty"
+// note below named as a future follow-up now EXISTS (`src/mountains/snow-depth.ts`): it
+// packs a low-res depth grid into LASTING ski lines the terrain material samples. So the
+// two layers now split the job: this overlay is the **fresh-cut cue** — the crisp groove
+// right behind the skis, which fades quickly — while `SnowDepthField` carries the
+// **persistent** darker/icier memory of where you've skied. Because the depth field now
+// holds the lasting mark, this overlay's lifetime is trimmed (it no longer has to be the
+// sole memory). The overlay is deliberately KEPT (not removed): the sharp instanced groove
+// reads more immediately than the broad material modulation. Final overlay opacity/lifetime
+// (and any eventual removal) are a visual-tuning call — see docs/SNOW_RENDERING.md.
+//
+// Scope honesty (per PR #181 review): this overlay on its own is *temporary track feedback*,
+// NOT a snow-accumulation model — it never models depth building up or persistent compaction
+// (that is `SnowDepthField`'s job now). It still only carves fading grooves.
 //
 // Contract & safety:
 //  - Purely cosmetic. It only READS snowman.position and the injected terrain
@@ -25,10 +33,9 @@
 //  - Respects `prefers-reduced-motion`: when set, stamping/animation are skipped
 //    (the mesh stays empty), matching EffectsModule's reduced-motion gating.
 //
-// Groundwork note: the same per-dab pool + terrain sampler is the seam a fuller
-// accumulation model (an actual deepening/snow-depth field, or persistent packed
-// tracks) would extend — the stamping cadence and lifetime live behind named
-// constants below.
+// Groundwork note: the persistent accumulation model this pool once anticipated shipped
+// separately as `SnowDepthField` (#246); this overlay stays the transient fresh-cut layer.
+// The stamping cadence and lifetime live behind named constants below.
 import * as THREE from 'three';
 
 /** Minimal positional shape (accepts a THREE.Vector3 or a plain literal). */
@@ -44,7 +51,9 @@ export type TerrainHeightFn = (x: number, z: number) => number;
 // --- Tunables ---
 const POOL = 220;                 // ring-buffer of trail dabs (110 stamps x 2 skis)
 const STAMP_SPACING = 1.1;        // world units of travel between stamps
-const TRAIL_LIFETIME = 5.5;       // seconds for a dab to be covered by fresh snow
+const TRAIL_LIFETIME = 4.0;       // seconds for a fresh-cut groove to fade (#246: trimmed from
+                                  // 5.5 — SnowDepthField now carries the LASTING track memory,
+                                  // so this overlay is just the crisp fresh-cut cue). Tunable.
 const DAB_WIDTH = 0.55;           // cross-track width of one ski groove
 const DAB_LENGTH = 2.2;           // along-track length of one dab
 const SKI_HALF_GAUGE = 1.1;       // half the distance between the two ski grooves

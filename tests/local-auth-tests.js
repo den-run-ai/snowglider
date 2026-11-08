@@ -86,8 +86,11 @@ function main() {
 
   // Install AuthModule explicitly (the IIFE only auto-installs ScoresModule).
   a.window.SnowGliderLocalAuth.installAuthModule();
-  const Scores = a.window.ScoresModule;
-  const Auth = a.window.AuthModule;
+  // Cast to `any`: this suite deliberately probes the JS shim's RUNTIME validation
+  // with adversarial inputs (no args, a string time), which the typed ScoresModuleApi/
+  // AuthModuleApi seams (types/globals.d.ts) now correctly reject at compile time.
+  const Scores = /** @type {any} */ (a.window.ScoresModule);
+  const Auth = /** @type {any} */ (a.window.AuthModule);
 
   // --- ScoresModule no-op surface ---
   Scores.initializeScores();
@@ -116,6 +119,52 @@ function main() {
   a.localStorage.setItem('snowgliderBestTime', 'garbage');
   Scores.recordScore(33);
   check('recordScore replaces an invalid stored best', a.localStorage.getItem('snowgliderBestTime') === '33');
+
+  // --- Run-provenance stamp via the boot seam (#400; Codex review PR #407) ---
+  // The classic script cannot import run-context, so it reads the deliberate
+  // window seam scene-setup publishes. With the seam present, a new best writes
+  // the same _meta sidecar the module-graph paths write; without it (degraded
+  // boot), recording still works and simply leaves no stamp.
+  a.window.__snowgliderGetRunStamp = () => ({ seed: 777, physicsVersion: 1 });
+  Scores.recordScore(30);
+  // With the seam present the key derives from the stamp's version (#403 review):
+  // the write lands in that version's namespace, stamped alongside.
+  check('local-auth writes the stamp-versioned competitive key via the seam',
+    a.localStorage.getItem('snowgliderBestTime_v1') === '30');
+  check('local-auth stamps a new best via the window seam',
+    a.localStorage.getItem('snowgliderBestTime_v1_meta') === JSON.stringify({ seed: 777, physicsVersion: 1 }));
+  delete a.window.__snowgliderGetRunStamp;
+  a.localStorage.removeItem('snowgliderBestTime_v1');
+  a.localStorage.removeItem('snowgliderBestTime_v1_meta');
+  Scores.recordScore(25);
+  check('an absent seam degrades gracefully (best still recorded, no stamp)',
+    a.localStorage.getItem('snowgliderBestTime') === '25' &&
+    a.localStorage.getItem('snowgliderBestTime_meta') === null);
+
+  // Stale-sidecar invalidation (Codex review PR #407): a PREVIOUS run's stamp
+  // must never survive to describe a NEW best. With the seam ABSENT, a new best
+  // clears any existing sidecar rather than leaving the old attribution.
+  a.window.__snowgliderGetRunStamp = () => ({ seed: 111, physicsVersion: 1 });
+  Scores.recordScore(20);
+  delete a.window.__snowgliderGetRunStamp;
+  Scores.recordScore(19.5); // new best with NO seam -> the old seed-111 stamp must go
+  check('a seam-less new best clears the previous run\'s stale stamp',
+    a.localStorage.getItem('snowgliderBestTime') === '19.5' &&
+    a.localStorage.getItem('snowgliderBestTime_meta') === null);
+  // And with the seam present but the META write failing, the old sidecar is
+  // cleared first — the record ends up unstamped, never mis-stamped. (With the
+  // seam present the write lands in the stamp-versioned namespace, #403 review.)
+  a.window.__snowgliderGetRunStamp = () => ({ seed: 222, physicsVersion: 1 });
+  Scores.recordScore(19);
+  const realLsSet = a.localStorage.setItem;
+  a.localStorage.setItem = (k, v) => { if (String(k).endsWith('_meta')) throw new Error('quota'); return realLsSet(k, v); };
+  Scores.recordScore(18.5);
+  a.localStorage.setItem = realLsSet;
+  delete a.window.__snowgliderGetRunStamp;
+  check('a failed stamp write leaves the new best unstamped (stale sidecar cleared)',
+    a.localStorage.getItem('snowgliderBestTime_v1') === '18.5' &&
+    a.localStorage.getItem('snowgliderBestTime_v1_meta') === null);
+  a.localStorage.removeItem('snowgliderBestTime_v1');
 
   // --- Per-tier local best (D2): a tiered finish uses the per-tier key, not Blue ---
   a.localStorage.removeItem('snowgliderBestTime');
@@ -202,7 +251,7 @@ function main() {
       check('ScoresModule.displayLeaderboard tolerates a missing #leaderboard', true);
       // No authUI/profileUI/authContainer -> every initializeAuth guard takes its
       // false branch without throwing.
-      bare.window.AuthModule.initializeAuth();
+      bare.window.AuthModule.initializeAuth({});
       check('AuthModule.initializeAuth tolerates missing auth DOM', true);
       // No ScoresModule and no #leaderboard -> AuthModule.displayLeaderboard logs only.
       delete bare.window.ScoresModule;

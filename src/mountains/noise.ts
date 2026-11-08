@@ -24,8 +24,8 @@ export class SimplexNoise {
     }
 
     // To remove the need for index wrapping, double the permutation table length
-    this.perm = new Array(512);
-    this.gradP = new Array(512);
+    this.perm = new Array<number>(512);
+    this.gradP = new Array<number[]>(512);
 
     // Populate permutation table
     for(let i = 0; i < 512; i++) {

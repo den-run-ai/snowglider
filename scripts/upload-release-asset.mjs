@@ -16,7 +16,8 @@
 // credential helper (the same token `git push` uses). The token is never printed.
 
 import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 
 export const DEFAULT_TAG = 'assets';
@@ -145,15 +146,18 @@ function parseArgs(argv) {
   const out = { tag: DEFAULT_TAG };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--name') out.name = argv[++i];
-    else if (a === '--tag') out.tag = argv[++i];
+    if (a === '--name' || a === '--tag') {
+      const value = argv[++i];
+      if (!value || !value.trim() || value.startsWith('--')) throw new Error(`Missing value for ${a}`);
+      out[a.slice(2)] = value;
+    }
     else if (!a.startsWith('--') && !out.file) out.file = a;
     else throw new Error(`Unexpected argument: ${a}`);
   }
   return out;
 }
 
-const invokedDirectly = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (invokedDirectly) {
   const { file, name, tag } = parseArgs(process.argv.slice(2));
   if (!file) {

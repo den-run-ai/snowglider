@@ -4,7 +4,7 @@
   // the two literals are duplicated from src/score-limits.ts (the single source of truth);
   // tests/score-limits-sync-tests.js asserts they stay equal. Floor measured in issue #229
   // (PR A); see score-limits.ts for the derivation.
-  const MIN_VALID_SCORE_TIME = 18;
+  const MIN_VALID_SCORE_TIME = 15;
   const MAX_VALID_SCORE_TIME = 600;
 
   /** @param {number} time */
@@ -20,7 +20,17 @@
   // bootstrap script can't import the ES module.
   /** @param {string=} tier */
   function localBestTimeKey(tier) {
-    return (!tier || tier === 'blue') ? 'snowgliderBestTime' : 'snowgliderBestTime_' + tier;
+    // Version-namespaced competitive key (#403 review), mirroring difficulty.ts.
+    // The physics version comes from the boot seam the module graph publishes;
+    // in a fully degraded boot (seam absent) fall back to the legacy unversioned
+    // key — a historical record, never leaderboard-synced from local mode.
+    var base = 'snowgliderBestTime';
+    try {
+      if (typeof window.__snowgliderGetRunStamp === 'function') {
+        base += '_v' + window.__snowgliderGetRunStamp().physicsVersion;
+      }
+    } catch (e) { /* seam is best-effort */ }
+    return (!tier || tier === 'blue') ? base : base + '_' + tier;
   }
 
   function installScoresModule() {
@@ -57,6 +67,20 @@
 
         if (isNewPersonalBest) {
           localStorage.setItem(key, time.toString());
+          // Run-provenance stamp (#400): mirror the module-graph write paths. This is
+          // a CLASSIC script (no ES imports), so it reads the deliberate window seam
+          // scene-setup publishes at module load; the seam is defined by finish time
+          // (recordScore only runs after a full game session). Best-effort: absent
+          // seam or blocked storage must never break local-mode score recording —
+          // but a PREVIOUS run's sidecar must never survive to describe the NEW
+          // time (Codex review PR #407): clear it first, so an absent seam or a
+          // failed stamp write leaves the record unstamped, not mis-stamped.
+          try {
+            localStorage.removeItem(key + '_meta');
+            if (typeof window.__snowgliderGetRunStamp === 'function') {
+              localStorage.setItem(key + '_meta', JSON.stringify(window.__snowgliderGetRunStamp()));
+            }
+          } catch (e) { /* stamp is best-effort; the cleared sidecar stays cleared */ }
           console.log("New local best time recorded:", time);
         } else {
           console.log("Score recorded, but not a new local best time:", time);
@@ -101,7 +125,7 @@
           authContainer.appendChild(localModeNotice);
         }
       },
-      /** @param {number} time @param {string=} tier */
+      /** @param {number} time @param {import('../difficulty.js').Difficulty=} tier */
       recordScore: function (time, tier) {
         if (!isValidScoreTime(time)) {
           console.warn("Skipping local score record (Invalid time value):", time);
@@ -115,7 +139,7 @@
           console.log("Score recorded locally:", time);
         }
       },
-      /** @param {string=} tier */
+      /** @param {import('../difficulty.js').Difficulty=} tier */
       displayLeaderboard: function (tier) {
         if (window.ScoresModule && typeof window.ScoresModule.displayLeaderboard === 'function') {
           window.ScoresModule.displayLeaderboard(tier);

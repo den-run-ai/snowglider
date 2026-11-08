@@ -1,0 +1,5 @@
+{
+  "_comment": "PRs that merged into a consumed branch and never reached the default branch, but whose change has since been re-landed by a later default-branch PR. Listed here so scripts/audit-missed-main.mjs does not flag them forever (the original merge commit can never become an ancestor of main). Key = missed PR number, value = how it was re-landed. See issue #312.",
+  "277": "re-landed on main by #313 (feat: leaderboard real names)",
+  "308": "re-landed on main by #311 (feat: visible tree sway)"
+}

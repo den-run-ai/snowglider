@@ -1,5 +1,6 @@
 // Snowman collision and finish-state checks.
 import type { PlayerPos, RockPos, ShowGameOverFn, TreePos } from './index.js';
+import { getTestModeValues } from '../test-mode.js';
 
 // Finish line: the run ends when the player crosses this z (skiing in -Z). This is the
 // SINGLE SOURCE OF TRUTH for the finish trigger — the live run ends here, and course.ts
@@ -7,28 +8,50 @@ import type { PlayerPos, RockPos, ShowGameOverFn, TreePos } from './index.js';
 // enforced finish can't drift. The winnability/forward-stress gates read it via course.ts.
 export const FINISH_Z = -195;
 
+/** One airborne obstacle clear this frame (jump-system completion JP-2, #245):
+ *  the horizontal-overlap test WOULD have collided, but an airborne suppression
+ *  branch (isJumpingHighAboveTrees / isJumpingOverRock) let the player sail over.
+ *  `key` identifies the obstacle (stable per run) so the caller can dedup the
+ *  many consecutive overlap frames of one pass into a single scored clear. */
+export interface ObstacleClear {
+  type: 'tree' | 'rock';
+  key: string;
+}
+
 interface SnowmanCollisionState {
   pos: PlayerPos;
   isInAir: boolean;
-  verticalVelocity: number;
   terrainHeightAtPosition: number;
   treePositions: TreePos[];
   rockPositions: RockPos[];
   gameActive: boolean;
   showGameOver: ShowGameOverFn;
+  // Invoked with this frame's airborne clears BEFORE the finish/game-over check
+  // below can fire showGameOver synchronously — so a clear banked on the finish
+  // frame still lands on the result screen (same rationale as bankAirScore, #186).
+  // Detection only: provenance / dedup / cap / scoring are the caller's policy.
+  onObstaclesCleared?: (clears: ObstacleClear[]) => void;
 }
 
 export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   const {
     pos,
     isInAir,
-    verticalVelocity,
     terrainHeightAtPosition,
     treePositions,
     rockPositions,
     gameActive,
-    showGameOver
+    showGameOver,
+    onObstaclesCleared
   } = state;
+
+  const testModes = getTestModeValues(window.location.search);
+  const isTestMode = testModes.length > 0;
+  const isVerboseTestMode = testModes.includes('true');
+
+  // Airborne clears observed this frame (JP-2). Collected inside the collision
+  // walks below — a clear is exactly "overlap true AND suppression branch fired".
+  const clears: ObstacleClear[] = [];
 
   // Check if snowman is off the terrain or falling
   const fallThreshold = 0.5; // How far below terrain to allow before reset
@@ -38,7 +61,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   const treeCollisionRadius = window.treeCollisionRadius || 2.5; // Collision distance for trees
 
   // In test mode, output complete tree positions for debugging
-  if (window.location.search.includes('test=true') && treePositions.length > 0) {
+  if (isVerboseTestMode && treePositions.length > 0) {
     console.log(`TREES LOADED: ${treePositions.length} trees found`);
     console.log(`SNOWMAN POS: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`);
     console.log(`FIRST TREE: x=${treePositions[0]!.x.toFixed(2)}, y=${treePositions[0]!.y.toFixed(2)}, z=${treePositions[0]!.z.toFixed(2)}`);
@@ -49,7 +72,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   const totalTreesCount = treePositions.length;
 
   // Log tree information when in test mode
-  if (window.location.search.includes('test=true') && !window._treeCheckLogged) {
+  if (isVerboseTestMode && !window._treeCheckLogged) {
     console.log(`TREE COLLISION INFO: ${totalTreesCount} total trees, ${extendedTreesCount} in extended area (z < -80)`);
 
     // Log the ranges to verify coverage
@@ -64,22 +87,15 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
   }
 
   // Check collision with any tree
-  const treeCollision = treePositions.some(treePos => {
+  const treeCollision = treePositions.some((treePos, treeIndex) => {
     // Special case for tests - direct position match or very close positions always collide
     // Use a small epsilon for floating point comparison, increased for test reliability
     // This helps with floating-point precision issues in tests
-    const epsilon = window.location.search.includes('test') ? 0.1 : 0.001;
+    const epsilon = isTestMode ? 0.1 : 0.001;
 
     const exactMatch =
       Math.abs(pos.x - treePos.x) < epsilon &&
       Math.abs(pos.z - treePos.z) < epsilon;
-
-    if (exactMatch) {
-      if (window.location.search.includes('test=true')) {
-        console.log(`DIRECT TREE HIT at (${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`);
-      }
-      return true;
-    }
 
     // Check horizontal distance for collision (2D distance ignoring height)
     const dx = pos.x - treePos.x;
@@ -90,11 +106,43 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     // Tree collision only happens when snowman is on the ground or close to it
     const isCloseEnough = horizontalDistance < treeCollisionRadius;
 
-    // Only consider jumping over trees when genuinely in the air AND moving upward AND high enough
-    const isJumpingHighAboveTrees = isInAir && verticalVelocity > 0 && pos.y > (treePos.y + 5);
+    // Clearance is height-based only: once the snowman is airborne and high enough
+    // above the tree base it clears the tree whether it is still rising or already
+    // descending past the jump apex. This mirrors the rock clearance below and fixes
+    // the "sail over a tree and land clear of the trunk" case on black/expert lines:
+    // requiring upward motion (verticalVelocity > 0) crashed every descending-but-high
+    // pass — you could only clear a tree on the way UP, so any jump whose downward arc
+    // still overlapped the trunk radius (i.e. most real jumps over a tree) crashed even
+    // though the snowman was well above the tree. (Same bug already fixed for rocks.)
+    const isJumpingHighAboveTrees = isInAir && pos.y > (treePos.y + 5);
+
+    // The exact-center match must respect the SAME airborne clearance as the radius
+    // path (#398): it used to return a hit unconditionally, so a jump arcing directly
+    // over a trunk center crashed even while the snowman was well above the tree —
+    // the one horizontal line the height-based clearance above didn't cover. An
+    // exact-center pass that the clearance suppresses is still a scored clear (JP-2);
+    // the radius branch below would push the same key, but `return false` here exits
+    // this tree's walk before it runs, so the clear is recorded exactly once.
+    if (exactMatch) {
+      if (isJumpingHighAboveTrees) {
+        clears.push({ type: 'tree', key: `t${treeIndex}` });
+        return false;
+      }
+      if (isVerboseTestMode) {
+        console.log(`DIRECT TREE HIT at (${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`);
+      }
+      return true;
+    }
+
+    // Airborne clear (JP-2): this frame WOULD have hit the tree but the suppression
+    // branch is letting the player sail over — record it (index keys the obstacle for
+    // per-air-phase dedup by the caller). Pure observation: collision outcome unchanged.
+    if (isCloseEnough && isJumpingHighAboveTrees) {
+      clears.push({ type: 'tree', key: `t${treeIndex}` });
+    }
 
     // Debug collision in browser tests when needed
-    if (window.location.search.includes('test=true')) {
+    if (isVerboseTestMode) {
       // For extended terrain trees, log additional info
       const inExtendedArea = treePos.z < -80;
       console.log(`TREE CHECK: dist=${horizontalDistance.toFixed(2)}, radius=${treeCollisionRadius}, jumping=${isJumpingHighAboveTrees}, collision=${isCloseEnough && !isJumpingHighAboveTrees}, extended=${inExtendedArea}`);
@@ -103,12 +151,6 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
       if (horizontalDistance < 5) {
         console.log(`CLOSE TREE: x=${treePos.x.toFixed(2)}, y=${treePos.y.toFixed(2)}, z=${treePos.z.toFixed(2)}, snowman: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`);
       }
-    }
-
-    // Special handling for tests in browser-tests.js
-    if (window.location.search.includes('test') && horizontalDistance < 0.5) {
-      console.log(`TEST MODE: Forcing collision with very close tree (${horizontalDistance.toFixed(2)})`);
-      return true;
     }
 
     // Special handling for tree jumping test
@@ -124,7 +166,7 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
 
   // Check collision with large, exposed rocks. Small half-buried stones remain
   // terrain detail; only positions returned by Mountains.addRocks reach this list.
-  const rockCollision = rockPositions.some(rockPos => {
+  const rockCollision = rockPositions.some((rockPos, rockIndex) => {
     const dx = pos.x - rockPos.x;
     const dz = pos.z - rockPos.z;
     const horizontalDistance = Math.sqrt(dx*dx + dz*dz);
@@ -133,24 +175,41 @@ export function detectCollisionsAndFinish(state: SnowmanCollisionState): void {
     // ski lane/spawn pocket. Duplicated inline (rather than imported) to keep the
     // snowman/collision layer independent of mountain placement helpers during R3.
     const rockRadius = Math.max(1.25, Math.min(3.0, rockPos.size * 0.75 + 0.75));
-    const exposedRockTop = rockPos.y + rockPos.size * 0.7;
+    // Height-aware clearance (#348): every hazard from mountains/rocks.ts carries
+    // the world-space top of its actual placed mesh, so "jumping over" requires
+    // clearing what the player SEES — a tall crag or pinch gate can no longer be
+    // sailed through at the old flat 0.7·size height. The legacy model remains as
+    // the fallback for synthetic fixtures without topY.
+    const exposedRockTop = rockPos.topY ?? (rockPos.y + rockPos.size * 0.7);
     // Clearance is height-based: once the snowman is airborne and above the rock
     // top it clears the hazard whether it is still rising or already descending past
     // the jump apex. (Requiring upward motion made descending-but-high jumps crash.)
     const isJumpingOverRock = isInAir && pos.y > exposedRockTop + 0.5;
 
-    if (window.location.search.includes('test=true') && horizontalDistance < 5) {
+    if (isVerboseTestMode && horizontalDistance < 5) {
       console.log(`ROCK CHECK: dist=${horizontalDistance.toFixed(2)}, radius=${rockRadius.toFixed(2)}, jumping=${isJumpingOverRock}, collision=${horizontalDistance < rockRadius && !isJumpingOverRock}`);
+    }
+
+    // Airborne clear (JP-2): overlapping the rock while the height-based clearance
+    // suppresses the hit. Mirrors the tree branch above; observation only.
+    if (horizontalDistance < rockRadius && isJumpingOverRock) {
+      clears.push({ type: 'rock', key: `r${rockIndex}` });
     }
 
     return horizontalDistance < rockRadius && !isJumpingOverRock;
   });
 
+  // Surface this frame's airborne clears BEFORE the finish/game-over block below —
+  // showGameOver can fire synchronously (finish line) and build the result screen,
+  // so a clear scored on that same frame must already be banked (JP-2).
+  if (clears.length && onObstaclesCleared) onObstaclesCleared(clears);
+
   // Reset if: reaches end of slope, goes off sides, falls off terrain, or hits a tree
   // Allow wider boundaries to match the extended mountain terrain
   // Only skip boundary check during regression/tree tests, but NOT during browser tests or unified tests
-  const inExtendedMountainTest = window.location.search.includes('test=regression') ||
-                                window.location.search.includes('test=tree'); // Only skip for specific tests
+  const inExtendedMountainTest = testModes.some((mode) =>
+    mode === 'regression' || mode === 'tree' || mode === 'trees'
+  ); // Only skip for specific tests
   if (pos.z < FINISH_Z || // finish line (single source of truth; course.ts derives from this)
       (!inExtendedMountainTest && Math.abs(pos.x) > 120) || // Keep boundary check during browser/unified tests
       (!isInAir && pos.y < terrainHeightAtPosition - fallThreshold) ||

@@ -2,10 +2,9 @@
 //
 // Phase 3.9 (issue #84): the orchestrator is the LAST module renamed `.js` -> `.ts`,
 // after every leaf module was stable. The `@ts-check` pragma is gone (implied for a
-// real `.ts` file) and the three `/** @type {any} */ (...)` JSDoc casts (the r160
-// color-management / renderer opt-outs) are now `as any` casts — `.ts` does not
-// honour JSDoc cast syntax. No behaviour change and no GameState refactor: the
-// module-scoped state and its window accessors are unchanged. It still loads via the
+// real `.ts` file). The module state and browser-test accessors are typed; the
+// accessor setters must declare their inputs because PropertyDescriptor's default
+// setter parameter is untyped. It still loads via the
 // deferred dynamic import below (Vite resolves `./snowglider.js` -> `snowglider.ts`;
 // the build emits a `dist/src/snowglider.js` chunk), and the puppeteer start-menu
 // regression now matches the delayed `/src/snowglider.{js,ts}` request.
@@ -29,25 +28,34 @@
 import * as THREE from 'three';
 import { Controls } from './controls.js';
 import { Snow } from './snow.js';
+import { Trees } from './trees.js';
 import { Snowman } from './snowman.js';
 import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
+import { runTelemetryContext } from './run-telemetry.js';
 import { noop } from './noop.js';
 import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
 import { Sky } from './sky.js';
 import { Physics } from './player-state.js';
-import { resolveActiveDifficulty, readStoredDifficulty, storeDifficulty } from './difficulty.js';
+import { resolveActiveDifficulty, readStoredDifficulty, storeDifficulty, runTierNeedsRebuild } from './difficulty.js';
+import { isRunTransition, runLaunchUrl } from './game/run-transition.js';
 import { IntroModule, prefersReducedMotion, type IntroHandle } from './intro.js';
 import { initializeGameStats, initializeControlsToggle, updateTimerDisplay } from './ui/hud.js';
 import { readStoredBestTime, createShowGameOver } from './ui/result-overlay.js';
 import { buildDifficultyPicker } from './ui/difficulty-picker.js';
+import { setPanelCollapsed, isCompactPanelViewport } from './ui/collapsible-panel.js';
 import { setupScene } from './game/scene-setup.js';
 import { createMainLoop, FIXED_DT, MAX_SUBSTEPS } from './game/main-loop.js';
+import { createRunClockGuard } from './game/run-clock.js';
 import { createLifecycle } from './game/lifecycle.js';
 import { disposeGame } from './game/teardown.js';
+import { watchContextLoss } from './game/context-loss.js';
+import { showFatalErrorOverlay, resetFatalErrorOverlay } from './ui/fatal-error-overlay.js';
+import { setStartupStatus } from './boot/startup-status.js';
+import { warmupStartupScene } from './boot/startup-warmup.js';
 
 // One AbortController owns every game-lifetime DOM listener — the keyboard/touch/resize
 // handlers in Controls, plus those wired below and inside scene-setup/lifecycle (the §4
@@ -64,13 +72,24 @@ Controls.setupControls(listenerAbort.signal);
 // The orchestrator owns the run loop + the window.* publish; scene-setup owns the
 // one-shot construction. Keep the whole context object (for disposeGame) and also
 // destructure the handles the loop/lifecycle/proxies use.
-const sceneContext = setupScene(listenerAbort.signal);
+setStartupStatus('building');
+let sceneContext: ReturnType<typeof setupScene>;
+try {
+  sceneContext = setupScene(listenerAbort.signal);
+} catch (error) {
+  // Renderer creation can fail before a scene exists to dispose. Do not leave
+  // the controls of that failed module attached to the still-usable menu.
+  listenerAbort.abort();
+  Controls.resetControls();
+  throw error;
+}
 const {
   scene,
   renderer,
   camera,
   cameraManager,
   directionalLight,
+  renderQuality,
   gameOverOverlay,
   gameOverDetail,
   restartButton,
@@ -100,7 +119,7 @@ state.bestTime = readStoredBestTime();
 // Initialize the stats display when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing game stats");
-  initializeGameStats();
+  initializeGameStats(listenerAbort.signal);
 });
 
 // Add best time to game over overlay
@@ -180,6 +199,9 @@ const showGameOver = createShowGameOver({
   restartButton,
   bestTimeDisplay,
   onCrash: triggerCrashShatter,
+  onEndRun: () => {
+    if (getReadyTimer !== null) { clearTimeout(getReadyTimer); getReadyTimer = null; }
+  },
   // Route the finish score/best-time/leaderboard to the run's tier.
   getDifficulty: () => state.difficulty,
   // Keep the finish-screen tier picker directly above RESTART and reflecting the tier
@@ -187,6 +209,19 @@ const showGameOver = createShowGameOver({
   finishDifficultyPicker,
   setPickerTier: (tier) => finishPickerHandle.setSelected(tier),
 });
+
+// --- Run-clock guard (see game/run-clock.ts) ---
+// Freezes the wall-clock run timer AND the physics stepper together while the tab is
+// hidden (phone lock, tab switch), so an interruption is a clean pause instead of an
+// inflated run time + teleported ghost. Gated OFF under automation — the ?test=
+// browser suites and Playwright/Puppeteer runs must keep their loop byte-identical,
+// and a headless page's visibility flips must never pause a live test run — mirroring
+// the debris/intro/sfx convention. Real players always get the guard.
+const automatedRun = Boolean(window.isTestMode) ||
+  (typeof navigator !== 'undefined' && navigator.webdriver === true);
+const runClockGuard = automatedRun
+  ? undefined
+  : createRunClockGuard(state, { signal: listenerAbort.signal });
 
 // --- Per-frame run loop (see game/main-loop.ts) ---
 // Built after showGameOver (a loop dependency) exists. The loop owns `lastTime`;
@@ -205,6 +240,8 @@ const { updateSnowman, updateCamera, startLoop, resetLoopState, handleResize } =
   treePositions,
   rockPositions,
   showGameOver,
+  runClockGuard,
+  renderQuality,
 });
 window.addEventListener('resize', handleResize, { signal: listenerAbort.signal });
 
@@ -241,6 +278,7 @@ Diag.init(
     ),
   },
   {
+    reportReady: () => typeof window.firebaseModules?.logEvent === 'function',
     report: (event, data) => {
       try {
         if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function' &&
@@ -254,6 +292,33 @@ Diag.init(
   }
 );
 
+// --- Keep the built scene in step with the run's locked tier ---
+// The corridor, course line, gate positions, obstacle field, and avalanche tuning are
+// baked into the scene ONCE by setupScene() from state.builtDifficulty. The physics kernel
+// re-reads state.difficulty live every frame, but that geometry does not — so when a run
+// locks a DIFFERENT tier (the start-screen picker, or the finish "Play again on" picker),
+// the shape of the mountain would not match the run (e.g. a ranked Blue run left on Black's
+// winding corridor + obstacle field, or a Black run on the centered course).
+//
+// Terrain/obstacle placement is baked once, so rebuild through one navigation.
+// Carry the already-requested run in a validated URL parameter: the new scene and
+// menu read the same tier even if storage is blocked, then consume the intent and
+// wait for a fresh Start gesture so browser audio activation is preserved. Only
+// the legacy ?test= suites suppress navigation; ordinary browser automation must
+// exercise the real player transition.
+function maybeReloadForRunTier(): boolean {
+  if (!runTierNeedsRebuild(state.difficulty, state.builtDifficulty, Boolean(window.isTestMode))) return false;
+  storeDifficulty(state.difficulty);
+  const restart = document.getElementById('restartButton');
+  if (restart instanceof HTMLButtonElement) {
+    restart.disabled = true;
+    restart.textContent = 'Preparing run…';
+    restart.setAttribute('aria-busy', 'true');
+  }
+  location.replace(runLaunchUrl(location.href, state.difficulty));
+  return true;
+}
+
 // --- Run lifecycle (see game/lifecycle.ts): reset / restart / camera toggle ---
 // Built after the loop (restartGame uses startLoop). Re-publish the three hooks the
 // touch handlers + controls.js drive by bare name, then wire the DOM controls.
@@ -266,6 +331,7 @@ const { resetSnowman, restartGame, toggleCameraView, initLifecycleUI } = createL
   player,
   startLoop,
   resetLoopState,
+  maybeReloadForRunTier,
   signal: listenerAbort.signal,
 });
 // Make reset/restart/toggle accessible globally for touch + keyboard handlers.
@@ -290,7 +356,7 @@ window.testHooks.isDebrisActive = () => !!state.debris && state.debris.active;
 // Initialize controls toggle when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
   console.log("DOM content loaded, initializing controls toggle");
-  initializeControlsToggle();
+  initializeControlsToggle(listenerAbort.signal);
 });
 
 // Teardown bookkeeping (dispose-audit plan §3 / Codex review): a guard flag plus the
@@ -298,10 +364,30 @@ document.addEventListener('DOMContentLoaded', function() {
 // loading timer instead of letting its closure later start the loop and render against a
 // disposed renderer + removed canvas.
 let disposed = false;
+let startInProgress = false;
 let pendingStartTimer: ReturnType<typeof setTimeout> | null = null;
 let getReadyTimer: ReturnType<typeof setTimeout> | null = null;
 let testAutoStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeIntro: IntroHandle | null = null;
+let startupPreparation: Promise<void> | null = null;
+
+/** Prepare this exact scene once while the menu is visible; no render loop or
+ * physics update runs here. Shader compilation stays on the normal render path. */
+export function prepareGameForStart(): Promise<void> {
+  if (startupPreparation) return startupPreparation;
+  startupPreparation = (async () => {
+    if (disposed) throw new Error('WebGL context unavailable during startup.');
+    const ready = await warmupStartupScene({
+      assetsReady: () => Trees.treeCollidersReady(),
+      waitForAssets: () => Trees.ezForestReady(),
+      useFallback: () => Trees.abandonPendingEzBuild(),
+      signal: listenerAbort.signal,
+    });
+    if (!ready || disposed) throw new Error('WebGL context unavailable during startup.');
+  })();
+  return startupPreparation;
+}
+
 // Names of the window.* handles this module installs (the publishGameGlobals
 // getters/setters; populated below). disposeSnowGlider deletes them so a clean unmount
 // doesn't leave the disposed scene reachable through their closures or stale APIs callable.
@@ -310,11 +396,37 @@ let installedWindowKeys: string[] = [];
 // Activate the live run: flip the run-loop flags and kick off the animation loop.
 // Factored out so the start button, the cinematic intro's completion, and the
 // reduced-motion/automation fallback all hand off to the game loop identically.
-function startGameplayLoop(showGetReady: boolean) {
+function startGameplayLoop(showGetReady: boolean, waitedForForest = false) {
   // After teardown, every deferred path (the intro's onComplete, the loading setTimeout)
   // that lands here must be inert — the renderer/canvas are gone. This is the single
   // choke point all loop-start paths funnel through, so one guard covers them all.
   if (disposed) return;
+  // Leaderboard-fair start (issue #282 PR 3 review): with the EZ evergreens on by
+  // default, a cold cache can still be fetching the archetype chunk here, and tree
+  // collision is gated off while the forest is invisible — starting now would let a
+  // run ski straight through the tree lines. Hold the hand-off until the forest
+  // build settles (appended, or failed → stylized fallback; both re-arm the
+  // colliders), raced against a short timeout so a hung fetch can never wedge the
+  // start button. When the timeout wins (chunk still in flight), the pending EZ
+  // build is ABANDONED and the stylized forest is built synchronously for the same
+  // placements — the run never starts without visible, collidable trees. The run
+  // clock is re-seated when gameplay actually begins so the wait is never billed
+  // to the player's time. Automation/`?test=` runs keep the stylized synchronous
+  // forest, so treeCollidersReady() is already true there and this path is inert.
+  if (!waitedForForest && !Trees.treeCollidersReady()) {
+    AudioModule.showMessage("Loading forest...", 1200);
+    void Promise.race([
+      Trees.ezForestReady(),
+      new Promise((resolve) => { setTimeout(resolve, 6000); })
+    ]).then(() => {
+      if (disposed) return;
+      if (!Trees.treeCollidersReady()) Trees.abandonPendingEzBuild();
+      state.startTime = performance.now();
+      startGameplayLoop(showGetReady, true);
+    });
+    return;
+  }
+  startInProgress = false;
   state.gameActive = true;
   state.animationRunning = true;
 
@@ -329,28 +441,38 @@ function startGameplayLoop(showGetReady: boolean) {
   if (showGetReady) {
     getReadyTimer = setTimeout(() => {
       getReadyTimer = null;
-      if (disposed) return;
+      if (disposed || !state.gameActive) return;
       AudioModule.showMessage("Get Ready!", 1000);
     }, 1500);
   }
 }
 
-// Function to initialize the game with audio - called from the start button
-// TODO: AUDIO DISABLED - Function name kept for compatibility, audio calls will be no-ops
+// Function to initialize the game with audio - called from the start button.
+// Audio is ENABLED (AUDIO_ENABLED = true in audio.ts — the simplified native HTML5
+// <audio> implementation); the music calls below are real. Several Howler-era API
+// names are kept as compat stubs in audio.ts, noted per call site.
 window.initializeGameWithAudio = function() {
+  if (disposed || startInProgress || state.gameActive) return false;
+  startInProgress = true;
   console.log("Initializing game...");
-  
-  // TODO: AUDIO DISABLED - Audio context resume (will be no-op if disabled)
-  // When re-enabling, verify this resume happens in user gesture context on mobile
+
+  // Howler-era compat stub: on the native HTML5 implementation there is no
+  // AudioContext to resume for the music, so this resolves immediately. Kept in the
+  // start button's user-gesture context because that's where a resume must live if
+  // an AudioContext ever returns (mobile autoplay policy). The SFX engine's real
+  // context unlock is Sfx.unlock() below.
   AudioModule.resumeAudioContext().then(() => {
     console.log("Audio context resume attempted");
   }).catch(err => {
     console.warn("Audio context resume attempt failed:", err);
   });
-  
-  // TODO: AUDIO DISABLED - Audio status monitoring
-  // When re-enabling, this was meant to show retry UI if audio fails to start
+
+  // Legacy Howler-era status probe: on the native implementation getStatus() never
+  // populates bufferLoaded/contextReady/contextState (they read undefined) and
+  // showAudioRetryPrompt() is a no-op stub, so this check is inert — kept only so
+  // the old retry flow can be revived if a context-based backend ever returns.
   const checkAudioStatus = () => {
+    if (disposed) return;
     const status = AudioModule.getStatus();
     
     // Skip check if audio is disabled
@@ -372,7 +494,8 @@ window.initializeGameWithAudio = function() {
   // Check audio status 2 seconds after game starts
   setTimeout(checkAudioStatus, 2000);
   
-  // TODO: AUDIO DISABLED - Start audio (will show welcome message but skip music)
+  // Start the background music (audio is enabled — this loads and plays the track
+  // on first call, inside the start button's user gesture as mobile requires).
   AudioModule.startAudio();
 
   // Unlock the procedural sound-effects engine (#158). This runs in the start
@@ -388,6 +511,10 @@ window.initializeGameWithAudio = function() {
     { getSelectedDifficulty?: () => unknown } | undefined;
   const pickedTier = startMenu?.getSelectedDifficulty?.();
   state.difficulty = resolveActiveDifficulty(pickedTier);
+  // If the player picked a tier the scene wasn't built for, reload to reshape the terrain
+  // corridor/gates/obstacles/avalanche for it. The new page prepares that tier and
+  // waits for Start; do not run against the scene about to be torn down.
+  if (maybeReloadForRunTier()) return;
   // Show the chosen tier's own best time (the HUD + result screen compare against this).
   state.bestTime = readStoredBestTime(state.difficulty);
 
@@ -398,22 +525,22 @@ window.initializeGameWithAudio = function() {
   Snowman.addTestHooks(pos, showGameOver, Snow.getTerrainHeight);
   
   // Make sure game stats and controls are properly initialized and visible
-  initializeGameStats();
-  initializeControlsToggle();
+  initializeGameStats(listenerAbort.signal);
+  initializeControlsToggle(listenerAbort.signal);
   
   // Initialize Game Stats
   const gameStatsContainer = document.getElementById('gameStatsContainer');
   if (gameStatsContainer) {
-    console.log("Game start: ensuring stats are expanded");
+    console.log("Game start: setting responsive stats state");
     // Make sure stats are visible when game starts
-    gameStatsContainer.classList.remove('collapsed');
     const toggleBtn = document.getElementById('toggleStats');
     if (toggleBtn) {
-      toggleBtn.textContent = '▲';
+      setPanelCollapsed(gameStatsContainer, toggleBtn, isCompactPanelViewport());
     }
     
-    // Update initial values
-    updateTimerDisplay(state.gameActive, state.startTime);
+    // Update initial values — the HUD timer takes elapsed SIM seconds (#402),
+    // and at initialization the run clock is 0.
+    updateTimerDisplay(state.gameActive, state.simElapsed ?? 0);
   }
   
   // Initialize Controls
@@ -421,22 +548,10 @@ window.initializeGameWithAudio = function() {
   if (controlsInfo) {
     console.log("Game start: ensuring controls are in right state");
     // Auto-collapse controls on smaller screens, expand on larger screens
-    const shouldCollapse = window.innerWidth <= 480 || 
-                           (window.innerWidth <= 768 && window.innerHeight <= 500);
+    const shouldCollapse = isCompactPanelViewport();
     
-    if (shouldCollapse) {
-      controlsInfo.classList.add('collapsed');
-      const toggleBtn = document.getElementById('toggleControls');
-      if (toggleBtn) {
-        toggleBtn.textContent = '▼';
-      }
-    } else {
-      controlsInfo.classList.remove('collapsed');
-      const toggleBtn = document.getElementById('toggleControls');
-      if (toggleBtn) {
-        toggleBtn.textContent = '▲';
-      }
-    }
+    const toggleBtn = document.getElementById('toggleControls');
+    if (toggleBtn) setPanelCollapsed(controlsInfo, toggleBtn, shouldCollapse);
   }
   
   // Hand off to the game loop. New for issue #51: on the first real start the
@@ -451,7 +566,7 @@ window.initializeGameWithAudio = function() {
   const forceIntro = search.includes('intro=force');
   const disableIntro = search.includes('intro=off');
   const automated = typeof navigator !== 'undefined' && navigator.webdriver === true;
-  const skipIntro = disableIntro || (!forceIntro && (!!window.isTestMode || automated || prefersReducedMotion()));
+  const skipIntro = isRunTransition() || disableIntro || (!forceIntro && (!!window.isTestMode || automated || prefersReducedMotion()));
   const playIntro = !skipIntro && !state.gameInitialized;
 
   if (playIntro) {
@@ -476,6 +591,7 @@ window.initializeGameWithAudio = function() {
       render: () => { renderer.render(scene, camera); },
       onComplete: () => {
         document.body.classList.remove('intro-active');
+        if (disposed) return;
         // Re-seat the camera manager's smoothing at the settled pose, then run.
         cameraManager.initialize(snowman.position, snowman.rotation);
         // Start the run timer at the hand-off, not before the fly-over. resetSnowman()
@@ -489,13 +605,13 @@ window.initializeGameWithAudio = function() {
       },
     });
   } else if (!state.gameInitialized) {
-    // First start, but the cinematic is skipped (test/automation/reduced-motion):
-    // reproduce the original short loading message + delayed activation exactly.
+    // Yield once so the loading state can paint. Readiness comes from the actual
+    // forest promise below, not an unconditional 1.8-second delay.
     AudioModule.showMessage("Loading game...", 1500);
     state.gameInitialized = true;
     // Track the timer so disposeGame can cancel it; startGameplayLoop is also
     // `disposed`-guarded, so this is belt-and-suspenders against a mid-delay teardown.
-    pendingStartTimer = setTimeout(() => { pendingStartTimer = null; startGameplayLoop(true); }, 1800);
+    pendingStartTimer = setTimeout(() => { pendingStartTimer = null; startGameplayLoop(!isRunTransition()); }, 0);
   } else {
     // Already initialized once: restart immediately.
     startGameplayLoop(false);
@@ -506,7 +622,7 @@ window.initializeGameWithAudio = function() {
   // Track game start in analytics if available
   try {
     if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-      window.firebaseModules.logEvent('game_start');
+      window.firebaseModules.logEvent('game_start', runTelemetryContext(state.difficulty));
     }
   } catch (e) {
     console.log("Analytics tracking skipped:", (e as Error).message);
@@ -534,22 +650,33 @@ window.initializeGameWithAudio = function() {
     // Mutable primitives the tests reassign — proxy reads and writes.
     // gameActive now lives on the typed `state` (GameState); the proxy backs the
     // bare handle with state.* so a test's `gameActive = true` flows to the live state.
-    gameActive:         { get: () => state.gameActive,       set: (v) => { state.gameActive = v; } },
+    gameActive:         { get: () => state.gameActive,       set: (v: boolean) => { state.gameActive = v; } },
     // Player physics scalars now live on the typed `player` state (src/player-state.ts);
     // the proxy reads/writes player.* so test reassignments hit the live state.
-    isInAir:            { get: () => player.isInAir,          set: (v) => { player.isInAir = v; } },
-    verticalVelocity:   { get: () => player.verticalVelocity, set: (v) => { player.verticalVelocity = v; } },
+    isInAir:            { get: () => player.isInAir,          set: (v: boolean) => { player.isInAir = v; } },
+    verticalVelocity:   { get: () => player.verticalVelocity, set: (v: number) => { player.verticalVelocity = v; } },
     // jumpCooldown is reassigned by the gameplay suite (testJumpMechanics). It must
     // be republished like the others: now that browser-tests.js is an ES module
     // (strict mode), a bare `jumpCooldown = 0` assignment to an unpublished name
     // throws a ReferenceError instead of silently creating a sloppy-mode global
     // (issue #84).
-    jumpCooldown:       { get: () => player.jumpCooldown,     set: (v) => { player.jumpCooldown = v; } },
+    jumpCooldown:       { get: () => player.jumpCooldown,     set: (v: number) => { player.jumpCooldown = v; } },
     // Run/scoring + avalanche run-state now live on the typed `state` object.
-    bestTime:           { get: () => state.bestTime,           set: (v) => { state.bestTime = v; } },
-    startTime:          { get: () => state.startTime,          set: (v) => { state.startTime = v; } },
-    avalancheTriggered: { get: () => state.avalancheTriggered, set: (v) => { state.avalancheTriggered = v; } },
-    lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v) => { state.lastAvalancheZ = v; } },
+    bestTime:           { get: () => state.bestTime,           set: (v: number) => { state.bestTime = v; } },
+    // The startTime WINDOW seam is test-only (production writes state.startTime
+    // directly): browser/e2e suites backdate it to synthesize an elapsed run
+    // before calling showGameOver. Since #402 the recorded finish reads the
+    // SIMULATION clock, so the seam's setter derives state.simElapsed from the
+    // backdate — every existing "startTime = now - X" fixture keeps meaning
+    // "the run has been going X seconds" without modification.
+    startTime:          { get: () => state.startTime,          set: (v: number) => {
+      state.startTime = v;
+      const derived = (performance.now() - v) / 1000;
+      if (Number.isFinite(derived) && derived > 0) state.simElapsed = derived;
+    } },
+    simElapsed:         { get: () => state.simElapsed,         set: (v: number) => { state.simElapsed = v; } },
+    avalancheTriggered: { get: () => state.avalancheTriggered, set: (v: boolean) => { state.avalancheTriggered = v; } },
+    lastAvalancheZ:     { get: () => state.lastAvalancheZ,     set: (v: number) => { state.lastAvalancheZ = v; } },
     // Object/function refs the tests read or mutate (never reassign) — get-only.
     scene:              { get: () => scene },
     // Test-only read seam for the perf/draw-call budget spec (tests/e2e/perf-budget.spec.ts).
@@ -605,6 +732,9 @@ function disposeSnowGlider(): void {
   // (the intro's onComplete, the loading/Get-Ready timers) short-circuits in
   // startGameplayLoop instead of starting a loop against a disposed renderer.
   disposed = true;
+  // Abort before renderer teardown deliberately loses its context. This also
+  // makes retained lifecycle callbacks inert before any subsystem cleanup runs.
+  listenerAbort.abort();
   if (pendingStartTimer !== null) { clearTimeout(pendingStartTimer); pendingStartTimer = null; }
   // Cancel the deferred "Get Ready!" toast so it can't appear over the host page after a
   // mid-startup unmount (the callback is also disposed-guarded).
@@ -617,6 +747,8 @@ function disposeSnowGlider(): void {
   // renderer.render on a dead context); its onComplete is now a no-op via the guard.
   if (activeIntro && !activeIntro.done) activeIntro.skip();
   activeIntro = null;
+  document.body.classList.remove('intro-active', 'game-active');
+  resetFatalErrorOverlay();
   // Stop the audio + SFX started in initializeGameWithAudio. They are module-level
   // resources (a looping <audio> + the Web Audio beds + the mute button) that
   // disposeGame's scene/renderer/listener teardown would otherwise leave running.
@@ -696,3 +828,24 @@ if (window.isTestMode) {
     window.initializeGameWithAudio?.();
   }, 100);
 }
+
+// Register after all startup timers/handles and the teardown function exist, so
+// an already-lost context during boot can safely dispose the whole instance.
+// Do not resume after webglcontextrestored: an interrupted run cannot remain
+// valid, and the old async forest/intro work must never start invisible gameplay.
+watchContextLoss(renderer.domElement, {
+  signal: listenerAbort.signal,
+  isContextLost: () => renderer.getContext().isContextLost(),
+  onLost: () => {
+    const startContainer = document.getElementById('startGameContainer');
+    const menuVisible = !!startContainer && startContainer.style.display !== 'none';
+    state.gameActive = false;
+    state.animationRunning = false;
+    try {
+      disposeSnowGlider();
+    } finally {
+      setStartupStatus('error', new Error('WebGL context lost during startup.'), 'context-lost');
+      if (!menuVisible) showFatalErrorOverlay(undefined, { reason: 'context-lost' });
+    }
+  },
+});

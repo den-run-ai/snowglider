@@ -72,28 +72,35 @@ test.describe('disposeGame teardown', () => {
     // disposeGame stays a callable no-op so a remount/double-cleanup through window is safe.
     expect(await page.evaluate(() => typeof (window as DisposeWindow).disposeGame)).toBe('function');
 
+    // Static HUD markup survives the renderer, but its game-owned handlers must
+    // stop. A compact resize or click must not mutate a disposed panel.
+    const panelState = await page.locator('#toggleStats, #toggleControls')
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-expanded')));
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.locator('#toggleStats').click();
+    await page.locator('#toggleControls').click();
+    expect(await page.locator('#toggleStats, #toggleControls')
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-expanded')))).toEqual(panelState);
+
     // Give any orphaned rAF a couple of frames to (not) fire against the dead context.
     await page.waitForTimeout(150);
     expect(pageErrors, `unexpected page errors during teardown:\n${pageErrors.join('\n')}`).toEqual([]);
   });
 
-  test('dispose during the start delay cancels the pending loop start', async ({ page }) => {
+  test('dispose during the initial task yield cancels the pending loop start', async ({ page }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
 
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await waitForOrchestrator(page);
 
-    // Click Start, then dispose immediately — well inside the ~1.8s loading delay,
-    // before the deferred startGameplayLoop fires. The `disposed` guard + the cleared
-    // timer must keep the loop from ever starting against the torn-down renderer.
-    await page.click('#startGameButton');
-    await page.evaluate(() => (window as DisposeWindow).disposeGame!());
-
-    // Wait past the 1800ms delayed start. The teardown ran (initializeGameWithAudio is
-    // deleted) and the deferred loop never started — a loop against the torn-down renderer
-    // would throw on renderer.render after context loss, so zero page errors is the proof.
-    await page.waitForTimeout(2200);
+    // Keep start and dispose in one browser task so the readiness yield cannot
+    // finish before teardown (there is deliberately no artificial loading delay).
+    await page.evaluate(() => {
+      document.getElementById('startGameButton')!.click();
+      (window as DisposeWindow).disposeGame!();
+    });
+    await page.waitForTimeout(100);
     expect(await page.evaluate(() => typeof (window as DisposeWindow).initializeGameWithAudio)).toBe('undefined');
     expect(pageErrors, `unexpected page errors after a mid-startup dispose:\n${pageErrors.join('\n')}`).toEqual([]);
   });
@@ -106,12 +113,21 @@ test.describe('disposeGame teardown', () => {
     await page.goto('/index.html?intro=force', { waitUntil: 'domcontentloaded' });
     await waitForOrchestrator(page);
 
+    // Register the intro watcher BEFORE clicking: on a loaded CI runner the click
+    // call itself can take seconds to RESOLVE (slow input acks + the scheduled-
+    // navigation wait), by which time the 4 s fly-over may already be over — the
+    // class would be added and removed entirely inside the click call and the
+    // post-click wait would hang forever. Polling from before the click means the
+    // `intro-active` window cannot be missed.
+    const introStarted = page.waitForFunction(() => document.body.classList.contains('intro-active'));
     await page.click('#startGameButton');
     // The intro is running once the body gets the `intro-active` class.
-    await page.waitForFunction(() => document.body.classList.contains('intro-active'));
+    await introStarted;
 
     // Dispose mid-fly-over: this exercises the activeIntro.skip() cancellation path
     // (its private rAF is cancelled, so no further renderer.render on a dead context).
+    // (On a very slow runner the intro may have completed inside the click call, in
+    // which case skip() is a no-op on a finished intro — still a valid teardown.)
     await page.evaluate(() => (window as DisposeWindow).disposeGame!());
 
     await page.waitForTimeout(300);

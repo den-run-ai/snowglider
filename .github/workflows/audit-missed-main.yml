@@ -1,0 +1,49 @@
+name: Audit merged PRs reached main
+
+# Standing guard for the #277/#308 "silent miss": a PR that stacks on another PR's
+# branch, that branch merges to main first, then the stacked PR "merges" into the now
+# dead branch — GitHub marks it merged but its commits never reach main (and it never
+# got CI, since this repo's CI only runs on base=main PRs). See issue #312.
+#
+# Runs scripts/audit-missed-main.mjs, which fails (exit 1) if any merged PR's merge
+# commit is not contained in the default branch AND is not acknowledged in
+# scripts/missed-main-allowlist.json (a PR re-landed on main by a later PR). A red run
+# here means: re-land the flagged PR on main, then allowlist it.
+#
+# Isolated from ci.yml on purpose: read-only, scheduled + manual, and it must never gate
+# a deploy — it only reports on already-merged history.
+
+on:
+  schedule:
+    # Weekly, Monday 06:17 UTC (off the hour to dodge cron congestion).
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read        # checkout + git remote resolution
+  pull-requests: read   # list merged PRs via the REST API
+  checks: read          # report each candidate's CI check-run count
+
+concurrency:
+  group: audit-missed-main
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit merged PRs reached main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          # No npm ci: the audit script uses only Node built-ins + global fetch.
+
+      - name: Audit merged PRs
+        env:
+          # The default GITHUB_TOKEN, scoped read-only by the permissions block above.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run audit:missed-main

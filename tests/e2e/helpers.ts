@@ -7,16 +7,28 @@ import { expect, type Page } from '@playwright/test';
 // from pixels.
 
 /** The subset of orchestrator `window.*` handles the specs read. */
-type GameWindow = Window & {
+export type GameWindow = Window & {
   initializeGameWithAudio?: () => void;
   gameActive?: boolean;
   pos?: { x: number; y: number; z: number };
-  getControls?: () => Record<string, boolean>;
+  getControls?: typeof import('../../src/controls.js').Controls.getControls;
 };
 
-/** Load the game page and wait until the deferred orchestrator has wired up start. */
-export async function gotoGame(page: Page): Promise<void> {
-  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+// Keep the production auth module, markup, event bindings and popup flow. Only
+// replace the external Firebase SDK, so no real account login or score write is
+// attempted. All CDN imports re-export ONE local mock instance for state control.
+export async function mockFirebase(page: Page, baseURL: string): Promise<void> {
+  await page.route('https://www.gstatic.com/firebasejs/**', route => route.fulfill({
+    contentType: 'application/javascript',
+    headers: { 'Access-Control-Allow-Origin': '*' },
+    body: `export * from ${JSON.stringify(`${baseURL}/tests/mocks/firebase.mjs`)};`,
+  }));
+}
+
+/** Load the game page and wait until the deferred orchestrator has wired up start.
+ *  `query` lets a spec opt into URL-flagged variants (e.g. '?eztrees=1'). */
+export async function gotoGame(page: Page, query = ''): Promise<void> {
+  await page.goto(`/index.html${query}`, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#startGameButton')).toBeVisible();
   // The orchestrator (snowglider.ts) is a deferred dynamic import; the Start button
   // only does something once it has published initializeGameWithAudio.
@@ -41,7 +53,7 @@ export function getPos(page: Page): Promise<{ x: number; y: number; z: number } 
 }
 
 /** Live shared controls state (left/right/up/down/jump), or null if unavailable. */
-export function getControls(page: Page): Promise<Record<string, boolean> | null> {
+export function getControls(page: Page): Promise<ReturnType<NonNullable<GameWindow['getControls']>> | null> {
   return page.evaluate(() => {
     const fn = (window as GameWindow).getControls;
     return fn ? fn() : null;

@@ -92,8 +92,9 @@ function maxTrajDiff(a, b) {
 
   console.log('--- Config spine integrity ---');
   const ids = D.DIFFICULTIES.map((c) => c.id);
-  check('three tiers in easy->hard order (bunny, blue, black)',
-    ids.length === 3 && ids[0] === 'bunny' && ids[1] === 'blue' && ids[2] === 'black');
+  check('four tiers in easy->hard order (bunny, blue, black, expert)',
+    ids.length === 4 && ids[0] === 'bunny' && ids[1] === 'blue' && ids[2] === 'black'
+    && ids[3] === 'expert');
   check('default tier is blue (the classic game)', D.DEFAULT_DIFFICULTY === 'blue');
   // Picker copy must not promise mechanics that aren't wired yet (labels-only stage):
   // no "avalanche"/"steep"/"dense" until the per-tier tuning PR makes them true.
@@ -103,7 +104,8 @@ function maxTrajDiff(a, b) {
 
   check('isDifficulty accepts known ids, rejects junk',
     D.isDifficulty('bunny') && D.isDifficulty('blue') && D.isDifficulty('black')
-    && !D.isDifficulty('expert') && !D.isDifficulty(null) && !D.isDifficulty(undefined));
+    && D.isDifficulty('expert')
+    && !D.isDifficulty('rainbow') && !D.isDifficulty(null) && !D.isDifficulty(undefined));
   check('getDifficultyConfig resolves a known id',
     D.getDifficultyConfig('black').id === 'black');
   check('getDifficultyConfig falls back to the default tier on junk',
@@ -130,7 +132,7 @@ function maxTrajDiff(a, b) {
   check('storeDifficulty round-trips through readStoredDifficulty',
     D.readStoredDifficulty(store) === 'black'
     && store.getItem(D.DIFFICULTY_STORAGE_KEY) === 'black');
-  store.setItem(D.DIFFICULTY_STORAGE_KEY, 'expert');
+  store.setItem(D.DIFFICULTY_STORAGE_KEY, 'rainbow');
   check('readStoredDifficulty falls back to blue on a junk stored value',
     D.readStoredDifficulty(store) === 'blue');
   check('read/store are no-throw when storage is null (Node / private mode)',
@@ -143,9 +145,20 @@ function maxTrajDiff(a, b) {
     D.resolveActiveDifficulty('black', stored) === 'black');
   check('resolveActiveDifficulty falls back to storage when the live pick is junk',
     D.resolveActiveDifficulty(undefined, stored) === 'bunny'
-    && D.resolveActiveDifficulty('expert', stored) === 'bunny');
+    && D.resolveActiveDifficulty('rainbow', stored) === 'bunny');
   check('resolveActiveDifficulty falls back to default with no pick + no storage',
     D.resolveActiveDifficulty(undefined, null) === 'blue');
+
+  // runTierNeedsRebuild: the scene (corridor/gates/obstacles/avalanche) is baked from the
+  // built tier, so a run needs a rebuild exactly when its tier differs — except for the
+  // legacy in-page test harness, which must stay on one navigation-free path.
+  check('runTierNeedsRebuild: same tier needs no rebuild',
+    D.runTierNeedsRebuild('black', 'black', false) === false);
+  check('runTierNeedsRebuild: a different tier needs a rebuild',
+    D.runTierNeedsRebuild('black', 'blue', false) === true);
+  check('runTierNeedsRebuild: legacy in-page suites suppress navigation',
+    D.runTierNeedsRebuild('black', 'blue', true) === false
+    && D.runTierNeedsRebuild('black', 'black', true) === false);
 
   const blue = D.getDifficultyConfig('blue');
   check('Blue is authoritative-current: blue.ski === BLUE_PHYSICS_TUNING',
@@ -161,20 +174,82 @@ function maxTrajDiff(a, b) {
     plowDecelLight: 3.14, plowDecelFull: 5.68, skidScrubMax: 0.10, airControl: 5.0,
   };
   const frozenKeys = Object.keys(FROZEN);
+  // The ski tuning is the frozen numeric constants plus the boolean feature flags:
+  // freestyleTricks (#32), the per-tier jump availability pair manualJump/autoJump
+  // (workstream A), and wipeouts (workstream C). On Blue: tricks off, both jumps ON,
+  // wipeouts OFF — exactly today's shipped mechanics, so the default tier's kernel
+  // path is unchanged.
+  const flagKeys = ['freestyleTricks', 'manualJump', 'autoJump', 'wipeouts', 'lipLaunch'];
   check('BLUE_PHYSICS_TUNING matches the frozen physics constants verbatim',
     frozenKeys.every((k) => D.BLUE_PHYSICS_TUNING[k] === FROZEN[k])
-    && Object.keys(D.BLUE_PHYSICS_TUNING).length === frozenKeys.length);
+    && D.BLUE_PHYSICS_TUNING.freestyleTricks === false
+    && D.BLUE_PHYSICS_TUNING.manualJump === true
+    && D.BLUE_PHYSICS_TUNING.autoJump === true
+    && D.BLUE_PHYSICS_TUNING.wipeouts === false
+    && D.BLUE_PHYSICS_TUNING.lipLaunch === false
+    && Object.keys(D.BLUE_PHYSICS_TUNING).length === frozenKeys.length + flagKeys.length);
 
   // Every tier's ski tuning carries the full key set with finite numbers.
   check('every tier ski tuning has the full key set with finite numbers',
     D.DIFFICULTIES.every((c) =>
       frozenKeys.every((k) => typeof c.ski[k] === 'number' && Number.isFinite(c.ski[k]))
-      && Object.keys(c.ski).length === frozenKeys.length));
+      && flagKeys.every((k) => typeof c.ski[k] === 'boolean')
+      && Object.keys(c.ski).length === frozenKeys.length + flagKeys.length));
 
-  check('ranked: only Blue is ranked for now (Bunny/Black unranked until floors measured)',
+  // Per-tier jump availability (workstream A): Bunny has NO jump verb — Space/touch
+  // does nothing and lips never auto-pop — while every other tier keeps today's full
+  // jump mechanics. The unsupported manualJump:false + autoJump:true combination
+  // (held Jump would suppress auto-pops and diverge from no-input) must never ship.
+  check('Bunny has no jumps (manualJump and autoJump both false)',
+    D.getDifficultyConfig('bunny').ski.manualJump === false
+    && D.getDifficultyConfig('bunny').ski.autoJump === false);
+  check('Blue/Black/Expert keep the full jump verbs (manualJump and autoJump true)',
+    ['blue', 'black', 'expert'].every((t) =>
+      D.getDifficultyConfig(t).ski.manualJump === true
+      && D.getDifficultyConfig(t).ski.autoJump === true));
+  check('no tier ships the unsupported manualJump:false + autoJump:true combination',
+    D.DIFFICULTIES.every((c) => c.ski.manualJump || !c.ski.autoJump));
+
+  // Wipeouts (workstream C): only Expert crashes on an extreme landing — every other
+  // tier keeps the forgiving scrub, so their manual-jump landings never end a run.
+  check('wipeouts are Expert-only (ski.wipeouts)',
+    D.getDifficultyConfig('expert').ski.wipeouts === true
+    && D.DIFFICULTIES.every((c) => c.id === 'expert' || c.ski.wipeouts === false));
+
+  // Designed air (workstream E / JP-6): lip-geometry launches and sculpted kickers
+  // are Expert-exclusive for now (adopted plan decision §10.4) — every other tier
+  // keeps the frozen auto-jump constants and byte-identical terrain (no features).
+  check('lipLaunch is Expert-only (ski.lipLaunch)',
+    D.getDifficultyConfig('expert').ski.lipLaunch === true
+    && D.DIFFICULTIES.every((c) => c.id === 'expert' || c.ski.lipLaunch === false));
+  const expertFeatures = D.getDifficultyConfig('expert').features;
+  check('Expert ships 3–5 well-formed, in-run kickers on the channel floor',
+    Array.isArray(expertFeatures)
+    && expertFeatures.length >= 3 && expertFeatures.length <= 5
+    && expertFeatures.every((k) =>
+      k.z < -30 && k.z > -185 // lips inside the run, clear of the start and finish
+      && k.length > 0 && k.height > 0 && k.halfWidth > 0
+      // the ramp spans at most the corridor channel floor, so off-kicker on-line
+      // terrain stays the corridor's exact channel
+      && k.halfWidth <= (D.getDifficultyConfig('expert').terrain?.channelHalfWidth ?? Infinity)));
+  check('no other tier ships terrain features (byte-identical guardrail)',
+    D.DIFFICULTIES.every((c) => c.id === 'expert' || c.features === undefined));
+
+  // Freestyle tricks (#32) are the Expert tier's differentiator — and Expert-ONLY:
+  // every other tier's kernel keeps the flag off so its air phase is unchanged.
+  check('freestyle tricks are Expert-only (ski.freestyleTricks)',
+    D.getDifficultyConfig('expert').ski.freestyleTricks === true
+    && D.DIFFICULTIES.every((c) => c.id === 'expert' || c.ski.freestyleTricks === false));
+  // Expert is "after Hard": Black's exact handling numbers, tricks unlocked on top.
+  check('Expert ski tuning === Black handling (numbers verbatim) + the freestyle flag',
+    frozenKeys.every((k) =>
+      D.getDifficultyConfig('expert').ski[k] === D.getDifficultyConfig('black').ski[k]));
+
+  check('ranked: only Blue is ranked for now (Bunny/Black/Expert unranked until floors measured)',
     D.getDifficultyConfig('blue').ranked === true
     && D.getDifficultyConfig('bunny').ranked === false
-    && D.getDifficultyConfig('black').ranked === false);
+    && D.getDifficultyConfig('black').ranked === false
+    && D.getDifficultyConfig('expert').ranked === false);
 
   console.log('--- Per-tier course line (the `line` block, fed to course-line.ts) ---');
   const lineKeys = ['curviness', 'amplitude', 'controlPoints'];
@@ -189,20 +264,88 @@ function maxTrajDiff(a, b) {
   const blackLine = D.getDifficultyConfig('black').line;
   check('Black winds (curviness > 0, amplitude > 0, controlPoints > 0)',
     blackLine.curviness > 0 && blackLine.amplitude > 0 && blackLine.controlPoints > 0);
+  // Expert reuses Black's line difficulty, re-seeded so it is its own fixed course.
+  const expertLine = D.getDifficultyConfig('expert').line;
+  check('Expert winds like Black but on its own seed',
+    expertLine.curviness === blackLine.curviness
+    && expertLine.amplitude === blackLine.amplitude
+    && expertLine.controlPoints === blackLine.controlPoints
+    && D.getDifficultyConfig('expert').seed !== D.getDifficultyConfig('black').seed);
+
+  // Terrain corridor (D3.2b): only Black banks the terrain into a channel; Bunny/Blue
+  // carry NO corridor (terrain absent) so they build today's exact terrain.
+  const blackTerrain = D.getDifficultyConfig('black').terrain;
+  check('Black carries a well-formed terrain corridor (channelHalfWidth/wallRamp/wallHeight > 0)',
+    blackTerrain && blackTerrain.channelHalfWidth > 0 && blackTerrain.wallRamp > 0 && blackTerrain.wallHeight > 0);
+  check('Bunny and Blue carry no terrain corridor (straight ⇒ today\'s terrain)',
+    D.getDifficultyConfig('bunny').terrain === undefined
+    && D.getDifficultyConfig('blue').terrain === undefined);
+
+  console.log('--- Per-tier avalanche (the `avalanche` block, fed to AvalancheSystem — D3.2d) ---');
+  const avKeys = ['enabled', 'triggerDistance', 'boulderCount', 'slideSpeedBase', 'slideSpeedJitter'];
+  check('every tier carries a well-formed avalanche block (all keys present, right types)',
+    D.DIFFICULTIES.every((c) => c.avalanche
+      && typeof c.avalanche.enabled === 'boolean'
+      && avKeys.slice(1).every((k) => typeof c.avalanche[k] === 'number')));
+  // Blue == today's shipped slide, VERBATIM — the byte-identical guardrail: 80 u trigger, 120
+  // boulders, -(7 + rand*3) m/s. Any drift here changes the default tier's avalanche.
+  const blueAv = D.getDifficultyConfig('blue').avalanche;
+  check('Blue avalanche === BLUE_AVALANCHE (today\'s exact slide: 80 u / 120 / 7 / 3, enabled)',
+    blueAv === D.BLUE_AVALANCHE
+    && blueAv.enabled === true && blueAv.triggerDistance === 80 && blueAv.boulderCount === 120
+    && blueAv.slideSpeedBase === 7 && blueAv.slideSpeedJitter === 3);
+  // Bunny is OFF — the easy tier is a calm learning run (no slide arms).
+  check('Bunny avalanche is disabled (enabled === false)',
+    D.getDifficultyConfig('bunny').avalanche.enabled === false);
+  // Black fires EARLIER (shorter trigger), FASTER (higher base speed), and HEAVIER (more
+  // boulders) than Blue — validated as still winnable by the follow-the-line winnability gate.
+  const blackAv = D.getDifficultyConfig('black').avalanche;
+  check('Black avalanche is on, earlier + faster + heavier than Blue',
+    blackAv.enabled === true
+    && blackAv.triggerDistance < blueAv.triggerDistance
+    && blackAv.slideSpeedBase > blueAv.slideSpeedBase
+    && blackAv.boulderCount >= blueAv.boulderCount);
+  // Expert keeps Black's slide (the tier after Hard is not an easier mountain).
+  const expertAv = D.getDifficultyConfig('expert').avalanche;
+  check('Expert avalanche matches Black\'s slide',
+    expertAv.enabled === true
+    && expertAv.triggerDistance === blackAv.triggerDistance
+    && expertAv.boulderCount === blackAv.boulderCount
+    && expertAv.slideSpeedBase === blackAv.slideSpeedBase
+    && expertAv.slideSpeedJitter === blackAv.slideSpeedJitter);
 
   console.log('--- Per-tier scoring storage names (Blue == original, zero migration) ---');
-  check('localBestTimeKey: Blue keeps the original key; others are suffixed',
-    D.localBestTimeKey('blue') === 'snowgliderBestTime'
-    && D.localBestTimeKey('bunny') === 'snowgliderBestTime_bunny'
-    && D.localBestTimeKey('black') === 'snowgliderBestTime_black');
-  check('leaderboardCollectionName: Blue == leaderboard; others are siblings',
-    D.leaderboardCollectionName('blue') === 'leaderboard'
-    && D.leaderboardCollectionName('bunny') === 'leaderboard_bunny'
-    && D.leaderboardCollectionName('black') === 'leaderboard_black');
-  check('userBestTimeField: Blue == bestTime; others are dedicated fields',
-    D.userBestTimeField('blue') === 'bestTime'
-    && D.userBestTimeField('bunny') === 'bestTimeBunny'
-    && D.userBestTimeField('black') === 'bestTimeBlack');
+  // The ACTIVE key is namespaced by physics/world version (#403 review); the
+  // legacy unversioned key is retained read-only as the historical record.
+  const PV = (await import('../src/run-context.ts')).PHYSICS_VERSION;
+  check('localBestTimeKey: versioned base; Blue un-suffixed within it; others suffixed',
+    D.localBestTimeKey('blue') === `snowgliderBestTime_v${PV}`
+    && D.localBestTimeKey('bunny') === `snowgliderBestTime_v${PV}_bunny`
+    && D.localBestTimeKey('black') === `snowgliderBestTime_v${PV}_black`
+    && D.localBestTimeKey('expert') === `snowgliderBestTime_v${PV}_expert`);
+  check('legacyBestTimeKey keeps the pre-versioning shapes (historical record)',
+    D.legacyBestTimeKey('blue') === 'snowgliderBestTime'
+    && D.legacyBestTimeKey('bunny') === 'snowgliderBestTime_bunny');
+  check('leaderboardCollectionName: versioned base; Blue un-suffixed within it; others suffixed',
+    D.leaderboardCollectionName('blue') === `leaderboard_v${PV}`
+    && D.leaderboardCollectionName('bunny') === `leaderboard_v${PV}_bunny`
+    && D.leaderboardCollectionName('black') === `leaderboard_v${PV}_black`
+    && D.leaderboardCollectionName('expert') === `leaderboard_v${PV}_expert`);
+  check('legacyLeaderboardCollectionName keeps the pre-versioning shapes (historical boards)',
+    D.legacyLeaderboardCollectionName('blue') === 'leaderboard'
+    && D.legacyLeaderboardCollectionName('bunny') === 'leaderboard_bunny'
+    && D.legacyLeaderboardCollectionName('black') === 'leaderboard_black'
+    && D.legacyLeaderboardCollectionName('expert') === 'leaderboard_expert');
+  check('userBestTimeField: versioned; Blue == bestTimeV<N>; others are dedicated fields',
+    D.userBestTimeField('blue') === `bestTimeV${PV}`
+    && D.userBestTimeField('bunny') === `bestTimeBunnyV${PV}`
+    && D.userBestTimeField('black') === `bestTimeBlackV${PV}`
+    && D.userBestTimeField('expert') === `bestTimeExpertV${PV}`);
+  check('legacyUserBestTimeField keeps the pre-versioning shapes (historical record)',
+    D.legacyUserBestTimeField('blue') === 'bestTime'
+    && D.legacyUserBestTimeField('bunny') === 'bestTimeBunny'
+    && D.legacyUserBestTimeField('black') === 'bestTimeBlack'
+    && D.legacyUserBestTimeField('expert') === 'bestTimeExpert');
 
   console.log('--- Kernel tuning API: backward compatibility ---');
   const omitted = descend(update, undefined);

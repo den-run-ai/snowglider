@@ -143,15 +143,16 @@ runTest('Tree Collision Detection Consistency', () => {
     "Edge case collision should be detected when just inside collision radius");
   
   // 3. Test jumping exemption
-  // Code allows jumping over trees when player is in air, moving upward, and high enough
+  // Code allows jumping over trees whenever the player is airborne and high enough
+  // above the tree base — height-based only, whether rising OR descending past the
+  // jump apex (see tree-jump-collision-tests.js for the full descending-clear case).
   const mockIsInAir = true;
-  const mockVerticalVelocity = 5; // Positive = moving upward
   mockPos.y = mockTreePos.y + 6; // Higher than tree.y + 5 threshold
 
-  const isJumpingHighAboveTrees = mockIsInAir && mockVerticalVelocity > 0 && mockPos.y > (mockTreePos.y + 5);
-  
-  assert(isJumpingHighAboveTrees, 
-    "Jumping exemption should apply when player is in air, moving upward, and high enough");
+  const isJumpingHighAboveTrees = mockIsInAir && mockPos.y > (mockTreePos.y + 5);
+
+  assert(isJumpingHighAboveTrees,
+    "Jumping exemption should apply when player is airborne and high enough above the tree");
   
   // Confirm this would prevent collision
   const edgeCollisionButJumping = (horizontalDistance < treeCollisionRadius) && !isJumpingHighAboveTrees;

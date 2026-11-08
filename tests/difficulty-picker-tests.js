@@ -36,7 +36,7 @@ async function main() {
     const container = makeContainer();
     const handle = buildDifficultyPicker(container, { initial: 'blue', heading: 'Play again on' });
     const options = container.querySelectorAll('.difficulty-option');
-    check('renders one option per tier (3)', options.length === 3);
+    check('renders one option per tier (4)', options.length === 4);
     check('heading text is configurable', container.querySelector('.difficulty-heading').textContent === 'Play again on');
     check('options carry role=radio + data-difficulty', Array.from(options).every(
       (o) => o.getAttribute('role') === 'radio' && !!o.getAttribute('data-difficulty')));
@@ -78,18 +78,22 @@ async function main() {
       && container.querySelector('[data-difficulty="black"]').getAttribute('tabindex') === '0');
     container.querySelector('[data-difficulty="black"]')
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    check('ArrowDown wraps from the last tier back to the first (black -> bunny)',
+    check('ArrowDown moves to the last tier (black -> expert)',
+      changes[changes.length - 1] === 'expert');
+    container.querySelector('[data-difficulty="expert"]')
+      .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    check('ArrowDown wraps from the last tier back to the first (expert -> bunny)',
       changes[changes.length - 1] === 'bunny');
     container.querySelector('[data-difficulty="bunny"]')
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-    check('ArrowUp wraps from the first tier to the last (bunny -> black)',
-      changes[changes.length - 1] === 'black');
-    container.querySelector('[data-difficulty="black"]')
+    check('ArrowUp wraps from the first tier to the last (bunny -> expert)',
+      changes[changes.length - 1] === 'expert');
+    container.querySelector('[data-difficulty="expert"]')
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     check('ArrowRight behaves like ArrowDown (next tier)', changes[changes.length - 1] === 'bunny');
     container.querySelector('[data-difficulty="bunny"]')
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-    check('ArrowLeft behaves like ArrowUp (previous tier)', changes[changes.length - 1] === 'black');
+    check('ArrowLeft behaves like ArrowUp (previous tier)', changes[changes.length - 1] === 'expert');
   }
 
   // --- setSelected: programmatic sync that does NOT fire onChange ---

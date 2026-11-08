@@ -78,10 +78,43 @@ Run the full Node suite:
 ```bash
 npm test
 ```
-This runs, in order: `test:terrain`, `test:physics`, `test:regression`,
-`test:tree-collision`, `test:avalanche`, `test:auth`, `test:scores`,
-`test:controls` (a stub — controls are browser-only), and `test:verify` (the
-verification harness).
+`npm test` runs [`tests/run-node-suite.js`](run-node-suite.js), an
+**auto-discovering** runner (it replaced the old hand-maintained 40+-command `&&`
+chain). It finds every headless suite on disk — the `tests/*-tests.js` files plus
+the `tests/verification/*.js` harnesses — and runs each in its own child `node`
+process, so **dropping a new `tests/<name>-tests.js` file in is enough to get it run
+by `npm test`; no `package.json` edit is needed.** It prints a per-suite pass/fail
+line and a final summary, and exits non-zero if any suite fails.
+
+Discovery skips two documented sets (see the header of `run-node-suite.js`):
+- **Browser-context suites** (`browser-*-tests.js`, `audio-tests.js`,
+  `camera-tests.js`, `controls-tests.js`) — these need a DOM/WebGL and are driven by
+  the in-page `?test=` runner (`npm run test:browser`), not Node.
+- **`firestore-rules-tests.js`** — needs the Java-backed Firestore emulator, so it
+  runs in its own `npm run test:firebase` job.
+
+Remote score schema changes also run `remote-version-sync-tests.js`: it preserves
+the unversioned schema and every shipped version, including historical fields
+still present on user documents. See the [version bump checklist](../docs/SCORE-SCHEMA-VERSIONING.md)
+before changing `PHYSICS_VERSION` or the Firestore rules.
+
+Every suite is launched with the superset `--import
+tests/loaders/register-firebase-mock.mjs` hook. That hook layers the Firebase-CDN
+mock on top of the `.js`→`.ts` resolve fallback, and **both hooks are conditional
+no-ops unless their trigger fires**, so one loader covers the plain-`node`,
+`register-ts-resolve`, and `register-firebase-mock` cases that the old per-suite
+`test:*` scripts wired by hand.
+
+Run (or filter to) specific suites without editing anything:
+```bash
+node tests/run-node-suite.js --list       # list every discovered suite
+node tests/run-node-suite.js terrain      # run only suites whose path matches "terrain"
+node tests/run-node-suite.js share auth   # multiple filters = OR
+```
+
+The individual `test:*` scripts below are kept for convenience and backward
+compatibility (docs, muscle memory, targeted CI steps); they are no longer the way
+the full suite is aggregated.
 
 Run specific test categories:
 ```bash
@@ -136,6 +169,22 @@ from `npm test` because the emulator requires a local Java runtime.
 
 ### Browser Tests
 
+`npm run test:browser` requires all seven unified suites to complete exactly once,
+report assertions, and finish without suite errors or a timeout. Uncaught page
+errors and shader/WebGL failures also fail the process; expected logged audio or
+storage fallback errors do not. `test-results/results.json` records per-suite
+assertions, runner/page/renderer errors, and the final validation failures.
+`unified-runner-tests.js` exercises the actual runner's failure paths headlessly.
+The result collector gives the page's 90-second deadline a one-second Node grace
+period, preserving partial results when the page remains responsive. Coverage,
+screenshot, and final-state reads each have a 15-second Node deadline. Console
+logs and results are saved before these requests and updated with any failures;
+the initial snapshot remains available. Browser cleanup is bounded and kills its
+owned browser if graceful close stalls. `puppeteer-deadline-tests.js` exercises
+responsive suite timeouts and stalled collection, artifact, and cleanup requests.
+When adding a browser suite, update both the unified runner's manifest and
+`helpers/browser-results.js`; their agreement is checked by that Node suite.
+
 Append a `?test=` parameter to the game URL to load a suite in-browser; results
 display on-screen. The game must be **served** — `npm start` runs Vite on port 8080
 (the `?test=` URLs below assume that port); `npm run dev` also works but uses the
@@ -163,6 +212,55 @@ http://localhost:8080/?test=true
 2. The tests will run automatically and display results in the top-left corner of the screen
 
 ### Browser Regression Tests
+
+The renderer has two complementary tiers:
+
+- `tests/e2e/perf-budget.spec.ts` retains the historical startup resource ceilings
+  and adds desktop/phone phase replays with the full EZ forest, snowfall, spray,
+  avalanche powder, and crash debris. Prescribed positions cover the course; this
+  is not a continuous autonomous winning run. A controlled 60 Hz RAF clock makes
+  state reproducible while real physics, shaders, camera and effects execute.
+  Both Web Audio constructors are disabled before app boot: muted SFX would still
+  fill a random noise buffer and shift later crash debris. The pre-boot regression
+  calls the real SFX unlock method and verifies zero audio allocations/RNG draws.
+  Each phase batches its eight settling frames and twelve measured frames inside
+  the page: all 100 frame callbacks and GPU finishes still run, with two browser
+  evaluations per phase instead of a round trip per frame. This avoids the CI
+  instrumentation overhead that consumed the 180-second test deadline; the
+  timeout, coverage collection, and measured sample count remain unchanged.
+  Structural checks require live instances in one shared 1,528-particle allocation and spatial
+  forest chunks. CPU submission and GPU-finished frame-service p50/p95 timings
+  are diagnostic observations from this CI machine, never FPS pass thresholds.
+- `.github/workflows/render-review.yml` captures BASE and HEAD on the same pinned
+  Playwright image using one candidate-owned harness. It publishes 16 paired
+  canvas images: five gameplay phases plus Orbit initialization/first/second
+  update at the obstructed camera repro, on desktop and phone. `comparison/index.html`
+  shows before/after/diff and metrics; JSON records exact commits and seed. Canvas
+  images exclude HTML overlays so crash debris remains visible. Recovery/UI
+  screenshots are covered separately by their E2E specs.
+
+PR comparisons resolve an exact merge-base between the candidate and the
+repository's default branch, so stacked PRs show the cumulative rendering change.
+They are review evidence, not an approved visual baseline. A manual run can
+override that choice by supplying a full `baseline_sha`. Missing commits/images,
+incomplete captures, blank images and
+runtime/shader errors fail; the workflow never generates a baseline to make a
+missing-baseline check pass, and stores no image binaries in the repository.
+
+After a maintainer explicitly approves a commit's images, a manual run can set
+`approved_baseline: true`. That mode requires the supplied full SHA to match the
+captured baseline and fails if any image differs by more than 0.1% of pixels
+(maximum per-channel delta greater than 16), or its dimensions change. The
+comparison script also supports `RENDER_APPROVED_BASELINE_SHA` and
+`RENDER_MAX_CHANGED_RATIO` for an explicitly configured acceptance gate. This
+simple pixel tolerance is not a perceptual judgement; review the images before
+approving a new baseline. Baseline capture files are never updated by comparison.
+
+`npm run test:render-review` requires `RENDER_COMMIT` to be a full SHA; optionally
+set `RENDER_APP_DIR` to another installed checkout and `RENDER_OUTPUT_DIR` for
+off-tree artifacts. `node scripts/compare-render-review.mjs BASE_DIR HEAD_DIR OUTPUT_DIR`
+builds the portable review report. `render-review-tests.js` tests its actual PNG,
+manifest and process-exit failure paths without a browser.
 
 1. Serve the game, then open the regression test URL:
 ```
@@ -310,11 +408,23 @@ Specs (each maps to one PR commit):
   reset returns to start. (chromium + webkit)
 - `mobile.spec.ts` — touch regions drive controls; canvas + on-screen touch
   controls render. (emulated iPhone / WebKit)
+- `panels.spec.ts` — shared Controls / Stats / Camera disclosures, 44 px hit targets,
+  unclipped HUD geometry, nonoverlapping auth/course/buttons, all six camera modes,
+  keyboard and touch activation, inert collapsed content, compact accordion behavior,
+  and resize/orientation preservation. Runs on desktop Chromium/WebKit and emulated
+  iPhone Safari / Android Chrome in portrait and landscape. The HTML report includes
+  collapsed/expanded screenshots with the real EZ forest; geometry assertions avoid
+  brittle 3D pixel baselines. The Chromium layout check also covers 768×768 and
+  640×540 tablet windows with all panels expanded and 320×568 / 568×320 small phones.
+  Provider buttons are hit-tested before starting, so an overlay cannot silently
+  block sign-in even when the buttons remain visible.
+  Device emulation does not replace physical-phone checks.
 
 ```bash
 npm run test:e2e          # all specs, all projects (boots its own Vite server)
 npm run test:e2e:webkit   # WebKit (Safari engine) only
 npm run test:e2e:ui       # interactive Playwright UI mode
+npm run test:e2e -- panels.spec.ts # responsive HUD gate across all six projects
 ```
 
 `playwright.config.ts` boots a dedicated Vite dev server (port 8082, separate from
@@ -324,7 +434,7 @@ orchestrator re-publishes (see [`ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §3)
 First run needs the browsers: `npx playwright install chromium webkit`.
 
 `npm run test:e2e` is intentionally **not** part of `npm test`; CI runs it as its
-own `e2e` job that does not gate the Pages deploy.
+own `e2e` job, and the Pages deployment waits for that job to pass.
 
 ## Test Implementation Details
 
@@ -365,12 +475,58 @@ Based on git history analysis, the tree collision detection issue stems from:
 
 The tree collision detection issue has been fixed by:
 
-1. **Eliminating Code Duplication**: The `addTreesWithPositions()` function in `snowglider.js` now directly calls `Snow.addTrees()` instead of duplicating the logic with different parameters.
+1. **Eliminating Code Duplication**: The `addTreesWithPositions()` function was first changed to call `Snow.addTrees()` instead of duplicating the placement logic with different parameters; #397 then removed that second build entirely — scene setup now consumes the `treePositions` returned by `createTerrain`'s single forest build.
 
-2. **Using a Single Source of Truth**: Instead of maintaining separate tree position arrays for visuals and collision detection, we now use the tree positions returned by `Snow.addTrees()` for both purposes.
+2. **Using a Single Source of Truth**: Instead of maintaining separate tree position arrays for visuals and collision detection, the ONE forest built by `createTerrain` supplies the rendered trees, the collision positions, and the baked contact shadows.
 
 3. **Ensuring Complete Coverage**: All visible trees now have proper collision detection, including trees in the extended ski run (z < -80) and wider terrain (beyond x=±60).
 
 The tests verify that these issues are properly detected and resolved.
 
 The tests are designed to be non-invasive and not require modifications to the core game code.
+
+### Deterministic balance and tier timing (September 2026 audit)
+
+`npm run test:winnable` retains the ten historical seeds for the all-seeds threat
+and skilled-line gates. G4's 80% casual-escape gate uses 60 fixed seeds: the original
+ten followed by the first 50 distinct integers from 6 upward. Seeds are selected
+without reference to outcomes. The final terrain query-isolation release gives 58/60 casual
+escapes (93.3%), versus 8/10 at the old gate's exact pass boundary. This measures the
+scripted controller on a fixed course; it is not a player population success rate.
+
+`tests/helpers/tier-descent.mjs` is the shared G5 corridor/kicker rider and timing
+probe. `npm run test:floor` uses it for all four tiers, with 60 seeds and no-manual-
+jump, single-jump, and repeated-jump input policies. It reports finish counts,
+min/median/p95/max times, DNFs and observed peak speed; jump policies are samples,
+not an optimizer. Static obstacles and the avalanche are cleared for timing, while
+G5 retains each tier's real avalanche. The larger no-jump timing ensemble must all
+finish, and currently ranked floors must accept every observed honest finish.
+
+Reference measurements on the original physics-v3 stack before the final query-isolation fix (rerun `npm run test:floor` for the current distribution):
+
+| Tier | No-jump min / median / p95 / max (s) | Observed peak (m/s) | Current client floor (s) |
+| --- | --- | --- | --- |
+| Bunny | 40.55 / 40.65 / 40.70 / 40.73 | 5.58 | 28 (practice) |
+| Blue | 26.20 / 26.33 / 26.45 / 26.48 | 8.21 | 18 (ranked) |
+| Black | 21.63 / 21.63 / 21.63 / 21.63 | 13.54 | 13 (practice) |
+| Expert | 20.32 / 20.32 / 20.32 / 20.32 | 13.56 | 13 (practice) |
+
+Black and Expert's equal times across seeds reflect this controller's deterministic
+steering on the canonical corridor, not 60 independently varied courses. None of
+these sampled finishes falls below the shared 18-second server floor. However,
+`course distance / observed peak speed` is only an observed-speed equivalent;
+it is **not a proven lower bound**, because an untested input sequence may reach a
+higher speed. The harness's 15%-margin floor candidates (27/18/11/11 seconds) are
+review inputs only. They do not certify ranking, cheating, or real-world realism.
+Before ranking additional tiers, validate faster input policies and actual play,
+align per-tier client/server floors, test and deploy server rules, and keep G5 green.
+
+Both `forward_stress_harness.js` and `fixed_timestep_harness.js` now drive the actual
+`createMainLoop` accumulator through `tests/helpers/live-physics-loop.mjs`. No test
+copy of the accumulator or timestep constants controls these gates. The fixture
+supplies inputs and observes each call to the real `Physics.stepPlayer`; rendering
+and DOM dependencies are stubbed. The stress matrix includes 500 ms stalls, probes
+collisions on every fixed substep, and gates zero slalom path drift across refresh
+rates. The obsolete direct-variable-delta path remains only as a diagnostic in the
+fixed-timestep suite. These headless gates do not replace browser rendering or
+mobile-control tests.

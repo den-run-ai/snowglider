@@ -28,6 +28,10 @@
 
 import * as THREE from 'three';
 import { resetTreePools } from '../trees.js';
+import { resetRockCaches } from '../mountains/rocks.js';
+import { resetSnowmanSnowMaterial } from '../snowman/snow-material.js';
+import { TreeShed } from '../tree-shed.js';
+import { Snow } from '../snow.js';
 import type { SceneContext } from './scene-setup.js';
 
 // Idempotence guard, keyed on the context object (not a shared module bool) so each
@@ -62,6 +66,12 @@ export function disposeSceneResources(scene: THREE.Scene): void {
     const mat = m.material;
     if (Array.isArray(mat)) mat.forEach((x) => { if (x) mats.add(x); });
     else if (mat) mats.add(mat);
+    // Custom shadow-pass materials (e.g. the swaying-tree customDepthMaterial) are NOT reachable
+    // via obj.material, so collect them explicitly — otherwise the shadow-caster material/program
+    // leaks when a caller uses this sweep without the module's own pool reset. Shared/pooled
+    // instances dedup in the Set and dispose() is idempotent, so this is safe next to resetTreePools.
+    if (m.customDepthMaterial) mats.add(m.customDepthMaterial);
+    if (m.customDistanceMaterial) mats.add(m.customDistanceMaterial);
     // InstancedMesh owns instanceMatrix/instanceColor buffers freed only by its own
     // dispose() (geometry/material handled above). Each is a distinct scene node, so no
     // dedup is needed — but a Set keeps the disposal uniform and double-call-safe.
@@ -105,21 +115,41 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   ctx.state.gameActive = false;
   ctx.state.animationRunning = false;
 
+  // Release every shared billboard owner before sweeping the scene. The final
+  // pool unregister detaches and disposes the batch; sweeping it first would
+  // dispose its geometry/material again when avalanche or tree-shed releases it.
+  Snow.teardownSnowflakes(ctx.scene);
+  Snow.teardownSnowSplash(ctx.snowSplash);
+  ctx.state.avalanche?.dispose();
+  TreeShed.teardown();
+
   // 2. Dispose every unique GPU resource reachable from the scene, once.
   disposeSceneResources(ctx.scene);
 
   // 3. Subsystems that own buffers/meshes (mirror their existing patterns). debris
-  //    disposes its owned fragments via reset(); snowTrails/avalanche detach their
-  //    InstancedMesh and free its geometry/material. Double-dispose with the scene
+  //    disposes its owned fragments via reset(); snowTrails detaches its
+  //    InstancedMesh and frees its geometry/material. Double-dispose with the scene
   //    sweep above is safe (THREE's dispose tolerates a second call).
   ctx.state.debris?.reset();
   ctx.state.snowTrails?.dispose();
-  ctx.state.avalanche?.dispose();
+  // Persistent snow-depth field (#246): dispose() is a no-op until a later PR gives the
+  // field a GPU DataTexture, but wire it now so teardown is complete when that lands.
+  ctx.state.snowDepth?.dispose();
+  // Background scenery (#320): dispose() frees the scenery group's GPU buffers plus any
+  // off-scene caches/loaders/listeners a later PR adds (the scene sweep above already
+  // caught its attached meshes; dispose() is idempotent, so the overlap is safe).
+  ctx.state.scenery?.dispose();
 
   // 4. Null the pooled tree singletons so a later rebuild re-creates them cleanly
   //    instead of holding freed-but-still-referenced handles (the scene sweep already
   //    disposed the scene-attached ones; this frees the rest and clears the caches).
   resetTreePools();
+  // ... the two shared rock materials + the rock normal texture (the sweep just disposed
+  //    the scene-attached copies; null the module caches so a remount rebuilds them).
+  resetRockCaches();
+  // ... the shared snowman/debris snow material cache likewise (the sweep just
+  //    disposed the material + its textures; a remount must rebuild, not reuse).
+  resetSnowmanSnowMaterial();
 
   // 5. Renderer + WebGL context. Wrapped because forceContextLoss touches the live GL
   //    context, which can throw in a headless / already-lost environment.
@@ -132,8 +162,9 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
 
   // 6. Instance-owned DOM nodes. setupScene() appends the `#gameCanvas` wrapper (which
   //    holds renderer.domElement) and `#gameOverOverlay`; initLifecycleUI() appends
-  //    `#cameraToggleBtn`. Removing only the canvas would leave the wrapper + overlay +
-  //    toggle button in the document, so a remount creates duplicate IDs and stale UI,
+  //    `#cameraToggleBtn` and the `#cameraControls` tray. Removing only the canvas would
+  //    leave the wrapper + overlay + camera UI in the document, so a remount creates
+  //    duplicate IDs and stale UI,
   //    and getElementById('gameCanvas') / overlay queries hit the old empty node. Remove
   //    every owner node. (The wrapper is the canvas's parent, so detaching it takes the
   //    canvas with it.) Reset/start buttons authored in index.html are NOT ours to remove.
@@ -142,6 +173,8 @@ export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): 
   removeNode(ctx.gameOverOverlay);
   if (typeof document !== 'undefined') {
     removeNode(document.getElementById('cameraToggleBtn'));
+    // Camera control tray (lifecycle.ts initCameraControls appends #cameraControls).
+    removeNode(document.getElementById('cameraControls'));
     // Mobile visual controls (controls.ts appends these lazily on touch devices); they
     // have no module state to null, so remove them by class here.
     document.querySelectorAll('.touch-control').forEach((el) => el.remove());

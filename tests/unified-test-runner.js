@@ -73,7 +73,9 @@
     window._unifiedTestCounts = {
       passed: 0,
       failed: 0,
-      completed: []
+      completed: [],
+      suiteResults: {},
+      runnerErrors: []
     };
     
     // The test suites to run
@@ -87,18 +89,39 @@
       { name: 'regression', runner: window.runRegressionTests, started: false, completed: false }
     ];
     window._unifiedExpectedSuiteCount = testSuites.length;
+    window._unifiedExpectedSuites = testSuites.map(suite => suite.name);
+
+    function recordRunnerError(message) {
+      window._unifiedTestCounts.failed++;
+      window._unifiedTestCounts.runnerErrors.push(message);
+      console.error(`Unified test runner: ${message}`);
+    }
     
     // Callback for tests to signal completion
     window._testCompleteCallback = function(testName, error) {
       console.log(`Test suite "${testName}" has completed${error ? ' with error' : ''}`);
       
-      // Mark the test suite as completed
+      // Older gameplay error paths report "game"; normalize before validating.
+      if (testName === 'game') testName = 'gameplay';
       const testSuite = testSuites.find(suite => suite.name === testName);
-      if (testSuite) {
-        testSuite.completed = true;
-        window._unifiedTestCounts.completed.push(testName);
+      if (!testSuite || !testSuite.started || testSuite.completed) {
+        recordRunnerError(`Invalid or duplicate completion for "${testName}"`);
+        updateSummary();
+        if (testSuites.every(suite => suite.completed)) finalizeTests();
+        return;
       }
-      
+
+      clearTimeout(testSuite.timeout);
+      const counts = window._unifiedTestCounts;
+      const assertions = counts.passed + counts.failed - testSuite.assertionsAtStart;
+      if (error) recordRunnerError(`${testName}: ${error.message || String(error)}`);
+      if (!Number.isInteger(assertions) || assertions <= 0) {
+        recordRunnerError(`${testName}: no assertions reported`);
+      }
+      counts.suiteResults[testName] = { assertions, error: error ? String(error.message || error) : null };
+      testSuite.completed = true;
+      counts.completed.push(testName);
+
       // Update summary
       updateSummary();
       
@@ -237,19 +260,14 @@
         console.log(`- ${suite.name}: started=${suite.started}, completed=${suite.completed}`);
       });
       
-      // Check if the runner function exists
+      testSuite.started = true;
+      const counts = window._unifiedTestCounts;
+      testSuite.assertionsAtStart = counts.passed + counts.failed;
       if (typeof testSuite.runner !== 'function') {
-        console.error(`Test runner for "${testSuite.name}" is not a function. Type: ${typeof testSuite.runner}`);
-        console.log(`Available global functions:`, Object.keys(window).filter(key => typeof window[key] === 'function' && key.includes('run')));
-        
-        // Mark as completed with error and move to next test
-        testSuite.started = true;
         window._testCompleteCallback(testSuite.name, new Error('Test runner is not a function'));
         return;
       }
-      
-      testSuite.started = true;
-      
+
       // Add a longer delay to ensure previous tests have a chance to clean up
       setTimeout(() => {
         try {
@@ -262,27 +280,16 @@
           testStartNotice.textContent = `Starting "${testSuite.name}" test suite...`;
           window._unifiedTestResults.appendChild(testStartNotice);
           
-          // Run the test suite
+          // Arm every suite before invoking it, including synchronous completions.
+          // A missing callback must fail; a timeout never means successful completion.
+          testSuite.timeout = setTimeout(() => {
+            window._testCompleteCallback(testSuite.name, new Error('Test timed out'));
+          }, testSuite.name === 'camera' ? 15000 : 30000);
           console.log(`Executing test runner for ${testSuite.name}`);
-          testSuite.runner();
-          
-          // Safety check in case test runner doesn't call the completion callback
-          if (testSuite.name === 'camera') {
-            console.log("Adding extra safety timeout for camera tests (15 seconds)");
-            setTimeout(() => {
-              if (!testSuite.completed) {
-                console.log(`⚠️ Safety check: ${testSuite.name} test did not complete within expected time`);
-                
-                // Check if tests are actually running but just didn't signal completion
-                const cameraCounts = window._unifiedTestCounts;
-                if (cameraCounts && (cameraCounts.passed > 0 || cameraCounts.failed > 0)) {
-                  console.log(`Found camera test results (${cameraCounts.passed} passed, ${cameraCounts.failed} failed) but completion wasn't signaled`);
-                }
-                
-                // Force completion
-                window._testCompleteCallback(testSuite.name, new Error('Test timed out'));
-              }
-            }, 15000); // Allow more time for the camera test to complete on its own first
+          const result = testSuite.runner();
+          // Most existing suites use callbacks, but also capture rejected async runners.
+          if (result && typeof result.then === 'function') {
+            Promise.resolve(result).catch(error => window._testCompleteCallback(testSuite.name, error));
           }
         } catch (error) {
           console.error(`Error running test suite ${testSuite.name}:`, error);

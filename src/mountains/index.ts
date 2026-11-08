@@ -24,11 +24,17 @@ import {
 } from './noise.js';
 import {
   type TerrainVec2,
+  type TerrainCorridorParams,
+  type TerrainCorridor,
+  type KickerSpec,
   heightMap,
   getTerrainHeight,
+  getTerrainHeightUncached,
   getTerrainGradient,
   getDownhillDirection,
   debugHeightMap,
+  setTerrainCorridor,
+  setTerrainKickers,
 } from './terrain.js';
 import { createTerrain } from './terrain-mesh.js';
 import {
@@ -46,17 +52,22 @@ import {
 // rockCollisionRadius was a named export of the pre-split mountains.ts too — keep it
 // on the facade so `import { rockCollisionRadius } from './mountains.js'` still works.
 export { terrainRidgeField, forestDensityField, rockCollisionRadius, ROCK_COLLISION_MIN_SIZE };
-export type { TerrainVec2, RockPosition };
+export { setTerrainCorridor, setTerrainKickers };
+export { getTerrainHeightUncached };
+export type { TerrainVec2, TerrainCorridorParams, TerrainCorridor, KickerSpec, RockPosition };
 
 // Export all mountain-related functions and classes
 export const Mountains = {
   SimplexNoise,
   getTerrainHeight,
+  getTerrainHeightUncached,
   getTerrainGradient,
   getDownhillDirection,
   terrainRidgeField,
   forestDensityField,
   createTerrain,
+  setTerrainCorridor,
+  setTerrainKickers,
   createRock,
   addRocks,
   ROCK_COLLISION_MIN_SIZE,

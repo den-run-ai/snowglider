@@ -1,3 +1,5 @@
+import { buildErrorReport, ErrorReportBudget } from './telemetry-error.js';
+
 // diagnostics.ts — runtime physics / frame-rate telemetry for SnowGlider.
 //
 // WHY THIS EXISTS (the bug class it targets)
@@ -330,14 +332,18 @@ class Diagnostics {
   // Owns every window listener init() installs (keydown/pagehide/error/unhandledrejection)
   // so teardown() can remove them all with one abort (dispose-audit / dev-HMR).
   private ac: AbortController | null = null;
+  private errorBudget = new ErrorReportBudget();
+  private reportReady: () => boolean = () => true;
+  private privateErrors: Array<{ atSec: number; message: string; stack: string }> = [];
 
   /** Wire up the recorder. Safe to call once at startup. Honors the automation gate and
    *  the ?debug overlay flag; without a DOM it just enables the headless recorder.
    *  `opts.report` injects the structured-event transport (e.g. Firebase Analytics). */
-  init(cfg?: Partial<DiagConfig>, opts?: { report?: DiagSink }): void {
+  init(cfg?: Partial<DiagConfig>, opts?: { report?: DiagSink; reportReady?: () => boolean }): void {
     if (!DIAG_ENABLED) return;
     this.cfg = { ...DEFAULT_CONFIG, ...(cfg || {}) };
     if (opts && opts.report) this.sink = opts.report;
+    this.reportReady = opts?.reportReady || (() => true);
     if (typeof window === 'undefined') { this.active = true; return; }
 
     const automated = !!window.isTestMode ||
@@ -392,6 +398,8 @@ class Diagnostics {
   teardown(): void {
     if (this.ac) { this.ac.abort(); this.ac = null; }
     this.hideOverlay();
+    this.errorBudget.clear();
+    this.privateErrors = [];
     this.active = false;
     if (typeof window !== 'undefined') {
       delete (window as unknown as { __snowgliderDiag?: unknown }).__snowgliderDiag;
@@ -487,41 +495,57 @@ class Diagnostics {
     try { this.sink(event, data); } catch { /* a broken sink must not break the game */ }
   }
 
-  /** Install window.onerror + unhandledrejection once. Captures the message/stack plus the
-   *  current physics snapshot summary as context, routes it to the sink + console.error.
-   *  Re-throws nothing; never swallows the browser's own default logging. */
+  /** Report an error caught by a recovery boundary. Caught animation/result failures
+   *  never reach the window error handlers; use the same event and physics context so
+   *  those failures remain visible in Analytics. Inert under the usual automation gate. */
+  reportError(error: unknown, source: string): void {
+    if (!DIAG_ENABLED || !this.active) return;
+    this.captureError('client_error', error, source);
+  }
+
+  private captureError(event: string, error: unknown, source: string, fallbackMessage = '',
+    line: unknown = 0, column: unknown = 0, filename = ''): void {
+    if (!DIAG_ENABLED || !this.active) return;
+    const report = buildErrorReport(error, source, fallbackMessage, line, column, filename);
+    this.notes.push({ atSec: +this.clockSec.toFixed(2), category: event, detail: report.params });
+    this.privateErrors.push({ atSec: +this.clockSec.toFixed(2), ...report.local });
+    if (this.privateErrors.length > 50) this.privateErrors.shift();
+    if (this.notes.length > 50) this.notes.shift();
+    // Startup can precede Firebase initialization. A silent no-op transport must
+    // not consume the signature and suppress the same failure after it is ready.
+    let ready = false;
+    try { ready = this.reportReady(); } catch { /* optional readiness cannot throw */ }
+    if (ready && this.errorBudget.accept(event, report.params)) {
+      this.emit(event, { ...report.params, ...this.errorContext() });
+    }
+  }
+
+  private errorContext(): Record<string, unknown> {
+    const sm = this.summary;
+    return {
+      frames: sm.frames,
+      fps: sm.durationSec > 0 ? Math.round(sm.frames / sm.durationSec) : 0,
+      speedMax: +sm.speedMax.toFixed(1),
+      health: frameRateHealth(sm, this.cfg).level,
+    };
+  }
+
+  /** Install error/rejection capture once. Upload only bounded aggregate fields and
+   *  physics context; retain free-form text in the local dump. Never swallow the
+   *  browser's own default logging. */
   private installErrorHandlers(): void {
     // No re-install guard needed: init() aborts the previous controller before calling
     // this, so the prior handlers are already gone (one live pair at a time).
     if (typeof window === 'undefined') return;
-    const context = () => {
-      const sm = this.summary;
-      return {
-        frames: sm.frames,
-        fps: sm.durationSec > 0 ? Math.round(sm.frames / sm.durationSec) : 0,
-        speedMax: +sm.speedMax.toFixed(1),
-        health: frameRateHealth(sm, this.cfg).level,
-      };
-    };
     const signal = this.ac?.signal;
     const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
     window.addEventListener('error', (e: ErrorEvent) => {
-      this.emit('client_error', {
-        message: String(e.message || 'error'),
-        source: e.filename || '',
-        line: e.lineno || 0,
-        stack: (e.error && e.error.stack ? String(e.error.stack) : '').slice(0, 600),
-        ...context(),
-      });
+      this.captureError('client_error', e.error, 'window_error',
+        typeof e.message === 'string' ? e.message : '', e.lineno, e.colno,
+        typeof e.filename === 'string' ? e.filename : '');
     }, opts);
     window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
-      const reason = e.reason;
-      const msg = reason && reason.message ? reason.message : String(reason);
-      this.emit('unhandled_rejection', {
-        message: String(msg).slice(0, 300),
-        stack: (reason && reason.stack ? String(reason.stack) : '').slice(0, 600),
-        ...context(),
-      });
+      this.captureError('unhandled_rejection', e.reason, 'unhandled_rejection');
     }, opts);
   }
 
@@ -590,7 +614,9 @@ class Diagnostics {
 
   /** Return the snapshot and, in a browser, download it as JSON for a bug report. */
   dump() {
-    const snap = this.snapshot();
+    // snapshot() is also attached to public feedback. Raw error text belongs only
+    // in this explicit local download, which the player can inspect before sharing.
+    const snap = { ...this.snapshot(), errors: this.privateErrors.slice() };
     try {
       if (typeof document !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
         const blob = new Blob([JSON.stringify(snap, null, 2)], { type: 'application/json' });
@@ -641,6 +667,7 @@ class Diagnostics {
     this.reportedAnomaly = false; // a fresh run can report its own anomaly
     this.lastHealthEmitSec = 0;
     this.notes = [];
+    this.privateErrors = [];
   }
 
   // --- DOM overlay (live HUD) ---

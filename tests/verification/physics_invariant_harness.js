@@ -518,6 +518,343 @@ console.log('  PASS:', frameRateIndependent
   : `cruise speed scales with frame rate (spread ${(cruiseSpread * 100).toFixed(0)}%) ❌`);
 if (!frameRateIndependent) hardFail = true;
 
+// 12) Bunny jump suppression (jump-system completion, workstream A) [GATING].
+// The easy tier has NO jump verb: `manualJump: false` disables Space (straight jump
+// AND hop turn) and `autoJump: false` keeps terrain lips from lofting. Two halves:
+//   a) held-jump ≡ no-input — a Bunny run with Jump held EVERY frame must be
+//      byte-identical to the same run with no input (the press is provably inert);
+//   b) a lip frame that auto-jumps on default (Blue) tuning stays GROUNDED on Bunny
+//      (isInAir false, pos.y glued to the terrain), with or without Jump held.
+// Uses the real Bunny tuning from src/difficulty.ts so the shipped config is what's
+// pinned, not a hand-rolled copy.
+const BUNNY_SKI = (await import('../../src/difficulty.ts')).getDifficultyConfig('bunny').ski;
+function simulateTuned(updateFn, controls, seed, tuning, steps = 220, dt = 1 / 60) {
+  const rng = makeRng(seed);
+  Math.random = rng;
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: -15, y: getTerrainHeight(0, -15) };
+  const velocity = { x: 0, z: -3 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, -15),
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  const traj = [];
+  for (let i = 0; i < steps; i++) {
+    st = updateFn(snowman, dt, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, controls,
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
+      [], undefined, tuning);
+    traj.push({ x: pos.x, y: pos.y, z: pos.z, vx: velocity.x, vz: velocity.z, inAir: st.isInAir });
+    if (pos.z < -195) break;
+  }
+  return traj;
+}
+const bunnyNone = simulateTuned(mod, NONE, 2026, BUNNY_SKI);
+const bunnyHeld = simulateTuned(mod, JUMP, 2026, BUNNY_SKI);
+let bunnyMaxDiff = 0;
+let bunnyEverAir = false;
+const bn = Math.min(bunnyNone.length, bunnyHeld.length);
+for (let i = 0; i < bn; i++) {
+  bunnyMaxDiff = Math.max(bunnyMaxDiff,
+    Math.abs(bunnyNone[i].x - bunnyHeld[i].x), Math.abs(bunnyNone[i].z - bunnyHeld[i].z),
+    Math.abs(bunnyNone[i].vx - bunnyHeld[i].vx), Math.abs(bunnyNone[i].vz - bunnyHeld[i].vz));
+  bunnyEverAir = bunnyEverAir || bunnyNone[i].inAir || bunnyHeld[i].inAir;
+}
+const bunnyHeldIdentical = bunnyMaxDiff < 1e-9 && bunnyNone.length === bunnyHeld.length;
+// b) the same fabricated lip frame that auto-jumps on default tuning (check 8's
+// autoLip) must stay grounded on Bunny — no loft, pos.y snapped to the terrain.
+function bunnyLipFrame(controls) {
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: -50, y: getTerrainHeight(0, -50) };
+  const velocity = { x: 0, z: -16 }; // above the movingFast (>12) gate
+  const lastTerrainHeight = getTerrainHeight(0, -50) + 5; // heightDifference < -0.8
+  const r = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, false, 0, lastTerrainHeight,
+    0, 0, controls, 0, 0, 3, 3.0,
+    getTerrainHeight, getTerrainGradient, getDownhillDirection, [], false, function () {},
+    [], undefined, BUNNY_SKI);
+  // The grounded path snaps pos.y to the terrain sampled at the PRE-step position
+  // (x/z advance after the snap), so compare against that sample, not the new x/z.
+  return { inAir: r.isInAir, groundedY: Math.abs(pos.y - getTerrainHeight(0, -50)) < 1e-9,
+           playerJump: !!snowman.userData.playerJump };
+}
+const bunnyLipCoast = bunnyLipFrame(NONE);
+const bunnyLipJump = bunnyLipFrame(JUMP);
+const bunnySuppressionOk = bunnyHeldIdentical && !bunnyEverAir
+  && !bunnyLipCoast.inAir && bunnyLipCoast.groundedY
+  && !bunnyLipJump.inAir && bunnyLipJump.groundedY && !bunnyLipJump.playerJump;
+console.log('\n--- Bunny jump suppression: held Jump ≡ no-input; lips never loft [GATING] ---');
+console.log('  held-vs-none max abs diff:', bunnyMaxDiff.toExponential(3),
+  '| steps:', bunnyNone.length, bunnyHeld.length, '| ever airborne:', bunnyEverAir);
+console.log('  lip (no input): inAir', bunnyLipCoast.inAir, '| glued to terrain', bunnyLipCoast.groundedY);
+console.log('  lip (Jump held): inAir', bunnyLipJump.inAir, '| glued to terrain', bunnyLipJump.groundedY,
+  '| playerJump', bunnyLipJump.playerJump);
+console.log('  PASS:', bunnySuppressionOk
+  ? 'Bunny has no jump verb: press inert, lips grounded ✅'
+  : 'a jump leaked onto Bunny ❌');
+if (!bunnySuppressionOk) hardFail = true;
+
+// 13) Scored obstacle clears: provenance + dedup + cap (JP-2, #245) [GATING].
+// A *deliberate* jump sailing over a would-have-hit tree banks exactly ONE clear
+// (many consecutive overlap frames dedup to one; CLEAR_SCORE banked once); the SAME
+// flight without playerJump provenance (an auto-jump's air) banks nothing and its
+// trajectory/velocity bytes are identical — clears must never touch physics. A pass
+// over a dense row of obstacles caps at CLEAR_MAX_PER_AIR scored clears.
+const PHYS = await import('../../src/snowman/physics.ts');
+function clearFlight(playerJump, treeXs) {
+  // A flat-terrain flight straight down -z THROUGH tree overlap columns, airborne
+  // high above them (tree y=0, pos.y ≈ 12 > y+5, rising) so the suppression branch
+  // fires on every overlap frame. Constant terrain isolates the collision layer.
+  const gH = () => 0, gG = () => ({ x: 0, z: 0 }), gD = () => ({ x: 0, z: -1 });
+  Math.random = makeRng(11);
+  const snowman = fakeSnowman();
+  snowman.userData.playerJump = playerJump;
+  snowman.userData.clearsThisAir = 0;
+  snowman.userData.clearedObstacles = {};
+  const trees = treeXs.map((z) => ({ x: 0, y: 0, z }));
+  const pos = { x: 0, z: 0, y: 12 };
+  const velocity = { x: 0, z: -20 };
+  // Launch rising hard (vv 20, airGravity 16 ⇒ rising for 1.25 s > the whole probe) and
+  // high above the trees the whole time: the tree suppression branch is height-based
+  // (isInAir && pos.y > tree.y + 5), so every obstacle column is crossed while cleared.
+  let st = { isInAir: true, verticalVelocity: 20, lastTerrainHeight: 0,
+             airTime: 0.2, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  let banked = 0, clearEvents = 0, clearCount = 0;
+  const traj = [];
+  for (let i = 0; i < 60; i++) {
+    st = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, NONE,
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      gH, gG, gD, trees, false, function () {},
+      [], (points) => { banked += points; });
+    if (st.obstacleCleared) clearEvents++;
+    clearCount += st.obstaclesClearedCount || 0;
+    traj.push({ x: pos.x, y: pos.y, z: pos.z, vx: velocity.x, vz: velocity.z });
+  }
+  return { banked, clearEvents, clearCount, traj,
+           clearsThisAir: snowman.userData.clearsThisAir };
+}
+// One tree at z=-10: the flight overlaps its 2.5 u radius for several frames.
+const manualClear = clearFlight(true, [-10]);
+const autoClear = clearFlight(false, [-10]);
+let clearTrajDiff = 0;
+for (let i = 0; i < Math.min(manualClear.traj.length, autoClear.traj.length); i++) {
+  const a2 = manualClear.traj[i], b2 = autoClear.traj[i];
+  clearTrajDiff = Math.max(clearTrajDiff, Math.abs(a2.x - b2.x), Math.abs(a2.y - b2.y),
+    Math.abs(a2.z - b2.z), Math.abs(a2.vx - b2.vx), Math.abs(a2.vz - b2.vz));
+}
+// A dense row of 5 trees (all crossed while rising): dedup counts all 5, but only
+// CLEAR_MAX_PER_AIR of them bank.
+const denseClear = clearFlight(true, [-5, -7, -9, -11, -13]);
+const clearsOk =
+  // The SCORED-clear count must match the banked awards one-for-one — it is what
+  // the combo chain (JP-7) advances by, so a dense multi-clear step can't
+  // undercount the chain (Codex on #293).
+  manualClear.clearCount === 1 &&
+  autoClear.clearCount === 0 &&
+  denseClear.clearCount === PHYS.CLEAR_MAX_PER_AIR &&
+  manualClear.clearEvents === 1 && manualClear.banked === PHYS.CLEAR_SCORE &&
+  manualClear.clearsThisAir === 1 &&
+  autoClear.clearEvents === 0 && autoClear.banked === 0 &&
+  clearTrajDiff < 1e-12 &&
+  denseClear.banked === PHYS.CLEAR_MAX_PER_AIR * PHYS.CLEAR_SCORE &&
+  denseClear.clearsThisAir === 5;
+console.log('\n--- Scored obstacle clears: provenance, dedup, cap (JP-2) [GATING] ---');
+console.log('  manual jump over 1 tree: events', manualClear.clearEvents,
+  '| banked', manualClear.banked, '| clearsThisAir', manualClear.clearsThisAir);
+console.log('  auto-jump same flight  : events', autoClear.clearEvents, '| banked', autoClear.banked,
+  '| traj max abs diff vs manual:', clearTrajDiff.toExponential(3));
+console.log('  dense row of 5 trees   : banked', denseClear.banked,
+  `(cap ${PHYS.CLEAR_MAX_PER_AIR}×${PHYS.CLEAR_SCORE})`, '| clearsThisAir', denseClear.clearsThisAir);
+console.log('  PASS:', clearsOk
+  ? 'one scored clear per obstacle, provenance-gated, capped, physics untouched ✅'
+  : 'clear scoring leaked / duplicated / uncapped ❌');
+if (!clearsOk) hardFail = true;
+
+// 14) Landing monotonicity (JP-4, §4.2) [GATING]. For the SAME touchdown velocity
+// (equal airtime), a downslope landing must never grade WORSE than a flat landing —
+// the surface falling away along travel absorbs the impact (vImpact = |v³·n| drops),
+// which is the physical claim the impact-consistent grade makes. Single landing
+// frames on constant slopes isolate the grade; playerJump pre-stamped.
+function slopeLand(slope, vx, vz, vv, tuning, trickFlip = 0) {
+  const gH = (x, z) => slope * z;
+  const gG = () => ({ x: 0, z: slope });
+  const gD = () => ({ x: 0, z: -1 });
+  Math.random = makeRng(31);
+  const snowman = fakeSnowman();
+  snowman.userData.playerJump = true;
+  if (trickFlip) snowman.userData.trickFlip = trickFlip;
+  const pos = { x: 0, z: -60, y: gH(0, -60) - 0.01 }; // just below terrain => lands now
+  const velocity = { x: vx, z: vz };
+  const r = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, true, vv, gH(0, -60),
+    1.5, 0, NONE, 0, 0, 3, 3.0, gH, gG, gD, [], false, function () {},
+    [], undefined, tuning);
+  return { quality: r.landingQuality, airScore: r.airScoreDelta };
+}
+const GRADE_RANK = { wipeout: 0, sketchy: 1, ok: 2, clean: 3 };
+// Three touchdown severities, each landed flat (slope 0) vs on a 27° downslope
+// (slope 0.5), same velocity: the downslope grade must rank >= the flat grade.
+const monoCases = [-15, -26, -34].map((vv) => ({
+  vv,
+  flat: slopeLand(0, 0, -16, vv, undefined),
+  down: slopeLand(0.5, 0, -16, vv, undefined),
+}));
+const monotonicOk = monoCases.every((c) =>
+  GRADE_RANK[c.down.quality] >= GRADE_RANK[c.flat.quality]);
+// And the grade must actually SEPARATE somewhere (the vImpact term is live, not
+// vacuously equal): the -26 m/s touchdown is clean on the downslope but not flat.
+const separates = monoCases[1].down.quality === 'clean' && monoCases[1].flat.quality !== 'clean';
+console.log('\n--- Landing monotonicity: downslope never grades worse than flat (JP-4) [GATING] ---');
+for (const c of monoCases) {
+  console.log(`  vv ${c.vv}: flat=${c.flat.quality} | 27° downslope=${c.down.quality}`);
+}
+console.log('  PASS:', monotonicOk && separates
+  ? 'downslope >= flat at every severity, and the impact term separates grades ✅'
+  : 'impact grading not monotonic with slope ❌');
+if (!monotonicOk || !separates) hardFail = true;
+
+// 15) Wipeout gate (JP-4) [GATING]. 'wipeout' must be UNREACHABLE when
+// tuning.wipeouts is false (the Blue/Bunny/Black default), even at extreme impact
+// or landing mid-somersault — those grade sketchy as before. With the flag on
+// (Expert), the same landings are wipeouts and bank ZERO air score.
+const EXPERT_SKI = (await import('../../src/difficulty.ts')).getDifficultyConfig('expert').ski;
+const slamOff = slopeLand(0, 0, -16, -40, undefined);           // default (wipeouts false)
+const slamOn = slopeLand(0, 0, -16, -40, EXPERT_SKI);           // Expert: extreme slam
+const headOff = slopeLand(0, 0, -16, -10, undefined, 180);      // mid-somersault, flag off
+const headOn = slopeLand(0, 0, -16, -10, EXPERT_SKI, 180);      // mid-somersault, Expert
+const wipeoutGateOk =
+  slamOff.quality === 'sketchy' && headOff.quality === 'sketchy' &&
+  slamOn.quality === 'wipeout' && slamOn.airScore === 0 &&
+  headOn.quality === 'wipeout' && headOn.airScore === 0;
+console.log('\n--- Wipeout gate: unreachable without tuning.wipeouts; crash on Expert (JP-4) [GATING] ---');
+console.log('  extreme slam  : default =', slamOff.quality, '| Expert =', slamOn.quality, `(airScore ${slamOn.airScore})`);
+console.log('  mid-somersault: default =', headOff.quality, '| Expert =', headOn.quality, `(airScore ${headOn.airScore})`);
+console.log('  PASS:', wipeoutGateOk
+  ? 'wipeout gated to the flag; forced sketchy elsewhere; banks nothing ✅'
+  : 'wipeout leaked past its gate ❌');
+if (!wipeoutGateOk) hardFail = true;
+
+// 16) lipLaunch gate (JP-6) [GATING]. With the flag FALSE (the Blue/Bunny/Black
+// default) the terrain auto-jump keeps the frozen `6 + 0.3·speed` constant bytes;
+// with the flag TRUE the SAME lip launches at the geometry-derived
+// clamp(speed·Δslope·LIP_K, LIP_MIN, LIP_MAX) — and a non-lip (constant-slope)
+// descent is byte-identical under either flag (the branch never runs off-lip).
+const BLUE_SKI = (await import('../../src/difficulty.ts')).BLUE_PHYSICS_TUNING;
+const LIP_ON = { ...BLUE_SKI, lipLaunch: true };
+// A synthetic kicker lip at z=0 (travelling -z): the approach ramp climbs `rise`
+// h/u toward the lip and the face drops `drop` h/u past it. NOTE the step's
+// returned verticalVelocity includes the same-frame air-gravity tick
+// (launch − airGravity·dt), so expectations subtract 16/60.
+function kickerLipFrame(tuning, speed, rise, drop) {
+  const gH = (x, z) => (z >= 0 ? -rise * z : drop * z);
+  const gG = (x, z) => ({ x: 0, z: z >= 0 ? -rise : drop });
+  const gD = () => ({ x: 0, z: -1 });
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: 0, y: 0 };
+  const velocity = { x: 0, z: -speed };
+  const r = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, false, 0,
+    gH(0, 0) + 5, // fake last-frame terrain 5u higher => heightDifference < -0.8 fires
+    0, 0, NONE, 0, 0, 3, 3.0, gH, gG, gD, [], false, function () {},
+    [], undefined, tuning);
+  return { vv: r.verticalVelocity, inAir: r.isInAir };
+}
+const GRAV_TICK = 16 / 60; // same-frame airborne gravity applied after the launch
+const lipOff16 = kickerLipFrame(undefined, 16, 0.35, 1.2);
+const lipOn16 = kickerLipFrame(LIP_ON, 16, 0.35, 1.2);   // steep face: hits the cap
+const lipOnGentle = kickerLipFrame(LIP_ON, 13, 0.3, 0.45); // gentle lip: mid-range
+// Expected geometry-derived values from the exported constants (single source).
+const expOn16 = Math.min(PHYS.LIP_MAX, Math.max(PHYS.LIP_MIN, 16 * (0.35 + 1.2) * PHYS.LIP_K)) - GRAV_TICK;
+const expOnGentle = Math.min(PHYS.LIP_MAX, Math.max(PHYS.LIP_MIN, 13 * (0.3 + 0.45) * PHYS.LIP_K)) - GRAV_TICK;
+// Off-lip identity: a constant-slope no-input descent must be byte-identical
+// under either flag (the lipLaunch branch only runs on auto-jump frames).
+function slopeDescent(tuning) {
+  const gH = (x, z) => 0.4 * z, gG = () => ({ x: 0, z: 0.4 }), gD = () => ({ x: 0, z: -1 });
+  Math.random = makeRng(77);
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: 0, y: 0 };
+  const velocity = { x: 0, z: -14 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: 0,
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  const traj = [];
+  for (let i = 0; i < 120; i++) {
+    st = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, NONE,
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      gH, gG, gD, [], false, function () {}, [], undefined, tuning);
+    traj.push({ x: pos.x, z: pos.z, vx: velocity.x, vz: velocity.z });
+  }
+  return traj;
+}
+const offFlag = slopeDescent(undefined);
+const onFlag = slopeDescent(LIP_ON);
+let lipOffLipDiff = 0;
+for (let i = 0; i < offFlag.length; i++) {
+  lipOffLipDiff = Math.max(lipOffLipDiff,
+    Math.abs(offFlag[i].x - onFlag[i].x), Math.abs(offFlag[i].z - onFlag[i].z),
+    Math.abs(offFlag[i].vx - onFlag[i].vx), Math.abs(offFlag[i].vz - onFlag[i].vz));
+}
+// RIDDEN crossing (Codex review on #292): the fabricated frames above sample the
+// geometry with pos exactly AT the lip, but in a real run the auto-jump only fires
+// once pos has already crossed PAST the drop (heightDifference < -0.8 needs the low
+// side). Ride a grounded descent over a synthetic kicker so the launch fires
+// naturally, and assert the launch actually scales with the ramp — the original
+// sampling read the dropped current height as slopeBehind and collapsed every
+// kicker to the LIP_MIN floor.
+function rideKicker(rampHeight) {
+  // A ~29° base slope + a `rampHeight` kicker with its lip at z=0 and a 7 u u²
+  // approach (steepest at the lip — the shipped terrain.ts profile), dropping to
+  // the base past the lip. Ridden with the EXPERT tuning (the tier that ships
+  // lipLaunch — its lower friction keeps the crossing above the auto-jump's
+  // speed>12 gate, like a committed real run).
+  const gH = (x, z) => 0.55 * z
+    + (z >= 0 && z <= 7 ? rampHeight * ((7 - z) / 7) * ((7 - z) / 7) : 0);
+  const eps = 0.1;
+  const gG = (x, z) => ({ x: 0, z: (gH(x, z + eps) - gH(x, z)) / eps });
+  const gD = (x, z) => {
+    const gz = (gH(x, z + eps) - gH(x, z)) / eps;
+    return gz > 0 ? { x: 0, z: -1 } : { x: 0, z: 1 };
+  };
+  Math.random = makeRng(5);
+  const snowman = fakeSnowman();
+  const pos = { x: 0, z: 12, y: gH(0, 12) };
+  const velocity = { x: 0, z: -18 };
+  let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: gH(0, 12),
+             airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
+  const UPC = { left: false, right: false, up: true, down: false, jump: false };
+  for (let i = 0; i < 240; i++) {
+    st = mod(/** @type {any} */ (snowman), 1 / 60, pos, velocity, st.isInAir, st.verticalVelocity,
+      st.lastTerrainHeight, st.airTime, st.jumpCooldown, UPC,
+      st.turnPhase, st.currentTurnDirection, st.turnChangeCooldown, 3.0,
+      gH, gG, gD, [], false, function () {}, [], undefined, EXPERT_SKI);
+    if (st.isInAir) return { vv: st.verticalVelocity, launched: true, z: pos.z };
+  }
+  return { vv: 0, launched: false, z: pos.z };
+}
+const rideSmall = rideKicker(3.0);  // the shipped Expert kicker profile
+const rideTall = rideKicker(4.5);   // a taller ramp must launch harder (until the cap)
+const riddenOk = rideSmall.launched && rideTall.launched
+  && rideSmall.vv > PHYS.LIP_MIN + 1      // NOT collapsed to the floor (the #292 bug)
+  && rideTall.vv > rideSmall.vv - 1e-9;   // launch scales with ramp geometry
+const lipGateOk =
+  lipOff16.inAir && Math.abs(lipOff16.vv - (6 + 16 * 0.3 - GRAV_TICK)) < 1e-12 && // legacy bytes
+  lipOn16.inAir && Math.abs(lipOn16.vv - expOn16) < 1e-9 &&                       // capped launch
+  lipOnGentle.inAir && Math.abs(lipOnGentle.vv - expOnGentle) < 1e-9 &&           // mid-range launch
+  expOn16 === PHYS.LIP_MAX - GRAV_TICK &&                                          // cap live
+  expOnGentle < PHYS.LIP_MAX - GRAV_TICK && expOnGentle > PHYS.LIP_MIN &&          // scaling live
+  riddenOk &&                                                                      // real crossings scale
+  lipOffLipDiff === 0;                                                             // off-lip identity
+console.log('\n--- lipLaunch gate: legacy bytes off, geometry-derived on, off-lip identical (JP-6) [GATING] ---');
+console.log('  steep lip @16 m/s: flag off vv', lipOff16.vv.toFixed(2), '(legacy) | flag on vv',
+  lipOn16.vv.toFixed(2), `(expected ${expOn16.toFixed(2)} — capped at LIP_MAX)`);
+console.log('  gentle lip @13 m/s: flag on vv', lipOnGentle.vv.toFixed(2),
+  `(expected ${expOnGentle.toFixed(2)} — scales with speed × geometry)`);
+console.log('  RIDDEN kicker crossing: 3.0u ramp vv', rideSmall.vv.toFixed(2),
+  '| 4.5u ramp vv', rideTall.vv.toFixed(2),
+  `(both must beat the ${PHYS.LIP_MIN} floor — the #292 post-drop sampling bug)`);
+console.log('  off-lip constant-slope descent, flag on vs off: max abs diff', lipOffLipDiff.toExponential(3));
+console.log('  PASS:', lipGateOk
+  ? 'lipLaunch alters only lip frames, exactly per the exported formula ✅'
+  : 'lipLaunch leaked or mis-derived ❌');
+if (!lipGateOk) hardFail = true;
+
 console.log(`\nINVARIANT HARNESS: ${hardFail ? 'FAIL ❌ (a gating check failed)' : 'OK ✅ (safety invariant + technique gating checks hold)'}`);
 process.exit(hardFail ? 1 : 0);
 })();

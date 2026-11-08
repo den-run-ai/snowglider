@@ -2,7 +2,7 @@
 // forward_stress_harness.js
 // Robustness stress test for the "floor it forward and blow past the obstacles"
 // class of bug (PR #209) — broadened in the #209 follow-up to a full INPUT x
-// FRAME-RATE matrix. It drives the REAL physics kernel (Snowman.updateSnowman) over
+// FRAME-RATE matrix. It drives the REAL live-loop accumulator (createMainLoop) and physics kernel over
 // the REAL analytic terrain with the REAL procedurally placed trees + rocks, across
 // several input policies, frame rates (incl. bursty frame hitching), and layouts.
 //
@@ -12,8 +12,8 @@
 // collision and coarse integration can interact. It guards:
 //
 //   1. NO TUNNELING (trees AND rocks) — the collision checks are discrete point-vs-
-//      radius tests, so a per-frame step larger than an obstacle radius can skip the
-//      disk entirely. The harness replays each frame's prev->cur segment against every
+//      radius tests, so a large physics step can skip the
+//      disk entirely. The harness probes each fixed substep's prev->cur segment against every
 //      tree disk (radius 2.5) and every rock disk (per-rock rockCollisionRadius) and
 //      asserts zero uncaught pass-throughs, at every frame rate and under every policy.
 //   2. FRAME-RATE-BOUNDED SPEED — terminal speed must not balloon at low frame rate
@@ -26,10 +26,8 @@
 //      cap rather than spinning. Closest reproducible proxy for the reported "the game
 //      freezes at the end" (issue 2): a runaway/stuck state would exhaust the cap here.
 //
-// NOT gated (reported as a diagnostic): steered-path convergence. A deterministic slalom
-// does NOT trace the same path at every FPS — coarse-dt Euler on the radial fall line
-// drifts it tens of units — but that is honest integration sensitivity (the steer force
-// is delta-scaled), too chaotic to gate without flaking.
+// Input policies are sampled on the simulation clock. The same fixed-time input
+// traces the same trajectory at every render rate; this is now a gating assertion.
 //
 // Run: node --import ./tests/loaders/register-ts-resolve.mjs tests/verification/forward_stress_harness.js
 const { pathToFileURL } = require('url');
@@ -75,11 +73,11 @@ function fakeSnowman() {
 
 (async () => {
   await import(pathToFileURL(path.join(__dirname, '..', 'loaders', 'register-ts-resolve.mjs')).href);
-  const { Snowman } = await import('../../src/snowman.ts');
+  const { livePhysicsLoop, FIXED_DT } = await import('../helpers/live-physics-loop.mjs');
   const terrain = await import('../../src/mountains/terrain.ts');
   const { Trees } = await import('../../src/mountains/trees.ts');
   const { addRocks, rockCollisionRadius } = await import('../../src/mountains/rocks.ts');
-  const { getTerrainHeight, getTerrainGradient, getDownhillDirection } = terrain;
+  const { getTerrainHeight } = terrain;
   // Finish line from the SHIPPED course constant, not a literal, so moving the finish
   // re-points the termination/finishability checks at the real course (Codex review).
   const { CourseModule } = await import('../../src/course.ts');
@@ -158,57 +156,57 @@ function fakeSnowman() {
 
     let reason = null;
     const showGameOver = (r) => { if (!reason) reason = r; };
-    let st = { isInAir: false, verticalVelocity: 0, lastTerrainHeight: getTerrainHeight(0, -15),
-               airTime: 0, jumpCooldown: 0, turnPhase: 0, currentTurnDirection: 0, turnChangeCooldown: 3 };
     const policy = POLICIES[policyName];
 
-    // Frame-time generator. Fixed dt, or bursty hitching clamped to the 0.1 s loop cap.
+    // Frame-time generator. Fixed dt, or bursty hitching; the shipped loop applies its own clamp.
     const fixed = typeof frameSpec === 'number';
     const hitchRng = fixed ? null : makeRng(0x117C4 ^ layoutSeed ^ (frameSpec.seed || 0));
-    const nextDt = () => fixed ? frameSpec : (hitchRng() < 0.08 ? 0.1 : 1 / 60);
+    const nextDt = () => fixed ? frameSpec : (hitchRng() < 0.08 ? 0.5 : 1 / 60);
     // Cap wall-clock frames at ~2 min in-game; smallest dt sets the worst case.
     const MAX_FRAMES = Math.ceil(120 / (fixed ? frameSpec : 1 / 60));
 
     let maxSpeed = 0, maxStep = 0, treeTunnel = 0, rockTunnel = 0, nonFinite = false, t = 0, f = 0;
-    for (; f < MAX_FRAMES; f++) {
-      const dt = nextDt();
-      t += dt;
-      const prevX = pos.x, prevZ = pos.z;
-      const controls = policy(t, pos, velocity, treePositions, schedule);
-      st = Snowman.updateSnowman(snowman, dt, pos, velocity, st.isInAir, st.verticalVelocity,
-        st.lastTerrainHeight, st.airTime, st.jumpCooldown, controls, st.turnPhase, st.currentTurnDirection,
-        st.turnChangeCooldown, 3.0, getTerrainHeight, getTerrainGradient, getDownhillDirection,
-        treePositions, true, showGameOver, rockPositions);
-      snowman.position.set(pos.x, pos.y, pos.z);
+    const live = livePhysicsLoop({ snowman, pos, velocity, treePositions, rockPositions,
+      controlsAt: time => policy(time + FIXED_DT, pos, velocity, treePositions, schedule),
+      showGameOver,
+      onStep: ({ prev, time }) => {
+        t = time;
+        const prevX = prev.x, prevZ = prev.z;
+        if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z) ||
+            !Number.isFinite(velocity.x) || !Number.isFinite(velocity.z)) { nonFinite = true; live.stop(); return; }
 
-      if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z) ||
-          !Number.isFinite(velocity.x) || !Number.isFinite(velocity.z)) { nonFinite = true; break; }
+        const speed = Math.hypot(velocity.x, velocity.z);
+        if (speed > maxSpeed) maxSpeed = speed;
+        const step = Math.hypot(pos.x - prevX, pos.z - prevZ);
+        if (step > maxStep) maxStep = step;
 
-      const speed = Math.hypot(velocity.x, velocity.z);
-      if (speed > maxSpeed) maxSpeed = speed;
-      const step = Math.hypot(pos.x - prevX, pos.z - prevZ);
-      if (step > maxStep) maxStep = step;
-
-      // Tunneling probe: did the prev->cur segment pass THROUGH an obstacle disk that
-      // neither endpoint sampled inside (so the point-based check missed it)?
-      for (const tr of treePositions) {
-        if (pointSegmentDistance(tr.x, tr.z, prevX, prevZ, pos.x, pos.z) < TREE_RADIUS &&
-            Math.hypot(prevX - tr.x, prevZ - tr.z) >= TREE_RADIUS &&
-            Math.hypot(pos.x - tr.x, pos.z - tr.z) >= TREE_RADIUS) {
-          treeTunnel++;
+        // Tunneling probe: did the prev->cur segment pass THROUGH an obstacle disk that
+        // neither endpoint sampled inside (so the point-based check missed it)?
+        for (const tr of treePositions) {
+          if (pointSegmentDistance(tr.x, tr.z, prevX, prevZ, pos.x, pos.z) < TREE_RADIUS &&
+              Math.hypot(prevX - tr.x, prevZ - tr.z) >= TREE_RADIUS &&
+              Math.hypot(pos.x - tr.x, pos.z - tr.z) >= TREE_RADIUS) {
+            treeTunnel++;
+          }
         }
-      }
-      for (const rk of rockPositions) {
-        const rr = rockCollisionRadius(rk.size);
-        if (pointSegmentDistance(rk.x, rk.z, prevX, prevZ, pos.x, pos.z) < rr &&
-            Math.hypot(prevX - rk.x, prevZ - rk.z) >= rr &&
-            Math.hypot(pos.x - rk.x, pos.z - rk.z) >= rr) {
-          rockTunnel++;
+        for (const rk of rockPositions) {
+          const rr = rockCollisionRadius(rk.size);
+          if (pointSegmentDistance(rk.x, rk.z, prevX, prevZ, pos.x, pos.z) < rr &&
+              Math.hypot(prevX - rk.x, prevZ - rk.z) >= rr &&
+              Math.hypot(pos.x - rk.x, pos.z - rk.z) >= rr) {
+            rockTunnel++;
+          }
         }
-      }
 
-      if (reason || pos.z < FINISH_Z || t >= maxTime) break;
-    }
+        if (reason || pos.z < FINISH_Z || t >= maxTime) live.stop();
+      },
+    });
+    try {
+      for (; f < MAX_FRAMES; f++) {
+        live.frame(nextDt());
+        if (nonFinite || reason || pos.z < FINISH_Z || t >= maxTime) break;
+      }
+    } finally { live.dispose(); }
     const finished = pos.z < FINISH_Z;              // strictly: reached the shipped finish line
     const terminated = reason !== null || finished; // ended (finish / crash / off-side)
     return { maxSpeed, maxStep, treeTunnel, rockTunnel, nonFinite, terminated, finished, reason,
@@ -242,7 +240,7 @@ function fakeSnowman() {
     POLICY_NAMES.length, FRAME_RATES.length, SEEDS.length);
   console.log('\n--- No collision tunneling (trees + rocks) at any frame rate / policy [GATING] ---');
   console.log('  uncaught tree pass-throughs:', totalTreeTunnel, '| uncaught rock pass-throughs:', totalRockTunnel);
-  console.log('  worst per-frame step:', worstStep.toFixed(3), `(${worstStepCtx})`, '| tree radius:', TREE_RADIUS);
+  console.log('  worst physics-substep step:', worstStep.toFixed(3), `(${worstStepCtx})`, '| tree radius:', TREE_RADIUS);
   console.log('  PASS:', noTunneling ? 'every step stays inside the collision radius ✅' : 'a frame stepped past an obstacle disk ❌');
   if (!noTunneling) hardFail = true;
 
@@ -252,7 +250,7 @@ function fakeSnowman() {
   // a policy's terminal speed at low FPS. Max-speed is the robust frame-rate observable
   // (driven by drag, which the fix bounds); lateral PATH is not (see the diagnostic
   // below), so we gate speed, not position.
-  const SPEED_RATIO_CAP = 1.6;
+  const SPEED_RATIO_CAP = 1.01;
   let worstSpeedRatio = 0, worstSpeedCtx = '';
   for (const seed of SEEDS) {
     for (const policyName of POLICY_NAMES) {
@@ -267,14 +265,7 @@ function fakeSnowman() {
   console.log('  PASS:', speedBounded ? 'low-FPS speed stays bounded ✅' : 'speed scales with frame rate ❌');
   if (!speedBounded) hardFail = true;
 
-  // --- Steered-path frame-rate sensitivity [DIAGNOSTIC, not gated] ---
-  // A deterministic time-keyed slalom does NOT trace the same path at every FPS: coarse-
-  // dt Euler integration, amplified by the radial mountain redirecting velocity along a
-  // position-dependent fall line, drifts the lateral path ~tens of units over a descent.
-  // That is honest integration sensitivity, not a bug (the steer force is delta-scaled,
-  // line 391/394 of physics.ts), and it is too chaotic to gate tightly without flaking —
-  // so it is reported, not asserted. The robust frame-rate guarantees are speed (gate 2)
-  // and no-tunneling/finite/termination (gates 1/4/5).
+  // Identical fixed-time inputs must trace the same path at every render rate.
   const CONV_SECONDS = 8;
   let worstConv = 0, worstConvSeed = 0;
   for (const seed of SEEDS) {
@@ -285,9 +276,10 @@ function fakeSnowman() {
       if (gap > worstConv) { worstConv = gap; worstConvSeed = seed; }
     }
   }
-  console.log('\n--- Steered-path frame-rate sensitivity (slalom) [DIAGNOSTIC] ---');
+  console.log('\n--- Steered-path frame-rate equivalence (slalom, live accumulator) [GATING] ---');
   console.log(`  worst ${CONV_SECONDS}s-window lateral drift vs 60 FPS:`, worstConv.toFixed(2), `(seed ${worstConvSeed})`,
-    '— coarse-dt Euler on the radial fall line; not gated');
+    '— fixed-step path difference');
+  if (worstConv > 1e-9) hardFail = true;
 
   // --- 4) No NaN/Infinity, any policy / rate [GATING] ---
   const nonFiniteRuns = records.filter(r => r.nonFinite);

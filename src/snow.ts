@@ -17,9 +17,11 @@
 // (Vite/tsc resolve them to the `.ts` files; the Node terrain/regression tests use
 // the `.js`->`.ts` resolve hook added in PR 3.3).
 import * as THREE from 'three';
+import { cosmeticRandom } from './run-context.js';
 import { Mountains } from './mountains.js';
 import { Trees } from './trees.js';
 import { Wind } from './wind.js';
+import { snowBillboardsFor, type SnowBillboards } from './snow-billboards.js';
 
 /** Minimal positional shape the snow systems read from the player. */
 interface Vec3Like {
@@ -34,18 +36,53 @@ interface PlanarVelocity {
   z: number;
 }
 
+/** App-owned state shared by checked construction and every particle update. */
+interface FlakeState {
+  speed: number;
+  wobble: number;
+  wobbleSpeed: number;
+  wobblePos: number;
+  /** Wind susceptibility (#253); optional so flakes created before the field existed
+   *  fall back to 1 (defensive). */
+  windFactor?: number;
+}
+
+interface FlakeSprite extends THREE.Sprite {
+  userData: FlakeState;
+}
+interface SplashState {
+  active: boolean;
+  lifetime: number;
+  maxLifetime: number;
+  xSpeed: number;
+  ySpeed: number;
+  zSpeed: number;
+  size: number;
+  rotationSpeed: number;
+  type: number;
+}
+interface SplashSprite extends THREE.Sprite {
+  userData: SplashState;
+}
+
 /** Pooled snow-splash particle system returned by {@link createSnowSplash}. */
 interface SnowSplash {
-  particles: THREE.Sprite[];
+  particles: SplashSprite[];
   particleCount: number;
   nextParticle: number;
+  /** Real pools use the shared billboard batch; hand-built test pools retain the
+   * old lightweight Sprite seam without needing a scene/rendering subsystem. */
+  batched?: boolean;
+  batch?: SnowBillboards;
 }
 
 // Mountains features are now in mountains.js
 // This file now delegates terrain/mountain calls to mountains.js
 
 // --- Snow Particle System ---
-const snowflakes: THREE.Sprite[] = [];
+const snowflakes: FlakeSprite[] = [];
+let snowfallBatch: SnowBillboards | null = null;
+let snowfallScene: THREE.Scene | null = null;
 const snowflakeCount = 1000;
 const snowflakeSpread = 100; // Spread area around player
 const snowflakeHeight = 50; // Height above player
@@ -75,83 +112,117 @@ function windDrift(): { x: number; z: number } {
 
 // Snowman code moved to snowman.js
 
-function createSnowflakes(scene: THREE.Scene) {
-  // Create a simple white circle texture for snowflakes
+// Per-frame wobble rate multiplier: the sideways wobble was tuned as a per-FRAME
+// displacement at 60 fps; ×60 converts that tuned look into a per-SECOND rate so
+// `* delta` makes it frame-rate independent (the #209 bug class, still alive in the
+// visuals until this fix: at 120 Hz flakes drifted sideways twice as fast as at 60 Hz).
+const WOBBLE_RATE = 60;
+
+// Shared flake materials, bucketed by opacity. Snow is a diffuse scatterer, not an
+// emitter: NormalBlending keeps flakes readable *against* the bright sky/snow (slightly
+// darker, correctly occluding) instead of additive-glowing cyan over dark trees — the
+// same reasoning as the avalanche powder cloud (avalanche.ts). A radially symmetric
+// sprite needs no per-flake rotation, and opacity variance only needs a few discrete
+// levels, so ALL flakes share these few materials instead of cloning one each (1000
+// clones -> FLAKE_OPACITY_BUCKETS.length). depthWrite stays off so the transparent
+// sprites never punch holes in each other.
+const FLAKE_OPACITY_BUCKETS: readonly number[] = [0.7, 0.85, 1.0];
+
+/** Soft, near-white radial puff with a faint cool edge (SNOW_RENDERING.md palette):
+ *  alpha carries visibility; the colour stays in "snow" range. */
+function createFlakeTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 16;
   canvas.height = 16;
   const ctx = canvas.getContext('2d')!;
-  
-  // Draw a soft, more prominent blueish circle
   const gradient = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
-  // Enhanced blue tint for better visibility against white snow
-  gradient.addColorStop(0, 'rgba(180, 210, 255, 0.95)'); // More saturated blueish center
-  gradient.addColorStop(0.4, 'rgba(200, 225, 255, 0.8)'); // Mid-tone with blue
-  gradient.addColorStop(1, 'rgba(220, 240, 255, 0)'); // Fade to transparent with slight blue
+  gradient.addColorStop(0, 'rgba(250, 252, 255, 0.95)'); // near-white core
+  gradient.addColorStop(0.4, 'rgba(242, 247, 253, 0.75)');
+  gradient.addColorStop(1, 'rgba(228, 238, 250, 0)');    // faint cool edge -> transparent
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 16, 16);
-  
-  const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({ 
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createSnowflakes(scene: THREE.Scene): readonly THREE.Sprite[] {
+  if (snowflakes.length > 0) teardownSnowflakes();
+  const texture = createFlakeTexture();
+  // One material per opacity bucket, all sharing the one texture.
+  const materials = FLAKE_OPACITY_BUCKETS.map((opacity) => new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    blending: THREE.AdditiveBlending // Add blending for more visible particles
-  });
-  
+    opacity,
+    blending: THREE.NormalBlending, // diffuse snow: never additive (see bucket note)
+    depthWrite: false
+  }));
+
   // Create individual snowflakes
   for (let i = 0; i < snowflakeCount; i++) {
-    const snowflake = new THREE.Sprite(material.clone()); // Clone material for individual properties
-    
+    const snowflake = new THREE.Sprite(materials[i % materials.length]);
+
     // More varied size range for realistic snow
-    const size = 0.1 + Math.random() * 0.4; // Wider range for more varied flakes
+    const size = 0.1 + cosmeticRandom('snowParticles') * 0.4; // Wider range for more varied flakes
     snowflake.scale.set(size, size, size);
 
     // Wind susceptibility (issue #253): lighter (smaller) flakes are carried further by
     // the wind, so the snowfall slants instead of falling rigidly straight. sizeNorm 0
     // (smallest) => 0.40, sizeNorm 1 (largest) => 0.12.
     const sizeNorm = (size - 0.1) / 0.4; // 0..1 across the size range
-    snowflake.userData.windFactor = 0.12 + 0.28 * (1 - sizeNorm);
-    
+
     // Random positions in a box above the player
     resetSnowflakePosition(snowflake, { x: 0, y: 0, z: -40 });
-    
-    // Enhanced movement properties for more realistic snow behavior
-    snowflake.userData.speed = (0.5 + Math.random() * 1.0) * snowflakeFallSpeed;
-    snowflake.userData.wobble = 0.05 + Math.random() * 0.15; // More natural wobble
-    snowflake.userData.wobbleSpeed = 0.3 + Math.random() * 2.0; // Varied wobble speeds
-    snowflake.userData.wobblePos = Math.random() * Math.PI * 2;
-    // Add rotation for some flakes
-    snowflake.userData.rotationSpeed = (Math.random() - 0.5) * 0.5;
-    // Randomize opacity slightly
-    snowflake.material.opacity = 0.7 + Math.random() * 0.3;
-    
-    scene.add(snowflake);
-    snowflakes.push(snowflake);
+
+    // Movement state (typed — see FlakeState) for realistic snow behaviour.
+    const flake: FlakeState = {
+      speed: (0.5 + cosmeticRandom('snowParticles') * 1.0) * snowflakeFallSpeed,
+      wobble: 0.05 + cosmeticRandom('snowParticles') * 0.15,      // More natural wobble
+      wobbleSpeed: 0.3 + cosmeticRandom('snowParticles') * 2.0,   // Varied wobble speeds
+      wobblePos: cosmeticRandom('snowParticles') * Math.PI * 2,
+      windFactor: 0.12 + 0.28 * (1 - sizeNorm)
+    };
+    const typedSnowflake: FlakeSprite = Object.assign(snowflake, { userData: flake });
+
+    snowflakes.push(typedSnowflake);
   }
+  snowfallBatch = snowBillboardsFor(scene);
+  snowfallScene = scene;
+  snowfallBatch.add(snowflakes, () => 0);
+  // Detached handles remain inspectable by particle tests; they never submit
+  // per-flake draws or participate in Object3D matrix traversal.
+  return snowflakes.slice();
 }
 
 // Clear the module-level snowflake pool (dispose-audit teardown / dev-HMR). The pool is
 // a module-level array, so on an embed/remount path that reuses this module instance,
 // createSnowflakes() would append another snowfall on top of the previous (detached)
-// sprites while updateSnowflakes() kept iterating the stale ones. Detach + dispose each
-// sprite's (cloned) material and its shared texture here — self-contained so it does not
-// depend on disposeGame's scene sweep order — then empty the array so a later
-// createSnowflakes() starts clean. Idempotent.
-function teardownSnowflakes(): void {
+// sprites while updateSnowflakes() kept iterating the stale ones. Detach every sprite,
+// then dispose each UNIQUE material/texture exactly once — the flakes share the few
+// opacity-bucket materials (and one texture), so a per-sprite dispose would free the
+// same resource hundreds of times. Self-contained so it does not depend on disposeGame's
+// scene sweep order; the array is emptied so a later createSnowflakes() starts clean.
+// Idempotent.
+function teardownSnowflakes(scene?: THREE.Scene): void {
+  if (scene && snowfallScene !== scene) return;
+  snowfallBatch?.remove(snowflakes);
+  snowfallBatch = null;
+  snowfallScene = null;
+  const mats = new Set<THREE.SpriteMaterial>();
+  const texes = new Set<THREE.Texture>();
   for (const flake of snowflakes) {
     flake.parent?.remove(flake);
-    const mat = flake.material;
-    mat.map?.dispose();   // shared across clones — dispose is idempotent
-    mat.dispose();
+    mats.add(flake.material);
+    if (flake.material.map) texes.add(flake.material.map);
   }
+  for (const mat of mats) mat.dispose();
+  for (const tex of texes) tex.dispose();
   snowflakes.length = 0;
 }
 
 function resetSnowflakePosition(snowflake: THREE.Sprite, playerPos: Vec3Like) {
   // Position snowflakes randomly in a box above the player
-  snowflake.position.x = playerPos.x + (Math.random() * snowflakeSpread - snowflakeSpread/2);
-  snowflake.position.z = playerPos.z + (Math.random() * snowflakeSpread - snowflakeSpread/2);
-  snowflake.position.y = playerPos.y + Math.random() * snowflakeHeight;
+  snowflake.position.x = playerPos.x + (cosmeticRandom('snowParticles') * snowflakeSpread - snowflakeSpread/2);
+  snowflake.position.z = playerPos.z + (cosmeticRandom('snowParticles') * snowflakeSpread - snowflakeSpread/2);
+  snowflake.position.y = playerPos.y + cosmeticRandom('snowParticles') * snowflakeHeight;
 }
 
 function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scene) {
@@ -159,28 +230,32 @@ function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scen
   // by it scaled by its own wind factor, so the whole snowfall leans the same way (#253).
   const wind = windDrift();
   snowflakes.forEach(snowflake => {
+    const flake = snowflake.userData;
     // Apply falling movement
-    snowflake.position.y -= snowflake.userData.speed * delta;
+    snowflake.position.y -= flake.speed * delta;
 
-    // Add some gentle sideways wobble for realism
-    snowflake.userData.wobblePos += snowflake.userData.wobbleSpeed * delta;
-    snowflake.position.x += Math.sin(snowflake.userData.wobblePos) * snowflake.userData.wobble;
+    // Add some gentle sideways wobble for realism. Delta-scaled (× WOBBLE_RATE to keep
+    // the tuned 60 fps amplitude) so the drift rate is frame-rate independent — the
+    // fall/wind/phase terms already were, but the displacement itself accumulated per
+    // FRAME, doubling the sideways speed at 120 Hz (#209 bug class).
+    flake.wobblePos += flake.wobbleSpeed * delta;
+    snowflake.position.x += Math.sin(flake.wobblePos) * flake.wobble * delta * WOBBLE_RATE;
     // Add slight z-axis wobble too for more 3D movement
-    snowflake.position.z += Math.cos(snowflake.userData.wobblePos * 0.7) * snowflake.userData.wobble * 0.5;
+    snowflake.position.z += Math.cos(flake.wobblePos * 0.7) * flake.wobble * 0.5 * delta * WOBBLE_RATE;
 
-    // Wind drift: blow the flake downwind, lighter flakes further (windFactor). Falls back
-    // to 1 for any flake created before this field existed (defensive).
-    const windFactor = snowflake.userData.windFactor ?? 1;
+    // Wind drift: blow the flake downwind, lighter flakes further (windFactor).
+    const windFactor = flake.windFactor ?? 1;
     snowflake.position.x += wind.x * windFactor * delta;
     snowflake.position.z += wind.z * windFactor * delta;
-    
-    // Add rotation if this flake has rotation speed
-    if (snowflake.userData.rotationSpeed) {
-      snowflake.material.rotation += snowflake.userData.rotationSpeed * delta;
-    }
-    
+
+
     // Check if snowflake has fallen below the terrain or is too far from player
-    const terrainHeight = Mountains.getTerrainHeight(snowflake.position.x, snowflake.position.z);
+    // Cache-NEUTRAL sampler (#401): up to 1000 falling flakes query moving ad-hoc
+    // coordinates every frame — routing them through the memoizing getTerrainHeight
+    // grew and contaminated the gameplay-owned heightMap cache (whichever query
+    // first lands in a 0.1-unit cell fixes that cell for later physics/placement
+    // reads). Same rationale as the rock collars (#390 review).
+    const terrainHeight = Mountains.getTerrainHeightUncached(snowflake.position.x, snowflake.position.z);
     const distanceToPlayer = Math.sqrt(
       Math.pow(snowflake.position.x - playerPos.x, 2) + 
       Math.pow(snowflake.position.z - playerPos.z, 2)
@@ -192,86 +267,92 @@ function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scen
   });
 }
 
-// Create a snow splash particle system for ski effects
-function createSnowSplash(): SnowSplash {
-  // Create a simple white circle texture for snow splash
+/** Soft near-white radial puff — the base ski-spray mist. */
+function createSplashPuffTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 32;
   canvas.height = 32;
   const ctx = canvas.getContext('2d')!;
-  
-  // Draw a bright, more prominent blueish circle with soft edges
   const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-  // Enhanced blue tint for the splash
-  gradient.addColorStop(0, 'rgba(160, 200, 255, 1.0)'); // Stronger blueish center
-  gradient.addColorStop(0.3, 'rgba(190, 215, 255, 0.9)'); // Mid-blue tone
-  gradient.addColorStop(0.7, 'rgba(210, 230, 255, 0.6)'); // Light blue
-  gradient.addColorStop(1, 'rgba(230, 240, 255, 0)'); // Fade to transparent with blue hint
+  gradient.addColorStop(0, 'rgba(250, 252, 255, 0.95)'); // near-white core
+  gradient.addColorStop(0.3, 'rgba(244, 249, 254, 0.8)');
+  gradient.addColorStop(0.7, 'rgba(236, 244, 252, 0.5)');
+  gradient.addColorStop(1, 'rgba(226, 237, 249, 0)');    // faint cool edge
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, 32, 32);
-  
-  // Create a second texture variation for more diversity
-  const canvas2 = document.createElement('canvas');
-  canvas2.width = 32;
-  canvas2.height = 32;
-  const ctx2 = canvas2.getContext('2d')!;
-  
-  // Create a more irregular, crystalline shape
-  ctx2.fillStyle = 'rgba(180, 210, 255, 0)';
-  ctx2.fillRect(0, 0, 32, 32);
-  
-  // Draw a star-like shape
-  ctx2.beginPath();
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2;
-    const radius = i % 2 === 0 ? 14 : 6;
-    const x = 16 + Math.cos(angle) * radius;
-    const y = 16 + Math.sin(angle) * radius;
-    if (i === 0) ctx2.moveTo(x, y);
-    else ctx2.lineTo(x, y);
-  }
-  ctx2.closePath();
-  
-  // Fill with blue gradient
-  const gradient2 = ctx2.createRadialGradient(16, 16, 0, 16, 16, 16);
-  gradient2.addColorStop(0, 'rgba(150, 190, 255, 1.0)');
-  gradient2.addColorStop(0.5, 'rgba(180, 205, 255, 0.8)');
-  gradient2.addColorStop(1, 'rgba(200, 225, 255, 0)');
-  ctx2.fillStyle = gradient2;
-  ctx2.fill();
-  
-  const texture = new THREE.CanvasTexture(canvas);
-  const texture2 = new THREE.CanvasTexture(canvas2);
+  return new THREE.CanvasTexture(canvas);
+}
 
-  // Follow the same approach as snowflakes - use individual sprites
-  const splashParticles: THREE.Sprite[] = [];
+/** A second, irregular puff (a few overlapping soft blobs). Ski spray is an aggregate
+ *  powder mist, so this replaces the old star/crystal texture that read as one giant
+ *  snow crystal. */
+function createSplashClumpTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext('2d')!;
+  // Overlapping off-centre blobs -> an uneven, clumpy mist silhouette.
+  const blobs: Array<[number, number, number, number]> = [
+    [14, 15, 11, 0.85], // [cx, cy, radius, core alpha]
+    [21, 12, 7, 0.6],
+    [11, 21, 6, 0.55],
+    [20, 21, 5, 0.5]
+  ];
+  for (const [cx, cy, r, a] of blobs) {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, `rgba(248, 251, 255, ${a})`);
+    g.addColorStop(0.6, `rgba(240, 246, 253, ${a * 0.55})`);
+    g.addColorStop(1, 'rgba(230, 240, 250, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 32, 32);
+  }
+  return new THREE.CanvasTexture(canvas);
+}
+
+// Create a snow splash particle system for ski effects
+function createSnowSplash(): SnowSplash {
+  const texture = createSplashPuffTexture();
+  const texture2 = createSplashClumpTexture();
+
+  // Sprite-shaped CPU state preserves the simulation/test seam. The live scene
+  // renders these through the same sorted billboard batch as the snowfall.
+  const splashParticles: SplashSprite[] = [];
   const particleCount = 250; // Increased for more dramatic effect
-  
-  // Create the base materials that particles will use
+
+  // Base materials the pool clones from. NormalBlending like the flakes and the
+  // avalanche powder — additive spray washed out to invisible over bright snow and
+  // glowed cyan against dark trees. The pool DOES keep one material per sprite
+  // (cloned once here, never per frame): unlike the flakes' static opacity buckets,
+  // the splash animates `material.opacity`/`rotation` per particle over its lifetime,
+  // and the billboard batch reads those values into per-instance attributes. The
+  // two textures above are the shared resources; no per-particle draw is issued.
   const materials = [
-    new THREE.SpriteMaterial({ 
+    new THREE.SpriteMaterial({
       map: texture,
       transparent: true,
-      blending: THREE.AdditiveBlending
+      blending: THREE.NormalBlending,
+      depthWrite: false
     }),
     new THREE.SpriteMaterial({
       map: texture2,
       transparent: true,
-      blending: THREE.AdditiveBlending
+      blending: THREE.NormalBlending,
+      depthWrite: false
     })
   ];
-  
+
   // Create individual particles
   for (let i = 0; i < particleCount; i++) {
     // Randomly choose between the two texture types
-    const materialIndex = Math.random() > 0.3 ? 0 : 1;
+    const materialIndex = cosmeticRandom('snowParticles') > 0.3 ? 0 : 1;
     const particle = new THREE.Sprite(materials[materialIndex]!.clone());
+    particle.visible = false;
     
     // Start with zero size (invisible)
     particle.scale.set(0, 0, 0);
     
     // Store particle-specific data
-    particle.userData = {
+    const state: SplashState = {
       active: false,
       lifetime: 0,
       maxLifetime: 0,
@@ -279,25 +360,72 @@ function createSnowSplash(): SnowSplash {
       ySpeed: 0,
       zSpeed: 0,
       size: 0, // Store base size
-      rotationSpeed: (Math.random() - 0.5) * 0.8, // Add rotation for some particles
+      rotationSpeed: (cosmeticRandom('snowParticles') - 0.5) * 0.8, // Add rotation for some particles
       type: materialIndex // Remember texture type
     };
     
     // Add to tracking array
-    splashParticles.push(particle);
+    const typedParticle: SplashSprite = Object.assign(particle, { userData: state });
+    splashParticles.push(typedParticle);
   }
   
   return {
     particles: splashParticles,
     particleCount,
-    nextParticle: 0
+    nextParticle: 0,
+    batched: true,
   };
 }
 
-// Update snow splash particles each frame
-function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THREE.Object3D, velocity: PlanarVelocity, isInAir: boolean, scene: THREE.Scene) {
+// Update snow splash particles each frame.
+// `landingBurst` (JP-5, optional — absent keeps every existing caller byte-identical):
+// a one-shot 0..1 intensity for the frame a graded manual jump touches down. Emits a
+// wide skidding ring of spray at the skis scaled by the intensity (the loop maps
+// CLEAN → a crisp small puff, SKETCHY → a wide wash), independent of the grounded
+// speed-gated emission below.
+// 60 Hz-referenced accumulator for the ski-spray emission roll (#400) — see the
+// emission block below. Module-level like the splash pool itself.
+let splashEmitAccum = 0;
+
+/** Clear the reused pool on a new run, including any banked emission tick. */
+function resetSnowSplash(splash: SnowSplash | null): void {
+  splashEmitAccum = 0;
+  if (!splash) return;
+  for (const particle of splash.particles) {
+    particle.userData.active = false;
+    particle.visible = false;
+    particle.scale.set(0, 0, 0);
+  }
+  splash.nextParticle = 0;
+}
+
+/** Detached CPU handles are not reachable by the scene-resource sweep. Release
+ * their owned materials/textures and unregister them from the shared batch. */
+function teardownSnowSplash(splash: SnowSplash | null): void {
+  if (!splash) return;
+  resetSnowSplash(splash);
+  splash.batch?.remove(splash.particles);
+  delete splash.batch;
+  const materials = new Set<THREE.SpriteMaterial>();
+  const textures = new Set<THREE.Texture>();
+  for (const particle of splash.particles) {
+    particle.removeFromParent();
+    materials.add(particle.material);
+    if (particle.material.map) textures.add(particle.material.map);
+  }
+  for (const material of materials) material.dispose();
+  for (const texture of textures) texture.dispose();
+  splash.particles.length = 0;
+  splash.particleCount = 0;
+}
+
+function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THREE.Object3D, velocity: PlanarVelocity, isInAir: boolean, scene: THREE.Scene, landingBurst?: number) {
   // Early return if not initialized
-  if (!splash || !splash.particles) return;
+  if (!splash || !splash.particles || splash.particles.length === 0) return;
+  if (splash.batched && !splash.batch) {
+    splash.batch = snowBillboardsFor(scene);
+    splash.batch.add(splash.particles, (particle) => particle.userData.type === 0 ? 1 : 2);
+  }
   
   // Calculate current speed
   const speed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
@@ -316,6 +444,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
     // Deactivate if lifetime is over
     if (particle.userData.lifetime <= 0) {
       particle.userData.active = false;
+      particle.visible = false; // zero scale alone still submits a Sprite draw
       particle.scale.set(0, 0, 0); // Make invisible
       return;
     }
@@ -330,7 +459,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
     particle.position.z += wind.z * SPLASH_WIND * delta;
 
     // Apply gravity with slight random variation
-    particle.userData.ySpeed -= (11 + Math.random() * 2) * delta;
+    particle.userData.ySpeed -= (11 + cosmeticRandom('snowParticles') * 2) * delta;
     
     // Apply slight air resistance/drag
     particle.userData.xSpeed *= (1 - 0.2 * delta);
@@ -360,8 +489,16 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
     
     // Emit chance increases with speed and turning
     const emissionChance = Math.min(1, 0.7 + (speed / 16) + (turnFactor * 0.8));
-    
-    if (Math.random() < emissionChance) {
+
+    // Frame-rate-independent emission (#400): the old per-render-frame roll made a
+    // 144 Hz panel spray ~2.4x the particles of a 60 Hz one (and at the common
+    // chance=1 it emitted every frame unconditionally). The accumulator rolls the
+    // SAME chance at the 60 Hz reference cadence — identical expected particles
+    // per second at any render rate. Catch-up after a stall is capped.
+    splashEmitAccum = Math.min(splashEmitAccum + delta * 60, 4);
+    while (splashEmitAccum >= 1) {
+      splashEmitAccum -= 1;
+      if (cosmeticRandom('snowParticles') >= emissionChance) continue;
       // Get ski positions (left and right of snowman)
       const skiOffsetLeft = new THREE.Vector3(-1.1, 0.1, 1);
       const skiOffsetRight = new THREE.Vector3(1.1, 0.1, 1);
@@ -371,8 +508,8 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
       skiOffsetRight.applyAxisAngle(new THREE.Vector3(0, 1, 0), snowman.rotation.y);
       
       // Choose which ski to emit from (or both at high speeds)
-      const emitBoth = speed > 7 || Math.random() < 0.8; // Increased chance for both
-      const emitLeft = emitBoth || Math.random() < 0.5;
+      const emitBoth = speed > 7 || cosmeticRandom('snowParticles') < 0.8; // Increased chance for both
+      const emitLeft = emitBoth || cosmeticRandom('snowParticles') < 0.5;
       const emitRight = emitBoth || !emitLeft;
       
       // Calculate particle count based on speed and turning
@@ -406,9 +543,9 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
           : (emitLeft ? skiOffsetLeft : skiOffsetRight);
         
         // Create randomness for more natural effect
-        const randomX = (Math.random() - 0.5) * 1.2;
-        const randomY = Math.random() * 0.3;
-        const randomZ = (Math.random() - 0.5) * 1.2;
+        const randomX = (cosmeticRandom('snowParticles') - 0.5) * 1.2;
+        const randomY = cosmeticRandom('snowParticles') * 0.3;
+        const randomZ = (cosmeticRandom('snowParticles') - 0.5) * 1.2;
         
         // Position at ski
         const snowmanPos = new THREE.Vector3(
@@ -423,9 +560,9 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         // Generate random speed components with more realistic spread
         // Side velocity depends on turn factor
         const sideBase = 2 + turnFactor * 4;
-        const sideVelocity = sideBase + Math.random() * 3 * speed / 8;
-        const upVelocity = 1.5 + Math.random() * 3 * speed / 10;
-        const forwardVelocity = 0.8 + Math.random() * 2.0;
+        const sideVelocity = sideBase + cosmeticRandom('snowParticles') * 3 * speed / 8;
+        const upVelocity = 1.5 + cosmeticRandom('snowParticles') * 3 * speed / 10;
+        const forwardVelocity = 0.8 + cosmeticRandom('snowParticles') * 2.0;
         
         // Set velocities - direction depending on which ski
         particle.userData.xSpeed = (skiOffset === skiOffsetLeft ? -1 : 1) * sideVelocity;
@@ -438,7 +575,7 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         
         // Set larger base size for better visibility
         const baseSize = 1.3 + (speed / 16); // Increased base size
-        particle.userData.size = baseSize + Math.random() * baseSize * 0.7;
+        particle.userData.size = baseSize + cosmeticRandom('snowParticles') * baseSize * 0.7;
         
         // Set initial scale
         particle.scale.set(
@@ -448,19 +585,63 @@ function updateSnowSplash(splash: SnowSplash | null, delta: number, snowman: THR
         );
         
         // Set higher opacity for better visibility
-        particle.material.opacity = 0.9 + Math.random() * 0.1;
+        particle.material.opacity = 0.9 + cosmeticRandom('snowParticles') * 0.1;
         
         // Set lifetime and activate with more variation
         const speedFactor = Math.min(1, speed / 15);
-        particle.userData.maxLifetime = 0.7 + Math.random() * 0.9 * (1 + speedFactor * 0.5);
+        particle.userData.maxLifetime = 0.7 + cosmeticRandom('snowParticles') * 0.9 * (1 + speedFactor * 0.5);
         particle.userData.lifetime = particle.userData.maxLifetime;
         particle.userData.active = true;
+        particle.visible = true;
         
         // Add to scene if not already added
-        if (!particle.parent) {
+        if (!splash.batched && !particle.parent) {
           scene.add(particle);
         }
       }
+    }
+  } else {
+    // Not grounded-and-moving: drop any banked emission ticks so touchdown doesn't
+    // fire a phantom backlog on top of the explicit landing burst below (#400).
+    splashEmitAccum = 0;
+  }
+
+  // Touchdown burst (JP-5): a one-shot radial puff on a graded manual-jump landing,
+  // scaled by the loop-supplied intensity. Reuses the same pooled particles; skipped
+  // entirely when the param is absent/zero, so legacy callers are untouched.
+  if (landingBurst && landingBurst > 0) {
+    const burstCount = Math.floor(6 + landingBurst * 16);
+    for (let i = 0; i < burstCount; i++) {
+      let nextIdx = splash.nextParticle;
+      let tries = 0;
+      while (splash.particles[nextIdx]!.userData.active && tries < splash.particleCount) {
+        nextIdx = (nextIdx + 1) % splash.particleCount;
+        tries++;
+      }
+      splash.nextParticle = (nextIdx + 1) % splash.particleCount;
+      if (tries >= splash.particleCount) break;
+      const particle = splash.particles[nextIdx]!;
+
+      // A ring around the skis: spray kicked outward + up on impact.
+      const ang = (i / burstCount) * Math.PI * 2 + cosmeticRandom('snowParticles') * 0.5;
+      const ringR = 0.6 + cosmeticRandom('snowParticles') * 0.9;
+      particle.position.x = snowman.position.x + Math.cos(ang) * ringR;
+      particle.position.y = snowman.position.y + 0.15 + cosmeticRandom('snowParticles') * 0.2;
+      particle.position.z = snowman.position.z + Math.sin(ang) * ringR;
+
+      const kick = 2.5 + landingBurst * 5;
+      particle.userData.xSpeed = Math.cos(ang) * kick * (0.6 + cosmeticRandom('snowParticles') * 0.6) + velocity.x * 0.25;
+      particle.userData.ySpeed = 2 + landingBurst * 3 * cosmeticRandom('snowParticles');
+      particle.userData.zSpeed = Math.sin(ang) * kick * (0.6 + cosmeticRandom('snowParticles') * 0.6) + velocity.z * 0.25;
+
+      particle.userData.size = 1.1 + landingBurst * 1.2 * cosmeticRandom('snowParticles');
+      particle.scale.set(particle.userData.size, particle.userData.size, particle.userData.size);
+      particle.material.opacity = 0.85 + cosmeticRandom('snowParticles') * 0.15;
+      particle.userData.maxLifetime = 0.5 + landingBurst * 0.6 + cosmeticRandom('snowParticles') * 0.3;
+      particle.userData.lifetime = particle.userData.maxLifetime;
+      particle.userData.active = true;
+      particle.visible = true;
+      if (!splash.batched && !particle.parent) scene.add(particle);
     }
   }
 }
@@ -478,12 +659,18 @@ export const Snow = {
   getTerrainGradient: Mountains.getTerrainGradient,
   getDownhillDirection: Mountains.getDownhillDirection,
   createTerrain: Mountains.createTerrain,
+  setTerrainCorridor: Mountains.setTerrainCorridor,
+  setTerrainKickers: Mountains.setTerrainKickers,
   createTree: Trees.createTree,
   createRock: Mountains.createRock,
   addTrees: Trees.addTrees,
   addRocks: Mountains.addRocks,
   addBranchesAtLayer: Trees.addBranchesAtLayer,
   addSnowCaps: Trees.addSnowCaps,
+  // Wind sway for the instanced forest (issue #253) — advanced/rewound by the main loop
+  // alongside the snow drift, so the whole scene reads one wind clock.
+  updateTreeWind: Trees.updateWind,
+  resetTreeWind: Trees.resetWind,
   debugHeightMap: Mountains.debugHeightMap,
   heightMap: Mountains.heightMap,
   
@@ -492,6 +679,8 @@ export const Snow = {
   updateSnowflakes,
   teardownSnowflakes,
   createSnowSplash,
+  resetSnowSplash,
+  teardownSnowSplash,
   updateSnowSplash
 };
 

@@ -70,6 +70,13 @@ async function main() {
   check('primary marks itself expanded', primary.getAttribute('aria-expanded') === 'true');
   primary.click();
   check('primary closes the menu again', menu.style.display === 'none');
+  primary.click();
+  root.querySelector('#share-facebook-btn').dispatchEvent(new window.KeyboardEvent('keydown', {
+    key: 'Escape', bubbles: true, cancelable: true,
+  }));
+  check('Escape collapses social options and restores focus to their disclosure',
+    menu.style.display === 'none' && document.activeElement === primary
+    && primary.getAttribute('aria-expanded') === 'false');
 
   // ---- Per-platform links open the right share-intent URL. ----
   console.log('\n--- per-platform links ---');
@@ -97,6 +104,9 @@ async function main() {
   setNavigator({}); // no navigator.share -> prefersNativeShare() false -> download
   root = mount({ time: 30, isBest: false, getCapture: () => null });
   const imageBtn = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
+  check('image action announces preparation until the PNG is ready',
+    imageBtn.disabled && imageBtn.getAttribute('aria-busy') === 'true');
+  await tick();
   imageBtn.click();
   await tick();
   check('desktop save-image downloads the card', /image saved/i.test(imageBtn.textContent));
@@ -113,7 +123,10 @@ async function main() {
   });
   root = mount({ time: 30, isBest: false, getCapture: () => null });
   const imageBtn2 = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
+  await tick();
   imageBtn2.click();
+  check('prepared image starts native sharing synchronously inside the tap',
+    Array.isArray(sharedFiles) && sharedFiles.length === 1);
   await tick();
   check('mobile save-image file-shares the PNG', Array.isArray(sharedFiles) && sharedFiles.length === 1);
   check('mobile save-image reflects the shared state', /shared/i.test(imageBtn2.textContent));
@@ -125,6 +138,7 @@ async function main() {
   setNavigator({});
   root = mount({ time: 30, isBest: false, getCapture: () => null });
   const imageBtn3 = /** @type {HTMLButtonElement} */ (root.querySelector('#shareImageBtn'));
+  await tick();
   imageBtn3.click();
   await tick();
   check('save-image with no card -> unavailable', /unavailable/i.test(imageBtn3.textContent));
@@ -136,13 +150,35 @@ async function main() {
   let nativeShared = null;
   setNavigator({ share: async (d) => { nativeShared = d; }, maxTouchPoints: 5, userAgent: 'iPhone' });
   root = mount({ time: 42.13, isBest: true });
+  await tick();
   /** @type {HTMLElement} */ (root.querySelector('#shareResultBtn')).click();
+  check('prepared primary image share keeps the original user activation', nativeShared !== null);
   await tick();
   check('mobile primary file-shares the screenshot card',
     !!nativeShared && Array.isArray(nativeShared.files) && nativeShared.files.length === 1);
   check('mobile primary share text carries the public url',
     !!nativeShared && /snowglider\.ai/.test(nativeShared.text));
   check('mobile primary reflects the shared state', /shared/i.test(root.querySelector('#shareResultBtn').textContent));
+
+  console.log('\n--- immediate mobile tap while PNG preparation is pending ---');
+  const realToBlob = window.HTMLCanvasElement.prototype.toBlob;
+  /** @type {BlobCallback} */
+  let resolveBlob = () => { throw new Error('canvas export did not start'); };
+  window.HTMLCanvasElement.prototype.toBlob = cb => { resolveBlob = cb; };
+  nativeShared = null;
+  root = mount({ time: 42.13, isBest: true });
+  await tick();
+  const coldPrimary = /** @type {HTMLButtonElement} */ (root.querySelector('#shareResultBtn'));
+  coldPrimary.click();
+  check('immediate primary tap invokes native text sharing without awaiting the PNG',
+    !!nativeShared && !nativeShared.files && /snowglider\.ai/.test(nativeShared.url));
+  check('native sharing marks the primary action busy',
+    coldPrimary.disabled && coldPrimary.getAttribute('aria-busy') === 'true');
+  resolveBlob(null);
+  await tick();
+  check('native completion releases the primary action',
+    !coldPrimary.disabled && !coldPrimary.hasAttribute('aria-busy'));
+  window.HTMLCanvasElement.prototype.toBlob = realToBlob;
 
   // ---- Mobile primary fallback: no file-share support -> text+link share. ----
   console.log('\n--- mobile primary fallback (no file share) ---');
@@ -162,6 +198,37 @@ async function main() {
   await tick();
   check('mobile primary falls back to a text+link share when files are unsupported',
     !!textShared && /snowglider\.ai/.test(textShared.url));
+
+  console.log('\n--- native cancellation and unavailable fallbacks ---');
+  let cancelledCopies = 0;
+  setNavigator({
+    share: async () => { throw Object.assign(new Error('cancel'), { name: 'AbortError' }); },
+    clipboard: { writeText: async () => { cancelledCopies++; } },
+    maxTouchPoints: 5,
+  });
+  root = mount({ time: 30, isBest: false });
+  await tick();
+  /** @type {HTMLButtonElement} */ (root.querySelector('#shareResultBtn')).click();
+  await tick();
+  check('cancelling native image share does not copy or expand fallback options',
+    cancelledCopies === 0 && /** @type {HTMLElement} */ (root.querySelector('#shareMenu')).style.display === 'none');
+
+  setNavigator({
+    share: async () => { throw new Error('sharing denied'); },
+    clipboard: { writeText: async () => { throw new Error('clipboard denied'); } },
+    maxTouchPoints: 5,
+  });
+  root = mount({ time: 30, isBest: false, getCapture: () => { throw new Error('lost renderer'); } });
+  await tick();
+  const fallbackPrimary = /** @type {HTMLButtonElement} */ (root.querySelector('#shareResultBtn'));
+  fallbackPrimary.click();
+  await tick();
+  check('native and clipboard failure exposes usable social fallback options',
+    /** @type {HTMLElement} */ (root.querySelector('#shareMenu')).style.display === 'block'
+    && fallbackPrimary.getAttribute('aria-expanded') === 'true' && !fallbackPrimary.disabled);
+  fallbackPrimary.click();
+  check('the primary action can collapse the native fallback menu',
+    /** @type {HTMLElement} */ (root.querySelector('#shareMenu')).style.display === 'none');
 
   // ---- Touch defusing: button taps must NOT reach controls.ts's document-level
   // touch handlers. Those preventDefault() every touch, and on mobile a

@@ -106,16 +106,18 @@ by name. The per-module `window.*` namespace bridges that used to link them were
 | `Trees` | `trees.ts` (facade → `src/mountains/trees.ts`) | object + fns | Tree meshes + placement; returns `treePositions` |
 | `Snow` | `snow.ts` | object + fns | Snowflakes + ski snow-splash particles (drift downwind, issue #253) |
 | `Sky` | `sky.ts` | object + fns | Preetham atmospheric sky + sun & horizon distance fog (gradient-dome fallback), issue #2 |
-| `Wind` | `wind.ts` | object + fns | Shared deterministic horizontal wind field (a pure clock-advanced sample read by snow drift and the scarf, and in follow-ups tree sway / audio bed); cosmetic-only, no `THREE`/DOM import, issue #253 |
+| `Wind` | `wind.ts` | object + fns | Shared deterministic horizontal wind field (a pure clock-advanced sample read by snow drift, the scarf, the tree sway, and the audio bed); cosmetic-only, no `THREE`/DOM import, issue #253 |
+| `TreeShed` | `tree-shed.ts` | IIFE + pure fns | Dynamic per-tree snow load: gust fronts (Wind rising-edge) dump the most laden trees near the player — powder puffs, shelves shrink, branches spring back — then slow re-laden; drives the `trees.ts` load registry, never physics/collision; deterministic (no global `Math.random`), reduced-motion inert (#253 Phase B) |
 | `Camera` | `camera.ts` | `class Camera` | Chase/orbit camera positioning & look-ahead |
 | `Snowman` | `snowman.ts` | object + fns | Snowman model, `updateSnowman` physics, test hooks |
 | `Flex` | `snowman-flex.ts` | object + fns | Cosmetic snowman flex (squash/jiggle, head-cluster bob/lean, landing settle); runs after physics, never touches the kernel (#53) |
 | `Physics` | `player-state.ts` | object + fns | Typed per-frame `PlayerState` container over the snowman kernel |
 | `AudioModule` | `audio.ts` | IIFE | Native HTML5 background music (gated by `AUDIO_ENABLED`) |
-| `Sfx` | `sfx.ts` | IIFE | Procedural Web Audio sound effects (wind/carve/jump/land/avalanche/crash/finish, gated by `SFX_ENABLED`); synthesised at runtime (no assets), unlocked on the start gesture, off under automation, reads physics result only (#158) |
+| `Sfx` | `sfx.ts` | IIFE | Procedural Web Audio sound effects (wind/carve/jump/land/avalanche/crash/finish, plus the forest needle-rustle bed and snow-shed whump, gated by `SFX_ENABLED`); synthesised at runtime (no assets), unlocked on the start gesture, off under automation, reads the physics result + the shared `Wind` field for the ambient bed (#158, #253) |
 | `Controls` | `controls.ts` | object + fns | Keyboard + touch input → shared `controls` state |
 | `AvalancheSystem` | `avalanche.ts` | `class` | Instanced snow-boulder physics & burial |
-| `SnowTrails` | `snowtracks.ts` | `class` | Cosmetic **temporary** ski tracks: instanced grooves carved behind the skis that fade after a few seconds (transient feedback, not a snow-accumulation model); terrain-aware, reduced-motion-aware, never touches physics (#17) |
+| `SnowTrails` | `snowtracks.ts` | `class` | Cosmetic **fresh-cut** ski tracks: instanced grooves carved behind the skis that fade after a few seconds — the crisp immediate cue, paired with `SnowDepthField` which carries the *lasting* packed-track memory (#246); terrain-aware, reduced-motion-aware, never touches physics (#17) |
+| `SnowDepthField` | `mountains/snow-depth.ts` | `class` | Persistent snow-depth grid (#246, visual-only v1): a `[0..1]` per-cell depth field the skis compact and fresh snow refills, giving the slope *memory*. PR 1 is pure dependency-free logic (Node-tested, zero `Math.random`); later PRs drive it from the ski-track cadence and sample it into the terrain material. **Zero physics meaning** — never touches `pos`/`velocity`/`heightMap`/friction |
 | `SnowmanDebris` | `debris.ts` | `class` | Crash-shatter wipeout: owned snow-ball fragments + puff, own settle loop, terrain-aware, disposable (#53) |
 | `EffectsModule` | `effects.ts` | IIFE | Avalanche warning UI + camera FOV/shake |
 | `IntroModule` | `intro.ts` | IIFE | Cinematic "fly over the mountain" intro at game start (issue #51) |
@@ -194,6 +196,17 @@ is skipped (reproducing the original Loading/Get-Ready timing exactly) for the
 `?test=` suites (`window.isTestMode`), automated runs (`navigator.webdriver`), and
 `prefers-reduced-motion`; `?intro=force` / `?intro=off` override that for QA.
 
+**Graphics loss recovery (#431).** `game/context-loss.ts` observes the renderer's
+canvas `webglcontextlost` event independently of the gameplay loop: Three.js skips
+rendering silently on a lost context, including during the menu or intro. The
+coordinator stops and disposes the current instance, cancels pending start/intro
+work, silences audio, clears controls, and shows the accessible **Graphics
+interrupted → Reload** dialog. A restored context never resumes that interrupted
+run; reload constructs a fresh scene and returns to the start menu. The same
+AbortSignal owns the canvas listener and lifecycle callbacks, so intentional
+teardown cannot trigger recovery. Node ownership/overlay tests and Chromium's
+real `WEBGL_lose_context` extension exercise this contract.
+
 **Fixed-timestep loop.** `animate(time)` runs a fixed-timestep accumulator: physics
 advances **only** in `FIXED_DT = 1/60` s steps (the rate `physics_invariant_harness.js`
 pins), while cosmetics run once per render frame. This makes the live game frame-rate
@@ -222,6 +235,8 @@ alpha = accumulator / FIXED_DT                    // 0..1 leftover for render in
 renderObservers(frameDelta, latestResult, events)   // HUD stats, Flex.update, Sfx jump/land/skiing
 Diag.record(frameDelta, …, step=maxSubstepStep)  // telemetry: REAL frame dt (FPS/clamped) + substep step (tunnelRisk)
 Wind.update(frameDelta)                          // advance the shared wind field (deterministic, cosmetic)
+TreeShed.update(frameDelta, pos, trees, scene)   // gust fronts shed laden trees (puffs + load writes) → Sfx.treeShed per event
+Sfx.updateForest(strength, gust, proximity)      // needle-rustle bed: wind × forest around the player
 Snow.updateSnowflakes(...)                        // flakes drift downwind by Wind.vector()
 snowTrails.update(frameDelta, snowman, isInAir)  // carve/fade ski grooves (cosmetic, reads pos only)
 Sky.update(frameDelta)                           // golden-hour↔midday sun cycle
@@ -236,6 +251,20 @@ renderer.render(scene, camera)
 camera.position -= shake                          // revert so smoothing stays clean
 snowman.position = curState                       // restore authoritative physics pos
 ```
+
+`camera-terrain.ts` seats every camera mode on initialization, mode reentry, and
+after position/look-target smoothing. It preserves clear views and raises blocked
+views using the actual look-target→camera segment: the shared terrain grid's x, z,
+and diagonal edge crossings bound the piecewise-linear surface exactly. A buried
+look target is raised to the surface; clearance grows from zero at that target to
+five units at the camera. Work is capped at 256 crossings (at most 258 height reads),
+with a vertical seat above the target if the budget or an invalid segment sample
+prevents a complete check. An invalid target/target height is rejected before
+mutation. This is allocation-free, RNG-neutral camera math and never writes the
+player or gameplay terrain recipe. The guarantee covers the manager's central
+sight line, before the later cosmetic shake; it is not tree/rock occlusion or a
+near-plane volume test. `camera-terrain-tests.js` covers actual terrain across all
+six modes/four tiers, entry/reentry, diagonal ridges, bounded fallback, and RNG.
 
 > `window.updateSnowman(delta)` is retained as a single-step test seam (physics +
 > telemetry + cosmetics, no course/avalanche — exactly the pre-accumulator single-call
@@ -312,8 +341,8 @@ snowman.position = curState                       // restore authoritative physi
 > file. **`noise.ts`** holds `SimplexNoise` plus the deterministic fixed-seed fBm
 > (`terrainRidgeField` / `forestDensityField`); **`terrain.ts`** holds the analytic
 > height field (`getTerrainHeight` / `getTerrainGradient` / `getDownhillDirection`)
-> and the shared `heightMap` cache — the physics seam, kept byte-identical to the
-> mesh-vertex formula (the *two-formula terrain contract*); **`snow-surface.ts`**
+> and exact triangle interpolation with a bounded grid-corner cache. `heightMap`
+> is diagnostic mesh metadata only; live sampling is independent of query order; **`snow-surface.ts`**
 > holds the snow albedo/normal CanvasTextures and the vertex-colour / smoothed-normal
 > passes; **`terrain-mesh.ts`** holds `createTerrain` (which pre-populates `heightMap`
 > and scatters rocks + trees); **`rocks.ts`** holds rock meshes/colours/placement
@@ -415,7 +444,10 @@ fallbacks** — they are what keep the game runnable without a Firebase project.
 - **Node suites** (`tests/*-tests.js`) import the physics/terrain `.ts` modules
   directly (transpiled for Node) and run headless. The **verification harness**
   (`tests/verification/`) compares live physics against a frozen baseline and
-  smoke-tests the DOM modules.
+  smoke-tests the DOM modules. `npm test` aggregates them via
+  [`tests/run-node-suite.js`](../tests/run-node-suite.js), an auto-discovering runner
+  (one child `node` process per suite) that replaced the old hand-maintained `&&`
+  chain — a new `tests/*-tests.js` file is picked up with no `package.json` edit.
 - **Browser suites** load inside the real game via `?test=…`, served through Vite
   so the `.ts` modules resolve, and are appended by the loader after the bundle
   (`main.ts`).

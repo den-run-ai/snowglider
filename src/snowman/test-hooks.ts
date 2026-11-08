@@ -40,8 +40,10 @@ export function addTestHooks(pos: PlayerPos, showGameOver: ShowGameOverFn, getTe
       z: z
     };
 
-    // For tree jumping test, check if we're in the air
-    const isJumpingHighAboveTrees = isInAir && verticalVelocity > 0 && pos.y > (testTree.y + 5);
+    // For tree jumping test, check if we're in the air. Clearance is height-based only
+    // (matches collision.ts): airborne + high enough above the tree base, regardless of
+    // whether the snowman is rising or descending past the jump apex.
+    const isJumpingHighAboveTrees = isInAir && pos.y > (testTree.y + 5);
     console.log(`TEST: Jump check - isInAir=${isInAir}, verticalVelocity=${verticalVelocity}, pos.y=${pos.y}, tree.y=${testTree.y}, jumping=${isJumpingHighAboveTrees}`);
 
     // If we're testing tree jumping, we need to handle it properly

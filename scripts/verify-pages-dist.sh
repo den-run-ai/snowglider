@@ -39,4 +39,46 @@ if find dist/src -name '*.ts' -print -quit | grep -q .; then
   exit 1
 fi
 
-echo "dist guard OK: transpiled JS present, no raw TypeScript in dist/"
+# PWA install assets (issue #358, PR 2): the manifest + icon must ship so the game is
+# installable. They live in public/ and Vite copies public/ to dist/ root on build; if
+# that ever stops, the app silently loses installability — fail the build instead.
+require_file() {
+  if [ ! -f "$1" ]; then
+    echo "::error::expected $1 in the Pages artifact — the build did not emit it"
+    exit 1
+  fi
+}
+require_file dist/manifest.webmanifest
+require_file dist/icons/icon.svg
+require_file dist/THIRD_PARTY_NOTICES.md
+
+# PWA service worker (issue #358, PR 3): the built worker must ship, and the raw TS
+# worker source must NOT (it is compiled standalone by vite-plugin-pwa to dist/sw.js).
+require_file dist/sw.js
+if [ -f dist/src/pwa/sw.ts ]; then
+  echo "::error::dist/src/pwa/sw.ts present — raw worker TypeScript leaked into the artifact"
+  exit 1
+fi
+
+# Cache-safety (THE most important SW guard): the generated precache manifest inside
+# dist/sw.js must never include the copied source / tests / node_modules / auth page /
+# large MP3 / source maps. We check ONLY the precache entries — extracted as the
+# `"url":"…"` values, which are unique to the injected manifest (the routing code uses
+# url.pathname, so it legitimately mentions '/src/' etc. and must NOT be matched). If a
+# glob change starts precaching a forbidden path, fail the build.
+PRECACHE_URLS=$(grep -oE '"url":"[^"]*"' dist/sw.js | sed -E 's/"url":"(.*)"/\1/')
+if [ -z "$PRECACHE_URLS" ]; then
+  echo "::error::could not find any precache entries in dist/sw.js (injectManifest produced an empty manifest?)"
+  exit 1
+fi
+while IFS= read -r u; do
+  case "$u" in
+    *src/*|*tests/*|*node_modules/*|*auth.html*|*.mp3|*.map|*README*|*LICENSE*|*THIRD_PARTY_NOTICES*)
+      echo "::error::service-worker precache manifest includes a forbidden path: '$u' — check the injectManifest globs"
+      exit 1;;
+  esac
+done <<EOF
+$PRECACHE_URLS
+EOF
+
+echo "dist guard OK: transpiled JS present, PWA manifest+icons+sw present, precache excludes forbidden paths, no raw TypeScript in dist/"

@@ -52,6 +52,20 @@ async function main() {
     assert(trunk && trunk.material && trunk.material.isMeshStandardMaterial,
       'createTree trunk uses a shared MeshStandardMaterial');
     assert(trunk.castShadow === true, 'createTree parts cast shadows');
+    const foliageColors = new Set();
+    tree.children.forEach((c) => {
+      const mesh = /** @type {any} */ (c);
+      const color = mesh.material && mesh.material.color;
+      if (!color || typeof color.getHSL !== 'function') return;
+      const hsl = { h: 0, s: 0, l: 0 };
+      color.getHSL(hsl);
+      if (hsl.h > 0.32 && hsl.h < 0.50 && hsl.s > 0.25) {
+        foliageColors.add(color.getHexString());
+      }
+    });
+    assert(foliageColors.size === 1,
+      'createTree keeps one coherent foliage shade per tree',
+      `${foliageColors.size} foliage shade(s)`);
 
     // Scale variation is applied (canonical geometry resized, not duplicated).
     const small = Trees.createTree(0.5);
@@ -95,15 +109,20 @@ async function main() {
       'addTrees returns a non-empty treePositions array', `${positions.length} trees`);
 
     const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(forest.length >= 1 && forest.length <= 5,
-      'forest renders as a handful of InstancedMeshes', `${forest.length} meshes`);
+    assert(forest.length > 5 && forest.length <= 100,
+      'forest renders as bounded spatial InstancedMesh chunks', `${forest.length} meshes`);
     assert(forest.every(m => m.isInstancedMesh), 'forest meshes are InstancedMeshes');
+    const forestParts = new Set(forest.map(m => m.userData.forestPart));
+    const expectedParts = ['branch', 'cone', 'snowCap', 'snowPatch', 'trunk'];
+    assert(expectedParts.every(p => forestParts.has(p)) && [...forestParts].every(p => expectedParts.includes(p)),
+      'forest uses only complete live-tree part families (no broken bare-branch family)',
+      [...forestParts].sort().join(', '));
 
     const trunk = forest.find(m => m.userData.forestPart === 'trunk');
     assert(!!trunk, 'a trunk InstancedMesh is tagged via userData.forestPart');
     // One trunk instance per placed tree — the exact contract the browser test checks.
-    assert(trunk && trunk.count === positions.length,
-      'trunk instance count equals treePositions.length',
+    assert(forest.filter(m => m.userData.forestPart === 'trunk').reduce((n, m) => n + m.count, 0) === positions.length,
+      'total trunk instance count equals treePositions.length',
       trunk ? `${trunk.count} === ${positions.length}` : 'no trunk mesh');
 
     // Tinted families carry per-instance colour; snow does not.
@@ -112,12 +131,15 @@ async function main() {
     const snowCap = forest.find(m => m.userData.forestPart === 'snowCap');
     assert(!snowCap || snowCap.instanceColor == null,
       'snow caps use a shared white material (no instanceColor)');
+    const snowPatch = forest.find(m => m.userData.forestPart === 'snowPatch');
+    assert((!snowCap || snowCap.castShadow === false) && (!snowPatch || snowPatch.castShadow === false),
+      'tree snow caps/patches do not cast dark snow-on-snow shadow blobs');
 
     // Re-init: a second addTrees must dispose the old forest and rebuild without
     // accumulating duplicate InstancedMeshes in the scene (covers the teardown loop).
     const positions2 = Trees.addTrees(scene);
     const forest2 = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
-    assert(forest2.length === forest.length,
+    assert(forest2.length > 5 && forest2.length <= 100,
       're-init rebuilds the forest without duplicating instanced meshes',
       `${forest2.length} meshes after re-init`);
     assert(positions2.length > 0, 're-init still returns tree positions');
@@ -190,6 +212,174 @@ async function main() {
     } finally {
       geoProto.dispose = realDispose;
     }
+  }
+
+  // --- Wind sway (issue #253, Phase A) ----------------------------------------
+  // The instanced forest sways in the shared wind field via an onBeforeCompile vertex
+  // sway on the instanced materials. Everything below is headless: we drive the shader
+  // injection against a stub shader object and the uniform plumbing through updateWind /
+  // resetWind, so no WebGL context is needed. (The rendered result is a browser concern.)
+  {
+    const { Wind, DEFAULT_WIND_CONFIG } = await import('../src/wind.js');
+
+    // Build a forest so the lazy instanced materials exist, then read them off the meshes.
+    const scene = new THREE.Scene();
+    Trees.addTrees(scene);
+    const forest = /** @type {any[]} */ (scene.children.filter(c => c.name === 'forestInstanced'));
+    const trunkMat = /** @type {any} */ (forest.find(m => m.userData.forestPart === 'trunk')?.material);
+    const foliageMat = /** @type {any} */ (forest.find(m => m.userData.forestPart === 'cone')?.material);
+    assert(!!trunkMat && !!foliageMat, 'instanced trunk + foliage materials exist on the forest');
+
+    // Distinct program cache keys so the trunk (rooted) and foliage shaders never collide,
+    // and both differ from an un-swayed material's default key.
+    assert(/^tree-wind-sway/.test(trunkMat.customProgramCacheKey()) &&
+      /^tree-wind-sway/.test(foliageMat.customProgramCacheKey()),
+      'instanced tree materials tag a wind-sway program cache key');
+    assert(trunkMat.customProgramCacheKey() !== foliageMat.customProgramCacheKey(),
+      'rooted (trunk) and canopy materials use distinct program cache keys');
+
+    // Drive the injection against a stub shader carrying the two include markers we edit.
+    // (three's Material.onBeforeCompile defaults to a no-op *function*, so we compare the
+    // resulting shader source rather than the presence of the callback.)
+    const stubVS = 'void main() {\n#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n}';
+    const trunkShader = { uniforms: {}, vertexShader: stubVS };
+    const foliageShader = { uniforms: {}, vertexShader: stubVS };
+    trunkMat.onBeforeCompile(trunkShader);
+    foliageMat.onBeforeCompile(foliageShader);
+
+    // The non-instanced Group-shim material must be left un-swayed: its onBeforeCompile
+    // (three's default no-op) leaves the shader byte-for-byte unchanged.
+    const legacyTrunkMat = /** @type {any} */ (Trees.createTree(1.0).children[0]).material;
+    const legacyShader = { uniforms: {}, vertexShader: stubVS };
+    legacyTrunkMat.onBeforeCompile(legacyShader);
+    assert(legacyShader.vertexShader === stubVS && !/uWindDir/.test(legacyShader.vertexShader),
+      'the non-instanced Group-shim material is left un-swayed (byte-identical shim path)');
+
+    assert(/uWindDir/.test(trunkShader.vertexShader) && /uWindAmp/.test(trunkShader.vertexShader) &&
+      /uWindSwayTime/.test(trunkShader.vertexShader),
+      'sway injection declares the wind uniforms in the vertex shader');
+    assert(/USE_INSTANCING/.test(trunkShader.vertexShader) && /instanceMatrix/.test(trunkShader.vertexShader),
+      'the sway is applied in the instanced (post-instanceMatrix) branch only');
+    assert(/TREE_SWAY_ROOTED/.test(trunkShader.vertexShader),
+      'the trunk material defines TREE_SWAY_ROOTED (bend planted at the base)');
+    assert(!/#define TREE_SWAY_ROOTED/.test(foliageShader.vertexShader),
+      'the foliage material does NOT root the bend');
+    assert(/TREE_SWAY_FLUTTER/.test(foliageShader.vertexShader),
+      'the foliage material defines TREE_SWAY_FLUTTER (needle layers flex in gusts)');
+
+    // Intra-tree coherence (the "realistic trees disappeared" regression): the sway
+    // phase must come from the INSTANCE origin (instanceMatrix[3]) so every vertex of
+    // one tree swings together — a per-vertex world-position phase (the old
+    // `dot( mvPosition.xz, ... )`) makes different parts of ONE tree lean by up to the
+    // full amplitude in different directions, which at the widened 0.9u band crumpled
+    // the EZ archetype pines into diagonal scraggle.
+    assert(/swayPhase = dot\( instanceMatrix\[3\]\.xz/.test(trunkShader.vertexShader),
+      'sway phase derives from the tree instance origin (per-tree coherent swing)');
+    assert(!/swayPhase = dot\( mvPosition\.xz/.test(trunkShader.vertexShader),
+      'sway phase does NOT vary per vertex across a single tree');
+    // Same trap in the flutter: raw LOCAL-space frequencies (position.y*k) flip sign
+    // every fraction of a world unit on the EZ archetypes (local units are ~5x world),
+    // shredding each needle card into its own phase. On height-rooted geometry the
+    // along-tree variation must key off the scale-independent swayWeight (positive
+    // requirement); the raw local-position frequencies may survive ONLY inside the
+    // classic-fallback #else branch (no root height ⇒ swayWeight is constant 1.0
+    // there, and its ~1-4 local-unit cones need them for the within-cone shimmer).
+    const flutterMatch = foliageShader.vertexShader.match(/#ifdef TREE_SWAY_FLUTTER[\s\S]*?flutter;\s*\n\s*#endif/);
+    assert(!!flutterMatch, 'the flutter block is present in the injected chunk');
+    const flutterBlock = flutterMatch ? flutterMatch[0] : '';
+    assert(/#if defined\( TREE_SWAY_ROOT_HEIGHT \) \|\| defined\( TREE_SWAY_INSTANCE_WEIGHT \)[\s\S]*?swayWeight \* 6\.0[\s\S]*?swayWeight \* 11\.0[\s\S]*?#else/.test(flutterBlock),
+      'rooted/anchored flutter keys off the scale-independent swayWeight (positive requirement)');
+    const stripComments = (glsl) => glsl.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    const elseSplit = flutterBlock.split('#else');
+    assert(elseSplit.length === 2 && !/position\.[xyz]/.test(stripComments(elseSplit[0])),
+      'raw local-position flutter frequencies are confined to the classic-fallback #else branch',
+      elseSplit[0] ? stripComments(elseSplit[0]).slice(-160) : 'no pre-#else segment');
+
+    // The injection wires the SHARED uniform objects, so one update drives every material:
+    // the stub shaders captured the same uWindAmp reference the trunk + foliage share.
+    assert(trunkShader.uniforms.uWindAmp === foliageShader.uniforms.uWindAmp,
+      'all tree materials share one uWindAmp uniform (a single update drives the forest)');
+
+    // Shadow casters sway too: the forest InstancedMeshes castShadow, so each needs a
+    // customDepthMaterial carrying the SAME sway — else the shadows stay put while the trees
+    // lean (detached shadows). Verify the depth material exists, is shadow-map ready, and
+    // injects the matching instanced sway from the same shared uniform.
+    const trunkMesh = /** @type {any} */ (forest.find(m => m.userData.forestPart === 'trunk'));
+    const coneMesh = /** @type {any} */ (forest.find(m => m.userData.forestPart === 'cone'));
+    const trunkDepth = /** @type {any} */ (trunkMesh?.customDepthMaterial);
+    const coneDepth = /** @type {any} */ (coneMesh?.customDepthMaterial);
+    assert(trunkMesh.castShadow && coneMesh.castShadow, 'forest meshes cast shadows');
+    assert(trunkDepth instanceof THREE.MeshDepthMaterial && coneDepth instanceof THREE.MeshDepthMaterial,
+      'each shadow-casting forest mesh has a MeshDepthMaterial customDepthMaterial');
+    assert(trunkDepth.depthPacking === THREE.RGBADepthPacking,
+      'the depth material uses RGBA depth packing (shadow-map ready)');
+    const trunkDepthShader = { uniforms: {}, vertexShader: stubVS };
+    const coneDepthShader = { uniforms: {}, vertexShader: stubVS };
+    trunkDepth.onBeforeCompile(trunkDepthShader);
+    coneDepth.onBeforeCompile(coneDepthShader);
+    assert(/uWindDir/.test(trunkDepthShader.vertexShader) && /instanceMatrix/.test(trunkDepthShader.vertexShader),
+      'the depth material injects the same instanced sway (shadow leans with the tree)');
+    assert(/TREE_SWAY_ROOTED/.test(trunkDepthShader.vertexShader) &&
+      !/#define TREE_SWAY_ROOTED/.test(coneDepthShader.vertexShader),
+      'depth sway matches the profile: trunk rooted, foliage not');
+    assert(/TREE_SWAY_FLUTTER/.test(coneDepthShader.vertexShader),
+      'foliage depth material includes TREE_SWAY_FLUTTER (shadows match needle flex)');
+    assert(trunkDepthShader.uniforms.uWindAmp === trunkShader.uniforms.uWindAmp,
+      'depth + visible materials share one uWindAmp (a single updateWind drives shadows too)');
+    // The depth materials are built with Math.random swapped to a private RNG (so their uuid
+    // draws never shift a caller's seeded obstacle stream — see getSwayDepthMaterial); that
+    // private RNG still yields DISTINCT uuids for the two profiles. (End-to-end RNG-neutrality
+    // is guarded by the seeded forward_stress harness.)
+    assert(typeof trunkDepth.uuid === 'string' && trunkDepth.uuid !== coneDepth.uuid,
+      'the two shadow-caster depth materials get distinct uuids from the private RNG');
+
+    const U = trunkShader.uniforms;
+
+    // resetWind → calm baseline (no lean).
+    Trees.resetWind();
+    assert(U.uWindAmp.value === 0 && U.uWindSwayTime.value === 0,
+      'resetWind rewinds the flutter clock and zeroes the amplitude');
+
+    // updateWind advances the flutter clock by dt and pulls a positive, bounded amplitude
+    // from the live wind (Node has no window, so the reduced-motion gate is inactive).
+    Wind.reset();
+    Trees.updateWind(2.0);
+    assert(Math.abs(U.uWindSwayTime.value - 2.0) < 1e-9, 'updateWind advances the flutter clock by dt');
+    assert(U.uWindAmp.value > 0 && U.uWindAmp.value <= 0.9 + 1e-9,
+      'updateWind maps wind strength into the bounded lean amplitude', `amp=${U.uWindAmp.value.toFixed(3)}`);
+    assert(Math.abs(Math.hypot(U.uWindDir.value.x, U.uWindDir.value.y) - 1) < 1e-6,
+      'updateWind sets a unit downwind direction');
+
+    // Negative dt is ignored (no rewind), matching Wind.update's clock guard.
+    Trees.updateWind(-5.0);
+    assert(Math.abs(U.uWindSwayTime.value - 2.0) < 1e-9, 'updateWind ignores negative dt (no rewind)');
+
+    // Deterministic: reset + the same advance reproduces the same amplitude exactly.
+    const ampA = U.uWindAmp.value;
+    Trees.resetWind(); Wind.reset(); Trees.updateWind(2.0);
+    assert(U.uWindAmp.value === ampA, 'tree sway is deterministic (reset + same advance ⇒ same amplitude)');
+
+    // treeSwayAmplitude (pure): a calm field (strength 0) reads as fully still, while any
+    // positive wind gets at least the breeze floor and ramps to the max at full strength.
+    assert(Trees.treeSwayAmplitude(0) === 0, 'treeSwayAmplitude(0) is fully still (dead calm ⇒ no sway)');
+    assert(Math.abs(Trees.treeSwayAmplitude(1) - 0.9) < 1e-9, 'treeSwayAmplitude(1) reaches the max lean');
+    assert(Trees.treeSwayAmplitude(0.5) > 0.06 && Trees.treeSwayAmplitude(0.5) < 0.9,
+      'treeSwayAmplitude(mid) sits between the breeze floor and the max');
+    assert(Trees.treeSwayAmplitude(0.0001) >= 0.06,
+      'any positive wind gets at least the breeze floor');
+    assert(Trees.treeSwayAmplitude(-3) === 0 && Trees.treeSwayAmplitude(NaN) === 0,
+      'treeSwayAmplitude clamps junk/negative strength to still');
+
+    // Integration: a dead-calm wind profile drives updateWind to zero amplitude, so trees
+    // stop fluttering in step with the snow/scarf consumers (regression for the P2 finding).
+    Wind.configure({ baseStrength: 0, gustRange: 0 });
+    Wind.reset();
+    Trees.updateWind(2.0);
+    assert(U.uWindAmp.value === 0, 'updateWind holds trees still under a dead-calm wind field',
+      `amp=${U.uWindAmp.value}`);
+    // Restore the live field so the singleton is left in its default state.
+    Wind.configure({ baseStrength: DEFAULT_WIND_CONFIG.baseStrength, gustRange: DEFAULT_WIND_CONFIG.gustRange });
+    Wind.reset();
   }
 
   console.log(`\n=================================`);

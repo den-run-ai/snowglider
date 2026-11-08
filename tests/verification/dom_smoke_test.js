@@ -139,6 +139,8 @@ async function main() {
     && global.localStorage.getItem('snowgliderBestSplits') === null);
   const panelText1 = panel1.textContent || '';
   check('first finish shows a medal/result text', /descent|record|Finish/i.test(panelText1));
+  check('eligible first finish uses a first-descent message without non-finite times',
+    /First descent!/.test(panelText1) && !/Infinity|NaN/.test(panelText1));
 
   // Gap 3 regression: the persisted ghost's final sample keeps the player's real x
   // (not a hardcoded 0) so it doesn't snap to center at the line.
@@ -236,6 +238,58 @@ async function main() {
     !!global.localStorage.getItem('snowgliderGhost_black')
     && !!global.localStorage.getItem('snowgliderBestSplits_black'));
 
+  // Ghost world-compatibility gate (#401/#408): a ghost stamped with a DIFFERENT
+  // PHYSICS_VERSION (or unstamped — recorded before provenance existed) is a
+  // physical trajectory over a different terrain and must NOT load. Observable via
+  // the tier-best baseline: with the stale ghost ignored, a SLOWER later run still
+  // re-seeds the ghost + meta with current-world data (if the stale ghost had
+  // loaded, its faster time would have blocked the commit).
+  {
+    const staleGhost = global.localStorage.getItem('snowgliderGhost_black');
+    global.localStorage.setItem('snowgliderGhost_black_meta', JSON.stringify({ seed: null, physicsVersion: -1 }));
+    Course.reset(); // stale-stamped ghost must be left unloaded
+    let t4 = 0;
+    for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
+      t4 += 0.3; // even slower than run t3
+      Course.update({ x: 1.5, y: terrain(1.5, z), z }, t4, snowmanMock);
+    }
+    Course.onFinish(t4, 0.001);
+    const meta4 = JSON.parse(global.localStorage.getItem('snowgliderGhost_black_meta'));
+    check('a version-mismatched ghost is ignored: a slower run re-seeds the tier baseline (#408)',
+      global.localStorage.getItem('snowgliderGhost_black') !== staleGhost);
+    check('the re-seeded ghost is stamped with the CURRENT physics version (#408)',
+      !!meta4 && meta4.physicsVersion !== -1);
+    // And an UNSTAMPED ghost (pre-provenance record) is incompatible by definition.
+    global.localStorage.removeItem('snowgliderGhost_black_meta');
+    Course.reset();
+    let t5 = 0;
+    for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
+      t5 += 0.35; // slower still
+      Course.update({ x: 1.5, y: terrain(1.5, z), z }, t5, snowmanMock);
+    }
+    Course.onFinish(t5, 0.001);
+    check('an unstamped (pre-provenance) ghost is also ignored and re-seeded (#408)',
+      !!global.localStorage.getItem('snowgliderGhost_black_meta'));
+
+    // Same version but a DIFFERENT seed is a different obstacle field: the ghost
+    // threaded rocks/trees that don't exist in this world, so it must not load
+    // (and must not block this world's first-run baseline). This run is unseeded
+    // (seed null), so a seeded stamp mismatches.
+    const currentMeta = JSON.parse(global.localStorage.getItem('snowgliderGhost_black_meta'));
+    global.localStorage.setItem('snowgliderGhost_black_meta',
+      JSON.stringify({ seed: 123456, physicsVersion: currentMeta.physicsVersion }));
+    const seededGhost = global.localStorage.getItem('snowgliderGhost_black');
+    Course.reset();
+    let t6 = 0;
+    for (let z = cfg.START_Z; z >= cfg.FINISH_Z; z -= 1.0) {
+      t6 += 0.4; // slower than every prior run
+      Course.update({ x: 1.5, y: terrain(1.5, z), z }, t6, snowmanMock);
+    }
+    Course.onFinish(t6, 0.001);
+    check('a seed-mismatched ghost is ignored: this world\'s run re-seeds the baseline (#408)',
+      global.localStorage.getItem('snowgliderGhost_black') !== seededGhost);
+  }
+
   // flashAir (meaningful jumps #47): the on-slope air toast routes through the shared
   // #courseFlash element with the air time + grade label.
   Course.flashAir('clean', 1.234);
@@ -262,6 +316,26 @@ async function main() {
   Course.hideHud();
   check('hideHud() runs without throwing', true);
 
+  // A timing-ineligible finish can occur on a slow first run (no prior best).
+  // It records nothing, so neither the medal nor any comparison may promise a
+  // record, emit Infinity, or compare its splits against a saved best.
+  const savedGhost = global.localStorage.getItem('snowgliderGhost_black');
+  for (const previousBest of [Infinity, NaN, t + 100]) {
+    const result = Course.onFinish(t, previousBest, false);
+    const text = result.textContent || '';
+    check('ineligible finish shows Finished without medals, record claims, or non-finite comparisons',
+      /Finished/.test(text) && /not saved as a personal best/.test(text)
+      && !/First descent|New record|Silver run|Bronze run|new personal best|vs best|Infinity|NaN/.test(text));
+    check('ineligible finish leaves the saved ghost unchanged',
+      global.localStorage.getItem('snowgliderGhost_black') === savedGhost);
+  }
+  const RC = await import('../../src/run-context.ts');
+  RC.setWorldContext(456789, true);
+  const practice = Course.onFinish(t, Infinity);
+  check('practice first finish has no record claim or Infinity comparison',
+    /Practice run/.test(practice.textContent) && !/First descent|New record|vs best|Infinity|NaN/.test(practice.textContent));
+  RC.setRunSeed(null);
+
   // ---- Snowman model: head cluster + part registries + flex (issue #53) ----
   // Import the submodules directly (not the snowman.ts facade): this harness runs
   // under plain `node` without the .js->.ts resolver, and model.ts/snowman-flex.ts
@@ -276,14 +350,42 @@ async function main() {
   check('shatterRoots is a flat list including the head cluster', Array.isArray(ud.shatterRoots) && ud.shatterRoots.includes(ud.parts.headGroup));
   check('base transforms kept OFF the registry (parts.base undefined)', !!ud.partBaseTransforms && !!ud.partBaseTransforms.headGroup && ud.parts.base === undefined);
   check('scarf + tail present in registry and shatter roots (PR C)', !!ud.parts.scarf && !!ud.parts.scarfTail && ud.shatterRoots.includes(ud.parts.scarfTail));
-  check('face/hat are children of the head cluster (head bob keeps them attached)',
-    ud.parts.head.parent === ud.parts.headGroup &&
-    ud.parts.leftEye.parent === ud.parts.headGroup &&
-    ud.parts.hatTop.parent === ud.parts.headGroup);
-  // Re-basing the cluster must keep world positions identical at rest (~head y=7).
+  // The head MESH stays in the neck-pivoted cluster, but the face + hat now hang off
+  // the head MESH (not headGroup) so BOTH the head-cluster bob/lean AND the per-frame
+  // head squash-and-stretch (head is one of the three breathing balls) carry them —
+  // they used to be siblings of `head` and detached from the scaling head surface
+  // (issue #337, same defect as the floating buttons below).
+  check('head mesh stays in the neck-pivoted cluster', ud.parts.head.parent === ud.parts.headGroup);
+  check('face/hat hang off the head MESH (head squash+bob keep them attached)',
+    ud.parts.leftEye.parent === ud.parts.head &&
+    ud.parts.rightEye.parent === ud.parts.head &&
+    ud.parts.nose.parent === ud.parts.head &&
+    ud.parts.hatBase.parent === ud.parts.head &&
+    ud.parts.hatTop.parent === ud.parts.head);
+  // Buttons hang off the BALL they sit on (middle/bottom) so the belly squash carries
+  // them instead of leaving them suspended in front of the snowman (issue #337).
+  check('buttons hang off the ball they sit on (belly squash keeps them attached)',
+    ud.parts.button1.parent === ud.parts.middle &&
+    ud.parts.button2.parent === ud.parts.middle &&
+    ud.parts.button3.parent === ud.parts.bottom);
+  // Re-basing the cluster + accessories must keep world positions identical at rest.
   const headWorld = new RealTHREE.Vector3();
   ud.parts.head.getWorldPosition(headWorld);
   check('head world position preserved at rest (~y=7, x~0)', Math.abs(headWorld.y - 7.0) < 1e-6 && Math.abs(headWorld.x) < 1e-6);
+  // Reparenting is rest-pose-neutral: every reparented accessory keeps its shipped
+  // world position (world pos == the pre-fix literal it was authored at).
+  const wp = new RealTHREE.Vector3();
+  /** @type {Array<[import('three').Object3D, number, number, number]>} */
+  const restWorld = [
+    [ud.parts.leftEye, 0.4, 7.2, 0.8], [ud.parts.rightEye, -0.4, 7.2, 0.8],
+    [ud.parts.nose, 0, 7.0, 1], [ud.parts.hatBase, 0, 7.9, 0], [ud.parts.hatTop, 0, 8.45, 0],
+    [ud.parts.button1, 0, 5.5, 1.4], [ud.parts.button2, 0, 4.5, 1.45], [ud.parts.button3, 0, 3.0, 1.9]
+  ];
+  const restOk = restWorld.every(([p, x, y, z]) => {
+    p.getWorldPosition(wp);
+    return Math.abs(wp.x - x) < 1e-6 && Math.abs(wp.y - y) < 1e-6 && Math.abs(wp.z - z) < 1e-6;
+  });
+  check('reparented face/hat/buttons keep their shipped world position at rest', restOk);
   // Flex drives the REAL snowman finitely, then resets clean.
   Flex.update(snowman, 1 / 60, { speed: 18, technique: 'carve', turnRate: 0.6, justLanded: true, landingForce: 0.9, isInAir: false });
   check('Flex.update mutates the real snowman finitely', Number.isFinite(ud.parts.head.scale.y) && Number.isFinite(ud.parts.headGroup.rotation.z));

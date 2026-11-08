@@ -32,7 +32,7 @@
 // (e.g. a changed `calls.setDoc` entry) now surfaces as a type error here.
 
 /** @typedef {Record<string, any>} DocData */
-/** @typedef {{ firestore: unknown, collectionName: string, id: string, path: string }} DocRef */
+/** @typedef {DocumentReference} DocRef */
 /** @typedef {{ firestore: unknown, collectionName: string, path: string }} CollectionRef */
 /** @typedef {{ kind: 'where', field: string, op: string, value: any }} WhereConstraint */
 /** @typedef {{ kind: 'orderBy', field: string, direction?: string }} OrderByConstraint */
@@ -44,13 +44,17 @@
 /** @typedef {{ resolve?: any, reject?: any } | null} PopupResult */
 
 // ---- shared, test-controllable state ----
-/** @type {{ users: Map<string, DocData>, leaderboard: Map<string, DocData>, leaderboard_bunny: Map<string, DocData>, leaderboard_black: Map<string, DocData> }} */
+/** @type {Record<string, Map<string, DocData>>} */
 export const db = {
   users: new Map(),
+  // The legacy (pre-versioning) Blue board + per-tier siblings. The ACTIVE boards
+  // are version-namespaced (leaderboard_v<N>[_tier], src/difficulty.ts) and are
+  // created lazily by getCollectionStore, so the mock never needs a hand-maintained
+  // registry that drifts on a PHYSICS_VERSION bump.
   leaderboard: new Map(),
-  // Per-difficulty-tier sibling boards (Blue uses `leaderboard`; see src/difficulty.ts).
   leaderboard_bunny: new Map(),
-  leaderboard_black: new Map()
+  leaderboard_black: new Map(),
+  leaderboard_expert: new Map()
 };
 
 /**
@@ -61,6 +65,7 @@ export const db = {
  *   setDoc: Array<{ path: string, data: DocData, options: any }>,
  *   getDocs: Query[],
  *   logEvent: Array<{ name: string, params: any }>,
+ *   getAnalytics: number,
  *   signInWithPopup: number,
  *   signInAnonymously: number,
  *   linkWithPopup: number,
@@ -74,6 +79,7 @@ export const calls = {
   setDoc: [],
   getDocs: [],
   logEvent: [],
+  getAnalytics: 0,
   // firebase-auth.js call counters (used by the auth harness)
   signInWithPopup: 0,
   signInAnonymously: 0,
@@ -99,7 +105,15 @@ export const analyticsInstance = { __analytics: true };
 let pendingWritePath = null;
 /** @type {{ promise: Promise<unknown>, resolve: (value?: unknown) => void, reject: (reason?: unknown) => void } | null} */
 let pendingWrite = null;
+/** When set, the next setDoc() to this exact path rejects with the error (one-shot);
+ *  nothing is written. Drives write-failure paths like the rules-skew fallback.
+ *  @type {{ path: string, error: unknown } | null} */
+let nextSetDocError = null;
 let timestampCounter = 0;
+/** @type {unknown} */
+let nextLogEventError = null;
+/** @type {unknown} */
+let nextGetAuthError = null;
 
 /**
  * @template T
@@ -107,7 +121,21 @@ let timestampCounter = 0;
  * @returns {T}
  */
 function clone(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
+  return /** @type {T} */ (cloneValue(value));
+}
+
+/** Preserve SDK-reference identity while copying document fields, like Firestore.
+ * JSON round-tripping turned references into plain objects and hid boundary bugs.
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function cloneValue(value) {
+  if (value instanceof DocumentReference) return value;
+  if (Array.isArray(value)) return value.map(cloneValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneValue(item)]));
+  }
+  return value;
 }
 
 /**
@@ -115,8 +143,15 @@ function clone(value) {
  * @returns {Map<string, DocData>}
  */
 function getCollectionStore(name) {
-  const store = /** @type {Record<string, Map<string, DocData>>} */ (db)[name];
+  let store = Object.hasOwn(db, name) ? db[name] : undefined;
   if (!store) {
+    // Exact legacy / numeric-version names, with known optional tier suffixes.
+    // A prefix match hides production failures behind empty mocked boards.
+    if (/^leaderboard(?:_v[1-9]\d*)?(?:_(?:bunny|black|expert))?$/.test(name)) {
+      store = new Map();
+      db[name] = store;
+      return store;
+    }
     throw new Error(`Unknown collection: ${name}`);
   }
   return store;
@@ -149,14 +184,12 @@ function writeDoc(ref, data, options) {
 
 /** Clear all in-memory documents, recorded calls, and any armed deferred write. */
 export function reset() {
-  db.users.clear();
-  db.leaderboard.clear();
-  db.leaderboard_bunny.clear();
-  db.leaderboard_black.clear();
+  for (const store of Object.values(db)) store.clear();
   calls.getDoc = [];
   calls.setDoc = [];
   calls.getDocs = [];
   calls.logEvent = [];
+  calls.getAnalytics = 0;
   calls.signInWithPopup = 0;
   calls.signInAnonymously = 0;
   calls.linkWithPopup = 0;
@@ -164,6 +197,8 @@ export function reset() {
   calls.setPersistence = 0;
   pendingWritePath = null;
   pendingWrite = null;
+  nextSetDocError = null;
+  nextLogEventError = null;
   timestampCounter = 0;
   authStateCallback = null;
   nextPopupResult = null;
@@ -210,6 +245,22 @@ export function setPendingWrite(path) {
 }
 
 // ---- firebase-firestore.js surface ----
+/** Minimal SDK constructor contract used by the application's boundary validator. */
+export class DocumentReference {
+  /**
+   * @param {unknown} firestore
+   * @param {string} collectionName
+   * @param {string} id
+   */
+  constructor(firestore, collectionName, id) {
+    this.firestore = firestore;
+    this.collectionName = collectionName;
+    this.id = id;
+    this.path = `${collectionName}/${id}`;
+    this.type = 'document';
+  }
+}
+
 export function getFirestore() {
   return firestoreInstance;
 }
@@ -221,12 +272,7 @@ export function getFirestore() {
  * @returns {DocRef}
  */
 export function doc(firestore, collectionName, id) {
-  return {
-    firestore,
-    collectionName,
-    id,
-    path: `${collectionName}/${id}`
-  };
+  return new DocumentReference(firestore, collectionName, id);
 }
 
 /**
@@ -296,6 +342,13 @@ export function getDoc(ref) {
  */
 export function setDoc(ref, data, options) {
   calls.setDoc.push({ path: ref.path, data: clone(data), options: clone(options) });
+
+  if (nextSetDocError && nextSetDocError.path === ref.path) {
+    const { error } = nextSetDocError;
+    nextSetDocError = null; // one-shot
+    return Promise.reject(error);
+  }
+
   const commit = () => writeDoc(ref, data, options);
 
   if (pendingWritePath === ref.path && pendingWrite) {
@@ -355,6 +408,7 @@ export function getDocs(q) {
 
 // ---- firebase-analytics.js surface ----
 export function getAnalytics() {
+  calls.getAnalytics++;
   return analyticsInstance;
 }
 
@@ -364,6 +418,11 @@ export function getAnalytics() {
  * @param {any} [params]
  */
 export function logEvent(_analytics, name, params) {
+  if (nextLogEventError !== null) {
+    const error = nextLogEventError;
+    nextLogEventError = null;
+    throw error;
+  }
   calls.logEvent.push({ name, params });
 }
 
@@ -379,6 +438,11 @@ export function initializeApp() {
 const authInstance = { __isAuth: true, currentUser: null };
 
 export function getAuth() {
+  if (nextGetAuthError !== null) {
+    const error = nextGetAuthError;
+    nextGetAuthError = null;
+    throw error;
+  }
   return authInstance;
 }
 
@@ -440,7 +504,7 @@ export class OAuthProvider {
 
 export function signInWithPopup() {
   calls.signInWithPopup++;
-  if (nextPopupResult && nextPopupResult.reject) {
+  if (nextPopupResult && 'reject' in nextPopupResult) {
     return Promise.reject(nextPopupResult.reject);
   }
   return Promise.resolve(nextPopupResult ? nextPopupResult.resolve : { user: { email: 'x@y.z' } });
@@ -450,7 +514,7 @@ export function signInWithPopup() {
 // default resolves to a fresh anonymous user (isAnonymous: true, no email).
 export function signInAnonymously() {
   calls.signInAnonymously++;
-  if (nextPopupResult && nextPopupResult.reject) {
+  if (nextPopupResult && 'reject' in nextPopupResult) {
     return Promise.reject(nextPopupResult.reject);
   }
   return Promise.resolve(
@@ -468,7 +532,7 @@ export function signInAnonymously() {
  */
 export function linkWithPopup(user, _provider) {
   calls.linkWithPopup++;
-  if (nextLinkResult && nextLinkResult.reject) {
+  if (nextLinkResult && 'reject' in nextLinkResult) {
     return Promise.reject(nextLinkResult.reject);
   }
   return Promise.resolve(
@@ -532,6 +596,17 @@ export function setNextSignOutError(error) {
 }
 
 /**
+ * Make the next setDoc() to `path` reject with `error` (one-shot; nothing written),
+ * so write-failure paths — e.g. the leaderboard displayName rules-skew retry — can
+ * be exercised.
+ * @param {string} path
+ * @param {unknown} error
+ */
+export function setNextSetDocError(path, error) {
+  nextSetDocError = { path, error };
+}
+
+/**
  * Seed auth.currentUser so the guest-upgrade branch (isAnonymous) can be driven.
  * @param {AuthUser | null} user
  */
@@ -553,3 +628,13 @@ export function emitAuthState(user) {
     authStateCallback(user);
   }
 }
+
+/** Fail the next analytics call synchronously, as an unavailable SDK can.
+ * @param {unknown} error
+ */
+export function setNextLogEventError(error) {
+  nextLogEventError = error;
+}
+
+/** @param {unknown} error */
+export function setNextGetAuthError(error) { nextGetAuthError = error; }

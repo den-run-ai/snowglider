@@ -1,31 +1,42 @@
 // mountains/terrain-mesh.ts - Build the natural-mountain terrain mesh.
 //
 // THREE-heavy (browser-only): createTerrain rasterizes the analytic height field
-// into a PlaneGeometry, pre-populates the shared heightMap singleton (so the
-// per-vertex mesh height and getTerrainHeight agree — the "two-formula terrain
-// contract"), applies the snow look, and scatters rocks + trees. The mesh-vertex
-// formula here MUST stay byte-identical to getTerrainHeight in terrain.ts; the
-// terrain/regression suites and the physics-invariant harness pin it.
+// into a PlaneGeometry, pre-populates the shared heightMap singleton, applies the
+// snow look, and scatters rocks + trees. Since #401 the mesh has NO formula of
+// its own: every vertex samples getTerrainHeightUncached (terrain.ts), the same
+// pure function physics/collision/placement read — the old duplicated
+// "MUST MATCH" vertex formula had drifted materially and rendered a different
+// mountain than the one the kernel simulated.
 //
 // trees.ts is now a sibling submodule (./trees.js) that reads the terrain samplers
 // from the leaf modules directly, so there is no longer a mountains<->trees circular
 // import — this is a plain one-way dependency (terrain-mesh -> trees -> terrain/noise).
 import * as THREE from 'three';
 import { Trees, type TreePosition } from './trees.js';
-import { SimplexNoise, terrainRidgeField } from './noise.js';
-import { heightMap } from './terrain.js';
+import { heightMap, getTerrainHeightUncached } from './terrain.js';
 import {
-  createSnowAlbedoTexture,
-  createSnowNormalTexture,
+  createTerrainSnowTextures,
   applySnowVertexColors,
   applySmoothShadingNormals,
 } from './snow-surface.js';
 import { addRocks, type RockPosition } from './rocks.js';
 import { addContactShadows } from './contact-shadows.js';
 import { getTerrainHeight as sampleTerrainHeight } from './terrain.js';
+import { withGameplayStream } from '../run-context.js';
 
-// Create Terrain (Natural Mountain)
+// Create Terrain (Natural Mountain).
+//
+// The whole world build — addRocks and the ONE
+// Trees.addTrees forest (#397) — runs inside the 'hazards' gameplay stream
+// (#400): a pure no-op while unseeded (today's production and every harness
+// that assigns `Math.random = makeRng(seed)` stay byte-identical), and a
+// seed-deterministic world once setRunSeed is active — same seed => same
+// obstacle field, without touching the ~120 legacy draw sites individually.
 export function createTerrain(scene: THREE.Scene) {
+  return withGameplayStream('hazards', () => createTerrainUnstreamed(scene));
+}
+
+function createTerrainUnstreamed(scene: THREE.Scene) {
   // Create a large natural mountain terrain
   const geometry = new THREE.PlaneGeometry(300, 400, 150, 200);
   geometry.rotateX(-Math.PI / 2);
@@ -38,46 +49,24 @@ export function createTerrain(scene: THREE.Scene) {
   // buffer is a writable Float32Array, which we mutate in place below.
   const vertices = geometry.attributes.position!.array as Float32Array;
 
-  // Create Perlin noise for natural terrain variation
-  const perlin = new SimplexNoise();
-
+  // ONE height field (#401): every mesh vertex samples getTerrainHeightUncached —
+  // the SAME pure analytic function physics, collision grounding, and tree/rock
+  // placement read. The old vertex loop kept a hand-copied variant behind "MUST
+  // MATCH" comments and it had materially drifted (Simplex noise x2.0 + ridge x1.5
+  // + per-vertex Math.random bumps vs the sampler's sin*cos x1.5 + ridge x0.8), so
+  // the surface players SAW was not the surface the kernel and the headless
+  // harnesses simulated — and the mesh differed run to run (unseeded Simplex +
+  // random bumps). Sampling the one function ends the drift class: the corridor
+  // and kicker terms ride along automatically (the sampler already gates them),
+  // and the mesh is exactly as deterministic as the sampler.
+  //
+  // Preserve the mesh-vertex snapshot for debugging. Physics samples the exact
+  // triangle directly; these rounded keys must never answer ad-hoc queries.
   for (let i = 0; i < vertices.length; i += 3) {
     const x = vertices[i]!, z = vertices[i + 2]!;
-    const distance = Math.sqrt(x * x + z * z);
-
-    // Base mountain shape - MUST MATCH getTerrainHeight function exactly!
-    let y = 40 * Math.exp(-distance / 40);
-
-    // Add perlin noise for natural terrain roughness
-    // Less noise near the peak, more at the sides
-    const noiseScale = 0.05;
-    const noiseStrength = 2.0 * (1 - Math.exp(-distance / 60));
-    y += perlin.noise(x * noiseScale, z * noiseScale) * noiseStrength;
-
-    // Store this vertex position in our heightmap for precise object placement
-    const key = `${Math.round(x*10)},${Math.round(z*10)}`;
-    heightMap[key] = y;
-
-    // Add natural terrain features and ridges (aperiodic — see terrainRidgeField).
-    // Damped toward the peak like the perlin roughness above (same distance falloff).
-    y += terrainRidgeField(x, z) * 1.5 * (1 - Math.exp(-distance / 60));
-
-    // Ensure downhill gradient in extended sections - create a consistent downhill slope
-    // Must match getTerrainHeight implementation exactly!
-    // Use a stronger gradient (0.12) to ensure consistent downhill even with terrain noise
-    if (z < -30) {
-      y += (z + 30) * 0.12;
-    }
-
-    // Add some random smaller bumps for natural backcountry terrain
-    if (Math.random() > 0.6) {
-      y += perlin.noise(x * 0.1 + 100, z * 0.1 + 100) * 2.0;
-    }
-
+    const y = getTerrainHeightUncached(x, z);
     vertices[i + 1] = y;
-
-    // IMPORTANT: Update the heightmap with the FINAL height after all modifications
-    heightMap[`${Math.round(x*10)},${Math.round(z*10)}`] = y;
+    heightMap[`${Math.round(x * 10)},${Math.round(z * 10)}`] = y;
   }
   geometry.computeVertexNormals();
   // Smooth the *shading* normals (positions/physics untouched) so the directional
@@ -85,27 +74,25 @@ export function createTerrain(scene: THREE.Scene) {
   // run before applySnowVertexColors (which derives the slope tint from these
   // normals) and must NOT be followed by another computeVertexNormals (it would
   // overwrite them). PlaneGeometry(150,200 segments) => 151x201 grid vertices.
-  applySmoothShadingNormals(geometry, 151, 201, 7);
+  // Two passes remove the 2m-grid facets while retaining the mountain's smaller
+  // rolls. Seven passes erased these forms over a ~4m radius, flattening the snow.
+  applySmoothShadingNormals(geometry, 151, 201, 2);
 
-  // Snow surface material (issue #17): a bright, isotropically mottled near-white
-  // albedo plus a soft *isotropic* micro-relief normal map (powder granulation, no
-  // directional ripples) so the slope reads as deep snow that catches the light,
-  // instead of the old flat grey grid / diagonal striping. Slope shading (bright
-  // snow -> faint cool powder shadow on pitches) is baked into the geometry's
-  // vertex colours and multiplied in via `vertexColors`. A high roughness keeps it
-  // matte like real powder; the gentle normalScale avoids harsh corrugation.
-  const albedo = createSnowAlbedoTexture();
-  const normalMap = createSnowNormalTexture();
+  // One coherent height field supplies wind-shaped normals, cool hollow colour
+  // and compressed-shoulder roughness. Grain remains subordinate to the larger
+  // drifts, so the surface reads as shaped snow instead of uniform white noise.
+  const snow = createTerrainSnowTextures();
   // Pass the 151x201 grid so the slope tint also bakes the cavity/AO term (hollows
   // read as shaded depressions, not flat white). Same grid as applySmoothShadingNormals.
   applySnowVertexColors(geometry, 151, 201);
 
   const material = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.92,
-    map: albedo,
-    normalMap: normalMap,
-    normalScale: new THREE.Vector2(0.12, 0.12),
+    roughness: 1, // The map stores the physical .58–.93 powder/crust range.
+    roughnessMap: snow.roughness,
+    map: snow.albedo,
+    normalMap: snow.normal,
+    normalScale: new THREE.Vector2(1, 1),
     vertexColors: true
   });
 

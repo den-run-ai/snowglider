@@ -36,7 +36,8 @@ import {
   limit,
   getDocs,
   serverTimestamp,
-  type Firestore
+  type Firestore,
+  DocumentReference
 } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-firestore.js";
 import { logEvent, type Analytics } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-analytics.js";
 import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-auth.js";
@@ -44,6 +45,8 @@ import type { User } from "https://www.gstatic.com/firebasejs/11.5.0/firebase-au
 // floor was measured empirically (issue #229, PR A); firestore.rules duplicates the same
 // literals because rules can't import JS, and a drift test keeps them in lockstep.
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from './score-limits.js';
+import { withTrafficTag } from './analytics-env.js';
+import { runTelemetryContext } from './run-telemetry.js';
 // Per-tier scoring storage names. Blue maps to the original un-suffixed names, so the
 // default-tier paths/fields/keys (and every existing caller/test that passes no tier)
 // are byte-for-byte unchanged.
@@ -52,19 +55,39 @@ import {
   localBestTimeKey,
   leaderboardCollectionName,
   userBestTimeField,
+  stampLocalBestMeta,
+  localBestProvenanceCompatible,
   type Difficulty
 } from './difficulty.js';
+// Re-export for existing consumers/tests: the implementation lives in the
+// Firebase-free difficulty.ts so non-Firebase modules can read stamps too.
+export { readLocalBestMeta } from './difficulty.js';
+// Local-first offline sync (issue #358, PR 4): queue an eligible best that couldn't
+// sync now, and flush the queue on reconnect. The pending marker is durable across a
+// tab close (localStorage) — it fills the gap where Firestore was not initialized at
+// finish time (offline first-load), which the SDK's own offline write-queue can't cover.
+import { queueOfflineBest, queueFailedSync, flushPendingSync, hasPendingSync, type SyncDeps } from './offline/sync-manager.js';
 
 // Module state
 let firestore: Firestore | null = null; // Local cache of firestore instance, updated by initializeScores
 let analytics: Analytics | null = null;
 let currentUser: User | null = null;
 
-function isValidScoreTime(time: number) {
+// Type-guard form: accepts `unknown` (Firestore reads and localStorage parses flow
+// through here as untyped data) and narrows to `number` on success, so callers can
+// decode a raw field and use it as a number without an unsafe cast. The body already
+// did the `typeof === 'number'` check, so this is purely a signature tightening.
+function isValidScoreTime(time: unknown): time is number {
   return typeof time === 'number' &&
     Number.isFinite(time) &&
     time >= MIN_VALID_SCORE_TIME &&
     time <= MAX_VALID_SCORE_TIME;
+}
+
+/** SDK promises can reject with arbitrary values, including null. */
+function readErrorCode(error: unknown): string | null {
+  return error !== null && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code : null;
 }
 
 function readLocalBestTime(tier: Difficulty = DEFAULT_DIFFICULTY) {
@@ -100,6 +123,93 @@ function initializeScores(firestoreInstance: Firestore | null, analyticsInstance
   } else {
     console.log("ScoresModule received valid Firestore instance.");
   }
+
+  // Offline-sync wiring (issue #358, PR 4): listen for reconnects, and flush any queued
+  // pending best now that Firestore may be available.
+  ensureOnlineFlushListener();
+  if (firestore) {
+    flushOfflineScoreQueue();
+  }
+}
+
+// --- Local-first offline sync wiring (issue #358, PR 4) -----------------------
+// Bridges the pure sync-manager to this module's live user/Firestore state.
+let offlineSyncOnlineListenerBound = false;
+
+function buildSyncDeps(): SyncDeps {
+  return {
+    getActiveUser,
+    isFirestoreReady: () => isFirestoreAvailable(),
+    sync: (uid, time, tier) => updateUserBestTime(uid, time, tier),
+    // Match scores.ts's existing online check (window.navigator.onLine).
+    isOnline: () => typeof window !== 'undefined' && !!window.navigator && window.navigator.onLine,
+  };
+}
+
+function flushOfflineScoreQueue() {
+  // Fire-and-forget: the flush awaits each per-tier sync internally and only clears a
+  // marker on a confirmed write, so we don't need its result here.
+  void flushPendingSync(buildSyncDeps()).catch((error) => {
+    console.warn('Offline score-queue flush failed:', error);
+  });
+}
+
+/**
+ * Attempt the authoritative best-time sync and, if it does NOT confirm (a transient
+ * getDoc/setDoc/leaderboard failure resolves `false`, or the promise rejects), queue the
+ * best for a later reconnect/auth-restore retry. Shared by the finish path (recordScore)
+ * and the sign-in backfill (auth.ts syncUserData) so a flaky-Firestore write is never
+ * silently dropped — either caller's failed online write is retried instead of leaving
+ * the best local-only (Codex #362). Fire-and-forget; queueFailedSync is internally guarded
+ * (real signed-in user + ranked tier).
+ */
+function syncBestTimeWithRetry(uid: string, time: number, tier: Difficulty): void {
+  // Normalize synchronous SDK failures into the same confirm-or-queue path.
+  void Promise.resolve().then(() => updateUserBestTime(uid, time, tier))
+    .then((confirmed) => {
+      // Queue under the ORIGINAL uid captured here — not getActiveUser() at resolve time,
+      // which may be a different account (or none) if the player switched mid-write (Codex #362).
+      if (confirmed === false) queueFailedSync(uid, tier, time, buildSyncDeps());
+    })
+    .catch(() => {
+      queueFailedSync(uid, tier, time, buildSyncDeps());
+    });
+}
+
+// Drain the pending-sync queue (issue #358, PR 4). Driven by BOTH the `online` event
+// (offline→online) AND a real user arriving via setCurrentUser (a persisted login
+// restored on reload settles AFTER initializeScores' early flush already no-opped with
+// no active user — Codex #362). When there's queued work but Firestore was never
+// initialized (an offline first-load), the flush would no-op — so reinitialize Firestore
+// first: its initializeScores() re-runs this module's flush once the instance is live.
+// Otherwise flush directly. Guarded on a signed-in user + actual pending work so a plain
+// reconnect/sign-in doesn't churn a reinit. `reinitializeFirestore` early-returns once
+// Firestore exists and never calls setCurrentUser, so there's no reinit→init→flush loop.
+function drainPendingSyncQueue() {
+  try {
+    const activeUser = getActiveUser();
+    // Only reinitialize when THIS user actually has queued work (hasPendingSync scoped to
+    // their uid) — a foreign user's leftover marker must not churn a reinit for someone
+    // who has nothing to sync (Codex #362).
+    if (!firestore && activeUser && hasPendingSync(activeUser.uid)) {
+      const authModule = window.AuthModule;
+      if (authModule && typeof authModule.reinitializeFirestore === 'function') {
+        console.log('Reconnected with a pending offline best; reinitializing Firestore to sync it.');
+        authModule.reinitializeFirestore();
+        return;
+      }
+    }
+  } catch (error) {
+    console.warn('Reconnect reinit check failed:', error);
+  }
+  flushOfflineScoreQueue();
+}
+
+function ensureOnlineFlushListener() {
+  if (offlineSyncOnlineListenerBound) return;
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  offlineSyncOnlineListenerBound = true;
+  window.addEventListener('online', drainPendingSyncQueue);
 }
 
 /**
@@ -108,20 +218,32 @@ function initializeScores(firestoreInstance: Firestore | null, analyticsInstance
  */
 function setCurrentUser(user: User | null) {
   currentUser = user;
+  // A persisted login restored on reload calls this AFTER initializeScores' early flush
+  // already no-opped (no active user yet), and setCurrentUser used to do nothing further
+  // — so an already-online session with a pending offline best stayed stuck until some
+  // later reconnect/reinit (Codex #362). Now that a real (non-anonymous) user is present,
+  // drain the queue. drainPendingSyncQueue is internally guarded on online + Firestore
+  // (reinit if needed) + a real active user + actual pending work, so this is a no-op on
+  // logout, guests, offline, or an empty queue.
+  if (user && !user.isAnonymous) {
+    drainPendingSyncQueue();
+  }
 }
 
-function getActiveUser() {
+function getActiveUser(): User | null {
   if (currentUser) {
     return currentUser;
   }
 
+  // The boot bridge keeps the SDK's User type even when the local fallback omits members.
   const authModule = window.AuthModule;
   if (!authModule) {
     return null;
   }
 
   try {
-    const authStateUser = authModule.getAuthState?.()?.user || authModule.getCurrentUser?.();
+    const authStateUser: User | null =
+      authModule.getAuthState?.()?.user || authModule.getCurrentUser?.() || null;
     // Anonymous "guest" users have no leaderboard identity: AuthModule still
     // reports them as signed in (so the UI shows logged-in chrome), but their best
     // time must stay local until they upgrade to a real provider (which reuses the
@@ -143,82 +265,103 @@ function getActiveUser() {
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
-function updateUserBestTime(userId: string, time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
-  // Guard clauses
+function updateUserBestTime(userId: string, time: number, tier: Difficulty = DEFAULT_DIFFICULTY): Promise<boolean> {
+  // Guard clauses. Resolve `false` (not a confirmed sync) so the offline-queue flush
+  // keeps its pending marker rather than clearing it on a skip.
   if (!firestore) {
     console.log("Skipping best time update (Firestore unavailable).");
-    return;
+    return Promise.resolve(false);
   }
   if (!userId) {
     console.warn("Skipping best time update (User ID missing).");
-    return;
+    return Promise.resolve(false);
   }
   if (!isValidScoreTime(time)) {
     console.warn("Skipping best time update (Invalid time value):", time);
-    return;
+    return Promise.resolve(false);
   }
 
   // Per-tier best-time field on the user doc (Blue == 'bestTime', unchanged).
   const bestField = userBestTimeField(tier);
 
+  let userDocRef: DocumentReference;
   try {
-    const userDocRef = doc(firestore, 'users', userId);
-
-    // Read the stored best, then write only when this run ties or beats it. This is a
-    // plain getDoc + setDoc, not a transaction: setDoc queues offline and flushes on
-    // reconnect on its own, so a finish during a network blip still syncs without any
-    // custom retry timer/backoff. The narrow read-then-write race (two tabs finishing
-    // within the same few hundred ms) is self-healing — the next finish, or the on-login
-    // syncUserData reconciliation in auth.js, re-applies the authoritative best.
-    getDoc(userDocRef)
-      .then(docSnap => {
-        const storedBest = docSnap.exists() ? docSnap.data()[bestField] : null;
-        const hasStoredBest = isValidScoreTime(storedBest);
-        if (storedBest !== null && storedBest !== undefined && !hasStoredBest) {
-          console.warn(`Ignoring invalid stored best for user ${userId}:`, storedBest);
-        }
-        // The authoritative best is the better of the stored value and this run. This is
-        // the value the leaderboard must reflect — never the raw run time, which may be
-        // slower than a best already stored from another device/tab.
-        const authoritativeBest = hasStoredBest ? Math.min(storedBest, time) : time;
-
-        let userWrite;
-        if (!hasStoredBest || time <= storedBest) {
-          console.log(`Updating best time for user ${userId} to ${time} (${bestField})`);
-          userWrite = setDoc(userDocRef, {
-            [bestField]: time,
-            updatedAt: serverTimestamp() // Track when the best time was updated
-          }, { merge: true });
-        } else {
-          console.log(`New time (${time}) is not better than stored best (${storedBest}). User doc unchanged.`);
-          userWrite = Promise.resolve();
-        }
-
-        // Reconcile the leaderboard toward the authoritative best AFTER the user write
-        // settles, in a SEPARATE write so a leaderboard-only permission/rule failure
-        // can't abort the personal-best sync above. Chaining onto the setDoc promise
-        // (rather than firing in parallel) is what makes an offline finish durable: when
-        // setDoc stays queued until reconnect, the leaderboard read+write run only once
-        // we are back online, so the backfill rides the SDK's own offline queue instead
-        // of being dropped by an immediate read against an uncached leaderboard doc. We
-        // still reconcile when the user write failed or was skipped, so a missing entry —
-        // the original bug — is backfilled, and passing authoritativeBest (not the raw
-        // run time) means a slower local run never downgrades the board.
-        // Fire-and-forget: this backfill intentionally rides the SDK's offline
-        // queue and is not awaited by the surrounding chain (see comment above).
-        void userWrite
-          .catch(error => console.warn("Best time write did not complete:", error))
-          .then(() => updateLeaderboard(userId, authoritativeBest, tier));
-      })
-      .catch(error => {
-        // getDoc can reject when offline with nothing cached (or on a permission/rules
-        // issue). Nothing is written now; the local best stays in localStorage and the
-        // on-login syncUserData reconciliation re-applies it on the next sign-in.
-        console.warn("Could not sync best time now; will reconcile on next sign-in.", error);
-      });
+    userDocRef = doc(firestore, 'users', userId);
   } catch (error) {
     console.error("Unexpected error in updateUserBestTime:", error);
+    return Promise.resolve(false);
   }
+
+  // Read the stored best, then write only when this run ties or beats it. This is a
+  // plain getDoc + setDoc, not a transaction: setDoc queues offline and flushes on
+  // reconnect on its own, so a finish during a network blip still syncs without any
+  // custom retry timer/backoff. The narrow read-then-write race (two tabs finishing
+  // within the same few hundred ms) is self-healing — the next finish, or the on-login
+  // syncUserData reconciliation in auth.js, re-applies the authoritative best. The
+  // RETURNED promise resolves true only when the personal-best write actually settles,
+  // so the offline-queue flush (sync-manager.ts) clears its durable marker on a
+  // confirmed sync and KEEPS it on any failure (Codex #362).
+  return getDoc(userDocRef)
+    .then(docSnap => {
+      const storedBest: unknown = docSnap.exists() ? docSnap.data()[bestField] : null;
+      // isValidScoreTime is a type guard: aliasing its result in `hasStoredBest`
+      // narrows `storedBest` to `number` wherever hasStoredBest gates its use below.
+      const hasStoredBest = isValidScoreTime(storedBest);
+      if (storedBest !== null && storedBest !== undefined && !hasStoredBest) {
+        console.warn(`Ignoring invalid stored best for user ${userId}:`, storedBest);
+      }
+      // The authoritative best is the better of the stored value and this run. This is
+      // the value the leaderboard must reflect — never the raw run time, which may be
+      // slower than a best already stored from another device/tab.
+      const authoritativeBest = hasStoredBest ? Math.min(storedBest, time) : time;
+
+      let userWrite: Promise<void>;
+      if (!hasStoredBest || time <= storedBest) {
+        console.log(`Updating best time for user ${userId} to ${time} (${bestField})`);
+        userWrite = setDoc(userDocRef, {
+          [bestField]: time,
+          updatedAt: serverTimestamp() // Track when the best time was updated
+        }, { merge: true });
+      } else {
+        console.log(`New time (${time}) is not better than stored best (${storedBest}). User doc unchanged.`);
+        userWrite = Promise.resolve();
+      }
+
+      // Reconcile the leaderboard toward the authoritative best AFTER the user write
+      // settles, in a SEPARATE write so a leaderboard-only permission/rule failure
+      // can't abort the personal-best sync above. Chaining onto the setDoc promise
+      // (rather than firing in parallel) is what makes an offline finish durable: when
+      // setDoc stays queued until reconnect, the leaderboard read+write run only once
+      // we are back online, so the backfill rides the SDK's own offline queue instead
+      // of being dropped by an immediate read against an uncached leaderboard doc. We
+      // still reconcile when the user write failed or was skipped, so a missing entry —
+      // the original bug — is backfilled, and passing authoritativeBest (not the raw
+      // run time) means a slower local run never downgrades the board. The leaderboard
+      // backfill stays fire-and-forget (its own offline-queue durability); the returned
+      // success reflects the PERSONAL-BEST write settling.
+      return userWrite
+        .then(() =>
+          // Confirmed only when the leaderboard backfill ALSO settles, so a queued
+          // offline best is not marked flushed until it actually reaches the board
+          // (Codex #362). updateLeaderboard is still a SEPARATE write — its failure
+          // doesn't abort the personal-best write above, it only withholds the
+          // "confirmed" signal so the flush keeps its retry marker.
+          updateLeaderboard(userId, authoritativeBest, tier)
+        )
+        .catch((error: unknown) => {
+          console.warn("Best time write did not complete:", error);
+          // Still reconcile the board (original behavior), but a failed user write means
+          // this sync is not confirmed — resolve false so the flush keeps its marker.
+          return updateLeaderboard(userId, authoritativeBest, tier).then(() => false);
+        });
+    })
+    .catch(error => {
+      // getDoc can reject when offline with nothing cached (or on a permission/rules
+      // issue). Nothing is written now; the local best stays in localStorage and the
+      // on-login syncUserData reconciliation re-applies it on the next sign-in.
+      console.warn("Could not sync best time now; will reconcile on next sign-in.", error);
+      return false;
+    });
 }
 
 /**
@@ -231,10 +374,14 @@ function updateUserBestTime(userId: string, time: number, tier: Difficulty = DEF
  * @param {string} userId - Firebase user ID
  * @param {number} time - Run completion time in seconds
  */
-function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
+function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFAULT_DIFFICULTY): Promise<boolean> {
+  // Resolves `true` only when the board is in the desired state after this call (either
+  // written, or it already held a faster/equal entry). Resolves `false` on any read/write
+  // failure, so the offline-queue flush keeps its pending marker until BOTH the user-doc
+  // write AND this leaderboard backfill have settled (Codex #362).
   if (!isValidScoreTime(time)) {
     console.warn("Skipping leaderboard update (Invalid time value):", time);
-    return;
+    return Promise.resolve(false);
   }
 
   // Check AuthModule first for availability
@@ -244,52 +391,86 @@ function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFA
         console.warn("updateLeaderboard: AuthModule reports unavailable, clearing local Firestore instance.");
         firestore = null; // Ensure local state matches AuthModule if it became unavailable
     }
-    return;
+    return Promise.resolve(false);
   }
   // If AuthModule thinks it's available, but we don't have it locally, bail out;
   // doc() needs a valid Firestore instance.
   if (!firestore) {
       console.warn("updateLeaderboard: AuthModule reports Firestore available, but local instance is null. Skipping.");
-      return;
+      return Promise.resolve(false);
   }
 
+  let userDocRef: DocumentReference;
+  let leaderboardDocRef: DocumentReference;
   try {
     // Reference to the user document (used as a foreign key in leaderboard)
-    const userDocRef = doc(firestore, 'users', userId);
+    userDocRef = doc(firestore, 'users', userId);
     // Use the user's UID as the document ID in the tier's leaderboard collection
     // (Blue == 'leaderboard', unchanged).
-    const leaderboardDocRef = doc(firestore, leaderboardCollectionName(tier), userId);
-
-    // Read the current entry, then write only when this time improves (or creates) it,
-    // so a slower run can never downgrade a faster board entry.
-    getDoc(leaderboardDocRef)
-      .then(leaderboardSnap => {
-        const leaderboardBest = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
-        if (leaderboardBest !== null && !isValidScoreTime(leaderboardBest)) {
-          console.warn(`Replacing invalid leaderboard entry for user ${userId}:`, leaderboardBest);
-        }
-        if (isValidScoreTime(leaderboardBest) && time > leaderboardBest) {
-          console.log(`Leaderboard already has a faster entry for user ${userId}. No update needed.`);
-          return;
-        }
-        console.log(`Updating leaderboard entry for user ${userId} with time ${time}`);
-        setDoc(leaderboardDocRef, {
-          user: userDocRef, // Store a reference to the user document
-          time: time,
-          achievedAt: serverTimestamp() // Record when this score was achieved/updated
-        })
-          .then(() => console.log("Leaderboard updated successfully for user:", userId))
-          .catch(error => console.warn("Leaderboard write did not complete:", error));
-      })
-      .catch(error => {
-        // Read failed (offline with nothing cached, permissions, etc.); skip this
-        // update. The personal-best write above is unaffected, and the next finish or
-        // the on-login syncUserData reconciliation re-applies the authoritative best.
-        console.warn("Could not read leaderboard entry for comparison; skipping update.", error);
-      });
+    leaderboardDocRef = doc(firestore, leaderboardCollectionName(tier), userId);
   } catch (error) {
     console.error("Unexpected error in updateLeaderboard:", error);
+    return Promise.resolve(false);
   }
+
+  // Read the current entry, then write only when this time improves (or creates) it,
+  // so a slower run can never downgrade a faster board entry.
+  return getDoc(leaderboardDocRef)
+    .then(leaderboardSnap => {
+      const leaderboardBest: unknown = leaderboardSnap.exists() ? leaderboardSnap.data().time : null;
+      if (leaderboardBest !== null && !isValidScoreTime(leaderboardBest)) {
+        console.warn(`Replacing invalid leaderboard entry for user ${userId}:`, leaderboardBest);
+      }
+      if (isValidScoreTime(leaderboardBest) && time > leaderboardBest) {
+        console.log(`Leaderboard already has a faster entry for user ${userId}. No update needed.`);
+        return true; // desired state already present — nothing to retry
+      }
+      console.log(`Updating leaderboard entry for user ${userId} with time ${time}`);
+      // Denormalize the player's display name onto the board entry: the rules
+      // (deliberately) deny cross-user /users profile reads, so the name must
+      // travel on the leaderboard doc itself for other players to see it.
+      // Nullable, truncated to the rules' 40-char cap, and only taken from the
+      // signed-in user whose entry this is. Escaped on output (leaderboardRow).
+      const activeUser = getActiveUser();
+      const displayName = (activeUser && activeUser.uid === userId && activeUser.displayName)
+        ? String(activeUser.displayName).slice(0, 40)
+        : null;
+      return setDoc(leaderboardDocRef, {
+        user: userDocRef, // Store a reference to the user document
+        time: time,
+        displayName: displayName,
+        achievedAt: serverTimestamp() // Record when this score was achieved/updated
+      })
+        .then(() => { console.log("Leaderboard updated successfully for user:", userId); return true; })
+        .catch(error => {
+          // Rules-skew fallback (codex #277): CI deploys firestore.rules AFTER
+          // GitHub Pages, so a freshly-deployed client can briefly write against
+          // the previous rules, whose key allowlist rejects the displayName field
+          // (permission-denied) — and would keep rejecting it if that rules deploy
+          // failed outright. Retry once in the old-rules shape (no displayName) so
+          // the SCORE is never lost to the skew; the name backfills on a later
+          // finish once the new rules are live (a same-time rewrite is allowed).
+          if (readErrorCode(error) === 'permission-denied') {
+            console.warn("Leaderboard write with displayName rejected; retrying without it (rules skew?).");
+            return setDoc(leaderboardDocRef, {
+              user: userDocRef,
+              time: time,
+              achievedAt: serverTimestamp()
+            })
+              .then(() => { console.log("Leaderboard updated (no displayName) for user:", userId); return true; })
+              .catch(retryError => { console.warn("Leaderboard write did not complete:", retryError); return false; });
+          }
+          console.warn("Leaderboard write did not complete:", error);
+          return false;
+        });
+    })
+    .catch(error => {
+      // Read failed (offline with nothing cached, permissions, etc.); skip this
+      // update. The personal-best write above is unaffected, and the next finish or
+      // the on-login syncUserData reconciliation re-applies the authoritative best.
+      console.warn("Could not read leaderboard entry for comparison; skipping update.", error);
+      return false;
+    });
 }
 
 /**
@@ -297,10 +478,42 @@ function updateLeaderboard(userId: string, time: number, tier: Difficulty = DEFA
  * @returns {Promise<Array>} Promise resolving to array of score objects
  */
 /** A leaderboard row assembled from a Firestore `leaderboard` document. */
-interface LeaderboardScore {
+export interface LeaderboardScore {
   userId: string;     // the leaderboard document id (== the user's uid)
   time: number;       // best run time in seconds
-  userRef: any;       // Firestore DocumentReference to the user doc (untyped DocumentData)
+  userRef: DocumentReference; // reference to the user doc (denormalized foreign key)
+  displayName: string | null; // denormalized at write time; null on legacy/guestless entries
+}
+
+/** The trusted shape decoded from a raw Firestore `leaderboard` document. */
+interface LeaderboardDoc {
+  user: DocumentReference;
+  time: number;
+  displayName: string | null;
+}
+
+/** SDK identity plus profile ownership; document contents remain untyped until decoded. */
+function isUserReference(value: unknown, userId: string): value is DocumentReference {
+  return value instanceof DocumentReference && value.path === `users/${userId}`;
+}
+
+/**
+ * Decode+validate a raw Firestore leaderboard document at the trust boundary, so the
+ * untyped `DocumentData` never flows into the app as `any`. Returns null for anything
+ * that isn't a valid, complete entry (invalid/absent time, missing user ref).
+ */
+function readLeaderboardDoc(data: unknown, userId: string): LeaderboardDoc | null {
+  if (!data || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  if (!isValidScoreTime(d.time)) return null; // narrows d.time to number
+  // A truthy object/string is not an SDK reference. Also reject references to a
+  // different user's profile (or another collection) instead of trusting a cast.
+  if (!isUserReference(d.user, userId)) return null;
+  return {
+    user: d.user,
+    time: d.time,
+    displayName: typeof d.displayName === 'string' ? d.displayName : null,
+  };
 }
 
 function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<LeaderboardScore[]> {
@@ -335,28 +548,33 @@ function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<Leaderbo
       .then(snapshot => {
         const scores: LeaderboardScore[] = [];
         snapshot.forEach(docSnap => {
-          const data = docSnap.data();
-          // Ensure data has expected fields before pushing
-          if (data && isValidScoreTime(data.time) && data.user) {
+          // Decode the raw DocumentData through the trust boundary — invalid/incomplete
+          // entries (bad time, missing user ref) are dropped rather than flowing as `any`.
+          const decoded = readLeaderboardDoc(docSnap.data(), docSnap.id);
+          if (decoded) {
             scores.push({
               userId: docSnap.id, // The user ID is the document ID
-              time: data.time,
-              userRef: data.user // Store the DocumentReference to the user
+              time: decoded.time,
+              userRef: decoded.user, // DocumentReference to the user doc
+              // Denormalized name (may be absent on entries written before the
+              // field existed — the renderer falls back to 'Anonymous').
+              displayName: decoded.displayName
             });
           } else {
-            console.warn("Skipping invalid leaderboard entry:", docSnap.id, data);
+            console.warn("Skipping invalid leaderboard entry:", docSnap.id, docSnap.data());
           }
         });
         console.log("Leaderboard data fetched:", scores.length, "entries");
         return scores;
       })
-      .catch(error => {
+      .catch((error: unknown) => {
         console.error("Error fetching leaderboard:", error);
+        const code = readErrorCode(error);
         // Only set Firestore to null for serious connectivity issues, not permissions
-        if (error.code === 'unavailable' || error.code === 'failed-precondition') {
+        if (code === 'unavailable' || code === 'failed-precondition') {
           console.warn("Firestore became unavailable fetching leaderboard. Clearing local instance.");
           firestore = null; // Set local instance to null
-        } else if (error.code === 'permission-denied') {
+        } else if (code === 'permission-denied') {
           console.warn("Permission issues with Firestore leaderboard access. Continuing with limited functionality.");
           // Don't disable Firestore entirely for permission issues
         }
@@ -367,6 +585,41 @@ function getLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY): Promise<Leaderbo
     firestore = null; // Assume Firestore is problematic
     return Promise.resolve([]); // Return empty array
   }
+}
+
+/**
+ * Build one leaderboard table row with DOM APIs — never string-concatenated markup.
+ * Player names and avatar URLs are user-controlled data (today the viewer's own auth
+ * profile; other players' strings once display names are denormalized onto the
+ * leaderboard docs), so the name is set via textContent and the avatar via property
+ * assignment, which cannot inject markup. The avatar scheme is allowlisted to https:
+ * so a javascript:/data: URL never reaches an attribute.
+ * @param {number} rank - 1-based leaderboard position
+ * @param {string} name - Player display name (untrusted)
+ * @param {string|null} photoURL - Avatar URL (untrusted)
+ * @param {number} time - Run time in seconds
+ * @param {boolean} isCurrentUser - Highlight the signed-in viewer's own row
+ */
+function leaderboardRow(rank: number, name: string, photoURL: string | null,
+                        time: number, isCurrentUser: boolean): HTMLTableRowElement {
+  const tr = document.createElement('tr');
+  if (isCurrentUser) tr.className = 'current-user-score';
+
+  tr.insertCell().textContent = String(rank);
+
+  const playerTd = tr.insertCell();
+  if (photoURL && /^https:\/\//.test(photoURL)) {
+    const img = document.createElement('img');
+    img.className = 'mini-avatar';
+    img.alt = '';
+    img.referrerPolicy = 'no-referrer';
+    img.src = photoURL;
+    playerTd.appendChild(img);
+  }
+  playerTd.appendChild(document.createTextNode(name));
+
+  tr.insertCell().textContent = `${time.toFixed(2)}s`;
+  return tr;
 }
 
 /**
@@ -411,88 +664,40 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
           return;
         }
 
-        // Fetch user data only if firestore is still available
-        const userPromises = scores.map(score => {
-          if (!firestore) { // Check before each user fetch
-              console.warn("displayLeaderboard: Firestore became unavailable before fetching user data for", score.userId);
-              return Promise.resolve({ displayName: 'Anonymous Player', photoURL: null });
-          }
-          if (!score.userRef || typeof score.userRef.path !== 'string') {
-            console.warn("Invalid user reference in leaderboard score for:", score.userId);
-            return Promise.resolve({ displayName: 'Anonymous Player', photoURL: null });
-          }
-
-          // Don't try to fetch user data for leaderboard entries - this appears to be causing permission issues
-          // Instead, just use a generic player name with their position
-          return Promise.resolve({ 
-            displayName: 'Player',
-            photoURL: null,
-            userId: score.userId
-          });
-          
-          /* Previous implementation with permissions issues:
-          return getDoc(score.userRef)
-            .then(docSnap => {
-              if (docSnap.exists()) {
-                const userData = docSnap.data();
-                return {
-                  displayName: userData.displayName || 'Anonymous',
-                  photoURL: userData.photoURL || null
-                };
-              } else {
-                console.warn("User document not found for leaderboard entry:", score.userId);
-                return { displayName: 'Unknown User', photoURL: null };
-              }
-            })
-            .catch(error => {
-              console.error("Error fetching user data for leaderboard entry:", score.userId, error);
-              if (error.code === 'permission-denied' || error.code === 'unavailable' || error.code === 'failed-precondition') {
-                console.warn("Firestore became unavailable fetching user data. Clearing local instance.");
-                firestore = null; // Set local instance to null
-              }
-              return { displayName: 'Error Loading', photoURL: null };
-            });
-          */
-        });
-
-        return Promise.all(userPromises).then(users => ({ scores, users })); // Pass both scores and users
-      })
-      .then(result => {
-        // Handle the case where getLeaderboard resolved but Firestore became unavailable during user fetches
-        if (!result) return; // Exit if previous step returned nothing (e.g., Firestore became unavailable)
-        
-        // Continue showing leaderboard even if there were some user data issues
-        // This ensures the leaderboard is displayed even with permissions problems
-
-        const { scores, users } = result;
+        // Names come denormalized on the leaderboard docs themselves (written by
+        // updateLeaderboard): the rules deny cross-user /users profile reads, so a
+        // per-entry getDoc can never work — the doc's own displayName is the only
+        // name other players can see. Entries written before the field existed
+        // fall back to 'Anonymous'.
         const activeUser = getActiveUser();
-        let html = '<h3>Top 10 Times</h3><table>';
-        html += '<tr><th>Rank</th><th>Player</th><th>Time</th></tr>';
+        // Build the table with DOM APIs (leaderboardRow) rather than an innerHTML
+        // string, so user-controlled names/avatars render as text, never as markup.
+        const heading = document.createElement('h3');
+        heading.textContent = 'Top 10 Times';
+        const table = document.createElement('table');
+        const headerRow = document.createElement('tr');
+        table.appendChild(headerRow);
+        for (const label of ['Rank', 'Player', 'Time']) {
+          const th = document.createElement('th');
+          th.textContent = label;
+          headerRow.appendChild(th);
+        }
 
         scores.forEach((score, index) => {
-          const user = users[index]!;
-          // Show current user differently (match by userId)
-          const isCurrentUser = activeUser && score.userId === activeUser.uid;
-          const displayName = isCurrentUser ? 
-            (activeUser.displayName || 'You') : 
-            `${user.displayName} ${index + 1}`;
-            
-          html += `<tr class="${isCurrentUser ? 'current-user-score' : ''}">
-            <td>${index + 1}</td>
-            <td>
-              ${user.photoURL ? `<img src="${user.photoURL}" alt="" class="mini-avatar">` : ''}
-              ${displayName}
-            </td>
-            <td>${score.time.toFixed(2)}s</td>
-          </tr>`;
+          // Show current user differently (match by userId): their row prefers the
+          // live auth profile name, which is fresher than the denormalized copy.
+          const isCurrentUser = !!(activeUser && score.userId === activeUser.uid);
+          const displayName = isCurrentUser ?
+            (activeUser?.displayName || 'You') :
+            (score.displayName ?? 'Anonymous');
+          table.appendChild(
+            leaderboardRow(index + 1, displayName, null, score.time, isCurrentUser));
         });
 
-        html += '</table>';
-        leaderboardElement.innerHTML = html;
+        leaderboardElement.replaceChildren(heading, table);
         console.log("Leaderboard display updated successfully.");
       })
       .catch(error => {
-        // Catch errors from getLeaderboard() OR Promise.all()
         console.error("Failed during leaderboard display process:", error);
         // Check local firestore status after the error
         if (!firestore) {
@@ -548,9 +753,19 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
   }
 }
 
+/** Analytics is optional: a telemetry failure must never interrupt score persistence. */
+function logScoreEvent(name: 'complete_run' | 'new_high_score', time: number, tier: Difficulty): void {
+  if (!analytics) return;
+  try {
+    logEvent(analytics, name, withTrafficTag({ time, ...runTelemetryContext(tier) }));
+  } catch (error) {
+    console.warn('Score analytics unavailable:', error);
+  }
+}
+
 /**
- * Record a completed run score
- * @param {number} time - Run completion time in seconds
+ * Record a completed run score. Local storage, telemetry and remote sync fail
+ * independently; none may replace an existing personal best with a slower run.
  */
 function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
   if (!isValidScoreTime(time)) {
@@ -558,76 +773,60 @@ function recordScore(time: number, tier: Difficulty = DEFAULT_DIFFICULTY) {
     return;
   }
 
-  // Always store locally first as a fallback and for immediate personal best tracking
+  let localBestTime: number | null = null;
+  let localBestRead = false;
   try {
-    const localBestTime = readLocalBestTime(tier);
-    const isNewLocalBest = localBestTime === null || time < localBestTime;
-
-    if (isNewLocalBest) {
-      localStorage.setItem(localBestTimeKey(tier), time.toString());
-      console.log("New local best time recorded:", time);
-    } else {
-      console.log("Score recorded, but not a new local best time:", time);
-    }
-
-    // The best time we want reflected on the leaderboard is the better of this run
-    // and any previously stored local best. Syncing this value (rather than only the
-    // current run) lets us backfill a best time that was recorded but never made it
-    // to Firestore — e.g. a best set before sign-in or under an earlier bug. Without
-    // this, a stored best could only reach the leaderboard by being beaten again.
-    const effectiveBestTime = isNewLocalBest ? time : localBestTime;
-
-    // Track completion in Analytics (if available)
-    if (analytics) {
-      logEvent(analytics, 'complete_run', { time: time });
-    }
-
-    // Read the signed-in user at record time so auth UI and scoring stay in sync.
-    const userAtTimeOfRecord = getActiveUser();
-
-    // If Firestore isn't available but should be, try to reinitialize it
-    if (userAtTimeOfRecord && !firestore && window.navigator.onLine &&
-        window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
-      console.log("Firestore unavailable but user is online. Attempting to reinitialize...");
-      window.AuthModule.reinitializeFirestore();
-    }
-
-    // Sync whenever the user is signed in and Firestore is available. updateUserBestTime
-    // compares against the authoritative Firestore value and only writes when the time
-    // is better than (or equal to) what is already stored, so syncing on every finish is
-    // safe and never downgrades a faster stored time.
-    if (userAtTimeOfRecord && firestore) {
-      console.log("Attempting to sync best time to Firestore:", effectiveBestTime, `(${tier})`);
-      // Use the snapshot of user data captured at function start time
-      updateUserBestTime(userAtTimeOfRecord.uid, effectiveBestTime, tier); // This function handles leaderboard update too
-
-      // Track new best time in Analytics (if available)
-      if (isNewLocalBest && analytics) {
-        logEvent(analytics, 'new_high_score', { time: time });
-      }
-    } else {
-      // Log reasons why Firestore update was skipped
-      if (!userAtTimeOfRecord) console.log("Skipping Firestore update: User not signed in.");
-      if (!firestore) {
-        console.log("Skipping Firestore update: Firestore not available.");
-        // Log additional diagnostic information
-        if (window.navigator.onLine) {
-          console.log("Device is online, but Firestore connection is unavailable. Authentication may have issues.");
-        } else {
-          console.log("Device appears to be offline. Check internet connection.");
-        }
-      }
-    }
-
+    localBestTime = readLocalBestTime(tier);
+    localBestRead = true;
   } catch (error) {
-    console.error("Error in recordScore:", error);
-    // Attempt to save locally even if other parts fail
+    // Do not overwrite a best we could not read. The current run can still sync.
+    console.warn('Local best time unavailable:', error);
+  }
+  const isNewLocalBest = localBestTime === null || time < localBestTime;
+  if (localBestRead && isNewLocalBest) {
     try {
-      if (isValidScoreTime(time)) {
-        localStorage.setItem(localBestTimeKey(tier), time.toString());
-      }
-    } catch (e) {
-      console.error("LocalStorage error during fallback save:", e);
+      localStorage.setItem(localBestTimeKey(tier), time.toString());
+      stampLocalBestMeta(tier);
+      console.log("New local best time recorded:", time);
+    } catch (error) {
+      console.warn('Local best time could not be saved:', error);
+    }
+  }
+
+  // Only a best stamped for the current world may be promoted to its board.
+  // An older/unstamped record remains untouched, including its provenance.
+  const effectiveBestTime = localBestTime !== null && !isNewLocalBest && localBestProvenanceCompatible(tier)
+    ? localBestTime
+    : time;
+
+  logScoreEvent('complete_run', time, tier);
+  const userAtTimeOfRecord = getActiveUser();
+
+  if (userAtTimeOfRecord && !firestore && window.navigator.onLine &&
+      window.AuthModule && typeof window.AuthModule.reinitializeFirestore === 'function') {
+    try {
+      window.AuthModule.reinitializeFirestore();
+    } catch (error) {
+      // Keep going: queueOfflineBest below retains the score for reconnect.
+      console.warn('Firestore reinitialization failed:', error);
+    }
+  }
+
+  if (userAtTimeOfRecord && firestore) {
+    // The authoritative sync confirms both writes or queues this captured owner
+    // for retry, including synchronous SDK exceptions and rejected promises.
+    syncBestTimeWithRetry(userAtTimeOfRecord.uid, effectiveBestTime, tier);
+    if (isNewLocalBest) logScoreEvent('new_high_score', time, tier);
+  }
+
+  // Store a retry marker when a real user's ranked run cannot sync now. The
+  // storage helpers are throw-safe, but an optional availability probe can fail.
+  try {
+    queueOfflineBest(tier, effectiveBestTime, buildSyncDeps());
+  } catch (error) {
+    console.warn('Score sync availability could not be checked:', error);
+    if (userAtTimeOfRecord && !userAtTimeOfRecord.isAnonymous) {
+      queueFailedSync(userAtTimeOfRecord.uid, tier, effectiveBestTime, buildSyncDeps());
     }
   }
 }
@@ -652,9 +851,16 @@ const ScoresModule = {
   displayLeaderboard,
   getLeaderboard,
   updateUserBestTime,
+  // Authoritative sync that queues the best for retry if the write doesn't confirm.
+  // The sign-in backfill (auth.ts) uses this so a failed backfill isn't dropped (Codex #362).
+  syncBestTimeWithRetry,
   updateLeaderboard,
   isFirestoreAvailable,
-  isValidScoreTime
+  isValidScoreTime,
+  // Deliberate test seam (not a game API): lets the headless suite exercise the
+  // row builder's avatar scheme-allowlist branch directly — no leaderboard data
+  // path supplies a photoURL yet, so the guard is unreachable from the public API.
+  leaderboardRow
 };
 
 // Export as both a module and a global for flexibility

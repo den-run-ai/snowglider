@@ -9,6 +9,10 @@
 import * as THREE from 'three';
 import { forestDensityField } from './noise.js';
 import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
+import { CAVITY_COLOR, SNOW_SHADE } from './snow-palette.js';
+import { DEFAULT_WIND_CONFIG } from '../wind.js';
+import { snowMottle, snowGrain, snowRelief, SNOW_RELIEF_TILE_SIZE } from './snow-texture.js';
+import { withPrivateThreeRandom } from '../scenery/scenery-rng.js';
 
 // Cavity / ambient-occlusion shading (issue #17 follow-up). The shipped slope tint
 // keys off slope *magnitude* (normal tilt), so it darkens steep faces but leaves
@@ -18,7 +22,42 @@ import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
 // added on top of the slope tint. Build-time and deterministic, so zero per-frame cost.
 const CAVITY_SCALE = 1.2;        // metres of concavity (neighbour-mean minus vertex) that reaches full occlusion
 const CAVITY_MAX_AMT = 0.30;     // max lerp toward the occluded colour (kept subtle — powder must stay bright)
-const CAVITY_COLOR = { r: 0.80, g: 0.84, b: 0.93 }; // cool, slightly-dark occluded-pocket tint (palette #93A9CC, softened)
+// The occluded-pocket tint itself lives in the shared snow palette (CAVITY_COLOR).
+
+// --- Wind-drift streaks / sastrugi (PR 2 of the visual-materials plan) -------------
+// Faint, elongated cool bands aligned with the prevailing wind, only on open
+// (non-forested) gentle-to-moderate ground — a sastrugi read, not stripes. The albedo
+// mottle above is *deliberately* isotropic (directional texture waves tiled into
+// visible banding — see the normal-map history), so the directional cue lives here in
+// the per-vertex pass instead: a pure function of (x, z) — deterministic, zero RNG,
+// render-only. Amplitude is capped low so powder stays bright (docs/SNOW_RENDERING.md).
+const SASTRUGI_MAX_AMT = 0.10;      // max lerp toward SNOW_SHADE — a tint, never dirt
+const SASTRUGI_CROSS_FREQ = 0.54;   // rad per metre across the wind => crests ~12 m apart
+const SASTRUGI_WOBBLE_FREQ = 0.05;  // slow crest-line wander along the wind…
+const SASTRUGI_WOBBLE_AMP = 2.0;    // …so bands read wind-blown, not ruler-straight
+// Unit prevailing-wind direction, derived from the SHARED wind field config so the
+// ground streaks agree with the snowfall drift, the scarf, and the tree sway.
+const WIND_DIR_X = Math.cos(DEFAULT_WIND_CONFIG.prevailingAngle);
+const WIND_DIR_Z = Math.sin(DEFAULT_WIND_CONFIG.prevailingAngle);
+
+/**
+ * Sastrugi drift amount (0..SASTRUGI_MAX_AMT) at a terrain point: how far this
+ * vertex's snow colour leans toward SNOW_SHADE. Crest lines run ALONG the prevailing
+ * wind (phase varies on the cross-wind axis, wobbling slowly along-wind); `tilt`
+ * (0..1 normal tilt, as computed by applySnowVertexColors) fades the bands off steep
+ * pitches and `stand` (0..1 forest-stand density) fades them out under the trees.
+ * Exported for the headless snow-surface suite; render-only, never touches heights.
+ */
+export function sastrugiDriftAmount(x: number, z: number, tilt: number, stand: number): number {
+  const open = Math.max(0, 1 - stand * 1.6);
+  const flat = Math.max(0, 1 - tilt * 1.2);
+  if (open === 0 || flat === 0) return 0;
+  const cross = z * WIND_DIR_X - x * WIND_DIR_Z; // cross-wind coordinate
+  const along = x * WIND_DIR_X + z * WIND_DIR_Z; // along-wind coordinate
+  const phase = cross * SASTRUGI_CROSS_FREQ + Math.sin(along * SASTRUGI_WOBBLE_FREQ) * SASTRUGI_WOBBLE_AMP;
+  const streak = Math.max(0, Math.sin(phase)) ** 3; // sparse crests
+  return open * flat * streak * SASTRUGI_MAX_AMT;
+}
 
 
 // --- Procedural snow surface textures (issue #17) ---
@@ -31,12 +70,9 @@ const CAVITY_COLOR = { r: 0.80, g: 0.84, b: 0.93 }; // cool, slightly-dark occlu
 // across the 300x400 terrain plane without visible seams.
 
 /**
- * A bright near-white snow albedo for deep powder. Very low-amplitude *isotropic*
- * mottling (a sum of periodic waves pointing in many directions, so no single
- * orientation dominates and it never reads as a stripe) breaks up the dead-flat
- * white without leaving "snow" range, plus a faint cold-blue cast in the dips and
- * a sparse high-frequency sparkle. Repeated at a low frequency so the broad
- * blotches read as wind-drifted powder, not a tiled pattern.
+ * Near-white albedo with restrained, irregular powder mottling. Domain-warped
+ * periodic gradient noise tiles seamlessly without the old sine-wave lattice.
+ * Sparkle belongs to the light response, not bright dots painted into the snow.
  */
 export function createSnowAlbedoTexture(): THREE.CanvasTexture {
   const SIZE = 256;
@@ -48,17 +84,9 @@ export function createSnowAlbedoTexture(): THREE.CanvasTexture {
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const u = x / SIZE, v = y / SIZE;
-      // Tileable low-frequency mottle from mixed directions (no dominant axis),
-      // normalised to ~[-1, 1].
-      let n = Math.sin(2 * Math.PI * (1 * u + 2 * v));
-      n += 0.7 * Math.sin(2 * Math.PI * (2 * u - 3 * v) + 1.3);
-      n += 0.5 * Math.sin(2 * Math.PI * (-3 * u + 1 * v) + 2.1);
-      n += 0.4 * Math.sin(2 * Math.PI * (3 * u + 3 * v) + 0.7);
-      n /= 2.6;
-      // Sparse crystalline sparkle (product of high-freq periodics stays tileable).
-      const sparkle = Math.max(0, Math.sin(2 * Math.PI * 24 * u) * Math.sin(2 * Math.PI * 22 * v));
-      const base = 250 + n * 5 + sparkle * sparkle * 4; // very bright band (~245..255)
-      const cool = Math.max(0, -n) * 5;  // slightly bluer in the dips
+      const n = snowMottle(u, v);
+      const base = 248 + n * 12;
+      const cool = Math.max(0, -n) * 5;
       const idx = (y * SIZE + x) * 4;
       data[idx] = Math.min(255, base - cool);            // R
       data[idx + 1] = Math.min(255, base - cool * 0.35); // G
@@ -74,43 +102,17 @@ export function createSnowAlbedoTexture(): THREE.CanvasTexture {
 }
 
 /**
- * A tileable tangent-space normal map giving the snow its micro-relief: soft,
- * *isotropic* powder granulation so the large flat plane catches the directional
- * light as a gently broken surface instead of reading as a sheet. The previous
- * version summed ripples that were all biased toward one diagonal, which tiled
- * into visible "grey grid" stripes under the directional light (issue #17 follow-up);
- * this version spreads the wave directions (mixed signs, no dominant axis) and
- * leans on fine grain, so the relief reads as snow grain rather than corrugation.
- * The height field is a sum of integer-frequency waves (periodic => seamless);
- * normals are central differences with wraparound.
+ * Tileable micro-relief from irregular powder grain. The broad noise spectrum
+ * avoids the coherent diagonal interference of the previous eight sine waves.
+ * Wrapped central differences keep tile edges continuous, and mipmaps average
+ * the fine normal detail away in the distance instead of drawing a distant grid.
  */
 export function createSnowNormalTexture(): THREE.CanvasTexture {
   const SIZE = 256;
   const height = new Float32Array(SIZE * SIZE);
-  // Many *high-frequency* waves pointing in many directions. Keeping every term
-  // high-frequency means the relief is sub-metre "snow tooth" that mip-maps away
-  // with distance (sparkle up close, smooth far) instead of the metre-scale
-  // ripples that tiled into visible diagonal bands. Mixed directions/signs keep it
-  // isotropic so no orientation reads as a stripe. Integer frequencies => seamless.
-  const waves: [number, number, number, number][] = [
-    [13, 17, 0.22, 0.4],
-    [19, -11, 0.20, 1.9],
-    [-7, 23, 0.18, 2.7],
-    [21, 9, 0.16, 0.9],
-    [11, -19, 0.15, 1.3],
-    [25, 5, 0.13, 2.1],
-    [-15, 13, 0.12, 0.6],
-    [9, 27, 0.11, 1.5],
-  ];
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      const u = x / SIZE, v = y / SIZE;
-      let h = 0;
-      for (let k = 0; k < waves.length; k++) {
-        const [fx, fz, a, p] = waves[k]!;
-        h += a * Math.sin(2 * Math.PI * (fx * u + fz * v) + p);
-      }
-      height[y * SIZE + x] = h;
+      height[y * SIZE + x] = snowGrain(x / SIZE, y / SIZE);
     }
   }
   const canvas = document.createElement('canvas');
@@ -118,7 +120,7 @@ export function createSnowNormalTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d')!;
   const image = ctx.createImageData(SIZE, SIZE);
   const data = image.data;
-  const STRENGTH = 1.5; // height -> slope gain
+  const STRENGTH = 2.0; // height -> slope gain
   const wrap = (i: number) => (i + SIZE) % SIZE;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
@@ -146,6 +148,91 @@ export function createSnowNormalTexture(): THREE.CanvasTexture {
   // project disables ColorManagement, so this is belt-and-suspenders.)
   tex.colorSpace = THREE.NoColorSpace;
   return tex;
+}
+
+/**
+ * Terrain-only snow skin. All three maps describe the same shallow wind-shaped
+ * surface: lighting follows its slopes, cool occlusion sits in its hollows, and
+ * exposed compressed shoulders catch broader sun reflections than loose powder.
+ * The hand-packed snowman keeps the smaller-grain generators above.
+ *
+ * Baking once keeps the fragment shader on Three's standard material path and
+ * composes with the packed-track roughness hook. Mipmaps naturally fade unresolved
+ * ribs in distant views. No geometry, gameplay RNG or per-frame CPU work changes.
+ */
+export function createTerrainSnowTextures(): {
+  albedo: THREE.CanvasTexture;
+  normal: THREE.CanvasTexture;
+  roughness: THREE.CanvasTexture;
+} {
+  // 12.5cm texels resolve the half-metre ribs without a 512px bake's 4x startup
+  // work/memory. Keep all physical derivative/occlusion distances in metres.
+  const size = 256;
+  const spacing = SNOW_RELIEF_TILE_SIZE / size;
+  const hollowRadius = Math.round(0.5 / spacing);
+  const heights = new Float32Array(size * size);
+  const crust = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const sample = snowRelief(x / size, y / size);
+      heights[y * size + x] = sample.height;
+      crust[y * size + x] = sample.crust;
+    }
+  }
+  const makeCanvas = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const context = canvas.getContext('2d')!;
+    return { canvas, context, image: context.createImageData(size, size) };
+  };
+  const albedo = makeCanvas(), normal = makeCanvas(), roughness = makeCanvas();
+  const heightAt = (x: number, y: number) => heights[((y + size) % size) * size + (x + size) % size]!;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const index = y * size + x;
+      const rgba = index * 4;
+      // Central derivatives are slopes in metres/metre, independent of bake size.
+      const dx = (heightAt(x + 1, y) - heightAt(x - 1, y)) / (2 * spacing);
+      const dy = (heightAt(x, y + 1) - heightAt(x, y - 1)) / (2 * spacing);
+      const length = Math.hypot(dx, dy, 1);
+      normal.image.data[rgba] = (0.5 - dx / length * 0.5) * 255;
+      normal.image.data[rgba + 1] = (0.5 - dy / length * 0.5) * 255;
+      normal.image.data[rgba + 2] = (0.5 + 0.5 / length) * 255;
+      normal.image.data[rgba + 3] = 255;
+      // Half-metre neighbourhood: tint the actual concave pockets, not arbitrary
+      // dark flecks. The tiny cool shift supplies depth even in diffuse skylight.
+      const neighbourMean = (heightAt(x - hollowRadius, y) + heightAt(x + hollowRadius, y) +
+        heightAt(x, y - hollowRadius) + heightAt(x, y + hollowRadius)) * 0.25;
+      const hollow = Math.min(1, Math.max(0, (neighbourMean - heights[index]!) * 16));
+      const mottle = snowMottle(x / size, y / size);
+      const base = 248 + mottle * 8;
+      albedo.image.data[rgba] = base - hollow * 28;
+      albedo.image.data[rgba + 1] = base - hollow * 20;
+      albedo.image.data[rgba + 2] = base - hollow * 7;
+      albedo.image.data[rgba + 3] = 255;
+      const rough = Math.min(0.96, Math.max(0.58, 0.93 - crust[index]! * 0.40)) * 255;
+      roughness.image.data[rgba] = rough;
+      roughness.image.data[rgba + 1] = rough; // Three reads roughness from green.
+      roughness.image.data[rgba + 2] = rough;
+      roughness.image.data[rgba + 3] = 255;
+    }
+  }
+  for (const target of [albedo, normal, roughness]) target.context.putImageData(target.image, 0, 0);
+  // Albedo + normal replace the two existing textures, retaining their UUID draw
+  // count/order. Only the additional roughness texture needs the private stream.
+  const albedoMap = new THREE.CanvasTexture(albedo.canvas);
+  const normalMap = new THREE.CanvasTexture(normal.canvas);
+  const roughnessMap = withPrivateThreeRandom(() => new THREE.CanvasTexture(roughness.canvas));
+  for (const texture of [albedoMap, normalMap, roughnessMap]) {
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(300 / SNOW_RELIEF_TILE_SIZE, 400 / SNOW_RELIEF_TILE_SIZE);
+    // Bake row y is texture +v, including the normal's -dH/dv green channel.
+    // CanvasTexture's default Y flip would invert that derivative relative to
+    // the matching albedo/roughness features (lit hollows, shaded shoulders).
+    texture.flipY = false;
+  }
+  normalMap.colorSpace = roughnessMap.colorSpace = THREE.NoColorSpace;
+  return { albedo: albedoMap, normal: normalMap, roughness: roughnessMap };
 }
 
 /**
@@ -178,7 +265,7 @@ export function applySnowVertexColors(
   // pure slope tint (keeps the function usable from tests / other callers unchanged).
   const cavity = !!cols && !!rows && cols * rows === count;
   const snow = { r: 1.0, g: 1.0, b: 1.0 };
-  const shade = { r: 0.93, g: 0.95, b: 0.99 }; // barely-cool powder shadow (almost white)
+  const shade = SNOW_SHADE; // barely-cool powder shadow (almost white) — shared palette
   // Where conifer stands grow — gentle slopes inside the forest-density bands — the
   // snow picks up a faint warm/green treeline cast from the canopy and needle litter
   // showing through. It is deliberately low-amplitude (a tint, never dirt) and gated
@@ -196,12 +283,22 @@ export function applySnowVertexColors(
     let b = snow.b + (shade.b - snow.b) * t;
     // Forest treeline tint: strongest on gentle, densely-forested ground; fades out
     // on steep pitches and in the open clearings.
+    const px = positions[i * 3]!;
+    const pz = positions[i * 3 + 2]!;
     const gentle = Math.max(0, 1 - tilt * 1.4);
-    const stand = Math.max(0, (forestDensityField(positions[i * 3]!, positions[i * 3 + 2]!) - 0.45) / 0.55);
+    const stand = Math.max(0, (forestDensityField(px, pz) - 0.45) / 0.55);
     const amt = gentle * stand * 0.26;
     r += (forestTint.r - r) * amt;
     g += (forestTint.g - g) * amt;
     b += (forestTint.b - b) * amt;
+    // Wind-drift streaks (sastrugi): a faint cool band toward the powder-shadow
+    // shade on open, gentle ground — see sastrugiDriftAmount above.
+    const drift = sastrugiDriftAmount(px, pz, tilt, stand);
+    if (drift > 0) {
+      r += (shade.r - r) * drift;
+      g += (shade.g - g) * drift;
+      b += (shade.b - b) * drift;
+    }
     // Cavity / AO: darken + cool-shift vertices that dip below their neighbours.
     if (cavity) {
       const c = i % cols;

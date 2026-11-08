@@ -14,7 +14,14 @@ import { EffectsModule } from '../effects.js';
 // scores module and the Firestore rules (issue #229, PR C).
 import { MIN_VALID_SCORE_TIME, MAX_VALID_SCORE_TIME } from '../score-limits.js';
 // Per-tier best-time key + the active tier (Blue == the original key, unchanged).
-import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, type Difficulty } from '../difficulty.js';
+import { DEFAULT_DIFFICULTY, getDifficultyConfig, localBestTimeKey, readStoredDifficulty, stampLocalBestMeta, type Difficulty } from '../difficulty.js';
+import { getRunStamp } from '../run-context.js';
+import { runTelemetryContext } from '../run-telemetry.js';
+import { resultSyncStatusCopy } from '../offline/sync-manager.js';
+import { isOnline } from '../offline/offline-state.js';
+import { readLocalBest, safeSetItem } from '../offline/offline-store.js';
+import { announceGameStatus, closeOverlayFocus, openOverlayFocus } from './accessibility.js';
+import { setPanelCollapsed } from './collapsible-panel.js';
 
 export function isValidScoreTime(time: number): boolean {
   if (window.ScoresModule && typeof window.ScoresModule.isValidScoreTime === 'function') {
@@ -37,20 +44,11 @@ export function isPlausibleForTier(time: number, tier: Difficulty = DEFAULT_DIFF
 }
 
 export function readStoredBestTime(tier: Difficulty = DEFAULT_DIFFICULTY): number {
-  const key = localBestTimeKey(tier);
-  const storedBestTime = localStorage.getItem(key);
-  if (!storedBestTime) {
-    return Infinity;
-  }
+  return readLocalBest(tier) ?? Infinity;
+}
 
-  const parsedBestTime = parseFloat(storedBestTime);
-  if (isPlausibleForTier(parsedBestTime, tier)) {
-    return parsedBestTime;
-  }
-
-  console.warn("Ignoring invalid stored best time:", storedBestTime);
-  localStorage.removeItem(key);
-  return Infinity;
+function persistLocalBest(tier: Difficulty, time: number): void {
+  if (safeSetItem(localBestTimeKey(tier), String(time))) stampLocalBestMeta(tier);
 }
 
 function getSignedInUser() {
@@ -72,6 +70,11 @@ function removeLoginPrompt() {
   if (loginPrompt) {
     loginPrompt.remove();
   }
+  // Clear the PR-4 sync-status line too, so a prior run's message can't linger.
+  const syncStatus = document.getElementById('syncStatus');
+  if (syncStatus) {
+    syncStatus.remove();
+  }
 }
 
 // The run-state slice showGameOver reads and mutates (the coordinator's GameState
@@ -80,6 +83,14 @@ export interface ResultOverlayState {
   gameActive: boolean;
   bestTime: number;
   startTime: number;
+  /** The loop's simulation clock (#402): accumulated fixed-step seconds this
+   *  run. Optional so legacy fixtures without it fall back to wall clock. */
+  simElapsed?: number;
+  /** Set by the loop when this run dropped enough stalled wall time that its sim
+   *  clock ran materially slower than real time (#403 review). A compromised run
+   *  still finishes and shows its time, but is never ranked (no PB, no
+   *  leaderboard, no ghost commit). Optional for legacy fixtures. */
+  timingCompromised?: boolean;
 }
 
 // Overlay DOM the result screen writes into. Owned by the coordinator for now.
@@ -94,6 +105,8 @@ export interface ResultOverlayDeps {
   // renderer are in scope. Kept as an injected hook so this UI module stays free of
   // three.js. The overlay itself is unchanged (shown immediately, as before).
   onCrash?: (reason: string) => void;
+  /** Cancel pending run-only UI work before opening the result dialog. */
+  onEndRun?: () => void;
   // The run's difficulty tier, so the score/best-time/leaderboard go to that tier.
   // Omitted => falls back to the persisted pick (readStoredDifficulty).
   getDifficulty?: () => Difficulty;
@@ -111,19 +124,50 @@ export interface ResultOverlayDeps {
 export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) => void {
   const { state, gameOverOverlay, gameOverDetail, restartButton, bestTimeDisplay, onCrash, getDifficulty, finishDifficultyPicker, setPickerTier } = deps;
   const FINISH_REASON = "You reached the end of the slope!";
+  // Results may grow with splits, sharing, authentication and the leaderboard.
+  // Keep replay outside that scrolling content so it is always reachable.
+  let resultContent = gameOverOverlay.querySelector<HTMLElement>('#gameOverContent');
+  let replayActions = gameOverOverlay.querySelector<HTMLElement>('#gameOverActions');
+  if (!resultContent || !replayActions) {
+    resultContent = document.createElement('div');
+    resultContent.id = 'gameOverContent';
+    replayActions = document.createElement('div');
+    replayActions.id = 'gameOverActions';
+    for (const child of Array.from(gameOverOverlay.children)) {
+      if (child !== restartButton && child !== finishDifficultyPicker) resultContent.appendChild(child);
+    }
+    if (finishDifficultyPicker) replayActions.appendChild(finishDifficultyPicker);
+    replayActions.appendChild(restartButton);
+    gameOverOverlay.append(resultContent, replayActions);
+  }
+  const content = resultContent;
+  const actions = replayActions;
+  let presentationEpoch = 0;
 
   return function showGameOver(reason: string) {
     // The tier this run was played on; routes the score/best/leaderboard per tier.
     const tier: Difficulty = getDifficulty ? getDifficulty() : readStoredDifficulty();
     // Unranked tiers (Bunny/Black for now) are practice-only: local best/ghost still
     // work, but nothing is submitted to the global board until their floors are measured.
-    const tierRanked = getDifficultyConfig(tier).ranked;
+    // Ranked-eligibility for THIS run: the tier must be ranked AND the world must
+    // be canonical — a ?seed= practice world reads as unranked through the WHOLE
+    // overlay (Codex review PR #407): no login prompt, no "saved" status copy,
+    // no leaderboard render, and the practice result panel makes no PB promises.
+    // ... AND the run's timing must be intact: a stall-heavy run played in slow
+    // motion against its own ranked clock (free reaction time), so it records
+    // nothing competitive either (#403 review).
+    const tierRanked = getDifficultyConfig(tier).ranked && !getRunStamp().practice
+      && state.timingCompromised !== true;
     // Allow tests to intercept showGameOver calls
     if (window._testShowGameOverOverride) {
       window._testShowGameOverOverride(reason);
       return;
     }
+    const resultEpoch = ++presentationEpoch;
+    closeOverlayFocus(gameOverOverlay, false);
     state.gameActive = false;
+    deps.onEndRun?.();
+    AudioModule.clearMessages();
 
     // Flush the run's diagnostics baseline now that the run has ended. The main loop stops
     // recording once gameActive is false, and a player who finishes/crashes and then leaves
@@ -149,12 +193,16 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // screen can report the delta and whether this run set a new record.
     const previousBest = state.bestTime;
 
-    // Measure the finish elapsed ONCE and reuse it for both the best-time/score path
-    // and CourseModule.onFinish(). Otherwise a second performance.now() taken after the
-    // DOM/localStorage/score work could read later: a sub-millisecond personal best
-    // would be saved as a new record while the course screen sees elapsed >= previousBest,
-    // skips persisting the new ghost/splits, and shows a time that disagrees with the score.
-    const finishTime = (performance.now() - state.startTime) / 1000;
+    // The finish time IS the simulation clock (#402): the loop accumulates it in
+    // fixed steps and publishes it as state.simElapsed, so a stalled run records
+    // the time the simulation actually ran — wall clock can no longer inflate a
+    // ranked score (and it matches the splits/ghost, which read the same clock).
+    // Snapshotted ONCE and reused for the best-time/score path and
+    // CourseModule.onFinish() so every consumer sees the same value. Wall-clock
+    // fallback only for legacy callers whose state predates simElapsed.
+    const finishTime = typeof state.simElapsed === 'number'
+      ? state.simElapsed
+      : (performance.now() - state.startTime) / 1000;
     // Validate against the RUN's tier floor, not the global Blue floor — otherwise a
     // legitimately fast Black finish (below Blue's 18 s) would be treated as invalid and
     // lose its local best/ghost/result panel. Blue's floor == the global floor, unchanged.
@@ -166,7 +214,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     gameOverDetail.textContent = reason;
     removeLoginPrompt();
 
-    // TODO: AUDIO DISABLED - Pause audio on game over (will be no-op if disabled)
+    // Pause the background music on game over (audio is ENABLED — see audio.ts;
+    // this is a no-op only if AUDIO_ENABLED is ever set false there).
     if (AudioModule) {
       AudioModule.enableSound(false);
     }
@@ -175,10 +224,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     const gameStatsContainer = document.getElementById('gameStatsContainer');
     if (gameStatsContainer) {
       // Option 1: Collapse the stats
-      gameStatsContainer.classList.add('collapsed');
       const toggleBtn = document.getElementById('toggleStats');
       if (toggleBtn) {
-        toggleBtn.textContent = '▼';
+        setPanelCollapsed(gameStatsContainer, toggleBtn, true);
       }
 
       // Option 2 (alternative): Hide the stats completely
@@ -188,16 +236,33 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // Only update times if player reached the end successfully
     if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
       const currentTime = finishTime;
-      const isNewBestTime = currentTime < state.bestTime;
+      // Practice worlds (?seed=..., #403 review) show their time but record
+      // NOTHING competitive: no leaderboard submit, no local best, no
+      // state.bestTime update — a freely chosen seed could cherry-pick an easy
+      // obstacle/avalanche field (seed-shopping), so only canonical-world runs
+      // are ranked. The result panel still renders (CourseModule.onFinish).
+      const practice = getRunStamp().practice;
+      const isNewBestTime = !practice && state.timingCompromised !== true
+        && currentTime < state.bestTime;
       const canRecordScore = window.AuthModule && typeof window.AuthModule.recordScore === 'function';
 
       // Record the score whenever the leaderboard API is available (it handles its own
       // auth + persistence); otherwise fall back to persisting a new local best.
       if (canRecordScore && tierRanked) {
-        window.AuthModule.recordScore(currentTime, tier);
+        try {
+          window.AuthModule.recordScore?.(currentTime, tier);
+        } catch (error) {
+          // Classic local-auth fallback can throw when browser storage is denied.
+          // The completed run and Play again must remain available even then.
+          console.warn('Score persistence unavailable; keeping the session result.', error);
+          if (isNewBestTime) persistLocalBest(tier, currentTime);
+        }
       } else if (isNewBestTime) {
-        // Unranked tier (or no leaderboard API): keep the local per-tier best only.
-        localStorage.setItem(localBestTimeKey(tier), String(currentTime));
+        // Unranked tier (or no leaderboard API): keep the local per-tier best only —
+        // stamped with the same run provenance every other local-best write carries
+        // (#400; Codex review PR #407). Practice runs never reach here
+        // (isNewBestTime is force-false above).
+        persistLocalBest(tier, currentTime);
       }
 
       // Show appropriate message based on time
@@ -205,14 +270,60 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         state.bestTime = currentTime;
         bestTimeDisplay.textContent = `New Best Time: ${state.bestTime.toFixed(2)}s`;
         bestTimeDisplay.style.color = '#ffff00'; // Highlight new record
+      } else if (practice || state.timingCompromised === true) {
+        // A seeded practice world records nothing and its times are not comparable
+        // with the canonical-world best — showing that best here would juxtapose two
+        // different worlds (or print 'Best: Infinitys' for a new player). Render the
+        // practice time alone (Codex review PR #407). A timing-compromised finish
+        // recorded nothing either, so it gets the same no-best-safe display
+        // (Codex review PR #409): its slow-motion time must not sit next to a
+        // real best — or next to 'Infinitys' for a new player.
+        bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s`;
+        bestTimeDisplay.style.color = 'white';
       } else {
         bestTimeDisplay.textContent = `Your Time: ${currentTime.toFixed(2)}s (Best: ${state.bestTime.toFixed(2)}s)`;
         bestTimeDisplay.style.color = 'white';
       }
 
-      // Show login prompt if not logged in — only on ranked tiers, where signing in
-      // actually saves to the global board (unranked tiers are local practice only).
-      if (!getSignedInUser() && tierRanked) {
+      // Honest sync-status line (issue #358, PR 4): tell the player what actually
+      // happened to their result — practice tier (local only), offline (will sync
+      // later), guest (sign in to sync), or a stale board during a Firestore outage.
+      const signedInUser = getSignedInUser();
+      const online = isOnline();
+      let firestoreAvailable = false;
+      try {
+        firestoreAvailable = window.AuthModule?.isFirebaseAvailable?.().firestore === true;
+      } catch (error) {
+        // Service availability is optional; a broken SDK must not trap a finished run.
+        Diag.reportError(error, 'result_firebase_status');
+      }
+      const syncCopy = resultSyncStatusCopy({
+        online,
+        firestoreAvailable,
+        ranked: tierRanked,
+        signedIn: !!signedInUser,
+        anonymous: !!(signedInUser && signedInUser.isAnonymous),
+        // A ?seed= practice WORLD saves nothing at all (no local best, no ghost),
+        // which needs different copy than an unranked TIER (Codex review PR #407).
+        practiceWorld: getRunStamp().practice,
+        // A timing-compromised run recorded nothing either — its copy must not
+        // claim a local best/ghost exist (Codex review PR #409).
+        timingCompromised: state.timingCompromised === true,
+      });
+      if (syncCopy && !document.getElementById('syncStatus')) {
+        const syncStatus = document.createElement('p');
+        syncStatus.id = 'syncStatus';
+        syncStatus.textContent = syncCopy;
+        syncStatus.style.color = '#9fd0f5';
+        syncStatus.style.fontStyle = 'italic';
+        syncStatus.style.margin = '10px 0';
+        content.appendChild(syncStatus);
+      }
+
+      // Show login prompt if not logged in — only on ranked tiers AND while online,
+      // where signing in actually saves to the global board (unranked tiers are local
+      // practice only; offline the sync-status line above already explains the state).
+      if (!signedInUser && tierRanked && online) {
         const loginPrompt = document.createElement('p');
         loginPrompt.textContent = 'Log in to save your score and see the leaderboard!';
         loginPrompt.style.color = '#4285F4';
@@ -222,21 +333,28 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         // Insert before restart button
         if (!document.getElementById('loginPrompt')) {
           loginPrompt.id = 'loginPrompt';
-          gameOverOverlay.insertBefore(loginPrompt, restartButton);
+          content.appendChild(loginPrompt);
         }
       }
 
-      // Track successful run in Analytics
-      try {
-        // Only try to use analytics when properly initialized with modular SDK
-        if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-          // Using the direct logEvent function
-          window.firebaseModules.logEvent('complete_game', {
-            time: currentTime
-          });
+      // Track the finish with the canonical `complete_run` event. A ranked, recordable
+      // finish already emits it from AuthModule.recordScore (scores.ts, the scoring source
+      // of truth) — emitting again here would double-count in GA4. But recordScore never
+      // runs for an unranked tier (or when the leaderboard API is absent), so emit it here
+      // for exactly those finishes; otherwise unranked runs vanish from analytics. (This
+      // replaces the old `complete_game`, which fired for EVERY finish and thus double-
+      // counted the ranked ones — a driver of inflated totals / false spikes. See
+      // docs/ANALYTICS.md.)
+      if (!(canRecordScore && tierRanked)) {
+        try {
+          if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
+            window.firebaseModules.logEvent('complete_run', {
+              time: currentTime, ...runTelemetryContext(tier, state.timingCompromised),
+            });
+          }
+        } catch (e) {
+          console.log("Analytics tracking skipped:", (e as Error).message);
         }
-      } catch (e) {
-        console.log("Analytics tracking skipped:", (e as Error).message);
       }
     } else if (reason === "You reached the end of the slope!") {
       console.warn("Finish reached with invalid elapsed time; score not recorded:", finishTime);
@@ -255,7 +373,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
           // Using the direct logEvent function
           window.firebaseModules.logEvent('game_over', {
-            reason: reason
+            reason: reason,
+            ...runTelemetryContext(tier, state.timingCompromised),
           });
         }
       } catch (e) {
@@ -271,8 +390,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
 
       if (leaderboardElement) {
         // Add to game over overlay if not already there
-        if (leaderboardElement.parentNode !== gameOverOverlay) {
-          gameOverOverlay.insertBefore(leaderboardElement, restartButton);
+        if (leaderboardElement.parentNode !== content) {
+          content.appendChild(leaderboardElement);
         }
         // Always re-show it on a ranked finish — the element may already be parented but
         // hidden by the else-branch below from a prior unranked replay (Blue → Black →
@@ -280,8 +399,30 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         leaderboardElement.style.display = 'block';
       }
 
-      // Display leaderboard for the run's tier
-      window.AuthModule.displayLeaderboard(tier);
+      // Display leaderboard for the run's tier. displayLeaderboard is the call that
+      // refreshes the board's CONTENTS — the block above only re-shows the element. If a
+      // future AuthModule implementation ever lacks it, a silent `?.` no-op would leave the
+      // just-shown board displaying a STALE leaderboard from a prior finish. Fail loudly and
+      // hide the board instead, so a missing seam surfaces rather than misleading the player.
+      const authModule = window.AuthModule;
+      if (typeof authModule.displayLeaderboard === 'function') {
+        const onLeaderboardError = (error: unknown) => {
+          Diag.reportError(error, 'result_leaderboard');
+          // An old request may reject after Restart or a later result. Do not hide
+          // the next run's board when that old completion arrives.
+          if (resultEpoch === presentationEpoch && !state.gameActive && leaderboardElement) {
+            leaderboardElement.style.display = 'none';
+          }
+        };
+        try {
+          void Promise.resolve(authModule.displayLeaderboard(tier)).catch(onLeaderboardError);
+        } catch (error) {
+          onLeaderboardError(error);
+        }
+      } else {
+        console.error('result-overlay: AuthModule.displayLeaderboard is unavailable; hiding the leaderboard to avoid showing a stale board.');
+        if (leaderboardElement) leaderboardElement.style.display = 'none';
+      }
     } else {
       // No global board for this result (unranked tier, or signed out): hide any
       // leaderboard a previous RANKED finish left visible in the overlay. Without this,
@@ -300,10 +441,14 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
 
       if (reason === "You reached the end of the slope!" && hasValidFinishTime) {
         try {
-          const panel = CourseModule.onFinish(finishTime, previousBest);
-          if (panel) gameOverOverlay.insertBefore(panel, restartButton);
+          // A timing-compromised run may not commit ghost/splits either — its
+          // slow-motion trajectory is as non-comparable as its time (#403 review).
+          const panel = CourseModule.onFinish(finishTime, previousBest,
+            state.timingCompromised !== true);
+          if (panel) content.appendChild(panel);
         } catch (e) {
           console.warn("Result screen failed:", (e as Error).message);
+          Diag.reportError(e, 'course_result');
         }
       } else {
         CourseModule.hideHud();
@@ -316,9 +461,32 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // so "Play again on" defaults to the current tier and the player can switch + replay.
     if (finishDifficultyPicker) {
       if (setPickerTier) setPickerTier(tier);
-      gameOverOverlay.insertBefore(finishDifficultyPicker, restartButton);
+      actions.insertBefore(finishDifficultyPicker, restartButton);
     }
 
     gameOverOverlay.style.display = 'flex';
+    content.scrollTop = 0;
+    gameOverOverlay.scrollTop = 0;
+    const heading = gameOverOverlay.querySelector('#gameOverMessage');
+    if (heading) heading.textContent = reason === FINISH_REASON ? 'RUN COMPLETE' : 'GAME OVER';
+    gameOverOverlay.setAttribute('role', 'dialog');
+    gameOverOverlay.setAttribute('aria-label', reason === FINISH_REASON ? 'Run complete' : 'Run ended');
+    if (gameOverDetail.id) gameOverOverlay.setAttribute('aria-describedby', gameOverDetail.id);
+    announceGameStatus(`${reason} ${bestTimeDisplay.textContent ?? ''}`);
+    // Keep the advertised sign-in action inside the dialog's focus boundary.
+    // Move the real controls, preserving native popup gestures and auth listeners;
+    // restore their original placement on Restart, re-show, or game teardown.
+    const account = document.getElementById('authContainer');
+    const accountParent = account?.parentNode;
+    const accountNext = account?.nextSibling ?? null;
+    if (account) content.appendChild(account);
+    openOverlayFocus(gameOverOverlay, {
+      initialFocus: restartButton,
+      onClose: () => {
+        if (account && accountParent) {
+          accountParent.insertBefore(account, accountNext?.parentNode === accountParent ? accountNext : null);
+        }
+      },
+    });
   };
 }

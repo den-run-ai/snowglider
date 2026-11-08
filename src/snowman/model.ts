@@ -1,29 +1,98 @@
 // Snowman geometry/model construction.
 import * as THREE from 'three';
+import { setSnowmanUserData, type BaseTransform, type SnowmanUserData } from './user-data.js';
+import { getSnowmanSnowMaterial } from './snow-material.js';
+import { createSkis } from './ski.js';
+import { createFace } from './face.js';
+
+// The shaped skis (issue #189) — geometry, loft builder, and per-tier top-sheet
+// colours — live in ./ski.ts. SKI_TOP_SHEET is re-exported here so existing importers
+// of './model.js' (index.ts, the snow-palette tests) keep resolving it unchanged.
+export { SKI_TOP_SHEET } from './ski.js';
+
+/** Cosmetic options for createSnowman. Everything defaults to the shipped look. */
+export interface SnowmanModelOptions {
+  /** Ski top-sheet colour (default: the blue-tier red, SKI_TOP_SHEET.blue). */
+  skiTopSheet?: number;
+}
+
+// --- Junction-crease shading (completion-plan PR-V4, the last #17 item) -----
+// The ring where two snowballs meet is the snowman's "cavity" (cf. the terrain
+// cavity/AO vertex term in mountains/snow-surface.ts): real stacked snow reads a
+// faint cool shadow in that crease, while a bare white-on-white seam reads plastic.
+// Bake the tint into each sphere's vertex colours (the shared snow material has
+// `vertexColors` on) — full strength at/beyond the crease latitude (most of that cap
+// is hidden inside the neighbouring ball anyway; the visible fringe gets the fade),
+// feathering back to plain white over CREASE_FEATHER of latitude.
+const CREASE_TINT = { r: 0.86, g: 0.9, b: 0.95 }; // faint cool powder-shadow hue
+const CREASE_FEATHER = 0.25;                       // latitude span of the fade
+
+const clamp01 = (t: number): number => Math.max(0, Math.min(1, t));
+const smooth01 = (t: number): number => { const c = clamp01(t); return c * c * (3 - 2 * c); };
+
+/** Bake the crease tint into a body sphere's vertex colours. `top`/`bottom` are the
+ *  normalized crease latitudes (localY / radius, -1..1) where this ball meets its
+ *  neighbour — derived from the sphere-sphere intersection of the shipped layout. */
+function bakeJunctionTint(
+  geo: THREE.SphereGeometry,
+  radius: number,
+  creases: { top?: number; bottom?: number }
+): void {
+  const pos = geo.attributes.position!;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const ny = pos.getY(i) / radius; // -1 (bottom pole) .. 1 (top pole)
+    let k = 0;
+    if (creases.top !== undefined) {
+      k = Math.max(k, smooth01((ny - (creases.top - CREASE_FEATHER)) / CREASE_FEATHER));
+    }
+    if (creases.bottom !== undefined) {
+      k = Math.max(k, smooth01(((creases.bottom + CREASE_FEATHER) - ny) / CREASE_FEATHER));
+    }
+    colors[i * 3] = 1 - k * (1 - CREASE_TINT.r);
+    colors[i * 3 + 1] = 1 - k * (1 - CREASE_TINT.g);
+    colors[i * 3 + 2] = 1 - k * (1 - CREASE_TINT.b);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
 
 // Create Snowman (Three Spheres)
-export function createSnowman(scene: THREE.Scene): THREE.Group {
+export function createSnowman(scene: THREE.Scene, opts: SnowmanModelOptions = {}) {
   const group = new THREE.Group();
-  const snowMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
+  // Shared snowman/debris snow material (PR-V4): the same albedo/normal generators as
+  // the terrain snow, so the player stops reading as plastic against the slope. One
+  // module-level instance shared with the crash debris — see snow-material.ts for the
+  // ownership/teardown contract.
+  const snowMaterial = getSnowmanSnowMaterial();
   const blackMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
   const carrotMaterial = new THREE.MeshStandardMaterial({ color: 0xFF6600 });
   const stickMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 }); // Brown for sticks
   const hatMaterial = new THREE.MeshStandardMaterial({ color: 0x111111 }); // Dark grey/black for hat
-  
+
+  // Crease latitudes from the shipped layout (centres y=2/4.5/7, radii 2/1.5/1):
+  // bottom↔middle intersect at world y=3.6 (bottom ny=0.8, middle ny=-0.6);
+  // middle↔head are tangent at world y=6.0 (middle ny=1.0, head ny=-1.0).
+
   // Bottom sphere
-  const bottom = new THREE.Mesh(new THREE.SphereGeometry(2, 24, 24), snowMaterial);
+  const bottomGeo = new THREE.SphereGeometry(2, 24, 24);
+  bakeJunctionTint(bottomGeo, 2, { top: 0.8 });
+  const bottom = new THREE.Mesh(bottomGeo, snowMaterial);
   bottom.position.y = 2;
   bottom.castShadow = true;
   group.add(bottom);
-  
+
   // Middle sphere
-  const middle = new THREE.Mesh(new THREE.SphereGeometry(1.5, 24, 24), snowMaterial);
+  const middleGeo = new THREE.SphereGeometry(1.5, 24, 24);
+  bakeJunctionTint(middleGeo, 1.5, { top: 1.0, bottom: -0.6 });
+  const middle = new THREE.Mesh(middleGeo, snowMaterial);
   middle.position.y = 4.5;
   middle.castShadow = true;
   group.add(middle);
-  
+
   // Head sphere
-  const head = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 24), snowMaterial);
+  const headGeo = new THREE.SphereGeometry(1, 24, 24);
+  bakeJunctionTint(headGeo, 1, { bottom: -1.0 });
+  const head = new THREE.Mesh(headGeo, snowMaterial);
   head.position.y = 7.0; // Lowered head to sit on middle sphere (4.5 + 1.5 + 1.0)
   head.castShadow = true;
   group.add(head);
@@ -43,19 +112,25 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
   nose.rotation.x = Math.PI / 2;
   group.add(nose);
   
-  // Buttons (on middle and bottom spheres)
+  // Buttons — parented to the BALL they sit on (not the root group) so the flex
+  // layer's per-frame squash-and-stretch of that ball carries them along its moving
+  // surface. As siblings of the balls they stayed at fixed positions while the belly
+  // scaled, so a squashing middle/bottom sphere left the buttons suspended in front of
+  // the snowman (issue #337). Positions are BALL-LOCAL (world pos minus the ball's
+  // centre) so the shipped rest pose is byte-identical; the buttons now ride (and
+  // gently deform with) the snow they're pressed into.
   const buttonGeometry = new THREE.SphereGeometry(0.15, 12, 12);
   const button1 = new THREE.Mesh(buttonGeometry, blackMaterial);
-  button1.position.set(0, 5.5, 1.4); // On middle sphere front
-  group.add(button1);
-  
+  button1.position.set(0, 5.5 - middle.position.y, 1.4); // middle-local (world y 5.5)
+  middle.add(button1);
+
   const button2 = new THREE.Mesh(buttonGeometry, blackMaterial);
-  button2.position.set(0, 4.5, 1.45); // On middle sphere front
-  group.add(button2);
-  
+  button2.position.set(0, 4.5 - middle.position.y, 1.45); // middle-local (world y 4.5)
+  middle.add(button2);
+
   const button3 = new THREE.Mesh(buttonGeometry, blackMaterial);
-  button3.position.set(0, 3.0, 1.9); // On bottom sphere front
-  group.add(button3);
+  button3.position.set(0, 3.0 - bottom.position.y, 1.9); // bottom-local (world y 3.0)
+  bottom.add(button3);
   
   // --- Stick Arms ---
   // Create a function to build a branched arm
@@ -145,61 +220,11 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
   group.add(hatTop);
   
   // --- Shaped skis (issue #189) ---------------------------------------------
-  // Real ski geometry instead of two flat boxes: a custom lofted BufferGeometry
-  // with sidecut (wide shovel -> narrow waist -> medium tail), a smooth shovel/tip
-  // rise, a small tail kick, rounded end caps, a visible binding block, and three
-  // materials (red top-sheet, dark base, steel-edge accent). Each ski is a pose-owned
-  // root GROUP holding two pivot arms (tip + tail) that overlap at the waist so the
-  // surface reads as one continuous ski; the cosmetic flex layer (src/snowman-flex.ts)
-  // bends those arms (rotation.x only) for camber/landing/carve, while pose.ts still
-  // owns the root transform (snowplow wedge / parallel edge+draw). See buildSkiArm().
-  // DoubleSide keeps the hand-wound loft solid from every angle (no reliance on a
-  // single correct triangle winding across the lofted tube + caps).
-  const topSheetMat = new THREE.MeshStandardMaterial({ color: 0xD42B2B, roughness: 0.5, side: THREE.DoubleSide }); // red top-sheet
-  const baseMat = new THREE.MeshStandardMaterial({ color: 0x1A1A20, roughness: 0.7, side: THREE.DoubleSide });     // dark sintered base
-  const steelMat = new THREE.MeshStandardMaterial({ color: 0xB8BCC4, roughness: 0.35, metalness: 0.6, side: THREE.DoubleSide }); // steel edge
-  const bootMat = new THREE.MeshStandardMaterial({ color: 0x202024, roughness: 0.6 });     // binding boot
-  const plateMat = new THREE.MeshStandardMaterial({ color: 0x55585F, roughness: 0.4, metalness: 0.5 }); // binding plate
-  const skiMats = [topSheetMat, baseMat, steelMat];
-
-  // Build one ski (root group + tip/tail arms + binding). Mirrored by `side`.
-  function createShapedSki(side: number): { root: THREE.Group; tipArm: THREE.Mesh; tailArm: THREE.Mesh } {
-    const root = new THREE.Group();
-    root.position.set(side, 0.1, 1);
-
-    // Two arms share the SAME longitudinal profile sampled in absolute ski-z, so their
-    // cross-sections are identical at the waist seam; each is built in arm-local space
-    // (waist at z=0) and overlaps SKI_SEAM_OVERLAP past the waist so a flex bend never
-    // opens a visible gap. Pivot lives at the waist (root-local z = SKI_Z_WAIST).
-    const tipArm = new THREE.Mesh(buildSkiArm(SKI_Z_WAIST - SKI_SEAM_OVERLAP, SKI_Z_TIP), skiMats);
-    const tailArm = new THREE.Mesh(buildSkiArm(SKI_Z_TAIL, SKI_Z_WAIST + SKI_SEAM_OVERLAP), skiMats);
-    for (const arm of [tipArm, tailArm]) {
-      arm.position.z = SKI_Z_WAIST; // arm-local origin -> waist pivot
-      arm.castShadow = true;
-      root.add(arm);
-    }
-
-    // Binding: a metal plate + boot block, parented to the ROOT (not the arms) so it sits
-    // over the waist seam and hides the joint while the arms flex underneath it.
-    const binding = new THREE.Group();
-    const waistY = sampleProfile(SKI_Z_WAIST, SKI_CENTER_Y);
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.9), plateMat);
-    plate.position.set(0, waistY + 0.075, 0);
-    plate.castShadow = true;
-    binding.add(plate);
-    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.52), bootMat);
-    boot.position.set(0, waistY + 0.2, 0.02);
-    boot.castShadow = true;
-    binding.add(boot);
-    binding.position.z = SKI_Z_WAIST;
-    root.add(binding);
-
-    group.add(root);
-    return { root, tipArm, tailArm };
-  }
-
-  const left = createShapedSki(-1);
-  const right = createShapedSki(1);
+  // The lofted ski geometry (sidecut + shovel + tail-kick, steel edges, binding) lives
+  // in ./ski.ts. createSkis() parents the two ski root GROUPS under `group`; pose.ts
+  // owns each root transform (snowplow wedge / parallel edge+draw) and the flex layer
+  // bends the returned tip/tail arms (wired into the part registry below).
+  const { left, right } = createSkis(group, opts.skiTopSheet);
   const leftSki = left.root, rightSki = right.root;
 
   // --- Scarf (issue #53, optional follow-up PR C) ---------------------------
@@ -249,23 +274,33 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
   const NECK_Y = 6.0; // top of the middle sphere / base of the head — a natural pivot
   const headGroup = new THREE.Group();
   headGroup.position.set(0, NECK_Y, 0);
-  for (const part of [head, leftEye, rightEye, nose, hatBase, hatTop]) {
-    part.position.y -= NECK_Y;   // into headGroup-local space (identical world y)
-    headGroup.add(part);         // Object3D.add() reparents from `group`
+  head.position.y -= NECK_Y;     // head into headGroup-local space (identical world y)
+  headGroup.add(head);           // Object3D.add() reparents from `group`
+  // Glue the face + hat to the head MESH (not just the cluster). headGroup carries the
+  // whole face when the flex layer BOBS/LEANS it, but the layer also SQUASH-STRETCHES
+  // the `head` mesh itself every frame (head is one of the three breathing balls). As
+  // siblings of `head` the eyes/nose/hat ignored that scale and detached from the
+  // moving head surface, the same defect as the buttons (issue #337). Nesting them
+  // under `head` makes them ride (and gently deform with) the head. Positions rebase
+  // into head-local so world placement is byte-identical at rest.
+  for (const part of [leftEye, rightEye, nose, hatBase, hatTop]) {
+    part.position.y -= NECK_Y;         // group -> headGroup-local (identical world y)
+    part.position.sub(head.position);  // headGroup-local -> head-local
+    head.add(part);                    // Object3D.add() reparents onto the head mesh
   }
   group.add(headGroup);
 
-  // Keep references + neutral pose so ski technique (e.g. snowplow wedge) can be shown.
-  group.userData = group.userData || {};
-  group.userData.leftSki = leftSki;
-  group.userData.rightSki = rightSki;
-  group.userData.leftSkiBaseX = leftSki.position.x;
-  group.userData.rightSkiBaseX = rightSki.position.x;
+  // --- Face rig (issue #364) -------------------------------------------------
+  // Build the coal-bead mouth, twig brows, frosty cheeks, and eye-highlight dots and
+  // parent them under `head` (the eyes are already there after the reparenting above),
+  // so the flex/expression layers carry them along the squashing head surface. Purely
+  // cosmetic geometry; the expression controller animates these as offsets from neutral.
+  const face = createFace(head, blackMaterial, leftEye, rightEye);
 
   // --- Cosmetic part registries (issue #53) ---------------------------------
   // FLEX registry: fine-grained animatable refs read by src/snowman-flex.ts. Every
   // value is a renderable Object3D; headGroup is the neck-pivoted cluster above.
-  group.userData.parts = {
+  const parts = {
     bottom, middle,
     headGroup, head,
     leftEye, rightEye, nose,
@@ -277,32 +312,67 @@ export function createSnowman(scene: THREE.Scene): THREE.Group {
     // (rotation.x bend). The ski ROOTS (leftSki/rightSki) stay off the registry so
     // pose.ts keeps sole ownership of the wedge/edge/draw transform.
     leftSkiTip: left.tipArm, leftSkiTail: left.tailArm,
-    rightSkiTip: right.tipArm, rightSkiTail: right.tailArm
+    rightSkiTip: right.tipArm, rightSkiTail: right.tailArm,
+    // Face rig (issue #364): the silhouette-line mouth (group + 7 joints + 6 line
+    // segments), twig brows, frosty cheeks, and eye-highlight dots. Animated by
+    // src/snowman-expression.ts (the segments are refit between the joints each frame).
+    mouth: face.mouth,
+    mouthBead0: face.mouthBeads[0]!, mouthBead1: face.mouthBeads[1]!, mouthBead2: face.mouthBeads[2]!,
+    mouthBead3: face.mouthBeads[3]!, mouthBead4: face.mouthBeads[4]!, mouthBead5: face.mouthBeads[5]!,
+    mouthBead6: face.mouthBeads[6]!,
+    mouthSeg0: face.mouthSegments[0]!, mouthSeg1: face.mouthSegments[1]!, mouthSeg2: face.mouthSegments[2]!,
+    mouthSeg3: face.mouthSegments[3]!, mouthSeg4: face.mouthSegments[4]!, mouthSeg5: face.mouthSegments[5]!,
+    leftBrow: face.leftBrow, rightBrow: face.rightBrow,
+    leftCheek: face.leftCheek, rightCheek: face.rightCheek,
+    leftPupil: face.leftPupil, rightPupil: face.rightPupil
   };
   // SHATTER roots: the flat list of TOP-LEVEL rigid pieces the PR-B debris system
   // flings, so accessories ride with their cluster instead of being double-spawned.
   // headGroup + arms (+ scarfTail) are THREE.Groups; the shatter loop branches on
   // `part.isMesh` (the scarf wrap is a Mesh).
-  group.userData.shatterRoots = [
+  const shatterRoots = [
     bottom, middle, headGroup,
     leftArmGroup, rightArmGroup,
     button1, button2, button3,
     scarf, scarfTail
   ];
+  // --- Freestyle flip pivot (jump-system completion JP-5, plan §6.1) ----------
+  // The group root's origin sits at the SKI BASE (spheres at y = 2 / 4.5 / 7), so a
+  // flip applied to the root orbits the feet — visually wrong (a somersault rotates
+  // about the body's center of mass). Interpose one child group at the mass-weighted
+  // center (radii 2 / 1.5 / 1 ⇒ masses ∝ 8 / 3.375 / 1 ⇒ COM ≈ y 3.1) holding EVERY
+  // part (skis included — the whole snowman flips), each child re-based by −COM_Y so
+  // world placement is identical at rest. pose.ts applies `trickFlip` to THIS pivot
+  // while the root keeps position / yaw / terrain tilt — so the follow camera (which
+  // reads the root) stays steady through a flip. Purely structural: the userData
+  // part/shatter registries keep their references (debris resolves world transforms
+  // via getWorldPosition), and partBaseTransforms below is recorded AFTER the
+  // restructure so the flex layer's neutral bases match the new locals.
+  const COM_Y = 3.1;
+  const flipPivot = new THREE.Group();
+  flipPivot.position.y = COM_Y;
+  for (const child of [...group.children]) {
+    child.position.y -= COM_Y;
+    flipPivot.add(child); // Object3D.add() reparents from `group`
+  }
+  group.add(flipPivot);
+
   // Neutral local transforms, kept OFF the registries so a generic loop over .parts
   // / .shatterRoots only ever sees renderable Object3Ds. Keyed by the same names so
   // the flex layer can pair part <-> base and restore exactly on reset.
-  group.userData.partBaseTransforms = recordBaseTransforms(group.userData.parts);
+  // Retain the concrete model-part types for callers, together with the shared
+  // optional physics fields. The checked bag is published only when complete.
+  const modelData = {
+    leftSki, rightSki,
+    leftSkiBaseX: leftSki.position.x, rightSkiBaseX: rightSki.position.x,
+    parts, shatterRoots, flipPivot,
+    partBaseTransforms: recordBaseTransforms(parts)
+  };
+  const userData: SnowmanUserData & typeof modelData = modelData;
+  const snowman = setSnowmanUserData(group, userData);
 
   scene.add(group);
-  return group;
-}
-
-/** A plain-number snapshot of a part's neutral local transform. */
-interface BaseTransform {
-  position: { x: number; y: number; z: number };
-  scale: { x: number; y: number; z: number };
-  rotation: { x: number; y: number; z: number };
+  return snowman;
 }
 
 /** Snapshot each part's neutral local position/scale/rotation so the cosmetic flex
@@ -319,117 +389,4 @@ function recordBaseTransforms(parts: Record<string, THREE.Object3D>): Record<str
     };
   }
   return out;
-}
-
-// --- Ski longitudinal profile (issue #189) ----------------------------------
-// The ski is a loft along its length (absolute ski-z: -z = tail, +z = tip), driven by
-// two control-point curves smoothly interpolated by sampleProfile(). SKI_WIDTH is the
-// top-view half-width (the sidecut: wide shovel, narrow waist, medium tail, pinched to
-// rounded end caps); SKI_CENTER_Y is the side-profile centerline (a gentle camber bump
-// at the waist, a rising shovel toward the tip, and a small tail kick). Both arms sample
-// these in absolute z, so their shared waist cross-section matches exactly (no seam).
-const SKI_Z_TAIL = -2.9;
-const SKI_Z_TIP = 3.3;
-const SKI_Z_WAIST = -0.1;       // pivot / binding location
-const SKI_SEAM_OVERLAP = 0.28;  // how far each arm runs past the waist to hide the bend seam
-
-type ProfilePt = readonly [number, number]; // [ski-z, value]
-const SKI_WIDTH: ReadonlyArray<ProfilePt> = [
-  [-2.9, 0.06], [-2.5, 0.21], [-2.0, 0.25], [-0.1, 0.17],
-  [1.6, 0.29], [2.2, 0.30], [3.0, 0.19], [3.3, 0.06]
-];
-const SKI_CENTER_Y: ReadonlyArray<ProfilePt> = [
-  [-2.9, 0.17], [-2.4, 0.05], [-1.8, 0.0], [-0.1, 0.04],
-  [1.6, 0.0], [2.4, 0.13], [3.0, 0.31], [3.3, 0.47]
-];
-
-const smoothstep = (t: number): number => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
-
-/** Smoothly interpolate a control-point curve at ski-z (clamped, smoothstep between pts). */
-function sampleProfile(z: number, pts: ReadonlyArray<ProfilePt>): number {
-  if (z <= pts[0]![0]) return pts[0]![1];
-  const n = pts.length;
-  if (z >= pts[n - 1]![0]) return pts[n - 1]![1];
-  for (let i = 0; i < n - 1; i++) {
-    const [z0, v0] = pts[i]!, [z1, v1] = pts[i + 1]!;
-    if (z >= z0 && z <= z1) return v0 + (v1 - v0) * smoothstep((z - z0) / (z1 - z0));
-  }
-  return pts[n - 1]![1];
-}
-
-/** Thickness taper -> 0 toward both ends so the caps round off instead of ending blunt. */
-function skiThicknessScale(z: number): number {
-  const fade = 0.55;
-  return 0.18 + 0.82 * Math.min(smoothstep((SKI_Z_TIP - z) / fade), smoothstep((z - SKI_Z_TAIL) / fade));
-}
-
-// Cross-section ring: 6 vertices (base-L, mid-L, top-L, top-R, mid-R, base-R). The mid
-// vertices are the widest line — the steel edge. The 6 ring edges map to materials:
-//   0:(0-1) lower-left  -> steel    3:(3-4) upper-right -> top-sheet
-//   1:(1-2) upper-left  -> top-sheet 4:(4-5) lower-right -> steel
-//   2:(2-3) top         -> top-sheet 5:(5-0) base        -> base
-const RING_MAT: ReadonlyArray<number> = [2, 0, 0, 0, 2, 1]; // 0=top-sheet,1=base,2=steel
-
-/** Build one ski arm as a lofted, capped BufferGeometry with three material groups
- *  (top-sheet / base / steel-edge). `z0..z1` is the absolute ski-z span; vertices are
- *  emitted in arm-local space (waist at z=0) so the mesh can pivot at the waist. */
-function buildSkiArm(z0: number, z1: number): THREE.BufferGeometry {
-  const STATIONS = 22;
-  const positions: number[] = [];
-  // Per-material triangle index buckets, concatenated into one index buffer + groups.
-  const buckets: number[][] = [[], [], []]; // top-sheet, base, steel
-
-  for (let s = 0; s < STATIONS; s++) {
-    const z = z0 + (z1 - z0) * (s / (STATIONS - 1));
-    const w = sampleProfile(z, SKI_WIDTH);
-    const cy = sampleProfile(z, SKI_CENTER_Y);
-    const ts = skiThicknessScale(z);
-    const topH = 0.05 * ts, baseH = 0.07 * ts;
-    const wTop = w * 0.82, wMid = w, wBase = w * 0.9;
-    const lz = z - SKI_Z_WAIST; // arm-local z (waist pivot at 0)
-    positions.push(
-      -wBase, cy - baseH, lz,   // 0 base-left
-      -wMid, cy, lz,            // 1 mid-left (steel)
-      -wTop, cy + topH, lz,     // 2 top-left
-      wTop, cy + topH, lz,      // 3 top-right
-      wMid, cy, lz,             // 4 mid-right (steel)
-      wBase, cy - baseH, lz     // 5 base-right
-    );
-  }
-
-  // Side quads between adjacent stations (consistent winding around the tube).
-  for (let s = 0; s < STATIONS - 1; s++) {
-    const a = s * 6, b = (s + 1) * 6;
-    for (let e = 0; e < 6; e++) {
-      const r0 = e, r1 = (e + 1) % 6;
-      const v00 = a + r0, v01 = a + r1, v10 = b + r0, v11 = b + r1;
-      buckets[RING_MAT[e]!]!.push(v00, v10, v11, v00, v11, v01);
-    }
-  }
-
-  // End caps: a center vertex per end + a fan to its ring, so the arm reads solid and
-  // casts a clean shadow. Both caps ride with the top-sheet group.
-  const ringCenter = (s: number): number => {
-    const base = s * 6, idx = positions.length / 3;
-    // average the ring's 6 verts for a centroid cap vertex
-    let x = 0, y = 0, zz = 0;
-    for (let r = 0; r < 6; r++) { x += positions[(base + r) * 3]!; y += positions[(base + r) * 3 + 1]!; zz += positions[(base + r) * 3 + 2]!; }
-    positions.push(x / 6, y / 6, zz / 6);
-    return idx;
-  };
-  const c0 = ringCenter(0);
-  for (let e = 0; e < 6; e++) buckets[0]!.push(c0, (e + 1) % 6, e);
-  const last = (STATIONS - 1) * 6;
-  const cN = ringCenter(STATIONS - 1);
-  for (let e = 0; e < 6; e++) buckets[0]!.push(cN, last + e, last + (e + 1) % 6);
-
-  const indices = [...buckets[0]!, ...buckets[1]!, ...buckets[2]!];
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geom.setIndex(indices);
-  geom.addGroup(0, buckets[0]!.length, 0);
-  geom.addGroup(buckets[0]!.length, buckets[1]!.length, 1);
-  geom.addGroup(buckets[0]!.length + buckets[1]!.length, buckets[2]!.length, 2);
-  geom.computeVertexNormals();
-  return geom;
 }

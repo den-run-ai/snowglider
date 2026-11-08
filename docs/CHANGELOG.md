@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to SnowGlider. This is a continuously deployed static site
-with no formal release versions, so entries are grouped by the pull request or
-dated milestone that introduced them, most recent first.
+All notable changes to SnowGlider. The static site deploys continuously from main.
+Starting with v1.0.1, named maintenance releases also have version tags; older
+entries are grouped by the pull request or dated milestone that introduced them.
 
 This file consolidates two reports that previously lived under `docs/`: the
 skill-&-structure implementation report (#56) and the audio implementation /
@@ -11,7 +11,561 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ---
 
-## Unreleased
+## Finish and restart recovery — 2026-11-07
+
+- Keep Restart and all four difficulty choices visible while results, sharing,
+  account controls and update notices scroll inside the finish dialog.
+- Stop the terminal frame before gameplay observers can revive avalanche warnings
+  or audio. Optional leaderboard/status failures no longer block the result screen.
+- Use the native replay click to unlock mobile audio. After a difficulty rebuild,
+  prepare the course and wait for Start run instead of starting a silent descent.
+- Report caught animation and result failures through the existing GA4 client-error
+  path. Production event data and physical-device audio remain unverified.
+- Preserve physics tuning, course layouts, score version and stored mute preferences.
+
+## Ski controls and replay feedback — 2026-11-06
+
+- Reset ski stance, tuck, flip and spin presentation immediately on replay, so a
+  previous run's technique cannot leak into the next run or its camera heading.
+- Keep cancelled touch gestures neutral after reset, focus loss or tab hiding;
+  a fresh touch starts steering again. Remove camera touch listeners on teardown.
+- Make slope feedback settle consistently across display refresh rates, classify
+  steep first samples correctly, and clear the previous run's slope on replay.
+- Preserve physics tuning, control bindings, courses and score version 3. Add
+  regressions for input ownership, technique resets and refresh-rate consistency.
+
+## Welcome screen — 2026-11-06
+
+- Add static inline alpine artwork, a small loading indicator with reduced-motion
+  support, actual startup status, and a sound preference visible before Play. No video,
+  image download, animation library, or extra WebGL scene is needed.
+- Paint onboarding before scene setup and prepare the existing forest in the
+  background. Early Play waits for the same preparation; gameplay and its clock
+  remain stopped. Keep shader compilation on the normal renderer path.
+- Keep background startup failures inline and preserve explicit recovery. Respect
+  saved mute on early Play, allow unmuting a run that began silent, and stop music
+  and procedural effects if loading fails. Explicit sound choices survive storage
+  write failure.
+
+## 1.0.1 — 2026-10-22
+
+- Preserve faster personal bests and their world provenance when optional analytics
+  or Firestore recovery fails. Local-storage errors no longer prevent an otherwise
+  valid result from reaching the signed-in sync path.
+- Start the run-clock guard paused when deferred loading finishes in a hidden tab.
+  The first visible frame discards the hidden backlog before simulation resumes.
+- Update Vite and the js-yaml, brace-expansion, source-map-js and follow-redirects
+  tooling dependencies through #448 and #451–#454. These address development/build
+  advisories; the audit did not demonstrate a deployed-player P0/P1 vulnerability.
+- Keep physics version 3 and existing score namespaces unchanged.
+
+## Earlier continuously deployed updates
+
+### Responsive HUD consistency (#428)
+
+- Controls, Stats and Camera now share one compact header, sans-serif typography,
+  centered chevron and 44px disclosure target. Removed the duplicate swipe arrows
+  and isolated mode-button styling from the camera disclosure.
+- The collapsed Camera chip shows the active mode; the separate action says
+  “Next view.” All six modes have readable labels and wrap into a touch-sized grid.
+- Natural top HUD stacks separate progress/controls and account/stats. Bottom
+  actions respect safe areas; short panels scroll rather than clip content.
+- Compact screens open one HUD panel at a time. Browser-toolbar resizes preserve
+  explicit expansion, cancelled/vertical gestures do not toggle panels, and repeat
+  initialization replaces listeners. Guest disclosure uses the same chevron style.
+- The render canvas stays within the viewport after phone rotation, preventing
+  a stale landscape width from shrinking the entire portrait HUD.
+- CI now covers panel geometry, visible collapsed state, hit targets, scrolling,
+  keyboard/touch and rotation on desktop Chromium/WebKit and phone Safari/Chrome
+  in both orientations. Real-player before/after screenshots are review artifacts;
+  physical-device acceptance and pixel baselines remain separate work.
+
+### Physics v3: a fresh personal-best and leaderboard era
+- Terrain contact, gameplay randomness, and avalanche stepping now use consistent
+  simulation rules. Earlier times are not comparable, so current personal bests and
+  the leaderboard start fresh. Historical records remain stored separately; this
+  release does not delete players' previous records.
+- The start screen announces the change before a player begins a new run.
+
+### Keyboard and screen-reader controls (#420)
+- Stats, controls, camera, account, and share disclosures expose their real expanded
+  state. Collapsed camera controls cannot receive keyboard focus; camera glyphs and
+  the sound toggle have descriptive names and synchronized state.
+- Start, About, feedback, result, and recovery screens manage focus and make covered
+  controls inert. About/feedback close with Escape and return focus to their trigger;
+  completed runs keep focus in the result until Restart is chosen.
+- Results include the existing account/sign-in controls inside the dialog, keeping
+  the "Log in" prompt actionable; Restart restores their normal in-game placement.
+- Start, checkpoints, avalanche onset, and results announce once at their event
+  boundaries. The continuously updated timer is deliberately not a live region.
+- Typing or activating a focused UI control no longer also steers, jumps, or changes
+  camera. Releasing a held movement key still clears it after focus moves into UI.
+
+### Fix: EZ forest self-upgrades after a slow or failed chunk load (mobile cone-trees regression)
+- On a slow first visit (cellular), the ~4 MB EZ archetype chunk routinely outlives the
+  6s run-start hold: the run correctly starts on the stylized fallback forest, but the
+  session then kept cone trees FOREVER — even though the abandoned chunk load finished
+  seconds later. Real-device report: realistic pines "disappeared" on iPhone while the
+  desktop path was fine.
+- The fallback is now tagged and **recoverable**: `abandonPendingEzBuild` and the
+  failed-load path both schedule an upgrade watcher — the moment an archetype (re)load
+  succeeds, the tagged stylized stand is swapped in place for the EZ evergreens on the
+  SAME placements (collision `treePositions` never change; visuals are hash-driven with
+  zero RNG draws; the ground snow collars survive; the load registry re-registers and
+  its version bump makes the shed system resync). Failed loads retry with exponential
+  backoff (4 attempts), and a failed hashed-chunk fetch nudges the service worker's
+  update check (the stale-precached-shell case). Guarded by the same token/epoch
+  staleness as the build itself, so re-inits and teardown cancel pending upgrades.
+- Headless-tested end-to-end via the injectable importer seam:
+  `tests/ez-fallback-upgrade-tests.js` (abandon → fallback → late chunk → EZ swap;
+  teardown staleness), plus a puppeteer repro with the chunk request delayed past the
+  run-start hold.
+
+
+### Fix: EZ pines crumpled into scraggle by the widened wind sway (foreground-tree regression)
+- The widened sway band (#253 follow-up: `TREE_SWAY_MAX_AMP` 0.35 → 0.9) exposed two
+  scale traps in the GPU sway shader that visually destroyed the EZ-Tree evergreens —
+  players saw the realistic pines "disappear" from the run corridor, replaced by bent,
+  sparse diagonal scraggle:
+  - the sway **phase** was derived from each **vertex's world x/z** (period ~2.5u), so
+    different parts of ONE tree leaned at different magnitudes/phases (the lean factor
+    stays positive — always downwind) with a spread reaching most of the amplitude —
+    invisible at 0.35u, a crumple at 0.9u. The phase now comes from the tree's
+    **instance origin** (`instanceMatrix[3].xz`): neighbouring trees stay
+    desynchronized (the phase's purpose) while every vertex of a tree swings coherently,
+    the intra-tree variation left to the height-rooted `swayWeight` (a natural
+    base-anchored bend).
+  - the needle **flutter** keyed its variation off raw **local-space** vertex positions
+    (`position.y*2.0`/`position.x*3.0`), tuned for the small stylized cones; the EZ
+    archetype geometries are ~5x their world size in local units, so the flutter flipped
+    sign every ~0.3 world units and shredded each needle card into its own phase. On
+    height-rooted geometry it now keys off the scale-independent `swayWeight`; the
+    classic fallback foliage (no root height ⇒ constant `swayWeight`) keeps the original
+    local-space frequencies, which are safe on its ~1-4 local-unit cones and preserve
+    its within-cone shimmer.
+- Shader-only (visible + shadow-depth materials share the injected chunk; program cache
+  key bumped v4 → v5). No placement, RNG, physics, or collision change — `test:verify`
+  byte-identical; `tests/trees-tests.js` pins the per-instance phase and the
+  swayWeight-keyed flutter (fails against the old shader), and
+  `tests/ez-sway-deformation-tests.js` mirrors the formula in JS over the REAL generated
+  EZ archetypes to bound max-gust intra-tree deformation (per-card spread 0.13u vs the
+  pre-fix 0.46u; equal-height scramble 0.06u vs 0.39u) so this visual regression class
+  cannot land silently again.
+
+### Procedural snowman expression rig (face + body personality) — issue #364
+- The snowman now **emotes**. A new procedural face rig (`src/snowman/face.ts`) adds a
+  coal-bead mouth, twig eyebrows, frosty cheeks, and white eye-highlight dots, and a new
+  cosmetic controller (`src/snowman-expression.ts`, a sibling of `snowman-flex.ts`) animates
+  them plus the arms, hat, and carrot from the motion the physics kernel already produced.
+- **Technique face:** a small state machine maps ski technique to expression — a relaxed
+  idle smile, a determined carve squint with brows angled into the turn, a braking "uh-oh"
+  on snowplow, a racer squint in a tuck, a bright open smile in the air — with the arms,
+  hat, and carrot posing to match (arms up in the air, swept back in a tuck, counter-
+  balancing a carve; the hat leans into turns; the carrot gets a tiny wobble) and a
+  deterministic blink.
+- **Event reactions:** short-lived, priority-resolved reactions layer on top — a big grin +
+  hat bounce on a clean landing, a one-eye wince + crooked mouth on a sketchy one, a "woo!"
+  on an obstacle clear, a celebration on a freestyle trick, and panic eyes + a frantic brace
+  as an avalanche closes in.
+- **Invariants:** the whole layer is render-only, physics-neutral, and deterministic — it
+  reads the per-frame result and writes only cosmetic child transforms on a part-set disjoint
+  from both flex and `pose.ts`, uses no `Math.random`/wall-clock (blink/wobble/windmill run
+  off an internal time accumulator; the hat bounce is a dt-integrated spring), and eases
+  frame-rate-independently. The no-input coasting baseline stays **byte-identical** (no
+  baseline regeneration) and reduced-motion snaps the whole rig rigid. Shipped as a staged
+  stack of small PRs (face rig → controller → body acting → event reactions → docs/acceptance).
+- **Tests:** `npm run test:face` (rig geometry), `npm run test:expression` (controller +
+  reactions), and `tests/snowman-expression-integration-tests.js` (the real model driven
+  through Flex + Expression together).
+- **Follow-up polish (post-merge review):** two cosmetic fixes to the shipped rig. (1) The
+  reshaped mouth beads now **ride the head sphere** — the controller recomputes each bead's
+  surface `z` for its new latitude (matching `face.ts`'s `surfaceZ`), so a full "O"/frown no
+  longer leaves coal beads floating ~0.15–0.23u proud of the face when viewed side-on; the
+  neutral resting pose stays byte-identical. (2) The **tuck hat push-down eases in** with the
+  arm sweep-back (scaled by the already-eased `armBack` channel) instead of snapping the full
+  `0.12u` + ~7° in a single frame on tuck enter/exit. Guarded by a real-model surface-distance
+  assertion in the integration suite and an ease-in unit check in `test:expression`.
+
+### Hide the racing ghost (kept live in the background for trajectory evals)
+- The translucent "ghost" of your best run is **no longer drawn**. On the slope it read
+  as confusing and it visually blocked/distracted from the descent, so a new
+  `GHOST_VISIBLE = false` flag in `course.ts` hides both the on-screen apparition and its
+  ahead/behind HUD readout. Flip the flag to `true` to bring it back.
+- The rest of the feature stays **fully live in the background**: the run trajectory is
+  still recorded, persisted to `localStorage`, loaded, terrain-clamped, and played back
+  every frame (just on an invisible mesh), so it remains available for testing / evals of
+  snowman trajectories. Personal-best times, splits, medals, and the result screen are
+  unchanged.
+- User-facing copy that promised a visible ghost (start screen, About panel, meta/OG
+  descriptions) was reworded to "your own best time". Purely a visibility/copy change —
+  no physics, RNG stream, or persisted-data format touched; the `dom_smoke_test`
+  ghost-persistence assertions still pass.
+
+### Cinematic follow cameras: "Cameraman" ski-film chase + aerial "Drone" mode (issue #315)
+- **Two cinematic modes join the `V` cycle** after First Person, so the full order is
+  **Auto → Follow → Orbit → First Person → Cameraman → Drone → Auto**. Defaults (Auto/Follow)
+  are unchanged; the new modes are opt-in via the cycle or the camera tray's `Cam` / `Drone` chips.
+  - **Cameraman** — a low, close, side-trailing handheld chase (fellow-skier-with-a-camera
+    feel) with a gentle side-to-side weave.
+  - **Drone** — a high, far, slowly-circling aerial chase (an orbiting overhead view).
+- **Expert/steep + jump emphasis.** Both modes lean into the drama where it matters: a
+  motion-gated terrain-steepness term and the `isInAir` jump context add extra pull-back
+  **and** overhead lift so the drop below the rider and the landing zone stay in shot on
+  steep/expert lines — the same ethos as Auto's situational profile.
+- **Deterministic + physics-safe.** The framing math (`cinematicTargets`/`cinematicOffset`)
+  mirrors `followOffset` (same `8 + d·sin(pitch)` base height, so the terrain-floor clamp and
+  look-ahead are identical), reads only cosmetic slope/air signals (never `pos`/`velocity`),
+  and drives its oscillation/circle off the camera's own `frameCount` (no wall-clock) — so the
+  fixed-timestep sim and seeded RNG streams stay byte-identical.
+- **Manual view controls are inert** in the cinematic modes (they drive their own framing).
+  A shared `usesOrbitControls(mode)` helper (true only for auto/follow/orbit) now gates the tray
+  orbit/zoom widgets and the Q/E/±/wheel/drag hotkeys, replacing the ad-hoc first-person checks.
+- **Tests.** `tests/camera-node-tests.js` gains a pure `cinematicTargets` profile section
+  (drone more overhead/farther than cameraman; steep terrain + airtime pull back and lift;
+  slope gated on motion; circle/weave advance with the clock) plus `cinematicOffset` /
+  `usesOrbitControls` / six-mode-cycle coverage; `tests/lifecycle-tests.js` covers the six mode
+  chips + new friendly labels. `npm run test:camera`, `test:lifecycle`, full `npm test`, lint,
+  and build are green.
+
+### Fix: tree-base snow collars no longer float as suspended plates
+- The per-tree ground "collar" (`addTrees` in `mountains/trees.ts`) rendered as a wide
+  (1.0–1.5r), near-flat disc placed right at the surface and tilted only 0.8× the local
+  slope. On the falling terrain its downhill rim lifted clear of the snow, so the snow
+  read as **circular plates hovering around the bottom of each trunk** rather than snow
+  settled at the base.
+- The collar is now a smaller, rounder mound (0.55–0.85r) **sunk** so its rim buries
+  below the surface — only the crown crests the snow — and tilted the **full** slope so
+  the disc plane tracks the terrain. It grounds the trunk without floating on slopes.
+- Purely cosmetic and RNG-neutral: still exactly one collar per tree with one
+  `Math.random()` draw, so the seeded physics/forward-stress harnesses and the
+  ground-collar invariant (`tree-shed-tests`) stay byte-identical. 68/68 Node suites pass.
+
+### Camera viewpoint options: modes, 360° orbit, zoom, and a smart Auto camera
+- **Four camera modes replace the two-way toggle.** `V` (and the on-screen button)
+  now cycle **Auto → Follow → Orbit → First Person → Auto** instead of flipping
+  chase/normal. `Camera.toggleCameraMode()` is kept as a compatibility wrapper that
+  advances the cycle, so `controls.ts` (the `V` key), the touch handler, and the
+  lifecycle keep working by name.
+  - **Auto** (new default) — orbit auto-centers behind the direction of travel and the
+    follow distance eases out a touch with speed, so casual players get a good hands-off
+    view. **Follow** — classic chase, always behind the player, honoring manual zoom.
+    **Orbit** — free 360°: the player's yaw/pitch/zoom are held exactly as set.
+    **First Person** — the over-the-head head cam.
+- **360° orbit scroller.** A persistent orbit yaw (full 360°, wrapped) plus a clamped
+  pitch layer on top of the follow rig. Drive it with `Q`/`E`, a left-mouse drag on the
+  slope, or the tray's `0–360°` slider; `C` (or the ⊙ button) recenters behind the
+  snowman. All orbit/zoom offsets are neutral at their defaults, so the spawn framing is
+  byte-identical to the classic camera.
+- **Distance/height zoom** (not FOV — the speed-FOV juice in `effects.ts` is untouched):
+  mouse wheel, `+`/`−`, or the tray's zoom buttons multiply the follow distance
+  (clamped 0.5×–2.5×). The terrain floor clamp still keeps the camera above ground for
+  side/front orbits.
+- **On-screen camera tray** (`#cameraControls`): mode chips (active one highlighted),
+  the 360° orbit slider with recenter, and a zoom row — so mobile/touch players get the
+  full control set without gesture conflicts (one-finger steering is untouched; the
+  tray's buttons/slider ride the existing interactive-UI touch escape). First-person
+  disables the orbit/zoom widgets since they only affect the third-person rig.
+- **Situational Auto framing (P3+).** Auto no longer just eases zoom with speed — each
+  frame it builds a target follow profile from cosmetic-only signals and eases a transient
+  distance (`autoZoom`) **and** overhead pitch (`autoPitch`) toward it, so the camera
+  re-frames the run as it unfolds:
+  - **Expert / steep terrain** — the terrain gradient magnitude under the rider pulls the
+    camera back and lifts it overhead so the fall line and the drop below stay in shot
+    (the emphasis for difficult runs). Gated on actual downhill motion, so a parked/slow
+    snowman on the steep spawn keeps the neutral framing.
+  - **Jumps** — while airborne the camera pulls back and lifts hard so the landing zone
+    stays framed through the whole arc.
+  - Plus: a near avalanche widens the shot, tight/twisty carves pull the camera *in* for
+    tree-line framing, and tall/portrait screens pull back for vertical context.
+  - The situational transients are eased (never snapped), are **never** written into the
+    persisted manual `zoom`/`orbitPitch`, and are dropped on any mode-change or restart —
+    so Follow/Orbit/First-Person and the next run's spawn framing stay neutral. The game
+    loop feeds the jump/avalanche signals through an optional `AutoFrameContext` on
+    `cameraManager.update`; slope, turn rate, and screen aspect the camera derives itself.
+    The framing math is factored into a pure `autoFrameTargets(...)` profile function.
+- Physics is untouched — the camera reads the per-frame result only, never `pos`/
+  `velocity` — so the invariant/stress suites are unaffected. Covered by an expanded
+  `tests/camera-node-tests.js` (69 asserts, incl. the situational profile + transient-reset
+  cases) and `tests/lifecycle-tests.js`; the tray node + its listeners are removed on
+  `disposeGame`. Remaining follow-ups tracked in the issue: two-finger/pinch gestures,
+  cinematic mode, a saved camera preference, and reduced-motion damping.
+
+### Tree wind sway made visible (#253 sway-visibility follow-up)
+- The forest's GPU wind sway (#265) was capped so low (0.35u ≈ a 1.5° treetop swing,
+  mostly a fixed downwind tilt) that it was imperceptible at chase-camera distance.
+  Retuned in `mountains/trees.ts`: the amplitude band widens to 0.06..0.9 world units
+  and the lean is 60% static / 40% oscillating (was 75/25), so a gust now visibly whips
+  the trees (~5° treetop swing) and a lull relaxes them. Cosmetic-only (shader vertex
+  displacement, no `pos`/collision change) — the physics baseline is untouched.
+
+### Trees flex under snow load, shed it in gusts, and the forest sounds like one (#253 Phase B)
+- **Per-tree snow load.** Every placed tree now carries a live load (0..1) riding the
+  instanced forest as two per-instance attributes: `aSnowLoad` (laden foliage sways
+  damped and bows downward — shadows bow in lockstep) and `aSnowRatio` (snow caps and
+  shelves scale with what the tree is still holding). Base loads reuse existing
+  randomness only (the stylized path's pre-existing per-tree `snowLoad` draw; the EZ
+  path's placement hash), so the seeded placement stream and the physics baseline are
+  untouched. Ground collars never droop, shrink, or shed.
+- **Gust shedding (`src/tree-shed.ts`).** When a gust front arrives (rising edge on
+  the shared deterministic `Wind` field), the most laden trees near the player dump
+  their snow — powder puffs burst off the crown, the shelves visibly shrink, the
+  branches spring back — then re-laden slowly under the falling snow. Cosmetic-only,
+  no global `Math.random` draws, reduced-motion inert, reset per run.
+- **Forest audio (`src/sfx.ts`).** A needle-rustle noise bed gated on wind strength ×
+  forest proximity around the player (an open bowl or a dead calm stays exactly
+  silent), and a distance-scaled soft "whump" one-shot when a nearby tree sheds.
+- Covered by `tests/tree-shed-tests.js` (`npm run test:tree-shed`) + new sfx gain-map
+  asserts; the invariant, stress (seeded stream), browser, and e2e suites all pass
+  unchanged.
+
+### Style/combo chain + physical-spin seam (jump-system completion JP-7, #286)
+- **Consecutive rewarded air events now compound.** CLEAN landings, scored
+  obstacle clears, and avalanche dodges build a multiplier — ×1.25 per step,
+  capped ×3 — applied to every point banked into the air score; an OK landing
+  holds the chain, a SKETCHY or wipeout landing breaks it, and a new run resets
+  it. Loop-side only (no kernel state, the #245 discipline): the pure decision
+  core lives in `src/game/combo.ts` (THREE/DOM-free, pinned headlessly), the
+  loop's `bankAirScore` callback multiplies at the current step, and the chain
+  advances after each substep's banking — so an event's points ride the chain
+  built *before* it (100 → 125 → 156 for three straight CLEANs).
+- The air toast carries the live chain (`✈ AIR 1.2s · 360 · CLEAN ×1.56`) and
+  the result screen's air score reflects the multiplied total.
+- **Physical spins (#244) — seam reserved, not implemented:** combo.ts's event
+  stream is where a switch-landing event slots in once heading becomes real
+  kernel state; documented in `PHYSICS.md` §4.1. This closes the jump-system
+  completion stack (JP-1…JP-7).
+
+### Designed air — Expert kickers + lip-consistent launch (jump-system completion JP-6, #286)
+- **◆◆ Expert ships three sculpted kickers on its course line**
+  (`DifficultyConfig.features`): smootherstep ramps rising 2.2 u over an 8 u
+  approach to a lip that drops off (the tabletop face the auto-jump launches from),
+  centered at `laneX(z)` and spanning the corridor channel floor. The ramp term
+  lives in the **one canonical height source** (`mountains/terrain.ts`
+  `kickerRampHeight` / `setTerrainKickers`) consumed by both the mesh and the
+  physics sampler — the §2.2 two-formula contract — with the corridor's guardrail
+  pattern: tiers without `features` build byte-identical terrain.
+- **Lip-consistent launch** (`ski.lipLaunch`, Expert-only per adopted decision
+  §10.4): the terrain auto-jump's takeoff velocity now derives from the lip
+  geometry actually ridden off — `v_y = clamp(speed·Δslope, 4, 16)` where `Δslope`
+  is the terrain convexity along travel — so bigger ramps at speed give
+  proportionally bigger arcs. Every other tier keeps the frozen `6 + 0.3·speed`
+  constant, pinned by a new GATING harness check (legacy bytes off-flag; the exact
+  exported formula on-flag with cap + speed-scaling asserted; off-lip descents
+  byte-identical either way).
+- **Winnability holds with the designed air**: the follow-the-line gate now runs
+  Expert — the line rider goes straight off all three kickers with lipLaunch arcs
+  and still finishes, stays in the corridor, and out-skis the slide, every seed
+  (10/10). New `tests/kicker-tests.js` pins the ramp profile, lateral taper, drop,
+  line centering, cache reset, and the two-formula contract.
+
+### Jump visual correctness — COM flip pivot + air polish (jump-system completion JP-5, #286)
+- **Flips now rotate about the body's center of mass, not the feet.** The snowman
+  group's origin sits at the ski base, so the freestyle somersault used to orbit
+  the feet. `model.ts` interposes a `flipPivot` child group at the mass-weighted
+  center (y ≈ 3.1; every part re-based so world layout is identical at rest) and
+  `pose.ts` applies `trickFlip` there — the root keeps position/yaw/terrain tilt,
+  so the follow camera stays steady through a flip. Pose-only, pinned by a
+  trajectory-identity test (flip flight with vs without the pivot: max-abs diff 0);
+  debris/flex/registry layers are unaffected (world-space APIs, bases recorded
+  post-restructure).
+- **Air-phase polish, all provenance-gated / additive:** a deliberate takeoff dips
+  the flex settle spring (1–2 frame anticipation crouch whose overshoot reads as
+  stretch toward apex); the landing SFX is grade-keyed (CLEAN = crisp stomp ping,
+  SKETCHY = skidding wash; auto-jumps keep the plain thump); touchdown kicks a
+  one-shot radial snow burst scaled by grade (CLEAN a crisp puff, SKETCHY a wide
+  wash; a wipeout leaves it to the #171 debris). Ski spray was already suppressed
+  while airborne. Deferred from the plan's §6.2: the arm-reach grab pose (the flex
+  layer owns the arm transforms) and the player contact-shadow fade (the player
+  uses the real shadow map, which already fades with height).
+
+### Impact-consistent landing grading + Expert wipeouts (jump-system completion JP-4, #286)
+- **A manual jump's landing grade now reads the impact into the surface**, not just
+  aim (`MEANINGFUL_JUMPS.md` §8.3): `vImpact = |v³·n|` at the landing point. CLEAN
+  additionally requires a soft touchdown (`< 24 m/s`); past `30 m/s` the landing is
+  forced SKETCHY with a deeper (×1.5) scrub and heavier shake — landing on a
+  downslope transition is soft, flatting out from big air is harsh, even aligned.
+  Thresholds calibrated to measured touchdown impacts (plain jumps land at ≈15–28),
+  so ordinary stomps keep the #186 boost. Provenance-gated as ever: auto-jump /
+  hop / coasting landings and the frozen no-input baseline are byte-identical.
+- **Wipeouts on ◆◆ Expert** (`ski.wipeouts`, new tuning flag — false everywhere
+  else, pinned unreachable by a harness gate): slamming past `34 m/s` or landing
+  more than 120° into a somersault CRASHES — zero air score, run over via the
+  crash path with the #171 shatter. Freestyle risk now has real consequences.
+- New GATING harness checks: **landing monotonicity** (equal touchdown velocity —
+  a downslope landing never grades worse than flat) and the **wipeout gate**;
+  freestyle suite gains the wipeout residual/impact tables. Docs: new
+  `PHYSICS.md` §4.2 + §10 constants.
+
+### Avalanche-dodge window (jump-system completion JP-3, #286 — the #47 headline)
+- **Jumping the slide front now saves you.** At the loop's burial-check site (never
+  in the physics kernel, per #245), a frame where a boulder overlaps the player
+  resolves through the pure `resolveBurialOutcome` (`avalanche.ts`): airborne on a
+  *deliberate* jump (`playerJump` provenance) ⇒ immune for the air phase; the first
+  dodging frame of a slide banks `DODGE_SCORE = 250` into the air score, toasts
+  `🏔 DODGED THE AVALANCHE!`, and kicks a one-shot ×1.10 forward escape impulse
+  (adopted plan decision: immunity + impulse) so a stomped landing can outrun the
+  front. Anything else — grounded, or auto-jump/hop air — is buried exactly as
+  before.
+- **Exploit-guarded:** provenance-gated (auto-jump air never dodges), once per
+  slide (`dodgeAwarded` on GameState, re-armed when the slide resets or a run
+  restarts), and inert without airborne overlap (holding Jump near the slide does
+  nothing). The decision core is pinned headlessly in `tests/avalanche-tests.js`;
+  `MEANINGFUL_JUMPS.md` Phase 2 is now shipped.
+
+### Scored obstacle clears (jump-system completion JP-2, #286 / #245)
+- **Sailing a deliberate jump over a tree or rock the run would otherwise have hit
+  now scores.** The collision layer's existing airborne suppression branches are
+  surfaced as `ObstacleClear` observations (`collision.ts`), and `updateSnowman`
+  applies the policy: **provenance-gated** on `playerJump` (auto-jump / hop air
+  banks nothing and its bytes are unchanged), **deduped** per obstacle per air
+  phase (one pass = one clear, however many overlap frames), **capped** at
+  `CLEAR_MAX_PER_AIR = 3`, banking `CLEAR_SCORE = 75` each through the same
+  `bankAirScore` path as the landing score — invoked before the finish check so a
+  clear on the finish frame still counts. A gold `✦ CLEARED!` toast cues it
+  (`CourseModule.flashClear`; a same-frame landing toast wins the shared element).
+- **Pinned by a new GATING harness check**: exactly one scored clear per obstacle,
+  zero on an auto-jump's identical flight (trajectory byte-identical), cap honoured
+  over a dense row. Constants mirrored in `PHYSICS.md` §4/§10.
+
+### Per-tier jump availability — no jumps on ● Bunny (jump-system completion JP-1, #286)
+- **The jump verb is now per-tier.** `SnowmanPhysicsTuning` gains two boolean gates,
+  `manualJump` (Space/touch straight jump **and** hop turn) and `autoJump`
+  (terrain-lip auto-pop). Blue/Black/Expert keep both `true` — byte-identical to
+  today, the defaults baked into `BLUE_PHYSICS_TUNING` so the frozen no-input
+  baseline and every existing caller are unchanged. **Bunny sets both `false`**:
+  Space does nothing, lips never loft, and the grounded `pos.y = terrain` keeps the
+  snowman glued over lips — a calm, grounded learning run (carve + wedge only).
+- **The UI stops advertising a dead verb.** `Controls.setJumpEnabled(...)` (called
+  at run start from the tier's `ski.manualJump`) excludes the center touch region
+  from hit-testing and hides the jump indicator; the start screen's controls-guide
+  jump/hop rows and the touch-note's "center to jump" clause hide when a no-jump
+  tier is selected; the Bunny picker blurb says so ("No jumps, just carving.").
+- **Pinned by new gates:** the invariant harness's Bunny-suppression check (held
+  Jump ≡ no-input byte-identical; a lip that auto-jumps on Blue stays grounded on
+  Bunny), plus difficulty/controls suite coverage. The unsupported
+  `manualJump:false + autoJump:true` combination is documented (PHYSICS.md §4) and
+  asserted never to ship.
+
+### EZ-Tree evergreen forest (#282, PRs #283/#284 + default flip)
+- **The forest's tree geometry is now generated with [EZ-Tree](https://github.com/dgreenheck/ez-tree)**
+  (`@dgreenheck/ez-tree`, MIT): `src/mountains/ez-forest.ts` builds three pine
+  species at two detail levels each (seeded, deterministic, ~1-3k triangles per
+  build) and `trees.ts` renders them through the SAME instanced pipeline as the
+  stylized cones — InstancedMesh per archetype part, per-instance bark/needle
+  palette tints, procedural canvas bark maps, shared-`Wind` vertex sway with
+  per-archetype base rooting (`TREE_SWAY_ROOT_HEIGHT`) and matching alpha-tested
+  shadow-depth materials, instanced crown snow caps + settled needle shelves, and
+  ground collars. Tree snow sways on its host tree's height-rooted weight (a
+  per-instance `aSwayWeight` attribute on an owned geometry clone — the 'anchored'
+  profile), so a low shelf stays as still as the needles under it. Collision
+  (`treePositions`) is untouched.
+- **Static far LOD:** trees beyond 32u lateral of the run centerline use a ~40%-cost
+  far build (same seed ⇒ same silhouette). Perf, measured on the seeded Chromium
+  layout: draw calls 233 (parity with the stylized 227), triangles ~463k (~2× the
+  stylized forest; whole-forest InstancedMeshes never frustum-cull), pinned by a
+  dedicated `?eztrees=1` budget test in `tests/e2e/perf-budget.spec.ts`.
+- **Default ON for players; stylized under automation/headless.** Mirroring the
+  debris/intro/sfx gating: `window.isTestMode` / `navigator.webdriver` / no-DOM runs
+  keep the stylized forest (and its exact seeded `Math.random` stream) unless a test
+  opts in via `?eztrees=1` or `Trees.setEzForestEnabled(true)`. Players can opt back
+  with `?classictrees`. Precedence lives in the pure `resolveEzForestEnabled`
+  (tested headless in `tests/ez-forest-tests.js`).
+- **Loading:** the published package eagerly embeds/loads its textures at import
+  (~4 MB), so it is a lazy dynamic import — code-split by Vite, fetched only when
+  the flag resolves on; headless Node gets a scoped `document` shim around the
+  import. Archetype generation swaps `Math.random` to a private xorshift for the
+  THREE uuid draws, so seeded harness streams never shift.
+
+### Freestyle jumps on a new ◆◆ Expert tier (#32 first pass)
+- **A fourth difficulty tier, after Hard.** `difficulty.ts` gains **◆◆ Expert** —
+  Black's exact handling numbers, winding corridor, and heavy slide (its own seed, so
+  it is its own fixed course), unranked practice like Bunny/Black until its floor is
+  measured. The picker, HUD badge (amber ◆◆), per-tier ghost/best-time storage
+  (`snowgliderBestTime_expert`, `leaderboard_expert`, `bestTimeExpert`), and the
+  read-only Firestore rules all extend the existing per-tier pattern.
+- **Freestyle tricks, re-using the existing controls in the air (#32).** On Expert
+  only, a *manual* jump's air phase accepts trick input: **Left/Right spin** (360°/s
+  yaw), **Up/Down front/backflip** (300°/s), and a **re-pressed Jump holds a grab**
+  (the held takeoff press never grabs). Completed tricks are named in the landing
+  toast (`✈ AIR 1.2s · 360 + GRAB · CLEAN`) and their points (40 per 180° spin, 120
+  per flip, 60/s grab) ride the existing air-score channel to the result screen.
+  **Landing mid-rotation is the risk:** an under-rotated spin/flip forces a SKETCHY
+  landing (today's scrub) no matter how well the skis are aimed, and pays half score.
+- **Kernel-safe by construction.** Trick accumulation is double-gated on the new
+  `ski.freestyleTricks` tuning flag (Expert only) AND `playerJump` provenance, and the
+  rotation is purely cosmetic (`pose.ts` — spin drives the heading, flips ride on the
+  clamped tilt, a grab tucks the crouch): pos/velocity are never touched in the air,
+  so every other tier and the no-input coasting baseline stay **byte-identical**
+  (`test:verify` unchanged, no baseline regeneration). The follow camera is handed
+  the trick-free heading while a spin rides on the snowman's yaw (main-loop
+  `updateCamera`), so it stays behind the line of travel instead of orbiting with
+  the trick (codex review). New `tests/freestyle-tests.js` pins the grading table
+  (`gradeFreestyleTrick`) and the double gate end-to-end; PHYSICS.md gains §4.1.
+
+### Wind — a resonant gust "howl" whistles on the wind (#253, Phase A)
+- **You can now hear the wind howl, not just whoosh.** The procedural `sfx.ts` engine gains
+  a second, distinct wind layer: alongside the broadband ambient bed, a narrow high-Q
+  bandpass "howl" — the tonal, whistling resonance of a strong wind. It stays silent on a
+  calm slope and emerges only when the shared `Wind` field blows hard, swelling with each
+  gust; its pitch sweeps up on a gust and falls back in the lull so it wavers like real
+  wind rather than droning. Two pure functions drive it: `howlGainForWind(strength)` (from
+  `Wind.strength()`, with a knee below which a light breeze does not whistle) and
+  `howlFreqForGust(gust)` (the pitch sweep from `Wind.gust()`). The main loop drives a new
+  `Sfx.updateWindHowl(Wind.strength(), Wind.gust())` right after `Wind.update()`, so the
+  howl agrees with the same field that drifts the snow, streams the scarf, and sways the
+  trees.
+- **Silent when there is no wind — so an unwindy run is unchanged.** Keyed on `strength`
+  (which collapses to 0 in a dead-calm profile) and gated below `HOWL_KNEE`, so
+  `howlGainForWind` is *exactly* 0 with no wind: no new sound on a calm slope, and the
+  whistle is a separate bed from the speed-scaled bed so the two wind layers are
+  independent.
+- **Cosmetic / invariant-safe.** The howl touches no `pos`/`velocity` and is a no-op under
+  automation (`window.isTestMode` / webdriver unless a test opts in), so the physics
+  invariant stays **byte-identical** (`test:verify` unchanged) — **no baseline
+  regeneration**. New `sfx-tests.js` howl checks (`npm run test:sfx`); PHYSICS.md §11
+  consumers updated.
+
+### Wind — the ambient audio bed breathes with the wind field (#253, Phase A)
+- **The wind you hear now tracks the wind you see.** The procedural ambient bed in
+  `sfx.ts` was purely *speed*-scaled — it only rose as the snowman sped up. It now also
+  reads the shared `Wind` field, so a gusty slope hisses even at a standstill and the bed
+  swells and eases as gusts roll through, in lockstep with the same field that drifts the
+  snow, streams the scarf, and sways the trees. A new pure `windGainForField(speed,
+  windStrength)` layers `Wind.strength() × WIND_FIELD_GAIN` (0.16 at full strength) on top
+  of the existing motion whoosh, and a stronger wind also brightens the bed's lowpass
+  (a faint rising whistle). The main loop passes `Wind.strength()` into `Sfx.updateSkiing`
+  — the same cached pre-`Wind.update()` sample the scarf reads, so audio and the visible
+  wind agree on the same gust.
+- **Keyed on `strength`, not the raw gust — so a dead-calm field is silent.** In a truly
+  calm profile (`Wind.configure({ baseStrength: 0, gustRange: 0 })`) the gust factor keeps
+  oscillating but `Wind.strength()` collapses to 0, so `windGainForField` reduces *exactly*
+  to the old `windGainForSpeed(speed)`: an unwindy run sounds identical to pre-#253.
+- **Cosmetic / invariant-safe.** SFX touches no `pos`/`velocity` and is a no-op under
+  automation (`window.isTestMode` / webdriver, unless a test opts in), so the physics
+  invariant stays **byte-identical** (`test:verify` unchanged) — **no baseline
+  regeneration**. The new field param defaults to 0, so every existing `updateSkiing`
+  caller and the `?test=` suites keep the pre-#253 path. New `sfx-tests.js` field-gain
+  checks (`npm run test:sfx`); docs: PHYSICS.md §11 consumers, ARCHITECTURE.md §3.
+
+### Fix: tag bot traffic + de-duplicate the finish analytics event
+- **Why.** The analytics reporter's anomaly detector traced a June-2026 GA4 event spike to
+  automated/bot traffic (bursts of `game_reset` / `game_over` / `session_health` with no
+  matching rise in `game_start`) rather than real players, and found that every finish was
+  double-counted by firing **both** `complete_run` (scores.ts) and `complete_game`
+  (result-overlay.ts).
+- **`src/analytics-env.ts` (new).** `isAutomatedClient()` (reads `navigator.webdriver`) and
+  `withTrafficTag(params)` add a stable `is_bot` param to every analytics event so
+  automated traffic can be excluded in GA4 (register `is_bot` as a custom dimension, filter
+  `is_bot = true`) without dropping the data. Wired into the `window.firebaseModules.logEvent`
+  wrapper (`auth.ts`, covers game_start/game_over/game_reset/share_result/feedback_submitted/
+  diagnostics) and the direct `logEvent` calls (`complete_run`, `new_high_score`, `login`).
+- **De-dup.** Replaced the redundant `complete_game` emit in `result-overlay.ts` with the
+  canonical `complete_run`. A ranked finish emits it once from `AuthModule.recordScore` (the
+  scoring source of truth); the overlay emits it only for finishes `recordScore` skips —
+  unranked tiers or a missing leaderboard API — so those runs stay in analytics without
+  double-counting the ranked ones.
+- **Tests.** New `tests/analytics-env-tests.js` (10 assertions) for the tag helper;
+  `result-overlay-tests.js` updated to assert the overlay no longer double-logs a finish.
 
 ### Feature: in-game feedback / feature-request form (#258)
 - **Gap.** A player who hit a bug or had an idea had no in-game path to report it — they
@@ -89,6 +643,117 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   no-input invariant is byte-identical; no new per-frame shadow cost (the sun cycle
   already re-rendered the shadow map every frame). Covered by `tests/sun-shadow-tests.js`
   (`npm run test:sun-shadow`). See [`SNOW_RENDERING.md`](SNOW_RENDERING.md).
+
+### Difficulty tiers (D3.2d): per-tier avalanche + the follow-the-line winnability gate (Black)
+- **The avalanche is now per-tier.** A new `avalanche` block on each `DifficultyConfig`
+  (`difficulty.ts`) drives the slide: **Blue** carries today's exact numbers verbatim
+  (`BLUE_AVALANCHE` — 80 u trigger, 120 boulders, `-(7 + rand*3)` m/s), so the default
+  tier is byte-identical; **Bunny** turns it OFF (`enabled: false` — the easy tier is a
+  calm learning run); **Black** fires **earlier** (60 u trigger ⇒ more slides over the run),
+  **faster** (`-(9 + rand*3)` m/s against its faster physics), and **heavier** (150 boulders
+  ⇒ a broader wall). The walls of the D3.2b corridor funnel these boulders down the channel
+  onto the fast line, so the safe way down is *the line*.
+- **`avalanche.ts` parameterised.** `AvalancheSystem` gains `enabled` / `triggerDistance` /
+  `slideSpeedBase` / `slideSpeedJitter` (constructor `AvalancheParams`), all defaulting to
+  today's Blue slide so an omitted-params `new AvalancheSystem(scene, count)` is unchanged.
+  `trigger()` draws the boulder speed from `slideSpeedBase`/`Jitter` in **one** `Math.random()`
+  call (same stream position ⇒ Blue byte-identical). `scene-setup.ts` builds the system from
+  the active tier's block; `main-loop.ts` gates the trigger on `avalanche.enabled` and reads
+  `avalanche.triggerDistance`. `AVALANCHE_TRIGGER_DISTANCE`/`AVALANCHE_BOULDER_COUNT` are now
+  re-exported from `BLUE_AVALANCHE` (one source of truth).
+- **The winnability harness is the ranked-flip gate.** `tests/verification/winnability_harness.js`
+  gains a **follow-the-line carve controller** (`runLineDescent`) that skis each tier's real
+  `laneX(z)` on its real corridor at its real physics, against its own avalanche, steering to
+  the line with a downhill lookahead. New gates: **G5** — every tier's line reaches the finish
+  with no burial and without climbing out of the corridor, *every seed* (this is the quantitative
+  proof Black's provisional avalanche + corridor numbers are actually makeable at Black's speed);
+  **G6** — a too-slow line riding perfectly ON the Black corridor is buried every seed (the
+  two-sided companion, so the Black slide can't be silently neutered and still pass). Measured
+  margin: Black escapes with a closest-boulder of ~7 u (comparable to Blue's), top speed ~13.5 m/s.
+- **Guardrails.** `test:verify` IDENTICAL + smoke 53/0; `test:winnable` G2–G6 all green;
+  `test:avalanche` 12/0; `test:difficulty` extended to 37/0 (avalanche-block checks: Blue verbatim,
+  Bunny off, Black earlier+faster+heavier); the stack below (`course-line`/`terrain-corridor`/
+  `corridor-obstacles`) unchanged; lint 0 errors; typecheck clean; full `npm test` exit 0; vite
+  build ok. Bunny/Blue stay byte-identical (Bunny's slide never arms; Blue's numbers are verbatim).
+  Like the rest of the scene, the avalanche is built once from the run's `builtDifficulty`; a run
+  that locks a different tier reloads to rebuild it (D3.2b's `maybeReloadForRunTier`).
+
+### Difficulty tiers (D3.2c): gates + obstacles on the line (Black)
+- **The checkpoint + finish gates now sit ON the run's centerline.** `course.ts`
+  `makeGate` takes a `laneOffset` (the whole gate — poles, banner, label, terrain
+  sampling — shifts onto the line), and `buildGates` passes `activeLaneX(z)` per gate, so
+  Black's gates alternate left/right with the winding corridor (a turn rhythm). Straight
+  tiers pass 0 ⇒ gates at x=0, byte-identical.
+- **One shared centerline registry.** `course-line.ts` gains
+  `setActiveCourseLine`/`getActiveCourseLine`/`activeLaneX(z)` (the SAME `CourseLine`
+  instance the terrain corridor uses). `scene-setup.ts` registers it once per scene, so
+  the gates, the obstacle field, and (later) the winnability harness all read one line —
+  the path math is never duplicated. `activeLaneX` returns an exact 0 for straight tiers.
+- **The obstacle field follows the corridor.** `mountains/trees.ts` and
+  `mountains/rocks.ts` measure lateral distance from the centerline (`Math.abs(x - lane)`
+  instead of `Math.abs(x)`) for the clear lane, the density zones, and the collidable-rock
+  clearance, so for Black the clear corridor + the dense flanks track the winding line
+  (running straight when it turns puts you in the trees/rocks). `rocks.ts` also adds a
+  deterministic **rock-gate pinch** pass: collidable rocks framing the corridor at
+  intervals, placed just OUTSIDE the cleared corridor so the on-line path stays open
+  (winnable) while drifting wide clips a gate. Because `lane === 0` and the pinch pass is
+  skipped entirely when no corridor line is active, Bunny/Blue consume the identical
+  `Math.random()` sequence and their gate/obstacle layout is byte-identical.
+- **Tree placement clears the line PERPENDICULARLY.** Both tree loops (the grid jitter and the
+  60 "former ski path" trees) could seat a Black tree inside the on-line route: the grid loop
+  applies a ±2.5 jitter AFTER its clear-lane check, and the inner "ski path" band sits only 3u to
+  the side. Measured horizontally that looked clear, but on a steep turn the line runs diagonally
+  (min `|tangent.z|` ≈ 0.50 at z≈-90), so a tree 3u to the side is only ~1.5u *perpendicular* to
+  the path — well inside the 2.5u collision radius, making the "clear" lane randomly crashable. A
+  new pure `treeInCorridorLane(x, z)` drops any tree whose PERPENDICULAR distance to the line
+  (`|x-lane| · |tangent.z|`) is under the 3u clearance; all three placement paths consult it — the
+  grid jitter, the 60 "former ski path" trees, and the grid's clustered-tree branch (whose old
+  horizontal `>= 3` gate is kept alongside it purely to preserve the straight-tier center strip
+  byte-for-byte). It returns `false` whenever no line is active, so straight tiers cull nothing and
+  stay byte-identical.
+- **Guardrails.** `test:verify` IDENTICAL; `test:trees`/`test:terrain`/`test:tree-collision`/
+  `test:regression` unchanged; new `tests/corridor-obstacles-tests.js`
+  (`npm run test:corridor-obstacles`: clearance follows the line, on-line corridor always
+  passable, the jitter re-check culls a column that jitters into the lane, pinch offset clears
+  the corridor) + extended `course-line-tests.js` (active-line registry + gate-on-line
+  alternation). Like D3.2b, the scene is fixed at build; a run that locks a different tier reloads
+  to rebuild it (D3.2b's `maybeReloadForRunTier`). Per-tier avalanche + a follow-the-line
+  winnability harness (which validates the line is makeable at speed) land in D3.2d.
+
+### Difficulty tiers (D3.2b): winding terrain corridor (Black)
+- **Black's terrain now banks into a winding skiable channel** that follows the descent
+  centerline (D3.2a's `course-line.ts`). `mountains/terrain.ts` gains a corridor seam:
+  `setTerrainCorridor(corridor | null)` plus one shared `corridorWallHeight(x, z)` that
+  both `getTerrainHeight` and the mesh builder (`terrain-mesh.ts`) add as their last term,
+  so the two-formula contract holds in lockstep. The channel FLOOR (within
+  `channelHalfWidth` of the line) is a flat **0** wall term — height AND gradient are
+  exactly today's, so the on-line skiing feel is unchanged and the line stays skiable;
+  off the line the flanks ramp up to a wall, so running straight when the line turns
+  climbs a steepening slope (and the walls funnel avalanche boulders down the channel).
+- **`DifficultyConfig` gains an optional `terrain` block** (Black:
+  `{channelHalfWidth, wallRamp, wallHeight}`). `scene-setup.ts` resolves the run's
+  corridor from the chosen tier and calls `setTerrainCorridor` **before** building the
+  mesh, so the mesh vertices and `getTerrainHeight` bake in the same walls. The corridor
+  also resets the `heightMap` cache (its key has no tier dimension, so a stale entry from
+  another corridor would otherwise be served as the wrong height).
+- **Bunny/Blue byte-identical.** They carry no `terrain` block ⇒ a `null` corridor ⇒ the
+  wall add is skipped entirely (`hasActiveCorridor()` gate) and terrain is today's exact
+  mesh + `getTerrainHeight`. The no-input invariant harness uses its own constant-slope
+  terrain, so no baseline regen. Covered by the new `tests/terrain-corridor-tests.js`
+  (`npm run test:terrain-corridor`: on-line wall 0, off-line bounded ramp, two-formula
+  delta == wall, steeper-off-line gradient, cache reset) + extended `difficulty-tests.js`.
+- **Locked-tier reload guard.** `setupScene()` builds terrain once from the stored tier
+  (`state.builtDifficulty`) and never rebuilds on restart, so a run that locks a *different*
+  tier (the start-screen picker, or the finish "Play again on" picker) would ski a mismatched
+  mountain. Instead of an in-place rebuild (a large, leak-prone teardown) the coordinator
+  persists the tier and reloads on that mismatch (`maybeReloadForRunTier`) so `setupScene()`
+  re-runs and reshapes the scene for it. The reload lands back on the start screen with the tier
+  re-selected, so the player presses Start once more — keeping the run start a trusted user
+  gesture (the audio/SFX unlock needs one; an auto-resumed run wouldn't have it). Skipped under
+  test/automation (the suites stay on one reload-free path) and when the tier can't be persisted
+  (private mode). Pure decision core `runTierNeedsRebuild` is unit-tested. Gates + obstacles on
+  the line and a follow-the-line winnability harness land in D3.2c/d.
+
 ### Difficulty tiers (D3.2a): per-tier course-line spine (no felt change)
 - **The descent has a single seeded centerline.** New `src/course-line.ts` exposes
   `createCourseLine(cfg)` → `laneX(z)` / `tangent(z)` / `heading(z)`: plain-number
@@ -107,6 +772,64 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
   new `tests/course-line-tests.js` (`npm run test:course-line`) plus extended
   `difficulty-tests.js` line-block assertions. (Terrain corridor, gates, obstacles, the
   per-tier avalanche, and the ranked flip follow in later D3.2 sub-PRs.)
+
+### Wind — the ambient audio bed breathes with the wind field (#253, Phase A)
+- **The wind you hear now tracks the wind you see.** The procedural ambient bed in
+  `sfx.ts` was purely *speed*-scaled — it only rose as the snowman sped up. It now also
+  reads the shared `Wind` field, so a gusty slope hisses even at a standstill and the bed
+  swells and eases as gusts roll through, in lockstep with the same field that drifts the
+  snow, streams the scarf, and sways the trees. A new pure `windGainForField(speed,
+  windStrength)` layers `Wind.strength() × WIND_FIELD_GAIN` (0.16 at full strength) on top
+  of the existing motion whoosh, and a stronger wind also brightens the bed's lowpass
+  (a faint rising whistle). The main loop passes `Wind.strength()` into `Sfx.updateSkiing`
+  — the same cached pre-`Wind.update()` sample the scarf reads, so audio and the visible
+  wind agree on the same gust.
+- **Keyed on `strength`, not the raw gust — so a dead-calm field is silent.** In a truly
+  calm profile (`Wind.configure({ baseStrength: 0, gustRange: 0 })`) the gust factor keeps
+  oscillating but `Wind.strength()` collapses to 0, so `windGainForField` reduces *exactly*
+  to the old `windGainForSpeed(speed)`: an unwindy run sounds identical to pre-#253.
+- **Cosmetic / invariant-safe.** SFX touches no `pos`/`velocity` and is a no-op under
+  automation (`window.isTestMode` / webdriver, unless a test opts in), so the physics
+  invariant stays **byte-identical** (`test:verify` unchanged) — **no baseline
+  regeneration**. The new field param defaults to 0, so every existing `updateSkiing`
+  caller and the `?test=` suites keep the pre-#253 path. New `sfx-tests.js` field-gain
+  checks (`npm run test:sfx`); docs: PHYSICS.md §11 consumers, ARCHITECTURE.md §3.
+
+### Wind — the forest sways in the wind field (#253, Phase A)
+- **The trees now lean and flutter in the shared wind.** The instanced forest reads the
+  same `Wind` field as the snow and the scarf and sways downwind: a GPU **vertex sway**
+  (an `onBeforeCompile` injection on the instanced tree materials) bends each vertex in the
+  wind direction by an amount that scales with `Wind.strength()`, so the whole forest moves
+  for the cost of three uniform writes per frame — **no** per-frame CPU walk of the hundreds
+  of instances. The trunk material is "rooted" (the bend is weighted 0 at the base and 1 at
+  its top, so trees pivot at the ground) while the foliage/snow canopy above sways as a
+  unit at the matching amplitude; a spatial phase from each vertex's world x/z desyncs
+  neighbouring trees so the stand never waves in lockstep. The main loop advances it right
+  after `Wind.update` (`Snow.updateTreeWind`) and rewinds it on each run reset
+  (`Snow.resetTreeWind`).
+- **Cosmetic-only / invariant-safe.** The sway displaces vertices in the shader and never
+  touches `treePositions` or any `pos`/`velocity`, so the no-input coasting path stays
+  **byte-identical** to the frozen baseline (`test:verify` reports `max abs diff 0.000e+0`)
+  — **no baseline regeneration**. It needs no per-instance data, so the *shared* pooled
+  tree geometry is untouched (no multi-scene hazard); the non-instanced Group-shim path is
+  left un-swayed (`USE_INSTANCING`-gated). Calmed under `prefers-reduced-motion` (amplitude
+  → 0) like the snow drift / Flex / Sky. New `trees-tests.js` sway checks; docs: PHYSICS.md
+  §11 consumers, ARCHITECTURE.md §3.
+- **Review fixes.** (1) A genuinely calm field (`Wind.strength() === 0`, e.g. a
+  `Wind.configure({ baseStrength: 0, gustRange: 0 })` profile) now maps to zero amplitude — the
+  0.08 breeze floor is gated on positive wind via the pure `treeSwayAmplitude` — so the canopy
+  stays fully still in step with the snow/scarf consumers (the live field never reaches 0, so
+  play is unchanged). (2) The forest `castShadow`s, so each InstancedMesh gets a matching
+  `customDepthMaterial` carrying the same sway from the same shared uniforms, keeping the cast
+  shadows leaning with the trees instead of staying put. `new MeshDepthMaterial()` draws
+  `Math.random` for its uuid, and seeded harnesses place obstacles on that stream (the Node
+  forward-stress seeds then `addTrees`→`addRocks`; browser perf/teardown specs seed before the
+  bundle loads), so the two materials are built with `Math.random` swapped to a private RNG (in a
+  try/finally) — their uuid draws never shift the caller's seeded stream, while the pre-existing
+  visible materials keep drawing from it as the harnesses baseline. (3) `disposeSceneResources`
+  now also collects `customDepthMaterial`/`customDistanceMaterial` (not reachable via
+  `obj.material`) so the shadow-caster material is freed even without the pool reset. Covered by
+  `trees-tests.js` + `teardown-tests.js`.
 
 ### Wind — scarf streams in the apparent wind (#253, Phase A)
 - **The red scarf now reacts to the wind field.** The scarf tail trails the **apparent**

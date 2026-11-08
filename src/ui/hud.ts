@@ -6,6 +6,7 @@
 import type { PlayerPos, UpdateResult } from '../snowman.js';
 import { setupCollapsiblePanel } from './collapsible-panel.js';
 import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
+import { getDifficultyConfig, type Difficulty } from '../difficulty.js';
 
 // --- Real-world units for the Game Stats readout ---
 // The simulation runs in metric world units where 1 unit ≈ 1 metre (the same
@@ -33,7 +34,7 @@ const RAD_TO_DEG = 180 / Math.PI;
 // its difficulty tier — flicker. Smooth the *display* value with an exponential
 // moving average so it reads steadily; the physics is untouched (it uses its own raw
 // per-frame gradient). `null` until the first sample seeds it; reset on a new run.
-const SLOPE_SMOOTH = 0.12;       // EMA weight on each new sample (~0.4s settle @60fps)
+const SLOPE_SMOOTH = 0.12;       // reference EMA weight at 60 Hz
 const SLOPE_TIER_HYST = 0.03;    // deadband around each tier edge so the label/colour
                                  // doesn't dither when the pitch hovers on a boundary
 const SLOPE_TIERS = [
@@ -45,6 +46,20 @@ const SLOPE_EDGES = [SLOPE_MODERATE, SLOPE_STEEP]; // green|blue edge, blue|blac
 let smoothedSlope: number | null = null;
 let slopeTierIdx = 0;
 
+// Colours for the selected-tier badge in the Game Stats panel, matching the
+// ski-trail language the Slope readout already uses (● green / ■ blue / ◆ black).
+// This is the *chosen* difficulty for the run — distinct from the Slope row, which
+// reports the pitch under the player at this instant.
+const DIFFICULTY_COLORS: Record<Difficulty, string> = {
+  bunny: '#4CAF50',  // green
+  blue: '#4FC3F7',   // blue
+  black: '#FFFFFF',  // white: a true-black glyph is invisible on the dark panel
+  expert: '#FFD54F', // amber: sets the ◆◆ freestyle tier apart from Black's white
+};
+// Only repaint the level badge when the tier actually changes (it's read every
+// render frame from the live run state). `null` forces a repaint on the next call.
+let lastLevelTier: Difficulty | null = null;
+
 // Format a run time for the Game Stats panel. One decimal is plenty of
 // precision for the live readout, and keeps the values consistent wherever the
 // panel's time elements are written.
@@ -52,24 +67,34 @@ export function formatStatTime(seconds: number): string {
   return seconds !== Infinity ? `${seconds.toFixed(1)}s` : '--';
 }
 
-// Wire up the Game Stats panel collapse/swipe behavior.
-export function initializeGameStats(): void {
+// Drop only per-run display history; replay/reset must not rewire the panels.
+export function resetStatsHud(): void {
   // Re-seed the slope EMA + tier so a new run doesn't drift in from the last run.
   smoothedSlope = null;
   slopeTierIdx = 0;
+  // Force the level badge to repaint on the next frame of the new run.
+  lastLevelTier = null;
+}
+
+// Wire up the Game Stats panel collapse/swipe behavior.
+export function initializeGameStats(signal?: AbortSignal): void {
+  resetStatsHud();
   // Game stats panel collapse/swipe behavior (shared with the Controls panel).
   setupCollapsiblePanel({
     name: 'game stats',
     containerId: 'gameStatsContainer',
     toggleButtonId: 'toggleStats',
     headerId: 'gameStatsHeader',
+    resetListeners: true,
+    autoCollapseOnSmallScreens: true,
+    signal,
   });
 }
 
 // Wire up the Game Controls panel collapse/swipe behavior. Resets stale listeners
 // and auto-collapses on small screens — this is invoked more than once
 // (DOMContentLoaded + initializeGameWithAudio).
-export function initializeControlsToggle(): void {
+export function initializeControlsToggle(signal?: AbortSignal): void {
   setupCollapsiblePanel({
     name: 'controls',
     containerId: 'controlsInfo',
@@ -77,13 +102,28 @@ export function initializeControlsToggle(): void {
     headerId: 'controlsHeader',
     resetListeners: true,
     autoCollapseOnSmallScreens: true,
+    signal,
   });
+}
+
+// Show which difficulty tier the current run is set to (● Bunny / ■ Blue / ◆ Black),
+// so the selected level stays legible during play — not only on the start/finish
+// screens. Reads the run's live tier every frame but only touches the DOM when the
+// tier changes (a replay can switch tiers via the finish-screen picker with no reload).
+export function updateLevelHud(difficulty: Difficulty): void {
+  if (difficulty === lastLevelTier) return;
+  const el = document.getElementById('levelValue');
+  if (!el) return;
+  const cfg = getDifficultyConfig(difficulty);
+  el.textContent = cfg.label; // e.g. "● Bunny", "■ Blue", "◆ Black"
+  el.style.color = DIFFICULTY_COLORS[difficulty] ?? '#FFFFFF';
+  lastLevelTier = difficulty;
 }
 
 // Per-frame stats readout: color-coded speed, altitude, terrain slope, and the
 // ground / jump / ski-technique indicator. `slopeRatio` is the terrain gradient
 // magnitude under the player (rise/run = tan θ), supplied by the run loop.
-export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: boolean, slopeRatio: number): void {
+export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: boolean, slopeRatio: number, frameDelta = 1 / 60): void {
   // Convert the metric world speed into real skiing units (km/h and mph).
   const speedMps = result.currentSpeed;
   const speedText = `${Math.round(speedMps * MPS_TO_KMH)} km/h (${Math.round(speedMps * MPS_TO_MPH)} mph)`;
@@ -118,17 +158,24 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
   // EMA of the noisy per-frame gradient, and the difficulty tier only changes once
   // the smoothed pitch is past an edge by SLOPE_TIER_HYST, so neither flickers.
   const slopeElement = document.getElementById('slopeValue');
-  if (slopeElement) {
-    smoothedSlope = smoothedSlope === null
-      ? slopeRatio
-      : smoothedSlope + (slopeRatio - smoothedSlope) * SLOPE_SMOOTH;
+  if (slopeElement && Number.isFinite(slopeRatio) && slopeRatio >= 0) {
+    if (smoothedSlope === null) {
+      smoothedSlope = slopeRatio;
+      // There is no previous band to retain on the first sample of a run.
+      slopeTierIdx = SLOPE_EDGES.filter(edge => slopeRatio > edge).length;
+    } else {
+      // Preserve the 60 Hz feel at every refresh rate, including no-step frames.
+      const dt = Number.isFinite(frameDelta) ? Math.max(0, frameDelta) : 1 / 60;
+      const weight = 1 - Math.pow(1 - SLOPE_SMOOTH, dt * 60);
+      smoothedSlope += (slopeRatio - smoothedSlope) * weight;
+    }
     const slope = smoothedSlope;
     // Hysteresis: step up only when clearly above the current band's top edge, and
-    // down only when clearly below its bottom edge (one step per frame; the EMA
-    // never jumps a whole band in a frame).
-    if (slopeTierIdx < SLOPE_EDGES.length && slope > SLOPE_EDGES[slopeTierIdx]! + SLOPE_TIER_HYST) {
+    // down only when clearly below its bottom edge. A slow frame can cross both.
+    while (slopeTierIdx < SLOPE_EDGES.length && slope > SLOPE_EDGES[slopeTierIdx]! + SLOPE_TIER_HYST) {
       slopeTierIdx++;
-    } else if (slopeTierIdx > 0 && slope < SLOPE_EDGES[slopeTierIdx - 1]! - SLOPE_TIER_HYST) {
+    }
+    while (slopeTierIdx > 0 && slope < SLOPE_EDGES[slopeTierIdx - 1]! - SLOPE_TIER_HYST) {
       slopeTierIdx--;
     }
     const tier = SLOPE_TIERS[slopeTierIdx]!;
@@ -161,10 +208,12 @@ export function updateStatsHud(result: UpdateResult, pos: PlayerPos, isInAir: bo
   }
 }
 
-// Update the live run timer during gameplay.
-export function updateTimerDisplay(gameActive: boolean, startTime: number): void {
+// Update the live run timer during gameplay. `elapsed` is the loop's SIMULATION
+// clock (#402) — accumulated fixed steps, the same value the finish records —
+// so the running readout and the final score can never disagree under a stall.
+export function updateTimerDisplay(gameActive: boolean, elapsed: number): void {
   if (gameActive) {
-    const currentTime = (performance.now() - startTime) / 1000;
+    const currentTime = elapsed;
 
     // Update the current time element in game stats
     const currentTimeElement = document.getElementById('currentTime');

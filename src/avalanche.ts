@@ -12,10 +12,24 @@
 // is unchanged — every edit is type-only/erasable, so esbuild (Vite) and Node's
 // native type-stripping both run it exactly as before.
 import * as THREE from 'three';
+import { gameplayRandom, cosmeticRandom } from './run-context.js';
+import { snowBillboardsFor, type SnowBillboards } from './snow-billboards.js';
 
 // Number of billowing powder-cloud sprites kicked up by the slide (see the
 // `powder` field below). Sized like the ski snow-splash pool in snow.ts.
 const POWDER_COUNT = 260;
+
+/** Per-puff animation state stored on each powder sprite's userData. Typed so the
+ *  per-frame integration/emission code stays off the `any` chain (reviewdog). */
+interface PowderPuffData {
+  active: boolean;
+  life: number;
+  maxLife: number;
+  vx: number; vy: number; vz: number;
+  size: number;
+  opacity0: number;
+  rotSpeed: number;
+}
 
 /**
  * Minimal positional shape the avalanche reads. Accepts both a real
@@ -31,10 +45,36 @@ export interface Vec3Like {
 /** Terrain sampler injected via {@link AvalancheSystem.setTerrainFunction}. */
 export type TerrainHeightFn = (x: number, z: number) => number;
 
+/**
+ * Per-tier avalanche knobs (the subset of difficulty.ts's `AvalancheTuning` the system
+ * itself reads). Every field is optional and DEFAULTS to today's shipped Blue slide, so an
+ * existing `new AvalancheSystem(scene, count)` call — and the byte-identical Blue path —
+ * is unchanged. Bunny passes `enabled: false` (the slide never arms); Black passes a
+ * shorter `triggerDistance` and a higher `slideSpeedBase` (earlier + faster).
+ */
+export interface AvalancheParams {
+  /** false ⇒ the slide never arms (main-loop skips `trigger()`); the system stays inert. */
+  enabled?: boolean;
+  /** Downhill units the player travels before a slide (re)arms (read by main-loop.ts). */
+  triggerDistance?: number;
+  /** Base initial downhill boulder speed (m/s). */
+  slideSpeedBase?: number;
+  /** Random 0..jitter added to the base, per boulder. */
+  slideSpeedJitter?: number;
+}
+
 export class AvalancheSystem {
   scene: THREE.Scene;
   count: number;
   active: boolean;
+  // --- Per-tier tuning (difficulty.ts AvalancheTuning) ----------------------
+  // enabled gates the trigger (Bunny is off); triggerDistance is read by main-loop.ts;
+  // slideSpeedBase/Jitter set each boulder's initial downhill speed in trigger(). All
+  // default to today's Blue slide so the default tier is byte-identical.
+  enabled: boolean;
+  triggerDistance: number;
+  slideSpeedBase: number;
+  slideSpeedJitter: number;
   dummy: THREE.Object3D;
   /** Terrain height function - set via setTerrainFunction(). */
   getTerrainHeight: TerrainHeightFn | null;
@@ -49,19 +89,26 @@ export class AvalancheSystem {
   // --- Powder cloud (issue #49 / ROADMAP Finding 3) -------------------------
   // A diffuse plume of billowing snow sprites kicked up by the tumbling boulders,
   // so an approaching slide reads as a rolling cloud of powder and not just a
-  // cluster of spheres. Sprite-based (like the ski snow-splash in snow.ts) rather
-  // than instanced because each puff fades, expands and rotates independently.
+  // cluster of spheres. Sprite-shaped simulation state feeds the same sorted
+  // instanced billboard draw as the snowfall, ski spray and tree-shed powder.
   // Built only when a DOM is present — the headless Node avalanche tests construct
   // the system without a `document`, so the pool stays empty and the powder
   // emit/update calls below are no-ops there.
   powder: THREE.Sprite[];
   powderNext: number;            // round-robin cursor into the powder pool
+  powderEmitAccum: number;       // frame-rate-independent puff-emission accumulator (#400)
   powderTexture: THREE.Texture | null;  // shared puff texture (disposed once)
+  private powderBatch: SnowBillboards | null = null;
 
-  constructor(scene: THREE.Scene, count: number = 120) {
+  constructor(scene: THREE.Scene, count: number = 120, params: AvalancheParams = {}) {
     this.scene = scene;
     this.count = count;
     this.active = false;
+    // Per-tier tuning, defaulting to today's Blue slide (byte-identical when omitted).
+    this.enabled = params.enabled ?? true;
+    this.triggerDistance = params.triggerDistance ?? 80;
+    this.slideSpeedBase = params.slideSpeedBase ?? 7;
+    this.slideSpeedJitter = params.slideSpeedJitter ?? 3;
     this.dummy = new THREE.Object3D();
 
     // Terrain height function - set via setTerrainFunction()
@@ -97,6 +144,7 @@ export class AvalancheSystem {
     // Powder cloud pool (empty/no-op when there is no DOM, e.g. Node tests).
     this.powder = [];
     this.powderNext = 0;
+    this.powderEmitAccum = 0;
     this.powderTexture = null;
     this._initPowder();
 
@@ -147,20 +195,22 @@ export class AvalancheSystem {
       const sprite = new THREE.Sprite(base.clone());
       sprite.scale.set(0, 0, 0);
       sprite.visible = false; // skip render traversal/sort until emitted
-      sprite.userData = {
+      const puff: PowderPuffData = {
         active: false,
         life: 0,
         maxLife: 0,
         vx: 0, vy: 0, vz: 0,
         size: 0,
         opacity0: 0,
-        rotSpeed: (Math.random() - 0.5) * 1.2
+        rotSpeed: (cosmeticRandom('avalanchePowder') - 0.5) * 1.2
       };
-      this.scene.add(sprite);
+      sprite.userData = puff;
       this.powder.push(sprite);
     }
 
     base.dispose(); // only the per-particle clones are kept
+    this.powderBatch = snowBillboardsFor(this.scene);
+    this.powderBatch.add(this.powder, () => 3);
   }
 
   // Connect to terrain system
@@ -177,39 +227,53 @@ export class AvalancheSystem {
       const idx = i * 3;
 
       // Spawn in arc behind player (uphill, positive Z direction from player)
-      const angle = (Math.random() - 0.5) * Math.PI * 0.6;
-      const dist = 25 + Math.random() * 15;
+      const angle = (gameplayRandom('avalanche') - 0.5) * Math.PI * 0.6;
+      const dist = 25 + gameplayRandom('avalanche') * 15;
 
       // Player moves in -Z direction (downhill), so spawn behind = +Z offset
       this.positions[idx]     = playerPos.x + Math.sin(angle) * dist;
-      this.positions[idx + 1] = playerPos.y + 8 + Math.random() * 6;
+      this.positions[idx + 1] = playerPos.y + 8 + gameplayRandom('avalanche') * 6;
       this.positions[idx + 2] = playerPos.z + dist * Math.cos(angle); // Behind player (uphill)
 
       // Initial velocity - moving toward player (downhill = -Z)
-      this.velocities[idx]     = (Math.random() - 0.5) * 2;
+      this.velocities[idx]     = (gameplayRandom('avalanche') - 0.5) * 2;
       this.velocities[idx + 1] = 0;
-      // Initial downhill speed of the slide. Softened from -(8 + rand*4) so a skilled,
-      // full-speed line can actually outrun it: after the frame-rate physics fixes
-      // (#209 drag + the avalanche friction fix) removed the low-FPS speed bonus mobile
-      // players were unknowingly riding, the real top skiing speed (~8.2 m/s, only ~6.5
-      // where the slide fires) sat below the old slide's reach, so even a clean centered
-      // line was buried on most seeds. -(7 + rand*3) keeps the slide a real threat to a
-      // genuinely slow line (<~5.5 m/s) while making it escapable at speed. Gated by the
-      // winnability harness (G2/G3); balance rationale in the winnability follow-up issue.
-      this.velocities[idx + 2] = -(7 + Math.random() * 3); // Negative Z = downhill
+      // Initial downhill speed of the slide. Blue's default is -(7 + rand*3): softened from
+      // -(8 + rand*4) so a skilled, full-speed line can actually outrun it — after the
+      // frame-rate physics fixes (#209 drag + the avalanche friction fix) removed the low-FPS
+      // speed bonus mobile players were unknowingly riding, the real top skiing speed
+      // (~8.2 m/s, only ~6.5 where the slide fires) sat below the old slide's reach, so even a
+      // clean centered line was buried on most seeds. -(7 + rand*3) keeps the slide a real
+      // threat to a genuinely slow line (<~5.5 m/s) while staying escapable at speed. Per
+      // tier now (D3.2d): Black raises slideSpeedBase (a faster slide against its faster
+      // physics). Gated by the winnability harness (G2/G3 for Blue, the per-tier follow-the-
+      // line gate for the rest); one gameplayRandom('avalanche') call, so Blue stays byte-identical.
+      this.velocities[idx + 2] = -(this.slideSpeedBase + gameplayRandom('avalanche') * this.slideSpeedJitter); // Negative Z = downhill
 
       // Random sizes
-      this.sizes[i] = 0.4 + Math.random() * 1.2;
+      this.sizes[i] = 0.4 + gameplayRandom('avalanche') * 1.2;
 
       // Random initial rotation
-      this.rotations[idx]     = Math.random() * Math.PI * 2;
-      this.rotations[idx + 1] = Math.random() * Math.PI * 2;
-      this.rotations[idx + 2] = Math.random() * Math.PI * 2;
+      this.rotations[idx]     = gameplayRandom('avalanche') * Math.PI * 2;
+      this.rotations[idx + 1] = gameplayRandom('avalanche') * Math.PI * 2;
+      this.rotations[idx + 2] = gameplayRandom('avalanche') * Math.PI * 2;
     }
   }
 
   // Call every frame with delta time
+  // Advance boulders AND powder together. Kept as the harness/test entry point
+  // (winnability + the browser suites drive it at their own fixed dt); the LIVE
+  // loop instead calls the split halves so boulder PHYSICS advances on the fixed
+  // 1/60 substep grid while the powder cosmetics stay on the render frame (#402).
   update(dt: number): void {
+    this.updatePhysics(dt);
+    this.updateCosmetics(dt);
+  }
+
+  /** Boulder physics only (#402): gravity, terrain contact, slide acceleration,
+   *  and the instance matrices. Called per FIXED substep by the live loop, so
+   *  player/boulder RELATIVE motion no longer varies with the render rate. */
+  updatePhysics(dt: number): void {
     if (!this.active) return;
 
     const gravity = 18;
@@ -281,6 +345,13 @@ export class AvalancheSystem {
     }
 
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Powder-cloud cosmetics only (#402): render-only sprites on the render
+   *  delta (their 60 Hz-referenced emission accumulator makes the budget
+   *  per-second rate-independent — #400). Never gameplay. */
+  updateCosmetics(dt: number): void {
+    if (!this.active) return;
 
     // Billowing powder kicked up by the tumbling boulders.
     this._updatePowder(dt);
@@ -295,7 +366,7 @@ export class AvalancheSystem {
 
     // 1) Integrate active puffs: drift, light gravity, air drag, expand + fade.
     for (const sprite of this.powder) {
-      const ud = sprite.userData;
+      const ud = sprite.userData as PowderPuffData;
       if (!ud.active) continue;
 
       ud.life -= dt;
@@ -326,47 +397,57 @@ export class AvalancheSystem {
       sprite.material.rotation += ud.rotSpeed * dt;
     }
 
-    // 2) Emit a handful of new puffs from random boulders (the cloud refills as
-    //    puffs expire; emission stops early once the pool is saturated).
-    const emit = 3 + Math.floor(Math.random() * 5); // ~3..7 per frame
-    for (let k = 0; k < emit; k++) {
-      // Find the next inactive puff (round-robin); bail this frame if all in use.
-      let n = this.powderNext;
-      let tries = 0;
-      while (this.powder[n]!.userData.active && tries < this.powder.length) {
-        n = (n + 1) % this.powder.length;
-        tries++;
+    // 2) Emit new puffs from random boulders at a frame-rate-INDEPENDENT rate
+    //    (#400). The old code emitted 3-7 puffs per RENDER frame, so a 144 Hz
+    //    panel produced ~2.4x the powder of a 60 Hz one. The accumulator ticks
+    //    at the 60 Hz reference rate — the same puffs-per-second at any render
+    //    rate — and each tick emits the familiar 3-7 puff group. Catch-up after
+    //    a stall is capped (the pool's round-robin bail saturates it anyway).
+    this.powderEmitAccum = Math.min(this.powderEmitAccum + dt * 60, 4);
+    while (this.powderEmitAccum >= 1) {
+      this.powderEmitAccum -= 1;
+      const emit = 3 + Math.floor(cosmeticRandom('avalanchePowder') * 5); // ~3..7 per 60 Hz tick
+      for (let k = 0; k < emit; k++) {
+        // Find the next inactive puff (round-robin); bail this tick if all in use.
+        let n = this.powderNext;
+        let tries = 0;
+        while ((this.powder[n]!.userData as PowderPuffData).active && tries < this.powder.length) {
+          n = (n + 1) % this.powder.length;
+          tries++;
+        }
+        this.powderNext = (n + 1) % this.powder.length;
+        if (tries >= this.powder.length) break;
+
+        const bi = Math.floor(cosmeticRandom('avalanchePowder') * this.count);
+        const bidx = bi * 3;
+        const r = this.sizes[bi]!;
+
+        const sprite = this.powder[n]!;
+        sprite.position.set(
+          this.positions[bidx]!     + (cosmeticRandom('avalanchePowder') - 0.5) * (1.5 + r),
+          this.positions[bidx + 1]! + 0.3 + cosmeticRandom('avalanchePowder') * r,
+          this.positions[bidx + 2]! + (cosmeticRandom('avalanchePowder') - 0.5) * (1.5 + r)
+        );
+
+        const ud = sprite.userData as PowderPuffData;
+        ud.vx = this.velocities[bidx]! * 0.25 + (cosmeticRandom('avalanchePowder') - 0.5) * 4;
+        ud.vy = 2 + cosmeticRandom('avalanchePowder') * 4;                           // loft upward
+        ud.vz = this.velocities[bidx + 2]! * 0.35 - cosmeticRandom('avalanchePowder') * 1.5; // carried downhill
+        ud.size = 3 + cosmeticRandom('avalanchePowder') * 3.5 + r;
+        ud.opacity0 = 0.4 + cosmeticRandom('avalanchePowder') * 0.35;
+        ud.maxLife = 1.1 + cosmeticRandom('avalanchePowder') * 1.4;
+        ud.life = ud.maxLife;
+        ud.active = true;
+        sprite.visible = true; // back into the render traversal while it's live
+        sprite.scale.set(ud.size, ud.size, ud.size);
+        sprite.material.opacity = 0; // ramps in on the next update
       }
-      this.powderNext = (n + 1) % this.powder.length;
-      if (tries >= this.powder.length) break;
-
-      const bi = Math.floor(Math.random() * this.count);
-      const bidx = bi * 3;
-      const r = this.sizes[bi]!;
-
-      const sprite = this.powder[n]!;
-      sprite.position.set(
-        this.positions[bidx]!     + (Math.random() - 0.5) * (1.5 + r),
-        this.positions[bidx + 1]! + 0.3 + Math.random() * r,
-        this.positions[bidx + 2]! + (Math.random() - 0.5) * (1.5 + r)
-      );
-
-      const ud = sprite.userData;
-      ud.vx = this.velocities[bidx]! * 0.25 + (Math.random() - 0.5) * 4;
-      ud.vy = 2 + Math.random() * 4;                           // loft upward
-      ud.vz = this.velocities[bidx + 2]! * 0.35 - Math.random() * 1.5; // carried downhill
-      ud.size = 3 + Math.random() * 3.5 + r;
-      ud.opacity0 = 0.4 + Math.random() * 0.35;
-      ud.maxLife = 1.1 + Math.random() * 1.4;
-      ud.life = ud.maxLife;
-      ud.active = true;
-      sprite.visible = true; // back into the render traversal while it's live
-      sprite.scale.set(ud.size, ud.size, ud.size);
-      sprite.material.opacity = 0; // ramps in on the next update
     }
   }
 
-  // Check if player is buried by avalanche (collision = burial)
+  // Check if player is buried by avalanche (collision = burial). NOTE: whether an
+  // overlap actually ENDS the run is decided by resolveBurialOutcome (below) at the
+  // loop's burial-check site — a deliberate jump can dodge the slide (JP-3, #47).
   checkBurial(playerPos: Vec3Like, hitRadius: number = 2): boolean {
     if (!this.active) return false;
 
@@ -430,6 +511,7 @@ export class AvalancheSystem {
       sprite.material.opacity = 0;
     }
     this.powderNext = 0;
+    this.powderEmitAccum = 0;
   }
 
   _hideAll(): void {
@@ -443,7 +525,12 @@ export class AvalancheSystem {
   }
 
   dispose(): void {
+    this.powderBatch?.remove(this.powder);
+    this.powderBatch = null;
     this.scene.remove(this.mesh);
+    // Per-instance GPU attributes belong to the mesh, not its geometry. This
+    // owner detaches before the scene sweep, so it must release them itself.
+    this.mesh.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
 
@@ -457,6 +544,39 @@ export class AvalancheSystem {
       this.powderTexture = null;
     }
   }
+}
+
+// --- Avalanche-dodge window (jump-system completion JP-3 — the #47 headline) ----
+// The pure decision core for one frame's burial overlap, applied at the loop's
+// checkBurial() site in game/main-loop.ts (NEVER in the physics kernel — #245).
+// A player who is airborne on a DELIBERATE jump (playerJump provenance) while the
+// front overlaps them dodges the slide instead of being buried; the first dodging
+// frame of a slide additionally awards the once-per-slide bonus. Exploit guards,
+// pinned headlessly in tests/avalanche-tests.js:
+//   - provenance: auto-jump / hop air (playerJump false) is buried like grounded;
+//   - once per slide: `dodgeAwarded` (GameState, reset when the slide resets)
+//     collapses later dodging frames to 'dodged' (immune, no second award);
+//   - no grounded farming: without overlap the outcome is 'safe' regardless of
+//     input, and a grounded press during overlap is simply 'buried' — holding Jump
+//     near the slide does nothing (a grounded press spends its cooldown before the
+//     front arrives; the award needs airborne overlap).
+
+/** Outcome of one frame's burial check.
+ *  'safe'        — no boulder overlaps the player; nothing happens.
+ *  'buried'      — overlap without a deliberate-jump air phase: run over.
+ *  'dodgedFirst' — overlap dodged mid-jump, first time this slide: award + immune.
+ *  'dodged'      — overlap dodged mid-jump, already awarded: immune only. */
+export type BurialOutcome = 'safe' | 'buried' | 'dodgedFirst' | 'dodged';
+
+export function resolveBurialOutcome(
+  overlapping: boolean,
+  isInAir: boolean,
+  playerJump: boolean,
+  dodgeAwarded: boolean
+): BurialOutcome {
+  if (!overlapping) return 'safe';
+  if (isInAir && playerJump) return dodgeAwarded ? 'dodged' : 'dodgedFirst';
+  return 'buried';
 }
 
 // The window.Avalanche bridge was removed (issue #84): snowglider.js imports

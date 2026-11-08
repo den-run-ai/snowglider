@@ -4,7 +4,7 @@ This document describes the simulation model behind SnowGlider: terrain, skiing,
 jumps, collisions, and the avalanche. It is a reference for anyone changing
 gameplay feel or debugging a physics regression. All numbers below are the actual
 constants in the source as of writing — when you change a constant, update this
-file and the verification baseline (see [Determinism & the test seam](#determinism--the-test-safe-seam)).
+file. Preserve the frozen no-input verification baseline unless an explicitly reviewed physics-version change requires a new baseline (see [Determinism & the test seam](#determinism--the-test-safe-seam)).
 
 Companion docs: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how the modules fit together),
 [`tests/README.md`](../tests/README.md) (how the physics is tested).
@@ -22,6 +22,10 @@ Companion docs: [`ARCHITECTURE.md`](ARCHITECTURE.md) (how the modules fit togeth
   below ≈8 FPS. The fixed grid makes the live build frame-rate independent and is the
   exact `dt` the invariant/stress harnesses drive the kernel at. The kernel itself
   accepts any `delta` (the headless harnesses sweep it); only the live loop pins 1/60.
+- **Run time.** Player physics and avalanche outcomes advance on the same fixed grid.
+  Ranked finish times and splits use accumulated simulated time. Excess discarded
+  time marks the run timing-compromised, preventing a ranked record; hidden tabs
+  pause both simulation and timing.
 - **Axes.** `+y` is up. The fall line runs along `-z`: the player starts near
   `z = -15` and skis toward `z = -195`. `x` is the cross-slope (left/right) axis.
 - **Downhill velocity is negative `z`.** Spawning, the avalanche, and the finish
@@ -45,7 +49,8 @@ The base mountain is a radial exponential peak with layered noise:
 distance = sqrt(x² + z²)
 y  = 40 * exp(-distance / 40)                                   // base peak
 y += 1.5 * sin(x*0.05) * cos(z*0.05) * (1 - exp(-distance/60))  // low-freq roll
-y += sin(x*0.2) * cos(z*0.3) * 0.8                              // fine ridges
+y += terrainRidgeField(x,z) * 0.8 * (1 - exp(-distance/60))    // aperiodic ridges
+y += corridorWallHeight(x,z) + kickerRampHeight(x,z)           // when enabled
 if (z < -30) y += (z + 30) * 0.12                               // downhill bias
 ```
 
@@ -53,25 +58,23 @@ The last term is critical: below `z = -30` it adds a **consistent downhill
 gradient (0.12 per unit)** so the run never flattens out or turns uphill, even
 where noise would otherwise create a basin.
 
-### 2.2 The two-formula contract (read before editing terrain)
+### 2.2 One rendered and simulated surface (physics v3)
 
-There are **two** code paths that produce height, and they must agree:
+`analyticTerrainHeight(x,z)` defines the mountain recipe, including the current
+corridor and kickers. `createTerrain()` samples it at the rendered grid vertices.
+`getTerrainHeight(x,z)` and its cache-neutral leaf interpolate those exact triangles
+between vertices, including the mesh diagonal and Float32 vertex heights. Physics,
+collisions, placement and cameras therefore sample the surface players see.
 
-1. `createTerrain()` builds the visible mesh. It uses `SimplexNoise.noise()` for
-   roughness, plus occasional random bumps, and writes every vertex's **final**
-   height into a global `heightMap` keyed by `round(x*10),round(z*10)`.
-2. `getTerrainHeight(x, z)` is the analytic function the **physics** calls every
-   frame. It first checks `heightMap`; on a hit it returns the exact mesh height,
-   so the snowman rides precisely on the rendered surface at grid points. On a
-   miss it recomputes the analytic formula in §2.1 as an approximation.
+The bounded grid-corner cache avoids repeated analytic evaluations and resets when
+the terrain recipe changes. The exported `heightMap` is a diagnostic mesh snapshot;
+live queries never read or write it. Do not restore rounded-position memoization:
+first-writer values let cosmetic camera queries and prior runs change physics.
 
-The **base peak term and the downhill term must stay byte-identical between the
-two** (they are commented `MUST MATCH` in the source). The high-frequency noise
-intentionally differs (analytic `sin/cos` vs. Simplex), and the `heightMap`
-reconciles them at vertex positions. If you change the base shape or the downhill
-factor in one place and not the other, the snowman will float above or sink into
-the terrain between vertices — the single most common terrain regression, and the
-reason `tests/terrain-tests.js` asserts consistency.
+The old Simplex-mesh/analytic-physics split is retired. Standing guards include
+`height-field-parity-tests.js` (vertices, triangle interiors and discontinuities)
+and `terrain-query-isolation-tests.js` (all camera modes, refresh rates, query order
+and replay history). Cameras and other cosmetic readers must remain state-neutral.
 
 ### 2.3 Gradient & downhill direction
 
@@ -121,8 +124,8 @@ velocity *= (1 - (friction + skidScrub))             // skidScrub == 0 when coas
 
 ### 3.3 Ski technique (the skill layer)
 
-Layered on top of the arcade handling. **When the player gives no steering and no
-brake input, `turnForce`/accel are unchanged and `skidScrub == 0`, so coasting is
+Layered on top of the arcade handling. **When the player gives no input,
+`turnForce`/accel are unchanged and `skidScrub == 0`, so coasting is
 identical to the pre-technique physics** — see §6.
 
 There are **two** steered turns — a skidded parallel turn and a carve — plus the
@@ -135,8 +138,17 @@ they read clearly differently to drive and to watch.
 | **Parallel (skidded)** | Left/Right, uncommitted (fresh, *reversed*, or abrupt) | Skis brush sideways and **scrub speed** (`skidScrub` near full); **tighter** turn (`turnForce → 19`); skis stay flatter, body upright |
 | **Carve** | Left/Right, *committed* (held smoothly, `carveCharge > 0.6`) | **Holds speed** — the locked edge sheds ~92% of the wash-out; **wider** arc (`turnForce → 10`); skis roll onto edge + draw together with a deep body lean. The mastery turn above a parallel |
 | **Snowplow** | Down (hold ramp) | Sheds real speed, sharper planted turns (`turnForce = 24`, grip = 1.0); skis form a wedge that **deepens the longer you hold** (`plowCharge`): a tap only trims speed, a full wedge stops you — but only where the slope isn't too steep (§3.4) |
-| **Tuck**  | Up, no steer | Least friction, most speed, least control (`accel = 10` on `-z`) |
+| **Tuck**  | Up, no steer or brake, grounded | 25% less base drag (`TUCK_DRAG_FACTOR = 0.75`), with `accel = 10` on `-z` (Blue). Steering, braking, releasing Up, or taking off restores the corresponding normal drag model. |
 | **Hop turn** | Jump **+** Left/Right (grounded) | A quick edge-set pivot: snaps heading ~0.4 rad toward the steer, scrubs ~18% speed, small pop; lands on a fresh edge (see §4) |
+
+The v4 tuck corrects an advertised low-drag stance that previously kept all of
+coasting's drag. On the actual Blue surface, three seconds of Up from spawn now
+reaches 10.13 m/s (previously 7.76), while coasting is byte-identical at 3.91 m/s.
+The 60-seed, three-policy floor probe's fastest Blue finish is 21.87 s; course
+length / observed peak speed is 17.75 s, an estimate rather than a proven lower
+bound. The v4 score floor is 15 s; historical v3 records retain their 18 s floor
+and separate leaderboard. `tests/tuck-response-tests.js` covers response,
+release/brake precedence, refresh-rate equality and bounded terminal speed.
 
 **Edge engagement — carve vs. skidded parallel (issues #48 / #54).** A turn is only a
 skill if a clean, committed turn costs less speed than a panicked one. `carveCharge`
@@ -268,17 +280,32 @@ velocity.x += sin(turnPhase*0.3) * (turnAmplitude*0.7) * delta * turnIntensity *
 
 ## 4. Jumps & air
 
+**Per-tier availability (jump-system completion, workstream A).** The jump verbs are
+gated by two boolean fields on `SnowmanPhysicsTuning` (`src/difficulty.ts`):
+`manualJump` (Space/touch straight jump **and** hop turn) and `autoJump` (terrain-lip
+auto-pop). Both are `true` on the Blue default — so the frozen baseline, every
+existing caller, and the invariant harness (which passes no tuning) are
+byte-identical — and both are `false` on **● Bunny**, whose grounded path's
+`pos.y = terrain` keeps the snowman glued over lips (a calm, groomed learning run;
+held-Space is provably ≡ no-input, pinned by the harness's Bunny-suppression check).
+⚠️ `manualJump: false` + `autoJump: true` is **unsupported**: the auto-jump gate keeps
+its `!jump` takeoff-precedence term, so holding Jump on such a tier would suppress
+auto-pops and diverge from the no-input trajectory. No shipped tier uses it.
+
 ```
 // Auto-jump over terrain lips / moguls. Skipped while Jump is held so a deliberate
 // jump input wins on a combined lip+jump frame (meaningful jumps #47, §3.1); the
 // `!jump` term is a no-op on every no-input/coasting frame, so the baseline is
 // unchanged. A terrain auto-jump is never player-initiated: playerJump := false.
-if (!isInAir && !jump && heightDifference < -0.8 && currentSpeed > 12 && jumpCooldown <= 0):
+// `tuning.autoJump` (true on Blue == default) gates the whole branch per tier.
+if (!isInAir && tuning.autoJump && !jump && heightDifference < -0.8 && currentSpeed > 12 && jumpCooldown <= 0):
     verticalVelocity = 6 + currentSpeed * 0.3 ; isInAir = true ; playerJump = false
 
 // Manual jump (Space / touch) — straight pop when NOT steering. Marks this air
 // phase player-initiated so the landing can grade it and award a boost (#47, §3.1).
-if (jump && !isInAir && jumpCooldown <= 0 && steering == 0):
+// `tuning.manualJump` (true on Blue == default) gates the jump VERB per tier — this
+// branch AND the hop turn below (a hop is bound to the jump input).
+if (tuning.manualJump && jump && !isInAir && jumpCooldown <= 0 && steering == 0):
     verticalVelocity = 10 + currentSpeed * 0.5 ; isInAir = true ; jumpCooldown = 0.5
     playerJump = true
 
@@ -286,7 +313,7 @@ if (jump && !isInAir && jumpCooldown <= 0 && steering == 0):
 // rotate the horizontal velocity toward the steer direction and scrub speed, with
 // a small pop; land on a fresh edge committed to the new direction. Gated entirely
 // behind jump+steer input, so it touches no coasting/plain-steer path.
-if (jump && !isInAir && jumpCooldown <= 0 && steering != 0):
+if (tuning.manualJump && jump && !isInAir && jumpCooldown <= 0 && steering != 0):
     theta = steering * 0.4                          // HOP_PIVOT_ANGLE (~23°), right => +x
     (velocity.x, velocity.z) = rotate(velocity, theta) * 0.82   // HOP_SPEED_KEEP (scrub ~18%)
     verticalVelocity = 5.0                          // HOP_POP (small, < a full jump)
@@ -308,10 +335,12 @@ landingForce = airTime                          // fed to camera shake (EffectsM
 
 if (playerJump):                                // a graded *manual*-jump landing
     alignment = dot(velocityHeading, downhill)  // cosine vs the fall line at touchdown
-    if   alignment > 0.85: quality = CLEAN  ; velocity *= (1 + min(0.06, airTime*0.04))  // boost
-    elif alignment > 0.55: quality = OK     ;                                            // neutral
-    else:                  quality = SKETCHY; velocity *= (1 - landingImpact)            // scrub
-    airScoreDelta = round(airTime*100 + (quality==CLEAN ? 50 : 0))
+    vImpact   = |v³ · n|                        // impact into the surface — see §4.2 (JP-4)
+    if   wipeout (§4.2, tuning.wipeouts only):  quality = WIPEOUT; run ends (crash path)
+    elif alignment > 0.85 and vImpact < 24: quality = CLEAN  ; velocity *= (1 + min(0.06, airTime*0.04))  // boost
+    elif alignment > 0.55 and vImpact <= 30: quality = OK    ;                                            // neutral
+    else:                  quality = SKETCHY; velocity *= (1 - scrub)   // deeper scrub if vImpact > 30
+    airScoreDelta = quality==WIPEOUT ? 0 : round(airTime*100 + (quality==CLEAN ? 50 : 0))
 else:                                           // auto-jump / hop — UNCHANGED from before
     velocity *= (1 - landingImpact)             // bleed speed on impact
 jumpCooldown = 0.3
@@ -329,6 +358,200 @@ the `playerJump` provenance flag** (set true only at a deliberate straight-jump 
 false at auto-jump/hop takeoffs, cleared on landing and in `resetSnowman`), so the
 auto-jump / hop / coasting landing path is byte-identical to before — see §6 and the
 new gating checks in the invariant harness.
+
+**Scored obstacle clears (JP-2, #245 item 1).** The collision layer (§5) already
+*suppresses* tree/rock hits while airborne-clear (`isJumpingHighAboveTrees` /
+`isJumpingOverRock`); those silent saves are now surfaced and rewarded. Detection
+lives in `collision.ts` (`ObstacleClear`: "the horizontal-overlap test would have
+collided, but the suppression branch fired"), reported through an
+`onObstaclesCleared` callback that runs **before** the finish check so a clear on
+the finish frame still banks (#186 rationale). The policy is applied in
+`snowman/index.ts`:
+
+- **Provenance:** only a *manual* jump's air scores (`playerJump` still true while
+  airborne) — an auto-jump / hop clear banks nothing, and its bytes are unchanged.
+- **Dedup:** one pass over an obstacle spans many overlap frames; the per-air-phase
+  `clearedObstacles` set (fresh at every manual takeoff) counts it once.
+- **Cap:** at most `CLEAR_MAX_PER_AIR = 3` scored clears per air phase.
+- **Banking:** `CLEAR_SCORE = 75` per clear, via the same `bankAirScore` path as the
+  landing score. `UpdateResult.obstacleCleared` (`'tree' | 'rock' | null`) surfaces
+  the cue; the loop toasts `✦ CLEARED!` (`CourseModule.flashClear`).
+
+Clears never touch `pos`/`velocity` — pinned by the harness's clear-provenance
+check (identical trajectories with and without provenance; exactly one scored clear
+per obstacle; cap honoured).
+
+**Avalanche-dodge window (JP-3 — the #47 headline).** A *deliberate* jump carrying
+the player over the slide front survives it. Implemented **at the loop's
+`checkBurial()` site in `game/main-loop.ts`, never in the kernel** (#245): the pure
+`resolveBurialOutcome(overlapping, isInAir, playerJump, dodgeAwarded)`
+(`src/avalanche.ts`, pinned headlessly in `tests/avalanche-tests.js`) maps each
+frame's burial overlap to `safe` / `buried` / `dodgedFirst` / `dodged`:
+
+- immune while the `playerJump` air phase lasts; the **first** dodging frame of a
+  slide banks `DODGE_SCORE = 250` (same air-score channel), toasts
+  `🏔 DODGED THE AVALANCHE!`, and applies a one-shot `×1.10` horizontal escape
+  impulse (adopted decision §10.2: immunity + impulse) so a stomped landing can
+  outrun the front;
+- **exploit guards:** auto-jump / hop air (`playerJump` false) is buried like
+  grounded (provenance); `dodgeAwarded` (GameState, re-armed when the slide resets
+  or a new run starts) caps it at one award per slide; without overlap the outcome
+  is `safe` regardless of input, so holding Jump early does nothing — the award
+  needs airborne overlap.
+- **frame-perfect leap (deliberate):** burial resolves after the frame's physics
+  substeps, so a jump pressed on the very frame the overlap begins is already
+  airborne when it's resolved and counts as a dodge — the heroic last-instant
+  escape is the #47 fantasy. It can't be farmed: if the overlap began on any
+  *earlier* grounded frame that frame's check already buried the player, and a
+  bunny-hop spends ≥0.3 s grounded (the landing cooldown) inside the front between
+  hops.
+
+### 4.1 Freestyle tricks (#32 — Expert tier only)
+
+On the ◆◆ **Expert** tier (`ski.freestyleTricks` in `src/difficulty.ts` — the only
+tier that sets it), **every** jump's air phase accepts trick input — a deliberate
+manual pop *and* a sculpted terrain **kicker** (auto-jump). Kicker air is the main
+way you get big air on Expert, and on **touch** it is the *only* air a player reaches
+(a manual pop needs a steer-free tap in the CENTER region), so a kicker sets a
+`freestyleAir` flag — gated on `tuning.freestyleTricks`, so every other tier's kicker
+stays non-freestyle and byte-identical (#32 mobile fix). `freestyleAir` is a *superset*
+of `playerJump`: it opts the phase into trick input + a graded landing **without**
+marking it a deliberate jump, so a passive kicker never triggers the deliberate-jump-only
+**avalanche-dodge** or **obstacle-clear** rewards (those stay strictly on `playerJump` —
+a natural lip is not an avalanche-immunity farm). The tricks re-use the existing controls
+while airborne:
+
+```
+// Double gate: tuning.freestyleTricks (Expert only) AND the freestyleAir flag —
+// set at a deliberate manual pop AND at an Expert kicker, so kicker air is a full
+// freestyle phase (manual pops and kickers both count). playerJump (dodge/clear) is
+// left FALSE on a kicker, so a passive lip launch is never dodge-worthy.
+// Pure userData accumulator writes — pos/velocity are NEVER touched here (the
+// existing ±5 m/s² airControl drift above is unchanged and still applies):
+Left/Right : trickSpin ∓= 360 * delta      // SPIN_RATE_DEG (deg/s of yaw, right = +)
+Up/Down    : trickFlip ±= 300 * delta      // FLIP_RATE_DEG (+ = frontflip, − = backflip)
+Jump       : re-press → grab               // released after takeoff first (arms), then held:
+             trickGrabTime += delta        // the takeoff press itself can never grab
+
+// At touchdown, the landing branch settles the tricks (gradeFreestyleTrick):
+spinHalves = floor((|trickSpin| + 60) / 180)   // completed 180s within SPIN_LAND_TOL_DEG
+flips      = floor((|trickFlip| + 75) / 360)   // completed 360s within FLIP_LAND_TOL_DEG
+underRotated = residual(trickSpin, 180) > 60 || residual(trickFlip, 360) > 75
+trickScore = spinHalves*40 + flips*120 + (grab >= 0.25s ? grabTime*60 : 0)
+if underRotated: trickScore *= 0.5 ; quality := SKETCHY   // spoils even a perfect aim
+airScoreDelta = round(airTime*100 + cleanBonus + trickScore)
+trickName = "540 + BACKFLIP + GRAB"-style label (null when nothing completed)
+```
+
+The rotation itself is **cosmetic** — applied in `pose.ts` from the `userData`
+accumulators (`trickSpin` drives `rotation.y` directly while spinning, pausing the
+velocity-facing smoothing; `trickFlip` rotates the model's **COM pivot** —
+`userData.flipPivot`, a child group at the mass-weighted center y ≈ 3.1 (JP-5,
+radii 2/1.5/1 ⇒ masses ∝ 8/3.375/1) — so a somersault orbits the body's center of
+mass instead of the feet while the root keeps position/yaw/tilt and the follow
+camera stays steady; a held grab tucks `scale.y`; and a **spin-lean flair** banks the
+body off-vertical into a spin — a roll on the COM pivot scaled by the live spin rate
+and eased in/out — so a big spin reads as athletic rather than a stiff turntable, all
+cosmetic and leaving the root/camera heading untouched) — so the trajectory of a trick
+flight is identical to the same flight without the trick system (pinned pose-only
+by the freestyle suite's pivot trajectory-identity check). The **only** physics consequence is at touchdown:
+landing mid-rotation (under-rotated) forces the SKETCHY scrub, which is the
+freestyle risk/reward. Trick points ride inside `airScoreDelta` (same banking path),
+and `trickName` is returned for the toast (`✈ AIR <t>s · <trick> · <grade>`).
+Trick state (and the `freestyleAir` flag) lives on `snowman.userData` with the same
+lifecycle as `playerJump`: set/reset at every freestyle takeoff (a manual pop or an
+Expert kicker), consumed at landing, cleared in `resetSnowman`.
+Because spins can't yet alter the *velocity* heading (that needs heading-relative
+velocity, #244), a spun landing is still graded by velocity-vs-fall-line alignment.
+Tunables + grading live in `src/snowman/physics.ts` (exported constants +
+`gradeFreestyleTrick`), pinned by `tests/freestyle-tests.js`.
+
+**Style/combo chain (JP-7 — loop-side, no kernel state).** Consecutive rewarded air
+events — CLEAN landings, scored clears (JP-2), avalanche dodges (JP-3) — build a
+multiplier on every point banked into the air score: ×1.25 per step, capped ×3
+(`src/game/combo.ts`, the pure decision core). An OK landing holds the chain;
+SKETCHY/wipeout breaks it; a run reset clears it. Order contract: an event's own
+points ride the multiplier built by the events *before* it (the loop's
+`bankAirScore` callback multiplies at the current step, then `aggregateEvents`
+advances the chain from the substep result). The air toast carries the live label
+(`✈ AIR 1.2s · 360 · CLEAN ×1.56`), and the result screen's air score total
+reflects the multiplied points. **Physical spins (#244) — reserved seam:** once
+heading is real kernel state, a landed 180 rides switch and the grade reads
+heading-vs-velocity; combo.ts's event stream is where a switch-landing event slots
+in without touching the multiplier math.
+
+### 4.2 Impact-consistent grading & wipeouts (JP-4 — MEANINGFUL_JUMPS §8.3)
+
+Landing harshness is **physical, not just aim**: the grade also reads the velocity
+component *into* the landing surface —
+
+```
+n       = normalize(-∇x, 1, -∇z)                       // surface normal at the landing point
+vImpact = |(vx, verticalVelocity, vz) · n|             // computed before verticalVelocity is zeroed
+```
+
+Touching down where the surface falls away along travel (a downslope transition)
+absorbs the fall — `vImpact` drops — while flatting out from big air reads harsh
+even perfectly aligned. Grade gates (in the `playerJump` branch only):
+
+- **CLEAN** additionally requires `vImpact < LAND_SOFT_NORMAL (24)`;
+- `vImpact > LAND_HARSH_NORMAL (30)` forces **SKETCHY** with a deeper scrub
+  (`min(0.5, landingImpact × 1.5)`) and a heavier touchdown shake;
+- **WIPEOUT** (`tuning.wipeouts` tiers — Expert only): `vImpact >
+  LAND_WIPEOUT_NORMAL (34)` **or** landing more than 120° into a somersault
+  (`WIPEOUT_FLIP_RESIDUAL_DEG`; the flip is the only rotation whose residual can
+  exceed 120° — a spin's residual to the nearest 180° maxes at 90°). A wipeout
+  banks **zero** air score and `updateSnowman` routes it to the crash path
+  (`showGameOver` → the #171 shatter): freestyle risk with real consequences.
+
+Thresholds are calibrated to **measured** touchdown impacts (probe over speeds
+8–25 on the harness hill + constant 9°/18°/30° slopes: a plain full-power straight
+jump lands at `vImpact ≈ 15–28`), so ordinary stomps keep the #186 CLEAN boost and
+harsh/wipeout live past what a plain downhill jump reaches (flat-outs and
+kicker-scale air get there). Pinned by the harness's **landing-monotonicity** check
+(equal touchdown velocity: a downslope landing never grades worse than flat) and
+the **wipeout-gate** check (`'wipeout'` unreachable when `tuning.wipeouts` is
+false); the freestyle suite pins the wipeout residual/impact tables.
+
+### 4.3 Designed air: kickers + lip-consistent launch (JP-6 — Expert)
+
+**Kickers** (`DifficultyConfig.features?: KickerSpec[]` — Expert ships three;
+absent ⇒ byte-identical terrain, the `terrain`-corridor guardrail pattern): sculpted
+ramps sitting ON the course line, each `{ z, length, halfWidth, height }` — the
+approach rises by a **quadratic ease (u²)** to the lip at `z` and then **drops**
+(the tabletop face the auto-jump launches off), tapering smoothly (smootherstep) to
+0 at `±halfWidth` around `laneX(z)`. u² is deliberate: flat at the entry (no kink
+riding on) and **steepest at the lip** — how a real kicker is shaped, and what the
+launch below converts to air; a smoothstep profile would flatten at the lip and
+launch nothing on a steep base slope. The ramp term is added in the **one canonical height source**
+(`mountains/terrain.ts` `kickerRampHeight`), consumed by both the mesh builder and
+the physics sampler — the §2.2 shared-surface contract — and `setTerrainKickers`
+resets the height cache like the corridor. Pinned by `tests/kicker-tests.js`.
+
+**Lip-consistent launch** (`tuning.lipLaunch` — Expert only; every other tier keeps
+the frozen constant):
+
+```
+// In the auto-jump branch, when tuning.lipLaunch. NOTE: by the time the auto-jump
+// condition (heightDifference < -0.8) has fired, pos is already PAST the drop, so
+// the approach pitch is measured entirely from samples BEHIND pos — never against
+// the dropped current height (which would read the ramp as negative slope and
+// collapse every kicker to the LIP_MIN floor — Codex on #292).
+u          = velocity / |velocity|                       // travel direction
+slopeBehind = (h(pos − u·2) − h(pos − u·4)) / 2          // approach-ramp pitch (behind-only)
+slopeAhead  = (h(pos + u·2) − h(pos)) / 2                // − = keeps dropping away ahead
+Δslope      = max(0, slopeBehind − slopeAhead)           // convexity along travel
+v_y         = clamp(speed · Δslope · LIP_K(1), LIP_MIN(4), LIP_MAX(16))
+```
+
+Bigger ramps at higher speed give proportionally bigger, physically plausible arcs
+— which is what makes the kickers *work*. The manual-jump pop stays a constant
+"ollie" on all tiers (it's an input, not terrain). Pinned by the harness's
+**lipLaunch gate**: flag off ⇒ the legacy `6 + 0.3·speed` bytes; flag on ⇒ exactly
+the exported formula (cap + speed-scaling asserted); off-lip descents are
+byte-identical under either flag. The follow-the-line **winnability** gate now runs
+Expert too — the line rider goes straight off all three kickers and must still
+finish, stay in the corridor, and out-ski the slide, every seed.
 
 ---
 
@@ -349,7 +572,7 @@ rocks (`size >= 1.25`) are returned as collision hazards through `rockPositions`
 Small half-buried stones remain decorative so the slope does not become unfairly
 dense with low-visibility crashes.
 
-Because rock placement is unseeded `Math.random()`, `mountains.ts` also keeps the
+Although rock placement now runs under the seeded world-build stream, `mountains.ts` also keeps the
 central ski line and the spawn pocket free of *collidable* rocks
 (`rockIsCollisionHazard`): a rock only becomes a hazard when `|x| >= 5` (mirroring
 the tree clear-corridor in `trees.ts`, and wide enough to cover the max rock
@@ -410,11 +633,12 @@ compares trajectories against a frozen baseline. Two properties make this work:
    same speed + airtime), and the **provenance gate** (a non-player landing earns no
    boost or air score). All three are gated on the `playerJump` flag, so the
    auto-jump / coasting landing path stays byte-identical — no baseline regen needed.
-2. **Sources of randomness.** `Math.random()` appears in the idle auto-turn
-   (§3.5), in terrain mesh noise/bumps, and in avalanche spawn/velocity. The
-   verification harness injects a seeded RNG and a deterministic terrain so runs
-   are reproducible. If you add randomness to the grounded path, keep it behind an
-   input gate or the invariant harness will (correctly) fail.
+2. **Sources of randomness.** `RunContext` owns named seeded streams for gameplay,
+   world construction and cosmetics. Auto-turn and avalanche decisions do not share
+   draws with audio or particles. Run stamps include seed and physics version; custom
+   `?seed=` worlds remain practice. The historical no-input kernel harness uses its
+   own deterministic terrain and stays byte-identical; the world/camera/clock suites
+   separately guard the shipped surface and loop.
 
 The harnesses drive the kernel at a fixed `dt = 1/60`, and so does the **live loop**
 (the fixed-timestep accumulator, §1) — the thing that runs is the thing that's tested.
@@ -447,19 +671,31 @@ from the main loop in [`src/snowglider.ts`](src/snowglider.ts).
 
 ### 7.1 Trigger
 
-`AVALANCHE_TRIGGER_DISTANCE = 80`. Once the player has descended 80 units past the
-last trigger point (`lastAvalancheZ - pos.z > 80`), `trigger(playerPos)` fires.
+The trigger distance is **per difficulty tier** (D3.2d): once the player has descended
+`avalanche.triggerDistance` units past the last trigger point
+(`lastAvalancheZ - pos.z > triggerDistance`) and `avalanche.enabled`, `trigger(playerPos)`
+fires. **Blue** (default) uses `80` — its shipped `BLUE_AVALANCHE`; **Black** arms sooner at
+`60` (more slides over the run); **Bunny** is `enabled: false`, so the slide never arms. The
+tier's `avalanche` block lives in [`src/difficulty.ts`](src/difficulty.ts) and is passed to
+the `AvalancheSystem` by `scene-setup.ts`; `main-loop.ts` reads `avalanche.triggerDistance`.
+`AVALANCHE_TRIGGER_DISTANCE`/`AVALANCHE_BOULDER_COUNT` are re-exported from `BLUE_AVALANCHE`
+as the single source of truth for Blue.
 
-### 7.2 Spawn (120 instanced boulders)
+### 7.2 Spawn (per-tier boulder count; 120 on Blue)
 
 ```
 angle = (rand - 0.5) * π * 0.6         // arc behind the player
 dist  = 25 + rand*15
 pos   = playerPos + ( sin(angle)*dist , 8 + rand*6 , dist*cos(angle) )  // +z = uphill/behind
-vel.z = -(8 + rand*4)                   // toward player (downhill)
+vel.z = -(slideSpeedBase + rand*slideSpeedJitter)   // toward player (downhill); Blue 7/3, Black 9/3
 vel.x = (rand - 0.5) * 2
 size  = 0.4 + rand*1.2
 ```
+
+The boulder count and `slideSpeedBase`/`slideSpeedJitter` are the tier's `avalanche` block:
+Blue is `120` boulders at `-(7 + rand*3)` m/s (today's exact slide); Black is `150` at
+`-(9 + rand*3)` — faster and heavier against its faster physics. Because the speed is one
+`Math.random()` call in the same position, Blue's spawn stream is byte-identical.
 
 ### 7.3 Per-frame physics
 
@@ -573,6 +809,7 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Base / max coast friction | 0.012 / 0.032 | `snowman.js` |
 | Turn force (parallel/snowplow/carve) | 19 / 24 / 10 (×0.85 over 18 u/s) | `snowman.js` |
 | Accel (tuck) | 10 | `snowman.js` |
+| Straight grounded tuck drag factor | 0.75 × base drag | `snowman/physics.ts` |
 | Brake decel (light → full wedge) | 3.14 → 5.68 (lerp by `plowCharge`) | `snowman.js` |
 | Plow build / release rate | 1.6 / 4.0 per s | `snowman.js` |
 | Max skid scrub (uncommitted) | 0.10 + 0.008 tax | `snowman.js` |
@@ -584,16 +821,28 @@ then reverted so the camera manager's smoothing never re-ingests its own shake.
 | Manual / auto jump impulse | `10 + v*0.5` / `6 + v*0.3` | `snowman.js` |
 | Landing scrub | `min(0.5, airTime*0.15)` | `snowman.js` |
 | Jump landing grade (CLEAN / OK align) | `> 0.85` / `> 0.55` | `snowman/physics.ts` |
+| Landing impact bands (soft / harsh / wipeout, JP-4) | `vImpact` 24 / 30 / 34 m/s | `snowman/physics.ts` |
+| Wipeout flip residual / harsh scrub factor (JP-4) | 120° / ×1.5 | `snowman/physics.ts` |
 | Clean-landing boost (per s / cap) | `airTime*0.04` / `0.06` | `snowman/physics.ts` |
 | Air score (per s / clean bonus) | `airTime*100` / `+50` | `snowman/physics.ts` |
+| Obstacle clear score / cap per air (JP-2) | 75 / 3 | `snowman/physics.ts` |
+| Avalanche dodge score / escape impulse (JP-3) | 250 / ×1.10 (once per slide) | `game/main-loop.ts` |
+| Lip launch (JP-6): K / min / max / sample dist | 1.0 / 4 / 16 m/s / 2 u | `snowman/physics.ts` |
+| Combo chain (JP-7): step factor / cap | ×1.25 / ×3 | `game/combo.ts` |
+| Expert kickers (JP-6) | 3 × `{length 7, halfWidth 7, height 3.0}` (u² ramp) | `difficulty.ts` `features` |
+| Freestyle spin / flip rate (Expert, #32) | 360 / 300 deg/s | `snowman/physics.ts` |
+| Freestyle score (per 180° spin / 360° flip / grab s) | 40 / 120 / 60 | `snowman/physics.ts` |
+| Freestyle landing tolerance (spin / flip residual) | 60° / 75° | `snowman/physics.ts` |
+| Freestyle grab min hold / under-rotation penalty | 0.25 s / ×0.5 + SKETCHY | `snowman/physics.ts` |
 | Max tilt | 0.25 rad (~14°) | `snowman.js` |
 | Tree collision radius | 2.5 | `snowman.js` |
 | Rock hazard min size / radius clamp | 1.25 / `1.25 .. 3.0` | `mountains.ts`, `snowman.ts` |
 | Rock hazard clear-zone (path half-width / start radius) | `|x|>=5` / `10` from `(0,-15)` | `mountains.ts` |
 | Off-mountain / fall bounds | `|x|>120` / `terrain−0.5` | `snowman.js` |
 | Downhill terrain bias | `(z+30)*0.12` for `z<-30` | `mountains.js` |
-| Avalanche trigger distance | 80 | `snowglider.js` |
-| Avalanche count / gravity / bounce / friction | 120 / 18 / 0.25 / 0.98 | `avalanche.js` |
+| Avalanche trigger distance (per tier) | Blue 80 / Black 60 / Bunny off | `difficulty.ts` |
+| Avalanche count / initial speed (per tier) | Blue 120 / `-(7+r*3)` · Black 150 / `-(9+r*3)` | `difficulty.ts` |
+| Avalanche gravity / bounce / friction | 18 / 0.25 / 0.98 | `avalanche.js` |
 | Course length / checkpoints | 180 / `-60,-105,-150` | `course.js` |
 | FOV range / ref speed | 75–88 / 28 | `effects.js` |
 | Wind base / gust range / prevailing angle / gust rate | 2.4 / 4.8 / 0.35 rad / 0.7 rad/s | `wind.js` |
@@ -623,8 +872,63 @@ of each faking its own (issue #253).
   lifted fore/aft in a head/tail wind — plus a light brace-into-the-wind body lean; the
   main loop computes the local-frame apparent wind and passes it in as `windSway`/
   `windStream`, both defaulting to 0 so the no-wind pose is byte-identical).
-  *Follow-ups:* tree sway (`mountains/trees.ts`), audio bed (`sfx.ts`). Every consumer
-  honours `prefers-reduced-motion` (calm) itself, like `Flex`/`Sky`.
+  Tree sway (`mountains/trees.ts`: the instanced forest leans downwind via a GPU vertex
+  sway — an `onBeforeCompile` injection on the instanced tree materials, driven by a shared
+  uniform set the main loop refreshes once per frame from `Wind.dir()`/`strength()`. The
+  trunk material is "rooted" so the bend is planted at the base while the canopy above it
+  sways as a unit; a spatial phase from each tree's INSTANCE origin (`instanceMatrix[3]`)
+  desyncs neighbouring trees while keeping every vertex of one tree in the same swing —
+  a per-vertex world-x/z phase (the first cut) made parts of one tree lean independently,
+  which at the widened amplitude crumpled the EZ archetype pines into diagonal scraggle
+  (the "realistic trees disappeared from the foreground" regression). The needle flutter's
+  along-tree variation likewise keys off the scale-independent `swayWeight`, not raw
+  local-space frequencies (the EZ geometries are ~5x their world size in local units).
+  The amplitude band (`TREE_SWAY_MIN_AMP`..`TREE_SWAY_MAX_AMP` = 0.06..0.9 world units at
+  full canopy weight) and the 0.6-static / 0.4-oscillating split are tuned so a gust visibly
+  whips the ~8-14u trees (~5° treetop swing) and a lull relaxes them — the first cut capped
+  at 0.35u (~1.5°), imperceptible at chase distance. No position/collision change, so it is
+  invariant-safe; the load-carrying families draw a per-forest geometry clone for their
+  per-instance attributes — see snow load below — while the trunk still draws the shared
+  pooled geometry).
+  Audio bed (`sfx.ts`: the procedural ambient wind noise adds `Wind.strength() ×
+  WIND_FIELD_GAIN` on top of its speed-scaled whoosh via the pure `windGainForField`, so a
+  gusty slope hisses at a standstill and swells with gusts; the main loop passes
+  `Wind.strength()` into `Sfx.updateSkiing`. Keyed on `strength` (not the raw gust, which
+  stays non-zero in a calm profile) so a dead-calm field reduces exactly to the old
+  speed-only gain). The audio bed reads the field even under `prefers-reduced-motion` — it
+  is the one consumer that stays audible when *visible* motion is damped (the reduced-motion
+  gate lives in each visual consumer, not in `Wind` itself).
+- **Wind "howl" (audio, `sfx.ts`).** A second, distinct wind sound: a narrow high-Q
+  bandpass "whistle" layered on the ambient bed, driven each frame by
+  `Sfx.updateWindHowl(Wind.strength(), Wind.gust())` (called from the render loop after
+  `Wind.update()`). Its gain comes from `howlGainForWind(strength)` — silent below a knee so
+  a light breeze does not whistle, then swelling as the wind builds — and its pitch from
+  `howlFreqForGust(gust)`, sweeping up on a gust and back in the lull so the tone wavers.
+  Keyed on `strength`, which is 0 in a dead-calm field, so the howl is exactly silent with
+  no wind (a windless run is unchanged). Reads the field only — no `pos`/`velocity` — so it
+  is invariant-safe like the visual consumers.
+- **Snow load & shedding (Phase B, cosmetic).** Every placed tree carries a CURRENT snow
+  load (0..1) in a registry inside `mountains/trees.ts`, exposed as two live-updatable
+  per-instance attributes: `aSnowLoad` (absolute — a laden part sways at
+  `1 − TREE_LOAD_DAMP·load` of the free amplitude and bows `TREE_LOAD_DROOP·load` world
+  units, matched in the shadow-depth materials) and `aSnowRatio` (current/base — the snow
+  caps/shelves scale toward `TREE_SNOW_SHRINK_MIN` as the load sheds). Base loads reuse
+  **existing** randomness only: the stylized path threads `collectTree`'s pre-existing
+  per-tree `snowLoad` draw (the seeded placement `Math.random()` sequence the harnesses
+  baseline is untouched — the new geometry clones mint their uuids under the same private
+  RNG swap as the depth materials), and the EZ path derives load from the placement hash
+  that already sizes its shelves. `src/tree-shed.ts` makes the load DYNAMIC: a gust front
+  (rising edge of `Wind.gust()`, cooldown-limited) picks the most laden trees within a
+  radius of the player, dumps them fast (`keep` fraction survives; puff sprites burst off
+  the crown, document-guarded like the avalanche powder), then re-ladens them slowly.
+  `TreeShed.update()` returns the frame's shed events; the main loop voices each via
+  `Sfx.treeShed(distance)` (a soft low "whump", `shedGainForDistance`), and feeds
+  `Sfx.updateForest(strength, gust, proximity)` — a bright needle-rustle noise bed gated on
+  wind × `forestProximityAt(treePositions, x, z)`, so an open bowl at any wind and a calm
+  glade are both exactly silent. Ground snow collars sit outside every tree's attribute
+  ranges (load 0 / ratio 1), so they never droop, shrink, or shed. Reduced motion keeps the
+  whole shed system inert (static base loads); `TreeShed.reset()` re-ladens the forest on
+  every run reset so the deterministic gust cycle replays identically.
 - **Why this is invariant-safe.** Because no consumer writes `pos`/`velocity`, the
   no-input coasting path stays byte-identical to the frozen baseline (§6) — adding wind
   needed **no** baseline regeneration. A wind *force* on the skier would be the opposite: a

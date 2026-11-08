@@ -18,15 +18,42 @@ import { getToken, getRepo } from './upload-release-asset.mjs';
 const API = 'https://api.github.com';
 const dryRun = process.argv.includes('--dry-run');
 
+for (const argument of process.argv.slice(2)) {
+  if (argument !== '--dry-run') throw new Error(`Unexpected argument: ${argument}`);
+}
+
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function validateManifest(manifest, repo) {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)
+    || Object.keys(manifest).length === 0) {
+    throw new Error('Invalid asset manifest: run the real migration before rewriting links.');
+  }
+  const sourcePrefix = `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/assets/`;
+  const destinationPrefix = `https://github.com/${repo.owner}/${repo.repo}/releases/download/`;
+  for (const [source, destination] of Object.entries(manifest)) {
+    if (!source.startsWith(sourcePrefix) || source.length === sourcePrefix.length
+      || typeof destination !== 'string' || !destination.startsWith(destinationPrefix)) {
+      throw new Error('Invalid asset manifest: every mapping must use a raw asset URL and a release download URL in this repository.');
+    }
+    const url = new URL(destination);
+    const suffix = destination.slice(destinationPrefix.length);
+    const parts = suffix.split('/');
+    if (parts.length < 2 || parts.some(part => !part || part === '.' || part === '..' || /\s/.test(part))
+      || !url.pathname.startsWith(`/${repo.owner}/${repo.repo}/releases/download/`) || url.search || url.hash) {
+      throw new Error('Invalid asset manifest: release download URLs must identify a tag and an asset.');
+    }
+  }
 }
 
 function rewriteBody(body, manifest) {
   let out = body || '';
   for (const [oldUrl, newUrl] of Object.entries(manifest)) {
-    const re = new RegExp(escapeRegExp(oldUrl) + '(\\?[^\\s)"\\]]*)?', 'g');
-    out = out.replace(re, newUrl);
+    const boundary = '[\\s)"\'\\]<>`]';
+    const re = new RegExp(escapeRegExp(oldUrl) + '(\\?[^\\s)"\'\\]<>`]*)?(?=$|' + boundary + ')', 'g');
+    out = out.replace(re, () => newUrl);
   }
   return out;
 }
@@ -66,6 +93,9 @@ async function* paginate(token, path) {
 async function main() {
   const manifest = JSON.parse(readFileSync('asset-manifest.json', 'utf8'));
   const repo = getRepo();
+  // Validate before reading credentials or issuing any request. In particular,
+  // reject manifests left by older --dry-run versions of the migration tool.
+  validateManifest(manifest, repo);
   const token = await getToken();
   const base = `/repos/${repo.owner}/${repo.repo}`;
   let changed = 0;

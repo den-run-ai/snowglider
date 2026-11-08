@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SnowGlider">
+  <!-- Full-bleed background so the icon is safe as a maskable icon: platforms may
+       crop to a circle/squircle, and the content below sits inside the central
+       ~80% safe zone. Brand background matches the manifest background_color. -->
+  <rect width="512" height="512" fill="#0b1020"/>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16233f"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#sky)"/>
+  <!-- Mountain -->
+  <path d="M56 392 L206 168 L286 288 L336 220 L456 392 Z" fill="#2a3f66"/>
+  <path d="M206 168 L246 228 L206 250 L176 224 Z" fill="#dff4ff"/>
+  <path d="M336 220 L366 264 L336 278 L312 256 Z" fill="#dff4ff"/>
+  <!-- Snowman -->
+  <g>
+    <circle cx="320" cy="356" r="46" fill="#f4fbff"/>
+    <circle cx="320" cy="292" r="34" fill="#f4fbff"/>
+    <circle cx="320" cy="244" r="24" fill="#f4fbff"/>
+    <circle cx="313" cy="240" r="3.5" fill="#22303f"/>
+    <circle cx="327" cy="240" r="3.5" fill="#22303f"/>
+    <path d="M320 246 l16 6 l-16 4 Z" fill="#ff9d3d"/>
+  </g>
+  <!-- Ski trail -->
+  <path d="M120 404 q120 -28 260 -8" fill="none" stroke="#9fd0f5" stroke-width="10" stroke-linecap="round" opacity="0.7"/>
+</svg>

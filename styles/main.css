@@ -21,113 +21,11 @@ canvas { display: block; }
   text-overflow: ellipsis; /* Add ellipsis if content overflows */
 }
 
-/* Controls Info Panel Styles */
-#controlsContainer {
-  position: fixed; /* Change to fixed for consistent positioning */
-  top: 10px;
-  left: 10px;
-  width: 270px; /* Set specific width for stability */
-  max-width: 80vw; /* Max width relative to viewport */
-  z-index: 200; /* Higher than info to be on top */
-  font-family: Arial, sans-serif;
-  transition: all 0.3s ease;
-}
-
-#controlsInfo {
-  display: flex;
-  flex-direction: column;
-  background-color: rgba(0, 0, 0, 0.6);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 14px;
-  color: white;
-  transition: all 0.3s ease;
-  overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); /* Add shadow for better visibility */
-  width: auto;
-}
-
-#controlsContent {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 70vh; /* Height when expanded; tall enough for the Ski Techniques rows */
-  transition: all 0.3s ease;
-  overflow-x: hidden;
-  overflow-y: auto; /* Scroll if the techniques don't fit, so every row stays reachable */
-  touch-action: pan-y; /* allow native vertical scroll on touch (controls.ts skips these touches) */
-  -webkit-overflow-scrolling: touch;
-}
-
-#controlsInfo.collapsed {
-  width: auto;
-  max-width: 180px;
-}
-
-#controlsInfo.collapsed #controlsContent {
-  max-height: 0;
-  margin-top: 0;
-  margin-bottom: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-}
-
-#controlsHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  cursor: pointer;
-  margin-bottom: 8px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  user-select: none; /* Prevent text selection */
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  position: relative;
-}
-
-/* Add swipe indicator for mobile */
-#controlsHeader::after {
-  content: "⟷";
-  position: absolute;
-  right: 30px;
-  font-size: 14px;
-  opacity: 0.6;
-  color: #ffff99;
-}
-
-/* Show swipe indicator only on touch devices */
-@media (hover: none) and (pointer: coarse) {
-  #controlsHeader::after {
-    display: block;
-  }
-}
-
-@media (hover: hover) and (pointer: fine) {
-  #controlsHeader::after {
-    display: none;
-  }
-}
-
-/* When collapsed, remove bottom border */
-#controlsInfo.collapsed #controlsHeader {
-  border-bottom-color: transparent;
-  padding-bottom: 0;
-  margin-bottom: 0;
-}
-
-#controlsHeader h3 {
-  margin: 0;
-  font-size: 16px;
-  color: #ffffff;
-}
-
 .control-item {
   display: flex;
   align-items: center;
-  margin: 6px 0;
-  line-height: 1.5;
+  margin: 4px 0; /* compact rows so the full legend + Ski Techniques fit without scrolling */
+  line-height: 1.35;
 }
 
 .key-badge {
@@ -145,327 +43,14 @@ canvas { display: block; }
 /* Section divider used in both the start-menu guide and the in-game controls
    widget to set the emergent "Ski Techniques" apart from the raw key bindings. */
 .control-subhead {
-  margin: 10px 0 4px;
+  margin: 6px 0 3px;
   font-size: 13px;
   font-weight: bold;
   opacity: 0.85;
   border-top: 1px solid rgba(255, 255, 255, 0.18);
-  padding-top: 8px;
+  padding-top: 6px;
 }
 
-#toggleControls {
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0;
-  color: white;
-}
-
-/* Game Stats Window - Combined stats and timer */
-#gameStatsContainer {
-  position: fixed;
-  top: 70px; /* Positioned below authContainer */
-  right: 10px; /* Aligned with authContainer */
-  left: auto; /* Remove left positioning */
-  transform: none; /* Remove horizontal centering */
-  padding: 8px 12px;
-  background-color: rgba(0, 0, 0, 0.6);
-  color: white;
-  font-family: Arial, sans-serif;
-  font-size: 16px;
-  border-radius: 5px;
-  z-index: 100;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-  transition: all 0.3s ease;
-  overflow: hidden;
-  max-width: 90%;
-  width: auto;
-}
-
-#gameStatsHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  padding-bottom: 4px;
-  margin-bottom: 6px;
-  cursor: pointer;
-  user-select: none;
-  position: relative;
-}
-
-/* Add horizontal swipe indicator */
-#gameStatsHeader::after {
-  content: "⟷";
-  position: absolute;
-  right: 30px;
-  font-size: 14px;
-  opacity: 0.6;
-  color: #ffff99;
-}
-
-/* Show swipe indicator only on touch devices */
-@media (hover: none) and (pointer: coarse) {
-  #gameStatsHeader::after {
-    display: block;
-  }
-}
-
-@media (hover: hover) and (pointer: fine) {
-  #gameStatsHeader::after {
-    display: none;
-  }
-}
-
-#gameStatsHeader h3 {
-  margin: 0;
-  font-size: 16px;
-  color: #ffffff;
-}
-
-#toggleStats {
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0;
-  color: white;
-}
-
-#gameStatsContent {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  transition: all 0.3s ease;
-  max-height: 100px;
-  overflow: hidden;
-}
-
-#gameStatsContainer.collapsed {
-  width: auto;
-  max-width: 160px;
-}
-
-#gameStatsContainer.collapsed #gameStatsContent {
-  max-height: 0;
-  margin-top: 0;
-  margin-bottom: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-}
-
-#gameStatsContainer.collapsed #gameStatsHeader {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
-
-.stat-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 80px;
-}
-
-.stat-label {
-  font-size: 12px;
-  opacity: 0.7;
-}
-
-.stat-value {
-  font-size: 16px;
-  font-weight: bold;
-}
-
-/* Auth UI styles - positioned at top right */
-#authContainer {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  padding: 5px;
-  background-color: rgba(0, 0, 0, 0.5);
-  border-radius: 5px;
-  font-family: Arial, sans-serif;
-  z-index: 999; /* Higher z-index to ensure it's above other elements */
-  max-width: 220px; /* Limit width to prevent overflow */
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-}
-
-/* Mobile/responsive adjustments */
-@media (max-width: 768px) {
-  #info {
-    display: none; /* Hidden as it's replaced by gameStats */
-  }
-
-  #controlsInfo {
-    max-width: 250px;
-    font-size: 13px;
-  }
-
-  #gameStatsContainer {
-    font-size: 14px;
-    padding: 6px 10px;
-    top: 60px; /* Adjusted for mobile */
-  }
-
-  .stat-value {
-    font-size: 14px;
-  }
-
-  .stat-label {
-    font-size: 11px;
-  }
-}
-
-@media (max-width: 480px) {
-  #controlsContainer {
-    width: 220px; /* Smaller on mobile */
-  }
-
-  #controlsInfo.collapsed {
-    max-width: 150px;
-  }
-
-  #controlsInfo.collapsed #controlsContent {
-    max-height: 0;
-    opacity: 0;
-  }
-
-  #controlsHeader h3 {
-    font-size: 14px;
-  }
-
-  .key-badge {
-    min-width: 38px;
-    font-size: 12px;
-  }
-
-  #gameStatsContainer {
-    font-size: 12px;
-    padding: 5px 8px;
-    top: 55px; /* Adjusted for smaller mobile screens */
-    max-width: 160px; /* Keep it compact on small screens */
-  }
-
-  #gameStatsHeader h3 {
-    font-size: 14px;
-  }
-
-  .stat-value {
-    font-size: 13px;
-  }
-
-  .stat-item {
-    min-width: 60px;
-  }
-
-  /* Move auth container to top-right corner */
-  #authContainer {
-    top: 10px;
-    right: 10px;
-    max-width: 160px; /* Smaller on mobile */
-    padding: 3px;
-  }
-
-  /* Make provider buttons smaller on mobile */
-  .provider-btn {
-    width: 52px;
-    padding: 6px 3px;
-    font-size: 10px;
-  }
-  .provider-icon { width: 20px; height: 20px; }
-
-  /* Make the profile UI smaller on mobile */
-  #profileUI {
-    font-size: 12px;
-  }
-
-  #profileAvatar {
-    width: 24px;
-    height: 24px;
-  }
-}
-
-/* Fix for very small screens in landscape */
-@media (max-height: 400px) and (orientation: landscape) {
-  #info {
-    top: 40px; /* Make sure it's visible on very small screens */
-  }
-
-  #gameStatsContainer {
-    padding: 4px 8px;
-    max-width: 80%;
-  }
-
-  #controlsInfo.collapsed {
-    max-width: 140px;
-  }
-
-  #controlsInfo.collapsed #controlsContent {
-    max-height: 0;
-    opacity: 0;
-  }
-}
-
-/* Landscape mode specific adjustments */
-@media (orientation: landscape) and (max-height: 500px) {
-  #info {
-    top: 50px; /* Lower position in landscape */
-  }
-
-  #controlsContainer {
-    width: 240px;
-  }
-
-  #controlsInfo.collapsed {
-    max-width: 160px;
-  }
-
-  #controlsInfo.collapsed #controlsContent {
-    max-height: 0;
-    opacity: 0;
-  }
-
-  #controlsInfo {
-    max-height: 180px; /* Limit height in landscape to prevent overflow */
-  }
-
-  #gameStatsContainer {
-    font-size: 14px;
-    padding: 5px 8px;
-    max-width: 85%;
-  }
-}
-
-/* Portrait mode specific adjustments */
-@media (orientation: portrait) {
-  #info {
-    top: 55px; /* Position below controls */
-    max-width: 70%;
-  }
-
-  #controlsInfo {
-    max-width: 280px; /* Wider on portrait */
-  }
-}
-
-#resetBtn {
-  position: absolute;
-  bottom: 20px;
-  left: 20px;
-  padding: 15px 20px;
-  border: none;
-  border-radius: 8px;
-  background-color: #4CAF50;
-  color: white;
-  cursor: pointer;
-  font-size: 16px;
-  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.5);
-  touch-action: manipulation; /* Removes delay on mobile devices */
-  user-select: none;
-}
 /* TODO: AUDIO DISABLED - Audio control button CSS commented out
    Re-enable when audio is re-enabled (AUDIO_ENABLED = true in audio.js)
 #audioControlBtn {
@@ -572,14 +157,6 @@ canvas { display: block; }
 /* In guest mode the chip is interactive (unfolds the upgrade options). */
 #profileUI.guest #profileChip {
   cursor: pointer;
-}
-#profileUI.guest #profileChip::after {
-  content: '▾';
-  font-size: 10px;
-  opacity: 0.85;
-}
-#profileUI.guest.expanded #profileChip::after {
-  content: '▴';
 }
 /* Generated avatar: a colored circle with initials or a glyph (background-color +
    text are set inline by renderAvatar; a real photo is set as background-image). */
@@ -819,42 +396,74 @@ canvas { display: block; }
   background-color: rgba(12, 16, 24, 0.6);
 }
 
-/* Finish/game-over overlay difficulty picker: same option styling as the start screen
-   (via the shared classes above), laid out to match. Lets the player switch tier and
-   replay without reloading. */
-#finishDifficultyPicker {
+/* The result details scroll independently; replay never leaves the viewport. */
+#gameOverOverlay {
+  position: fixed;
+  inset: 0;
+  height: 100%;
+  height: 100dvh;
+  z-index: 1000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  overflow: hidden;
+  background: rgba(12, 18, 28, 0.94);
+  color: white;
+  font-family: Arial, sans-serif;
+}
+#gameOverContent {
+  width: min(100%, 440px);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  text-align: center;
+}
+#gameOverContent > * { box-sizing: border-box; max-width: 100%; }
+#gameOverMessage { font-size: clamp(26px, 6vw, 36px); margin: 4px 0 8px; }
+#gameOverDetail { font-size: 16px; line-height: 1.4; margin: 0 0 10px; }
+#gameOverContent #bestTimeDisplay { margin: 8px 0 12px; }
+#gameOverContent #courseResult { width: 100%; text-align: left; }
+#gameOverContent #authContainer { position: static; width: fit-content; margin: 12px auto; }
+#gameOverActions {
+  flex-shrink: 0;
+  width: min(100%, 440px);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  width: 280px;
-  max-width: 86vw;
-  margin: 2px 0 18px;
+  align-items: stretch;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.18);
+  background: #111925;
 }
-
+#gameOverOverlay button { flex-shrink: 0; }
+#finishDifficultyPicker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
 #finishDifficultyPicker .difficulty-heading {
+  grid-column: 1 / -1;
   font-size: 12px;
   color: #cfd8e3;
   text-align: center;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-
-/* Compact on the finish screen: drop the per-tier blurbs (already learned on the start
-   screen) so adding the picker above RESTART keeps the overlay short. */
-#finishDifficultyPicker .difficulty-option { padding: 6px 12px; }
+#finishDifficultyPicker .difficulty-option { min-width: 0; min-height: 44px; padding: 6px 4px; align-items: center; justify-content: center; }
+#finishDifficultyPicker .difficulty-name { font-size: 13px; }
 #finishDifficultyPicker .difficulty-blurb { display: none; }
+#gameOverActions #restartButton { width: 100%; min-height: 48px; }
 
-/* Keep the game-over overlay escapable. The result panel + leaderboard + this difficulty
-   picker can exceed the viewport on short/mobile screens; overflow-y:auto makes it scroll.
-   This pairs with `justify-content: safe center` (set inline in game/scene-setup.ts): plain
-   `center` + scrolling can strand overflow above the scroll origin, leaving GAME OVER or
-   RESTART unreachable, whereas `safe center` falls back to top-alignment when it overflows
-   so the whole panel scrolls into reach. flex-shrink:0 keeps RESTART from being squeezed. */
-#gameOverOverlay {
-  overflow-y: auto;
-  box-sizing: border-box;
+@media (max-height: 430px) and (min-width: 480px) {
+  #gameOverActions { width: min(100%, 680px); flex-direction: row; align-items: end; }
+  #gameOverActions #restartButton { width: 150px; min-width: 150px; }
+  #gameOverActions #finishDifficultyPicker { flex: 1; }
 }
-#gameOverOverlay button { flex-shrink: 0; }
 
 #startMenu {
   display: flex;
@@ -1032,6 +641,93 @@ canvas { display: block; }
   pointer-events: none; /* purely informational — never intercept clicks */
 }
 
+/* Offline-mode badge (issue #358). Mounted hidden inside #startGameContainer and
+   revealed only when the browser reports offline, so the online start screen is
+   unchanged. A calm frosted chip that reads as informational, not an error. */
+.offline-badge {
+  align-self: center;
+  margin: 8px auto 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(120, 170, 210, 0.18);
+  border: 1px solid rgba(180, 215, 245, 0.35);
+  color: rgba(223, 244, 255, 0.9);
+  font: 500 12px system-ui, sans-serif;
+  letter-spacing: 0.2px;
+}
+
+/* PWA install chip (issue #358). Mounted hidden inside #startGameContainer; the
+   install-prompt module reveals it (display:flex) only when the browser offers
+   install and we're not under automation/standalone. Additive — never blocks Start. */
+.install-prompt {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+  margin: 10px auto 0;
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: rgba(120, 170, 210, 0.16);
+  border: 1px solid rgba(180, 215, 245, 0.32);
+  color: rgba(223, 244, 255, 0.92);
+  font: 500 13px system-ui, sans-serif;
+}
+.install-prompt-install {
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: none;
+  background: #dff4ff;
+  color: #0b1020;
+  font: 600 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.install-prompt-install:hover {
+  background: #ffffff;
+}
+.install-prompt-dismiss {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: rgba(223, 244, 255, 0.7);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.install-prompt-dismiss:hover {
+  color: #ffffff;
+}
+
+/* "New version available" banner (issue #358, PR 3). Shown only on the start screen
+   when a service-worker update is waiting; Reload activates the new bundle. */
+.sw-update-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+  margin: 10px auto 0;
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 214, 120, 0.18);
+  border: 1px solid rgba(255, 224, 150, 0.4);
+  color: rgba(255, 244, 214, 0.92);
+  font: 500 13px system-ui, sans-serif;
+}
+.sw-update-reload {
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: none;
+  background: #ffe08a;
+  color: #201a0b;
+  font: 600 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+.sw-update-reload:hover {
+  background: #fff0c0;
+}
+
 /* While the start overlay is up, lift the account/sign-in control above it so
    players can sign in before starting a run (the overlay sits at z-index 2000). */
 body.start-screen-active #authContainer {
@@ -1070,7 +766,13 @@ body.start-screen-active #authContainer {
 }
 #gameCanvas {
   display: none; /* Initially hidden until game starts */
+  /* A stale landscape canvas must not widen the mobile layout viewport before
+     the resize handler measures it; otherwise that width feeds back into Three. */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
 }
+#gameCanvas > canvas { max-width: 100%; max-height: 100%; }
 
 @media (max-height: 650px) {
   /* Adjustments for smaller height screens */
@@ -1141,6 +843,30 @@ body.intro-active #gameStatsContainer,
 body.intro-active #courseHud,
 body.intro-active #resetBtn,
 body.intro-active #cameraToggleBtn,
+body.intro-active #cameraControls,
 body.intro-active .touch-control {
   display: none !important;
+}
+/* Event announcements remain in the accessibility tree without covering play. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 3px solid #74d9ff;
+  outline-offset: 3px;
+}
+.physics-era-notice {
+  max-width: 560px;
+  margin: 10px auto 16px;
+  color: #cce8fa;
+  font-size: 13px;
+  line-height: 1.45;
 }

@@ -116,7 +116,7 @@ async function foldV8Entry(coverageMap, root, entry) {
     converter.destroy();
     return true;
   } catch (err) {
-    console.warn(`Browser coverage: skipped ${relative} (${err.message})`);
+    console.warn(`Browser coverage: skipped ${relative} (${(err instanceof Error ? err.message : String(err))})`);
     return false;
   }
 }

@@ -23,6 +23,16 @@ const dryRun = process.argv.includes('--dry-run');
 const tagIdx = process.argv.indexOf('--tag');
 const tag = tagIdx !== -1 ? process.argv[tagIdx + 1] : DEFAULT_TAG;
 
+for (let i = 2; i < process.argv.length; i++) {
+  const argument = process.argv[i];
+  if (argument === '--dry-run') continue;
+  if (argument === '--tag' && process.argv[i + 1] && !process.argv[i + 1].startsWith('--')) {
+    i++;
+    continue;
+  }
+  throw new Error(`Unexpected or incomplete argument: ${argument}`);
+}
+
 /** Remote `assets/*` branches, e.g. ["assets/og-image", "assets/ski-redesign-shots"]. */
 function assetBranches() {
   const out = execFileSync('git', ['branch', '-r', '--list', 'origin/assets/*'], { encoding: 'utf8' });
@@ -44,41 +54,53 @@ function filesIn(branch) {
 // unique asset name. og-image keeps its bare filename (og-card.png) so the
 // production meta tag gets a clean, stable URL.
 function assetNameFor(branch, file) {
-  const slug = branch.replace(/^assets\//, '');
+  const slug = branch.replace(/^assets\//, '').replace(/\//g, '__');
   const flat = file.replace(/\//g, '__');
   return slug === 'og-image' ? flat : `${slug}__${flat}`;
 }
 
 async function main() {
   const repo = getRepo();
-  const token = dryRun ? null : await getToken();
   const branches = assetBranches();
   if (branches.length === 0) {
     console.error('No origin/assets/* branches found. Did you `git fetch origin`?');
     process.exit(1);
   }
 
-  const manifest = {};
-  let count = 0;
+  // Validate the entire flat namespace before any upload can replace an asset.
+  const plan = [];
+  const names = new Map();
   for (const branch of branches) {
     for (const file of filesIn(branch)) {
-      const oldUrl = `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${branch}/${file}`;
       const assetName = assetNameFor(branch, file);
-      if (dryRun) {
-        manifest[oldUrl] = `(dry-run) -> release:${tag}/${assetName}`;
-        console.log(`would upload ${branch}/${file}  ->  ${assetName}`);
-      } else {
-        const buf = execFileSync('git', ['show', `origin/${branch}:${file}`], { maxBuffer: 64 * 1024 * 1024 });
-        const newUrl = await uploadBuffer(buf, assetName, { token, repo, tag });
-        manifest[oldUrl] = newUrl;
-        console.log(`uploaded ${branch}/${file}  ->  ${newUrl}`);
+      if (names.has(assetName)) {
+        throw new Error(`Asset name collision: ${names.get(assetName)} and ${branch}/${file} both map to ${assetName}`);
       }
-      count++;
+      names.set(assetName, `${branch}/${file}`);
+      plan.push({ branch, file, assetName });
     }
   }
 
-  writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
-  console.log(`\n${dryRun ? '[dry-run] ' : ''}${count} files across ${branches.length} branches. Manifest written to ${MANIFEST}.`);
+  const token = dryRun ? null : await getToken();
+  const manifest = {};
+  for (const { branch, file, assetName } of plan) {
+    if (dryRun) {
+      console.log(`would upload ${branch}/${file}  ->  ${assetName}`);
+    } else {
+      const oldUrl = `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${branch}/${file}`;
+      const buf = execFileSync('git', ['show', `origin/${branch}:${file}`], { maxBuffer: 64 * 1024 * 1024 });
+      const newUrl = await uploadBuffer(buf, assetName, { token, repo, tag });
+      manifest[oldUrl] = newUrl;
+      console.log(`uploaded ${branch}/${file}  ->  ${newUrl}`);
+    }
+  }
+
+  if (dryRun) {
+    console.log(`\n[dry-run] ${plan.length} files across ${branches.length} branches. ${MANIFEST} was not changed.`);
+  } else {
+    writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
+    console.log(`\n${plan.length} files across ${branches.length} branches. Manifest written to ${MANIFEST}.`);
+  }
 }
 
 main().catch((err) => { console.error(err.message); process.exit(1); });

@@ -9,12 +9,12 @@ import { gotoGame, startGame, getControls } from './helpers';
 // shared controls state and that the mobile HUD renders.
 
 // The game's document-level touch handlers only read changedTouches[].clientX/Y/
-// identifier (see controls.ts processTouchInput), so a minimal hand-built event
+// identifier (see controls.ts touch ownership), so a minimal hand-built event
 // drives the same code path cross-browser without depending on the TouchEvent /
 // Touch constructors (whose shapes differ across engines).
 async function dispatchTouch(
   page: Page,
-  type: 'touchstart' | 'touchend',
+  type: 'touchstart' | 'touchmove' | 'touchend',
   x: number,
   y: number,
 ): Promise<void> {
@@ -31,6 +31,20 @@ async function dispatchTouch(
 }
 
 test.describe('mobile touch', () => {
+  test('touch camera disclosure exposes state and keeps hidden controls out of focus', async ({ page }) => {
+    await gotoGame(page);
+    await startGame(page);
+    const toggle = page.getByRole('button', { name: 'Toggle camera options' });
+    await expect(toggle).toHaveAttribute('aria-controls', 'cameraControlsContent');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#cameraControlsContent')).toHaveJSProperty('inert', true);
+    await toggle.tap();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: 'Orbit left (Q)', exact: true })).toBeVisible();
+    await toggle.tap();
+    await expect(page.getByRole('button', { name: 'Orbit left (Q)', exact: true })).toHaveCount(0);
+  });
+
   test('touch regions drive the shared controls state', async ({ page }) => {
     await gotoGame(page);
     await startGame(page);
@@ -52,17 +66,100 @@ test.describe('mobile touch', () => {
     expect((await getControls(page))?.jump).toBe(false);
   });
 
-  test('mobile renders the canvas and on-screen touch controls', async ({ page }) => {
+  test('a canceled touch cannot resume steering after focus returns', async ({ page }) => {
+    await gotoGame(page);
+    await startGame(page);
+    const { width, height } = page.viewportSize()!;
+    const neutral = { left: false, right: false, up: false, down: false, jump: false };
+
+    await dispatchTouch(page, 'touchstart', width * 0.15, height * 0.5);
+    expect((await getControls(page))?.left).toBe(true);
+    await expect(page.locator('.touch-left')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.3)');
+
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('blur'));
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(await getControls(page)).toEqual(neutral);
+    await dispatchTouch(page, 'touchmove', width * 0.85, height * 0.5);
+    expect(await getControls(page)).toEqual(neutral);
+    for (const name of ['left', 'right']) {
+      await expect(page.locator(`.touch-${name}`)).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.07)');
+    }
+
+    await dispatchTouch(page, 'touchend', width * 0.85, height * 0.5);
+    await dispatchTouch(page, 'touchstart', width * 0.85, height * 0.5);
+    expect((await getControls(page))?.right).toBe(true);
+    await dispatchTouch(page, 'touchmove', width * 0.15, height * 0.5);
+    expect((await getControls(page))?.left).toBe(true);
+    expect((await getControls(page))?.right).toBe(false);
+    await dispatchTouch(page, 'touchend', width * 0.15, height * 0.5);
+    expect(await getControls(page)).toEqual(neutral);
+  });
+
+  test('mobile renders the canvas and subtle touch affordances by default (regression)', async ({ page }) => {
     await gotoGame(page);
     await startGame(page);
 
     // The three.js canvas is visible on the mobile viewport.
     await expect(page.locator('#gameCanvas canvas')).toBeVisible();
 
-    // Mobile UA => the game creates visual touch-region overlays (controls.ts
-    // showVisualControls), one per region.
+    // REGRESSION GUARD: the five touch affordance pads (left/right/up/down/jump) are
+    // gameplay UI and must render by default on mobile. Debug-gating all the zone
+    // visuals off (the "snow plates" over-fix) made players report the touch controls
+    // as having disappeared.
+    const affordances = page.locator('.touch-control.touch-affordance');
+    await expect(affordances).toHaveCount(5);
+    for (const name of ['left', 'right', 'up', 'down', 'jump']) {
+      await expect(page.locator(`.touch-${name}`)).toBeVisible();
+    }
+
+    // ...and they must be the small faint pads, NOT the full-region debug rectangles —
+    // reusing those as production UI would reintroduce the "floating white plates".
+    await expect(page.locator('.touch-control.touch-debug-zone')).toHaveCount(0);
+    const idleFill = await affordances.first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(idleFill).toBe('rgba(255, 255, 255, 0.07)');
+  });
+
+  test('touch affordances can be opted out with ?hideTouchControls', async ({ page }) => {
+    await gotoGame(page, '?hideTouchControls');
+    await startGame(page);
+
+    // Explicit opt-out => no visuals; touch INPUT is unaffected (always active).
+    await expect(page.locator('.touch-control')).toHaveCount(0);
+  });
+
+  test('debug touch-zone overlays render with ?debugTouchZones=1', async ({ page }) => {
+    await gotoGame(page, '?debugTouchZones=1');
+    await startGame(page);
+
+    // Debug flag => the five full-region hit-zone rectangles are drawn (the debug view
+    // exists to inspect the real touch hit-areas).
+    await expect(page.locator('.touch-control.touch-debug-zone')).toHaveCount(5);
     await expect(page.locator('.touch-control').first()).toBeVisible();
-    expect(await page.locator('.touch-control').count()).toBeGreaterThan(0);
+  });
+
+  test('camera tray auto-collapses on phones and never disturbs the touch affordances', async ({ page }) => {
+    await gotoGame(page);
+    await startGame(page);
+
+    // The camera tray (bottom-left, collapsible) overlaps the bottom steering surface
+    // on phones — expanded, it sat over the DOWN affordance pad and its touches are
+    // (correctly) excluded from steering. On a small screen it must therefore start
+    // COLLAPSED (Codex review, PR #383), and folding/unfolding it must leave the five
+    // affordance pads intact — this pins the suspected-overlap area from the
+    // regression report.
+    const affordances = page.locator('.touch-control.touch-affordance');
+    const tray = page.locator('#cameraControls');
+    await expect(affordances).toHaveCount(5);
+    await expect(tray).toHaveClass(/collapsed/);
+    await page.locator('#toggleCamera').tap();
+    await expect(tray).not.toHaveClass(/collapsed/);
+    await expect(affordances).toHaveCount(5);
+    await page.locator('#toggleCamera').tap();
+    await expect(tray).toHaveClass(/collapsed/);
+    await expect(affordances).toHaveCount(5);
   });
 });
 
@@ -101,13 +198,13 @@ test.describe('mobile share buttons', () => {
     await startGame(page);
 
     // Surface the finish result panel (which owns the share controls) without
-    // skiing the whole course: backdate the run clock past the 18s minimum-valid-
+    // skiing the whole course: set the simulation clock past the 18s minimum-valid-
     // time plausibility floor (src/score-limits.ts), then drive the real game-over
     // finish path. This builds #courseResult inside the (z-index 1000, full-screen)
     // game-over overlay.
     await page.evaluate(() => {
-      const w = window as unknown as { startTime: number; showGameOver: (r: string) => void };
-      w.startTime = performance.now() - 20000;
+      const w = window as unknown as { simElapsed: number; showGameOver: (r: string) => void };
+      w.simElapsed = 20;
       w.showGameOver('You reached the end of the slope!');
     });
 

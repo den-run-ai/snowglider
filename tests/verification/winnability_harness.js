@@ -42,7 +42,6 @@ g.window = { location: { search: '' }, matchMedia: () => ({ matches: false }), t
 g.document = undefined;
 try { Object.defineProperty(global, 'navigator', { value: { webdriver: false }, configurable: true }); } catch { /* keep existing */ }
 
-const FIXED_DT = 1 / 60;     // fine step: conservative burial sampling, no tunneling
 const MAX_TIME = 90;         // s of in-game time per descent (cap; a clean run finishes ~26 s)
 // Boulder count + burial radius are NOT copied here — COUNT comes from the shipped
 // AVALANCHE_BOULDER_COUNT, and burial is checked via the same arg-less checkBurial(pos)
@@ -75,7 +74,8 @@ function fakeSnowman() {
 
 (async () => {
   await import(pathToFileURL(path.join(__dirname, '..', 'loaders', 'register-ts-resolve.mjs')).href);
-  const THREE = await import('three');
+  const { FIXED_DT } = await import('../../src/game/main-loop.ts');
+  const { ENSEMBLE_SEEDS, runTierDescent, summarizeTimes } = await import('../helpers/tier-descent.mjs');
   const { Snowman } = await import('../../src/snowman.ts');
   const { AvalancheSystem } = await import('../../src/avalanche.ts');
   const terrain = await import('../../src/mountains/terrain.ts');
@@ -84,6 +84,11 @@ function fakeSnowman() {
   // course length or trigger re-points this gate automatically (Codex review).
   const { CourseModule } = await import('../../src/course.ts');
   const { AVALANCHE_TRIGGER_DISTANCE, AVALANCHE_BOULDER_COUNT } = await import('../../src/game/scene-setup.ts');
+  // Per-tier config + the seeded centerline, for the follow-the-line gate (D3.2d): each tier
+  // skis its OWN laneX(z) at its OWN physics + avalanche, so the gate reads the real course
+  // every tier actually ships — never a hard-coded straight line.
+  const { getDifficultyConfig } = await import('../../src/difficulty.ts');
+  const { courseLineFor } = await import('../../src/course-line.ts');
   const COUNT = AVALANCHE_BOULDER_COUNT;                 // shipped boulder count (single source of truth)
   // FINISH_Z here traces to the real finish trigger: course.ts derives it from
   // collision.ts FINISH_Z (the same constant the live run ends on), so moving the finish
@@ -245,6 +250,66 @@ function fakeSnowman() {
     return { buried, finished };
   }
 
+  // --- Follow-the-line descent vs. the tier's own avalanche (G5) ------------------
+  // "The line is the difficulty." This drives the REAL Snowman physics at a TIER'S ski
+  // tuning down that tier's REAL winding corridor — the same seeded laneX(z) the terrain
+  // banks onto and the gates sit on — against that tier's OWN avalanche (Black fires
+  // earlier/faster/heavier; Bunny is off). A skilled carve controller steers toward the
+  // line with a downhill LOOKAHEAD (anticipate the turn, don't chase it late) and a small
+  // deadband (no chatter that scrubs speed). It must reach the finish, never be buried, and
+  // never climb out of the corridor — every seed. This is the quantitative gate the ranked
+  // flip depends on: it is where Black's provisional avalanche + corridor numbers are proven
+  // actually makeable at Black's speed. The steering is a deterministic function of position
+  // (no Math.random), so the boulder-spawn stream stays seed-deterministic.
+  // --- Slow constant-speed point riding a tier's line (G6 threat) -----------------
+  // The line analogue of runConstantDescent: a point held perfectly ON laneX(z) but moving
+  // at `speed`, against the tier's own corridor + avalanche. Used to prove a tier's slide is
+  // a real threat even to someone on the safe line but too slow (the walls funnel the boulders
+  // onto the line). The point consumes no kernel RNG, so the boulder stream stays seeded.
+  function runLineConstant(seed, tier, speed) {
+    const config = getDifficultyConfig(tier);
+    const line = courseLineFor(config);
+    const winds = config.line.curviness > 0 && !!config.terrain;
+    if (winds) terrain.setTerrainCorridor({ line, params: config.terrain });
+    else terrain.setTerrainCorridor(null);
+    terrain.setTerrainKickers(config.features ?? null, line); // the tier's real course (JP-6)
+    try {
+      Math.random = makeRng(seed);
+      const _log = console.log; console.log = () => {};
+      const scene = /** @type {any} */ ({ children: [], add() {}, remove() {}, userData: {} });
+      const avc = config.avalanche;
+      const av = new AvalancheSystem(scene, avc.boulderCount, {
+        enabled: avc.enabled, triggerDistance: avc.triggerDistance,
+        slideSpeedBase: avc.slideSpeedBase, slideSpeedJitter: avc.slideSpeedJitter });
+      av.setTerrainFunction(getTerrainHeight);
+      const startZ = START_Z - avc.triggerDistance;      // where the first slide arms
+      const startX = line.laneX(startZ);
+      const player = { x: startX, y: getTerrainHeight(startX, startZ), z: startZ };
+      av.trigger(player);                                // first slide fires at the trigger line
+      console.log = _log;
+
+      let triggered = true, lastAvZ = startZ, buried = false, finished = false, t = 0;
+      while (t < MAX_TIME) {
+        if (avc.enabled && !triggered && (lastAvZ - player.z) > avc.triggerDistance) { av.trigger(player); triggered = true; }
+        if (triggered) av.update(FIXED_DT);
+        player.z -= speed * FIXED_DT;
+        player.x = line.laneX(player.z);                 // stays perfectly on the line, just slow
+        player.y = getTerrainHeight(player.x, player.z);
+        if (triggered) {
+          if (av.checkBurial(player)) { buried = true; break; }
+          if (av.hasPassed(player)) { av.reset(); triggered = false; lastAvZ = player.z; }
+        }
+        if (player.z <= FINISH_Z) { finished = true; break; }
+        t += FIXED_DT;
+      }
+      av.dispose();
+      return { buried, finished };
+    } finally {
+      terrain.setTerrainCorridor(null);
+      terrain.setTerrainKickers(null);
+    }
+  }
+
   // --- Gate runner ---------------------------------------------------------------
   let failed = 0;
   function gate(name, ok, detail) {
@@ -277,12 +342,12 @@ function fakeSnowman() {
   // it locks in the casual margin #228 restored so a future tune can't silently re-bury the
   // mobile players who reported the regression.
   const CASUAL_ESCAPE_MIN = 0.8; // >= 80% of seeds
-  const casual = SEEDS.map(s => runCasualLine(s));
+  const casual = ENSEMBLE_SEEDS.map(s => runCasualLine(s));
   const casualEscapes = casual.filter(r => r.finished && !r.buried).length;
   console.log('\n--- G4: a casual / mobile-like line usually escapes [GATING] ---');
   gate(`an imperfect mobile-like line (drift + tap-steering gaps + reaction lag + intermittent accel) escapes on >= ${Math.round(CASUAL_ESCAPE_MIN * 100)}% of seeds`,
-    casualEscapes / SEEDS.length >= CASUAL_ESCAPE_MIN,
-    `escaped ${casualEscapes}/${SEEDS.length} seeds (${Math.round(casualEscapes / SEEDS.length * 100)}%)`);
+    casualEscapes / ENSEMBLE_SEEDS.length >= CASUAL_ESCAPE_MIN,
+    `escaped ${casualEscapes}/${ENSEMBLE_SEEDS.length} seeds (${Math.round(casualEscapes / ENSEMBLE_SEEDS.length * 100)}%)`);
 
   // Diagnostic: the constant-speed escape boundary, for context on the margin.
   let boundary = null;
@@ -291,6 +356,43 @@ function fakeSnowman() {
   }
   console.log('\n--- Margin [DIAGNOSTIC, not gated] ---');
   console.log(`  constant-speed all-seeds escape boundary: ${boundary ? boundary.toFixed(1) + ' m/s' : '>12 m/s'} | real top speed: ${realTop.toFixed(2)} m/s`);
+
+  // G5: "the line is the difficulty" — every tier's fast line is WINNABLE. A skilled carve
+  // controller skiing each tier's real winding corridor at that tier's physics, against that
+  // tier's own avalanche, reaches the finish without burial and without climbing out of the
+  // corridor, EVERY seed. This is the gate D3.3's ranked flip depends on: it proves Black's
+  // provisional avalanche + corridor numbers are actually makeable at Black's speed. The
+  // corridor bound is the makeable-envelope check — a skilled line stays inside the walled
+  // channel; drifting past it means the numbers made the line unfollowable (fail, retune).
+  const CORRIDOR_BOUND = 16; // u off the centerline; Black's wall is fully up by ~channelHalfWidth+wallRamp
+  // Expert joined the list at JP-6: its line rider goes straight off all three
+  // sculpted kickers (they sit ON laneX) with lipLaunch arcs — the gate proves the
+  // designed air still lands in the corridor, finishes, and out-skis the slide.
+  console.log('\n--- G5: each tier\'s winding line is winnable at its own physics [GATING] ---');
+  for (const tier of ['bunny', 'blue', 'black', 'expert']) {
+    const runs = SEEDS.map(s => runTierDescent(s, tier));
+    const times = summarizeTimes(runs);
+    const escapes = runs.filter(r => r.finished && !r.buried).length;
+    const maxOff = Math.max(...runs.map(r => r.maxOffLine));
+    const topSpeed = Math.max(...runs.map(r => r.maxSpeed));
+    // Closest a boulder ever got, across seeds — the escape margin (Infinity ⇒ slide never armed).
+    const minMargin = Math.min(...runs.map(r => r.minDist));
+    const inCorridor = maxOff <= CORRIDOR_BOUND;
+    gate(`[${tier}] follow-the-line reaches the finish, no burial, stays in the corridor, every seed`,
+      escapes === SEEDS.length && inCorridor,
+      `escaped ${escapes}/${SEEDS.length} | max off-line ${maxOff.toFixed(1)}/${CORRIDOR_BOUND} u | top ${topSpeed.toFixed(2)} m/s | closest boulder ${Number.isFinite(minMargin) ? minMargin.toFixed(1) + ' u' : 'n/a'} | finish min/median/p95/max ${[times.min, times.median, times.p95, times.max].map(t => t.toFixed(2)).join('/')} s`);
+  }
+
+  // G6: the Black slide is a REAL THREAT — a too-slow line, even one riding perfectly ON the
+  // winding corridor, is buried before the finish, every seed. This is the two-sided companion
+  // to G5 (mirroring how G2 backs G3 for Blue): it proves Black's earlier/faster/heavier slide
+  // is not merely cosmetic, so a future tune can't silently neuter it and still pass. The walls
+  // funnel the boulders down the channel, so being on the line is no refuge when you are slow.
+  console.log('\n--- G6: the Black slide is a real threat to a slow on-line descent [GATING] ---');
+  const blackSlow = SEEDS.map(s => runLineConstant(s, 'black', SLOW_SPEED));
+  gate(`a ${SLOW_SPEED} m/s Black descent riding the line is buried before finishing, every seed`,
+    blackSlow.every(r => r.buried && !r.finished),
+    `buried ${blackSlow.filter(r => r.buried).length}/${SEEDS.length}`);
 
   console.log(`\nWINNABILITY HARNESS: ${failed ? 'FAIL ❌' : 'OK ✅ (winnable with the real skier; lethal when slow)'}`);
   process.exit(failed ? 1 : 0);

@@ -18,5 +18,6 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*.js", "src/**/*.ts", "types/**/*.d.ts"],
-  "exclude": ["node_modules", "dist", "coverage", "tests"]
+  "//": "The service worker uses WebWorker globals and is checked separately by tsconfig.worker.json.",
+  "exclude": ["node_modules", "dist", "coverage", "tests", "src/pwa/sw.ts"]
 }

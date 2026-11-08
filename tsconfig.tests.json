@@ -9,7 +9,7 @@
   // This config checks them against the typed `src` without letting those test-only
   // relaxations bleed back into the strict `src` config.
   //
-  // Run with: `npm run typecheck:tests`. Files opt in with `// @ts-check`. The HIGH
+  // Run with: `npm run typecheck:tests`. New files are checked by default. The HIGH
   // value here is checking each test's calls against the typed `src` — catching API/mock
   // drift (e.g. the addTestHooks signature) — NOT annotating every test-internal helper
   // or guarding jsdom `getElementById` null-unions. So the strict-src-only checks that
@@ -48,17 +48,34 @@
     // (noEmit), Node still loads them as CommonJS.
     "moduleDetection": "force",
     "allowJs": true,
-    // Per-file opt-in: only files with a `// @ts-check` pragma are checked. The browser
-    // `?test=` suites and the puppeteer driver are included by the glob below but stay
-    // unchecked until they opt in (plan §3.3 leaves them for last); the Node-tier suites
-    // and the shared mocks all carry the pragma.
-    "checkJs": false,
+    // Default-on checking: the finite legacy exclusions below are verified by
+    // typecheck:coverage, which rejects new gaps and @ts-nocheck directives.
+    "checkJs": true,
     "noEmit": true
   },
   "include": [
     "types/**/*.d.ts",
     "tests/**/*.mjs",
-    "tests/**/*.js"
+    "tests/**/*.js",
+    "tests/types/**/*.d.ts",
+    "*.config.js",
+    "*.config.mjs",
+    "*.config.cjs",
+    "scripts/check-typecheck-coverage.mjs"
   ],
-  "exclude": ["node_modules", "dist", "coverage"]
+  "exclude": [
+    "node_modules", "dist", "coverage",
+    // Legacy in-page suites still mutate the classic global game harness. Keep
+    // this explicit debt visible; new browser and Node tests are checked by default.
+    "tests/audio-tests.js",
+    "tests/browser-avalanche-tests.js",
+    "tests/browser-regression-tests.js",
+    "tests/browser-tests.js",
+    "tests/browser-tree-tests.js",
+    "tests/camera-tests.js",
+    "tests/controls-tests.js",
+    "tests/unified-test-runner.js",
+    // Historical physics oracle: do not rewrite the frozen baseline to satisfy tsc.
+    "tests/verification/snowman_baseline.js"
+  ]
 }

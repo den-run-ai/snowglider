@@ -11,15 +11,21 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/snowglider.ts` - Game logic and Three.js implementation (the orchestrator)
 - `src/player-state.ts` - Typed per-frame `PlayerState` layer over the `snowman.ts` kernel
 - `src/snow.ts` - Utility functions and snow effects
-- `src/mountains.ts` - Natural backcountry terrain generation code
-- `src/trees.ts` - Tree creation and placement throughout the mountain
+- `src/mountains.ts` - Natural backcountry terrain generation facade. Mesh and gameplay sample one triangle-interpolated height field; the bounded grid-corner cache is read-order independent. `heightMap` is a diagnostic mesh snapshot, not gameplay memoization.
+- `src/trees.ts` - Tree creation and placement throughout the mountain (facade over `src/mountains/trees.ts`)
+- `src/mountains/ez-forest.ts` - EZ-Tree evergreen archetype provider (issue #282): seeded low-poly pine geometry from `@dgreenheck/ez-tree` (lazy ~4 MB chunk), rendered by `trees.ts` through the shared instanced/tint/sway/snow pipeline with a static near/far LOD split. Default for players; automation/headless keep the stylized cones (`?eztrees=1` opts in, `?classictrees` opts out) so seeded RNG streams and existing suites stay byte-identical. Headless-safe (scoped `document` shim) and RNG-stream-neutral (private xorshift for THREE uuid draws); perf pinned by the `?eztrees=1` budget in `tests/e2e/perf-budget.spec.ts` (`npm run test:ez-forest` for the unit suite)
+- `src/run-context.ts` - Named RNG streams for one deterministic run (issue #400). GAMEPLAY streams (`physics`/`avalanche`/`hazards`/`course`) are pure `Math.random` passthroughs while unseeded (the production default — byte-identical to the frozen baseline and the `Math.random = makeRng(seed)` harnesses), and independent seed-derived PRNGs once `setRunSeed` is called (the ranked/replay seam: same seed ⇒ same auto-turns and boulder field at any refresh rate). COSMETIC streams (`snowParticles`/`avalanchePowder`/`cameraEffects`) are ALWAYS private (never global), so particle activity can't perturb gameplay RNG; the per-frame particle emitters (ski spray, avalanche powder) run on 60 Hz-referenced accumulators, so the budget-per-second is render-rate independent. `PHYSICS_VERSION` anchors future score/ghost records. Gated by `npm run test:run-context`-style suites: `tests/run-context-tests.js` (unit + behavioral isolation) and `tests/verification/rng_frame_rate_harness.js` (seeded runs byte-identical at 30/60/144 Hz under per-frame cosmetic pollution)
 - `src/avalanche.ts` - Avalanche system with snow boulder physics and burial detection
 - `src/snowtracks.ts` - Temporary ski tracks (cosmetic fading grooves, terrain-aware, never touches physics; not a snow-accumulation model)
+- `src/difficulty.ts` - Bunny, Blue, Black and Expert tuning, course layouts and per-tier score namespaces. Only Blue is ranked; measure all-tier finish distributions with `npm run test:floor` before changing floors/ranking.
 - `src/course.ts` - Checkpoint gates, split timing, ghost racing, and result screen
 - `src/effects.ts` - Avalanche warning UI and camera juice (speed FOV, shake)
 - `src/intro.ts` - Cinematic "fly over the mountain" intro at game start (issue #51; skippable, skipped under test/automation/reduced-motion)
-- `src/camera.ts` - Camera management system
+- `src/camera.ts` - Camera management system. Six viewpoint modes cycled by `V` (auto/follow/orbit/firstPerson/cameraman/drone; `toggleCameraMode()` is a back-compat wrapper that advances the cycle). Layers a full-360° orbit yaw + clamped pitch and a distance/height `zoom` multiplier on the classic follow rig — all neutral at their defaults, so spawn framing is unchanged. **Auto** recenters the orbit behind travel and frames the action *situationally* (issue #305 P3+): it eases a transient distance `autoZoom` + overhead `autoPitch` toward a target profile built from cosmetic-only signals — speed, terrain steepness (biggest pull-back + lift on **expert/steep** lines so the drop stays in shot), **jumps** (`isInAir` → pull back + lift to keep the landing framed), avalanche proximity, turn rate (tight tree-line carves pull *in*), and portrait screen aspect. The situational transients never write the persisted manual `zoom`/`orbitPitch` and are dropped on mode-change/restart, so Follow/Orbit/FP and the next run's spawn stay neutral. **Orbit** holds the player's manual yaw/pitch/zoom. **Cameraman** and **Drone** are two cinematic follow cameras (issue #315): cameraman is a low/close/side-trailing handheld chase (gentle weave), drone is a high/far slowly-circling aerial chase — both take their pose profile (angle/pitch/distance) from the pure `cinematicTargets`, lean into **steep/expert terrain and jumps** with extra pull-back + overhead lift (motion-gated so the steep spawn stays neutral), and drive the deterministic oscillation/circle off the camera's own `frameCount` (no wall-clock, sim byte-identical). **Drone** places itself via `cinematicOffset` (mirroring `followOffset`'s math + terrain clamp), circling the rider. **Cameraman** instead follows the snowman's ACTUAL travelled path (issue #357): it records distance-spaced path samples (`recordCameramanPath`, frame-rate independent like SnowTrails), samples a point a fixed distance back along the trail (`sampleCameramanTrail`, keyed off the rider's **continuous** travelled distance so the trail point never stalls-then-jumps a sample spacing) and sits just off to one side of it — the side/trailing basis comes from the path's **distance-windowed average direction** (chord of the last `CAMERAMAN_HEADING_WINDOW` units of path, eased — **not the instantaneous `playerRotation.y`**, and not the local tangent either), so neither a terrain/pose yaw flip (the old `yaw + angle` orbit bug) nor ordinary carved S-turns swing the camera around the rider: it **holds its lane while the rider turns** and comes around only when the new direction persists for ~a window of travel (a collapsed chord — hairpin doubling back / near-stop — just holds the heading). Its situational slope/jump pull-back profile is **eased** (`CAMERAMAN_PROFILE_EASE`, mirroring Auto's `autoZoom`/`autoPitch`) rather than stepped, so a terrain-gradient change glides the framing instead of lunging it — and all three cameraman eases (profile/heading/look) are **dt-scaled** off the loop's `AutoFrameContext.frameDt` (the camera updates on the render frame, so a constant per-call factor would converge faster at 144 Hz than 30 Hz); the lifecycle mode-switch passes the live `player.velocity` into `cameraManager.initialize` so a mid-run cinematic entry frames from real travel, not a momentarily-flipped yaw. Its look-at is eased too (the shared `desiredLookAt` scratch, ease factor 1.0 for every other mode = byte-identical copy). The path state resets on `initialize`/`resetView`/`setMode('cameraman')` so a restart or mode re-entry never trails a stale point. `usesOrbitControls(mode)` (auto/follow/orbit only) gates the manual view controls, so FP + the cinematic modes ignore Q/E/±/wheel/drag and the tray orbit/zoom widgets. The loop feeds the jump/avalanche signals via an optional `AutoFrameContext` on `cameraManager.update`; slope/turn/aspect the camera derives itself. Input (Q/E orbit, C recenter, +/−/wheel zoom, mouse-drag orbit, and the `#cameraControls` tray) is wired in `src/game/lifecycle.ts`; camera math (incl. the pure `autoFrameTargets`/`cinematicTargets` profiles) is headless-tested (`npm run test:camera`).
+- `src/scenery/` - Background scenery system (issue #320): the distant, non-interactive alpine world (planned: ridge panorama, valley/frozen lake, decorative forest belts, cliff bands, imported props, ambient birds/clouds/spindrift). `scenery.ts` is the `ScenerySystem` facade (`createScenery()`); built in `game/scene-setup.ts` **after** the collision arrays, ticked cosmetic-only in the `game/main-loop.ts` render-frame zone (never the fixed physics substep), and disposed in `game/teardown.ts`. Every layer must stay **render-only, collision-neutral, physics-neutral, `Math.random`-stream-neutral, and teardown-safe**: placement draws from the seeded `makeSceneryRng()` (never global `Math.random`) and all THREE construction is wrapped in `withPrivateThreeRandom()` (`scenery-rng.ts`) so object-UUID draws can't perturb the seeded harness stream (mirrors the `getSwayDepthMaterial` guard in `mountains/trees.ts`); the seed is keyed off the run tier via `scenerySeedFor()` (`scenery-budget.ts`). Headless-tested: `npm run test:scenery` (facade/seam invariants) and `npm run test:scenery-rng` (RNG neutrality). All six layers shipped; the ambient layer rewinds on every run reset.
 - `src/snowman.ts` - Snowman model and physics
+- `src/snowman/face.ts` - Procedural face rig (issue #364): the thin silhouette-line mouth (7 tiny joint spheres + 6 line segments under a `mouth` Group; layout constants + the pure `layoutMouthLine` refit math live in `src/snowman/mouth-line.ts`, shared with the expression controller — the joints are the animation control points, and refitting the segments each frame means bending the line never regenerates geometry), twig eyebrows, frosty cheeks, and white eye-highlight dots. Parented **under the head mesh** (like the eyes/nose) so they ride the flex layer's per-frame head squash, and registered in `userData.parts` **before** `recordBaseTransforms` so the expression controller animates them as offsets from neutral. Purely additive cosmetic geometry — geometry is pooled across repeats (one sphere for all 7 joints, one unit cylinder for all 6 segments, etc.) and both new materials are colour-only `MeshStandardMaterial`s that share the standard shader program (**+0 programs**); the snowman is built last in scene-setup so its UUID draws have no downstream seeded consumer. Headless-tested (`npm run test:face`).
+- `src/snowman-expression.ts` - Cosmetic facial-expression + body-acting layer (issue #364), a **sibling of `snowman-flex.ts`**. Same render-observer contract as flex: reads the per-frame physics result (speed/technique/turn/air) + this frame's aggregated events (landing grade, trick, obstacle clear, avalanche distance) and writes **only** the face/arm/hat/nose child transforms — a part-set **disjoint from flex** (which never touches those) **and from `pose.ts`** (which owns only the ski roots + root yaw), so the three cosmetic layers compose without fighting; never touches `pos`/`velocity`. A small technique→face state machine (idle/carve/snowplow/tuck/skid/parallel/air) drives the mouth/brows/eyes/pupils/cheeks and the arm/hat/nose poses; short-lived **event reactions** (clean/ok/sketchy landing, obstacle "woo", freestyle-trick celebration, avalanche panic, reserved finish) layer on top by a fixed priority. Deterministic (blink/wobble/windmill off an internal time accumulator, hat bounce a dt-integrated spring — never `Math.random`/wall-clock) and frame-rate independent, so the sim stays byte-identical. Called after `Flex.update` in `game/main-loop.ts`; reset alongside flex in `game/lifecycle.ts`. Headless-tested (`npm run test:expression`, plus the real-model `tests/snowman-expression-integration-tests.js`).
 - `src/controls.ts` - Keyboard and touch controls implementation
 - `src/audio.ts` - Background music and audio controls
 - `src/sfx.ts` - Procedural Web Audio sound effects (wind/carve/jump/land/avalanche/crash/finish)
@@ -28,14 +34,16 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `src/auth.ts` - Firebase authentication implementation
 - `src/scores.ts` - User scoring and leaderboard functionality
 - `src/boot/` - Classic-script local-auth fallback + Firebase bootstrap (the only remaining `.js`), and `script-loader.ts` (startup driver)
-- `assets/` - Media (audio, video) tracked with Git LFS
+- `assets/` - Media stored as ordinary Git blobs; `.gitattributes` does not configure Git LFS. Third-party assets retain their own licenses (see THIRD_PARTY_NOTICES.md).
 - `tests/` - Test files for terrain, physics, camera, avalanche, and collision detection
 - `tests/verification/` - Headless physics-invariant and DOM smoke harnesses (`npm run test:verify`)
 - `docs/ARCHITECTURE.md` - Module system, load order, game loop, and Firebase/scoring subsystem
 - `docs/PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
 - `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
 - `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis (includes the now-shipped R2/R3 refactor stages)
-- `docs/ASSETS.md` - Where PR/issue screenshots and the `og:image` card live (a GitHub Release, **not** `assets/*` branches) and the `scripts/*-asset*.mjs` tooling
+- `docs/ASSETS.md` - Release-based screenshot hosting tools and the migration runbook; existing branch URLs remain live until migrated.
+- `.claude/skills/webgpu-threejs-tsl/` - Vendored Claude Code skill: WebGPU renderer + TSL (Three.js Shading Language) reference for any future WebGPU work. Reference docs only (excluded from eslint); provenance and local API corrections are recorded in its `UPSTREAM.md`.
+- `.claude/skills/snowglider-dev/` - Claude Code skill: SnowGlider's engineering-discipline playbook, distilled from the commit history, Codex review threads, and issues. Encodes the hard invariants (byte-identical no-input physics, seeded-`Math.random` neutrality, fixed-timestep frame-rate independence, terrain two-formula `MUST MATCH`, teardown safety, automation gating, the `window.*` seam) and the recurring Codex/regression bug classes (shared-flag repurposing, state leaking across mode/run boundaries, teardown gaps, async races, incomplete consumer updates, within-frame ordering, perf-budget, deploy ordering). `SKILL.md` is the pre-flight checklist + bug-class self-check; `references/` holds the depth (`invariants.md`, `bug-classes.md`, `workflow.md`). Complements this file (the *what*) with the *how not to break it*.
 
 ## Commands
 - Install dependencies: `npm ci`
@@ -46,7 +54,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   Direct `file://` opens are not supported after the ES-module migration because browser module graphs
   and the import map do not load reliably from a null origin.
 - Run lint: `npm run lint` (eslint)
-- Run all Node tests: `npm test`
+- Run all Node tests: `npm test` (auto-discovering runner — see below)
 - Run Node tests with coverage: `npm run test:coverage`
 - Run browser tests: `npm run test:browser` (puppeteer)
 - Run specific tests: 
@@ -54,6 +62,19 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   - `npm run test:physics` - Physics simulation tests
   - `npm run test:regression` - Regression tests
   - `npm run test:tree-collision` - Tree collision tests
+  - `npm run test:face` - Static snowman face-rig geometry tests (issue #364)
+  - `npm run test:expression` - Snowman facial-expression / body-acting controller tests (issue #364)
+- `npm test` runs `tests/run-node-suite.js`, an **auto-discovering** runner: it finds
+  every `tests/*-tests.js` and `tests/verification/*.js` suite and runs each in its own
+  child `node` process. **Adding a Node suite needs no `package.json` edit — just drop
+  the `tests/<name>-tests.js` file in and it's picked up.** Browser suites
+  (`browser-*`, `audio`/`camera`/`controls-tests.js`) and the emulator-only
+  `firestore-rules-tests.js` are intentionally skipped (documented denylists in the
+  runner header). Every suite loads with the superset
+  `register-firebase-mock.mjs` hook (both its sub-hooks are no-ops unless triggered),
+  so no per-suite loader wiring is needed. Filter with `node tests/run-node-suite.js
+  <substring>`; list with `--list`. The individual `test:*` scripts remain for
+  targeted runs.
 - Browser tests (serve first with `npm start`, then append `?test=` — `file://` no longer works):
  - All tests: `http://localhost:8080/?test=unified`
  - Camera tests: `http://localhost:8080/?test=camera`
@@ -61,6 +82,34 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
  - Tree tests: `http://localhost:8080/?test=trees`
  - Avalanche tests: `http://localhost:8080/?test=avalanche`
  - Regression tests: `http://localhost:8080/?test=regression`
+
+## Agent Autonomy (for AI agents)
+Work fully autonomously, end to end: verify the claim against the code, implement, test, commit,
+push, open the PR, and respond to review/CI feedback — without pausing mid-task for confirmation.
+The maintainer reviews *outcomes* (PRs, issues, review replies), not intermediate questions.
+
+- **Do NOT use interactive or approval-gated tools.** No mid-task question prompts
+  (`AskUserQuestion` or equivalents), and no tool calls that block on a user approval dialog
+  (e.g. approval-gated MCP scheduling calls). If a tool call unexpectedly requires interactive
+  approval, do not retry it — pick a non-blocking alternative (event subscriptions over
+  approval-gated schedulers, direct API calls over interactive CLIs) and note the substitution
+  in your final summary.
+- **Decide, then document.** When a judgement call comes up (naming, scope of a comment update,
+  which suite a test belongs in, how to sequence commits), make the reasonable choice and record
+  the rationale where the maintainer will see it: the commit message, PR body, or issue thread.
+  The review round — Codex and the maintainer — is where course corrections happen.
+- **The only stop-and-ask cases** are destructive/irreversible operations (force-pushing over
+  someone else's work, deleting branches/issues/data, rewriting `main` history, publishing
+  secrets) and genuine scope changes that alter what was asked for. Everything reversible that
+  follows from the request: just do it.
+- **Monitoring is event-driven.** Watch PRs via the PR-activity subscription (webhook events),
+  not by polling loops or sleep timers. Follow through on every event until the PR is merged
+  or closed: fix + push if confident, reply on the thread with the fixing commit, resolve the
+  thread. Report a diagnosis instead of going quiet when something is out of scope or stuck.
+- **Blocked ≠ done.** If one path is blocked (a missing CLI, a denied call, a failing sandbox),
+  find the supported alternative (see the token/REST recipe below) rather than reporting the
+  task as impossible — and never end a turn with unexecuted "next steps" that you could have
+  executed yourself.
 
 ## GitHub & Pull Requests (for AI agents)
 - The `gh` CLI is **not installed** here and there is no `GITHUB_TOKEN`/`GH_TOKEN` env var, so `gh pr create` will fail. Do not assume you cannot open a PR.
@@ -82,17 +131,76 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
   pointing at system Chrome — see [`tests/puppeteer-runner.js`](tests/puppeteer-runner.js))
   to capture the actual rendered feature, and embed the image(s) in the PR body.
   Show before/after when changing existing visuals.
-- **Do not commit screenshots/PNGs into the repo tree** (keep `main` text-only;
-  media uses Git LFS). Host PR screenshots on the `assets` **GitHub Release**, not
-  on `assets/*` branches (release assets stay out of git history; the old branch
-  pattern is retired — see [`docs/ASSETS.md`](docs/ASSETS.md)):
+- **Screenshots MUST show the real PLAYER path, not the automation fallback.** The game
+  intentionally serves a degraded/stylized scene under automation so seeded test streams
+  stay byte-identical — most importantly, the EZ-Tree gameplay forest (`src/mountains/ez-forest.ts`)
+  falls back to the stylized cone trees whenever it detects automation (`navigator.webdriver`,
+  `window.isTestMode`, or a `?test=` URL). **Headless puppeteer/Playwright always set
+  `navigator.webdriver = true`**, so a naive screenshot captures the *cone* forest and
+  MISREPRESENTS the game (it looks like the realistic EZ trees are gone when they are not).
+  Before capturing, force the player path: append `?eztrees=1` (the URL opt-in overrides the
+  automation gate — see `resolveEzForestEnabled`) and/or defeat the gate in an init script
+  (`Object.defineProperty(navigator, 'webdriver', { get: () => false })`). Sanity-check the
+  shot before embedding it: e.g. assert the EZ branch instances actually attached
+  (`terrainMesh.parent.children.some(c => c.userData.forestPart === 'ezBranches')`). Never
+  use a plain `?test=` URL for a visual screenshot. The same "automation serves a reduced
+  scene" caveat applies to any feature gated off under `isTestMode`/`webdriver` (intro,
+  debris, sfx) — screenshot the mode the player actually sees.
+- **Do not commit screenshots/PNGs into the repo tree** (avoid adding new binary media to `main`;
+  Git LFS is not configured). New screenshots can be hosted on the `assets` **GitHub Release**
+  with `node scripts/upload-release-asset.mjs shot.png --name pr<NN>-<label>.png`.
+  Embed the printed URL in the PR body, and confirm it returns HTTP 200 first.
+  Prefix names with the PR/issue number because the asset namespace is flat.
+  Preserve existing `assets/*` branches and their URLs until the migration in
+  [`docs/ASSETS.md`](docs/ASSETS.md) is explicitly run and verified. The live `og:image`
+  still uses its branch URL until the separate production meta-tag update.
+
+### Stacked PRs (large features)
+
+Land a big feature as a **staged stack of small PRs**, each independently reviewable and
+each holding this repo's invariants (byte-identical `test:verify`, seeded-`Math.random`
+neutrality, the perf budget). This is how the persistent snow-depth field (#246) shipped
+(`snow-depth.ts` PRs 1–5). Shape the stack so risk *climbs*: pure dependency-free logic
+first (Node-testable, no renderer/physics), then the wiring, then the risky renderer /
+shader / GPU work, then perf-scaling, then cleanup — so the low-risk layers can merge while
+the risky one is still in review.
+
+- Each PR's base is the branch **below** it, not `main`: PR 1 → `main`; PR 2 → PR-1 branch;
+  PR 3 → PR-2 branch; … Name branches distinctly (`claude/<feature>-prN`). In each PR body
+  say "stacked on #N — merge that first," and **never merge — leave the stack for the
+  maintainer.**
+- **Restacking after a review fix (this bites).** Fixing a review comment on a lower PR
+  amends its branch, so every PR above must rebase onto the new tip. Use `git rebase --onto`
+  with the **old** parent tip so you replay only that PR's *own* commits — a plain
+  `git rebase <parent>` replays the parent's now-superseded commit too and conflicts against
+  itself:
   ```bash
-  node scripts/upload-release-asset.mjs shot.png --name pr<NN>-<label>.png
-  # prints https://github.com/<owner>/<repo>/releases/download/assets/<name>
+  # PR-1 branch moved  OLD_P1 -> NEW_P1
+  git rebase --onto <NEW_P1> <OLD_P1> <pr2-branch>   # replays only PR-2's commits
+  git push --force-with-lease origin <pr2-branch>    # then repeat PR-3 onto the new PR-2, …
   ```
-  Embed the printed URL in the PR body (prefix `--name` with the PR/issue number,
-  since the asset namespace is flat). The `og:image` card is the asset `og-card.png`.
-  Confirm the URL returns HTTP 200 before relying on it.
+  Resolve conflicts by keeping **both** layers' intent (the lower PR's method rewrite + the
+  upper PR's added call/row). After each restack re-run the full gate on that branch
+  (`npm run lint && npm run typecheck && npm test && npm run test:verify && npm run build`,
+  plus `tests/e2e/perf-budget.spec.ts` for any PR touching the renderer — its ceilings are a
+  regression guard; only bump one when the measured output justifies it, and say so).
+- **Delegate the mechanical restacks to a subagent**; keep the main context for the feature
+  work. Give the subagent the exact `--onto` SHAs and, for any semantic merge (the same
+  method changed on two branches), the **exact target code** to commit — don't let it guess.
+  Have it report the new tip SHA and each gate's pass/fail, and push only if all pass.
+- **Review rounds (Codex).** Every PR gets an automated Codex review; subscribe to PR
+  activity. For each finding: fix at the layer that **owns** the code (a bug in PR-1's logic
+  is fixed on PR-1, then restack up), reply on the thread with the fixing commit + what
+  changed, and resolve it. Recurring classes worth pre-empting here:
+  - **Non-finite inputs poisoning a `[0..1]` field** — `clamp01(NaN)` returns `NaN`; make the
+    clamp NaN-safe (`v > 0 ? min(v,1) : 0`) and route tuning options through a finite fallback.
+  - **Frame-rate dependence** — anything driven per render frame must scale by `dt`, and a
+    *stamped* trail must be spaced by travelled **distance** (like `SnowTrails`), not stamped
+    once per frame, or it dots/gaps at speed and differs at 60/120/144 Hz.
+  - **Partial GPU texture uploads** — three's `DataTexture.addUpdateRange` assumes an RGBA
+    4-byte component stride, so a partial range on a single-channel `RedFormat` texture
+    uploads misaligned texels; do a full `needsUpdate` re-upload from a consistent byte mirror
+    (the win is windowing the CPU sync, not the upload).
 
 ## Code Style Guidelines
 - **Indentation**: 2 spaces
@@ -185,7 +293,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - Boulders spawn behind player (uphill) and tumble downhill following terrain
 - Physics includes gravity, ground collision, bounce, friction, and slide acceleration
 - Burial detection: collision between player and boulder = game over
-- Methods: `trigger(playerPos)`, `update(dt)`, `checkBurial(playerPos)`, `hasPassed(playerPos)`, `reset()`
+- Methods: `trigger(playerPos)`, `update(dt)` (physics + cosmetics — the harness/test entry point), `updatePhysics(dt)` / `updateCosmetics(dt)` (the #402 split: the live loop advances boulders per FIXED 1/60 substep and powder per render frame), `checkBurial(playerPos)`, `hasPassed(playerPos)`, `reset()`
 - Requires terrain height function via `setTerrainFunction(fn)` for terrain-aware physics
 - Browser tests: serve with `npm start`, then `http://localhost:8080/?test=avalanche`
 

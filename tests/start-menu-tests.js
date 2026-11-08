@@ -21,6 +21,8 @@ const dom = new JSDOM(`<!doctype html><html><head>
   <meta name="build-id" content="2026-06-18 12:00">
 </head><body>
   <div id="startGameContainer">
+    <p id="startLoadingStatus"><span id="startLoadingText"></span></p>
+    <button id="startSoundButton" aria-pressed="true">Sound on</button>
     <div id="difficultyPicker" role="radiogroup" aria-label="Difficulty tier"></div>
     <div id="startMenu">
       <button id="startGameButton">Start Game</button>
@@ -70,6 +72,8 @@ async function main() {
   // registers the DOMContentLoaded + game-scripts-ready listeners.
   await import('../src/ui/start-menu.ts');
   const SM = window.SnowGliderStartMenu;
+  const { AudioModule } = await import('../src/audio.ts');
+  const { setStartupStatus } = await import('../src/boot/startup-status.ts');
 
   console.log('--- module surface ---');
   check('exposes the SnowGliderStartMenu API',
@@ -86,6 +90,51 @@ async function main() {
   const startMenu = document.getElementById('startMenu');
   const keyboardHint = document.getElementById('keyboardHint');
 
+  console.log('\n--- silent welcome preferences and real startup status ---');
+  const soundButton = document.getElementById('startSoundButton');
+  let menuPlayback = 0;
+  const originalStartAudio = AudioModule.startAudio;
+  AudioModule.startAudio = () => { menuPlayback++; return true; };
+  soundButton.click();
+  check('welcome sound toggle persists mute and updates its accessible state',
+    window.localStorage.getItem('snowgliderMuted') === 'true'
+    && soundButton.getAttribute('aria-pressed') === 'false');
+  SM.initializeStartMenu();
+  SM.initializeStartMenu();
+  soundButton.click();
+  check('reinitializing the welcome menu does not duplicate sound listeners',
+    window.localStorage.getItem('snowgliderMuted') === 'false'
+    && soundButton.getAttribute('aria-pressed') === 'true');
+  check('changing the welcome sound preference never starts playback', menuPlayback === 0);
+  AudioModule.startAudio = originalStartAudio;
+  setStartupStatus('warming');
+  check('loading copy follows actual startup milestones',
+    document.getElementById('startLoadingStatus').dataset.stage === 'warming'
+    && /Warming/.test(document.getElementById('startLoadingText').textContent));
+  let hidden = true;
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  check('decorative motion pauses while the page is hidden', document.body.classList.contains('onboarding-paused'));
+  hidden = false;
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  check('visible menu can resume its bounded animation', !document.body.classList.contains('onboarding-paused'));
+  setStartupStatus('loading');
+
+  console.log('\n--- offline badge (issue #358) ---');
+  // The offline badge is mounted into #startGameContainer but stays hidden while the
+  // harness reports online (navigator.onLine defaults true) — no visible change to the
+  // online start screen.
+  const offlineBadge = document.getElementById('offlineBadge');
+  check('offline badge is mounted into the start container', !!offlineBadge && offlineBadge.parentElement === startContainer);
+  check('offline badge carries the contract copy', !!offlineBadge && offlineBadge.textContent === 'Offline mode — local bests only');
+  check('offline badge hidden while online', !!offlineBadge && offlineBadge.style.display === 'none');
+  // An `offline` event reveals it; `online` hides it again (connectivity subscription).
+  window.dispatchEvent(new window.Event('offline'));
+  check('offline event reveals the badge', !!offlineBadge && offlineBadge.style.display === 'block');
+  window.dispatchEvent(new window.Event('online'));
+  check('online event hides the badge again', !!offlineBadge && offlineBadge.style.display === 'none');
+  check('only one offline badge in the DOM', document.querySelectorAll('#offlineBadge').length === 1);
+
   console.log('\n--- build badge ---');
   // PR #111 moved the badge off the "Start Game" CTA into an unobtrusive footer.
   check('addBuildBadge renders the build id into the #buildBadge footer',
@@ -93,10 +142,10 @@ async function main() {
   check('addBuildBadge no longer injects a pill into the start button',
     !/build-badge/.test(btn.innerHTML));
 
-  console.log('\n--- difficulty picker (●Bunny / ■Blue / ◆Black) ---');
+  console.log('\n--- difficulty picker (●Bunny / ■Blue / ◆Black / ◆◆Expert) ---');
   const picker = document.getElementById('difficultyPicker');
   const options = picker.querySelectorAll('.difficulty-option');
-  check('picker builds one option per tier (3)', options.length === 3);
+  check('picker builds one option per tier (4)', options.length === 4);
   check('exposes getSelectedDifficulty', typeof SM.getSelectedDifficulty === 'function');
   check('default selection is blue (the classic game)',
     SM.getSelectedDifficulty() === 'blue');
@@ -144,6 +193,17 @@ async function main() {
 
   console.log('\n--- deferred start before game scripts load (080bb29) ---');
   delete window.initializeGameWithAudio; // game scripts not ready yet
+  const { Sfx } = await import('../src/sfx.ts');
+  const originalPlay = AudioModule.playPreloadedAudio;
+  const originalUnlock = Sfx.unlock;
+  const audioCalls = [];
+  AudioModule.playPreloadedAudio = () => { audioCalls.push('music'); return true; };
+  Sfx.unlock = () => { audioCalls.push('sfx'); };
+  btn.dispatchEvent(new window.Event('click'));
+  check('early Start unlocks music and SFX synchronously in the original click',
+    audioCalls.join(',') === 'music,sfx' && typeof window.initializeGameWithAudio !== 'function');
+  AudioModule.playPreloadedAudio = originalPlay;
+  Sfx.unlock = originalUnlock;
   const deferred = SM.startGame();
   check('startGame defers (returns false) when game scripts are not ready',
     deferred === false);
@@ -152,13 +212,18 @@ async function main() {
   check('deferred start does NOT hide the start container',
     startContainer.style.display !== 'none');
 
-  console.log('\n--- game scripts arrive: preserve start gesture (6429cfa) ---');
+  console.log('\n--- game scripts arrive: honor the queued start ---');
   window.initializeGameWithAudio = () => { launches++; };
+  setStartupStatus('warming');
+  check('an available initializer cannot bypass unfinished scene warmup',
+    SM.startPendingGameIfReady() === false && launches === 0);
+  setStartupStatus('ready');
   window.dispatchEvent(new window.Event('snowglider:game-scripts-ready'));
   check('game-scripts-ready clears the pending wait and re-enables the button',
     btn.disabled === false && !btn.hasAttribute('aria-busy'));
-  check('game-scripts-ready does NOT auto-start; it waits for a fresh gesture',
-    launches === 0 && startContainer.style.display !== 'none');
+  check('game-scripts-ready completes the queued start without a second click',
+    launches === 1 && startContainer.style.display === 'none');
+  startContainer.style.display = 'flex';
 
   console.log('\n--- successful start when ready ---');
   launches = 0;
@@ -167,6 +232,8 @@ async function main() {
   check('successful start hides the container and shows the canvas',
     startContainer.style.display === 'none' && gameCanvas.style.display === 'block');
   check('successful start invokes initializeGameWithAudio once', launches === 1);
+  SM.startGame();
+  check('repeated start after the menu closes cannot launch twice', launches === 1);
 
   console.log('\n--- about panel show/hide ---');
   SM.showAbout();
@@ -177,8 +244,8 @@ async function main() {
   check('showAbout also hides the difficulty picker', picker.style.display === 'none');
   SM.hideAbout();
   check('hideAbout restores the menu and hides the about panel',
-    aboutPanel.style.display === 'none' && startMenu.style.display === 'flex');
-  check('hideAbout restores the difficulty picker', picker.style.display === 'flex');
+    aboutPanel.style.display === 'none' && startMenu.style.display === '');
+  check('hideAbout restores the difficulty picker', picker.style.display === '');
 
   console.log('\n--- keyboard: Enter starts when the start screen is visible ---');
   startContainer.style.display = 'flex'; // start screen visible again
@@ -194,6 +261,18 @@ async function main() {
     .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   check('Enter on a focused difficulty option does NOT start the run', launches === 0);
 
+  // Enter on the PWA install chip must NOT also start the run (Codex #360): a keyboard
+  // user pressing Enter on Install would otherwise both install AND launch the game.
+  launches = 0;
+  const installChip = document.createElement('div');
+  installChip.id = 'installPrompt';
+  const installBtn2 = document.createElement('button');
+  installChip.appendChild(installBtn2);
+  startContainer.appendChild(installChip);
+  installBtn2.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  check('Enter on the install chip does NOT start the run', launches === 0);
+  startContainer.removeChild(installChip);
+
   console.log('\n--- keyboard: Escape closes the about panel ---');
   SM.showAbout();
   document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
@@ -204,7 +283,10 @@ async function main() {
   startContainer.style.display = 'flex';
   aboutPanel.style.display = 'none';
   launches = 0;
+  SM.initializeStartMenu();
+  SM.initializeStartMenu();
   btn.dispatchEvent(new window.Event('click'));
+  check('start is synchronous within the click gesture after repeated menu initialization', launches === 1);
   await flush();
   await flush();
   check('clicking Start runs the start flow (after async audio unlock)',
@@ -251,6 +333,31 @@ async function main() {
   check('signed out: leaderboard hidden', lb.style.display === 'none');
   check('signed out: getLeaderboard is NOT called (Firestore rules deny it)',
     leaderboardReads === 0);
+
+  // Offline gate (issue #358, Codex): even with real auth + Firestore initialized and
+  // signed out on a ranked tier, the sign-in hint + leaderboard preview must hide when
+  // offline — the connectivity handler re-runs refreshStartAccountUI, which now factors
+  // in navigator.onLine. Drive onLine and fire the window events the handler listens on.
+  let online = true;
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: null, isSignedIn: false },
+    getLeaderboard: () => []
+  });
+  refresh();
+  await settle();
+  check('online + signed out + ranked: sign-in hint shown', hint.style.display === 'block');
+  online = false;
+  window.dispatchEvent(new window.Event('offline'));
+  await settle();
+  check('going offline hides the sign-in hint', hint.style.display === 'none');
+  check('going offline hides the leaderboard preview', lb.style.display === 'none');
+  online = true;
+  window.dispatchEvent(new window.Event('online'));
+  await settle();
+  check('back online re-shows the sign-in hint', hint.style.display === 'block');
 
   // Auth up but Firestore disabled (localhost/127.0.0.1 + file:// fallback): the
   // hint advertises leaderboard saving that can't work there, so it must stay
@@ -336,17 +443,43 @@ async function main() {
     !!lb.querySelector('tr.current-user-score'));
   check('current user shown by display name', lb.innerHTML.includes('Ada Lovelace'));
 
+  // Other players show their denormalized leaderboard-doc name; entries written
+  // before the field existed fall back to 'Anonymous' (never 'Player N').
+  resetAccountDom();
+  setAccount({
+    firebase: { auth: true, firestore: true },
+    authState: { user: { uid: 'me', displayName: 'Me' }, isSignedIn: true },
+    getLeaderboard: () => [
+      { userId: 'rival', time: 11.1, displayName: 'Rival' },
+      { userId: 'legacy', time: 12.2 },
+      { userId: 'me', time: 13.3 }
+    ]
+  });
+  refresh();
+  await settle();
+  check('other players render their denormalized display name',
+    lb.innerHTML.includes('Rival'));
+  check('entries without a denormalized name fall back to Anonymous',
+    lb.innerHTML.includes('Anonymous') && !lb.innerHTML.includes('Player 2'));
+
   // XSS: a malicious display name is HTML-escaped (escapeHtml), not injected live.
+  // Covers BOTH the viewer's own auth-profile name and another player's
+  // denormalized leaderboard-doc name (the stored-XSS vector).
   resetAccountDom();
   setAccount({
     firebase: { auth: true, firestore: true },
     authState: { user: { uid: 'me', displayName: '<img src=x onerror=alert(1)>' }, isSignedIn: true },
-    getLeaderboard: () => [{ userId: 'me', time: 9.9 }]
+    getLeaderboard: () => [
+      { userId: 'me', time: 9.9 },
+      { userId: 'evil', time: 10.1, displayName: '<img src=y onerror=alert(2)>' }
+    ]
   });
   refresh();
   await settle();
   check('malicious display name is escaped (no live <img> injected)',
     lb.querySelector('img') === null && lb.innerHTML.includes('&lt;img'));
+  check('another player\'s malicious denormalized name is escaped too',
+    lb.innerHTML.includes('&lt;img src=y'));
 
   // getLeaderboard rejection is swallowed and hides the board.
   resetAccountDom();
@@ -363,8 +496,8 @@ async function main() {
   // ScoresModule present but without getLeaderboard (defensive) -> board hidden.
   resetAccountDom();
   window.AuthModule = {
-    isFirebaseAvailable: () => ({ auth: true, firestore: true }),
-    getAuthState: () => ({ user: { uid: 'me' }, isSignedIn: true })
+    isFirebaseAvailable: () => ({ auth: true, firestore: true, analytics: false }),
+    getAuthState: () => ({ user: /** @type {any} */ ({ uid: 'me' }), isSignedIn: true })
   };
   window.ScoresModule = {};
   lb.style.display = 'block';
@@ -422,6 +555,49 @@ async function main() {
   await settle();
   check('no auth/scores modules: sign-in hint hidden', hint.style.display === 'none');
   check('no auth/scores modules: leaderboard hidden', lb.style.display === 'none');
+
+  // Re-initializing the menu must tear down the prior connectivity watcher (rather
+  // than stack a second one) and must not duplicate the offline badge. After a
+  // re-init, a single `offline` event should still flip the badge exactly once.
+  console.log('\n--- offline badge re-init/teardown (issue #358) ---');
+  const badgeBefore = document.getElementById('offlineBadge');
+  if (badgeBefore) badgeBefore.style.display = 'none';
+  SM.initializeStartMenu();
+  check('re-init does not duplicate the offline badge', document.querySelectorAll('#offlineBadge').length === 1);
+  const badgeAfter = document.getElementById('offlineBadge');
+  window.dispatchEvent(new window.Event('offline'));
+  check('after re-init the badge still reveals on offline', !!badgeAfter && badgeAfter.style.display === 'block');
+  window.dispatchEvent(new window.Event('online'));
+  check('after re-init the badge still hides on online', !!badgeAfter && badgeAfter.style.display === 'none');
+
+  console.log('\n--- startup failure recovery ---');
+  startContainer.style.display = 'flex';
+  setStartupStatus('error', new Error('Error creating WebGL context.'));
+  check('background failure preserves the welcome screen without a modal',
+    document.getElementById('fatalErrorOverlay') === null
+    && startContainer.style.display !== 'none'
+    && btn.textContent === 'Loading help');
+  const launchesBeforeFailure = launches;
+  check('failed startup exposes recovery without starting a run', SM.startGame() === false && launches === launchesBeforeFailure);
+  check('explicit start after failure provides a reload action', !!document.getElementById('fatalErrorReloadBtn'));
+  const { resetFatalErrorOverlay } = await import('../src/ui/fatal-error-overlay.ts');
+  resetFatalErrorOverlay();
+  setStartupStatus('loading');
+  delete window.initializeGameWithAudio;
+  SM.startGame();
+  let stoppedMusic = false;
+  let stoppedEffects = false;
+  const originalEnableSound = AudioModule.enableSound;
+  const originalSfxTeardown = Sfx.teardown;
+  AudioModule.enableSound = (enable) => { stoppedMusic = !enable; };
+  Sfx.teardown = () => { stoppedEffects = true; };
+  setStartupStatus('error', new Error('Failed to fetch game module'));
+  check('failure after an early Play clears pending wait and shows recovery',
+    !btn.disabled && !btn.hasAttribute('aria-busy') && !!document.getElementById('fatalErrorReloadBtn'));
+  check('failed early Play stops both music and the procedural wind bed', stoppedMusic && stoppedEffects);
+  AudioModule.enableSound = originalEnableSound;
+  Sfx.teardown = originalSfxTeardown;
+  resetFatalErrorOverlay();
 
   console.log(`\nSTART MENU TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

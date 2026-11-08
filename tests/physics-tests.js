@@ -83,8 +83,9 @@ const mockEnvironment = {
                               window.treeCollisionRadius : 2.5;
       const isCloseEnough = horizontalDistance < collisionRadius;
       
-      // Only consider jumping over trees when genuinely in the air AND moving upward AND high enough
-      const isJumpingHighAboveTrees = this.isInAir && this.verticalVelocity > 0 && this.pos.y > (tree.y + 5);
+      // Clear a tree whenever airborne and high enough above its base (height-based
+      // only, rising OR descending past the apex — mirrors src/snowman/collision.ts).
+      const isJumpingHighAboveTrees = this.isInAir && this.pos.y > (tree.y + 5);
       
       // Allow jumping over trees but collide when on the ground
       return isCloseEnough && !isJumpingHighAboveTrees;

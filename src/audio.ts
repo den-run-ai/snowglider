@@ -16,7 +16,7 @@
 // Design principles:
 // 1. Native HTML5 Audio element - no library dependencies
 // 2. Single track only (bad_cat) - no track switching complexity
-// 3. Only 2 state variables - muted and initialized
+// 3. Minimal state - preferences, initialization, and explicit playback intent
 // 4. No pre-loading - load when user clicks play
 // 5. No visibility change handling - let browser manage it
 // 6. No retry prompts - if it doesn't work, it doesn't work
@@ -24,6 +24,7 @@
 // To disable: Set AUDIO_ENABLED = false
 
 import { Sfx } from './sfx.js';
+import { safeGetItem, safeSetItem } from './offline/offline-store.js';
 
 const AUDIO_ENABLED = true;
 
@@ -49,16 +50,26 @@ export const AudioModule = (function() {
   let audio: HTMLAudioElement | null = null;
   let muted = false;
   let initialized = false;
+  // A muted Play still records intent, so an in-game unmute can create the track.
+  // Preference changes on the welcome screen never opt into playback.
+  let playbackRequested = false;
   // Live showMessage() toasts (node + auto-remove timer) so teardown() can clear any that
   // are still on screen — they're fixed-position z-index:3000 divs that would otherwise
   // linger over the host page after an unmount until their timeout fires.
   const activeMessages = new Set<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> }>();
 
+  // Run messages belong to the active run, not the result dialog. Clearing them
+  // must leave music preferences and the sound control intact for replay.
+  function clearMessages(): void {
+    for (const { el, timer } of activeMessages) { clearTimeout(timer); el.remove(); }
+    activeMessages.clear();
+  }
+
   const AUDIO_PATH = 'assets/skullbeatz_bad_cat.mp3';
 
   // Load mute preference from localStorage
   function loadPreferences() {
-    const stored = localStorage.getItem('snowgliderMuted');
+    const stored = safeGetItem('snowgliderMuted');
     if (stored !== null) {
       muted = stored === 'true';
     }
@@ -66,7 +77,7 @@ export const AudioModule = (function() {
 
   // Save mute preference
   function savePreferences() {
-    localStorage.setItem('snowgliderMuted', String(muted));
+    safeSetItem('snowgliderMuted', String(muted));
   }
 
   // Create the audio element
@@ -93,8 +104,8 @@ export const AudioModule = (function() {
     const btn = document.createElement('button');
     btn.id = 'audioControlBtn';
     btn.style.cssText = `
-      position: fixed; bottom: 20px; right: 20px; z-index: 1000;
-      width: 40px; height: 40px; border-radius: 50%;
+      position: fixed; bottom: var(--hud-bottom, 20px); right: var(--hud-right, 20px); z-index: 1000;
+      width: 44px; height: 44px; border-radius: 50%;
       border: none; background: rgba(0,0,0,0.6); color: white;
       font-size: 20px; cursor: pointer;
     `;
@@ -129,6 +140,8 @@ export const AudioModule = (function() {
   function updateButtonUI(btn: HTMLElement) {
     btn.textContent = muted ? '🔇' : '🔊';
     btn.title = muted ? 'Unmute' : 'Mute';
+    btn.setAttribute('aria-label', 'Sound');
+    btn.setAttribute('aria-pressed', String(!muted));
   }
 
   // Public API
@@ -140,6 +153,7 @@ export const AudioModule = (function() {
       if (initialized) return { initialized: true };
 
       loadPreferences();
+      Sfx.setMuted(muted);
       initialized = true;
       console.log('[Audio] Initialized (simplified)');
       return { initialized: true };
@@ -147,44 +161,52 @@ export const AudioModule = (function() {
 
     setupUI: function() {
       if (!AUDIO_ENABLED) return;
+      AudioModule.init();
       createUI();
     },
 
     startAudio: function() {
-      if (!AUDIO_ENABLED || muted) return false;
+      if (!AUDIO_ENABLED) return false;
+      // The Play gesture can arrive before the deferred scene has initialized.
+      // Hydrate preferences synchronously before constructing or playing media.
+      AudioModule.init();
+      playbackRequested = true;
+      if (muted) return false;
 
       const el = createAudio();
       el.play().then(() => {
         console.log('[Audio] Playing');
-      }).catch((e) => {
-        console.warn('[Audio] Play failed:', e.message);
+      }).catch((e: unknown) => {
+        console.warn('[Audio] Play failed:', e instanceof Error ? e.message : e);
       });
       return true;
     },
 
-    toggleMute: function() {
+    // Update the shared preference without starting media. The welcome screen
+    // uses this API; only Play or an in-game unmute may request playback.
+    setMuted: function(value: boolean) {
       if (!AUDIO_ENABLED) return false;
-
-      muted = !muted;
+      AudioModule.init();
+      muted = value;
       savePreferences();
 
-      // The single mute button governs both subsystems: the background music here
-      // and the procedural sound effects (#158), which share the 'snowgliderMuted'
-      // preference key.
+      // The single mute preference governs background music and procedural SFX.
       Sfx.setMuted(muted);
+      if (muted && audio) audio.pause();
 
-      if (audio) {
-        if (muted) {
-          audio.pause();
-        } else {
-          audio.play().catch(() => {});
-        }
-      }
-
-      // Update button if exists
       const btn = document.getElementById('audioControlBtn');
       if (btn) updateButtonUI(btn);
+      return muted;
+    },
 
+    toggleMute: function() {
+      if (!AUDIO_ENABLED) return false;
+      AudioModule.init();
+      AudioModule.setMuted(!muted);
+
+      // If the run began muted, there is no element to resume yet. This method
+      // runs within the sound-button gesture, so it can create and play it now.
+      if (!muted && playbackRequested) AudioModule.startAudio();
       return muted;
     },
 
@@ -230,6 +252,7 @@ export const AudioModule = (function() {
     showMessage: function(msg: string, duration = 3000) {
       // Keep message functionality
       const div = document.createElement('div');
+      div.className = 'game-toast';
       div.textContent = msg;
       div.style.cssText = `
         position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -242,6 +265,7 @@ export const AudioModule = (function() {
       activeMessages.add(entry);
     },
     showAudioRetryPrompt: function() {},
+    clearMessages,
 
     // Stop the music and release the mute button (dispose-audit teardown / dev-HMR).
     // The looping <audio> element and the `#audioControlBtn` are module-level, so without
@@ -251,8 +275,7 @@ export const AudioModule = (function() {
     teardown: function() {
       // Clear any on-screen toasts (and their pending auto-remove timers) FIRST — showMessage
       // isn't gated on AUDIO_ENABLED, so a toast can exist even when audio is disabled.
-      for (const { el, timer } of activeMessages) { clearTimeout(timer); el.remove(); }
-      activeMessages.clear();
+      clearMessages();
       if (!AUDIO_ENABLED) return;
       if (audio) {
         // pause() halts playback; dropping the reference makes the (detached, paused)
@@ -264,6 +287,7 @@ export const AudioModule = (function() {
       const btn = document.getElementById('audioControlBtn');
       btn?.parentNode?.removeChild(btn);
       initialized = false;
+      playbackRequested = false;
     }
   };
 })();

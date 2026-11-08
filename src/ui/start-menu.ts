@@ -8,15 +8,26 @@
 // under the current non-strict config. The `../audio.js` import specifier is
 // unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
-import { getDifficultyConfig, readStoredDifficulty, storeDifficulty, type Difficulty } from '../difficulty.js';
+import { getDifficultyConfig, storeDifficulty, type Difficulty } from '../difficulty.js';
+import { consumeRunLaunch, initialRunDifficulty, isRunTransition } from '../game/run-transition.js';
+import { Sfx } from '../sfx.js';
 import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPickerHandle } from './difficulty-picker.js';
+import { isOnline, watchConnectivity } from '../offline/offline-state.js';
+import { ensureOfflineBadge, setOfflineBadgeVisible } from '../offline/offline-ui.js';
+import { initInstallPrompt, type InstallPromptController } from '../pwa/install-prompt.js';
+import { closeOverlayFocus, focusGameCanvas, openOverlayFocus } from './accessibility.js';
+import { getStartupStatus, showStartupError, subscribeStartupStatus, type StartupStatus } from '../boot/startup-status.js';
 
 (function () {
   let startGamePending = false;
+  // A navigation cannot carry the Restart button's user activation. Prepare the
+  // selected course, then wait for Start in this document before audio/gameplay.
+  const preparingNewTier = isRunTransition();
   // The player's chosen difficulty tier, remembered across sessions in
   // localStorage. The picker writes it; the game reads the persisted value at run
   // start (src/snowglider.ts) so changing the pick then starting takes effect.
-  let selectedDifficulty: Difficulty = readStoredDifficulty();
+  let selectedDifficulty: Difficulty = initialRunDifficulty();
+  let menuListeners: AbortController | null = null;
   // Handle to the shared picker widget; getSelectedDifficulty reads through it so the
   // live selection stays the single source of truth across rebuilds.
   let pickerHandle: DifficultyPickerHandle | null = null;
@@ -24,6 +35,75 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
   // in-flight leaderboard read can detect that a newer refresh superseded it
   // (e.g. the player logged out mid-read) and discard its now-stale result.
   let accountRefreshSeq = 0;
+  let scrollBeforeAbout = 0;
+
+  // Handle to the offline-mode badge + its connectivity subscription. The badge is
+  // mounted hidden and only revealed when offline, so the online start screen is
+  // unchanged; the unsubscribe keeps us teardown-clean if the menu is re-initialized.
+  let offlineBadge: HTMLElement | null = null;
+  let unwatchConnectivity: (() => void) | null = null;
+  // The install-prompt controller; re-init disposes the prior one so we never stack
+  // duplicate beforeinstallprompt listeners or leave a second chip behind.
+  let installPrompt: InstallPromptController | null = null;
+  let unwatchStartup: (() => void) | null = null;
+
+  function updateStartupStatus(status: StartupStatus) {
+    const loading = document.getElementById('startLoadingStatus');
+    const text = document.getElementById('startLoadingText');
+    if (loading) loading.dataset.stage = status.stage;
+    if (text) text.textContent = {
+      loading: 'Loading the mountain…',
+      building: 'Preparing your run…',
+      warming: 'Warming up the mountain…',
+      ready: 'Ready to ride',
+      error: 'Couldn’t prepare the mountain',
+    }[status.stage];
+    if (preparingNewTier && status.stage !== 'error') {
+      const waiting = status.stage !== 'ready';
+      document.getElementById('startGameContainer')?.classList.toggle('run-preparing', waiting);
+      setStartButtonWaiting(waiting);
+    }
+    if (status.stage === 'error') {
+      const wasPending = startGamePending;
+      startGamePending = false;
+      setStartButtonWaiting(false);
+      // An early Play gesture may already have unlocked audio. A failed boot
+      // must not leave its soundtrack running over the recovery screen.
+      AudioModule.enableSound(false);
+      Sfx.teardown();
+      const button = document.getElementById('startGameButton');
+      if (button) button.textContent = 'Loading help';
+      document.getElementById('startGameContainer')?.classList.remove('run-preparing');
+      if (wasPending) showStartupError();
+    }
+  }
+
+  // Mount the offline badge into the start container and keep its visibility in sync
+  // with connectivity. Idempotent: re-init tears down the prior watcher first so we
+  // never stack duplicate `online`/`offline` listeners.
+  function setupOfflineBadge() {
+    const container = document.getElementById('startStatus') ?? document.getElementById('startGameContainer');
+    if (!container) return;
+    offlineBadge = ensureOfflineBadge(container);
+    setOfflineBadgeVisible(offlineBadge, !isOnline());
+    if (unwatchConnectivity) unwatchConnectivity();
+    unwatchConnectivity = watchConnectivity((online) => {
+      setOfflineBadgeVisible(offlineBadge, !online);
+      // Global-only affordances (sign-in hint + leaderboard preview) are decided from
+      // Firebase-INITIALIZED state, which stays true after going offline; re-run the
+      // refresh so they hide/show with connectivity, not just the badge (Codex #359).
+      refreshStartAccountUI();
+    });
+  }
+
+  // Wire the PWA install prompt (issue #358, PR 2). Additive and self-gating: the
+  // chip only appears when the browser fires `beforeinstallprompt` and we're not
+  // under automation/standalone. Dispose any prior controller first so a re-init
+  // doesn't stack listeners.
+  function setupInstallPrompt() {
+    if (installPrompt) installPrompt.dispose();
+    installPrompt = initInstallPrompt();
+  }
 
   function addBuildBadge() {
     const buildMeta = document.querySelector('meta[name="build-id"]');
@@ -76,8 +156,9 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
       // Only show when signing in can actually deliver the advertised benefit:
       // a RANKED tier is selected, real auth AND Firestore are up (the
       // localhost/127.0.0.1 + file:// fallbacks skip Firestore, so leaderboard writes
-      // are no-ops there) and the player is signed out.
-      hint.style.display = (ranked && firebase.auth && firebase.firestore && !authState.isSignedIn) ? 'block' : 'none';
+      // are no-ops there), the player is signed out, AND we're online — offline, the
+      // global leaderboard is unreachable so advertising it would be misleading.
+      hint.style.display = (ranked && firebase.auth && firebase.firestore && !authState.isSignedIn && isOnline()) ? 'block' : 'none';
     }
 
     const lb = document.getElementById('startLeaderboard');
@@ -91,7 +172,9 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     // misleading "No times yet" preview and log a permission error on every
     // signed-out start screen. So only read once signed in; signed-out players get
     // the sign-in hint instead.
-    if (!ranked || !authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function') {
+    // Also hide the preview when offline: getLeaderboard() would fail/return stale and
+    // the offline badge already communicates the degraded state (Codex #359).
+    if (!ranked || !authState.isSignedIn || !scores || typeof scores.getLeaderboard !== 'function' || !isOnline()) {
       lb.style.display = 'none';
       return;
     }
@@ -116,12 +199,18 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
           return;
         }
 
-        const me = authState.user;
+        // authState + list are now typed via the AuthModuleApi/ScoresModuleApi boot
+        // seams (types/globals.d.ts), so the .uid/.displayName/.time accesses below are
+        // type-checked directly — no local `any` narrowing needed.
+        const me = authState.user ?? null;
         const tierLabel = getDifficultyConfig(selectedDifficulty).label;
         let html = `<h3>🏆 ${tierLabel} Top Times</h3><table><tr><th>#</th><th>Player</th><th>Time</th></tr>`;
         list.slice(0, 5).forEach((entry, index) => {
           const isMe = me && entry.userId === me.uid;
-          const name = isMe ? (me.displayName || 'You') : `Player ${index + 1}`;
+          // Other players show their denormalized leaderboard-doc name (written by
+          // ScoresModule.updateLeaderboard); entries from before the field existed
+          // fall back to 'Anonymous'. Untrusted — escapeHtml below is mandatory.
+          const name = isMe ? (me?.displayName || 'You') : (entry.displayName ?? 'Anonymous');
           html += `<tr class="${isMe ? 'current-user-score' : ''}"><td>${index + 1}</td><td>${escapeHtml(name)}</td><td>${Number(entry.time).toFixed(2)}s</td></tr>`;
         });
         html += '</table>';
@@ -138,25 +227,25 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
       });
   }
 
-  async function unlockAudioForStart(source: string) {
-    if (!AudioModule) {
-      return;
-    }
-
-    try {
-      await AudioModule.resumeAudioContext();
-      console.log(`AudioContext resume attempted in ${source} handler`);
-      AudioModule.playPreloadedAudio();
-    } catch (e) {
-      console.warn(`Audio operation in ${source} failed:`, e);
-    }
-  }
-
   function startGame() {
+    const startContainer = document.getElementById('startGameContainer');
+    // Click/touch compatibility events and retained callbacks must not reset an
+    // already-starting run or create a second loop/intro.
+    if (!startContainer || startContainer.style.display === 'none') return false;
+    if (showStartupError()) return false;
+    // Unlock inside the original user gesture, even when scripts are still loading.
+    // Audio readiness never blocks play; the browser still enforces autoplay policy.
+    try {
+      void AudioModule.resumeAudioContext().catch(() => {});
+      AudioModule.playPreloadedAudio();
+    } catch (error) {
+      console.warn('Audio unavailable; continuing to play.', error);
+    }
+    Sfx.unlock();
     const gameCanvas = document.getElementById('gameCanvas');
     const canInitializeGame = typeof window.initializeGameWithAudio === 'function';
 
-    if (!gameCanvas || !canInitializeGame) {
+    if (!gameCanvas || !canInitializeGame || getStartupStatus().stage !== 'ready') {
       startGamePending = true;
       setStartButtonWaiting(true);
       console.log("Start requested before game scripts finished loading; deferring until ready.");
@@ -166,14 +255,15 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     startGamePending = false;
     setStartButtonWaiting(false);
 
-    const startContainer = document.getElementById('startGameContainer');
     if (startContainer) {
       startContainer.style.display = 'none';
+      closeOverlayFocus(startContainer, false);
     }
     // Drop the start-screen account-control elevation now that the game is shown.
     document.body.classList.remove('start-screen-active');
 
     gameCanvas.style.display = 'block';
+    focusGameCanvas();
 
     window.initializeGameWithAudio?.();
     return true;
@@ -181,15 +271,13 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
 
   function startPendingGameIfReady() {
     const gameCanvas = document.getElementById('gameCanvas');
-    if (!gameCanvas || typeof window.initializeGameWithAudio !== 'function') {
+    if (!gameCanvas || typeof window.initializeGameWithAudio !== 'function' || getStartupStatus().stage !== 'ready') {
       return false;
     }
 
     if (startGamePending) {
       startGamePending = false;
-      setStartButtonWaiting(false);
-      console.log("Game scripts ready after deferred start request; waiting for a fresh start gesture.");
-      return true;
+      return startGame();
     }
 
     setStartButtonWaiting(false);
@@ -203,10 +291,24 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     }
 
     startButton.disabled = waiting;
+    startButton.textContent = waiting ? 'Preparing run…' : preparingNewTier ? 'Start run' : 'Start Game';
     if (waiting) {
       startButton.setAttribute('aria-busy', 'true');
     } else {
       startButton.removeAttribute('aria-busy');
+    }
+  }
+
+  // Tier-aware jump copy (workstream A): a tier without the jump verb (Bunny,
+  // ski.manualJump false) must not advertise it. Hides/shows the two jump rows in
+  // the controls guide and the touch-note's ", and the center to jump" clause to
+  // match the selected tier. The in-run touch REGION itself is gated separately at
+  // run start (Controls.setJumpEnabled, called from the lifecycle reset).
+  function updateJumpCopy() {
+    const hasJump = getDifficultyConfig(selectedDifficulty).ski.manualJump;
+    for (const id of ['jumpControlRow', 'hopControlRow', 'touchJumpNote']) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = hasJump ? '' : 'none';
     }
   }
 
@@ -217,7 +319,7 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
   function buildDifficultyPicker() {
     const picker = document.getElementById('difficultyPicker');
     if (!picker) return;
-    selectedDifficulty = readStoredDifficulty();
+    selectedDifficulty = initialRunDifficulty();
     pickerHandle = buildDifficultyPickerUI(picker, {
       initial: selectedDifficulty,
       heading: 'Difficulty',
@@ -226,16 +328,29 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
         storeDifficulty(id);
         // Swap the start-screen leaderboard preview to the newly-selected tier's board.
         refreshStartAccountUI();
+        // Keep the controls guide + touch-note honest for the newly-selected tier.
+        updateJumpCopy();
       },
     });
+    updateJumpCopy();
   }
 
   function getSelectedDifficulty(): Difficulty {
     return pickerHandle ? pickerHandle.getSelected() : selectedDifficulty;
   }
 
+  function updateSoundButton() {
+    const button = document.getElementById('startSoundButton');
+    if (!button) return;
+    const muted = AudioModule.getStatus().muted;
+    button.textContent = muted ? '♪ Sound off' : '♫ Sound on';
+    button.setAttribute('aria-pressed', String(!muted));
+  }
+
   function showAbout() {
     const aboutPanel = document.getElementById('aboutGamePanel');
+    const card = aboutPanel?.closest<HTMLElement>('.start-dialog');
+    if (card && !card.classList.contains('about-open')) scrollBeforeAbout = card.scrollTop;
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
@@ -248,77 +363,121 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
     // Hide the difficulty picker alongside the rest of the start controls so it
     // doesn't stay visible/clickable over the About panel.
     if (picker) picker.style.display = 'none';
+    if (card) {
+      card.classList.add('about-open');
+      card.scrollTop = 0;
+    }
+    document.getElementById('aboutGameButton')?.setAttribute('aria-expanded', 'true');
+    if (aboutPanel) openOverlayFocus(aboutPanel, {
+      // Read from the top of the panel. The bottom Close action may need scrolling
+      // on a short phone, so focusing it with preventScroll would hide that focus.
+      initialFocus: aboutPanel, onEscape: hideAbout,
+    });
   }
 
   function hideAbout() {
     const aboutPanel = document.getElementById('aboutGamePanel');
+    const card = aboutPanel?.closest<HTMLElement>('.start-dialog');
     const controlsGuide = document.getElementById('controlsGuide');
     const startMenu = document.getElementById('startMenu');
     const keyboardHint = document.getElementById('keyboardHint');
     const picker = document.getElementById('difficultyPicker');
 
     if (aboutPanel) aboutPanel.style.display = 'none';
-    if (controlsGuide) controlsGuide.style.display = 'block';
-    if (startMenu) startMenu.style.display = 'flex';
-    if (keyboardHint) keyboardHint.style.display = 'block';
-    if (picker) picker.style.display = 'flex'; // restore (CSS lays it out as flex)
+    if (controlsGuide) controlsGuide.style.display = '';
+    if (startMenu) startMenu.style.display = '';
+    if (keyboardHint) keyboardHint.style.display = '';
+    if (picker) picker.style.display = ''; // restore the responsive CSS layout
+    if (card) {
+      card.classList.remove('about-open');
+      card.scrollTop = scrollBeforeAbout;
+    }
+    document.getElementById('aboutGameButton')?.setAttribute('aria-expanded', 'false');
+    if (aboutPanel) closeOverlayFocus(aboutPanel);
+    document.getElementById('aboutGameButton')?.focus({ preventScroll: true });
   }
 
   function initializeStartMenu() {
+    menuListeners?.abort();
+    menuListeners = new window.AbortController();
+    const listenerOptions = { signal: menuListeners.signal };
+    // Read preferences before an early Play gesture. This never downloads or
+    // starts audio; the welcome screen stays silent until the player starts.
+    AudioModule.init();
+    updateSoundButton();
+    document.getElementById('startSoundButton')?.addEventListener('click', () => {
+      AudioModule.setMuted(!AudioModule.getStatus().muted);
+      updateSoundButton();
+    }, listenerOptions);
+    const updateMotionVisibility = () => {
+      document.body.classList.toggle('onboarding-paused', document.hidden);
+    };
+    updateMotionVisibility();
+    document.addEventListener('visibilitychange', updateMotionVisibility, listenerOptions);
     addBuildBadge();
+    setupOfflineBadge();
+    setupInstallPrompt();
     buildDifficultyPicker();
+    // Consume the URL intent without queuing a synthetic start. The fresh Start
+    // gesture unlocks music and SFX synchronously, before starting the run.
+    consumeRunLaunch();
+    const startContainer = document.getElementById('startGameContainer');
+    const account = document.getElementById('authContainer');
+    if (startContainer) openOverlayFocus(startContainer, {
+      initialFocus: document.getElementById('startGameButton'),
+      allowed: account ? [account] : [], modal: false,
+    });
     // Surface the account/sign-in control above the start overlay while it's up.
     document.body.classList.add('start-screen-active');
-    if ((window as any).SnowGliderGameScriptsReady) {
+    if (window.SnowGliderGameScriptsReady) {
       startPendingGameIfReady();
       refreshStartAccountUI();
     }
+    unwatchStartup?.();
+    unwatchStartup = subscribeStartupStatus(updateStartupStatus);
 
     const startGameButton = document.getElementById('startGameButton');
     if (startGameButton) {
       startGameButton.addEventListener('click', function () {
-        console.log("Start button clicked");
-        // unlock the audio context first, then start; void marks the promise as
-        // intentionally fire-and-forget so the handler stays void-returning.
-        void unlockAudioForStart('click').then(() => startGame());
-      });
+        startGame();
+      }, listenerOptions);
 
       startGameButton.addEventListener('touchstart', function (e) {
         e.preventDefault();
         this.classList.add('touch-active');
-      }, { passive: false });
+      }, { ...listenerOptions, passive: false });
 
       startGameButton.addEventListener('touchend', function (e) {
         e.preventDefault();
         this.classList.remove('touch-active');
-        console.log("Touch end - starting game");
-        void unlockAudioForStart('touch').then(() => startGame());
-      }, { passive: false });
+        startGame();
+      }, { ...listenerOptions, passive: false });
 
       startGameButton.addEventListener('touchcancel', function () {
         this.classList.remove('touch-active');
-      }, { passive: true });
+      }, { ...listenerOptions, passive: true });
     }
 
     const aboutGameButton = document.getElementById('aboutGameButton');
     if (aboutGameButton) {
-      aboutGameButton.addEventListener('click', showAbout);
+      aboutGameButton.addEventListener('click', showAbout, listenerOptions);
     }
 
     const closeAboutButton = document.getElementById('closeAboutButton');
     if (closeAboutButton) {
-      closeAboutButton.addEventListener('click', hideAbout);
+      closeAboutButton.addEventListener('click', hideAbout, listenerOptions);
     }
 
     document.addEventListener('keydown', function (event) {
       const startContainer = document.getElementById('startGameContainer');
       const aboutPanel = document.getElementById('aboutGamePanel');
 
-      // Don't let Enter/Space start the run when a difficulty option is focused —
-      // the button's native activation should just select the tier. Otherwise a
-      // keyboard user picking Black/Bunny would also trigger the global start.
+      // Don't let Enter/Space start the run when focus is on an interactive start-screen
+      // control whose own activation should NOT also launch the game: a difficulty option
+      // (just selects the tier) or the PWA install chip (Install/dismiss — Codex #360, a
+      // keyboard Enter on Install would otherwise both install AND start the run).
       const target = event.target as Element | null;
-      if (target && typeof target.closest === 'function' && target.closest('#difficultyPicker')) {
+      if (target && typeof target.closest === 'function' && target.closest('button, a, summary, input, textarea, select, [role="radio"], [role="dialog"]')) {
         return;
       }
 
@@ -327,6 +486,7 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
           aboutPanel &&
           aboutPanel.style.display !== 'block') {
         if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+          event.preventDefault();
           startGame();
         }
       } else if (aboutPanel && aboutPanel.style.display === 'block') {
@@ -335,7 +495,7 @@ import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPicker
           if (closeAboutButton) closeAboutButton.click();
         }
       }
-    });
+    }, listenerOptions);
   }
 
   document.addEventListener('DOMContentLoaded', initializeStartMenu);

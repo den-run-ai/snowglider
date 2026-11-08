@@ -4,7 +4,9 @@
 //   - Visible checkpoint gates and a finish arch placed down the fall line
 //   - Live split times at each checkpoint, compared against your personal best
 //   - A progress bar / distance-to-finish HUD so the objective is always legible
-//   - A translucent "ghost" of your best run that you race in real time
+//   - A "ghost" of your best run that you race in real time (currently HIDDEN — see
+//     GHOST_VISIBLE; the trajectory is still recorded/persisted/played back so the
+//     feature stays available for trajectory testing/evals)
 //   - A result screen with per-checkpoint splits and a medal
 //
 // Design notes:
@@ -26,10 +28,13 @@
 // every edit is type-only/erasable, so esbuild (Vite) and Node's native
 // type-stripping both run it exactly as before.
 import * as THREE from 'three';
+import { announceGameStatus } from './ui/accessibility.js';
+import { getRunStamp, PHYSICS_VERSION } from './run-context.js';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
 import { getDifficultyConfig, DEFAULT_DIFFICULTY, type Difficulty } from './difficulty.js';
+import { activeLaneX } from './course-line.js'; // gates sit on the run's centerline (0 for straight tiers)
 
 /** Terrain sampler injected via {@link CourseModule.init}. */
 export type TerrainHeightFn = (x: number, z: number) => number;
@@ -44,6 +49,50 @@ export interface GhostSample {
   y: number;
   z: number;
   rot: number; // snowman heading (radians)
+}
+
+/** localStorage is an untrusted boundary, even for current-world records. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function decodeGhostSamples(value: unknown): GhostSample[] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const entries: unknown[] = value;
+  const samples: GhostSample[] = [];
+  let previousTime = 0;
+  for (const entry of entries) {
+    if (!isRecord(entry)) return null;
+    const { t, x, y, z, rot } = entry;
+    if (!isFiniteNumber(t) || t < previousTime ||
+        !isFiniteNumber(x) || !isFiniteNumber(y) ||
+        !isFiniteNumber(z) || !isFiniteNumber(rot)) return null;
+    samples.push({ t, x, y, z, rot });
+    previousTime = t;
+  }
+  // onFinish appends a final sample even if update already sampled that exact
+  // time. Equal timestamps are valid; backwards/negative times and a zero-time
+  // record are not (the latter would permanently block future tier bests).
+  return previousTime > 0 ? samples : null;
+}
+
+function decodeBestSplits(value: unknown, splitCount: number): number[] | null {
+  if (!Array.isArray(value) || value.length !== splitCount) return null;
+  const entries: unknown[] = value;
+  const splits: number[] = [];
+  let previousTime = 0;
+  for (const entry of entries) {
+    // These are cumulative times, not individual segment durations. A zero or
+    // repeated checkpoint time is allowed, but the finish must be positive.
+    if (!isFiniteNumber(entry) || entry < previousTime) return null;
+    splits.push(entry);
+    previousTime = entry;
+  }
+  return previousTime > 0 ? splits : null;
 }
 
 /** A checkpoint or the finish line along the fall line. */
@@ -105,6 +154,14 @@ export const CourseModule = (function () {
   // Ghost sampling cadence
   const SAMPLE_INTERVAL = 0.05; // seconds between recorded trajectory samples (~20 Hz)
 
+  // Ghost visibility. The translucent apparition of your best run reads as confusing
+  // and visually blocks/distracts from the descent, so it is hidden for now. The rest
+  // of the ghost feature stays fully live in the background — trajectories are still
+  // recorded (`recordSamples`), persisted, loaded, and played back — so it remains
+  // available for testing / evals of snowman trajectories. Flip to `true` to bring the
+  // on-screen ghost + its ahead/behind HUD readout back.
+  const GHOST_VISIBLE = false;
+
   // localStorage keys — per difficulty tier (`…_blue`, `…_bunny`, `…_black`). The
   // pre-tier un-suffixed keys are migrated to the Blue tier once (migrateLegacyLocalKeys).
   const LS_SPLITS_BASE = 'snowgliderBestSplits';
@@ -150,10 +207,9 @@ export const CourseModule = (function () {
     const root = document.createElement('div');
     root.id = 'courseHud';
     Object.assign(root.style, {
-      position: 'fixed', top: '14px', left: '50%', transform: 'translateX(-50%)',
       zIndex: '900', display: 'none', flexDirection: 'column', alignItems: 'center',
       gap: '6px', pointerEvents: 'none', fontFamily: 'Arial, sans-serif',
-      textShadow: '0 1px 3px rgba(0,0,0,0.8)', width: 'min(420px, 86vw)'
+      textShadow: '0 1px 3px rgba(0,0,0,0.8)'
     });
 
     // Progress bar
@@ -185,7 +241,7 @@ export const CourseModule = (function () {
 
     root.appendChild(track);
     root.appendChild(row);
-    document.body.appendChild(root);
+    (document.getElementById('hudLeft') ?? document.body).prepend(root);
 
     // Split flash (briefly shows the time + delta when crossing a checkpoint; also
     // reused for the meaningful-jumps air toast). Given an id so it is addressable.
@@ -219,11 +275,31 @@ export const CourseModule = (function () {
   // #47 §3.6), surfaced from the main loop through the same HUD flash element +
   // styling the split timing already uses. Keeping the label/colour mapping here
   // (next to the flash element it drives) keeps the loop a thin dispatcher and makes
-  // the presentation unit-testable. showFlash itself stays private.
-  function flashAir(quality: 'clean' | 'ok' | 'sketchy', seconds: number) {
+  // the presentation unit-testable. showFlash itself stays private. `trick` is the
+  // freestyle completed-trick label (#32, Expert tier) — e.g. "360 + GRAB" — folded
+  // into the same toast; null/omitted keeps the plain #47 air toast byte-identical.
+  // `combo` (JP-7, optional): the live style-chain label ("×1.56"), appended when a
+  // chain is running — "✈ AIR 1.2s · 360 · CLEAN ×1.56". Empty/absent keeps the
+  // plain toast byte-identical.
+  function flashAir(quality: 'clean' | 'ok' | 'sketchy', seconds: number, trick?: string | null, combo?: string) {
     const label = quality === 'clean' ? 'CLEAN' : quality === 'ok' ? 'OK' : 'SKETCHY';
     const color = quality === 'clean' ? '#55efc4' : quality === 'ok' ? '#74b9ff' : '#ff7675';
-    showFlash(`✈ AIR ${seconds.toFixed(1)}s &middot; ${label}`, color);
+    const trickPart = trick ? `${trick} &middot; ` : '';
+    const comboPart = combo ? ` ${combo}` : '';
+    showFlash(`✈ AIR ${seconds.toFixed(1)}s &middot; ${trickPart}${label}${comboPart}`, color);
+  }
+
+  // Scored obstacle clear toast (jump-system completion JP-2, #245): a *manual* jump
+  // sailing over a tree/rock the run would otherwise have hit. Same flash element +
+  // pattern as flashAir; gold so it reads as a reward distinct from the landing grades.
+  function flashClear(kind: 'tree' | 'rock') {
+    showFlash(`✦ CLEARED! ${kind === 'tree' ? '🌲' : '🪨'}`, '#ffeaa7');
+  }
+
+  // Avalanche-dodge toast (JP-3, #47 headline): the once-per-slide reward for
+  // jumping the front. Warm orange — between the gold clear and the red slide UI.
+  function flashDodge() {
+    showFlash('🏔 DODGED THE AVALANCHE!', '#fdcb6e');
   }
 
   // Bank air-score points earned this run (from a graded manual-jump landing in the
@@ -235,7 +311,10 @@ export const CourseModule = (function () {
   // ---------------------------------------------------------------------------
   // Gate / finish meshes
   // ---------------------------------------------------------------------------
-  function makeGate(zPos: number, colorHex: number, label: string, isFinish: boolean): THREE.Group {
+  // `laneOffset` shifts the whole gate laterally onto the run's centerline at this z
+  // (0 for straight tiers ⇒ the gate is built exactly as before). The terrain heights
+  // are sampled at the shifted pole positions so the poles still meet the ground.
+  function makeGate(zPos: number, colorHex: number, label: string, isFinish: boolean, laneOffset = 0): THREE.Group {
     const sampleHeight = getTerrainHeight;
     if (!sampleHeight) throw new Error('CourseModule.makeGate called before init()');
     const group = new THREE.Group();
@@ -244,7 +323,8 @@ export const CourseModule = (function () {
     const poleHeight = isFinish ? 9 : 6;
     const poleRadius = isFinish ? 0.35 : 0.25;
 
-    [-halfW, halfW].forEach((xOff) => {
+    [-halfW, halfW].forEach((side) => {
+      const xOff = laneOffset + side;
       const groundY = sampleHeight(xOff, zPos);
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 10),
@@ -254,24 +334,24 @@ export const CourseModule = (function () {
       pole.castShadow = true;
       group.add(pole);
 
-      // Small flag near the top of each pole
+      // Small flag near the top of each pole, nudged toward the gate centre.
       const flag = new THREE.Mesh(
         new THREE.PlaneGeometry(1.8, 1.1),
         new THREE.MeshStandardMaterial({
           color: colorHex, side: THREE.DoubleSide, roughness: 0.8
         })
       );
-      flag.position.set(xOff + (xOff < 0 ? 1.0 : -1.0), groundY + poleHeight - 0.9, zPos);
+      flag.position.set(xOff + (side < 0 ? 1.0 : -1.0), groundY + poleHeight - 0.9, zPos);
       group.add(flag);
     });
 
     // Banner across the top spanning the gate
-    const midY = (sampleHeight(-halfW, zPos) + sampleHeight(halfW, zPos)) / 2;
+    const midY = (sampleHeight(laneOffset - halfW, zPos) + sampleHeight(laneOffset + halfW, zPos)) / 2;
     const banner = new THREE.Mesh(
       new THREE.BoxGeometry(halfW * 2, isFinish ? 1.6 : 1.0, 0.2),
       new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.7 })
     );
-    banner.position.set(0, midY + poleHeight - 0.4, zPos);
+    banner.position.set(laneOffset, midY + poleHeight - 0.4, zPos);
     banner.castShadow = true;
     group.add(banner);
 
@@ -293,7 +373,7 @@ export const CourseModule = (function () {
         new THREE.PlaneGeometry(halfW * 2 * 0.9, (isFinish ? 1.6 : 1.0) * 0.9),
         textMat
       );
-      textPlane.position.set(0, midY + poleHeight - 0.4, zPos + 0.12);
+      textPlane.position.set(laneOffset, midY + poleHeight - 0.4, zPos + 0.12);
       group.add(textPlane);
     }
 
@@ -306,12 +386,14 @@ export const CourseModule = (function () {
     gateGroup = group;
 
     const palette = [0x00b894, 0x0984e3, 0xfdcb6e]; // green, blue, amber for CPs
+    // Gates sit ON the run's centerline: at the line's x for this z, which alternates
+    // left/right with the winding corridor (a turn rhythm). Straight tiers ⇒ x=0.
     CHECKPOINT_Z.forEach((z, i) => {
       // Single source of truth for the label so the 3D banner and the HUD/result
       // table never drift apart (was "CHECKPOINT n" here vs "CP n" in the HUD).
-      group.add(makeGate(z, palette[i % palette.length]!, splitPoints[i]!.label, false));
+      group.add(makeGate(z, palette[i % palette.length]!, splitPoints[i]!.label, false, activeLaneX(z)));
     });
-    group.add(makeGate(FINISH_Z, 0xffd700, 'FINISH', true));
+    group.add(makeGate(FINISH_Z, 0xffd700, 'FINISH', true, activeLaneX(FINISH_Z)));
 
     scene.add(group);
   }
@@ -324,6 +406,10 @@ export const CourseModule = (function () {
   }
   function splitsKey(): string { return `${LS_SPLITS_BASE}_${activeTier()}`; }
   function ghostKey(): string { return `${LS_GHOST_BASE}_${activeTier()}`; }
+  // Sidecar run-provenance stamp for the stored ghost (#400): seed + physics
+  // version of the run that set it, so replay/ranked modes know if the ghost is
+  // reproducible. Sidecar keeps the legacy raw-array ghost format untouched.
+  function ghostMetaKey(): string { return `${ghostKey()}_meta`; }
 
   // One-time migration: the pre-tier un-suffixed keys become the Blue tier's keys, so a
   // returning player keeps their existing best splits + ghost on the (default) Blue tier.
@@ -342,16 +428,48 @@ export const CourseModule = (function () {
   // ---------------------------------------------------------------------------
   // Ghost
   // ---------------------------------------------------------------------------
+  /** A stored ghost is only replayable against the WORLD that recorded it: the
+   *  ghost is a physical trajectory over the terrain surface, so after a
+   *  PHYSICS_VERSION bump (e.g. the #401 one-height-field change) a stale ghost
+   *  would clip through / float above the new surface and race an unfair time.
+   *  Compatible == stamped with the CURRENT version; an unstamped ghost
+   *  (recorded before provenance stamping existed, i.e. against a pre-#401
+   *  surface) is incompatible by definition. Skipping the load also resets the
+   *  tier-best commit baseline, so the FIRST run on the new world re-seeds the
+   *  ghost + best splits with replayable v-current data. Local BEST TIMES are
+   *  deliberately NOT invalidated: they are historical records, not physical
+   *  replays (see the run-context version-anchor doc / PR #408 review). */
+  function ghostStampCompatible(): boolean {
+    try {
+      const raw = localStorage.getItem(ghostMetaKey());
+      if (!raw) return false;
+      const meta: unknown = JSON.parse(raw);
+      if (!isRecord(meta)) return false;
+      // Same WORLD means same version AND same seed (Codex review PR #408): the
+      // hazards stream places different rocks/trees per seed, so a ghost from
+      // another seed threads an obstacle field that doesn't exist here — it
+      // would replay an impossible line and its time would block this seed's
+      // first run from committing its own baseline. Unseeded records carry
+      // seed null and only match unseeded runs (strict equality both ways).
+      const currentSeed = getRunStamp().seed;
+      return meta.physicsVersion === PHYSICS_VERSION && meta.seed === currentSeed;
+    } catch {
+      return false;
+    }
+  }
+
   function loadGhost() {
     ghostSamples = null;
     ghostTotalTime = 0;
     try {
+      if (!ghostStampCompatible()) return; // stale-world ghost: leave unloaded (#401/#408)
       const raw = localStorage.getItem(ghostKey());
       if (raw) {
-        const data = JSON.parse(raw);
-        if (Array.isArray(data) && data.length > 1) {
-          ghostSamples = data;
-          ghostTotalTime = data[data.length - 1].t;
+        const data: unknown = JSON.parse(raw);
+        const samples = decodeGhostSamples(data);
+        if (samples) {
+          ghostSamples = samples;
+          ghostTotalTime = samples[samples.length - 1]!.t;
         }
       }
     } catch {
@@ -364,8 +482,14 @@ export const CourseModule = (function () {
   // within a session (the split flash + result table compare against this).
   function loadBests() {
     try {
+      // Best splits commit ATOMICALLY with the ghost + its provenance stamp, so
+      // they inherit the same world-compatibility gate (#403 review): splits
+      // from another physics version / another world are not a valid delta
+      // baseline — the first run on the current world re-seeds both.
+      if (!ghostStampCompatible()) { bestSplits = null; return; }
       const raw = localStorage.getItem(splitsKey());
-      bestSplits = raw ? JSON.parse(raw) : null;
+      const data: unknown = raw ? JSON.parse(raw) : null;
+      bestSplits = decodeBestSplits(data, splitPoints.length);
     } catch {
       bestSplits = null;
     }
@@ -471,7 +595,7 @@ export const CourseModule = (function () {
       hud.root.style.display = 'flex';
       hud.fill.style.width = '0%';
       hud.distance.textContent = `${COURSE_LENGTH} m to finish`;
-      hud.ghostDelta.textContent = ghostSamples ? 'Racing your ghost' : 'No ghost yet';
+      hud.ghostDelta.textContent = GHOST_VISIBLE ? (ghostSamples ? 'Racing your ghost' : 'No ghost yet') : '';
       hud.ghostDelta.style.color = '#74b9ff';
       hud.flash.style.opacity = '0';
     }
@@ -516,19 +640,34 @@ export const CourseModule = (function () {
       }
       if (idx < splitPoints.length - 1) {
         showFlash(`${sp.label} &middot; ${formatTime(elapsed)}${deltaHtml}`, color);
+        announceGameStatus(`${sp.label}. ${elapsed.toFixed(2)} seconds.`);
       }
     }
 
     // --- Ghost playback ---
+    // Playback keeps running (position is interpolated + terrain-clamped every frame)
+    // so the feature stays exercisable for trajectory evals, but the mesh and the
+    // ahead/behind HUD readout are only shown when GHOST_VISIBLE.
     if (ghost && ghostSamples) {
-      ghost.visible = true;
+      ghost.visible = GHOST_VISIBLE;
       const gp = ghostPositionAt(elapsed);
       if (gp) {
-        ghost.position.set(gp.x, gp.y, gp.z);
+        // A ghost stores each sample's recorded y, which was the terrain height at
+        // that (x, z) when the run happened. If the terrain has since changed shape
+        // (e.g. the Black-tier corridor/course-line raised the surface where an older
+        // ghost was recorded), that stale y ends up BELOW the current snow and the
+        // ghost skis buried underground — physically impossible to follow. Clamp the
+        // render height to the current surface so the ghost always rides on top,
+        // while `max` preserves any real jump arc recorded above the terrain.
+        // A live ghost implies init() ran, so getTerrainHeight is always set here.
+        const surfaceY = getTerrainHeight!(gp.x, gp.z);
+        ghost.position.set(gp.x, Math.max(gp.y, surfaceY), gp.z);
         if (typeof gp.rot === 'number') ghost.rotation.y = gp.rot;
       }
       // Ahead/behind readout, expressed in time at the player's current depth.
-      const gt = ghostTimeAtZ(pos.z);
+      // Gated off while the ghost is hidden (GHOST_VISIBLE): a delta against an invisible
+      // racer reads as confusing, so gt stays null and the readout block is skipped.
+      const gt = GHOST_VISIBLE ? ghostTimeAtZ(pos.z) : null;
       if (gt !== null && hud.ghostDelta) {
         const delta = elapsed - gt; // +ve: ghost was here earlier => you're behind
         if (pos.z > START_Z - 2) {
@@ -576,11 +715,14 @@ export const CourseModule = (function () {
 
   // Called from showGameOver() on a successful finish.
   // Returns a DOM node (the result panel) to insert into the game-over overlay.
-  function onFinish(totalTime: number, previousBest: number): HTMLDivElement {
+  function onFinish(totalTime: number, previousBest: number, recordEligible = true): HTMLDivElement {
     hideHud();
 
-    const isFirst = !(previousBest < Infinity);
-    const isBest = isFirst || totalTime < previousBest;
+    // A record-ineligible finish (timing-compromised, #403 review) saved nothing,
+    // so it must not CLAIM a record either: no "First descent!"/"New record!"
+    // medal copy for a time that was deliberately not kept.
+    const isFirst = recordEligible && !(previousBest < Infinity);
+    const isBest = recordEligible && (isFirst || totalTime < previousBest);
 
     // Record the finish split.
     runSplits[splitPoints.length - 1] = totalTime;
@@ -594,8 +736,15 @@ export const CourseModule = (function () {
     const tierBestTime = ghostSamples ? ghostTotalTime : Infinity;
     const isTierBest = totalTime < tierBestTime;
 
-    // Commit best splits + ghost if this run is the tier's best so far.
-    if (isTierBest) {
+    // Commit best splits + ghost if this run is the tier's best so far — and the
+    // run is on a REAL world: practice (?seed=) runs never overwrite the
+    // canonical-world ghost/splits records (#403 review; the shared ghost key
+    // holds ONE record per tier, and a practice commit would both lose the
+    // canonical ghost and leave a stamp the canonical world rejects). The caller
+    // can also veto the commit (recordEligible=false) — the overlay does for a
+    // timing-compromised run, whose slow-motion trajectory would poison the
+    // ghost/splits records the same way it would the PB (#403 review).
+    if (isTierBest && !getRunStamp().practice && recordEligible) {
       try {
         localStorage.setItem(splitsKey(), JSON.stringify(runSplits));
         // Ensure the final sample lands exactly on the finish time, but keep the
@@ -610,14 +759,34 @@ export const CourseModule = (function () {
           rot: lastReal ? lastReal.rot : Math.PI
         });
         localStorage.setItem(ghostKey(), JSON.stringify(recordSamples));
-      } catch { /* storage may be unavailable; ignore */ }
+        localStorage.setItem(ghostMetaKey(), JSON.stringify(getRunStamp()));
+      } catch {
+        // Partial commit (e.g. the ghost wrote but the stamp hit quota): a stale
+        // sidecar from the PREVIOUS record would attribute the new trajectory to
+        // the old seed/nonce and a provenance-aware loader could falsely accept
+        // it (Codex review PR #407). Better an unstamped (rejected) ghost than a
+        // mis-stamped one.
+        try { localStorage.removeItem(ghostMetaKey()); } catch { /* unreachable storage; nothing to invalidate */ }
+      }
     }
 
+    // A practice world's panel makes no competitive claims (Codex review PR
+    // #407): nothing was persisted, so "record"/"first descent"/medal labels
+    // would promise state that does not exist. buildResultPanel renders the
+    // practice note instead.
+    if (getRunStamp().practice) {
+      return buildResultPanel(totalTime, previousBest, false, false,
+        { key: 'finish', icon: '\u{1F9EA}', label: 'Practice run \u2014 seeded world (not ranked)' }, false);
+    }
+    if (!recordEligible) {
+      return buildResultPanel(totalTime, previousBest, false, false,
+        { key: 'finish', icon: '🏁', label: 'Finished' }, false);
+    }
     const medal = medalFor(totalTime, previousBest, isFirst);
     return buildResultPanel(totalTime, previousBest, isBest, isFirst, medal);
   }
 
-  function buildResultPanel(totalTime: number, previousBest: number, isBest: boolean, isFirst: boolean, medal: Medal): HTMLDivElement {
+  function buildResultPanel(totalTime: number, previousBest: number, isBest: boolean, isFirst: boolean, medal: Medal, compareBest = true): HTMLDivElement {
     const panel = document.createElement('div');
     panel.id = 'courseResult';
     Object.assign(panel.style, {
@@ -666,8 +835,13 @@ export const CourseModule = (function () {
     // Improvement line
     const improve = document.createElement('div');
     Object.assign(improve.style, { fontSize: '14px', marginBottom: '12px' });
-    if (isFirst) {
-      improve.textContent = 'Set the time to beat — your ghost will race you next run.';
+    if (!compareBest) {
+      improve.textContent = 'This run was not saved as a personal best.';
+      improve.style.color = '#dfe6e9';
+    } else if (isFirst || !Number.isFinite(previousBest)) {
+      improve.textContent = GHOST_VISIBLE
+        ? 'Set the time to beat — your ghost will race you next run.'
+        : 'Set the time to beat — try to beat it on your next run.';
       improve.style.color = '#74b9ff';
     } else if (isBest) {
       const d = totalTime - previousBest;
@@ -726,7 +900,7 @@ export const CourseModule = (function () {
 
       const d = document.createElement('div');
       d.style.textAlign = 'right';
-      if (bestSplits && typeof bestSplits[i] === 'number' && typeof runSplits[i] === 'number') {
+      if (compareBest && bestSplits && typeof bestSplits[i] === 'number' && typeof runSplits[i] === 'number') {
         const diff = runSplits[i] - bestSplits[i];
         d.textContent = formatDelta(diff);
         d.style.color = diff <= 0 ? '#55efc4' : '#ff7675';
@@ -795,6 +969,8 @@ export const CourseModule = (function () {
     reset,
     update,
     flashAir,
+    flashClear,
+    flashDodge,
     addAirScore,
     hideHud,
     onFinish,
