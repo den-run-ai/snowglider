@@ -10,6 +10,8 @@ reviewdog_archive=reviewdog_0.21.0_Linux_x86_64.tar.gz
 # https://api.github.com/repos/reviewdog/reviewdog/releases/tags/v0.21.0
 reviewdog_sha256=ad5ce7d5ffa52aaa7ec8710a8fa764181b6cecaab843cc791e1cce1680381569
 reviewdog_url="https://github.com/reviewdog/reviewdog/releases/download/v$reviewdog_version/$reviewdog_archive"
+# The same immutable asset from that official release; no token is needed.
+reviewdog_api_url=https://api.github.com/repos/reviewdog/reviewdog/releases/assets/289255553
 
 if [[ "$(uname -sm)" != "Linux x86_64" ]]; then
   echo "::error::The pinned reviewdog installer requires Linux x86_64." >&2
@@ -25,18 +27,29 @@ reviewdog_tmp="$(mktemp -d "$RUNNER_TEMP/reviewdog-install.XXXXXX")"
 trap 'rm -rf "$reviewdog_tmp"' EXIT
 reviewdog_bin="$RUNNER_TEMP/reviewdog-bin"
 
-# At most four attempts; each transfer and the retry window are bounded. Keep
-# HTTP/transport diagnostics visible instead of silently continuing to ESLint.
-curl --fail --show-error --silent --location \
-  --proto '=https' --proto-redir '=https' \
-  --retry 3 --retry-all-errors --retry-delay 2 --retry-max-time 180 \
-  --connect-timeout 10 --max-time 45 \
-  --output "$reviewdog_tmp/$reviewdog_archive" "$reviewdog_url"
+# Two attempts per official endpoint: at most 184 seconds for transfers/retries,
+# leaving verification margin within the workflow's four-minute step timeout.
+download_release() {
+  curl --fail --show-error --silent --location \
+    --proto '=https' --proto-redir '=https' \
+    --retry 1 --retry-all-errors --retry-delay 2 --retry-max-time 90 \
+    --connect-timeout 10 --max-time 45 \
+    --output "$reviewdog_tmp/$reviewdog_archive" "$@"
+}
+if ! download_release "$reviewdog_url"; then
+  echo "::warning::Direct reviewdog download failed; trying the official release-asset API." >&2
+  download_release \
+    --header 'Accept: application/octet-stream' \
+    --header 'X-GitHub-Api-Version: 2022-11-28' \
+    "$reviewdog_api_url"
+fi
+# A successful HTTP response with wrong bytes (including API metadata JSON) must
+# fail here, without trying another source or executing downloaded content.
 printf '%s  %s\n' "$reviewdog_sha256" "$reviewdog_tmp/$reviewdog_archive" \
   | sha256sum --check --strict
 
 # Extract only the known executable, and never run unverified downloaded bytes.
-tar -xzf "$reviewdog_tmp/$reviewdog_archive" -C "$reviewdog_tmp" reviewdog
+tar --no-same-owner -xzf "$reviewdog_tmp/$reviewdog_archive" -C "$reviewdog_tmp" reviewdog
 reviewdog_actual="$("$reviewdog_tmp/reviewdog" -version)"
 if [[ "$reviewdog_actual" != "$reviewdog_version" ]]; then
   echo "::error::Expected reviewdog $reviewdog_version; received $reviewdog_actual." >&2

@@ -14,6 +14,7 @@ const root = path.resolve(__dirname, '..');
 const installer = path.join(root, 'scripts/install-reviewdog.sh');
 const releaseSha256 = 'ad5ce7d5ffa52aaa7ec8710a8fa764181b6cecaab843cc791e1cce1680381569';
 const releaseUrl = 'https://github.com/reviewdog/reviewdog/releases/download/v0.21.0/reviewdog_0.21.0_Linux_x86_64.tar.gz';
+const releaseApiUrl = 'https://api.github.com/repos/reviewdog/reviewdog/releases/assets/289255553';
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewdog install test-'));
 const commands = path.join(scratch, 'commands');
 fs.mkdirSync(commands);
@@ -29,15 +30,17 @@ const commandStub = [
   "if (command === 'uname') {",
   "  console.log(process.env.REVIEWDOG_TEST_PLATFORM || 'Linux x86_64');",
   "} else if (command === 'curl') {",
-  "  fs.writeFileSync(process.env.REVIEWDOG_TEST_CURL_ARGS, JSON.stringify(args));",
+  "  fs.appendFileSync(process.env.REVIEWDOG_TEST_CURL_ARGS, JSON.stringify(args) + '\\n');",
   "  const output = args[args.indexOf('--output') + 1];",
-  "  if (process.env.REVIEWDOG_TEST_DOWNLOAD_FAIL === '1') {",
+  '  const api = args.at(-1) === process.env.REVIEWDOG_TEST_API_URL;',
+  "  if (process.env.REVIEWDOG_TEST_DOWNLOAD_FAIL === '1' || (!api && process.env.REVIEWDOG_TEST_DIRECT_FAIL === '1')) {",
   "    fs.writeFileSync(output, 'partial download');",
   "    console.error('curl: (22) fixture HTTP 503');",
   '    process.exit(22);',
   '  }',
   '  fs.copyFileSync(process.env.REVIEWDOG_TEST_ARCHIVE, output);',
   "  if (process.env.REVIEWDOG_TEST_CORRUPT === '1') fs.appendFileSync(output, 'corruption');",
+  '  if (api && process.env.REVIEWDOG_TEST_API_METADATA === "1") fs.writeFileSync(output, JSON.stringify({ id: 289255553 }));',
   "} else if (command === 'sha256sum') {",
   "  assert.deepEqual(args, ['--check', '--strict']);",
   "  const line = fs.readFileSync(0, 'utf8').trimEnd();",
@@ -57,7 +60,7 @@ for (const command of ['curl', 'sha256sum', 'uname']) {
 
 /**
  * @param {string} name
- * @param {{ version?: string, corrupt?: boolean, downloadFails?: boolean, platform?: string, omitContext?: boolean }} options
+ * @param {{ version?: string, corrupt?: boolean, downloadFails?: boolean, directFails?: boolean, apiMetadata?: boolean, platform?: string, omitContext?: boolean }} options
  */
 function runCase(name, options = {}) {
   const directory = path.join(scratch, name);
@@ -89,6 +92,9 @@ function runCase(name, options = {}) {
     REVIEWDOG_TEST_FIXTURE_SHA: createHash('sha256').update(fs.readFileSync(archive)).digest('hex'),
     REVIEWDOG_TEST_EXECUTED: executed,
     REVIEWDOG_TEST_DOWNLOAD_FAIL: options.downloadFails ? '1' : '0',
+    REVIEWDOG_TEST_DIRECT_FAIL: options.directFails ? '1' : '0',
+    REVIEWDOG_TEST_API_METADATA: options.apiMetadata ? '1' : '0',
+    REVIEWDOG_TEST_API_URL: releaseApiUrl,
     REVIEWDOG_TEST_CORRUPT: options.corrupt ? '1' : '0',
     REVIEWDOG_TEST_PLATFORM: options.platform ?? 'Linux x86_64',
   };
@@ -100,7 +106,19 @@ function runCase(name, options = {}) {
   assert.equal(result.error, undefined, name + ' must complete without a timeout');
   assert.ok(!fs.readdirSync(runnerTemp).some(entry => entry.startsWith('reviewdog-install.')),
     name + ' cleans its staging directory');
-  return { ...result, env, githubPath, runnerTemp, curlArgs, executed };
+  const calls = fs.existsSync(curlArgs)
+    ? fs.readFileSync(curlArgs, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+    : [];
+  return { ...result, env, githubPath, runnerTemp, calls, executed };
+}
+
+function expectBoundedDownload(args) {
+  for (const flag of ['--fail', '--show-error', '--location', '--retry-all-errors']) assert.ok(args.includes(flag));
+  for (const [flag, value] of [
+    ['--retry', '1'], ['--retry-delay', '2'], ['--retry-max-time', '90'],
+    ['--connect-timeout', '10'], ['--max-time', '45'],
+    ['--proto', '=https'], ['--proto-redir', '=https'],
+  ]) assert.equal(args[args.indexOf(flag) + 1], value, flag + ' stays bounded');
 }
 
 try {
@@ -109,14 +127,19 @@ try {
   const published = fs.readFileSync(success.githubPath, 'utf8').trim();
   assert.equal(published, path.join(success.runnerTemp, 'reviewdog-bin'));
   assert.match(success.stdout, /Verified reviewdog 0\.21\.0/);
-  const args = JSON.parse(fs.readFileSync(success.curlArgs, 'utf8'));
-  assert.equal(args.at(-1), releaseUrl);
-  for (const flag of ['--fail', '--show-error', '--location', '--retry-all-errors']) assert.ok(args.includes(flag));
-  for (const [flag, value] of [
-    ['--retry', '3'], ['--retry-delay', '2'], ['--retry-max-time', '180'],
-    ['--connect-timeout', '10'], ['--max-time', '45'],
-    ['--proto', '=https'], ['--proto-redir', '=https'],
-  ]) assert.equal(args[args.indexOf(flag) + 1], value, flag + ' stays bounded');
+  assert.equal(success.calls.length, 1, 'a direct success must not request the fallback');
+  assert.equal(success.calls[0].at(-1), releaseUrl);
+  expectBoundedDownload(success.calls[0]);
+
+  const apiSuccess = runCase('api-fallback', { directFails: true });
+  assert.equal(apiSuccess.status, 0, apiSuccess.stderr);
+  assert.match(apiSuccess.stderr, /fixture HTTP 503/);
+  assert.match(apiSuccess.stderr, /trying the official release-asset API/);
+  assert.deepEqual(apiSuccess.calls.map(args => args.at(-1)), [releaseUrl, releaseApiUrl]);
+  apiSuccess.calls.forEach(expectBoundedDownload);
+  assert.ok(apiSuccess.calls[1].includes('Accept: application/octet-stream'));
+  assert.ok(apiSuccess.calls[1].includes('X-GitHub-Api-Version: 2022-11-28'));
+  assert.equal(fs.readFileSync(apiSuccess.githubPath, 'utf8').trim(), path.join(apiSuccess.runnerTemp, 'reviewdog-bin'));
 
   // action-eslint@v1.34.0's exact script prepends an empty temporary directory,
   // retains inherited PATH, ignores its installer failure, then invokes reviewdog.
@@ -139,6 +162,7 @@ try {
     { name: 'download-failure', options: { downloadFails: true }, diagnostic: /fixture HTTP 503/, canExecute: false },
     { name: 'corrupt-archive', options: { corrupt: true }, diagnostic: /checksum did NOT match/, canExecute: false },
     { name: 'wrong-version', options: { version: '0.20.0' }, diagnostic: /Expected reviewdog 0\.21\.0; received 0\.20\.0/, canExecute: true },
+    { name: 'api-metadata-body', options: { directFails: true, apiMetadata: true }, diagnostic: /checksum did NOT match/, canExecute: false },
     { name: 'unsupported-platform', options: { platform: 'Linux aarch64' }, diagnostic: /requires Linux x86_64/, canExecute: false },
     { name: 'missing-context', options: { omitContext: true }, diagnostic: /RUNNER_TEMP and GITHUB_PATH must be set/, canExecute: false },
   ]) {
@@ -148,6 +172,9 @@ try {
     assert.equal(fs.readFileSync(result.githubPath, 'utf8'), '', name + ' must not publish PATH');
     assert.ok(!fs.existsSync(path.join(result.runnerTemp, 'reviewdog-bin')), name + ' must not install');
     assert.equal(fs.existsSync(result.executed), canExecute, name + ' execution boundary');
+    const expectedCalls = name === 'download-failure' || name === 'api-metadata-body' ? 2
+      : name === 'unsupported-platform' || name === 'missing-context' ? 0 : 1;
+    assert.equal(result.calls.length, expectedCalls, name + ' must not fall back after checksum/version rejection');
   }
 
   const workflow = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/pr-review.yml'), 'utf8'));
@@ -165,7 +192,7 @@ try {
     level: 'warning',
     eslint_flags: '.',
   });
-  console.log('Reviewdog installer: verified PATH fallback, download/checksum/version/platform failures, cleanup and unchanged review policy pass.');
+  console.log('Reviewdog installer: verified official API and PATH fallbacks, fail-closed downloads/checksum/version/context, cleanup and unchanged review policy pass.');
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }
