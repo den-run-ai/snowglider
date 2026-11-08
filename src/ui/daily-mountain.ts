@@ -56,7 +56,7 @@ export function renderDailyMountainMenu(tier: Difficulty): void {
   }
   if (parsed.kind !== 'none') actions.append(link('Regular mountain', regularMountainUrl(window.location.href, tier)));
   const note = document.createElement('small');
-  note.textContent = 'Free to play · New mountain at 00:00 UTC';
+  note.textContent = 'Free to play · Daily bests stay on this device · New mountain at 00:00 UTC';
   container.replaceChildren(title, description, actions, note);
 }
 

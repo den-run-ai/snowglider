@@ -41,6 +41,10 @@ test('the production guest daily saves an isolated best, shares its invitation a
   await gotoGame(page, `${query}&intro=off`);
   await expect(page.locator('#startLoadingStatus')).toHaveAttribute('data-stage', 'ready');
   await expect(page.locator('#startGameButton')).toHaveText('Start daily run');
+  await expect(page.locator('#dailyMountain')).toContainText('Daily bests stay on this device');
+  await expect(page.locator('#leaderboardsDetails')).toBeHidden();
+  await expect(page.locator('#startSignInHint')).toBeHidden();
+  await expect(page.locator('#startLeaderboard [data-leaderboard-tier]')).toHaveCount(0);
   expect(await page.locator('script[type="module"][src^="/assets/"]').count(), 'the page loads the production bundle').toBeGreaterThan(0);
   expect(await page.evaluate(() => window.AuthModule?.getCurrentUser?.() ?? null)).toBeNull();
   await page.evaluate(records => {
@@ -91,11 +95,20 @@ test('the production guest daily saves an isolated best, shares its invitation a
   await expect(page.locator('#startGameButton')).toHaveText('Start daily run');
   await expect(page.locator('#dailyMountain')).toContainText('Device best: 24.50s');
   await expect(page.locator('#dailyMountain')).toContainText('Friend’s shared target: 26.00s');
+  await expect(page.locator('#leaderboardsDetails')).toBeHidden();
+  await expect(page.locator('#startSignInHint')).toBeHidden();
+  await expect(page.locator('#startLeaderboard [data-leaderboard-tier]')).toHaveCount(0);
   expect(await page.evaluate(() => window.__snowgliderGetRunStamp!())).toEqual(expectedStamp);
   expect(await page.evaluate(key => {
     const record: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
     return record;
   }, dailyKey)).toEqual(expectedBest);
   expect(await page.evaluate(keys => keys.map(key => [key, localStorage.getItem(key)]), canonicalKeys)).toEqual(canonicalRecords);
+  await page.locator('#dailyMountain a', { hasText: 'Regular mountain' }).click();
+  await expect(page.locator('#startLoadingStatus')).toHaveAttribute('data-stage', 'ready');
+  await expect(page.locator('#leaderboardsDetails')).toBeVisible();
+  await expect(page.locator('#startSignInHint')).toBeVisible();
+  await expect(page.locator('#startLeaderboard [data-leaderboard-tier]')).toHaveCount(4);
+  expect(await page.evaluate(() => window.__snowgliderGetRunStamp!().practice)).toBe(false);
   expect(pageErrors).toEqual([]);
 });

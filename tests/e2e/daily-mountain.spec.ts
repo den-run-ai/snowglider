@@ -20,10 +20,31 @@ test('a guest can open the same daily mountain, compare, share and retry', async
       writeText: (text: string) => { (window as DailyGame).__dailyCopied = text; return Promise.resolve(); },
     } });
   });
+  await gotoGame(page, '?intro=off');
+  const dailyLink = page.locator('#dailyMountainLink');
+  if (testInfo.project.use.hasTouch) await dailyLink.tap();
+  else await dailyLink.click();
+  await expect(page).toHaveURL(/[?&]daily=\d{4}-\d{2}-\d{2}/);
+  await expect(page.locator('#startGameButton')).toHaveText('Start daily run');
+  const dailyEntry = new URL(page.url());
+  expect(dailyEntry.searchParams.get('level')).toBe('blue');
+  expect(dailyEntry.searchParams.get('cv')).toBe('1');
+  expect(dailyEntry.searchParams.get('pv')).toBe('4');
+  expect(dailyEntry.searchParams.has('beat')).toBe(false);
+  await expect(page.locator('#leaderboardsDetails')).toBeHidden();
+  await expect(page.locator('#startSignInHint')).toBeHidden();
+  await expect(page.locator('#startLeaderboard [data-leaderboard-tier]')).toHaveCount(0);
+
+  // The public daily entry is reachable; now open a friend's target for the
+  // existing comparison, sharing and replay path on the real forest scene.
   await gotoGame(page, `${dailyQuery}&eztrees=1&intro=off`);
   await expect(page.locator('#startGameButton')).toHaveText('Start daily run');
   await expect(page.locator('#difficultyPicker [data-difficulty="blue"]')).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('#dailyMountain')).toContainText('Friend’s shared target: 26.00s');
+  await expect(page.locator('#dailyMountain')).toContainText('Daily bests stay on this device');
+  await expect(page.locator('#leaderboardsDetails')).toBeHidden();
+  await expect(page.locator('#startSignInHint')).toBeHidden();
+  await expect(page.locator('#startLeaderboard [data-leaderboard-tier]')).toHaveCount(0);
   await page.waitForFunction(() => window.terrainMesh?.parent?.children.some(child => child.userData.forestPart === 'ezBranches'));
   await testInfo.attach('daily-welcome-real-forest', { body: await page.screenshot(), contentType: 'image/png' });
   await startGame(page);
@@ -71,6 +92,8 @@ test('daily level changes rebuild the intended course and clear a different leve
   await page.waitForURL(url => url.searchParams.get('level') === 'black');
   await expect(page.locator('#difficultyPicker [data-difficulty="black"]')).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('#startGameButton')).toHaveText('Start daily run');
+  await expect(page.locator('#leaderboardsDetails')).toBeHidden();
+  await expect(page.locator('#startSignInHint')).toBeHidden();
   expect(new URL(page.url()).searchParams.has('beat')).toBe(false);
   expect(new URL(page.url()).searchParams.get('daily')).toBe(date);
   const current = await stamp(page);
@@ -85,6 +108,9 @@ test('old or malformed daily invitations cannot silently enter ranked play', asy
     await gotoGame(page, query);
     await expect(page.locator('#startGameButton')).toBeDisabled();
     await expect(page.locator('#dailyMountain')).toContainText('unavailable');
+    await expect(page.locator('#leaderboardsDetails')).toBeHidden();
+    await expect(page.locator('#startSignInHint')).toBeHidden();
+    await expect(page.locator('#startLeaderboard [data-leaderboard-tier]')).toHaveCount(0);
     expect((await stamp(page)).practice).toBe(true);
     const regular = page.locator('#dailyMountain a', { hasText: 'Regular mountain' });
     const href = await regular.getAttribute('href');
@@ -93,5 +119,8 @@ test('old or malformed daily invitations cannot silently enter ranked play', asy
   }
   await page.locator('#dailyMountain a', { hasText: 'Regular mountain' }).click();
   await expect(page.locator('#startGameButton')).toBeEnabled();
+  await expect(page.locator('#leaderboardsDetails')).toBeVisible();
+  await expect(page.locator('#startSignInHint')).toBeVisible();
+  await expect(page.locator('#startLeaderboard [data-leaderboard-tier]')).toHaveCount(4);
   expect((await stamp(page)).practice).toBe(false);
 });

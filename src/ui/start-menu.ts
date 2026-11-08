@@ -123,8 +123,25 @@ import { renderDailyMountainMenu } from './daily-mountain.js';
 
   // The same level-switching view is used here and on the finish screen.
   function refreshStartAccountUI() {
-    const auth = window.AuthModule;
     const hint = document.getElementById('startSignInHint');
+    const details = document.getElementById('leaderboardsDetails');
+    const lb = document.getElementById('startLeaderboard');
+    const daily = dailyInvitation.kind !== 'none';
+    if (details) details.style.display = daily ? 'none' : '';
+    if (daily) {
+      // Daily records belong to this device. Neither valid nor broken invitations
+      // should display ordinary bests, fetch their boards, or suggest account saves.
+      if (hint) hint.style.display = 'none';
+      leaderboardHandle?.dispose();
+      leaderboardHandle = null;
+      leaderboardContainer = null;
+      if (lb) {
+        lb.style.display = 'none';
+        lb.replaceChildren();
+      }
+      return;
+    }
+    const auth = window.AuthModule;
     let canSignIn = false;
     let signedIn = false;
     try {
@@ -133,7 +150,6 @@ import { renderDailyMountainMenu } from './daily-mountain.js';
       signedIn = !!user && !user.isAnonymous;
     } catch { /* The local board remains usable when auth is unavailable. */ }
     if (hint) hint.style.display = canSignIn && !signedIn ? 'block' : 'none';
-    const lb = document.getElementById('startLeaderboard');
     if (!lb) return;
     if (lb !== leaderboardContainer || !lb.querySelector('.leaderboard-levels')) {
       leaderboardHandle?.dispose();

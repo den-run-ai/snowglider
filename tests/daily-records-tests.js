@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
   const { localBestTimeKey } = await import('../src/difficulty.ts');
   const { buildResultShareData } = await import('../src/share.ts');
   const { runLaunchUrl } = await import('../src/game/run-transition.ts');
-  const { renderDailyMountainMenu, buildDailyResultSummary } = await import('../src/ui/daily-mountain.ts');
+  const { renderDailyMountainMenu, buildDailyResultSummary, regularMountainUrl } = await import('../src/ui/daily-mountain.ts');
   const challenge = daily.createDailyChallenge('2026-11-08', 'blue');
   const otherDay = daily.createDailyChallenge('2026-11-07', 'blue');
   const otherTier = daily.createDailyChallenge('2026-11-08', 'black');
@@ -98,6 +98,7 @@ const assert = require('node:assert/strict');
   env.window.history.replaceState({}, '', url);
   renderDailyMountainMenu('blue');
   assert.match(document.getElementById('dailyMountain')?.textContent ?? '', /Friend’s shared target: 26.00s/);
+  assert.match(document.getElementById('dailyMountain')?.textContent ?? '', /Daily bests stay on this device/);
   env.window.history.replaceState({}, '', '/?daily=2026-11-08&level=blue&cv=1&pv=1');
   renderDailyMountainMenu('blue');
   assert.match(document.getElementById('dailyMountain')?.textContent ?? '', /unavailable/);
@@ -111,5 +112,83 @@ const assert = require('node:assert/strict');
   assert.equal(session.getDailyChallenge(), null);
   rc.setRunSeed(null);
   env.teardown();
+
+  // Full-page daily invitations capture their scope before auth is ready. A
+  // returning account must not mount/fetch an ordinary board or relabel a device
+  // best as this daily's record. A regular exit gets a fresh menu, as navigation
+  // does; arbitrary practice links keep their existing ordinary-menu behavior.
+  const dailyHref = daily.buildDailyChallengeUrl(daily.createDailyChallenge('2020-01-01', 'blue'));
+  const scenarios = [
+    { name: 'daily', href: dailyHref, hideOrdinary: true },
+    { name: 'invalid', href: 'https://snowglider.ai/?daily=broken', hideOrdinary: true },
+    { name: 'unsupported', href: dailyHref.replace('pv=4', 'pv=999'), hideOrdinary: true },
+    { name: 'regular-exit', href: regularMountainUrl(dailyHref, 'blue'), hideOrdinary: false },
+    { name: 'practice', href: 'https://snowglider.ai/?seed=123', hideOrdinary: false },
+  ];
+  for (const scenario of scenarios) {
+    const menuEnv = setupDom({ url: scenario.href, html: `<!doctype html><body>
+      <p id="startSignInHint" style="display:block">Save your times to your account.</p>
+      <details id="leaderboardsDetails" open>
+        <summary>Leaderboards</summary><div id="startLeaderboard">Stale ordinary results</div>
+      </details>
+    </body>` });
+    // Let jsdom's DOMContentLoaded finish before importing the side-effect menu.
+    // These scenarios exercise its real account refresh without game startup.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    menuEnv.localStorage.setItem(localBestTimeKey('blue'), '19');
+    let signedIn = false;
+    let boardReads = 0;
+    let accountBestReads = 0;
+    const returningUser = /** @type {import('firebase/auth').User} */ ({ uid: 'returning-skier', isAnonymous: false });
+    menuEnv.window.AuthModule = {
+      isFirebaseAvailable: () => ({ auth: true, firestore: true, analytics: false }),
+      getCurrentUser: () => signedIn ? returningUser : null,
+    };
+    menuEnv.window.ScoresModule = {
+      getLocalBestForUser: () => { accountBestReads++; return 19; },
+      getLeaderboard: async () => { boardReads++; return []; },
+    };
+    await import(`../src/ui/start-menu.ts?daily-account-scope=${scenario.name}`);
+    const menu = menuEnv.window.SnowGliderStartMenu;
+    const details = menuEnv.document.getElementById('leaderboardsDetails');
+    const hint = menuEnv.document.getElementById('startSignInHint');
+    const board = menuEnv.document.getElementById('startLeaderboard');
+    menu.refreshStartAccountUI();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (scenario.hideOrdinary) {
+      assert.equal(details.style.display, 'none', `${scenario.name}: ordinary disclosure stays hidden`);
+      assert.equal(hint.style.display, 'none', `${scenario.name}: no canonical save invitation`);
+      assert.equal(board.style.display, 'none');
+      assert.equal(board.childElementCount, 0, 'the ordinary panel was not mounted');
+      assert.equal(board.textContent, '', 'stale ordinary results are cleared');
+    } else {
+      assert.notEqual(details.style.display, 'none', `${scenario.name}: ordinary disclosure remains available`);
+      assert.equal(hint.style.display, 'block', `${scenario.name}: account saving is still discoverable`);
+      assert.equal(board.querySelectorAll('[data-leaderboard-tier]').length, 4);
+      assert.match(board.textContent, /Device best: 19.00s/);
+    }
+    signedIn = true;
+    menuEnv.window.dispatchEvent(new menuEnv.window.Event('snowglider:auth-changed'));
+    menuEnv.window.dispatchEvent(new menuEnv.window.Event('snowglider:account-bests-changed'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (scenario.hideOrdinary) {
+      assert.equal(boardReads, 0, `${scenario.name}: restored auth never reads canonical boards`);
+      assert.equal(accountBestReads, 0, `${scenario.name}: canonical account bests stay out of the daily view`);
+      assert.equal(board.childElementCount, 0);
+      assert.equal(details.style.display, 'none');
+      assert.equal(hint.style.display, 'none');
+      // A URL edit is not a scene change; the captured invitation remains daily
+      // until the Regular mountain link loads a fresh document.
+      menuEnv.window.history.replaceState({}, '', '/');
+      menu.refreshStartAccountUI();
+      assert.equal(details.style.display, 'none');
+      assert.equal(boardReads, 0);
+    } else {
+      assert.ok(boardReads > 0, `${scenario.name}: ordinary boards still load for signed-in players`);
+      assert.ok(accountBestReads > 0);
+      assert.match(board.textContent, /Account best: 19.00s/);
+    }
+    menuEnv.teardown();
+  }
   console.log('Daily records: isolated identity, eligibility, slower races, denied storage, repeatable streams, sharing, target comparison, transitions and teardown passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

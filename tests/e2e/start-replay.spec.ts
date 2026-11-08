@@ -3,7 +3,17 @@ import { test, expect } from './fixtures';
 import { gotoGame, mockFirebase, type GameWindow } from './helpers';
 
 type RunEvent = { name: string; params: Record<string, unknown> };
-type TelemetryWindow = Window & { runFunnelEvents?: RunEvent[]; simElapsed?: number };
+type IntroFunnelSnapshot = {
+  gameActive: boolean | undefined;
+  simElapsed: number | undefined;
+  tabRuns: string | null;
+  events: RunEvent[];
+};
+type TelemetryWindow = Window & {
+  runFunnelEvents?: RunEvent[];
+  simElapsed?: number;
+  introFunnelSnapshot?: IntroFunnelSnapshot;
+};
 
 async function collectRunEvents(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -29,7 +39,10 @@ async function activate(control: Locator, hasTouch: boolean): Promise<void> {
 }
 
 async function waitForRun(page: Page): Promise<void> {
-  await page.waitForFunction(() => (window as GameWindow).gameActive === true);
+  // gameActive flips before the first frame. Observe real simulation progress
+  // before inspecting its start event or synthesizing a terminal result.
+  await page.waitForFunction(() => (window as GameWindow).gameActive === true &&
+    ((window as TelemetryWindow).simElapsed ?? 0) > 0);
   await expect(page.locator('#startGameContainer')).toBeHidden();
   await expect(page.locator('#audioControlBtn')).toBeVisible();
   expect(new URL(page.url()).searchParams.has('play')).toBe(false);
@@ -178,12 +191,32 @@ test.describe('start and replay audio gestures', () => {
     await collectRunEvents(page);
     await mockFirebase(page, baseURL);
     await gotoGame(page, '?intro=force');
-    await page.evaluate(() => { delete window.firebaseModules?.logEvent; });
+    await page.evaluate(() => {
+      delete window.firebaseModules?.logEvent;
+      // Capture the real intro boundary in-page. Remote assertions/Skip actions
+      // can arrive after its four-second animation has naturally completed on CI.
+      const observer = new MutationObserver(() => {
+        if (!document.body.classList.contains('intro-active')) return;
+        const target = window as TelemetryWindow;
+        target.introFunnelSnapshot = {
+          gameActive: (window as GameWindow).gameActive,
+          simElapsed: target.simElapsed,
+          // A queued start increments this counter even without an Analytics sink.
+          tabRuns: sessionStorage.getItem('snowgliderTabRuns'),
+          events: [...(target.runFunnelEvents ?? [])],
+        };
+        observer.disconnect();
+      });
+      observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    });
     await activate(page.locator('#startGameButton'), hasTouch);
-    await expect(page.locator('body')).toHaveClass(/intro-active/);
-    expect(await runEvents(page), 'the fly-over has not handed off to skiing').toEqual([]);
-    await activate(page.locator('#introSkipBtn'), hasTouch);
     await waitForRun(page);
+    expect(await page.evaluate(() => (window as TelemetryWindow).introFunnelSnapshot),
+      'the observed fly-over has no playable frame or queued start').toEqual({
+      gameActive: false, simElapsed: 0, tabRuns: null, events: [],
+    });
+    expect(await page.evaluate(() => sessionStorage.getItem('snowgliderTabRuns')),
+      'natural intro completion hands off to exactly one actual playable start').toBe('1');
     expect(await runEvents(page), 'play does not wait for Analytics readiness').toEqual([]);
     await page.evaluate(() => {
       window.AuthModule = { recordScore: () => { throw new Error('score service unavailable'); }, getCurrentUser: () => null };
