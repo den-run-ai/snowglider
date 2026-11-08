@@ -7,11 +7,13 @@ const assert = require('node:assert/strict');
   assert.deepEqual(runTelemetryContext('expert', true), {
     difficulty: 'expert', physics_version: PHYSICS_VERSION,
     practice: 'true', timing_compromised: 'true',
+    run_mode: 'practice', challenge_entry: 'none',
   });
   setRunSeed(null);
   assert.deepEqual(runTelemetryContext('blue'), {
     difficulty: 'blue', physics_version: PHYSICS_VERSION,
     practice: 'false', timing_compromised: 'false',
+    run_mode: 'regular', challenge_entry: 'none',
   });
   const { setupDom } = await import('./mocks/dom.mjs');
   const env = setupDom();

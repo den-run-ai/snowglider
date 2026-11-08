@@ -142,11 +142,11 @@ export async function composeShareCard(opts: ShareCardOptions): Promise<Blob | n
     // Headline (best vs finish) + big time.
     g.fillStyle = '#74b9ff';
     g.font = `bold 54px ${family}`;
-    g.fillText(opts.practice ? 'PRACTICE RUN' : opts.isBest ? 'NEW PERSONAL BEST' : 'RUN COMPLETE', cx, CARD_H - 440);
+    g.fillText(opts.dailyChallenge ? 'DAILY MOUNTAIN' : opts.practice ? 'PRACTICE RUN' : opts.isBest ? 'NEW PERSONAL BEST' : 'RUN COMPLETE', cx, CARD_H - 440);
 
     // Keep the level and optional air score visible on every shared result, so
     // times from different mountains are never mistaken for the same leaderboard.
-    const context = [shareDifficultyLabel(opts.difficulty), shareAirScoreLabel(opts.airScore)].filter(Boolean).join(' · ');
+    const context = [opts.dailyChallenge?.date, shareDifficultyLabel(opts.difficulty), shareAirScoreLabel(opts.airScore)].filter(Boolean).join(' · ');
     if (context) {
       g.font = `bold 38px ${family}`;
       g.fillStyle = '#dfe6e9';
@@ -159,7 +159,7 @@ export async function composeShareCard(opts: ShareCardOptions): Promise<Blob | n
 
     g.font = `48px ${family}`;
     g.fillStyle = '#dfe6e9';
-    g.fillText(opts.practice ? 'Try the mountain!' : 'Can you beat it?', cx, CARD_H - 130);
+    g.fillText(opts.dailyEligible ? 'Can you beat my run?' : opts.practice ? 'Try the mountain!' : 'Can you beat it?', cx, CARD_H - 130);
 
     // Keep the playable path, but omit tracking queries from the printed URL.
     g.font = `bold 40px ${family}`;

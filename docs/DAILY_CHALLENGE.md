@@ -143,7 +143,55 @@ server rules that verify the identity/seed/tier/nonce/version/time bounds.
 Client consistency checks alone are not anti-cheat proof. Keep arbitrary seed
 URLs practice-only and preserve the existing canonical score guards.
 
-## Verification
+## Guest playable flow
+
+The welcome screen offers today's mountain for the selected level. A shared
+invitation opens the same date, level, seed and nonce, without sign-in. Starting
+still requires a gesture in the loaded page so browser audio activation works.
+Changing levels rebuilds the world and removes a target from the previous level;
+Replay keeps the original mountain even across UTC midnight. Returning to the
+menu refreshes today's invitation, while an active run's identity stays locked.
+
+`daily-session.ts` selects the world before scene construction. `daily-records.ts`
+stores only validated completed times under `snowgliderDailyBest_<challengeId>`.
+Each write re-reads the existing best, and reports storage failure without
+blocking sharing or replay. These are **device** records: signing in does not
+claim them for an account, and daily runs do not update regular scores or ghosts.
+Custom `?seed=` practice runs remain ineligible for both record paths.
+
+The finish screen shows a separate daily best and the delta to an optional
+friend's shared target. Share links contain the exact challenge and a valid
+completed target; a timing-compromised run can invite someone to the mountain
+but cannot supply a target. Text, native sharing and downloaded images retain
+the level/date context. Global daily ranking and account saving remain a later
+layer requiring their own server rules and qualification.
+
+## Integration verification
+
+`tests/daily-records-tests.js` covers canonical/practice/daily world selection,
+isolated records, altered provenance, denied storage, slower writes, fixed
+gameplay streams, sharing and target comparison. `tests/daily-result-tests.js`
+uses the actual result overlay, course panel and share controls to verify tied
+times, storage-denied finishes, invalid provenance and canonical-record isolation.
+The cross-browser
+`tests/e2e/daily-mountain.spec.ts` exercises guest entry, finish/share/retry,
+level changes and rejected invitations, and attaches actual EZ-forest welcome
+and result screenshots. These browser checks use scripted finishes; they do
+not establish physical-phone control, thermal performance or OAuth acceptance.
+
+The production PWA job also runs `tests/e2e/pwa-daily.spec.ts` against the built
+artifact. It checks bundled run provenance, isolated device saving, the copied
+invitation, replay and reload persistence. Daily native sharing prefers the
+playable URL; a separate image action remains available. A native share dialog
+resolving is not evidence that a social post was published.
+
+Run telemetry adds bounded `run_mode=regular|practice|daily` and
+`challenge_entry=none|daily|friend` fields from the locked, provenance-matched
+scene. A friend entry means a valid target was present when the mountain loaded.
+These fields separate incoming challenge play from sharing actions without
+emitting the date, seed, target, challenge ID or player identity.
+
+## Core verification
 
 `tests/daily-challenge-tests.js` is auto-discovered by `npm test`. Run it directly:
 

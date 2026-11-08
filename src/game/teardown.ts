@@ -32,6 +32,7 @@ import { resetRockCaches } from '../mountains/rocks.js';
 import { resetSnowmanSnowMaterial } from '../snowman/snow-material.js';
 import { TreeShed } from '../tree-shed.js';
 import { Snow } from '../snow.js';
+import { clearDailySession } from '../daily-session.js';
 import type { SceneContext } from './scene-setup.js';
 
 // Idempotence guard, keyed on the context object (not a shared module bool) so each
@@ -110,6 +111,7 @@ export function disposeSceneResources(scene: THREE.Scene): void {
 export function disposeGame(ctx: SceneContext, teardownListeners?: () => void): void {
   if (disposedContexts.has(ctx)) return; // idempotent: second dispose is a no-op
   disposedContexts.add(ctx);
+  clearDailySession();
 
   // 1. Stop the loop.
   ctx.state.gameActive = false;

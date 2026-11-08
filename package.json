@@ -55,7 +55,7 @@
     "test:sfx": "node --import ./tests/loaders/register-ts-resolve.mjs tests/sfx-tests.js",
     "test:diagnostics": "node --import ./tests/loaders/register-ts-resolve.mjs tests/diagnostics-tests.js && node --import ./tests/loaders/register-ts-resolve.mjs tests/diagnostics-dom-tests.js",
     "test:contract": "node --import ./tests/loaders/register-ts-resolve.mjs tests/contract-surface-tests.js",
-    "test:share": "node tests/share-tests.js",
+    "test:share": "node --import ./tests/loaders/register-ts-resolve.mjs tests/share-tests.js",
     "test:feedback": "node tests/feedback-tests.js",
     "test:share-card": "node --import ./tests/loaders/register-ts-resolve.mjs tests/share-card-tests.js",
     "test:share-menu": "node --import ./tests/loaders/register-ts-resolve.mjs tests/share-menu-tests.js",

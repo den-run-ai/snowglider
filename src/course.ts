@@ -30,6 +30,9 @@
 import * as THREE from 'three';
 import { announceGameStatus } from './ui/accessibility.js';
 import { getRunStamp, PHYSICS_VERSION } from './run-context.js';
+import { getDailyChallenge } from './daily-session.js';
+import { isDailyRunEligible } from './daily-challenge.js';
+import type { DailyBestResult } from './daily-records.js';
 import { FINISH_Z } from './snowman/collision.js'; // single source of truth for the finish trigger
 import { buildShareControls } from './ui/share-menu.js';
 import type { CaptureContext } from './share-card.js';
@@ -731,7 +734,7 @@ export const CourseModule = (function () {
 
   // Called from showGameOver() on a successful finish.
   // Returns a DOM node (the result panel) to insert into the game-over overlay.
-  function onFinish(totalTime: number, previousBest: number, recordEligible = true): HTMLDivElement {
+  function onFinish(totalTime: number, previousBest: number, recordEligible = true, dailyResult?: DailyBestResult): HTMLDivElement {
     hideHud();
 
     // A record-ineligible finish (timing-compromised, #403 review) saved nothing,
@@ -790,6 +793,21 @@ export const CourseModule = (function () {
     // #407): nothing was persisted, so "record"/"first descent"/medal labels
     // would promise state that does not exist. buildResultPanel renders the
     // practice note instead.
+    const daily = getDailyChallenge();
+    if (daily) {
+      const eligible = isDailyRunEligible(daily, getRunStamp(),
+        getDifficulty ? getDifficulty() : DEFAULT_DIFFICULTY, totalTime, !recordEligible);
+      // Persisted daily records use integer milliseconds. Use the actual fresh
+      // write outcome, not a raw floating-point comparison or an earlier tab
+      // snapshot, to claim an improvement. Storage success does not determine
+      // whether a valid finish can be compared/shared with a friend.
+      const savedBest = eligible && dailyResult?.status === 'saved';
+      const firstSaved = savedBest && dailyResult?.previousMs === null;
+      const previousDaily = dailyResult?.previousMs === null || dailyResult?.previousMs === undefined
+        ? Infinity : dailyResult.previousMs / 1000;
+      const medal: Medal = { key: 'finish', icon: '🏔', label: savedBest ? 'Daily best!' : 'Daily mountain' };
+      return buildResultPanel(totalTime, previousDaily, savedBest, firstSaved, medal, eligible, dailyResult);
+    }
     if (getRunStamp().practice) {
       return buildResultPanel(totalTime, previousBest, false, false,
         { key: 'finish', icon: '\u{1F9EA}', label: 'Practice run \u2014 custom mountain' }, false);
@@ -802,7 +820,7 @@ export const CourseModule = (function () {
     return buildResultPanel(totalTime, previousBest, isBest, isFirst, medal);
   }
 
-  function buildResultPanel(totalTime: number, previousBest: number, isBest: boolean, isFirst: boolean, medal: Medal, compareBest = true): HTMLDivElement {
+  function buildResultPanel(totalTime: number, previousBest: number, isBest: boolean, isFirst: boolean, medal: Medal, compareBest = true, dailyResult?: DailyBestResult): HTMLDivElement {
     const panel = document.createElement('div');
     panel.id = 'courseResult';
     Object.assign(panel.style, {
@@ -851,7 +869,21 @@ export const CourseModule = (function () {
     // Improvement line
     const improve = document.createElement('div');
     Object.assign(improve.style, { fontSize: '14px', marginBottom: '12px' });
-    if (!compareBest) {
+    if (dailyResult && compareBest) {
+      const milliseconds = Math.round(totalTime * 1000);
+      if (dailyResult.status === 'unavailable') {
+        improve.textContent = 'This finish is not stored on this device. You can still challenge a friend.';
+      } else if (dailyResult.status === 'saved' && dailyResult.previousMs === null) {
+        improve.textContent = 'First daily finish saved on this device. Beat it next time!';
+      } else if (dailyResult.previousMs !== null && milliseconds === dailyResult.previousMs) {
+        improve.textContent = `Matched your daily best (${formatTime(milliseconds / 1000)}).`;
+      } else if (dailyResult.previousMs !== null) {
+        improve.textContent = `${formatDelta((milliseconds - dailyResult.previousMs) / 1000)} vs your daily best${isBest ? ' — new best saved on this device!' : ''}`;
+      } else {
+        improve.textContent = 'Daily finish complete. Find your line and try again.';
+      }
+      improve.style.color = isBest ? '#55efc4' : '#dfe6e9';
+    } else if (!compareBest) {
       improve.textContent = 'This run was not saved as a personal best.';
       improve.style.color = '#dfe6e9';
     } else if (isFirst || !Number.isFinite(previousBest)) {
@@ -934,12 +966,15 @@ export const CourseModule = (function () {
     // screenshot card on desktop). Built only here, inside the finish result
     // panel, so they appear solely on a valid successful finish and are cleaned
     // up with the panel on restart. See src/ui/share-menu.ts.
+    const dailyForShare = getDailyChallenge();
     panel.appendChild(buildShareControls({
       time: totalTime,
       isBest,
       difficulty: getDifficulty ? getDifficulty() : DEFAULT_DIFFICULTY,
       airScore,
       practice: getRunStamp().practice || !compareBest,
+      ...(dailyForShare ? { dailyChallenge: dailyForShare } : {}),
+      dailyEligible: dailyForShare !== null && compareBest,
       getCapture: getCaptureContext,
     }));
 

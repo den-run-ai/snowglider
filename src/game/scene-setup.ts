@@ -29,7 +29,8 @@ import { initialRunDifficulty } from './run-transition.js';
 import { courseLineFor, setActiveCourseLine } from '../course-line.js';
 import { createScenery, type ScenerySystem } from '../scenery/scenery.js';
 import { scenerySeedFor } from '../scenery/scenery-budget.js';
-import { setWorldContext, parseRunSeedParam, CANONICAL_WORLD_SEED, getRunStamp } from '../run-context.js';
+import { getRunStamp } from '../run-context.js';
+import { configureDailySession } from '../daily-session.js';
 
 // The shipped Blue avalanche numbers, re-exported from the difficulty spine so there is
 // ONE source of truth (difficulty.ts BLUE_AVALANCHE). The winnability harness reads these
@@ -130,8 +131,10 @@ export function setupScene(signal?: AbortSignal) {
   // no longer make the default run device/order dependent). An explicit ?seed=
   // selects a PRACTICE world instead: freely chosen seeds are not
   // leaderboard-eligible (seed-shopping) and never touch canonical records.
-  const urlSeed = parseRunSeedParam(window.location.search);
-  setWorldContext(urlSeed ?? CANONICAL_WORLD_SEED, urlSeed !== null);
+  // Daily and invalid invitations stay outside the canonical score/ghost path.
+  // A daily finish has its own identity and record namespace. Rejecting an old
+  // link must never silently turn it into a regular ranked run.
+  configureDailySession(window.location.search);
   // Deliberate boot seam (#400; ARCHITECTURE.md §3): the classic-script local-auth
   // fallback (src/boot/local-auth.js) cannot import ES modules but must stamp the
   // local bests it records with the same {seed, physicsVersion} provenance the

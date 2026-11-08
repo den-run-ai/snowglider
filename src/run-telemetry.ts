@@ -1,17 +1,28 @@
 import type { Difficulty } from './difficulty.js';
+import { getDailySelection } from './daily-session.js';
 import { getRunStamp } from './run-context.js';
 
-/** Low-cardinality run context, without player IDs, seeds or replay nonces. */
+/** Low-cardinality run context, without IDs, dates, seeds, targets or nonces. */
 export function runTelemetryContext(
   difficulty: Difficulty,
   timingCompromised = false,
 ): Record<string, string | number> {
   const stamp = getRunStamp();
+  const selection = getDailySelection();
+  // The scene's locked invitation must describe the actual run. Never infer
+  // entry from the current URL, or label an unrelated practice world as daily.
+  const daily = selection.kind === 'daily' && stamp.practice &&
+    selection.challenge.difficulty === difficulty &&
+    selection.challenge.seed === stamp.seed &&
+    selection.challenge.nonce === stamp.nonce &&
+    selection.challenge.physicsVersion === stamp.physicsVersion;
   return {
     difficulty,
     physics_version: stamp.physicsVersion,
     practice: stamp.practice ? 'true' : 'false',
     timing_compromised: timingCompromised ? 'true' : 'false',
+    run_mode: daily ? 'daily' : stamp.practice ? 'practice' : 'regular',
+    challenge_entry: daily ? (selection.targetMs === null ? 'daily' : 'friend') : 'none',
   };
 }
 

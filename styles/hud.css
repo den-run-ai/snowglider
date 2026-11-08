@@ -113,7 +113,10 @@ body.start-screen-active #gameStatsContainer { visibility: hidden; }
   cursor: pointer;
   touch-action: manipulation;
 }
-.panel-disclosure:hover, .panel-pin:hover { background: rgba(255, 255, 255, 0.1); }
+/* Touch browsers can retain a synthetic hover after the start overlay closes. */
+@media (hover: hover) and (pointer: fine) {
+  .panel-disclosure:hover, .panel-pin:hover { background: rgba(255, 255, 255, 0.1); }
+}
 .panel-pin { font-size: 18px; }
 .panel-pin + .panel-disclosure { margin-left: 0; }
 .panel-pin[aria-pressed="true"] { background: #f6c35a; color: #1a2432; }

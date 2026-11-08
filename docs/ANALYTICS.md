@@ -98,6 +98,15 @@ player or a GA4-session identifier; browser session restoration can retain the c
 `run_attempt`, `funnel_version` and `score_eligible` as event-scoped dimensions for GA4
 explorations. Use GA4's audience/cohort tools separately for next-day returns.
 
+`run_mode` is bounded to `regular`, `practice` or `daily`; `challenge_entry` is
+`none`, `daily` or `friend`. Both describe the locked run at its playable start,
+not later URL edits. Register both as event-scoped dimensions. Daily finishes
+deliberately retain `practice = true` and `score_eligible = false` to isolate them
+from canonical ranking; include them when measuring gameplay, completion and replay.
+These fields emit no challenge date, seed, identifier, nonce or shared target.
+The existing analytics reporter inventories tracked events and summarizes Firestore
+account records; it does not implement a new GA4 replay/cohort report.
+
 The result boundary owns completion telemetry; score saving and later sign-in/retry do not
 emit another `complete_run`. When Analytics initializes late, up to 16 whole attempts are
 held in memory and flushed in order on active frames or auth readiness, including after a

@@ -46,6 +46,7 @@ async function expectCoreMenu(page: Page): Promise<void> {
   // Bounding boxes + actual hit testing are intentional: toBeVisible alone passes
   // for the old clipped/offscreen menu, and click() would silently scroll it first.
   await expectReachable(page, '#startGameButton', true);
+  await expectReachable(page, '#dailyMountainLink', true);
   await expectReachable(page, '#startSoundButton', true);
   for (const difficulty of difficulties) {
     await expectReachable(page, `#difficultyPicker [data-difficulty="${difficulty}"]`, true);

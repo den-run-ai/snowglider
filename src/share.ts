@@ -12,6 +12,7 @@
 //     clipboard fallback; best-effort Analytics, and it never rejects.
 
 import type { Difficulty } from './difficulty.js';
+import { buildDailyChallengeUrl, isValidDailyTargetMs, type DailyChallenge } from './daily-challenge.js';
 
 /** Canonical public page, used when the current URL is local/dev/unparseable. */
 const PUBLIC_URL = 'https://snowglider.ai/';
@@ -32,6 +33,9 @@ export interface ResultShareContext {
   airScore?: number;
   /** Custom mountains are shareable, but are never advertised as ranked bests. */
   practice?: boolean;
+  /** Only a completed, timing-intact daily run may include a target time. */
+  dailyChallenge?: DailyChallenge;
+  dailyEligible?: boolean;
 }
 
 const LEVEL_NAMES: Record<Difficulty, string> = {
@@ -121,6 +125,21 @@ export function buildResultShareData(
   const level = shareDifficultyLabel(context.difficulty);
   const airScore = shareAirScoreLabel(context.airScore);
   const air = airScore ? ` ${airScore}.` : '';
+  if (context.dailyChallenge) {
+    const challenge = context.dailyChallenge;
+    const milliseconds = Math.round(time * 1000);
+    const eligible = context.dailyEligible === true && isValidDailyTargetMs(milliseconds, challenge.difficulty);
+    const target = eligible ? milliseconds : undefined;
+    return {
+      title: SHARE_TITLE,
+      text: eligible
+        ? `${challenge.name} — SnowGlider daily mountain (${challenge.date}, ${shareDifficultyLabel(challenge.difficulty)}): ${seconds}s.${air} Can you beat my run?`
+        : `Ride ${challenge.name}, the SnowGlider daily mountain for ${challenge.date} on ${shareDifficultyLabel(challenge.difficulty)}!`,
+      // Invitations always use the public game, never a test/dev host, campaign
+      // URL, account identifier or mutable seed supplied by the current page.
+      url: buildDailyChallengeUrl(challenge, PUBLIC_URL, target),
+    };
+  }
   const text = context.practice
     ? `SnowGlider practice run${level ? ` on ${level}` : ''}: ${seconds}s.${air} Try the mountain!`
     : isNewBest
