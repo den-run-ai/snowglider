@@ -41,6 +41,7 @@ SnowGlider is a Three.js animation/game featuring a snowman skiing on natural ba
 - `docs/PHYSICS.md` - Terrain, skiing, jumps, collision, and avalanche simulation model
 - `docs/CHANGELOG.md` - Notable changes, including the skill/structure layer (#56) and the audio history
 - `docs/ROADMAP.md` - Phased P0–P3 feature roadmap and gap analysis (includes the now-shipped R2/R3 refactor stages)
+- `docs/ASSETS.md` - Release-based screenshot hosting tools and the migration runbook; existing branch URLs remain live until migrated.
 - `.claude/skills/webgpu-threejs-tsl/` - Vendored Claude Code skill: WebGPU renderer + TSL (Three.js Shading Language) reference for any future WebGPU work. Reference docs only (excluded from eslint); provenance and local API corrections are recorded in its `UPSTREAM.md`.
 - `.claude/skills/snowglider-dev/` - Claude Code skill: SnowGlider's engineering-discipline playbook, distilled from the commit history, Codex review threads, and issues. Encodes the hard invariants (byte-identical no-input physics, seeded-`Math.random` neutrality, fixed-timestep frame-rate independence, terrain two-formula `MUST MATCH`, teardown safety, automation gating, the `window.*` seam) and the recurring Codex/regression bug classes (shared-flag repurposing, state leaking across mode/run boundaries, teardown gaps, async races, incomplete consumer updates, within-frame ordering, perf-budget, deploy ordering). `SKILL.md` is the pre-flight checklist + bug-class self-check; `references/` holds the depth (`invariants.md`, `bug-classes.md`, `workflow.md`). Complements this file (the *what*) with the *how not to break it*.
 
@@ -146,11 +147,13 @@ The maintainer reviews *outcomes* (PRs, issues, review replies), not intermediat
   scene" caveat applies to any feature gated off under `isTestMode`/`webdriver` (intro,
   debris, sfx) — screenshot the mode the player actually sees.
 - **Do not commit screenshots/PNGs into the repo tree** (avoid adding new binary media to `main`;
-  Git LFS is not configured). Host PR screenshots off-tree and embed them by URL: push the
-  PNG(s) to a throwaway `assets/*` branch via the Git Data API (create blob →
-  tree → a parentless commit → `refs/heads/assets/<name>`), then embed
-  `https://raw.githubusercontent.com/<owner>/<repo>/assets/<name>/<file>.png`.
-  Confirm each raw URL returns HTTP 200 before relying on it in the PR body.
+  Git LFS is not configured). New screenshots can be hosted on the `assets` **GitHub Release**
+  with `node scripts/upload-release-asset.mjs shot.png --name pr<NN>-<label>.png`.
+  Embed the printed URL in the PR body, and confirm it returns HTTP 200 first.
+  Prefix names with the PR/issue number because the asset namespace is flat.
+  Preserve existing `assets/*` branches and their URLs until the migration in
+  [`docs/ASSETS.md`](docs/ASSETS.md) is explicitly run and verified. The live `og:image`
+  still uses its branch URL until the separate production meta-tag update.
 
 ### Stacked PRs (large features)
 

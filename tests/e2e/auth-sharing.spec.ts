@@ -40,7 +40,7 @@ async function expectUsable(page: Page, selector: string): Promise<void> {
 }
 
 test('Google, GitHub, guest upgrade and logout remain usable across menu and results', async ({ page, hasTouch, baseURL }, testInfo) => {
-  await mockFirebase(page, baseURL!);
+  await mockFirebase(page, baseURL);
   await gotoGame(page);
   await page.waitForFunction(() => window.AuthModule?.isFirebaseAvailable?.().auth === true);
   await page.evaluate(async () => {

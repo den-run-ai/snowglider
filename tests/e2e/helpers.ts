@@ -17,12 +17,17 @@ export type GameWindow = Window & {
 // Keep the production auth module, markup, event bindings and popup flow. Only
 // replace the external Firebase SDK, so no real account login or score write is
 // attempted. All CDN imports re-export ONE local mock instance for state control.
-export async function mockFirebase(page: Page, baseURL: string): Promise<void> {
-  await page.route('https://www.gstatic.com/firebasejs/**', route => route.fulfill({
-    contentType: 'application/javascript',
-    headers: { 'Access-Control-Allow-Origin': '*' },
-    body: `export * from ${JSON.stringify(`${baseURL}/tests/mocks/firebase.mjs`)};`,
-  }));
+export async function mockFirebase(page: Page, baseURL?: string): Promise<void> {
+  await page.route('https://www.gstatic.com/firebasejs/**', route => {
+    // SDK requests arrive after navigation commits. Resolve the live origin
+    // here so shared render fixtures work with either review-server port.
+    const origin = baseURL ?? new URL(page.url()).origin;
+    return route.fulfill({
+      contentType: 'application/javascript',
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: `export * from ${JSON.stringify(`${origin}/tests/mocks/firebase.mjs`)};`,
+    });
+  });
 }
 
 /** Load the game page and wait until the deferred orchestrator has wired up start.

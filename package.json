@@ -106,7 +106,8 @@
     "typecheck:coverage": "node scripts/check-typecheck-coverage.mjs",
     "typecheck:all": "npm run typecheck && npm run typecheck:tests && npm run typecheck:worker && npm run typecheck:e2e && npm run typecheck:coverage",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit",
-    "test:render-review": "PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test -c playwright.render-review.config.ts"
+    "test:render-review": "PLAYWRIGHT_FORCE_ASYNC_LOADER=1 playwright test -c playwright.render-review.config.ts",
+    "asset:upload": "node scripts/upload-release-asset.mjs"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "1.1.0",
