@@ -412,20 +412,21 @@ function setupTouchControls(signal?: AbortSignal) {
   window.addEventListener('resize', updateTouchRegions, opts);
   
   // Touches that begin inside a scrollable UI panel (the Controls / Ski Techniques
-  // guides, Game Stats, onboarding, or the finish/game-over result overlay) go to the browser so
-  // the panel can scroll natively. The document-level handlers below otherwise call
-  // preventDefault() on every move — killing the scroll — and would also mis-read the
-  // drag as ski steering. A TouchEvent's target stays the element the gesture started
+  // guides, Game Stats, onboarding, feedback, or the finish/game-over result overlay)
+  // go to the browser so the panel can scroll natively. The document-level handlers
+  // below otherwise call preventDefault() on every move — killing the scroll — and
+  // misread the drag as ski steering. A TouchEvent's target stays the element the gesture started
   // on, so excluding these targets lets the overflow areas scroll without leaking into
   // gameplay input. `#gameOverOverlay` is included because on a tall finish screen
   // (result panel + expanded share menu) it scrolls to keep RESTART reachable, and the
   // run is already over there, so a drag is never gameplay steering. The whole start
   // container owns touch, including disclosure text and blank card space: limiting
   // this to buttons/the controls guide breaks offline-help scrolling on phones.
+  // Feedback is appended directly to body, so it needs its own scroll boundary.
   const isScrollableUiTouch = (event: TouchEvent): boolean => {
     const target = event.target as Element | null;
     return !!(target && typeof target.closest === 'function' &&
-      target.closest('#startGameContainer, #controlsGuide, #controlsContent, #gameStatsContent, #gameOverOverlay'));
+      target.closest('#startGameContainer, #controlsGuide, #controlsContent, #gameStatsContent, #gameOverOverlay, #feedbackOverlay'));
   };
 
   // Touches that land on an interactive control (any button/link/form field, or an

@@ -213,7 +213,7 @@ async function main() {
   logoutBtn.dispatchEvent(new window.Event('click'));
   await flush();
   await flush();
-  check('sign-out failure alerts the user', alerts.some(a => /network down/.test(a)));
+  check('sign-out failure explains how to retry', alerts.some(a => /sign you out.*try again/i.test(a)));
   check('sign-out failure re-enables the logout button',
     logoutBtn.disabled === false && logoutBtn.textContent === 'Logout');
   fb.emitAuthState(null);
@@ -260,24 +260,40 @@ async function main() {
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
   check('popup-blocked: shows an alert and re-enables the button',
-    alerts.length === 1 && /popup/i.test(alerts[0]) && loginBtn.disabled === false);
+    alerts.length === 1 && /sign-in window/i.test(alerts[0]) && loginBtn.disabled === false);
+
+  // A credential conflict needs a different recovery action from a network error:
+  // tell the player to use their existing sign-in option and release every button.
+  alerts.length = 0;
+  fb.setNextPopupResult({ reject: {
+    code: 'auth/account-exists-with-different-credential', message: 'provider conflict details'
+  } });
+  loginBtn.dispatchEvent(new window.Event('click'));
+  await flush();
+  check('credential conflict explains how to continue without raw provider details',
+    alerts.length === 1 && /linked to another sign-in option.*Use that option/.test(alerts[0])
+    && !/provider conflict details/.test(alerts[0]));
+  check('credential conflict releases every provider and guest button for retry',
+    Array.from(authUI.querySelectorAll('button')).every(button =>
+      !button.disabled && !button.hasAttribute('aria-busy') && !button.classList.contains('signing-in')));
 
   // unknown error: generic alert.
   alerts.length = 0;
   fb.setNextPopupResult({ reject: { code: 'auth/internal-error', message: 'boom' } });
   loginBtn.dispatchEvent(new window.Event('click'));
   await flush();
-  check('unknown error: shows a generic alert', alerts.length === 1 && /boom/.test(alerts[0]));
+  check('unknown error: shows recovery guidance without raw service details',
+    alerts.length === 1 && /Try again/.test(alerts[0]) && !/boom/.test(alerts[0]));
 
-  // Promise rejection values are not guaranteed FirebaseError objects. Preserve
-  // useful plain strings and recover controls even when no message/code exists.
+  // Promise rejection values are not guaranteed FirebaseError objects. Give
+  // recovery guidance and release controls even when no message/code exists.
   for (const reason of ['network failed', null, undefined, { code: 42, message: { invalid: true } }]) {
     alerts.length = 0;
     fb.setNextPopupResult({ reject: reason });
     loginBtn.dispatchEvent(new window.Event('click'));
     await flush();
     check('malformed rejection produces a useful message and releases sign-in controls',
-      alerts.length === 1 && /network failed|Unknown error/.test(alerts[0]) && loginBtn.disabled === false);
+      alerts.length === 1 && /Try again/.test(alerts[0]) && loginBtn.disabled === false);
   }
 
   console.log('\n--- GitHub & Apple provider sign-in ---');
@@ -562,11 +578,31 @@ async function main() {
   check('telemetry failure cannot turn successful guest sign-in into an alert',
     alerts.length === alertsBeforeTelemetryFailure);
 
+  // A failed startup has fresh page controls. Replace the existing auth buttons
+  // before reinitializing so the earlier scenario's listeners are not duplicated.
+  authUI.replaceWith(authUI.cloneNode(true));
   fb.setNextGetAuthError(new Error('auth unavailable'));
   AuthModule.initializeAuth(config);
   const partialAvailability = AuthModule.isFirebaseAvailable();
   check('analytics remains available when authentication initialization fails',
     partialAvailability.auth === false && partialAvailability.analytics === true);
+
+  // Both the provider and Guest entry points must explain that local play remains
+  // available, without trying an unavailable SDK or leaving controls busy.
+  for (const id of ['loginBtn', 'guestLoginBtn']) {
+    const popupsBeforeUnavailable = calls.signInWithPopup;
+    const guestsBeforeUnavailable = calls.signInAnonymously;
+    alerts.length = 0;
+    window.document.getElementById(id).dispatchEvent(new window.Event('click'));
+    check(`${id} explains how to keep playing when sign-in is unavailable`,
+      alerts.length === 1 && /Sign-in is unavailable/.test(alerts[0])
+      && /start a run without signing in/.test(alerts[0]));
+    check(`${id} does not call the sign-in SDK while auth is unavailable`,
+      calls.signInWithPopup === popupsBeforeUnavailable && calls.signInAnonymously === guestsBeforeUnavailable);
+    check(`${id} leaves all provider and guest buttons ready to retry`,
+      Array.from(window.document.getElementById('authUI').querySelectorAll('button')).every(button =>
+        !button.disabled && !button.hasAttribute('aria-busy') && !button.classList.contains('signing-in')));
+  }
 
   // Preview/LAN deployments must not initialize the production Analytics SDK,
   // while the existing authentication and Firestore behavior remains available.

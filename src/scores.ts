@@ -629,10 +629,10 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
   const leaderboardElement = document.getElementById('leaderboard');
   if (!leaderboardElement) return;
 
-  leaderboardElement.innerHTML = '<h3>Loading Leaderboard...</h3>';
+  leaderboardElement.innerHTML = '<h3>Loading leaderboard…</h3>';
 
   if (!window.navigator.onLine) {
-    leaderboardElement.innerHTML = '<h3>Leaderboard unavailable (offline)</h3>';
+    leaderboardElement.innerHTML = '<h3>Go online to see the leaderboard.</h3>';
     return;
   }
 
@@ -660,7 +660,7 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
         }
 
         if (scores.length === 0) {
-          leaderboardElement.innerHTML = '<h3>No scores recorded yet!</h3>';
+          leaderboardElement.innerHTML = '<h3>No times yet. Set the first one!</h3>';
           return;
         }
 
@@ -673,7 +673,7 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
         // Build the table with DOM APIs (leaderboardRow) rather than an innerHTML
         // string, so user-controlled names/avatars render as text, never as markup.
         const heading = document.createElement('h3');
-        heading.textContent = 'Top 10 Times';
+        heading.textContent = 'Top 10 times';
         const table = document.createElement('table');
         const headerRow = document.createElement('tr');
         table.appendChild(headerRow);
@@ -704,7 +704,7 @@ function displayLeaderboard(tier: Difficulty = DEFAULT_DIFFICULTY) {
           leaderboardElement.innerHTML = '<h3>Leaderboard unavailable</h3>';
         } else {
           // Firestore might still be technically available, but some other error occurred
-          leaderboardElement.innerHTML = '<h3>Failed to load leaderboard data</h3>';
+          leaderboardElement.innerHTML = '<h3>Couldn’t load the leaderboard. Try again soon.</h3>';
         }
       });
   }; // End of attemptFetchAndRender

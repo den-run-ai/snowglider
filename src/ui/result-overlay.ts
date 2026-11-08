@@ -285,9 +285,9 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
         bestTimeDisplay.style.color = 'white';
       }
 
-      // Honest sync-status line (issue #358, PR 4): tell the player what actually
-      // happened to their result — practice tier (local only), offline (will sync
-      // later), guest (sign in to sync), or a stale board during a Firestore outage.
+      // Explain the result's leaderboard status: practice tier (local only),
+      // offline, guest, or a board outage. These availability signals cannot
+      // confirm a successful save; storage and remote writes are best-effort.
       const signedInUser = getSignedInUser();
       const online = isOnline();
       let firestoreAvailable = false;
@@ -325,7 +325,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
       // practice only; offline the sync-status line above already explains the state).
       if (!signedInUser && tierRanked && online) {
         const loginPrompt = document.createElement('p');
-        loginPrompt.textContent = 'Log in to save your score and see the leaderboard!';
+        loginPrompt.textContent = 'Sign in to race for a place on the Blue leaderboard.';
         loginPrompt.style.color = '#4285F4';
         loginPrompt.style.fontStyle = 'italic';
         loginPrompt.style.margin = '10px 0';

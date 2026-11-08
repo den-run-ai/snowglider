@@ -137,9 +137,9 @@ async function expectWelcomeArt(page: Page): Promise<void> {
   // phone banner must not satisfy the character-presence regression.
   expect(character.height, 'snowman remains recognizable').toBeGreaterThanOrEqual(Math.min(120, art.height * 0.7));
   expect(character.width, 'skis and arms remain recognizable').toBeGreaterThanOrEqual(Math.min(96, Math.min(art.width, art.height) * 0.65));
-  await expect(page.locator('#gameIntro')).toHaveText('A cheerful snowman on skis shredding mountain snow powder ⛄️⛷️🏔️');
+  await expect(page.locator('#gameIntro')).toHaveText('A little snowman. A big downhill adventure.');
   if (viewport.height > viewport.width || viewport.height > 500) {
-    await expect(page.locator('#gameIntro'), 'the original intro is visible outside compact landscape').toBeVisible();
+    await expect(page.locator('#gameIntro'), 'the intro is visible outside compact landscape').toBeVisible();
   }
   for (const selector of ['#gameTitle', '#gameIntro', '#gameDescription', '#startLoadingStatus']) {
     const copy = page.locator(selector);
