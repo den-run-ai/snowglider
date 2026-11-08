@@ -36,6 +36,8 @@ async function main() {
   const { CourseModule } = await import('../src/course.ts');
   const { Physics } = await import('../src/player-state.ts');
   const { Snow } = await import('../src/snow.ts');
+  const { EffectsModule } = await import('../src/effects.ts');
+  const { Sfx } = await import('../src/sfx.ts');
 
   const realAddAirScore = CourseModule.addAirScore;
   const realFlashDodge = CourseModule.flashDodge;
@@ -266,6 +268,45 @@ async function main() {
   }
 
   console.log('--- Adaptive quality transition presents a completed frame ---');
+
+  // Terminal substeps must not re-enable the warning/audio cleared by the
+  // result handler later in the same animation frame. Exercise actual finish
+  // and burial paths, including a frame with several owed physics steps.
+  for (const outcome of ['finish', 'burial']) {
+    let renders = 0;
+    let warnings = 0;
+    let rumble = 0;
+    const savedWarning = EffectsModule.updateAvalanche;
+    const savedRumble = Sfx.setAvalanche;
+    EffectsModule.updateAvalanche = () => { warnings++; };
+    Sfx.setAvalanche = () => { rumble++; };
+    const h = makeLoop({
+      avalanche: { checkBurial: () => outcome === 'burial' },
+      renderer: { render() { renders++; }, setSize() {} },
+    });
+    const realPush = h.gameOverReasons.push.bind(h.gameOverReasons);
+    /** @type {any} */ (h.gameOverReasons).push = (reason) => {
+      h.state.gameActive = false;
+      return realPush(reason);
+    };
+    h.loop.startLoop();
+    if (outcome === 'finish') h.player.pos.z = -196;
+    const before = { renders, warnings, rumble };
+    const t0 = performance.now();
+    h.loop.animate(t0 + 100);
+    check(`${outcome} ends exactly once inside the physics frame`,
+      h.gameOverReasons.length === 1 && !h.state.gameActive);
+    check(`${outcome} does not revive avalanche warnings or audio`,
+      warnings === before.warnings && rumble === before.rumble);
+    check(`${outcome} preserves the last completed render`, renders === before.renders);
+    // A queued frame still exists. Restart may happen before it runs, so do
+    // not clear animationRunning early and accidentally start a second chain.
+    check(`${outcome} leaves the queued frame in charge of loop ownership`, h.state.animationRunning);
+    h.loop.animate(t0 + 117);
+    check(`${outcome} queued frame releases loop ownership`, !h.state.animationRunning);
+    EffectsModule.updateAvalanche = savedWarning;
+    Sfx.setAvalanche = savedRumble;
+  }
 
   {
     let pixelRatio = 2;

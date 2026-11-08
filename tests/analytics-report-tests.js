@@ -1,5 +1,5 @@
 // @ts-check
-// Current-version analytics must count V3 finishes (including Expert), ignore
+// Current-version analytics must count current finishes (including Expert), ignore
 // historical bests, and preserve the report's private-email exclusion.
 const assert = require('node:assert/strict');
 const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } = require('node:fs');
@@ -22,18 +22,18 @@ const { join } = require('node:path');
 
     const users = [
       { id: 'current', displayName: 'Current', email: 'private-current@example.test',
-        bestTime: 18, [D.userBestTimeField('blue')]: 25 },
+        bestTime: 18, [`bestTimeV${PHYSICS_VERSION - 1}`]: 19, [D.userBestTimeField('blue')]: 25 },
       { id: 'expert', displayName: 'Expert', email: 'private-expert@example.test',
         [D.userBestTimeField('expert')]: 30 },
       { id: 'historical', displayName: 'Historical', email: 'private-old@example.test',
-        bestTime: 19, bestTimeExpert: 20 },
+        bestTime: 19, bestTimeExpert: 20, [`bestTimeV${PHYSICS_VERSION - 1}`]: 21 },
     ];
     const board = [{ user: 'users/current', time: 25, tier: 'blue', achievedAt: '2026-09-08T00:00:00Z' }];
     const insights = buildInsights(users, board, Date.parse('2026-09-08'), tiers,
       { min: MIN_VALID_SCORE_TIME, max: MAX_VALID_SCORE_TIME });
     assert.equal(insights.kpis.completedRun, 2, 'current Blue and Expert finishes count; historical-only does not');
-    assert.equal(insights.kpis.medianBestTime, 27.5, 'the faster historical Blue best cannot shadow V3');
-    assert.equal(insights.health.staleBoard, 0, 'V3 board rows compare against V3 user fields');
+    assert.equal(insights.kpis.medianBestTime, 27.5, 'a faster legacy or prior-version Blue best cannot shadow the current version');
+    assert.equal(insights.health.staleBoard, 0, 'current board rows compare against current user fields');
     assert.equal(insights.health.completedNotOnBoard, 0, 'Expert-only unranked finish needs no global board');
     assert.equal(insights.players.find(u => u.id === 'historical').bestTime, null);
     assert(!JSON.stringify(insights).includes('@example.test'), 'private emails stay out of exports');

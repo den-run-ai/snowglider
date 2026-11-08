@@ -496,6 +496,37 @@ class Diagnostics {
     try { this.sink(event, data); } catch { /* a broken sink must not break the game */ }
   }
 
+  /** Report an error caught by a recovery boundary. Caught animation/result failures
+   *  never reach the window error handlers; use the same event and physics context so
+   *  those failures remain visible in Analytics. Inert under the usual automation gate. */
+  reportError(error: unknown, source: string): void {
+    if (!DIAG_ENABLED || !this.active) return;
+    // Error payloads can come from SDKs/another realm and even have throwing getters.
+    // Reporting must not interrupt the recovery action it is describing.
+    let message = 'error';
+    let stack = '';
+    try {
+      message = errorText(error, 'message') || (typeof error === 'string' ? error : 'error');
+      stack = errorText(error, 'stack');
+    } catch { /* retain a generic report if inspecting the thrown value fails */ }
+    this.emit('client_error', {
+      message: message.slice(0, 300),
+      source: source.slice(0, 100),
+      stack: stack.slice(0, 600),
+      ...this.errorContext(),
+    });
+  }
+
+  private errorContext(): Record<string, unknown> {
+    const sm = this.summary;
+    return {
+      frames: sm.frames,
+      fps: sm.durationSec > 0 ? Math.round(sm.frames / sm.durationSec) : 0,
+      speedMax: +sm.speedMax.toFixed(1),
+      health: frameRateHealth(sm, this.cfg).level,
+    };
+  }
+
   /** Install window.onerror + unhandledrejection once. Captures the message/stack plus the
    *  current physics snapshot summary as context, routes it to the sink + console.error.
    *  Re-throws nothing; never swallows the browser's own default logging. */
@@ -503,15 +534,6 @@ class Diagnostics {
     // No re-install guard needed: init() aborts the previous controller before calling
     // this, so the prior handlers are already gone (one live pair at a time).
     if (typeof window === 'undefined') return;
-    const context = () => {
-      const sm = this.summary;
-      return {
-        frames: sm.frames,
-        fps: sm.durationSec > 0 ? Math.round(sm.frames / sm.durationSec) : 0,
-        speedMax: +sm.speedMax.toFixed(1),
-        health: frameRateHealth(sm, this.cfg).level,
-      };
-    };
     const signal = this.ac?.signal;
     const opts: AddEventListenerOptions | undefined = signal ? { signal } : undefined;
     window.addEventListener('error', (e: ErrorEvent) => {
@@ -520,7 +542,7 @@ class Diagnostics {
         source: e.filename || '',
         line: e.lineno || 0,
         stack: errorText(e.error, 'stack').slice(0, 600),
-        ...context(),
+        ...this.errorContext(),
       });
     }, opts);
     window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
@@ -529,7 +551,7 @@ class Diagnostics {
       this.emit('unhandled_rejection', {
         message: String(msg).slice(0, 300),
         stack: errorText(reason, 'stack').slice(0, 600),
-        ...context(),
+        ...this.errorContext(),
       });
     }, opts);
   }

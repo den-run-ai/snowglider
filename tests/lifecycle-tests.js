@@ -261,18 +261,18 @@ async function main() {
   // --- Regression (codex review, PR #306): tray stacks BELOW the game-over overlay ---
   // The tray must never paint over — or stay clickable above — the finish/game-over
   // modal. Its z-index (styles/hud.css) has to stay below the overlay's, which
-  // scene-setup.ts sets inline. Parse both from source so a future bump to either
+  // styles/main.css sets. Parse both from source so a future bump to either
   // value that breaks the ordering fails here.
   console.log('\n--- camera tray z-index stays below the game-over overlay ---');
   {
     const fs = require('fs');
     const path = require('path');
     const css = fs.readFileSync(path.join(__dirname, '../styles/hud.css'), 'utf8');
-    const sceneSrc = fs.readFileSync(path.join(__dirname, '../src/game/scene-setup.ts'), 'utf8');
+    const mainCss = fs.readFileSync(path.join(__dirname, '../styles/main.css'), 'utf8');
     const trayZ = Number((css.match(/#cameraControls\s*\{[^}]*?z-index:\s*(\d+)/) || [])[1]);
-    const overlayZ = Number((sceneSrc.match(/gameOverOverlay\.style\.zIndex\s*=\s*['"](\d+)['"]/) || [])[1]);
+    const overlayZ = Number((mainCss.match(/#gameOverOverlay\s*\{[^}]*?z-index:\s*(\d+)/) || [])[1]);
     check('parsed #cameraControls z-index from hud.css', Number.isFinite(trayZ));
-    check('parsed #gameOverOverlay z-index from scene-setup.ts', Number.isFinite(overlayZ));
+    check('parsed #gameOverOverlay z-index from main.css', Number.isFinite(overlayZ));
     check('camera tray z-index is below the game-over overlay', trayZ < overlayZ);
   }
 

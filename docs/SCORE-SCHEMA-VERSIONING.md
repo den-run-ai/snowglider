@@ -22,12 +22,23 @@ For each `PHYSICS_VERSION` bump:
    tests/remote-version-sync-tests.js` and `npm run test:firebase`. Both consume
    the complete schema history. The emulator verifies historical profile updates,
    bounds, monotonic scores, independent versions, and collection permissions.
-5. Deploy the additive Firestore rules before serving the new client. Rules are
-   a separate deployment from GitHub Pages. Confirm the deployed rules support
-   both old and new clients, then run the complete repository gate and deploy.
+5. Deploy the additive Firestore rules before serving the new client. The existing
+   CI `deploy-rules` job uses the Rules REST API and runs before the Pages build;
+   it requires the repository service-account secret, not a Firebase app or CLI.
+   Keep that gate: a failed rules deployment must prevent the new client shipping.
 6. Tell players that comparable personal bests and boards start fresh under the
    new physics version; existing historical data is retained.
 
-The fast gate includes a V3-to-V4 replacement mutation: complete V4 rules still
-fail compatibility checks if the edit drops V3. The Firebase mock accepts only
-the exact legacy and numeric-version tier naming shapes; typos fail immediately.
+The fast gate replaces the active schema with its successor: complete new-version
+rules still fail compatibility checks if the edit drops a previously shipped
+version. The Firebase mock accepts only the exact legacy and numeric-version tier
+naming shapes; typos fail immediately.
+
+Physics v4 separates the corrected tuck acceleration from v3 scores. The additive
+rules retain unversioned and v3 fields/boards; personal bests and ranked Blue times
+start fresh in v4. Bunny, Black and Expert remain unranked. Historical records are
+retained and are never copied into the v4 leaderboard.
+
+v4 uses a 15 s active Blue plausibility floor; legacy/v3 keep 18 s. The sampled
+fastest clean run was 21.87 s. Course length divided by the observed peak speed
+gives a 17.75 s estimate, not a proven bound; 15 s leaves conservative headroom.

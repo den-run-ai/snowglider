@@ -9,7 +9,7 @@
 // unchanged — Vite/tsc Bundler resolve it to audio.ts.
 import { AudioModule } from '../audio.js';
 import { getDifficultyConfig, storeDifficulty, type Difficulty } from '../difficulty.js';
-import { consumeRunLaunch, initialRunDifficulty } from '../game/run-transition.js';
+import { consumeRunLaunch, initialRunDifficulty, isRunTransition } from '../game/run-transition.js';
 import { Sfx } from '../sfx.js';
 import { buildDifficultyPicker as buildDifficultyPickerUI, type DifficultyPickerHandle } from './difficulty-picker.js';
 import { isOnline, watchConnectivity } from '../offline/offline-state.js';
@@ -20,6 +20,9 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
 
 (function () {
   let startGamePending = false;
+  // A navigation cannot carry the Restart button's user activation. Prepare the
+  // selected course, then wait for Start in this document before audio/gameplay.
+  const preparingNewTier = isRunTransition();
   // The player's chosen difficulty tier, remembered across sessions in
   // localStorage. The picker writes it; the game reads the persisted value at run
   // start (src/snowglider.ts) so changing the pick then starting takes effect.
@@ -55,6 +58,11 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
       ready: 'Ready to ride',
       error: 'Couldn’t prepare the mountain',
     }[status.stage];
+    if (preparingNewTier && status.stage !== 'error') {
+      const waiting = status.stage !== 'ready';
+      document.getElementById('startGameContainer')?.classList.toggle('run-preparing', waiting);
+      setStartButtonWaiting(waiting);
+    }
     if (status.stage === 'error') {
       const wasPending = startGamePending;
       startGamePending = false;
@@ -283,7 +291,7 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
     }
 
     startButton.disabled = waiting;
-    startButton.textContent = waiting ? 'Preparing run…' : 'Start Game';
+    startButton.textContent = waiting ? 'Preparing run…' : preparingNewTier ? 'Start run' : 'Start Game';
     if (waiting) {
       startButton.setAttribute('aria-busy', 'true');
     } else {
@@ -410,11 +418,9 @@ import { getStartupStatus, showStartupError, subscribeStartupStatus, type Startu
     setupOfflineBadge();
     setupInstallPrompt();
     buildDifficultyPicker();
-    if (consumeRunLaunch()) {
-      startGamePending = true;
-      setStartButtonWaiting(true);
-      document.getElementById('startGameContainer')?.classList.add('run-preparing');
-    }
+    // Consume the URL intent without queuing a synthetic start. The fresh Start
+    // gesture unlocks music and SFX synchronously, before starting the run.
+    consumeRunLaunch();
     const startContainer = document.getElementById('startGameContainer');
     const account = document.getElementById('authContainer');
     if (startContainer) openOverlayFocus(startContainer, {

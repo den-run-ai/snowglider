@@ -109,6 +109,14 @@ async function main() {
   gameOver.style.display = 'flex';
   await new Promise((r) => setTimeout(r, 0));
   check('card-mounted update moves to results when outer start screen hides', env.document.getElementById(ui.UPDATE_BANNER_ID).parentElement === gameOver);
+  const resultContent = env.document.createElement('div');
+  resultContent.id = 'gameOverContent';
+  gameOver.appendChild(resultContent);
+  ui.retryPendingUpdatePrompt(env.document);
+  check('result update mounts inside scrolling details, outside replay actions',
+    env.document.getElementById(ui.UPDATE_BANNER_ID).parentElement === resultContent);
+  check('result update stays idempotent', ui.retryPendingUpdatePrompt(env.document) === false);
+
 
   env.teardown();
   console.log(`\nPWA UPDATE-UI TEST TOTAL: ${pass} passed, ${fail} failed`);

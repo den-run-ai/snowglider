@@ -184,49 +184,18 @@ export function setupScene(signal?: AbortSignal) {
   // Create game over overlay
   const gameOverOverlay = document.createElement('div');
   gameOverOverlay.id = 'gameOverOverlay';
-  gameOverOverlay.style.position = 'fixed';
-  gameOverOverlay.style.top = '0';
-  gameOverOverlay.style.left = '0';
-  gameOverOverlay.style.width = '100%';
-  gameOverOverlay.style.height = '100%';
-  gameOverOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-  gameOverOverlay.style.display = 'flex';
-  gameOverOverlay.style.flexDirection = 'column';
-  gameOverOverlay.style.alignItems = 'center';
-  // `safe center` keeps the contents centered when they fit, but falls back to
-  // top-alignment when they're taller than the viewport instead of clipping the
-  // overflow off both ends (the flex-centering overflow trap). Combined with the
-  // vertical scroll below, this keeps the whole stack — crucially the RESTART
-  // button at the bottom — reachable on short screens or when the finish result
-  // panel + expanded share menu make the overlay taller than the viewport.
-  gameOverOverlay.style.justifyContent = 'safe center';
-  // Allow the overlay itself to scroll when its contents overflow, so nothing
-  // (GAME OVER header, result panel, RESTART) becomes unreachable.
-  gameOverOverlay.style.overflowY = 'auto';
-  gameOverOverlay.style.boxSizing = 'border-box';
-  gameOverOverlay.style.padding = '24px 16px';
-  gameOverOverlay.style.setProperty('-webkit-overflow-scrolling', 'touch');
-  gameOverOverlay.style.zIndex = '1000';
   gameOverOverlay.style.display = 'none'; // Initially hidden
 
   // Game over message
   const gameOverMessage = document.createElement('h1');
   gameOverMessage.id = 'gameOverMessage';
   gameOverMessage.textContent = 'GAME OVER';
-  gameOverMessage.style.color = 'white';
-  gameOverMessage.style.fontFamily = 'Arial, sans-serif';
-  gameOverMessage.style.fontSize = '48px';
-  gameOverMessage.style.marginBottom = '20px';
   gameOverOverlay.appendChild(gameOverMessage);
 
   // Detailed message (shows reason for game over)
   const gameOverDetail = document.createElement('p');
   gameOverDetail.id = 'gameOverDetail';
   gameOverDetail.textContent = '';
-  gameOverDetail.style.color = 'white';
-  gameOverDetail.style.fontFamily = 'Arial, sans-serif';
-  gameOverDetail.style.fontSize = '24px';
-  gameOverDetail.style.marginBottom = '30px';
   gameOverOverlay.appendChild(gameOverDetail);
 
   // Restart button
@@ -242,7 +211,6 @@ export function setupScene(signal?: AbortSignal) {
   restartButton.style.border = 'none';
   restartButton.style.borderRadius = '8px';
   restartButton.style.cursor = 'pointer';
-  restartButton.style.minWidth = '200px';
   restartButton.style.setProperty('-webkit-tap-highlight-color', 'rgba(255, 255, 255, 0.5)');
   restartButton.style.touchAction = 'manipulation'; // Removes delay on mobile devices
   restartButton.style.userSelect = 'none';

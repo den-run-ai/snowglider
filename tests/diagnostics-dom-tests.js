@@ -87,6 +87,36 @@ async function main() {
   window.dispatchEvent(new window.KeyboardEvent('keydown', { key: '`' }));
   check('hotkey: backtick shows it again', !!document.getElementById('diagOverlay'));
 
+  // Recovery boundaries catch failures before the global handlers can see them.
+  // They must still report through the same guarded transport with run context.
+  events.length = 0;
+  D.Diag.reportError(new Error('caught frame failure'), 'animation_loop');
+  const caughtErr = events.find((e) => e.event === 'client_error');
+  check('caught error: reports once without a window error event', events.length === 1);
+  check('caught error: preserves message, source and stack', !!caughtErr &&
+    caughtErr.data.message === 'caught frame failure' && caughtErr.data.source === 'animation_loop' &&
+    String(caughtErr.data.stack).includes('caught frame failure'));
+  check('caught error: attaches the current run context', !!caughtErr &&
+    caughtErr.data.frames === 90 && caughtErr.data.health === 'bad');
+  D.Diag.reportError({ message: 'm'.repeat(400), stack: 's'.repeat(700) }, 'c'.repeat(120));
+  const bounded = events[events.length - 1].data;
+  check('caught error: bounds external text', bounded.message.length === 300 &&
+    bounded.stack.length === 600 && bounded.source.length === 100);
+  D.Diag.reportError('storage unavailable', 'course_result');
+  check('caught error: bare string failures remain readable',
+    events[events.length - 1].data.message === 'storage unavailable');
+  D.Diag.reportError(Object.defineProperty({}, 'message', {
+    get() { throw new Error('malformed error payload'); }
+  }), 'course_result');
+  check('caught error: throwing error getters cannot interrupt recovery',
+    events[events.length - 1].data.message === 'error');
+
+  D.Diag.init(undefined, { report: () => { throw new Error('analytics offline'); } });
+  let reportThrew = false;
+  try { D.Diag.reportError(new Error('caught'), 'animation_loop'); } catch { reportThrew = true; }
+  check('caught error: a broken transport cannot interrupt recovery', !reportThrew);
+  D.Diag.init(undefined, { report: (event, data) => events.push({ event, data }) });
+
   // --- global error + unhandledrejection capture ------------------------------
   events.length = 0;
   const errEvt = new window.Event('error');
@@ -146,6 +176,14 @@ async function main() {
   let threw = false;
   try { D.Diag.teardown(); } catch { threw = true; }
   check('teardown: idempotent (a second call does not throw)', !threw);
+  events.length = 0;
+  D.Diag.reportError(new Error('after teardown'), 'animation_loop');
+  check('caught error: disabled after teardown', events.length === 0);
+  window.isTestMode = true;
+  D.Diag.init(undefined, { report: (event, data) => events.push({ event, data }) });
+  D.Diag.reportError(new Error('automated'), 'animation_loop');
+  check('caught error: respects the automation gate', events.length === 0);
+  D.Diag.teardown();
 
   console.log(`\nDIAGNOSTICS DOM TESTS: ${fail === 0 ? 'OK ✅' : 'FAIL ❌'} (${pass} passed, ${fail} failed)`);
   process.exit(fail === 0 ? 0 : 1);

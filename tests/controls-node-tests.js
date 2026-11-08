@@ -65,6 +65,7 @@ function dispatchTouch(type, target, points) {
   const event = /** @type {any} */ (new window.Event(type, { bubbles: true, cancelable: true }));
   event.changedTouches = points;
   target.dispatchEvent(event);
+  return event;
 }
 
 async function main() {
@@ -581,30 +582,33 @@ async function main() {
   check('cameraToggleBtn touchstart invokes window.toggleCameraView',
     cameraToggles === cameraTogglesBefore + 1);
 
-  console.log('\n--- restart button via game-over MutationObserver ---');
+  console.log('\n--- restart preserves the native audio gesture ---');
   let restarts = 0;
   window.restartGame = () => { restarts++; };
-  // Simulate a successful finish: the course result panel (with a nested "Share
-  // Result" button) is inserted before the restart button. The observer must bind
-  // the touch->restart handler to the DIRECT-child restart button, not the nested
-  // share button that comes first in depth-first document order.
   const overlay = document.getElementById('gameOverOverlay');
+  const restartButton = overlay.querySelector('button');
+  restartButton.id = 'restartButton';
+  // Mirror lifecycle's single click binding. Test both the original DOM and the
+  // nested footer: neither may start the run or cancel clicks on finger-down.
+  restartButton.addEventListener('click', () => window.restartGame());
   const resultPanel = document.createElement('div');
   resultPanel.id = 'courseResult';
   resultPanel.innerHTML = '<button id="shareResultBtn">Share Result</button>';
-  overlay.insertBefore(resultPanel, overlay.querySelector('button'));
-  // The observer attaches a touch handler to the restart button when the overlay
-  // becomes visible (style.display = 'flex').
+  overlay.insertBefore(resultPanel, restartButton);
   overlay.style.display = 'flex';
   await flush();
   await flush();
-  const restartButton = document.querySelector('#gameOverOverlay > button');
-  dispatchTouch('touchstart', restartButton, [{ identifier: 5, clientX: 0, clientY: 0 }]);
-  check('restart button touchstart invokes window.restartGame', restarts === 1);
-  // Touching the nested share button must NOT restart the game (regression guard:
-  // the observer used to bind restart to the first descendant button).
+  const down = dispatchTouch('touchstart', restartButton, [{ identifier: 5, clientX: 0, clientY: 0 }]);
+  check('finger-down does not restart before audio activation', restarts === 0);
+  check('restart touch does not suppress the native click', !down.defaultPrevented);
+  const actions = document.createElement('div');
+  actions.id = 'gameOverActions';
+  overlay.appendChild(actions);
+  actions.appendChild(restartButton);
+  restartButton.click();
+  check('nested replay button click restarts exactly once', restarts === 1);
   dispatchTouch('touchstart', document.getElementById('shareResultBtn'), [{ identifier: 6, clientX: 0, clientY: 0 }]);
-  check('share button touchstart does NOT invoke window.restartGame', restarts === 1);
+  check('share touch never invokes restart', restarts === 1);
 
   console.log('\n--- resetControls ---');
   keydown('ArrowRight');
@@ -656,37 +660,6 @@ async function main() {
   // handler): with the keyboard-held ledger (PR #404) an unreleased key would
   // otherwise keep its control asserted through the touch tests below.
   keyup('ArrowLeft');
-
-  // --- delayed overlay-observer abort guard (Codex review #226) ---
-  // On mobile setupControls() runs before setupScene() creates #gameOverOverlay, so
-  // setupButtonTouchHandlers arms a 1s delayed observe(). Aborting the teardown signal
-  // during that window must cancel it — else a remounted overlay (HMR) gets the stale
-  // observer and the old restart touch handler.
-  console.log('\n--- delayed overlay observer abort guard ---');
-  {
-    const existing = document.getElementById('gameOverOverlay');
-    if (existing) existing.remove(); // force the no-overlay-yet (delayed observe) branch
-    let observeCalls = 0;
-    const realObserve = window.MutationObserver.prototype.observe;
-    window.MutationObserver.prototype.observe = function (...a) { observeCalls++; return realObserve.apply(this, /** @type {any} */ (a)); };
-    const ac2 = new window.AbortController();
-    try {
-      Controls.setupControls(ac2.signal); // arms the 1s delayed observe (overlay absent)
-      const observesBefore = observeCalls;
-      ac2.abort();                        // tear down DURING the 1s delay window
-      // A remount re-creates the overlay before the timeout would have fired.
-      const remounted = document.createElement('div');
-      remounted.id = 'gameOverOverlay';
-      remounted.style.display = 'none';
-      document.body.appendChild(remounted);
-      await new Promise(r => setTimeout(r, 1100)); // wait past the 1000ms delayed observe
-      check('aborting during the delay window cancels the pending overlay observe()',
-        observeCalls === observesBefore);
-    } finally {
-      window.MutationObserver.prototype.observe = realObserve;
-      ac2.abort();
-    }
-  }
 
   // --- debug touch zones (?debugTouchZones=1) ---
   // Re-run setup under the debug flag (with the affordance opt-out alongside, which

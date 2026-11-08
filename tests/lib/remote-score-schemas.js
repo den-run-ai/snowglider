@@ -2,7 +2,7 @@
 // Append-only history shared by the fast drift gate and the Firestore emulator.
 // V1/V2 never shipped versioned remote names; V3 is the first. Never replace an
 // old version: stored fields and old clients still require their original rules.
-const SHIPPED_REMOTE_VERSIONS = Object.freeze([3]);
+const SHIPPED_REMOTE_VERSIONS = Object.freeze([3, 4]);
 const TIERS = Object.freeze(/** @type {const} */ (['blue', 'bunny', 'black', 'expert']));
 
 function schemaForVersion(version) {
@@ -12,8 +12,10 @@ function schemaForVersion(version) {
     version,
     label: version === null ? 'legacy' : `v${version}`,
     // Keep historical floors unchanged when a future version changes its floor.
-    scoreValidator: 'isValidScoreTime',
-    minTime: 18,
+    scoreValidator: version >= 4 ? `isValidScoreTimeV${version}` : 'isValidScoreTime',
+    leaderboardDocValidator: version >= 4 ? `validLeaderboardDocV${version}` : 'validLeaderboardDoc',
+    leaderboardUpdateValidator: version >= 4 ? `validLeaderboardUpdateV${version}` : 'validLeaderboardUpdate',
+    minTime: version >= 4 ? 15 : 18,
     maxTime: 600,
     tiers: TIERS.map(tier => ({
       tier,
