@@ -73,7 +73,7 @@ import { initializeApp, type FirebaseApp, type FirebaseOptions } from "https://w
 import ScoresModule from "./scores.js";
 import { DIFFICULTIES, localBestTimeKey, localBestProvenanceCompatible, type Difficulty } from "./difficulty.js";
 import { safeGetItem, safeRemoveItem } from "./offline/offline-store.js";
-import { withTrafficTag } from "./analytics-env.js";
+import { shouldCollectAnalytics, withTrafficTag } from "./analytics-env.js";
 
 /** Promise rejections are untrusted: Firebase errors normally expose string
  * code/message fields, but network shims and failures can reject with anything. */
@@ -85,6 +85,13 @@ function readAuthError(error: unknown): { code: string | null; message: string }
     message: typeof fields.message === 'string' ? fields.message
       : typeof error === 'string' ? error : 'Unknown error. Please try again.',
   };
+}
+
+/** Optional telemetry must not turn a successful sign-in/guest upgrade into a
+ * failure or prevent the linked account from reaching the scoring/UI layer. */
+function logAnalyticsEvent(name: string, params?: Record<string, unknown>): void {
+  try { if (analytics) logEvent(analytics, name, withTrafficTag(params)); }
+  catch { /* the optional analytics service must never interrupt authentication */ }
 }
 
 // Initialize Firebase Auth
@@ -129,8 +136,9 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
       firestore = null;
     }
 
-    // Initialize Analytics (only if not local AND auth succeeded)
-    if (!isTrulyLocal && auth) {
+    // Analytics is independent of Auth, but only public production hosts may
+    // initialize it (including the SDK's automatic page-view/session collection).
+    if (!isTrulyLocal && shouldCollectAnalytics(window.location.hostname)) {
       try {
         analytics = getAnalytics(firebaseApp);
         console.log("Firebase Analytics service obtained.");
@@ -139,7 +147,7 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
         analytics = null; // Ensure analytics is null if initialization fails
       }
     } else {
-        console.warn(`Skipping Analytics: ${isTrulyLocal ? 'Local environment' : 'Auth failed'}`);
+        console.log('Skipping Analytics: Non-production environment');
         analytics = null;
     }
 
@@ -154,10 +162,7 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
     // caller.
     if (typeof window !== 'undefined' && analytics) {
       window.firebaseModules = Object.assign(window.firebaseModules || {}, {
-        logEvent: (name: string, params?: Record<string, unknown>) => {
-          try { if (analytics) logEvent(analytics, name, withTrafficTag(params)); }
-          catch (e) { console.log('logEvent skipped:', readAuthError(e).message); }
-        }
+        logEvent: logAnalyticsEvent
       });
     }
 
@@ -565,9 +570,7 @@ function runProviderSignIn(meta: ProviderButton, btn: HTMLButtonElement) {
   flow
     .then(result => {
       console.log(`Popup sign-in successful (${meta.method})`);
-      if (analytics) {
-        logEvent(analytics, 'login', withTrafficTag({ method: meta.method }));
-      }
+      logAnalyticsEvent('login', { method: meta.method });
       if (linkedInPlace) {
         handleSignedInUser(result.user);
       }
@@ -590,11 +593,9 @@ function signInAsGuest(btn: HTMLButtonElement) {
   setAuthButtonsBusy(btn);
   console.log("Guest sign-in initiated (anonymous).");
   signInAnonymously(auth)
-    .then(result => {
-      console.log("Guest (anonymous) sign-in successful:", result.user.uid);
-      if (analytics) {
-        logEvent(analytics, 'login', withTrafficTag({ method: 'Anonymous' }));
-      }
+    .then(() => {
+      console.log('Guest (anonymous) sign-in successful.');
+      logAnalyticsEvent('login', { method: 'Anonymous' });
     })
     .catch(handleSignInError);
 }
@@ -766,7 +767,7 @@ function syncUserData(user: User) {
       lastLogin: serverTimestamp() // Record last login time
     }, { merge: true })
     .then(() => {
-      console.log("User data synced/updated in Firestore for:", user.uid);
+      console.log("User data synced/updated in Firestore.");
     })
     .catch((error: unknown) => {
       console.error("Error saving user data to Firestore:", error);

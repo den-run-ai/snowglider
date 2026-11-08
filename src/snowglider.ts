@@ -34,6 +34,7 @@ import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
+import { runTelemetryContext } from './run-telemetry.js';
 import { noop } from './noop.js';
 import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
@@ -277,6 +278,7 @@ Diag.init(
     ),
   },
   {
+    reportReady: () => typeof window.firebaseModules?.logEvent === 'function',
     report: (event, data) => {
       try {
         if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function' &&
@@ -620,7 +622,7 @@ window.initializeGameWithAudio = function() {
   // Track game start in analytics if available
   try {
     if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-      window.firebaseModules.logEvent('game_start');
+      window.firebaseModules.logEvent('game_start', runTelemetryContext(state.difficulty));
     }
   } catch (e) {
     console.log("Analytics tracking skipped:", (e as Error).message);
