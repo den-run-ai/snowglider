@@ -1,0 +1,270 @@
+{
+  "commit": "e9e6f1b9ee6b3912a6ea842350cd42ccc613811d",
+  "tree": "34f8fd93a80f1445bc30511f70bb2dd6a16607a6",
+  "evidence": [
+    {
+      "image": "after-phone-about.webp",
+      "commit": "e9e6f1b9ee6b3912a6ea842350cd42ccc613811d",
+      "tree": "34f8fd93a80f1445bc30511f70bb2dd6a16607a6",
+      "viewport": {
+        "name": "phone",
+        "width": 390,
+        "height": 700
+      },
+      "player": {
+        "webdriver": false,
+        "ezBranches": 63
+      },
+      "firebase": "Existing Firebase SDK mock; real application, auth module, markup and event handlers retained",
+      "card": {
+        "x": 12,
+        "y": 64,
+        "width": 366,
+        "height": 624,
+        "scrollWidth": 364,
+        "clientWidth": 364,
+        "scrollHeight": 688,
+        "clientHeight": 622,
+        "scrollTop": 0,
+        "centerReachable": true
+      },
+      "close": {
+        "x": 289.4375,
+        "y": 77,
+        "width": 75.5625,
+        "height": 44,
+        "scrollWidth": 74,
+        "clientWidth": 74,
+        "scrollHeight": 42,
+        "clientHeight": 42,
+        "scrollTop": 0,
+        "centerReachable": true
+      }
+    },
+    {
+      "image": "after-phone-about-credits.webp",
+      "commit": "e9e6f1b9ee6b3912a6ea842350cd42ccc613811d",
+      "tree": "34f8fd93a80f1445bc30511f70bb2dd6a16607a6",
+      "viewport": {
+        "name": "phone",
+        "width": 390,
+        "height": 700
+      },
+      "player": {
+        "webdriver": false,
+        "ezBranches": 63
+      },
+      "firebase": "Existing Firebase SDK mock; real application, auth module, markup and event handlers retained",
+      "card": {
+        "x": 12,
+        "y": 64,
+        "width": 366,
+        "height": 624,
+        "scrollWidth": 364,
+        "clientWidth": 364,
+        "scrollHeight": 762,
+        "clientHeight": 622,
+        "scrollTop": 140,
+        "centerReachable": true
+      },
+      "close": {
+        "x": 289.4375,
+        "y": 77,
+        "width": 75.5625,
+        "height": 44,
+        "scrollWidth": 74,
+        "clientWidth": 74,
+        "scrollHeight": 42,
+        "clientHeight": 42,
+        "scrollTop": 0,
+        "centerReachable": true
+      }
+    },
+    {
+      "image": "after-landscape-about-credits.webp",
+      "commit": "e9e6f1b9ee6b3912a6ea842350cd42ccc613811d",
+      "tree": "34f8fd93a80f1445bc30511f70bb2dd6a16607a6",
+      "viewport": {
+        "name": "landscape",
+        "width": 568,
+        "height": 320
+      },
+      "player": {
+        "webdriver": false,
+        "ezBranches": 63
+      },
+      "firebase": "Existing Firebase SDK mock; real application, auth module, markup and event handlers retained",
+      "card": {
+        "x": 12,
+        "y": 62,
+        "width": 544,
+        "height": 250,
+        "scrollWidth": 542,
+        "clientWidth": 542,
+        "scrollHeight": 688,
+        "clientHeight": 248,
+        "scrollTop": 440,
+        "centerReachable": true
+      },
+      "close": {
+        "x": 465.4375,
+        "y": 73,
+        "width": 75.5625,
+        "height": 44,
+        "scrollWidth": 74,
+        "clientWidth": 74,
+        "scrollHeight": 42,
+        "clientHeight": 42,
+        "scrollTop": 0,
+        "centerReachable": true
+      }
+    },
+    {
+      "image": "after-landscape-feedback.webp",
+      "commit": "e9e6f1b9ee6b3912a6ea842350cd42ccc613811d",
+      "tree": "34f8fd93a80f1445bc30511f70bb2dd6a16607a6",
+      "viewport": {
+        "name": "landscape",
+        "width": 568,
+        "height": 320
+      },
+      "player": {
+        "webdriver": false,
+        "ezBranches": 63
+      },
+      "firebase": "Existing Firebase SDK mock; real application, auth module, markup and event handlers retained",
+      "panel": {
+        "x": 64,
+        "y": 12,
+        "width": 440,
+        "height": 296,
+        "scrollWidth": 440,
+        "clientWidth": 440,
+        "scrollHeight": 406,
+        "clientHeight": 296,
+        "scrollTop": 0,
+        "centerReachable": true
+      }
+    },
+    {
+      "image": "before-phone-about.webp",
+      "commit": "1c47c923d25889031a28495dacfceea0dea7f17a",
+      "viewport": {
+        "name": "phone",
+        "width": 390,
+        "height": 700
+      },
+      "player": {
+        "webdriver": false,
+        "ezBranches": 63
+      },
+      "firebase": "existing SDK mock; production UI and auth module retained",
+      "card": {
+        "x": 12,
+        "y": 92.0625,
+        "width": 366,
+        "height": 567.875,
+        "clientWidth": 364,
+        "scrollWidth": 364,
+        "clientHeight": 566,
+        "scrollHeight": 566,
+        "scrollTop": 0,
+        "centerReachable": true,
+        "withinViewport": true
+      },
+      "panel": {
+        "x": 25,
+        "y": 117.0625,
+        "width": 340,
+        "height": 529.875,
+        "clientWidth": 340,
+        "scrollWidth": 340,
+        "clientHeight": 530,
+        "scrollHeight": 530,
+        "scrollTop": 0,
+        "centerReachable": true,
+        "withinViewport": true
+      },
+      "close": {
+        "x": 158.21875,
+        "y": 587.9375,
+        "width": 73.5625,
+        "height": 44,
+        "clientWidth": 74,
+        "scrollWidth": 74,
+        "clientHeight": 44,
+        "scrollHeight": 44,
+        "scrollTop": 0,
+        "centerReachable": true,
+        "withinViewport": true
+      }
+    },
+    {
+      "image": "before-landscape-feedback.webp",
+      "commit": "1c47c923d25889031a28495dacfceea0dea7f17a",
+      "viewport": {
+        "name": "landscape",
+        "width": 568,
+        "height": 320
+      },
+      "player": {
+        "webdriver": false,
+        "ezBranches": 63
+      },
+      "firebase": "existing SDK mock; production UI and auth module retained",
+      "panel": {
+        "x": 44,
+        "y": -4,
+        "width": 480,
+        "height": 328,
+        "clientWidth": 480,
+        "scrollWidth": 480,
+        "clientHeight": 328,
+        "scrollHeight": 387,
+        "scrollTop": 0,
+        "centerReachable": true,
+        "withinViewport": false
+      }
+    }
+  ],
+  "baseline_commit": "1c47c923d25889031a28495dacfceea0dea7f17a",
+  "encoding": "Lossless WebP; decoded RGBA pixels verified identical to original browser PNG captures",
+  "files": [
+    {
+      "file": "after-landscape-about-credits.webp",
+      "bytes": 38156,
+      "sha256": "d82d3e82a6a599ebbf644ebc280c1f5ec021361a1e52dfc8a5dd0f93524ba22e",
+      "source_png_sha256": "0d55340957d475a2cbb6265a3813ade885d8d813f7c903c9c1472e3623575f78"
+    },
+    {
+      "file": "after-landscape-feedback.webp",
+      "bytes": 33354,
+      "sha256": "7319a6a5f1dee150715af80e00c3edf221ad60e275ec1f48130b2c614c566fea",
+      "source_png_sha256": "625390d05caef6ad25b7d11fa52b2429c911a6dc1093b398b9b489562ad2344f"
+    },
+    {
+      "file": "after-phone-about-credits.webp",
+      "bytes": 65066,
+      "sha256": "6dbc051e5ec37437eee55f6be79bf1a7e97f0ee1fcbdbe47e373a888b7e7ebb9",
+      "source_png_sha256": "fceb1b8964dadcac753c275199a8c2a40cb2177e756d05ac33187d51f9dc970b"
+    },
+    {
+      "file": "after-phone-about.webp",
+      "bytes": 63994,
+      "sha256": "84da3b57c7a2494f73e07ba995e55a661eeb5a31435c1de438a4b8021b78f04f",
+      "source_png_sha256": "2c02d80c013ec198a43fd2d668d1d8d8ddcefac03714617f34cb59c8d8996547"
+    },
+    {
+      "file": "before-phone-about.webp",
+      "bytes": 50834,
+      "sha256": "0a287a1401b0b351d4905548b04cf38faf88fdf5197be9b6a48e77369706a1a1",
+      "source_png_sha256": "4eef51b3ae6025cb1cd7525bee7e057cc813680a336df94d9b323c6d46234232"
+    },
+    {
+      "file": "before-landscape-feedback.webp",
+      "bytes": 22576,
+      "sha256": "7fbf649acac58ee8634bbe4c5492286811dd073c7666d37b3773c20517138a87",
+      "source_png_sha256": "f8d6512068f93d8631e1bd4d79a3ce24d7dda8ea313c20a2a3ce59651fd3ccf1"
+    }
+  ]
+}
