@@ -15,14 +15,12 @@ import * as THREE from 'three';
 import { Trees, type TreePosition } from './trees.js';
 import { heightMap, getTerrainHeightUncached } from './terrain.js';
 import {
-  createSnowAlbedoTexture,
-  createSnowNormalTexture,
+  createTerrainSnowTextures,
   applySnowVertexColors,
   applySmoothShadingNormals,
 } from './snow-surface.js';
 import { addRocks, type RockPosition } from './rocks.js';
 import { addContactShadows } from './contact-shadows.js';
-import { SNOW_ROUGHNESS_SURFACE } from './snow-palette.js';
 import { getTerrainHeight as sampleTerrainHeight } from './terrain.js';
 import { withGameplayStream } from '../run-context.js';
 
@@ -76,27 +74,25 @@ function createTerrainUnstreamed(scene: THREE.Scene) {
   // run before applySnowVertexColors (which derives the slope tint from these
   // normals) and must NOT be followed by another computeVertexNormals (it would
   // overwrite them). PlaneGeometry(150,200 segments) => 151x201 grid vertices.
-  applySmoothShadingNormals(geometry, 151, 201, 7);
+  // Two passes remove the 2m-grid facets while retaining the mountain's smaller
+  // rolls. Seven passes erased these forms over a ~4m radius, flattening the snow.
+  applySmoothShadingNormals(geometry, 151, 201, 2);
 
-  // Snow surface material (issue #17): a bright, isotropically mottled near-white
-  // albedo plus a soft *isotropic* micro-relief normal map (powder granulation, no
-  // directional ripples) so the slope reads as deep snow that catches the light,
-  // instead of the old flat grey grid / diagonal striping. Slope shading (bright
-  // snow -> faint cool powder shadow on pitches) is baked into the geometry's
-  // vertex colours and multiplied in via `vertexColors`. A high roughness keeps it
-  // matte like real powder; the gentle normalScale avoids harsh corrugation.
-  const albedo = createSnowAlbedoTexture();
-  const normalMap = createSnowNormalTexture();
+  // One coherent height field supplies wind-shaped normals, cool hollow colour
+  // and compressed-shoulder roughness. Grain remains subordinate to the larger
+  // drifts, so the surface reads as shaped snow instead of uniform white noise.
+  const snow = createTerrainSnowTextures();
   // Pass the 151x201 grid so the slope tint also bakes the cavity/AO term (hollows
   // read as shaded depressions, not flat white). Same grid as applySmoothShadingNormals.
   applySnowVertexColors(geometry, 151, 201);
 
   const material = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: SNOW_ROUGHNESS_SURFACE,
-    map: albedo,
-    normalMap: normalMap,
-    normalScale: new THREE.Vector2(0.12, 0.12),
+    roughness: 1, // The map stores the physical .58–.93 powder/crust range.
+    roughnessMap: snow.roughness,
+    map: snow.albedo,
+    normalMap: snow.normal,
+    normalScale: new THREE.Vector2(1, 1),
     vertexColors: true
   });
 

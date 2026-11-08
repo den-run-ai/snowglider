@@ -53,9 +53,10 @@ snow form.](snow-lighting-model.svg)
 | Failure | Cause | Fix |
 |---|---|---|
 | **Whiteout** | Combined fill and sun exceed the framebuffer ceiling, clipping different slopes to the same white | Bound the complete light budget; preserve highlight headroom for normals and surface detail |
-| **Grey corduroy** | Hard low sun raking periodic terrain ridges into repeated grey bands | Soften the key light, smooth the *shading* normals, and remove the periodic ridge as a banding source (the ridge is now aperiodic — see below) |
+| **Grey corduroy** | Low sun raking repeated ridges or a crossed-wave normal map into regular bands | Use irregular relief and bounded smoothing; inspect both midday and low sun |
 | **Muddy snow** | Neutral grey shadows instead of cool blue ones | Shadows are filled by a cool-blue hemisphere sky color, never neutral grey |
-| **Striped snow** | Directional drift bands turned up until they read as painted stripes | The sastrugi wind-drift streaks (`sastrugiDriftAmount`, `mountains/snow-surface.ts`) are hard-capped at a **0.10 lerp toward `SNOW_SHADE`** — a tint, never dirt — and gated off forest stands and steep pitches. Raise the cap and powder stops reading bright; add directionality to the *albedo texture* instead and it tiles into visible banding (that's why the mottle is isotropic and the directional cue lives in the per-vertex pass) |
+| **Flat snow** | Broad fill, excessive normal smoothing, and detail too fine to survive the gameplay camera | Keep a directional key, preserve terrain rolls, and provide visible drift relief at metre scales |
+| **Painted stripes** | Albedo bands that do not agree with the surface or light | Derive the material's colour, normal and roughness variation from the same irregular snow field |
 
 There have been two distinct sources of repeated lines: periodic terrain relief
 under directional light, and the material's crossed sine-wave normal map. Shading
@@ -91,15 +92,17 @@ note the residual here rather than growing the map.
 The renderer retains authored linear colours, linear output, and no tone mapping.
 Intensities are multiplied by `Math.PI` to compensate for Three.js's diffuse BRDF.
 The previous `0.26 / 0.62 / 0.50` ambient/hemisphere/sun budget produced diffuse
-values above `1.2` on bright snow, clipping away terrain form. The bounded rig below
-keeps bright powder readable while preserving cool shade. Increasing ambient to
-hide a surface artifact can reintroduce whiteout.
+values above `1.2` on bright snow, clipping away terrain form. The first bounded
+rig removed clipping but its strong fill still flattened terrain. The current rig
+gives the directional key enough weight to reveal drift shoulders and troughs,
+with cool skylight keeping shade readable. Increasing ambient to hide a surface
+artifact can reintroduce whiteout or flatten the relief again.
 
 | Element | Value | Role |
 |---|---|---|
-| `AmbientLight` | `0xffffff` at `0.16 * Math.PI` | Low uniform floor |
-| `HemisphereLight` | sky `0xdcebfb` / ground `0xbcc7d4` at `0.60 * Math.PI` | Cool, orientation-dependent sky and snow-bounce fill |
-| `DirectionalLight` | `0xfff4e6` at `0.24 * Math.PI`, position `(50, 100, 50)` | Warm midday key and cast shadows |
+| `AmbientLight` | `0xffffff` at `0.10 * Math.PI` | Low uniform floor |
+| `HemisphereLight` | sky `0xdcebfb` / ground `0xbcc7d4` at `0.56 * Math.PI` | Cool, orientation-dependent sky and snow-bounce fill |
+| `DirectionalLight` | `0xfff4e6` at `0.34 * Math.PI`, position `(50, 100, 50)` | Warm midday key, visible relief and cast shadows |
 | Sky (`src/sky.ts`) | Preetham atmospheric sky, `exposure 0.45` | Bright azure sky + visible sun aligned to the directional light |
 | Fog / distance | horizon-tinted `Fog`, near `140` / far `750` | Distant snow fades cool and hazy |
 
@@ -108,18 +111,35 @@ and the full sun cycle. It checks highlight headroom, cool shadow fill, and visi
 sun-facing/lee contrast. This diffuse calculation complements browser pixel checks;
 it does not model specular highlights, texture filtering, or display calibration.
 
-## Powder texture without crossed ripples
+## Snow form at gameplay scale
 
-`mountains/snow-texture.ts` builds broad mottle and fine grain from fixed-hash,
-domain-warped gradient-noise octaves. Values and derivatives join at tile boundaries.
-This distributes detail across many frequencies instead of concentrating it in the
-few sine waves that formed the old crossed grid; the painted periodic sparkle is
-removed. The grain becomes a normal map through wrapped central differences.
+The terrain uses `createTerrainSnowTextures()` to bake three aligned 256² maps
+from one shallow snow field in `mountains/snow-texture.ts`. Its 32-metre tile
+combines rounded drifts, broken wind ribs and fine grain. Fixed-hash noise warps
+the rib spacing, strength and curvature; periodic boundaries join seamlessly.
 
-Both textures remain procedural 256² canvases, with the existing repeats, normal
-scale, filtering and texture count. No per-frame work or terrain displacement is
-added. `tests/snow-texture-tests.js` checks seams, determinism, normal strength and
-dominant Fourier energy so coherent ripples cannot silently return.
+- **Normals** come from height derivatives in metres/metre, with material
+  `normalScale = (1, 1)`. This preserves meaningful drift slopes instead of
+  reducing all detail to barely visible grain.
+- **Albedo** stays near-white, with a small cool tint in the same field's concave
+  pockets. Colour and lighting therefore describe the same relief.
+- **Roughness** varies from `0.58` on compressed shoulders to `0.93` on loose
+  powder. Three reads the map's green channel; the material factor is `1` so it
+  does not shrink that range. The persistent track field still blends packed
+  snow toward its existing `0.58` roughness.
+
+Terrain shading normals use two smoothing passes instead of seven, retaining
+the larger rolls and gullies. The material field changes neither mesh positions
+nor silhouettes: it is a snow-surface shading model, not displacement or collision
+geometry. The snowman and crash debris retain their finer 256² hand-packed grain.
+
+The maps are baked once at scene construction. They add one roughness texture
+and its shader sample, with no per-frame CPU bake. The three RGBA maps occupy
+about 1 MiB including mipmaps, up from 0.67 MiB. The additional texture's Three.js
+UUIDs use a private random stream; the replacement albedo/normal maps retain the old draw order so
+obstacle placement is unchanged. All three maps use the existing texture teardown.
+Review gameplay-distance and close-up views at midday and low sun, including
+phone framing; an unclipped top-down image alone does not establish readable snow.
 
 ## Snowfall and ski spray batching
 
@@ -291,10 +311,10 @@ regressions from creeping back when one piece is retuned:
 
 | Layer | Owns | Must not own |
 |---|---|---|
-| Static snow-lighting (`game/snow-lighting.ts`, `mountains/snow-surface.ts`) | albedo, normal-map de-striping, smoothed render normals, static light balance, near-white slope tint | sun-cycle animation |
+| Static snow-lighting (`game/snow-lighting.ts`, `mountains/snow-surface.ts`) | shared material relief, albedo/normal/roughness maps, smoothed render normals, static light balance, near-white slope tint | sun-cycle animation |
 | Terrain (`mountains.ts` height field) | the slope geometry; replacing the periodic ridge that bands under low sun | lighting rebalance |
 | Cavity / AO readability (`mountains/snow-surface.ts`, #17) | per-vertex concavity darken + cool-shift baked into the slope tint; the capped sastrugi wind-drift streaks (aligned with the shared `wind.ts` prevailing direction) | terrain physics changes / height field |
-| Snow palette (`mountains/snow-palette.ts`) | the ONE set of shared snow colour/roughness constants (`SNOW_WHITE` caps/shelves, `SNOW_SHADE`, `CAVITY_COLOR`, surface/cap roughness) consumed by the terrain surface, rock caps, tree caps/shelves, and the snowman body | any behaviour — it is constants only, so it can be imported from anywhere (including headless tests) without cycles |
+| Snow palette (`mountains/snow-palette.ts`) | shared snow colours (`SNOW_WHITE`, `SNOW_SHADE`, `CAVITY_COLOR`) and snowman/cap roughness; terrain roughness comes from its snow-field map | any behaviour — it is constants only, so it can be imported from anywhere (including headless tests) without cycles |
 | Obstacle contact shadows (`mountains/contact-shadows.ts`, #17) | baked AO blobs under trees/rocks (one InstancedMesh) | casting real shadows / physics |
 | Tree snow load + shedding (`mountains/trees.ts` registry, `src/tree-shed.ts`, #253) | per-tree load attributes (foliage droop/damping, snow-shelf scale), gust-shed puffs, slow re-laden | terrain snow depth, collision positions, physics |
 | Persistent snow-depth field (`mountains/snow-depth.ts`, #246) | the `[0..1]` per-cell snow-depth grid + its compaction/refill math (later: a DataTexture the terrain material samples for packed-vs-powder albedo/roughness) | pos/velocity, `heightMap`, terrain vertices, friction, grip, scoring — **visual memory only, zero physics meaning** |

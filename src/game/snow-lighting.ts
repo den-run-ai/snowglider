@@ -7,9 +7,11 @@ import * as THREE from 'three';
 export function createSnowLighting(scene: THREE.Scene): THREE.DirectionalLight {
   // Three's diffuse BRDF divides by PI. These coefficients are the effective
   // diffuse budgets in our legacy linear-output pipeline (not display exposure).
-  scene.add(new THREE.AmbientLight(0xffffff, 0.16 * Math.PI));
-  scene.add(new THREE.HemisphereLight(0xdcebfb, 0xbcc7d4, 0.60 * Math.PI));
-  const sun = new THREE.DirectionalLight(0xfff4e6, 0.24 * Math.PI);
+  // Directional light must carry enough of the budget to reveal the wind ridges.
+  // Broad fill alone makes even a detailed normal map look like a white backdrop.
+  scene.add(new THREE.AmbientLight(0xffffff, 0.10 * Math.PI));
+  scene.add(new THREE.HemisphereLight(0xdcebfb, 0xbcc7d4, 0.56 * Math.PI));
+  const sun = new THREE.DirectionalLight(0xfff4e6, 0.34 * Math.PI);
   sun.position.set(50, 100, 50);
   sun.castShadow = true;
   scene.add(sun);
