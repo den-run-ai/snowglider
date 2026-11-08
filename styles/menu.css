@@ -34,7 +34,6 @@
 .welcome-snowman { left: 50%; width: 90%; height: 96%; max-height: 210px; transform: translateX(-50%); }
 #gameTitle { margin: 0 0 6px; font-size: 32px; letter-spacing: -1px; animation: none; text-shadow: none; }
 #gameTitle > span { display: inline-block; margin-left: 8px; color: #80dbd0; font-size: 25px; vertical-align: 2px; }
-#gameDescription { margin: 0; max-width: none; font-size: 14px; color: #cfdef2; }
 #gameIntro { margin: 0 0 4px; max-width: none; font-size: 14px; line-height: 1.35; color: #edf7f5; }
 #gameIntro > span { white-space: nowrap; }
 .start-preferences { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 6px; }
@@ -111,8 +110,8 @@
 #closeAboutButton { flex-shrink: 0; color: #edf7f5; background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .2); border-radius: 8px; }
 #closeAboutButton:hover { background: rgba(255, 255, 255, .16); }
 #aboutGamePanel p { margin: 0; line-height: 1.5; }
-#aboutGamePanel .about-intro { margin-bottom: 8px; color: #fff; font-size: clamp(19px, 4.6vw, 23px); font-weight: 700; line-height: 1.3; }
-#aboutGamePanel .about-lead { color: #cfdef2; }
+#aboutGamePanel .about-intro { display: flow-root; margin-bottom: 8px; color: #fff; font-size: clamp(19px, 4.6vw, 23px); font-weight: 700; line-height: 1.3; }
+.about-skier { float: right; width: 88px; height: 84px; margin: 0 0 8px 12px; }
 .about-highlights { display: grid; gap: 16px; margin: 20px 0; padding: 0; list-style: none; }
 .about-highlights > li { display: flex; align-items: start; gap: 12px; }
 .about-icon { display: grid; place-items: center; flex: 0 0 36px; height: 36px; border-radius: 10px; background: rgba(128, 219, 208, .1); color: #80dbd0; font-size: 21px; }
@@ -157,7 +156,6 @@ body:not(.start-screen-active) .startup-indicator { animation-play-state: paused
 @media (prefers-reduced-motion: reduce) {
   .startup-indicator { animation: none; }
 }
-#startGameContainer.run-preparing #gameDescription,
 #startGameContainer.run-preparing #gameIntro { display: none; }
 
 @media (max-width: 600px) {
@@ -165,7 +163,6 @@ body:not(.start-screen-active) .startup-indicator { animation-play-state: paused
   .start-dialog { padding: 12px; }
   .start-heading { margin-bottom: 10px; }
   #gameTitle { font-size: 26px; }
-  #gameDescription { font-size: 13px; }
   #gameIntro { font-size: 13px; }
   .start-visual { height: 120px; margin-bottom: 10px; }
   #difficultyPicker { gap: 6px; margin-bottom: 8px; }
@@ -179,7 +176,6 @@ body:not(.start-screen-active) .startup-indicator { animation-play-state: paused
   .start-heading { grid-column: 1; grid-row: 1 / 5; margin: 0; text-align: left; align-self: center; }
   .start-visual { height: 270px; margin: 0 0 20px; }
   #gameTitle { text-align: left; font-size: 38px; }
-  #gameDescription { text-align: left; }
   #gameIntro { text-align: left; }
   #startLoadingStatus { justify-content: flex-start; }
   .start-play, .start-extras, .start-account-info, #startUpdateSlot { grid-column: 2; }
@@ -187,14 +183,12 @@ body:not(.start-screen-active) .startup-indicator { animation-play-state: paused
 }
 @media (max-width: 899px) and (max-height: 740px) {
   .start-visual { height: 84px; margin-bottom: 8px; }
-  #gameDescription br { display: none; }
 }
 @media (max-width: 519px) and (max-height: 640px) {
   .start-heading { position: relative; min-height: 90px; padding-right: 92px; text-align: left; }
   .start-visual { position: absolute; top: 0; right: 0; width: 82px; height: 90px; margin: 0; }
   #gameTitle { font-size: 23px; text-align: left; }
   #gameTitle > span { font-size: 18px; margin-left: 4px; }
-  #gameDescription { text-align: left; font-size: 11px; }
   #gameIntro { text-align: left; font-size: 11px; margin-bottom: 5px; }
   #startLoadingStatus { justify-content: flex-start; margin-top: 6px; font-size: 11px; }
   #difficultyPicker .difficulty-option { min-height: 44px; padding: 4px 8px; }
@@ -206,11 +200,9 @@ body:not(.start-screen-active) .startup-indicator { animation-play-state: paused
   .start-dialog { width: min(100%, 760px); display: grid; grid-template-columns: 1.1fr 1fr; gap: 8px 16px; padding: 10px 14px; }
   .start-heading { position: relative; grid-column: 1 / -1; margin: 0; min-height: 40px; padding-right: 92px; display: flex; align-items: center; justify-content: center; gap: 12px; }
   .start-visual { position: absolute; right: 0; top: 0; width: 80px; height: 40px; margin: 0; }
-  #gameDescription { display: none; }
   #gameIntro { display: none; }
   #startLoadingStatus { margin: 0; font-size: 11px; }
   #gameTitle { font-size: 24px; margin: 0; }
-  #gameDescription { font-size: 12px; }
   #difficultyPicker { gap: 4px; margin-bottom: 6px; }
   #difficultyPicker .difficulty-option { min-height: 44px; padding: 5px 8px; }
   #difficultyPicker .difficulty-blurb { display: none; }

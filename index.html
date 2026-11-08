@@ -7,7 +7,7 @@
        (vite.config.js); the "dev" placeholder only shows if served without Vite. -->
   <meta name="build-id" content="dev">
   <title>SnowGlider — ski a snowman down the mountain</title>
-  <meta name="description" content="Take a little snowman on a big downhill adventure. Carve through trees, catch some air, and race to the finish. Play free in your browser.">
+  <meta name="description" content="Shred mountains as a snowman on skis, dodging trees and rocks.">
   <link rel="canonical" href="https://snowglider.ai/">
 
   <!-- Social link previews (Open Graph + Twitter Card). Facebook, LinkedIn, X,
@@ -20,7 +20,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="SnowGlider">
   <meta property="og:title" content="SnowGlider — ski a snowman down the mountain">
-  <meta property="og:description" content="Take a little snowman on a big downhill adventure. Carve through trees, catch some air, and race to the finish. Play free in your browser.">
+  <meta property="og:description" content="Shred mountains as a snowman on skis, dodging trees and rocks.">
   <meta property="og:url" content="https://snowglider.ai/">
   <meta property="og:image" content="https://raw.githubusercontent.com/den-run-ai/snowglider/assets/og-image/og-card.png">
   <meta property="og:image:width" content="1200">
@@ -28,7 +28,7 @@
   <meta property="og:image:alt" content="SnowGlider — a snowman skiing down a snowy backcountry mountain">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="SnowGlider — ski a snowman down the mountain">
-  <meta name="twitter:description" content="Take a little snowman on a big downhill adventure. Carve through trees, catch some air, and race to the finish. Play free in your browser.">
+  <meta name="twitter:description" content="Shred mountains as a snowman on skis, dodging trees and rocks.">
   <meta name="twitter:image" content="https://raw.githubusercontent.com/den-run-ai/snowglider/assets/og-image/og-card.png">
 
   <link rel="stylesheet" href="styles/main.css">
@@ -73,6 +73,23 @@
   <script src="src/boot/firebase-bootstrap.js"></script>
 </head>
 <body class="start-screen-active">
+  <!-- Shared paint servers stay available when either menu panel is hidden. -->
+  <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <radialGradient id="welcomeFrost" cx=".32" cy=".24" r=".8">
+        <stop offset="0" stop-color="#fff"/>
+        <stop offset=".52" stop-color="#f6fdff"/>
+        <stop offset=".83" stop-color="#cee7ee"/>
+        <stop offset="1" stop-color="#93bdcc"/>
+      </radialGradient>
+      <linearGradient id="welcomeHat" x1="0" y1="0" x2="1" y2=".3">
+        <stop stop-color="#31596a"/><stop offset="1" stop-color="#122e40"/>
+      </linearGradient>
+      <linearGradient id="welcomeScarf" x1="0" y1="0" x2=".8" y2="1">
+        <stop stop-color="#ff9579"/><stop offset="1" stop-color="#df4e46"/>
+      </linearGradient>
+    </defs>
+  </svg>
   <div id="gameAnnouncements" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
   <!-- Start Game Container and Button -->
   <div id="startGameContainer" role="region" aria-labelledby="gameTitle">
@@ -114,20 +131,6 @@
           <!-- The skier has its own fitted viewport: background cropping must
                never crop the character on narrow or shallow iPhone screens. -->
           <svg class="welcome-snowman" viewBox="0 0 200 190" preserveAspectRatio="xMidYMid meet" focusable="false" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <radialGradient id="welcomeFrost" cx=".32" cy=".24" r=".8">
-                <stop offset="0" stop-color="#fff"/>
-                <stop offset=".52" stop-color="#f6fdff"/>
-                <stop offset=".83" stop-color="#cee7ee"/>
-                <stop offset="1" stop-color="#93bdcc"/>
-              </radialGradient>
-              <linearGradient id="welcomeHat" x1="0" y1="0" x2="1" y2=".3">
-                <stop stop-color="#31596a"/><stop offset="1" stop-color="#122e40"/>
-              </linearGradient>
-              <linearGradient id="welcomeScarf" x1="0" y1="0" x2=".8" y2="1">
-                <stop stop-color="#ff9579"/><stop offset="1" stop-color="#df4e46"/>
-              </linearGradient>
-            </defs>
             <g id="welcomeSkier">
               <ellipse cx="104" cy="176" rx="76" ry="7" fill="#548b9e" opacity=".2"/>
               <!-- A carving arc and a few powder flecks stay static and cheap. -->
@@ -178,8 +181,7 @@
         </div>
         <div class="start-heading-copy">
           <h1 id="gameTitle">SnowGlider<span aria-hidden="true">❄</span></h1>
-          <p id="gameIntro">A little snowman. A big downhill adventure.</p>
-          <p id="gameDescription">Carve through trees. Race to the finish.</p>
+          <p id="gameIntro">Shred mountains as a snowman on skis, dodging trees and rocks.</p>
         </div>
         <div id="startStatus"></div>
         <p id="startLoadingStatus" role="status" aria-live="polite" aria-atomic="true"><span class="startup-indicator" aria-hidden="true"></span><span id="startLoadingText">Preparing mountain…</span></p>
@@ -273,8 +275,7 @@
         <h2 id="aboutGameTitle">About SnowGlider</h2>
         <button id="closeAboutButton" class="menu-button" type="button" aria-label="Close About">Close</button>
       </header>
-      <p class="about-intro">A little snowman. A big downhill adventure.</p>
-      <p class="about-lead">Leave fresh tracks, dodge the trees, and make it to the bottom with your carrot nose intact.</p>
+      <p class="about-intro"><svg class="about-skier" viewBox="0 0 200 190" aria-hidden="true" focusable="false"><use href="#welcomeSkier"/></svg>Shred mountains as a snowman on skis, dodging trees and rocks.</p>
       <ul class="about-highlights">
         <li>
           <span class="about-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 3c-5 4 8 5 3 9s-5 6-1 9M14 3c-5 4 8 5 3 9s-5 6-1 9"/></svg></span>
