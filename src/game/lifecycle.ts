@@ -6,7 +6,7 @@
 
 import { Controls } from '../controls.js';
 import { getDifficultyConfig } from '../difficulty.js';
-import { runTelemetryContext } from '../run-telemetry.js';
+import { prepareRunTelemetry } from '../run-telemetry.js';
 import { Snow } from '../snow.js';
 import { Flex } from '../snowman-flex.js';
 import { Expression } from '../snowman-expression.js';
@@ -63,6 +63,7 @@ export function createLifecycle(deps: LifecycleDeps) {
 
   function resetSnowman() {
     if (signal?.aborted) return;
+    prepareRunTelemetry(state, state.timingCompromised);
     // Rewind the run's RNG streams for the new run (#400/#403 review). WORLD
     // streams (hazards/course) replay from the world seed. The RUN-scoped
     // streams (physics auto-turns, avalanche boulders) re-derive from
@@ -149,17 +150,6 @@ export function createLifecycle(deps: LifecycleDeps) {
     if (CourseModule) CourseModule.reset();
     if (EffectsModule) EffectsModule.reset();
     announceGameStatus(`${getDifficultyConfig(state.difficulty).label} run started.`);
-
-    // Track game reset in Analytics if available
-    try {
-      // Only try to use analytics when properly initialized with modular SDK
-      if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function' && window.location.protocol !== 'file:') {
-        // Using the direct logEvent function
-        window.firebaseModules.logEvent('game_reset', runTelemetryContext(state.difficulty));
-      }
-    } catch (e) {
-      console.log("Analytics tracking skipped:", (e as Error).message);
-    }
   }
 
   function restartGame() {

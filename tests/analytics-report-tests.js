@@ -213,7 +213,7 @@ const { join } = require('node:path');
     assert(boundedWarnings.some(w => w.includes('additional reasons omitted')));
 
     const tracked = scanTrackedEvents(join(__dirname, '..'));
-    for (const event of ['new_high_score', 'login', 'client_error', 'unhandled_rejection']) {
+    for (const event of ['game_start', 'game_reset', 'complete_run', 'game_over', 'new_high_score', 'login', 'client_error', 'unhandled_rejection']) {
       assert(tracked.some(e => e.event === event), `${event} must be discovered through its wrapper`);
     }
     assert(!auditCoverage(tracked).gaps.some(g => g.key === 'error-tracking'),

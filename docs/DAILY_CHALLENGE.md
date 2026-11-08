@@ -179,6 +179,18 @@ level changes and rejected invitations, and attaches actual EZ-forest welcome
 and result screenshots. These browser checks use scripted finishes; they do
 not establish physical-phone control, thermal performance or OAuth acceptance.
 
+The production PWA job also runs `tests/e2e/pwa-daily.spec.ts` against the built
+artifact. It checks bundled run provenance, isolated device saving, the copied
+invitation, replay and reload persistence. Daily native sharing prefers the
+playable URL; a separate image action remains available. A native share dialog
+resolving is not evidence that a social post was published.
+
+Run telemetry adds bounded `run_mode=regular|practice|daily` and
+`challenge_entry=none|daily|friend` fields from the locked, provenance-matched
+scene. A friend entry means a valid target was present when the mountain loaded.
+These fields separate incoming challenge play from sharing actions without
+emitting the date, seed, target, challenge ID or player identity.
+
 ## Core verification
 
 `tests/daily-challenge-tests.js` is auto-discovered by `npm test`. Run it directly:

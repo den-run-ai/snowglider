@@ -506,9 +506,9 @@ export function scanTrackedEvents(repoRoot) {
   })(srcDir);
 
   // Include the named analytics wrappers and error capture sink; each accepts a
-  // literal event name first, except Firebase's logEvent(analytics, name). This
+  // literal event name first or after a receiver (Analytics/run tracker). This
   // remains a source inventory rather than proof of production delivery.
-  const reLog = /\b(?:logEvent|logScoreEvent|logAnalyticsEvent|captureError)\(\s*(?:[A-Za-z_$][\w$.]*\s*,\s*)?['"]([a-z][a-z0-9_]+)['"]/g;
+  const reLog = /\b(?:logEvent|logRunEvent|logScoreEvent|logAnalyticsEvent|captureError)\(\s*(?:[A-Za-z_$][\w$.]*\s*,\s*)?['"]([a-z][a-z0-9_]+)['"]/g;
   const reEmit = /\bemit\(\s*['"]([a-z][a-z0-9_]+)['"]/g;
   const found = new Map(); // event -> Set(file)
   for (const f of files) {

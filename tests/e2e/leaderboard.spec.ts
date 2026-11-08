@@ -7,6 +7,7 @@ import { gotoGame, mockFirebase, startGame } from './helpers';
 type FirebaseMock = {
   getFirestore(): Firestore;
   getAnalytics(): Analytics;
+  logEvent(analytics: Analytics, name: string, params?: Record<string, unknown>): void;
   doc(db: Firestore, collection: string, id: string): unknown;
   getDoc(ref: unknown): Promise<{ data(): Record<string, unknown> | undefined }>;
   seed(collection: string, id: string, value: Record<string, unknown>): void;
@@ -26,6 +27,9 @@ async function connectMockScores(page: Page): Promise<void> {
     const fb = await import(path) as FirebaseMock;
     window.AuthModule.isFirebaseAvailable = () => ({ auth: true, firestore: true, analytics: true });
     window.ScoresModule.initializeScores!(fb.getFirestore(), fb.getAnalytics());
+    // Production hosts publish this SDK seam from auth.ts; localhost correctly
+    // skips Analytics initialization, so explicitly inject the same mock sink.
+    window.firebaseModules = { logEvent: (name, params) => fb.logEvent(fb.getAnalytics(), name, params) };
   });
 }
 
@@ -97,7 +101,7 @@ test('a guest can save the completed Expert run after sign-in and replay with vi
   await expect(page.locator('#airScoreValue')).toHaveText('150');
   await expect(page.locator('#gameStatsContent')).toBeHidden();
   await page.evaluate(() => {
-    window.resetSnowman!();
+    window.restartGame!();
     (window as LiveGame).simElapsed = 25;
     window.showGameOver!('You reached the end of the slope!');
   });

@@ -34,7 +34,7 @@ import { rockCollisionRadius, ROCK_COLLISION_MIN_SIZE } from './mountains.js';
 import { AudioModule } from './audio.js';
 import { Sfx } from './sfx.js';
 import { Diag } from './diagnostics.js';
-import { runTelemetryContext } from './run-telemetry.js';
+import { flushRunTelemetry } from './run-telemetry.js';
 import { noop } from './noop.js';
 import { CourseModule } from './course.js';
 import { EffectsModule } from './effects.js';
@@ -64,6 +64,7 @@ import { warmupStartupScene } from './boot/startup-warmup.js';
 // dev-HMR doesn't leave duplicate handlers firing on stale state. Created before
 // Controls.setupControls so its listeners join the same teardown.
 const listenerAbort = new AbortController();
+window.addEventListener('snowglider:auth-changed', flushRunTelemetry, { signal: listenerAbort.signal });
 
 // Get keyboard controls from the Controls module (listeners tied to the teardown signal).
 Controls.setupControls(listenerAbort.signal);
@@ -618,15 +619,6 @@ window.initializeGameWithAudio = function() {
   }
   
   console.log("Game started successfully!");
-  
-  // Track game start in analytics if available
-  try {
-    if (window.firebaseModules && typeof window.firebaseModules.logEvent === 'function') {
-      window.firebaseModules.logEvent('game_start', runTelemetryContext(state.difficulty));
-    }
-  } catch (e) {
-    console.log("Analytics tracking skipped:", (e as Error).message);
-  }
   
   return true;
 };
