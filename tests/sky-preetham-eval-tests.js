@@ -11,10 +11,8 @@
 //   2. The ANTI-SOLAR horizon (the -z the player faces) is measurably COOLER than the
 //      SOLAR horizon (toward the sun azimuth) at golden hour — the seam the coupling
 //      fixes: warm terrain fog can no longer meet a cool sky band.
-//   3. The warm midday key does not drift peak white on flats: the hemisphere+ambient
-//      fill already saturates an up-facing white surface to (1,1,1), so warming the
-//      directional light only tints midtones — modelled here from the shipped light
-//      rig and asserted within 2/255 of the pure-white-key baseline.
+// The static snow irradiance/headroom budget is tested separately against the
+// production light rig in snow-lighting-tests.js.
 //
 // CommonJS + dynamic import so the register-ts-resolve loader resolves the `.ts`
 // sources + 'three' from npm.
@@ -95,37 +93,6 @@ async function main() {
     check('view-forward (-z) horizon is cooler than the solar horizon',
       (forwardC.b - forwardC.r) > (solarC.b - solarC.r));
     Sky.teardown();
-  }
-
-  console.log('\n--- warm midday key does not drift peak white on flats ---');
-  {
-    // Model the shipped light rig lighting a WHITE-albedo, up-facing flat (the peak-
-    // brightness case). Physically-correct intensities are pre-multiplied by π and the
-    // diffuse term divides by π, so the effective per-light factors are the bare
-    // coefficients. Ambient + hemisphere(sky, up normal) + directional(N·L).
-    const skyFill = new THREE.Color(0xdcebfb); // hemisphere sky colour
-    const nDotL = new THREE.Vector3(50, 100, 50).normalize().y; // up-facing flat
-    const AMB = 0.26, HEMI = 0.62, DIR = 0.5;
-
-    /** Clamped 0..255 peak channel for a given directional-light colour. */
-    function peak(dirColor) {
-      const chan = (ambC, skyC, dirC) =>
-        Math.min(1, AMB * ambC + HEMI * skyC + DIR * nDotL * dirC);
-      return {
-        r: Math.round(255 * chan(1, skyFill.r, dirColor.r)),
-        g: Math.round(255 * chan(1, skyFill.g, dirColor.g)),
-        b: Math.round(255 * chan(1, skyFill.b, dirColor.b)),
-      };
-    }
-    const white = peak(new THREE.Color(0xffffff)); // old pure-white key baseline
-    const warm = peak(new THREE.Color(0xfff4e6));   // new warm key
-    check(`old white key saturates flats to white (${white.r},${white.g},${white.b})`,
-      white.r === 255 && white.g === 255 && white.b === 255);
-    check('warm key keeps every peak-white channel within 2/255 of the baseline',
-      Math.abs(warm.r - white.r) <= 2 && Math.abs(warm.g - white.g) <= 2 && Math.abs(warm.b - white.b) <= 2);
-    // The point of the change: the warm key IS warmer than pure white (r ≥ b at the source).
-    const warmSrc = new THREE.Color(0xfff4e6);
-    check('the warm key is genuinely warm at the source (r > b)', warmSrc.r > warmSrc.b);
   }
 
   console.log(`\nSKY PREETHAM EVAL TESTS: ${pass} passed, ${fail} failed`);

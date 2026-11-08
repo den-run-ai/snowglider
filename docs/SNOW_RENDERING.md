@@ -27,10 +27,10 @@ This is the design rationale for how SnowGlider lights and shades snow. It is th
 reference the snow/lighting PRs (issues #17, #18, and the #2 sky work) converged on,
 and the contract any later atmospheric layer — notably the #163 sun cycle — must
 preserve. For the module wiring see [`ARCHITECTURE.md`](ARCHITECTURE.md); for the
-simulation model see [`PHYSICS.md`](PHYSICS.md). The lighting lives in
-[`src/game/scene-setup.ts`](../src/game/scene-setup.ts), the sky/fog in
-[`src/sky.ts`](../src/sky.ts), and the snow material/normals in
-[`src/mountains.ts`](../src/mountains.ts).
+simulation model see [`PHYSICS.md`](PHYSICS.md). The static lighting lives in
+[`src/game/snow-lighting.ts`](../src/game/snow-lighting.ts), the sky/fog in
+[`src/sky.ts`](../src/sky.ts), and the snow textures/normals in
+[`src/mountains/snow-surface.ts`](../src/mountains/snow-surface.ts).
 
 ## Core visual principle
 
@@ -52,21 +52,20 @@ snow form.](snow-lighting-model.svg)
 
 | Failure | Cause | Fix |
 |---|---|---|
-| **Whiteout** | Too much flat/soft light or ambient — terrain form disappears | Keep ambient low; let the hemisphere fill shade *by orientation*, not a uniform wash |
+| **Whiteout** | Combined fill and sun exceed the framebuffer ceiling, clipping different slopes to the same white | Bound the complete light budget; preserve highlight headroom for normals and surface detail |
 | **Grey corduroy** | Hard low sun raking periodic terrain ridges into repeated grey bands | Soften the key light, smooth the *shading* normals, and remove the periodic ridge as a banding source (the ridge is now aperiodic — see below) |
 | **Muddy snow** | Neutral grey shadows instead of cool blue ones | Shadows are filled by a cool-blue hemisphere sky color, never neutral grey |
 | **Striped snow** | Directional drift bands turned up until they read as painted stripes | The sastrugi wind-drift streaks (`sastrugiDriftAmount`, `mountains/snow-surface.ts`) are hard-capped at a **0.10 lerp toward `SNOW_SHADE`** — a tint, never dirt — and gated off forest stands and steep pitches. Raise the cap and powder stops reading bright; add directionality to the *albedo texture* instead and it tiles into visible banding (that's why the mottle is isotropic and the directional cue lives in the per-vertex pass) |
 
-The "grey lines" that survived the snow *texture* fix (#17) were terrain **shadows**,
-not a texture: every mogul lit on one side and greyed on the other, made periodic by
-the regular `sin(x * 0.2) * cos(z * 0.3)` terrain ridge. They were first addressed by
-(a) smoothing the *shading* normals while leaving the skiable height field untouched,
-and (b) the light rebalance below.
+There have been two distinct sources of repeated lines: periodic terrain relief
+under directional light, and the material's crossed sine-wave normal map. Shading
+normals are smoothed without changing the skiable height field; the material now
+uses irregular noise instead of a small set of repeating waves.
 
 The banding *source* itself — that periodic ridge — has now been removed (issue #188
 step 3): `mountains.ts` replaces `sin(x * 0.2) * cos(z * 0.3)` with a **deterministic
 domain-warped fBm** (`terrainRidgeField`), so the ridges meander instead of forming a
-regular lattice and a low sun has no periodicity left to rake into corduroy. The field
+regular lattice. The field
 is fixed-seed (an integer hash, not the `Math.random`-seeded SimplexNoise) so terrain
 is stable across loads and the Node terrain/regression tests pin its shape, and it is
 damped toward the peak like the existing perlin layer (smooth summit, relief growing
@@ -74,7 +73,7 @@ down-slope). This is what let the sun cycle's low-sun guard drop from 14° to **
 (NS2, completion-plan PR-V2 — the guard change + golden-hour retune shipped, with a
 fresh `test:sky` capture).
 
-The remaining cost of the lower sun is **shadow quality, not banding**: the ±60 ortho
+Lower sun also reduces **shadow quality**: the ±60 ortho
 shadow frustum's ground footprint stretches by ~1/sin(elevation) along the sun axis —
 ≈4.1× at 14°, ≈**7.2× at 8°** — so effective shadow-texel density on the slope drops
 exactly when shadows are longest. `game/sun-shadow.ts` compensates the shadow
@@ -87,26 +86,40 @@ anisotropically along the sun's ground-projected axis, *not* raising the bias or
 2048² map size. If 8° still artefacts on low-end mobile GPUs, fall back to 10° and
 note the residual here rather than growing the map.
 
-## The merged static lighting (source of truth: `scene-setup.ts`)
+## Static lighting (source of truth: `game/snow-lighting.ts`)
 
-Intensities are pre-multiplied by `Math.PI` to preserve the original r134 brightness
-under three.js physically-correct lighting (see the renderer note in
-`scene-setup.ts`). The snow-readability rebalance (#17 follow-up) dialed the hard sun
-*down* and the orientation-aware fill *up*, so deep powder reads low-contrast — bright
-almost everywhere with soft shading — the way real snow does under an open sky.
+The renderer retains authored linear colours, linear output, and no tone mapping.
+Intensities are multiplied by `Math.PI` to compensate for Three.js's diffuse BRDF.
+The previous `0.26 / 0.62 / 0.50` ambient/hemisphere/sun budget produced diffuse
+values above `1.2` on bright snow, clipping away terrain form. The bounded rig below
+keeps bright powder readable while preserving cool shade. Increasing ambient to
+hide a surface artifact can reintroduce whiteout.
 
-| Element | Merged value | Role |
+| Element | Value | Role |
 |---|---|---|
-| `AmbientLight` | `0xffffff` at `0.26 * Math.PI` | Low floor so nothing goes pure black |
-| `HemisphereLight` | sky `0xdcebfb` / ground `0xbcc7d4` at `0.62 * Math.PI` | Cool-blue skylight fill that shades **by orientation** — the source of cool shadow color and snow form |
-| `DirectionalLight` | `0xffffff` at `0.5 * Math.PI`, position `(50, 100, 50)` | The warm-ish key light; casts the shadows |
+| `AmbientLight` | `0xffffff` at `0.12 * Math.PI` | Low uniform floor |
+| `HemisphereLight` | sky `0xdcebfb` / ground `0xbcc7d4` at `0.50 * Math.PI` | Cool, orientation-dependent sky and snow-bounce fill |
+| `DirectionalLight` | `0xfff4e6` at `0.38 * Math.PI`, position `(50, 100, 50)` | Warm midday key and cast shadows |
 | Sky (`src/sky.ts`) | Preetham atmospheric sky, `exposure 0.45` | Bright azure sky + visible sun aligned to the directional light |
 | Fog / distance | horizon-tinted `Fog`, near `140` / far `750` | Distant snow fades cool and hazy |
 
-The design-intent palette these values serve (near-white `#EDF0F6` base albedo, warm
-`#FFF6E6` sunlit snow, cool `#B6C9E6` shaded snow, `#93A9CC` occluded pockets) is the
-target the snow material and tints aim at; the code in `mountains.ts` /
-`scene-setup.ts` is the authoritative value.
+`tests/snow-lighting-tests.js` evaluates the production lights across slope aspects
+and the full sun cycle. It checks highlight headroom, cool shadow fill, and visible
+sun-facing/lee contrast. This diffuse calculation complements browser pixel checks;
+it does not model specular highlights, texture filtering, or display calibration.
+
+## Powder texture without crossed ripples
+
+`mountains/snow-texture.ts` builds broad mottle and fine grain from fixed-hash,
+domain-warped gradient-noise octaves. Values and derivatives join at tile boundaries.
+This distributes detail across many frequencies instead of concentrating it in the
+few sine waves that formed the old crossed grid; the painted periodic sparkle is
+removed. The grain becomes a normal map through wrapped central differences.
+
+Both textures remain procedural 256² canvases, with the existing repeats, normal
+scale, filtering and texture count. No per-frame work or terrain displacement is
+added. `tests/snow-texture-tests.js` checks seams, determinism, normal strength and
+dominant Fourier energy so coherent ripples cannot silently return.
 
 ## Snowfall and ski spray batching
 
@@ -278,7 +291,7 @@ regressions from creeping back when one piece is retuned:
 
 | Layer | Owns | Must not own |
 |---|---|---|
-| Static snow-lighting (`scene-setup.ts`, `mountains.ts`) | albedo, normal-map de-striping, smoothed render normals, static light balance, near-white slope tint | sun-cycle animation |
+| Static snow-lighting (`game/snow-lighting.ts`, `mountains/snow-surface.ts`) | albedo, normal-map de-striping, smoothed render normals, static light balance, near-white slope tint | sun-cycle animation |
 | Terrain (`mountains.ts` height field) | the slope geometry; replacing the periodic ridge that bands under low sun | lighting rebalance |
 | Cavity / AO readability (`mountains/snow-surface.ts`, #17) | per-vertex concavity darken + cool-shift baked into the slope tint; the capped sastrugi wind-drift streaks (aligned with the shared `wind.ts` prevailing direction) | terrain physics changes / height field |
 | Snow palette (`mountains/snow-palette.ts`) | the ONE set of shared snow colour/roughness constants (`SNOW_WHITE` caps/shelves, `SNOW_SHADE`, `CAVITY_COLOR`, surface/cap roughness) consumed by the terrain surface, rock caps, tree caps/shelves, and the snowman body | any behaviour — it is constants only, so it can be imported from anywhere (including headless tests) without cycles |
@@ -319,13 +332,8 @@ Two colour-truth fixes on top of the cycle:
   (from the eval), not hardcoded, so the frozen/reduced-motion state reproduces it
   exactly. `sky-preetham-eval.ts` and the dome `SKY_SHADER` share the same scattering
   constants and must stay in lockstep.
-- **Warm midday key.** The palette core is *warm sun, cool skylight* (sunlit snow
-  `#FFF6E6`), but the directional key was pure white `0xffffff` — with near-white snow
-  albedo, sunlit warmth can only come from the light. The midday key is now
-  `#FFF4E6` (slightly desaturated). Peak white on flats is unaffected: the
-  hemisphere+ambient fill already saturates an up-facing white surface to `(255,255,255)`,
-  so the warm key only tints midtones/shadowed pitches — the warm-sun / cool-shadow
-  relationship now holds at *every* phase, not only golden hour. The cool fill
-  (hemisphere/ambient) is untouched. `test:sky-preetham` pins the fog↔eval identity, the
-  anti-solar-cooler-than-solar seam guard, and the peak-white-within-2/255 bound; the
-  re-pinned `test:sky` midday `dirColor` records the warm key.
+- **Warm midday key.** The directional key uses `#FFF4E6`; the cycle captures its
+  intensity from the bounded static rig above. Hemisphere and ambient fill stay
+  fixed. Bright snow must retain shading differences instead of saturating to
+  `(255,255,255)`. `test:sky-preetham` pins the fog/evaluation identity and the cooler
+  anti-solar horizon; `snow-lighting-tests.js` guards the light budget.

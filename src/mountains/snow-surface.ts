@@ -11,6 +11,7 @@ import { forestDensityField } from './noise.js';
 import { SLOPE_MODERATE, SLOPE_STEEP } from '../slope-tiers.js';
 import { CAVITY_COLOR, SNOW_SHADE } from './snow-palette.js';
 import { DEFAULT_WIND_CONFIG } from '../wind.js';
+import { snowMottle, snowGrain } from './snow-texture.js';
 
 // Cavity / ambient-occlusion shading (issue #17 follow-up). The shipped slope tint
 // keys off slope *magnitude* (normal tilt), so it darkens steep faces but leaves
@@ -68,12 +69,9 @@ export function sastrugiDriftAmount(x: number, z: number, tilt: number, stand: n
 // across the 300x400 terrain plane without visible seams.
 
 /**
- * A bright near-white snow albedo for deep powder. Very low-amplitude *isotropic*
- * mottling (a sum of periodic waves pointing in many directions, so no single
- * orientation dominates and it never reads as a stripe) breaks up the dead-flat
- * white without leaving "snow" range, plus a faint cold-blue cast in the dips and
- * a sparse high-frequency sparkle. Repeated at a low frequency so the broad
- * blotches read as wind-drifted powder, not a tiled pattern.
+ * Near-white albedo with restrained, irregular powder mottling. Domain-warped
+ * periodic gradient noise tiles seamlessly without the old sine-wave lattice.
+ * Sparkle belongs to the light response, not bright dots painted into the snow.
  */
 export function createSnowAlbedoTexture(): THREE.CanvasTexture {
   const SIZE = 256;
@@ -85,17 +83,9 @@ export function createSnowAlbedoTexture(): THREE.CanvasTexture {
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       const u = x / SIZE, v = y / SIZE;
-      // Tileable low-frequency mottle from mixed directions (no dominant axis),
-      // normalised to ~[-1, 1].
-      let n = Math.sin(2 * Math.PI * (1 * u + 2 * v));
-      n += 0.7 * Math.sin(2 * Math.PI * (2 * u - 3 * v) + 1.3);
-      n += 0.5 * Math.sin(2 * Math.PI * (-3 * u + 1 * v) + 2.1);
-      n += 0.4 * Math.sin(2 * Math.PI * (3 * u + 3 * v) + 0.7);
-      n /= 2.6;
-      // Sparse crystalline sparkle (product of high-freq periodics stays tileable).
-      const sparkle = Math.max(0, Math.sin(2 * Math.PI * 24 * u) * Math.sin(2 * Math.PI * 22 * v));
-      const base = 250 + n * 5 + sparkle * sparkle * 4; // very bright band (~245..255)
-      const cool = Math.max(0, -n) * 5;  // slightly bluer in the dips
+      const n = snowMottle(u, v);
+      const base = 248 + n * 12;
+      const cool = Math.max(0, -n) * 5;
       const idx = (y * SIZE + x) * 4;
       data[idx] = Math.min(255, base - cool);            // R
       data[idx + 1] = Math.min(255, base - cool * 0.35); // G
@@ -111,43 +101,17 @@ export function createSnowAlbedoTexture(): THREE.CanvasTexture {
 }
 
 /**
- * A tileable tangent-space normal map giving the snow its micro-relief: soft,
- * *isotropic* powder granulation so the large flat plane catches the directional
- * light as a gently broken surface instead of reading as a sheet. The previous
- * version summed ripples that were all biased toward one diagonal, which tiled
- * into visible "grey grid" stripes under the directional light (issue #17 follow-up);
- * this version spreads the wave directions (mixed signs, no dominant axis) and
- * leans on fine grain, so the relief reads as snow grain rather than corrugation.
- * The height field is a sum of integer-frequency waves (periodic => seamless);
- * normals are central differences with wraparound.
+ * Tileable micro-relief from irregular powder grain. The broad noise spectrum
+ * avoids the coherent diagonal interference of the previous eight sine waves.
+ * Wrapped central differences keep tile edges continuous, and mipmaps average
+ * the fine normal detail away in the distance instead of drawing a distant grid.
  */
 export function createSnowNormalTexture(): THREE.CanvasTexture {
   const SIZE = 256;
   const height = new Float32Array(SIZE * SIZE);
-  // Many *high-frequency* waves pointing in many directions. Keeping every term
-  // high-frequency means the relief is sub-metre "snow tooth" that mip-maps away
-  // with distance (sparkle up close, smooth far) instead of the metre-scale
-  // ripples that tiled into visible diagonal bands. Mixed directions/signs keep it
-  // isotropic so no orientation reads as a stripe. Integer frequencies => seamless.
-  const waves: [number, number, number, number][] = [
-    [13, 17, 0.22, 0.4],
-    [19, -11, 0.20, 1.9],
-    [-7, 23, 0.18, 2.7],
-    [21, 9, 0.16, 0.9],
-    [11, -19, 0.15, 1.3],
-    [25, 5, 0.13, 2.1],
-    [-15, 13, 0.12, 0.6],
-    [9, 27, 0.11, 1.5],
-  ];
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
-      const u = x / SIZE, v = y / SIZE;
-      let h = 0;
-      for (let k = 0; k < waves.length; k++) {
-        const [fx, fz, a, p] = waves[k]!;
-        h += a * Math.sin(2 * Math.PI * (fx * u + fz * v) + p);
-      }
-      height[y * SIZE + x] = h;
+      height[y * SIZE + x] = snowGrain(x / SIZE, y / SIZE);
     }
   }
   const canvas = document.createElement('canvas');
@@ -155,7 +119,7 @@ export function createSnowNormalTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d')!;
   const image = ctx.createImageData(SIZE, SIZE);
   const data = image.data;
-  const STRENGTH = 1.5; // height -> slope gain
+  const STRENGTH = 2.0; // height -> slope gain
   const wrap = (i: number) => (i + SIZE) % SIZE;
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
