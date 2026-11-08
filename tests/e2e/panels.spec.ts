@@ -8,7 +8,7 @@ const panels = [
   { container: '#cameraControls', header: '#cameraControlsHeader', toggle: '#toggleCamera', content: 'cameraControlsContent' },
 ] as const;
 
-async function openPausedGame(page: Page, playerScene = false): Promise<void> {
+async function openPausedGame(page: Page, playerScene = false, layoutPins = true): Promise<void> {
   if (playerScene) {
     await page.addInitScript(() => Object.defineProperty(navigator, 'webdriver', { get: () => false }));
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -37,6 +37,20 @@ async function openPausedGame(page: Page, playerScene = false): Promise<void> {
       return terrain?.parent?.children.some((child) => child.userData.forestPart === 'ezBranches');
     });
   }
+  if (layoutPins) {
+    // Slow software-rendered startup can outlast the idle timeout. Establish a
+    // pinned desktop layout before measuring geometry; idle behavior has its own
+    // real-click/fake-clock test below. Compact panels keep their folded layout.
+    await page.evaluate(() => {
+      if (innerWidth <= 600 || innerHeight <= 500) return;
+      for (const id of ['toggleControls', 'toggleStats', 'toggleCamera']) {
+        const toggle = document.getElementById(id)!;
+        if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+        const pin = toggle.parentElement!.querySelector<HTMLButtonElement>('.panel-pin')!;
+        if (pin.getAttribute('aria-pressed') !== 'true') pin.click();
+      }
+    });
+  }
 }
 
 async function activate(button: Locator, touch: boolean): Promise<void> {
@@ -48,6 +62,12 @@ async function setExpanded(page: Page, toggle: string, expanded: boolean, touch:
   const button = page.locator(toggle);
   if (await button.getAttribute('aria-expanded') !== String(expanded)) await activate(button, touch);
   await expect(button).toHaveAttribute('aria-expanded', String(expanded));
+  if (expanded) {
+    // Layout/interaction tests deliberately keep an inspected panel open. The
+    // timeout test below bypasses this helper to exercise unpinned real clicks.
+    const pin = button.locator('..').locator('.panel-pin');
+    if (await pin.getAttribute('aria-pressed') !== 'true') await activate(pin, touch);
+  }
 }
 
 async function resizeAndSettle(page: Page, viewport: { width: number; height: number }): Promise<void> {
@@ -165,6 +185,11 @@ test('responsive panel layout has one consistent disclosure and no HUD collision
   for (const panel of panels) {
     await setExpanded(page, panel.toggle, true, hasTouch);
     await expectHudLayout(page);
+    await expectInsideViewport(page, `${panel.header} .panel-pin`);
+    await expectHitTarget(page, `${panel.header} .panel-pin`);
+    const pinBox = (await page.locator(`${panel.header} .panel-pin`).boundingBox())!;
+    expect(pinBox.width, 'pin has a touch-sized target').toBeGreaterThanOrEqual(44);
+    expect(pinBox.height, 'pin has a touch-sized target').toBeGreaterThanOrEqual(44);
     expect((await page.locator(panel.container).boundingBox())!.width,
       `${panel.container} should shed its unused tray width when collapsed`)
       .toBeGreaterThan(collapsedWidths.get(panel.container)! + 8);
@@ -214,6 +239,39 @@ test('responsive panel layout has one consistent disclosure and no HUD collision
         await setExpanded(page, panel.toggle, false, hasTouch);
       }
     }
+  }
+});
+
+test('panels fold after inactivity, stay open while pinned, and resume folding when unpinned', async ({ page, hasTouch }, testInfo) => {
+  test.setTimeout(120_000);
+  await page.clock.install();
+  await openPausedGame(page, true, false);
+  for (const panel of panels) {
+    const toggle = page.locator(panel.toggle);
+    const pin = page.locator(`${panel.header} .panel-pin`);
+    // Normalize starting state without pinning it or dispatching synthetic clicks.
+    if (await toggle.getAttribute('aria-expanded') === 'true') await activate(toggle, hasTouch);
+    await activate(toggle, hasTouch);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(pin).toHaveAttribute('aria-pressed', 'false');
+    await page.clock.fastForward(4_500);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator(`#${panel.content}`)).toHaveJSProperty('inert', true);
+
+    await activate(toggle, hasTouch);
+    await activate(pin, hasTouch);
+    await expect(pin).toHaveAttribute('aria-pressed', 'true');
+    await page.clock.fastForward(12_000);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    if (panel.container === '#cameraControls') {
+      await testInfo.attach('hud-camera-pinned', { body: await page.screenshot(), contentType: 'image/png' });
+    }
+
+    await activate(pin, hasTouch);
+    await expect(pin).toHaveAttribute('aria-pressed', 'false');
+    await page.clock.fastForward(4_500);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(pin).toBeHidden();
   }
 });
 
@@ -273,7 +331,7 @@ test('compact panels share space and preserve an open panel through resize and r
   }
   for (const panel of panels) {
     await expect(page.locator(panel.toggle)).toHaveAttribute('aria-expanded', 'false');
-    await activate(page.locator(panel.toggle), hasTouch);
+    await setExpanded(page, panel.toggle, true, hasTouch);
     await expect(page.locator(panel.toggle)).toHaveAttribute('aria-expanded', 'true');
     for (const other of panels.filter((other) => other !== panel)) {
       await expect(page.locator(other.toggle)).toHaveAttribute('aria-expanded', 'false');

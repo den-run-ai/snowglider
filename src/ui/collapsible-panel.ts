@@ -3,6 +3,8 @@
 // gesture ownership, responsive folding and listener teardown live in one place.
 
 const panelControllers = new WeakMap<HTMLElement, AbortController>();
+const refreshPanelIdle = new WeakMap<HTMLElement, () => void>();
+export const PANEL_IDLE_FOLD_MS = 4000;
 
 /** Compact phones and short landscape windows share the same HUD layout. */
 export function isCompactPanelViewport(): boolean {
@@ -44,7 +46,10 @@ export interface CollapsiblePanelOptions {
 // cannot drift when a panel is collapsed without clicking its disclosure.
 export function setPanelCollapsed(container: HTMLElement, toggleButton: HTMLElement, collapsed: boolean): void {
   const content = Array.from(container.children).find((el) => el.id.endsWith('Content')) as HTMLElement | undefined;
-  if (collapsed && content?.contains(container.ownerDocument.activeElement)) toggleButton.focus();
+  const focused = container.ownerDocument.activeElement;
+  if (collapsed && (content?.contains(focused) || container.querySelector('.panel-pin')?.contains(focused))) {
+    toggleButton.focus();
+  }
   container.classList.toggle('collapsed', collapsed);
   container.classList.add('hud-panel');
   toggleButton.classList.add('panel-disclosure');
@@ -60,6 +65,7 @@ export function setPanelCollapsed(container: HTMLElement, toggleButton: HTMLElem
     content.inert = collapsed;
     content.setAttribute('aria-hidden', String(collapsed));
   }
+  refreshPanelIdle.get(container)?.();
 }
 
 // Wire the collapse toggle, click/touch handlers, optional small-screen
@@ -72,9 +78,125 @@ function wirePanel(
   autoCollapseOnSmallScreens: boolean,
   signal: AbortSignal,
 ): void {
+  const view = container.ownerDocument.defaultView!;
   const opts: AddEventListenerOptions = { signal };
   const passiveOpts: AddEventListenerOptions = { passive: true, signal };
   const activeOpts: AddEventListenerOptions = { passive: false, signal };
+  const captureOpts: AddEventListenerOptions = { capture: true, passive: true, signal };
+  const content = Array.from(container.children).find((el) => el.id.endsWith('Content'));
+  let idleTimer: number | undefined;
+  let keyboardInput = false;
+  const heldTouches = new Set<number>();
+  const heldPointers = new Set<number>();
+  const clearIdle = () => {
+    if (idleTimer !== undefined) view.clearTimeout(idleTimer);
+    idleTimer = undefined;
+  };
+  const refreshIdle = () => {
+    clearIdle();
+    if (signal.aborted || container.classList.contains('collapsed')
+      || container.classList.contains('panel-pinned') || heldTouches.size || heldPointers.size
+      || (keyboardInput && content?.contains(container.ownerDocument.activeElement))) return;
+    idleTimer = view.setTimeout(() => {
+      idleTimer = undefined;
+      setPanelCollapsed(container, toggleButton, true);
+    }, PANEL_IDLE_FOLD_MS);
+  };
+  refreshPanelIdle.set(container, refreshIdle);
+  signal.addEventListener('abort', () => {
+    clearIdle();
+    if (refreshPanelIdle.get(container) === refreshIdle) refreshPanelIdle.delete(container);
+  }, { once: true });
+
+  // Persist the preference so the recreated Camera tray agrees with the static
+  // Controls/Stats panels after replay. Storage failures leave a usable session pin.
+  const pinStorageKey = `snowglider.panelPinned.${container.id}`;
+  try {
+    const stored = view.localStorage.getItem(pinStorageKey);
+    if (stored !== null) container.classList.toggle('panel-pinned', stored === 'true');
+  } catch { /* Private browsing/storage policies must not break HUD controls. */ }
+  // The pin only suppresses idle folding: a deliberate close or compact
+  // accordion change wins, while retaining the player's pin preference.
+  let pin = header.querySelector<HTMLButtonElement>('.panel-pin');
+  if (!pin) {
+    pin = container.ownerDocument.createElement('button');
+    pin.type = 'button';
+    pin.className = 'panel-pin';
+    pin.textContent = '📌';
+    header.insertBefore(pin, toggleButton);
+  }
+  const updatePin = () => {
+    const pinned = container.classList.contains('panel-pinned');
+    pin.setAttribute('aria-pressed', String(pinned));
+    pin.setAttribute('aria-label', `Keep ${name} open`);
+    pin.title = pinned ? 'Unpin: fold after 4 seconds idle' : 'Pin: keep this panel open';
+  };
+  updatePin();
+  pin.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const pinned = container.classList.toggle('panel-pinned');
+    try { view.localStorage.setItem(pinStorageKey, String(pinned)); } catch { /* Session-only pin. */ }
+    updatePin();
+    refreshIdle();
+  }, opts);
+  const isPinTarget = (event: Event) => event.target instanceof view.Node && pin.contains(event.target);
+
+  // Observe activity in capture phase: headers intentionally stop touch bubbling
+  // so a panel gesture cannot also steer the snowman. Holds may end off-panel.
+  container.addEventListener('pointerdown', (event) => {
+    keyboardInput = false;
+    heldPointers.add(event.pointerId);
+    clearIdle();
+  }, captureOpts);
+  const releasePointer = (event: PointerEvent) => {
+    if (heldPointers.delete(event.pointerId)) refreshIdle();
+  };
+  view.addEventListener('pointerup', releasePointer, captureOpts);
+  view.addEventListener('pointercancel', releasePointer, captureOpts);
+  container.addEventListener('touchstart', (event) => {
+    keyboardInput = false;
+    for (const touch of Array.from(event.changedTouches ?? event.touches)) heldTouches.add(touch.identifier);
+    clearIdle();
+  }, captureOpts);
+  const releaseTouch = (event: TouchEvent) => {
+    if (!heldTouches.size) return;
+    const remaining = new Set(Array.from(event.touches, (touch) => touch.identifier));
+    for (const id of heldTouches) if (!remaining.has(id)) heldTouches.delete(id);
+    refreshIdle();
+  };
+  view.addEventListener('touchend', releaseTouch, captureOpts);
+  view.addEventListener('touchcancel', releaseTouch, captureOpts);
+  view.addEventListener('keydown', (event) => {
+    const target = event.target instanceof view.Element ? event.target : null;
+    const focusInContent = content?.contains(container.ownerDocument.activeElement);
+    // Match input ownership: buttons own activation, while fields own adjustment
+    // and text entry. WASD/arrows on a clicked button still belong to skiing.
+    const panelKey = event.key === 'Tab' || !!(focusInContent && (
+      target?.closest('input, select, textarea, [contenteditable="true"], [role="radio"], [role="slider"]')
+      || ((event.key === 'Enter' || event.key === ' ') && target?.closest('button, a, [role="button"]'))
+    ));
+    const wasKeyboardInput = keyboardInput;
+    keyboardInput = panelKey;
+    // Returning to skiing releases a keyboard-navigation hold once. Repeated
+    // movement keydowns must neither pause folding nor restart its countdown.
+    if (focusInContent && (panelKey || wasKeyboardInput)) refreshIdle();
+  }, captureOpts);
+  view.addEventListener('pointerdown', () => {
+    const wasKeyboardFocus = keyboardInput && content?.contains(container.ownerDocument.activeElement);
+    keyboardInput = false;
+    if (wasKeyboardFocus) refreshIdle();
+  }, captureOpts);
+  for (const type of ['pointermove', 'input', 'change', 'wheel', 'scroll', 'focusin']) {
+    container.addEventListener(type, refreshIdle, captureOpts);
+  }
+  container.addEventListener('focusout', () => queueMicrotask(refreshIdle), captureOpts);
+  // A tab/app switch can swallow a release event; never leave an immortal hold.
+  view.addEventListener('blur', () => {
+    heldPointers.clear();
+    heldTouches.clear();
+    keyboardInput = false;
+    refreshIdle();
+  }, opts);
   const setCollapsed = function(collapsed: boolean, userInitiated = false) {
     // Compact layouts have room for one expanded information/control panel.
     // Direct state updates (startup/result transitions) do not operate the accordion.
@@ -107,6 +229,7 @@ function wirePanel(
 
   header.addEventListener('click', function(e) {
     e.stopPropagation();
+    if (isPinTarget(e)) return;
     console.log(`${name} header clicked`);
     toggle();
   }, opts);
@@ -119,6 +242,7 @@ function wirePanel(
   header.addEventListener('touchend', function(e) {
     console.log(`${name} header touch end`);
     e.stopPropagation();
+    if (isPinTarget(e)) return;
     if (!touchStart) return;
     touchStart = null;
     if (e.touches.length || gesture === 'vertical') return;
@@ -147,6 +271,7 @@ function wirePanel(
   // Add horizontal swipe handler for the panel
   header.addEventListener('touchstart', function(e) {
     e.stopPropagation();
+    if (isPinTarget(e)) { touchStart = null; return; }
     const touch = e.touches[0];
     touchStart = e.touches.length === 1 && touch
       ? { x: touch.clientX, y: touch.clientY, id: touch.identifier } : null;

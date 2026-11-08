@@ -4,7 +4,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   RENDER_PHASES, REVIEW_SEED, prepareRenderScenario, enterRenderPhase,
-  measureRenderPhase, assertRenderPhase, captureRenderCanvas, setObstructedOrbitFrame
+  measureRenderPhase, assertRenderPhase, captureRenderCanvas, setObstructedOrbitFrame,
+  AUTO_REVIEW_PHASES, setAutoReviewFrame
 } from '../e2e/render-scenarios';
 import { SNOW_PHASES, prepareSnowFrame, enterSnowPhase, measureSnowSurface } from '../e2e/snow-rendering-scenarios';
 
@@ -30,6 +31,14 @@ test('capture prescribed player phases for an explicit revision', async ({ page 
   for (const update of [0, 1, 2] as const) {
     const metrics = await setObstructedOrbitFrame(page, update);
     const image = `${testInfo.project.name}-${metrics.phase}.png`;
+    await fs.writeFile(path.join(output, image), await captureRenderCanvas(page));
+    frames.push({ image, metrics });
+  }
+  for (const phase of AUTO_REVIEW_PHASES) {
+    const metrics = await setAutoReviewFrame(page, phase);
+    expect(metrics.camera.every(Number.isFinite), `${phase}: finite camera`).toBe(true);
+    expect(metrics.clearance, `${phase}: camera stays above terrain`).toBeGreaterThanOrEqual(5 - 1e-6);
+    const image = `${testInfo.project.name}-${phase}.png`;
     await fs.writeFile(path.join(output, image), await captureRenderCanvas(page));
     frames.push({ image, metrics });
   }
