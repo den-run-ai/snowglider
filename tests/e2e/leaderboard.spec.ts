@@ -100,8 +100,12 @@ test('a guest can save the completed Expert run after sign-in and replay with vi
   await expect(page.locator('#airScoreValue')).toBeVisible();
   await expect(page.locator('#airScoreValue')).toHaveText('150');
   await expect(page.locator('#gameStatsContent')).toBeHidden();
+  await page.evaluate(() => window.restartGame!());
+  // Restart activates the loop before its next frame. A result in the same task
+  // is not a playable run and must not fabricate a completion event.
+  await page.waitForFunction(() => (window as LiveGame).gameActive === true &&
+    ((window as LiveGame).simElapsed ?? 0) > 0);
   await page.evaluate(() => {
-    window.restartGame!();
     (window as LiveGame).simElapsed = 25;
     window.showGameOver!('You reached the end of the slope!');
   });
