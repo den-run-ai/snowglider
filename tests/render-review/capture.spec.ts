@@ -38,3 +38,23 @@ test('capture prescribed player phases for an explicit revision', async ({ page 
     viewport: page.viewportSize(), frames
   }, null, 2));
 });
+
+// Run the same finish fixture against both exact revisions. Capture the entire
+// viewport so review shows whether replay is reachable without scrolling; keep
+// these UI images separate from the established canvas/physics comparison.
+test('capture the finish dialog and replay controls', async ({ page }, testInfo) => {
+  const output = path.resolve(process.env.RENDER_OUTPUT_DIR || 'test-results/render-review');
+  await fs.mkdir(output, { recursive: true });
+  if (testInfo.project.name === 'phone') await page.setViewportSize({ width: 428, height: 750 });
+  const errors = await prepareRenderScenario(page);
+  await enterRenderPhase(page, 'downhill');
+  await page.evaluate(() => {
+    const w = window as unknown as { simElapsed: number; showGameOver: (reason: string) => void };
+    w.simElapsed = 20;
+    w.showGameOver('You reached the end of the slope!');
+  });
+  await expect(page.locator('#gameOverOverlay')).toBeVisible();
+  await expect(page.locator('#courseResult')).toBeVisible();
+  await page.screenshot({ path: path.join(output, `${testInfo.project.name}-finish-dialog.png`), animations: 'disabled' });
+  expect(errors).toEqual([]);
+});

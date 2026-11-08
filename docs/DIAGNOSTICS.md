@@ -75,7 +75,11 @@ pipeline** (`window.firebaseModules.logEvent`, the same seam `game_start`/`game_
 - **`client_error` / `unhandled_rejection`** — the app had **no** `window.onerror` /
   `unhandledrejection` handler, so an uncaught throw in the rAF loop (a real "freezes"
   candidate) vanished silently. `Diag` installs both, attaching the message/stack plus the
-  current physics snapshot as context.
+  current physics snapshot as context. Recovery boundaries must call
+  `Diag.reportError(error, source)` explicitly: a caught error never reaches either
+  browser handler. Animation-loop failures use `source: animation_loop`; result-panel
+  failures use `source: course_result`. Reporting is inert under the automation gate,
+  bounds error text, and tolerates unavailable Analytics so recovery still works.
 - **`diag_note`** — the generic `Diag.note(category, detail)` seam lets **other
   subsystems** (asset loaders, avalanche, camera) report anomalies into the same pipeline,
   so diagnostics is not limited to the physics kernel. e.g.
@@ -86,6 +90,16 @@ exactly like the other `logEvent` call sites (modular SDK present, not `file://`
 inert under automation (the recorder is off there). Swapping the sink for a dedicated
 error monitor (Sentry / self-hosted GlitchTip) later is a one-line change at the `init()`
 call site — `Diag` itself stays decoupled from the transport.
+
+These are Analytics events, not Crashlytics reports. This app uses Firebase 11.5.0
+and does not initialize Crashlytics. Firebase's [Web Crashlytics API](https://firebase.google.com/docs/reference/js/crashlytics)
+arrived in [13.2.0 public preview](https://firebase.google.com/support/release-notes/js);
+adding it is a separate SDK/configuration change. A layout that hides Restart below a
+scrollable result, a stale avalanche banner, or a swallowed audio-play rejection does
+not automatically produce `client_error`. Use the browser regression tests for those
+behaviors; event counts alone cannot establish that a player encountered them. Checking
+recorded production events also requires access to the GA4 property (see
+[`ANALYTICS.md`](ANALYTICS.md)); source instrumentation is not proof of delivery.
 
 ## Design constraints (shared with `sfx`/`intro`/`debris`)
 

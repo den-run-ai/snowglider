@@ -32,6 +32,7 @@ function makeDeps(/** @type {{ bestTime?: number, startTime?: number, onCrash?: 
     <div id="gameStatsContainer"><button id="toggleStats">▲</button></div>
     <div id="leaderboard" style="display:none"></div>
     <div id="gameOverOverlay" style="display:none">
+      <h1 id="gameOverMessage">GAME OVER</h1>
       <p id="gameOverDetail"></p>
       <p id="bestTimeDisplay"></p>
       <button id="restartButton">Restart</button>
@@ -127,6 +128,26 @@ async function main() {
     check('ranked finish emits no finish event from the overlay (recordScore owns complete_run)',
       !analyticsEvents.some(e => e[0] === 'complete_run' || e[0] === 'complete_game'));
     check('overlay is shown', deps.gameOverOverlay.style.display === 'flex');
+  }
+
+
+  // Replay stays outside growing results, and a subsequent result starts at its top.
+  {
+    const deps = makeDeps();
+    const show = createShowGameOver(deps);
+    show(FINISH);
+    const content = document.getElementById('gameOverContent');
+    const actions = document.getElementById('gameOverActions');
+    check('restart is outside the scrollable results',
+      deps.restartButton.parentElement === actions && !content.contains(deps.restartButton));
+    check('result messages live in the scrollable region', content.contains(deps.gameOverDetail));
+    check('successful finish has a success heading', document.getElementById('gameOverMessage').textContent === 'RUN COMPLETE');
+    content.scrollTop = 400;
+    show('You hit a tree!');
+    check('new result resets previous scroll position', content.scrollTop === 0);
+    check('crash restores the game over heading', document.getElementById('gameOverMessage').textContent === 'GAME OVER');
+    check('repeated result does not duplicate layout regions',
+      document.querySelectorAll('#gameOverContent').length === 1 && document.querySelectorAll('#gameOverActions').length === 1);
   }
 
   // --- Practice world (?seed=, #403 review): shows the time, records NOTHING ---
@@ -227,7 +248,7 @@ async function main() {
     createShowGameOver(deps)(FINISH);
     check('finish that is not a new best shows "Your Time"', /Your Time/.test(deps.bestTimeDisplay.textContent));
     check('signed-in finish inserts + displays the leaderboard',
-      document.getElementById('leaderboard').parentNode === deps.gameOverOverlay && leaderboardShown === 1);
+      document.getElementById('leaderboard').parentNode === document.getElementById('gameOverContent') && leaderboardShown === 1);
   }
 
   // --- Finish-screen difficulty picker: kept directly above RESTART + synced to tier ---
@@ -248,7 +269,7 @@ async function main() {
     deps.setPickerTier = (t) => { syncedTier = t; };
     createShowGameOver(deps)(FINISH);
     check('finish picker is re-anchored directly above the restart button',
-      picker.nextElementSibling === deps.restartButton && picker.parentNode === deps.gameOverOverlay);
+      picker.nextElementSibling === deps.restartButton && picker.parentNode === document.getElementById('gameOverActions'));
     check('finish picker is synced to the tier just played', syncedTier === 'blue');
   }
 
@@ -267,7 +288,7 @@ async function main() {
 
     createShowGameOver(blueDeps)(FINISH);
     check('ranked Blue finish shows the leaderboard',
-      lb.style.display === 'block' && lb.parentNode === blueDeps.gameOverOverlay);
+      lb.style.display === 'block' && lb.parentNode === document.getElementById('gameOverContent'));
 
     createShowGameOver(blackDeps)(FINISH);
     check('unranked Black replay hides the stale leaderboard', lb.style.display === 'none');
@@ -275,6 +296,42 @@ async function main() {
     createShowGameOver(blueDeps)(FINISH);
     check('returning to ranked Blue re-shows the already-parented leaderboard',
       lb.style.display === 'block');
+  }
+
+  // Optional backend failures cannot stop the result or leave a stale leaderboard.
+  {
+    window.AuthModule = {
+      getCurrentUser: () => /** @type {any} */ ({ uid: 'u1' }),
+      isFirebaseAvailable: () => { throw new Error('status unavailable'); },
+      displayLeaderboard: () => { throw new Error('leaderboard unavailable'); },
+    };
+    const deps = makeDeps();
+    createShowGameOver(deps)(FINISH);
+    check('throwing Firebase status and leaderboard still show completed run',
+      deps.gameOverOverlay.style.display === 'flex' && /New Best Time/.test(deps.bestTimeDisplay.textContent));
+    check('throwing leaderboard hides the unavailable board', document.getElementById('leaderboard').style.display === 'none');
+  }
+  {
+    let rejectOld = (/** @type {unknown} */ _error) => {};
+    window.AuthModule = {
+      getCurrentUser: () => /** @type {any} */ ({ uid: 'u1' }),
+      displayLeaderboard: () => new Promise((_, reject) => { rejectOld = reject; }),
+    };
+    const deps = makeDeps();
+    const show = createShowGameOver(deps);
+    show(FINISH);
+    window.AuthModule.displayLeaderboard = () => {};
+    show(FINISH);
+    rejectOld(new Error('previous leaderboard request failed'));
+    await Promise.resolve();
+    await Promise.resolve();
+    check('old leaderboard rejection does not hide a newer result', document.getElementById('leaderboard').style.display === 'block');
+    window.AuthModule.displayLeaderboard = async () => { throw new Error('current leaderboard request failed'); };
+    show(FINISH);
+    await Promise.resolve();
+    await Promise.resolve();
+    check('rejected leaderboard request preserves replay and hides failed board',
+      deps.gameOverOverlay.style.display === 'flex' && document.getElementById('leaderboard').style.display === 'none');
   }
 
   // --- Missing AuthModule.displayLeaderboard hides the board instead of showing stale content ---
@@ -391,7 +448,7 @@ async function main() {
     const show = createShowGameOver(deps);
     show('You hit a tree!');
     check('result contains the real account controls inside its focus boundary',
-      account.parentElement === deps.gameOverOverlay && account.inert !== true);
+      account.parentElement === document.getElementById('gameOverContent') && account.inert !== true);
     provider.click();
     check('moving account controls preserves their existing sign-in handler', signIns === 1);
     show('You hit a tree!');

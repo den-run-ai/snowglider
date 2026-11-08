@@ -11,6 +11,18 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ---
 
+## Finish and restart recovery — 2026-11-07
+
+- Keep Restart and all four difficulty choices visible while results, sharing,
+  account controls and update notices scroll inside the finish dialog.
+- Stop the terminal frame before gameplay observers can revive avalanche warnings
+  or audio. Optional leaderboard/status failures no longer block the result screen.
+- Use the native replay click to unlock mobile audio. After a difficulty rebuild,
+  prepare the course and wait for Start run instead of starting a silent descent.
+- Report caught animation and result failures through the existing GA4 client-error
+  path. Production event data and physical-device audio remain unverified.
+- Preserve physics tuning, course layouts, score version and stored mute preferences.
+
 ## Ski controls and replay feedback — 2026-11-06
 
 - Reset ski stance, tuck, flip and spin presentation immediately on replay, so a

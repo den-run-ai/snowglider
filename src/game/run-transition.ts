@@ -1,5 +1,5 @@
 // A tier change rebuilds the scene by navigating once. Carry the already-requested
-// run in the URL so it survives blocked storage, then remove it before gameplay or
+// tier in the URL so it survives blocked storage, then remove it before gameplay or
 // sharing. The enum is the only accepted input; no arbitrary state crosses a reload.
 import { isDifficulty, readStoredDifficulty, type Difficulty } from '../difficulty.js';
 
