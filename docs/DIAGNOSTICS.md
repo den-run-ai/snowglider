@@ -50,6 +50,75 @@ For every frame the main loop feeds it (`Diag.record(...)`), it classifies:
   `snapshot()` omits raw errors, so the in-game feedback form receives only the aggregate
   error fields. `reset()` clears the trace; `overlay(true|false)` toggles the HUD.
 
+## Local phone performance capture
+
+The debug HUD has **Start capture** and **Stop and download** controls. Capture is
+off until explicitly started. It reuses the real gameplay frame intervals already
+observed by `Diag`, survives Replay/Reset, and downloads
+`snowglider-performance.json`. It sends no capture data to Analytics and writes no
+browser storage. The report remains in memory for a download retry; reloading,
+leaving the page, teardown or starting a new capture discards it. A download request
+does not prove the browser saved the file: check Downloads/Files before leaving.
+
+Each ten-second window with observed frames reports exact sample p50/p95/p99,
+mean/max interval, and counts above 16.7, 33.3, 50, 100 and 250 ms. These thresholds
+describe the sample, not a performance pass/fail verdict. Frames belong to the
+window in which they are observed; a long interval is retained whole, not clamped.
+Windows use elapsed capture time, so menu/hidden gaps are not invented as frames.
+Renderer checkpoints occur at most once per second during observed gameplay,
+plus capture/reset/stop boundaries. They include current quality/mode, actual
+pixel ratio and canvas size, viewport, draw/triangle counts, geometries, textures
+and programs from the existing renderer. Counts describe the last rendered frame
+and allocated resource objects, **not GPU-memory bytes**. Quality transitions are
+observed at checkpoint granularity, not timestamped at the exact policy decision.
+
+The cap is **10 minutes**, **60 windows**, **4,096 samples per window**, and **720
+checkpoints**. Duration/frame caps stop recording; checkpoint overflow is marked
+and later checkpoints are omitted. Caps are checked on the next observed frame or
+control action, without a background timer. `stopReason`, `truncated`, and fixed
+error counters make limits, invalid samples, unavailable renderer/quality fields,
+probe failures and export failures explicit. Missing measurements are `null` or
+`unknown`, never an invented zero. A duration-cap stop marker has no renderer
+probe: a later observation after a long gap is outside the capture. Build ID,
+coarse device/browser family and
+browser major version supply context; full user-agent strings, URLs, identities,
+run seeds/trajectories and raw error messages/stacks are excluded. The ordinary
+physics `snapshot()`/`dump()` stay separate from this local performance report.
+
+### Repeatable physical-phone procedure
+
+1. Record the phone model, OS/browser version, battery/charging and power-saving
+   state separately. Use the same deployed build, course, camera, orientation and
+   quality mode on each comparison. Begin with `?debug&eztrees=1&intro=off` and the
+   normal adaptive quality; use `&quality=high` or `&quality=low` only for a separate,
+   labelled comparison. Do not use `?test=` or browser emulation as phone evidence.
+2. Start a run, then tap **Start capture**. Ski and replay repeatedly for five to
+   ten minutes. Include the same representative turns, avalanche area and jumps;
+   note visible hitches, control/audio problems and device warmth separately.
+   Avoid backgrounding during the comparison and note any interruptions.
+3. Tap **Stop and download**, including from the result/menu. Confirm the JSON is
+   saved. Keep one initial run and the sustained repeated-run capture identifiable
+   in your notes. Review any cap, error or missing-data fields before interpreting it.
+4. Compare early and late windows at comparable course/quality states. Inspect
+   frame-time tails and stalls, quality reductions, and resource counts at repeated
+   reset checkpoints after the initial resource warmup. Resource counts should
+   plateau; new effects first becoming visible may legitimately allocate resources.
+   Establish actual iPhone and midrange Android baselines before adopting budgets.
+
+This observes **active gameplay intervals only**. The existing frame hook excludes
+startup/intro, menus, hidden time and the terminal frame that ends a run. It does
+not measure input latency, isolated CPU/GPU time, OS memory, temperature or thermal
+throttling. Degradation over time is evidence of a slowdown, not proof of its cause.
+The diagnostic HUD itself adds work and covers part of the view; confirm playability
+again with it closed. Passing CI and collecting a report do not establish smoothness
+until someone actually performs and reviews the physical-device run.
+
+`tests/performance-capture-tests.js` and `performance-capture-dom-tests.js` cover
+bounds, statistics, resets, unavailable probes, privacy, debug controls and export
+cleanup. `tests/e2e/performance-capture.spec.ts` drives the real touch controls and
+download on the browser matrix, checks the attached EZ forest, and attaches the
+debug UI screenshot and JSON. Its functional checks contain no phone-FPS threshold.
+
 ## Aggregation: Firebase Analytics + global error capture
 
 A detector whose output dies in the device console can't catch the *next* bug in the
@@ -112,9 +181,11 @@ recorded production events also requires access to the GA4 property (see
   byte-identical.
 - **Automation-safe.** Off by default under `?test=` suites (`window.isTestMode`) and
   webdriver runs, unless a test opts in via `window.testHooks.diagnosticsEnabled`.
-- **Cheap.** O(1) per frame — a fixed ring buffer plus an incremental summary fold (no
-  full-history rescan). The overlay repaints at a throttled ~6 Hz; warnings are
-  rate-limited per category.
+- **Cheap by default.** The ordinary recorder is O(1) per frame — a fixed ring
+  buffer plus an incremental summary fold, without a full-history rescan. The
+  optional local capture sorts only its bounded ten-second sample bucket when
+  closing a window for exact quantiles; it never rescans the session. The overlay
+  repaints at a throttled ~6 Hz; warnings are rate-limited per category.
 - **Headless-testable.** All analytics (`percentile`, `classifyFrame`, `foldFrame`,
   `fpsSpeedRatio`, `frameRateHealth`) are exported pure functions with no DOM dependency,
   unit-tested in `tests/diagnostics-tests.js` (`npm run test:diagnostics`).

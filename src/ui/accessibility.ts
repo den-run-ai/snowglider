@@ -26,6 +26,13 @@ export function openOverlayFocus(root: HTMLElement, options: {
   const doc = root.ownerDocument;
   const previous = doc.activeElement as HTMLElement | null;
   const allowed = [root, ...(options.allowed ?? [])];
+  // Explicit debug controls must remain reachable on the menu/result too, so a
+  // phone tester can stop/download after a run. Resolve lazily: diagnostics may
+  // mount after this dialog. Normal player pages have no such element.
+  const scopes = (): HTMLElement[] => {
+    const diagnostics = doc.getElementById('diagOverlay');
+    return diagnostics ? [...allowed, diagnostics] : allowed;
+  };
   const allowedInert = allowed.map((scope) => scope.inert);
   for (const scope of allowed) scope.inert = false;
   const changed = new Map<HTMLElement, boolean>();
@@ -34,10 +41,11 @@ export function openOverlayFocus(root: HTMLElement, options: {
   stack.push(root);
 
   function isolate(parent: Element): void {
+    const currentScopes = scopes();
     for (const node of Array.from(parent.children)) {
       const el = node as HTMLElement;
-      if (allowed.includes(el) || el.id === 'gameAnnouncements' || el.tagName === 'SCRIPT') continue;
-      if (allowed.some((scope) => el.contains(scope))) isolate(el);
+      if (currentScopes.includes(el) || el.id === 'gameAnnouncements' || el.tagName === 'SCRIPT') continue;
+      if (currentScopes.some((scope) => el.contains(scope))) isolate(el);
       else {
         if (!changed.has(el)) changed.set(el, el.inert);
         el.inert = true;
@@ -55,7 +63,7 @@ export function openOverlayFocus(root: HTMLElement, options: {
 
   const selector = 'button, a[href], summary, input, select, textarea, [tabindex]';
   function focusable(): HTMLElement[] {
-    return allowed.flatMap((scope) => Array.from(scope.querySelectorAll<HTMLElement>(selector)))
+    return scopes().flatMap((scope) => Array.from(scope.querySelectorAll<HTMLElement>(selector)))
       .filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[inert]')
         && el.getClientRects().length > 0);
   }
@@ -85,7 +93,7 @@ export function openOverlayFocus(root: HTMLElement, options: {
   }
   function onFocus(event: FocusEvent): void {
     if (stack.at(-1) !== root) return;
-    if (!allowed.some((scope) => scope.contains(event.target as Node))) focusFirst();
+    if (!scopes().some((scope) => scope.contains(event.target as Node))) focusFirst();
   }
   doc.addEventListener('keydown', onKey, true);
   doc.addEventListener('focusin', onFocus);
