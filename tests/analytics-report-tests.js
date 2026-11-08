@@ -83,6 +83,35 @@ const { join } = require('node:path');
     assert(ga.warnings.some(w => w.includes('threshold')));
     assert(requests.every(r => r.dateRanges[0].endDate === 'yesterday'));
     assert(requests.every(r => r.dimensionFilter.filter.stringFilter.value === 'false'));
+    requests.length = 0;
+    const production = await fetchGa4({}, { ...queryOptions, hostname: 'SNOWGLIDER.AI' });
+    assert(production.available);
+    assert.equal(production.hostname, 'snowglider.ai');
+    assert(requests.every(r => r.dimensionFilter.filter.fieldName === 'hostName'));
+    assert(requests.every(r => r.dimensionFilter.filter.stringFilter.value === 'snowglider.ai'));
+    for (const traffic of ['human', 'bot']) {
+      requests.length = 0;
+      await fetchGa4({}, { ...queryOptions, hostname: 'snowglider.ai', traffic });
+      assert(requests.length > 0);
+      for (const request of requests) {
+        assert.deepEqual(request.dimensionFilter.andGroup.expressions, [
+          { filter: { fieldName: 'customEvent:is_bot',
+            stringFilter: { matchType: 'EXACT', value: traffic === 'bot' ? 'true' : 'false' } } },
+          { filter: { fieldName: 'hostName',
+            stringFilter: { matchType: 'EXACT', value: 'snowglider.ai', caseSensitive: false } } },
+        ], 'both filters apply to every report, including anomaly pages');
+      }
+    }
+    requests.length = 0;
+    const unfiltered = await fetchGa4({}, queryOptions);
+    assert.equal(unfiltered.hostname, null);
+    assert(requests.every(r => !('dimensionFilter' in r)), 'no implicit hostname or traffic filter');
+    assert(unfiltered.warnings.some(w => w.includes('hostname is unfiltered')));
+    for (const hostname of ['https://snowglider.ai', 'snowglider.ai/path', 'snowglider.ai:443',
+      'snowglider.ai?token=test', '', 'bad..host', '-bad.host', 'bad-.host', 'a'.repeat(64) + '.test']) {
+      await assert.rejects(fetchGa4({}, { ...queryOptions, hostname }), /--hostname/);
+    }
+
     await assert.rejects(fetchGa4({}, { ...queryOptions, traffic: 'invalid' }), /--traffic/);
     await assert.rejects(fetchGa4({}, { ...queryOptions, propertyId: '../invalid' }), /numeric/);
     globalThis.fetch = async () => Response.json({ error: { message: 'API disabled' } }, { status: 403 });

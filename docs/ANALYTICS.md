@@ -9,8 +9,9 @@ Neither is a complete census when collection is blocked or unavailable.
 ## Private reports
 
 ```bash
-npm run analytics -- --sa /private/path/service-account.json --ga-property <numeric-id>
-npm run analytics -- --sa /private/path/service-account.json --ga-property <numeric-id> --traffic human
+npm run analytics -- --sa /private/path/service-account.json --ga-property <numeric-id> --hostname snowglider.ai
+# After registering the is_bot custom dimension:
+npm run analytics -- --sa /private/path/service-account.json --ga-property <numeric-id> --hostname snowglider.ai --traffic human
 ```
 
 The output is `analytics-out/report.html` and `report.json`. On POSIX systems, report files
@@ -22,6 +23,7 @@ it. Legacy auto-discovery of ignored key files in the checkout remains supported
 | Option | Effect |
 |---|---|
 | `--ga-property <id>` / `GA4_PROPERTY_ID` | Query a GA4 numeric property ID, not a `G-…` measurement ID |
+| `--hostname <hostname>` | Restrict GA4 to one exact host; omitted means all hosts. Use `snowglider.ai` for production reports |
 | `--traffic all` (default) | All traffic; explicitly includes automation and untagged events |
 | `--traffic human` | Only events explicitly tagged `is_bot=false` |
 | `--traffic bot` | Only events explicitly tagged `is_bot=true` |
@@ -51,6 +53,10 @@ request has a 30-second deadline.
 - Anomalies compare each day to the preceding 28-day median/MAD and require at least seven
   days of history, 15 events, 3× baseline and robust-z ≥ 3.5. They do not establish causation
   or distinguish a release, a new event, automation, renewed traffic or a regression.
+- Hostname filtering uses GA4's built-in `hostName` dimension and requires no custom
+  definition. Use `--hostname snowglider.ai` for production reports; it does not include
+  subdomains automatically. It applies together with any traffic filter. This only changes
+  the GA4 report; Firestore is still the selected project's current score/profile snapshot.
 - Traffic filters require an event-scoped custom dimension named `is_bot`. They include
   **only explicit tags**: old data and SDK-generated events such as page views may be
   untagged and disappear from either filtered view. Filtered session/user metrics must
@@ -58,6 +64,10 @@ request has a 30-second deadline.
 - The report surfaces thresholding, sampling and `(other)` aggregation warnings. Event-name
   source scanning is a coverage hint, not proof of delivered events or correct parameters;
   parameters, asset failures and production delivery remain explicit manual checks.
+
+Analytics initializes only on `snowglider.ai` and `www.snowglider.ai`. Local, LAN,
+preview and fork hosts skip the Analytics SDK, including its automatic page-view/session
+collection. This gate does not change authentication or Firestore availability.
 
 ## Gameplay and performance dimensions
 

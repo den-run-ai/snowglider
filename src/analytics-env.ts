@@ -15,6 +15,13 @@
  * custom dimension has the same representation across SDK transports.
  */
 
+/** Collect production Analytics only on the game's public hosts. Preview, LAN,
+ * localhost and fork deployments must not initialize the production GA4 SDK. */
+export function shouldCollectAnalytics(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === 'snowglider.ai' || host === 'www.snowglider.ai';
+}
+
 /** True when the page is driven by browser automation (Playwright/Puppeteer/Selenium). */
 export function isAutomatedClient(): boolean {
   if (typeof navigator !== 'undefined' && navigator.webdriver === true) return true;

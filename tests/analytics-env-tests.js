@@ -14,7 +14,16 @@ function check(name, ok) {
 }
 
 (async () => {
-  const { isAutomatedClient, withTrafficTag, analyticsBuildId } = await import('../src/analytics-env.ts');
+  const { isAutomatedClient, withTrafficTag, analyticsBuildId, shouldCollectAnalytics } = await import('../src/analytics-env.ts');
+
+  console.log('--- analytics-env: production hostname gate ---');
+  check('canonical host collects Analytics', shouldCollectAnalytics('snowglider.ai'));
+  check('public www host collects Analytics', shouldCollectAnalytics('www.snowglider.ai'));
+  check('hostname matching is case-insensitive', shouldCollectAnalytics('SNOWGLIDER.AI'));
+  for (const hostname of ['preview.local', 'example.com', 'localhost', '127.0.0.1', '[::1]',
+    '192.168.1.2', 'preview.snowglider.ai', 'snowglider.ai.example.com', '']) {
+    check(`non-production hostname ${hostname || '(empty)'} is excluded`, !shouldCollectAnalytics(hostname));
+  }
 
   // Preserve and restore any real navigator so the test is isolated.
   const hadNav = 'navigator' in globalThis;

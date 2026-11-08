@@ -73,7 +73,7 @@ import { initializeApp, type FirebaseApp, type FirebaseOptions } from "https://w
 import ScoresModule from "./scores.js";
 import { DIFFICULTIES, localBestTimeKey, localBestProvenanceCompatible, type Difficulty } from "./difficulty.js";
 import { safeGetItem, safeRemoveItem } from "./offline/offline-store.js";
-import { withTrafficTag } from "./analytics-env.js";
+import { shouldCollectAnalytics, withTrafficTag } from "./analytics-env.js";
 
 /** Promise rejections are untrusted: Firebase errors normally expose string
  * code/message fields, but network shims and failures can reject with anything. */
@@ -136,8 +136,9 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
       firestore = null;
     }
 
-    // Analytics is independent of Auth: a sign-in outage must remain observable.
-    if (!isTrulyLocal) {
+    // Analytics is independent of Auth, but only public production hosts may
+    // initialize it (including the SDK's automatic page-view/session collection).
+    if (!isTrulyLocal && shouldCollectAnalytics(window.location.hostname)) {
       try {
         analytics = getAnalytics(firebaseApp);
         console.log("Firebase Analytics service obtained.");
@@ -146,7 +147,7 @@ function initializeAuth(firebaseConfig: FirebaseOptions) {
         analytics = null; // Ensure analytics is null if initialization fails
       }
     } else {
-        console.warn('Skipping Analytics: Local environment');
+        console.log('Skipping Analytics: Non-production environment');
         analytics = null;
     }
 

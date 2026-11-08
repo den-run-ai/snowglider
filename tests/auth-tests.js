@@ -568,6 +568,26 @@ async function main() {
   check('analytics remains available when authentication initialization fails',
     partialAvailability.auth === false && partialAvailability.analytics === true);
 
+  // Preview/LAN deployments must not initialize the production Analytics SDK,
+  // while the existing authentication and Firestore behavior remains available.
+  const analyticsInitializations = calls.getAnalytics;
+  dom.reconfigure({ url: 'https://preview.local/' });
+  AuthModule.initializeAuth(config);
+  const previewAvailability = AuthModule.isFirebaseAvailable();
+  check('preview host does not initialize Analytics or collect automatic SDK events',
+    calls.getAnalytics === analyticsInitializations && previewAvailability.analytics === false);
+  check('preview host retains Auth and Firestore availability',
+    previewAvailability.auth === true && previewAvailability.firestore === true);
+  const previewEvents = calls.logEvent.length;
+  window.firebaseModules.logEvent('game_start');
+  check('an existing analytics wrapper becomes inert on non-production hosts',
+    calls.logEvent.length === previewEvents);
+
+  dom.reconfigure({ url: 'https://www.snowglider.ai/' });
+  AuthModule.initializeAuth(config);
+  check('public www host initializes Analytics',
+    calls.getAnalytics === analyticsInitializations + 1 && AuthModule.isFirebaseAvailable().analytics === true);
+
   console.log(`\nAUTH TEST TOTAL: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

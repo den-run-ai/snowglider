@@ -58,6 +58,7 @@ const OPTS = {
   open: process.argv.includes('--open'),
   gaProperty: argVal('--ga-property') || process.env.GA4_PROPERTY_ID || null,
   traffic: argVal('--traffic') || 'all',
+  hostname: argVal('--hostname'),
 };
 
 function die(msg) {
@@ -186,7 +187,7 @@ async function fetchCollection(token, project, collection) {
 // ------------------------------------------------------------------------ GA4 (opt-in) ----
 // Returns { available, ...metrics } or { available:false, reason, howTo }.
 export async function fetchGa4(sa, {
-  propertyId = OPTS.gaProperty, traffic = OPTS.traffic,
+  propertyId = OPTS.gaProperty, traffic = OPTS.traffic, hostname = OPTS.hostname,
   getToken = getAccessToken, nowMs = Date.now(),
 } = {}) {
   const howTo = [
@@ -203,6 +204,14 @@ export async function fetchGa4(sa, {
   }
   if (!/^\d+$/.test(propertyId)) throw new Error('GA4 property ID must be numeric.');
   if (!['all', 'human', 'bot'].includes(traffic)) throw new Error('--traffic must be all, human, or bot.');
+  if (hostname != null) {
+    if (typeof hostname !== 'string' || hostname.length > 253 ||
+        !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(hostname)) {
+      throw new Error('--hostname must be a hostname only, without a scheme, path, or port.');
+    }
+    hostname = hostname.toLowerCase();
+  }
+
   let token;
   try {
     token = await getToken(sa, 'https://www.googleapis.com/auth/analytics.readonly');
@@ -211,12 +220,17 @@ export async function fetchGa4(sa, {
   }
   const property = `properties/${propertyId}`;
   const warnings = new Set();
-  const filter = traffic === 'all' ? {} : {
-    dimensionFilter: { filter: {
-      fieldName: 'customEvent:is_bot',
-      stringFilter: { matchType: 'EXACT', value: traffic === 'bot' ? 'true' : 'false' },
-    } },
-  };
+  const expressions = [];
+  if (traffic !== 'all') expressions.push({ filter: {
+    fieldName: 'customEvent:is_bot',
+    stringFilter: { matchType: 'EXACT', value: traffic === 'bot' ? 'true' : 'false' },
+  } });
+  if (hostname) expressions.push({ filter: {
+    fieldName: 'hostName', stringFilter: { matchType: 'EXACT', value: hostname, caseSensitive: false },
+  } });
+  const filter = expressions.length ? { dimensionFilter: expressions.length === 1
+    ? expressions[0] : { andGroup: { expressions } } } : {};
+  if (!hostname) warnings.add('GA4 hostname is unfiltered; reports may include development or preview sites.');
   if (traffic === 'all') warnings.add('Traffic includes automation and untagged events.');
   else warnings.add('Only explicitly tagged events are included; untagged SDK events and historical data are excluded.');
   async function runReport(body) {
@@ -312,7 +326,7 @@ export async function fetchGa4(sa, {
 
     return {
       available: true, propertyId, window: '28daysAgo → yesterday',
-      traffic, timeZone: totals.metadata?.timeZone || null, warnings: [...warnings],
+      traffic, hostname: hostname || null, timeZone: totals.metadata?.timeZone || null, warnings: [...warnings],
       totals: {
         activeUsers: +m[0] || 0, newUsers: +m[1] || 0, sessions: +m[2] || 0,
         engagedSessions: +m[3] || 0, engagementRate: +m[4] || 0,
@@ -803,7 +817,7 @@ function ga4Html(ga) {
   const evRows = ga.byEvent.map((e) => ({ label: e.event, count: e.count }));
   const geoRows = ga.country.map((c) => ({ label: c.country, count: c.activeUsers }));
   return `
-    <p class="muted">GA4 property ${esc(ga.propertyId)} · window ${esc(ga.window)} · traffic ${esc(ga.traffic)} · ${esc(ga.timeZone || 'timezone unavailable')}</p>
+    <p class="muted">GA4 property ${esc(ga.propertyId)} · window ${esc(ga.window)} · traffic ${esc(ga.traffic)} · hostname ${esc(ga.hostname || 'all')} · ${esc(ga.timeZone || 'timezone unavailable')}</p>
     ${ga.warnings?.length ? `<div class="notice">${ga.warnings.map(w => `<p>${esc(w)}</p>`).join('')}</div>` : ''}
     <div class="kpis">${kpis.map(([l, v]) => `<div class="kpi"><div class="kpi-val">${v}</div><div class="kpi-label">${esc(l)}</div></div>`).join('')}</div>
     <div class="grid2">
