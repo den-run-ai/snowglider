@@ -5,6 +5,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 const scripts = resolve(__dirname, '../scripts');
 const scratch = mkdtempSync(join(tmpdir(), 'snowglider-assets-test-'));
@@ -24,7 +25,7 @@ function check(name, run) {
   }
 }
 
-function fixture(name, files = ['shot.png']) {
+function fixture(name, files = ['shot.png'], branch = 'proof') {
   const cwd = join(scratch, name);
   mkdirSync(cwd);
   const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -37,19 +38,30 @@ function fixture(name, files = ['shot.png']) {
   }
   git('add', '--all');
   git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Asset fixture');
-  git('update-ref', 'refs/remotes/origin/assets/proof', 'HEAD');
+  git('update-ref', `refs/remotes/origin/assets/${branch}`, 'HEAD');
   return cwd;
 }
 
-function invoke(cwd, script, args = [], mode = 'deny') {
+function invoke(cwd, script, args = [], mode = 'deny', withToken = true) {
   const requests = join(cwd, 'requests.jsonl');
   const hook = join(cwd, 'mock-http.mjs');
   writeFileSync(requests, '');
   writeFileSync(hook, `
     import { appendFileSync } from 'node:fs';
+    import childProcess from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
     const oldUrl = ${JSON.stringify(oldUrl)};
     const newUrl = ${JSON.stringify(newUrl)};
     const mode = ${JSON.stringify(mode)};
+    const originalSpawn = childProcess.spawn;
+    childProcess.spawn = (...args) => {
+      if (args[0] === 'git' && args[1]?.[0] === 'credential') {
+        appendFileSync(${JSON.stringify(requests)}, JSON.stringify({ method: 'CREDENTIALS' }) + '\\n');
+        throw new Error('Unexpected credential helper access');
+      }
+      return originalSpawn(...args);
+    };
+    syncBuiltinESMExports();
     globalThis.fetch = async (input, options = {}) => {
       const url = String(input);
       const method = options.method || 'GET';
@@ -57,8 +69,11 @@ function invoke(cwd, script, args = [], mode = 'deny') {
         url, method, body: method === 'PATCH' ? JSON.parse(options.body) : null,
       }) + '\\n');
       if (mode === 'deny') throw new Error('Unexpected network access');
-      if (mode === 'upload') {
-        if (url.includes('/releases/tags/')) return Response.json({ id: 1, assets: [] });
+      if (mode === 'upload' || mode === 'replace') {
+        if (url.includes('/releases/tags/')) return Response.json({ id: 1,
+          assets: mode === 'replace' ? [{ id: 2, name: 'pr202-before.png' }] : [],
+        });
+        if (mode === 'replace' && method === 'DELETE') return new Response(null, { status: 204 });
         if (url.startsWith('https://uploads.github.com/')) return Response.json({ browser_download_url: newUrl });
       }
       if (mode === 'rewrite') {
@@ -73,7 +88,7 @@ function invoke(cwd, script, args = [], mode = 'deny') {
   `);
   const result = spawnSync(process.execPath, ['--import', hook, resolve(scripts, script), ...args], {
     cwd, encoding: 'utf8', timeout: 10000,
-    env: { ...process.env, GITHUB_REPOSITORY: 'fixture/repo', GITHUB_TOKEN: 'synthetic-test-token', GH_TOKEN: '' },
+    env: { ...process.env, GITHUB_REPOSITORY: 'fixture/repo', GITHUB_TOKEN: withToken ? 'synthetic-test-token' : '', GH_TOKEN: '' },
   });
   if (result.error) throw result.error;
   return { ...result, requests: readFileSync(requests, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) };
@@ -171,6 +186,77 @@ try {
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /Missing value for/);
       assert.equal(result.requests.length, 0);
+    }
+  });
+
+  check('unsafe upload names fail before credentials or requests', () => {
+    const names = ['.shot.png', 'shot.png.', '..shot.png', 'shot.png..', '.', '..',
+      'snow shot.png', 'snow+shot.png', 'snow%20shot.png', 'snow@shot.png', 'snow[1].png',
+      'snow(1).png', 'snow#1.png', 'snow?.png', 'snow$&.png', 'snow/shot.png', 'snow\\shot.png',
+      'caf\u00e9.png', 'cafe\u0301.png', '\u2744.png', 'snow\tshot.png', 'snow\nshot.png', 'snow.png\n', 'snow.png\r'];
+    for (const name of names) {
+      const result = invoke(cwd, 'upload-release-asset.mjs', [join(cwd, 'shot.png'), '--name', name], 'upload', false);
+      assert.notEqual(result.status, 0, name);
+      assert.match(result.stderr, /Unsafe asset name/);
+      assert.equal(result.requests.length, 0, name);
+    }
+    const localFile = join(cwd, 'snow caf\u00e9.png');
+    writeFileSync(localFile, 'synthetic image');
+    const result = invoke(cwd, 'upload-release-asset.mjs', [localFile], 'upload', false);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Unsafe asset name/);
+    assert.equal(result.requests.length, 0, 'implicit basename is validated too');
+  });
+
+  check('the exported buffer uploader rejects unsafe names before authentication', () => {
+    const harness = join(cwd, 'upload-buffer.mjs');
+    writeFileSync(harness, `
+      import { uploadBuffer } from ${JSON.stringify(pathToFileURL(join(scripts, 'upload-release-asset.mjs')).href)};
+      await uploadBuffer(Buffer.from('synthetic image'), JSON.parse(process.argv[2]));
+    `);
+    for (const name of ['.shot.png', 'shot.png.', 'snow.png\n', 'snow\0.png', 'caf\u00e9.png', '', null, 42]) {
+      const result = invoke(cwd, harness, [JSON.stringify(name)], 'upload', false);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /Unsafe asset name/);
+      assert.equal(result.requests.length, 0);
+    }
+  });
+
+  check('safe names stay unchanged and still replace the matching asset', () => {
+    const localFile = join(cwd, 'snow caf\u00e9.png');
+    writeFileSync(localFile, 'synthetic image');
+    for (const name of ['og-card.png', 'pr202-before.png', 'snow__desktop-1.2.png', '_preview.png', 'A']) {
+      const result = invoke(cwd, 'upload-release-asset.mjs', [localFile, '--name', name], 'upload');
+      assert.equal(result.status, 0, result.stderr);
+      const upload = result.requests.find(request => request.method === 'POST');
+      assert(upload);
+      assert.equal(new URL(upload.url).searchParams.get('name'), name);
+    }
+    const result = invoke(cwd, 'upload-release-asset.mjs', [localFile, '--name', 'pr202-before.png'], 'replace');
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.requests.map(request => request.method), ['GET', 'DELETE', 'POST']);
+    assert.match(result.requests[1].url, /\/releases\/assets\/2$/);
+  });
+
+  check('migration checks every raw filename before uploads and preserves the manifest', () => {
+    const cases = [['space', 'z bad.png', 'proof'], ['unicode', '\u96ea.png', 'proof'],
+      ['tab', 'z\tbad.png', 'proof'], ['newline', 'z\nbad.png', 'proof'],
+      ['backslash', 'z\\bad.png', 'proof'], ['leading-dot', '.hidden.png', 'og-image']];
+    for (const [label, name, branch] of cases) {
+      const directory = fixture(`unsafe-${label}`, ['a-valid.png', name], branch);
+      const manifestPath = join(directory, 'asset-manifest.json');
+      const saved = JSON.stringify({ [oldUrl]: newUrl }, null, 2) + '\n';
+      writeFileSync(manifestPath, saved);
+      for (const args of [[], ['--dry-run']]) {
+        const result = invoke(directory, 'migrate-asset-branches.mjs', args, 'upload');
+        assert.notEqual(result.status, 0, label);
+        assert.match(result.stderr, /Unsafe asset name/);
+        assert.equal(result.requests.length, 0, 'a valid earlier file must not be uploaded');
+        assert.equal(readFileSync(manifestPath, 'utf8'), saved);
+      }
+      const withoutToken = invoke(directory, 'migrate-asset-branches.mjs', [], 'upload', false);
+      assert.match(withoutToken.stderr, /Unsafe asset name/);
+      assert.equal(withoutToken.requests.length, 0, 'preflight also precedes the credential helper');
     }
   });
 

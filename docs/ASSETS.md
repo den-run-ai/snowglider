@@ -45,6 +45,14 @@ Paste the printed URL into the PR/issue body after verifying it loads. Prefix th
 `--name` with the PR/issue number to keep the flat asset namespace tidy. An upload
 with an existing name replaces that asset; use a new name to preserve the old image.
 
+Upload names accept ASCII letters, digits, dots, underscores, and hyphens, with no
+leading or trailing dot. Use `--name pr201-before.png` to give a local file with
+spaces or Unicode a safe upload name. The tools reject other destination names
+before credentials or network requests because
+[GitHub can rewrite filenames](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset).
+Migration validates every flattened name before uploading any file and preserves
+the previous manifest if a name is rejected.
+
 ## The og:image card
 
 The social-share card is the asset named `og-card.png`.

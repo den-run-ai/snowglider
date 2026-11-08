@@ -24,6 +24,18 @@ export const DEFAULT_TAG = 'assets';
 const API = 'https://api.github.com';
 const UPLOADS = 'https://uploads.github.com';
 
+/** Keep upload names unchanged using a conservative ASCII filename alphabet. */
+export function validateAssetName(name) {
+  // GitHub rewrites special characters and leading/trailing dots, which can
+  // defeat replacement lookup and make distinct migration names collide.
+  // https://docs.github.com/en/rest/releases/assets#upload-a-release-asset
+  if (typeof name !== 'string' || name.length === 0 || /[^A-Za-z0-9._-]/.test(name)
+    || name.startsWith('.') || name.endsWith('.')) {
+    throw new Error(`Unsafe asset name ${JSON.stringify(name)}: use ASCII letters, digits, dots, underscores, and hyphens, with no leading or trailing dot.`);
+  }
+  return name;
+}
+
 /** Resolve a GitHub token from the environment or the git credential helper. */
 export async function getToken() {
   const env = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
@@ -119,6 +131,7 @@ export async function ensureRelease(token, repo, tag = DEFAULT_TAG) {
 
 /** Upload a Buffer/Uint8Array as a release asset, replacing any same-named asset. */
 export async function uploadBuffer(data, assetName, { token, repo, tag = DEFAULT_TAG } = {}) {
+  validateAssetName(assetName);
   token = token || await getToken();
   repo = repo || getRepo();
   const release = await ensureRelease(token, repo, tag);
@@ -138,8 +151,9 @@ export async function uploadBuffer(data, assetName, { token, repo, tag = DEFAULT
 
 /** Read a file from disk and upload it as a release asset. Returns the download URL. */
 export async function uploadReleaseAsset(filePath, { name, tag = DEFAULT_TAG } = {}) {
+  const assetName = validateAssetName(name === undefined ? basename(filePath) : name);
   const data = await readFile(filePath);
-  return uploadBuffer(data, name || basename(filePath), { tag });
+  return uploadBuffer(data, assetName, { tag });
 }
 
 function parseArgs(argv) {

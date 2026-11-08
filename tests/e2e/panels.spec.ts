@@ -350,7 +350,7 @@ test('compact panels share space and preserve an open panel through resize and r
 });
 
 test('expanded guest account leaves Stats scrollable above the camera on narrow phones', async ({ page, hasTouch, baseURL }) => {
-  await mockFirebase(page, baseURL!);
+  await mockFirebase(page, baseURL);
   await openPausedGame(page);
   // The layout fixture must not race a slow CDN's local-auth fallback or the
   // initial signed-out update. Complete that update through the shared SDK mock

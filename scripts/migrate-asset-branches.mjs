@@ -16,7 +16,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { getToken, getRepo, uploadBuffer, DEFAULT_TAG } from './upload-release-asset.mjs';
+import { getToken, getRepo, uploadBuffer, validateAssetName, DEFAULT_TAG } from './upload-release-asset.mjs';
 
 const MANIFEST = 'asset-manifest.json';
 const dryRun = process.argv.includes('--dry-run');
@@ -46,8 +46,10 @@ function assetBranches() {
 const MEDIA = /\.(png|jpe?g|gif|webp|svg|avif|apng|mp4|mov|webm)$/i;
 
 function filesIn(branch) {
-  const out = execFileSync('git', ['ls-tree', '-r', '--name-only', `origin/${branch}`], { encoding: 'utf8' });
-  return out.split('\n').filter(Boolean).filter((f) => MEDIA.test(f));
+  // NUL output preserves paths that Git otherwise quotes (Unicode, tabs, newlines)
+  // so every media filename reaches validation instead of being silently skipped.
+  const out = execFileSync('git', ['ls-tree', '-r', '--name-only', '-z', `origin/${branch}`], { encoding: 'utf8' });
+  return out.split('\0').filter(Boolean).filter((f) => MEDIA.test(f));
 }
 
 // Release assets share a flat namespace, so flatten "<branch>/<path>" into a
@@ -72,7 +74,7 @@ async function main() {
   const names = new Map();
   for (const branch of branches) {
     for (const file of filesIn(branch)) {
-      const assetName = assetNameFor(branch, file);
+      const assetName = validateAssetName(assetNameFor(branch, file));
       if (names.has(assetName)) {
         throw new Error(`Asset name collision: ${names.get(assetName)} and ${branch}/${file} both map to ${assetName}`);
       }
