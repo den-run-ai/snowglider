@@ -175,19 +175,39 @@ jobs:
           path: test-results/render-budget-report/
           retention-days: 7
 
+      # Capture observes real frame intervals while keeping the full player scene.
+      # Run all six browser/device cases alone, without V8 coverage overhead; keep
+      # their real frame counts, native downloads and assertions. The spec bounds
+      # this functional flow separately from renderer/device performance budgets.
+      - name: Run local performance capture without competing browser scenes
+        if: ${{ !cancelled() }}
+        run: npm run test:e2e -- performance-capture.spec.ts --workers=1
+        env:
+          CI: true
+          E2E_COVERAGE: ''
+          PLAYWRIGHT_HTML_OUTPUT_DIR: test-results/performance-capture-report
+
+      - name: Upload performance capture report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: playwright-report-performance-capture
+          path: test-results/performance-capture-report/
+          retention-days: 7
+
       # panels.spec.ts gates shared disclosure geometry, keyboard/touch behavior,
       # compact resize/orientation and six camera modes on desktop Chromium/WebKit
       # plus iPhone Safari and Android Chrome in portrait AND landscape. Screenshot
       # attachments in the HTML report show both collapsed and expanded player HUDs.
       - name: Run Playwright E2E and responsive HUD gate (desktop, iOS, Android)
-        # A review-image or renderer-budget failure keeps the job red but must
+        # A review-image, renderer-budget or capture failure keeps the job red but must
         # not suppress the independent browser regression evidence.
         if: ${{ !cancelled() }}
-        run: npm run test:e2e -- --grep-invert 'perf-budget\.spec\.ts'
+        run: npm run test:e2e -- --grep-invert '(perf-budget|performance-capture)\.spec\.ts'
         env:
           CI: true
           # Collect Chromium V8 coverage during the e2e run; globalTeardown writes
-          # coverage/e2e/lcov.info. WebKit/mobile projects skip collection.
+          # coverage/e2e/lcov.info, including Android Chromium. WebKit skips it.
           E2E_COVERAGE: '1'
 
       - name: Upload Playwright report

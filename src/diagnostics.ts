@@ -1,4 +1,5 @@
 import { buildErrorReport, ErrorReportBudget } from './telemetry-error.js';
+import { PerformanceCapture } from './performance-capture.js';
 
 // diagnostics.ts — runtime physics / frame-rate telemetry for SnowGlider.
 //
@@ -34,9 +35,10 @@ import { buildErrorReport, ErrorReportBudget } from './telemetry-error.js';
 //   - **Headless-testable.** All the analytics (percentiles, per-frame classification,
 //     the running summary fold, the health verdict) are exported PURE functions that
 //     need no DOM/AudioContext, so they unit-test in Node (npm run test:diagnostics).
-//   - **Cheap.** O(1) per frame: a fixed ring buffer for the recent trace plus an
+//   - **Cheap by default.** O(1) per frame: a fixed ring buffer for the recent trace plus an
 //     incremental summary fold (no full-history scan). The DOM overlay repaints at a
-//     throttled ~6 Hz, and console warnings are rate-limited per category.
+//     throttled ~6 Hz, and console warnings are rate-limited per category. The opt-in
+//     local capture sorts only its bounded ten-second bucket at window closure.
 //   - **Inert without a DOM** (jsdom/Node): the overlay/keybind/window-API setup is
 //     skipped, but the pure analytics still run, so the recorder is safe to construct
 //     anywhere.
@@ -323,6 +325,12 @@ class Diagnostics {
   private prev: { x: number; z: number } | null = null;
   private lastWarn: Record<string, number> = {};
   private overlay: HTMLElement | null = null;
+  private overlayReadout: HTMLElement | null = null;
+  private captureStatus: HTMLElement | null = null;
+  private captureStartButton: HTMLButtonElement | null = null;
+  private captureStopButton: HTMLButtonElement | null = null;
+  private capture: PerformanceCapture | null = null;
+  private captureDownloadUrl: string | null = null;
   private lastOverlayPaint = 0;
   private clockSec = 0; // accumulated in-game seconds (dt sum); avoids Date.now in tests
   private sink: DiagSink = () => {}; // structured-event transport (Firebase Analytics)
@@ -386,6 +394,9 @@ class Diagnostics {
         dump: () => this.dump(),
         reset: () => this.reset(),
         overlay: (on?: boolean) => (on === undefined ? this.toggleOverlay() : on ? this.ensureOverlay() : this.hideOverlay()),
+        startCapture: () => this.startCapture(),
+        stopCapture: () => this.stopCapture(),
+        captureSnapshot: () => this.capture?.snapshot() ?? null,
       };
     }
   }
@@ -398,6 +409,8 @@ class Diagnostics {
   teardown(): void {
     if (this.ac) { this.ac.abort(); this.ac = null; }
     this.hideOverlay();
+    this.capture = null;
+    this.releaseCaptureDownload();
     this.errorBudget.clear();
     this.privateErrors = [];
     this.active = false;
@@ -410,6 +423,9 @@ class Diagnostics {
    *  the main loop right after the physics step, beside Sfx/Flex. */
   record(s: FrameSample): void {
     if (!DIAG_ENABLED || !this.active) return;
+    // Opt-in local evidence consumes this same observed interval, never a second
+    // RAF loop or a synthetic render. Run resets deliberately leave it intact.
+    if (this.capture?.running) this.capture.record(s.dt);
     const flags = classifyFrame(this.prev, s, this.cfg);
     foldFrame(this.summary, s, flags);
     this.clockSec += Number.isFinite(s.dt) ? s.dt : 0;
@@ -658,12 +674,15 @@ class Diagnostics {
     // for a trivial/empty reset (e.g. the reset at init) and de-duped against a heartbeat or
     // an endRun()/pagehide flush that already fired for this run.
     this.flushHealthBaseline();
+    this.capture?.reset();
+    this.updateCaptureControls();
     this.ring = [];
     this.head = 0;
     this.summary = emptySummary();
     this.prev = null;
     this.lastWarn = {};
     this.clockSec = 0;
+    this.lastOverlayPaint = 0;
     this.reportedAnomaly = false; // a fresh run can report its own anomaly
     this.lastHealthEmitSec = 0;
     this.notes = [];
@@ -671,6 +690,62 @@ class Diagnostics {
   }
 
   // --- DOM overlay (live HUD) ---
+  /** Begin a local capture only through an explicit debug control/API action. */
+  startCapture(): void {
+    if (!DIAG_ENABLED || !this.active || this.capture?.running) return;
+    this.releaseCaptureDownload();
+    try { this.capture = new PerformanceCapture(); }
+    catch {
+      if (this.captureStatus) this.captureStatus.textContent = 'Capture could not start.';
+      return;
+    }
+    this.updateCaptureControls();
+  }
+
+  /** Stop and request a local download. Keep the report available for export retries. */
+  stopCapture() {
+    if (!this.capture) return null;
+    this.capture.stop();
+    this.updateCaptureControls();
+    try {
+      const report = this.capture.snapshot();
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      this.releaseCaptureDownload();
+      this.captureDownloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = this.captureDownloadUrl;
+      link.download = 'snowglider-performance.json';
+      // Keep the object URL until the next export or teardown: immediate revoke
+      // can race the phone browser's download handoff.
+      document.body.appendChild(link);
+      try { link.click(); } finally { link.remove(); }
+      if (this.captureStatus) this.captureStatus.textContent = 'Download requested. Check your browser downloads.';
+    } catch {
+      this.capture.noteExportFailure();
+      if (this.captureStatus) this.captureStatus.textContent = 'Download unavailable. Tap Download capture to retry.';
+    }
+    return this.capture.snapshot();
+  }
+
+  private releaseCaptureDownload(): void {
+    if (this.captureDownloadUrl) {
+      try { URL.revokeObjectURL(this.captureDownloadUrl); } catch { /* Optional local export. */ }
+      this.captureDownloadUrl = null;
+    }
+  }
+
+  private updateCaptureControls(): void {
+    if (!this.captureStartButton || !this.captureStopButton || !this.captureStatus) return;
+    const running = this.capture?.running === true;
+    this.captureStartButton.disabled = running;
+    this.captureStopButton.disabled = this.capture === null;
+    this.captureStopButton.textContent = this.capture && !running ? 'Download capture' : 'Stop and download';
+    const status = running ? 'Capturing locally. Play and restart normally; 10-minute limit.'
+      : this.capture ? 'Capture stopped. Download before leaving this page.'
+      : 'Local performance capture · 10 minutes maximum · gameplay only';
+    if (this.captureStatus.textContent !== status) this.captureStatus.textContent = status;
+  }
+
   private ensureOverlay(): void {
     if (typeof document === 'undefined' || this.overlay) return;
     const el = document.createElement('div');
@@ -679,16 +754,46 @@ class Diagnostics {
       'position:fixed', 'top:8px', 'left:8px', 'z-index:9999',
       'font:11px/1.4 monospace', 'color:#cfe', 'background:rgba(0,0,0,0.62)',
       'padding:7px 9px', 'border-radius:6px', 'white-space:pre', 'pointer-events:none',
-      'max-width:46ch',
+      'max-width:min(46ch, calc(100vw - 34px))',
     ].join(';');
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;white-space:normal';
+    const makeButton = (id: string, label: string, action: () => void): HTMLButtonElement => {
+      const button = document.createElement('button');
+      button.id = id;
+      button.type = 'button';
+      button.textContent = label;
+      Object.assign(button.style, {
+        minHeight: '44px', padding: '8px', border: '1px solid #8ac', borderRadius: '6px',
+        background: '#143848', color: 'white', font: 'inherit', pointerEvents: 'auto', touchAction: 'manipulation',
+      });
+      // Native activation gives touch, keyboard and pointer the same one-shot
+      // path; the game's touch handler already excludes interactive controls.
+      button.onclick = action;
+      actions.appendChild(button);
+      return button;
+    };
+    this.captureStartButton = makeButton('diagCaptureStart', 'Start capture', () => this.startCapture());
+    this.captureStopButton = makeButton('diagCaptureStop', 'Stop and download', () => { this.stopCapture(); });
+    this.captureStatus = document.createElement('div');
+    this.captureStatus.id = 'diagCaptureStatus';
+    this.captureStatus.setAttribute('role', 'status');
+    this.captureStatus.style.cssText = 'white-space:normal;margin:5px 0';
+    this.overlayReadout = document.createElement('div');
+    this.overlayReadout.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere';
+    el.append(actions, this.captureStatus, this.overlayReadout);
     (document.body || document.documentElement).appendChild(el);
     this.overlay = el;
+    this.updateCaptureControls();
     this.paint(true);
   }
 
   private hideOverlay(): void {
+    if (this.captureStartButton) this.captureStartButton.onclick = null;
+    if (this.captureStopButton) this.captureStopButton.onclick = null;
     if (this.overlay && this.overlay.parentNode) this.overlay.parentNode.removeChild(this.overlay);
     this.overlay = null;
+    this.overlayReadout = this.captureStatus = this.captureStartButton = this.captureStopButton = null;
   }
 
   private toggleOverlay(): void {
@@ -697,6 +802,8 @@ class Diagnostics {
 
   private maybePaint(): void {
     if (!this.overlay) return;
+    // An automatic cap may stop the capture on this frame.
+    if (this.capture && !this.capture.running && this.captureStartButton?.disabled) this.updateCaptureControls();
     if (this.clockSec - this.lastOverlayPaint < 1 / OVERLAY_HZ) return;
     this.paint(false);
   }
@@ -723,7 +830,7 @@ class Diagnostics {
       bandLines || '   (single band)',
       health.level === 'ok' ? '' : health.reasons.map((r) => ` ! ${r}`).join('\n'),
     ];
-    this.overlay.textContent = lines.filter((l) => l !== '').join('\n');
+    if (this.overlayReadout) this.overlayReadout.textContent = lines.filter((l) => l !== '').join('\n');
     void force;
   }
 }

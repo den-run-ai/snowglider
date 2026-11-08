@@ -266,6 +266,9 @@ declare global {
       dump: () => unknown;
       reset: () => void;
       overlay: (on?: boolean) => void;
+      startCapture: () => void;
+      stopCapture: () => unknown;
+      captureSnapshot: () => unknown;
     };
   }
 
