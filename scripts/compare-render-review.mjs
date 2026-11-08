@@ -11,7 +11,7 @@ const { PNG } = require('playwright-core/lib/utilsBundle');
 export const REVIEW_DEVICES = ['desktop', 'phone'];
 export const REVIEW_PHASES = ['spawn', 'downhill', 'avalanche', 'spray', 'crash',
   'orbit-entry', 'orbit-first-update', 'orbit-second-update',
-  'auto-terrain', 'auto-jump', 'auto-obstacles'];
+  'auto-terrain', 'auto-jump', 'auto-obstacles', 'snow-midday', 'snow-golden'];
 const SHA = /^[0-9a-f]{40}$/;
 const escape = value => String(value).replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'

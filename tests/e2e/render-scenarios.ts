@@ -66,7 +66,7 @@ export async function prepareRenderScenario(page: Page): Promise<string[]> {
     for (const name of ['AudioContext', 'webkitAudioContext']) {
       Object.defineProperty(window, name, { configurable: true, value: undefined });
     }
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    Object.defineProperty(navigator, 'webdriver', { configurable: true, get: () => false });
     localStorage.setItem('snowgliderMuted', 'true');
     let seed = 0x9e3779b9;
     Math.random = () => {
