@@ -241,7 +241,7 @@ async function main() {
     // Drive the injection against a stub shader carrying the two include markers we edit.
     // (three's Material.onBeforeCompile defaults to a no-op *function*, so we compare the
     // resulting shader source rather than the presence of the callback.)
-    const stubVS = 'void main() {\n#include <common>\n#include <begin_vertex>\n#include <project_vertex>\n}';
+    const stubVS = '#include <common>\nvoid main() {\n#include <beginnormal_vertex>\n#include <begin_vertex>\n#include <project_vertex>\n#include <worldpos_vertex>\n}';
     const trunkShader = { uniforms: {}, vertexShader: stubVS };
     const foliageShader = { uniforms: {}, vertexShader: stubVS };
     trunkMat.onBeforeCompile(trunkShader);
@@ -284,16 +284,29 @@ async function main() {
     // requirement); the raw local-position frequencies may survive ONLY inside the
     // classic-fallback #else branch (no root height ⇒ swayWeight is constant 1.0
     // there, and its ~1-4 local-unit cones need them for the within-cone shimmer).
-    const flutterMatch = foliageShader.vertexShader.match(/#ifdef TREE_SWAY_FLUTTER[\s\S]*?flutter;\s*\n\s*#endif/);
+    const flutterMatch = foliageShader.vertexShader.match(/#ifdef TREE_SWAY_FLUTTER[\s\S]*?return result;/);
     assert(!!flutterMatch, 'the flutter block is present in the injected chunk');
     const flutterBlock = flutterMatch ? flutterMatch[0] : '';
     assert(/#if defined\( TREE_SWAY_ROOT_HEIGHT \) \|\| defined\( TREE_SWAY_INSTANCE_WEIGHT \)[\s\S]*?swayWeight \* 6\.0[\s\S]*?swayWeight \* 11\.0[\s\S]*?#else/.test(flutterBlock),
-      'rooted/anchored flutter keys off the scale-independent swayWeight (positive requirement)');
-    const stripComments = (glsl) => glsl.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
-    const elseSplit = flutterBlock.split('#else');
-    assert(elseSplit.length === 2 && !/position\.[xyz]/.test(stripComments(elseSplit[0])),
-      'raw local-position flutter frequencies are confined to the classic-fallback #else branch',
-      elseSplit[0] ? stripComments(elseSplit[0]).slice(-160) : 'no pre-#else segment');
+      'rooted/anchored flutter keys off the scale-independent swayWeight');
+    const normalizedFlutter = flutterBlock.split('#else')[0];
+    assert(!/vertex\.[xyz]/.test(normalizedFlutter),
+      'raw local-position flutter frequencies stay confined to the classic fallback');
+
+    // A projected silhouette alone is insufficient: lighting and shadow receiver
+    // coordinates must use the same deformed position and its normal Jacobian.
+    assert(trunkShader.vertexShader.includes('#include <project_vertex>') &&
+      trunkShader.vertexShader.includes('#include <worldpos_vertex>') &&
+      trunkShader.vertexShader.includes('transformed += treeLocalVector( treeWind.offset )'),
+      'tree deformation feeds stock projection AND world-position/shadow chunks');
+    assert(trunkShader.vertexShader.includes('objectNormal = mat3( cross( treeDy, treeDz )') &&
+      trunkShader.vertexShader.includes('treeWind.gradientY'),
+      'normals use the analytic deformation Jacobian (bark shades as it bends)');
+    assert(trunkShader.vertexShader.includes('objectTangent = mat3( treeDx, treeDy, treeDz )'),
+      'normal-map tangents follow the same bend');
+    assert(trunkShader.vertexShader.indexOf('TreeWindDeformation treeWind = treeWindAt( position )') <
+      trunkShader.vertexShader.indexOf('#include <beginnormal_vertex>'),
+      'one coherent wind sample is available before normal and position transforms');
 
     // The injection wires the SHARED uniform objects, so one update drives every material:
     // the stub shaders captured the same uWindAmp reference the trunk + foliage share.

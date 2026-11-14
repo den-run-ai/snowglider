@@ -855,23 +855,29 @@ Implemented in [`src/wind.ts`](src/wind.ts) (`Wind`), advanced once per render f
 the main loop. **Wind is cosmetic — it never touches `pos`/`velocity`.** It exists so the
 snowfall, the scarf, the trees, and the audio bed all read *one* agreed-upon wind instead
 of each faking its own (issue #253).
+The current implementation and sound/render validation are detailed in [WIND.md](WIND.md).
 
 - **The field.** A single global horizontal vector `W(t)`: a prevailing direction that
   wanders slowly around `prevailingAngle`, times a magnitude `base + gustRange·gust(t)`.
   `gust(t) ∈ [0,1]` is a deterministic layered sum of sines (three octaves whose
   amplitudes sum to 1). Defaults in the constants table above (magnitude ≈ 2.4–7.2).
+  Strength uses the fixed 7.2-unit reference, so a weak configured breeze stays weak.
+  A profile with no gust range reports zero gust. Tuning inputs are finite/bounded.
 - **Deterministic.** `W` is a pure function of an internal clock (`Wind.update(dt)`
   advances it; `Wind.reset()` rewinds to `t = 0` each run) — **no `Math.random()` / no
   `Date.now()`** — so screenshots are reproducible and, if a wind *force* is ever added to
   the player, the invariant harness can inject a fixed wind. `configure({...})` swaps the
   profile (e.g. a calmer vs. gustier difficulty tier).
-- **Consumers.** Snow drift (`snow.ts`: flakes blow downwind scaled by a per-flake
-  `windFactor` — lighter flakes further — and the ski splash is advected by `SPLASH_WIND`).
+- **Consumers.** Snow drift (`snow.ts`: flakes relax toward the air velocity with
+  analytically integrated drag and bounded flutter — lighter flakes follow air more
+  closely — and the ski splash is advected by `SPLASH_WIND`). The shared billboard
+  batch projects restrained streaks into the current camera without extra draws.
   Scarf streaming (`snowman-flex.ts`: the scarf tail trails the **apparent** wind
   `(wind − velocity)` resolved into the snowman's local frame — sideways in a crosswind,
   lifted fore/aft in a head/tail wind — plus a light brace-into-the-wind body lean; the
   main loop computes the local-frame apparent wind and passes it in as `windSway`/
-  `windStream`, both defaulting to 0 so the no-wind pose is byte-identical).
+  `windStream`, both defaulting to 0 so the no-wind pose is byte-identical; exponential
+  relaxation keeps the wind response consistent across frame rates).
   Tree sway (`mountains/trees.ts`: the instanced forest leans downwind via a GPU vertex
   sway — an `onBeforeCompile` injection on the instanced tree materials, driven by a shared
   uniform set the main loop refreshes once per frame from `Wind.dir()`/`strength()`. The
@@ -887,26 +893,22 @@ of each faking its own (issue #253).
   full canopy weight) and the 0.6-static / 0.4-oscillating split are tuned so a gust visibly
   whips the ~8-14u trees (~5° treetop swing) and a lull relaxes them — the first cut capped
   at 0.35u (~1.5°), imperceptible at chase distance. No position/collision change, so it is
-  invariant-safe; the load-carrying families draw a per-forest geometry clone for their
-  per-instance attributes — see snow load below — while the trunk still draws the shared
-  pooled geometry).
-  Audio bed (`sfx.ts`: the procedural ambient wind noise adds `Wind.strength() ×
-  WIND_FIELD_GAIN` on top of its speed-scaled whoosh via the pure `windGainForField`, so a
-  gusty slope hisses at a standstill and swells with gusts; the main loop passes
-  `Wind.strength()` into `Sfx.updateSkiing`. Keyed on `strength` (not the raw gust, which
-  stays non-zero in a calm profile) so a dead-calm field reduces exactly to the old
-  speed-only gain). The audio bed reads the field even under `prefers-reduced-motion` — it
+  invariant-safe; the load-carrying families use per-forest instance attributes.
+  EZ branches, needles and anchored snow share their host root's phase/load response.
+  Position, lighting normals/tangents and shadow-depth geometry deform together).
+  Audio bed (`sfx.ts`: `windAudioForMotion` uses apparent air speed `|wind - velocity|`
+  plus the shared environmental strength, so a headwind sounds stronger than a
+  following wind. Continuous beds update after camera framing and use gentle stereo
+  panning toward the incoming wind). The audio bed reads the field even under `prefers-reduced-motion` — it
   is the one consumer that stays audible when *visible* motion is damped (the reduced-motion
   gate lives in each visual consumer, not in `Wind` itself).
-- **Wind "howl" (audio, `sfx.ts`).** A second, distinct wind sound: a narrow high-Q
-  bandpass "whistle" layered on the ambient bed, driven each frame by
-  `Sfx.updateWindHowl(Wind.strength(), Wind.gust())` (called from the render loop after
-  `Wind.update()`). Its gain comes from `howlGainForWind(strength)` — silent below a knee so
-  a light breeze does not whistle, then swelling as the wind builds — and its pitch from
-  `howlFreqForGust(gust)`, sweeping up on a gust and back in the lull so the tone wavers.
+- **Gust turbulence (audio, `sfx.ts`).** A broad low-band noise layer replaces the
+  earlier narrow high-Q whistle. `Sfx.updateWindHowl(strength, gust, pan)` retains the
+  compatibility API; its gain comes from `howlGainForWind(strength)` and its filter
+  opens from 240 to 560 Hz with the gust. Gain, filter and pan ease over 220 ms.
+  Five noise beds use decorrelated offsets in one private seeded six-second buffer.
   Keyed on `strength`, which is 0 in a dead-calm field, so the howl is exactly silent with
-  no wind (a windless run is unchanged). Reads the field only — no `pos`/`velocity` — so it
-  is invariant-safe like the visual consumers.
+  no wind. It reads wind/player/camera state without writing physics.
 - **Snow load & shedding (Phase B, cosmetic).** Every placed tree carries a CURRENT snow
   load (0..1) in a registry inside `mountains/trees.ts`, exposed as two live-updatable
   per-instance attributes: `aSnowLoad` (absolute — a laden part sways at

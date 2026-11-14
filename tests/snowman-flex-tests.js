@@ -217,6 +217,18 @@ async function main() {
       if (![r.x, r.y, r.z].every(Number.isFinite) || Math.abs(r.z) > 1.2 || Math.abs(r.x) > 1.2) okay = false;
     }
     check('scarf stays bounded + finite over 400 gusting frames', okay);
+
+    const scarfAt = fps => {
+      const model = makeSnowman();
+      for (let i = 0; i < fps; i++) Flex.update(model, 1 / fps, {
+        speed: 6, technique: 'glide', turnRate: 0, justLanded: false,
+        landingForce: 0, isInAir: false, windSway: 0.7, windStream: -0.6,
+      });
+      return model.userData.parts.scarfTail.rotation;
+    };
+    const scarfFrames = [30, 60, 144].map(scarfAt);
+    check('scarf wind relaxation is identical after one second at 30/60/144 Hz',
+      scarfFrames.every(r => Math.abs(r.x - scarfFrames[0].x) < 1e-10 && Math.abs(r.z - scarfFrames[0].z) < 1e-10));
   }
 
   console.log(`\nSNOWMAN-FLEX TOTAL: ${pass} passed, ${fail} failed`);

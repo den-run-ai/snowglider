@@ -257,6 +257,33 @@ async function main() {
       'crown snow caps lean with the full canopy weight');
     assert(patchWeights.every(w => w > 0 && w <= 1) && patchWeights.some(w => w < 1),
       'needle shelves lean by their height on the host tree (0 < w <= 1, varied)');
+    // Snow parts have their own world transforms; their gust phase must still
+    // come from their HOST tree, not the translated shelf's anchor.
+    const roots = new Set(positions.map(p => `${Math.fround(p.x)},${Math.fround(p.z)}`));
+    assert(ezSnow.every(m => {
+      const attr = m.geometry.getAttribute('aSwayOrigin');
+      return attr?.itemSize === 2 && attr.count === m.count &&
+        Array.from({ length: attr.count }, (_, i) => roots.has(`${attr.getX(i)},${attr.getY(i)}`)).every(Boolean);
+    }), 'every snow shelf preserves its host tree root through spatial chunking');
+    assert(ezBranchMeshes.every(m => m.geometry.getAttribute('aSnowLoad')?.count === m.count),
+      'EZ branches carry the same snow load response as their attached needles');
+    Trees.setTreeLoad(0, 0);
+    // Compare parts by their shared root after the per-tree load write. Chunk
+    // order need not match between families.
+    const branchLoads = new Map();
+    for (const mesh of ezBranchMeshes) {
+      const attr = mesh.geometry.getAttribute('aSnowLoad');
+      for (let i = 0; i < mesh.count; i++) {
+        const a = mesh.instanceMatrix.array;
+        branchLoads.set(`${a[i * 16 + 12]},${a[i * 16 + 14]}`, attr.getX(i));
+      }
+    }
+    assert(ezLeafMeshes.every(mesh => {
+      const attr = mesh.geometry.getAttribute('aSnowLoad');
+      const a = mesh.instanceMatrix.array;
+      return Array.from({ length: mesh.count }, (_, i) =>
+        attr.getX(i) === branchLoads.get(`${a[i * 16 + 12]},${a[i * 16 + 14]}`)).every(Boolean);
+    }), 'shedding updates branches and needles together (no detached canopy)');
     assert(new Set([capMesh.geometry.uuid, patchMesh.geometry.uuid]).size === 2 &&
       capMesh.geometry !== patchMesh.geometry,
       'cap and shelf clones are distinct geometries');
@@ -271,6 +298,8 @@ async function main() {
     assert(/TREE_SWAY_INSTANCE_WEIGHT/.test(snowShaderStub.vertexShader) &&
       /attribute float aSwayWeight/.test(snowShaderStub.vertexShader),
       'anchored profile reads the per-instance weight attribute in the shader');
+    assert(/swayPhase = dot\( aSwayOrigin/.test(snowShaderStub.vertexShader),
+      'anchored snow shader uses its host root phase');
     assert(!/#define TREE_SWAY_FLUTTER/.test(snowShaderStub.vertexShader),
       'snow does not flutter (lean only — snow has mass)');
 

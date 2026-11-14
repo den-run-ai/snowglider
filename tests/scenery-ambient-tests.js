@@ -19,9 +19,14 @@ async function main() {
   const { buildAmbientLife } = await import('../src/scenery/ambient-life.ts');
   const { makeSceneryRng } = await import('../src/scenery/scenery-rng.ts');
   const { DEFAULT_SCENERY_BUDGET } = await import('../src/scenery/scenery-budget.ts');
+  const { createScenery } = await import('../src/scenery/scenery.ts');
 
   testStructure(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testMotion(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
+  testSharedWind(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
+  testFrameRates(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
+  testGroundedPowder(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
+  testFacadeWind(THREE, createScenery, DEFAULT_SCENERY_BUDGET);
   testReset(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testCosmeticNeutral(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
   testMaterials(THREE, buildAmbientLife, makeSceneryRng, DEFAULT_SCENERY_BUDGET);
@@ -89,10 +94,114 @@ function testReset(THREE, build, makeSceneryRng, budget) {
   const advanced = JSON.stringify(snapshot());
   sys.reset();
   check('restart restores every ambient instance to its seeded spawn pose', JSON.stringify(snapshot()) === initial);
+  const powder = instanced(THREE, sys.group)['ambient-spindrift'];
+  check('restart clears the previous gust visibility and opacity', !powder.visible && powder.material.opacity === 0);
   sys.reset();
   check('repeated reset is idempotent', JSON.stringify(snapshot()) === initial);
   for (let i = 0; i < 30; i++) sys.update(1 / 60, player, i / 30);
   check('restarted ambient animation exactly replays changing wind', JSON.stringify(snapshot()) === advanced);
+}
+
+function testSharedWind(THREE, build, makeSceneryRng, budget) {
+  console.log('--- ambient life: shared vector, calm and gust continuity ---');
+  const sys = build(makeSceneryRng(4), budget);
+  const im = instanced(THREE, sys.group);
+  const player = new THREE.Vector3();
+  const cloud = im['ambient-clouds'];
+  const powder = im['ambient-spindrift'];
+  const beforeCloud = firstMatrix(THREE, cloud);
+  const beforePowder = firstMatrix(THREE, powder);
+  for (let i = 0; i < 60; i++) sys.update(1 / 60, player, 0.5, 0, 4);
+  const afterCloud = firstMatrix(THREE, cloud);
+  const afterPowder = firstMatrix(THREE, powder);
+  check('clouds follow +z wind without unrelated x drift', Math.abs(afterCloud[12] - beforeCloud[12]) < 1e-5 && afterCloud[14] > beforeCloud[14]);
+  check('ground powder follows the same +z wind', Math.abs(afterPowder[12] - beforePowder[12]) < 1e-5 && afterPowder[14] > beforePowder[14]);
+  check('wind raises faint powder rather than opaque plates', powder.visible && powder.material.opacity > 0.01 && powder.material.opacity < 0.05);
+
+  // Direction reversal must affect only new motion, never reproject accumulated time.
+  sys.update(1 / 120, player, 1, -4, 0);
+  const turnedCloud = firstMatrix(THREE, cloud);
+  const turnedPowder = firstMatrix(THREE, powder);
+  check('direction change preserves cloud history', turnedCloud[12] < afterCloud[12] && Math.abs(turnedCloud[12] - afterCloud[12]) < 0.02 && Math.abs(turnedCloud[14] - afterCloud[14]) < 1e-5);
+  check('direction change preserves powder history', turnedPowder[12] < afterPowder[12] && Math.abs(turnedPowder[12] - afterPowder[12]) < 0.04 && Math.abs(turnedPowder[14] - afterPowder[14]) < 1e-5);
+
+  for (let i = 0; i < 120; i++) sys.update(1 / 60, player, 1, 0, 0);
+  check('explicit calm freezes cloud drift even if strength is stale', firstMatrix(THREE, cloud).every((v, i) => v === turnedCloud[i]));
+  const calmPowder = firstMatrix(THREE, powder);
+  check('explicit calm stops horizontal powder motion', calmPowder[12] === turnedPowder[12] && calmPowder[14] === turnedPowder[14]);
+  check('calm fades powder away instead of leaving frozen streaks', !powder.visible && powder.material.opacity < 0.001);
+
+  sys.reset();
+  sys.update(1 / 60, player, 0);
+  check('strength-only calm has no invented prevailing drift', firstMatrix(THREE, cloud).every((v, i) => v === beforeCloud[i]));
+  const at = firstMatrix(THREE, cloud);
+  for (const dt of [NaN, Infinity, -1, 0]) sys.update(dt, player, 1, 4, 0);
+  check('invalid and nonpositive deltas leave matrices unchanged', firstMatrix(THREE, cloud).every((v, i) => v === at[i]));
+  sys.update(1 / 60, player, NaN, Infinity, NaN);
+  check('invalid wind inputs cannot poison instance matrices', Object.values(im).every(m => Array.from(m.instanceMatrix.array).every(Number.isFinite)));
+}
+
+function testFrameRates(THREE, build, makeSceneryRng, budget) {
+  console.log('--- ambient life: elapsed-time equivalence ---');
+  const simulate = (hz) => {
+    const sys = build(makeSceneryRng(4), budget, (x, z) => 12 + x * 0.3 - z * 0.2);
+    const player = new THREE.Vector3();
+    for (let i = 0; i < hz * 2; i++) sys.update(1 / hz, player, 0.8, -3, 4);
+    return Object.values(instanced(THREE, sys.group)).flatMap(m => Array.from(m.instanceMatrix.array));
+  };
+  const baseline = simulate(60);
+  for (const hz of [30, 120]) {
+    const candidate = simulate(hz);
+    check(`${hz} Hz and 60 Hz reach equivalent ambient positions`, candidate.every((v, i) => Math.abs(v - baseline[i]) < 1e-4));
+  }
+}
+
+function testGroundedPowder(THREE, build, makeSceneryRng, budget) {
+  console.log('--- ambient life: thin terrain-following powder ---');
+  const ground = (x, z) => 12 + x * 0.3 - z * 0.2;
+  const sys = build(makeSceneryRng(4), budget, ground);
+  const powder = instanced(THREE, sys.group)['ambient-spindrift'];
+  const player = new THREE.Vector3();
+  for (let i = 0; i < 90; i++) sys.update(1 / 60, player, 1, 5, -2);
+  const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const position = powder.geometry.getAttribute('position');
+  let grounded = true;
+  let withinMesh = true;
+  for (let i = 0; i < powder.count; i++) {
+    powder.getMatrixAt(i, m);
+    for (let j = 0; j < position.count; j++) {
+      v.fromBufferAttribute(position, j).applyMatrix4(m);
+      const clearance = v.y - ground(v.x, v.z);
+      if (clearance < 0 || clearance > 1) grounded = false;
+      if (Math.abs(v.x) >= 150 || Math.abs(v.z) >= 200) withinMesh = false;
+    }
+  }
+  check('every powder ribbon vertex stays above and within a metre of sloped terrain', grounded);
+  check('powder remains inside the rendered terrain footprint', withinMesh);
+  check('feathered powder adds no texture or vertex-color shader define', !powder.material.map && !powder.material.alphaMap && !powder.material.vertexColors);
+  check('powder retains one bounded pooled geometry', powder.geometry.index.count <= 144 && position.count <= 36);
+
+  const badGround = build(makeSceneryRng(4), budget, () => NaN);
+  badGround.update(1 / 60, player, 1, 4, 0);
+  check('nonfinite cosmetic height sample cannot break the renderer', Object.values(instanced(THREE, badGround.group)).every(mesh => Array.from(mesh.instanceMatrix.array).every(Number.isFinite)));
+}
+
+function testFacadeWind(THREE, createScenery, budget) {
+  console.log('--- scenery facade: forwards direction and ground sampler ---');
+  const scene = new THREE.Scene();
+  const scenery = createScenery(scene, {
+    terrain: null, getTerrainHeight: () => 25, courseLine: null,
+    difficulty: 'blue', seed: 4, budget,
+  });
+  const im = instanced(THREE, scenery.group);
+  const before = firstMatrix(THREE, im['ambient-clouds']);
+  scenery.update(0.1, new THREE.Vector3(), { windStrength: 1, windX: 0, windZ: -4 });
+  const after = firstMatrix(THREE, im['ambient-clouds']);
+  check('scenery passes the live vector to ambient clouds', after[12] === before[12] && after[14] < before[14]);
+  const powder = firstMatrix(THREE, im['ambient-spindrift']);
+  check('scenery passes its read-only terrain sampler to powder', powder[13] > 25 && powder[13] < 26);
+  scenery.dispose();
 }
 
 function testCosmeticNeutral(THREE, build, makeSceneryRng, budget) {
@@ -158,6 +267,7 @@ async function testReducedMotion(THREE, build, makeSceneryRng, budget) {
     for (let i = 0; i < 60; i++) sys.update(1 / 60, new THREE.Vector3(), 1);
     const after = firstMatrix(THREE, im['ambient-clouds']);
     check('reduced-motion freezes the ambient layer (no matrix change)', before.every((v, i) => v === after[i]));
+    check('reduced-motion omits static airborne powder', !im['ambient-spindrift'].visible && im['ambient-spindrift'].material.opacity === 0);
   } finally {
     if (prevWindow === undefined) delete g.window; else g.window = prevWindow;
   }

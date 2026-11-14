@@ -153,7 +153,7 @@ function makeRng(seed) {
       state,
       scene: { children: [] },
       renderer: { render() {}, setSize() {}, domElement: env.document.createElement('canvas') },
-      camera: { position: { x: 0, y: 0, z: 0 }, fov: 75, updateProjectionMatrix() {} },
+      camera: { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, fov: 75, updateProjectionMatrix() {} },
       cameraManager: { update() {}, handleResize() {} },
       directionalLight: /** @type {any} */ ({
         position: { set() {}, copy() {} },

@@ -1,11 +1,8 @@
 // wind.ts — a single shared, deterministic wind field for the whole scene (issue #253).
 //
-// Until now "wind" was faked per-subsystem: the sfx.ts ambient bed is purely
-// speed-scaled (no direction, no gusts) and the #172 scarf "swings in the wind" via a
-// fixed sine + turn-lag. This module is the one source of truth: a time-varying
-// horizontal wind vector that snow drift, the scarf/snowman, tree sway, and the audio
-// bed all read from (the consumers land in follow-up PRs; this PR is just the field +
-// wiring + tests).
+// One time-varying horizontal vector drives snow, scarf, trees, spindrift and audio.
+// Strength uses a fixed speed reference: a tiny constant breeze must not become a
+// full-strength gust merely because it is the maximum of its own configuration.
 //
 // DESIGN CONSTRAINTS (mirroring intro.ts / sfx.ts / snowman-flex.ts):
 //   - **Cosmetic only.** Nothing here touches pos/velocity. The grounded no-input
@@ -30,7 +27,7 @@ export interface WindSample {
   dirX: number;
   dirZ: number;
   magnitude: number;
-  strength: number; // 0..1: magnitude / (base + gustRange)
+  strength: number; // 0..1: magnitude / WIND_REFERENCE_SPEED
   gust: number;     // 0..1: the instantaneous gust factor
 }
 
@@ -66,8 +63,27 @@ export const DEFAULT_WIND_CONFIG: WindConfig = {
   seed: 0,
 };
 
+/** Fixed reference shared by all consumers; preserves the original default tuning. */
+export const WIND_REFERENCE_SPEED = 7.2;
+
 const clamp = (n: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, n));
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
+
+/** Bound developer/tuning inputs before they reach trigonometry or shader/audio
+ * uniforms. Invalid optional settings retain the established default. */
+function sanitizedConfig(cfg: WindConfig): WindConfig {
+  const value = (key: keyof WindConfig): number =>
+    Number.isFinite(cfg[key]) ? cfg[key] : DEFAULT_WIND_CONFIG[key];
+  return {
+    baseStrength: clamp(value('baseStrength'), 0, 40),
+    gustRange: clamp(value('gustRange'), 0, 40),
+    prevailingAngle: value('prevailingAngle') % (Math.PI * 2),
+    dirWander: clamp(value('dirWander'), 0, Math.PI / 2),
+    dirDriftRate: clamp(value('dirDriftRate'), 0, 10),
+    gustRate: clamp(value('gustRate'), 0, 10),
+    seed: value('seed') % (Math.PI * 2),
+  };
+}
 
 /** Deterministic gust factor in [0,1]: a layered sum of sines (cheap pseudo-noise). The
  *  three octaves' amplitudes sum to 1, so `0.5 + 0.5*sum` stays in [0,1] for all t. */
@@ -84,11 +100,12 @@ function gustAt(t: number, cfg: WindConfig): number {
 /** The pure field: sample the wind at clock time `t` (seconds) for a given config. No
  *  internal state — same inputs, same output — so it is trivially unit-testable. */
 export function windFieldAt(t: number, cfg: WindConfig = DEFAULT_WIND_CONFIG): WindSample {
-  t = finite(t);
-  const base = Math.max(0, finite(cfg.baseStrength));
-  const range = Math.max(0, finite(cfg.gustRange));
+  t = clamp(finite(t), -1e9, 1e9);
+  cfg = sanitizedConfig(cfg);
+  const base = cfg.baseStrength;
+  const range = cfg.gustRange;
 
-  const gust = gustAt(t, cfg);
+  const gust = range > 0 ? gustAt(t, cfg) : 0;
   const magnitude = base + range * gust;
 
   // Direction wanders slowly around the prevailing angle (slower than the gusts, so the
@@ -97,14 +114,13 @@ export function windFieldAt(t: number, cfg: WindConfig = DEFAULT_WIND_CONFIG): W
   const dirX = Math.cos(angle);
   const dirZ = Math.sin(angle);
 
-  const span = base + range;
   return {
     x: dirX * magnitude,
     z: dirZ * magnitude,
     dirX,
     dirZ,
     magnitude,
-    strength: span > 0 ? clamp(magnitude / span, 0, 1) : 0,
+    strength: clamp(magnitude / WIND_REFERENCE_SPEED, 0, 1),
     gust,
   };
 }
@@ -133,7 +149,7 @@ function dir(): { x: number; z: number } {
   return { x: current.dirX, z: current.dirZ };
 }
 
-/** Current normalized strength 0..1 (base + gust over the full span). */
+/** Current normalized strength 0..1 against the fixed shared speed reference. */
 function strength(): number {
   return current.strength;
 }
@@ -151,7 +167,7 @@ function sample(): WindSample {
 /** Merge in a partial config (e.g. a difficulty tier's wind profile) and recompute the
  *  cached sample at the current clock so the change takes effect immediately. */
 function configure(partial: Partial<WindConfig>): void {
-  config = { ...config, ...partial };
+  config = sanitizedConfig({ ...config, ...partial });
   current = windFieldAt(clock, config);
 }
 

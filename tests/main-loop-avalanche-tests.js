@@ -32,7 +32,7 @@ async function main() {
 
   const { createMainLoop } = await import('../src/game/main-loop.ts');
   const { createRenderQuality } = await import('../src/game/render-quality.ts');
-  const { DirectionalLight } = await import('three');
+  const { DirectionalLight, Quaternion } = await import('three');
   const { CourseModule } = await import('../src/course.ts');
   const { Physics } = await import('../src/player-state.ts');
   const { Snow } = await import('../src/snow.ts');
@@ -130,7 +130,7 @@ async function main() {
       state,
       player,
       scene: { children: [], add() {}, remove() {} },
-      camera: { position: { x: 0, y: 0, z: 0 }, fov: 75, updateProjectionMatrix() {} },
+      camera: { position: { x: 0, y: 0, z: 0 }, quaternion: new Quaternion(), fov: 75, updateProjectionMatrix() {} },
       renderer: overrides.renderer ?? { render() {}, setSize() {} },
       renderQuality: overrides.renderQuality,
       runClockGuard: overrides.runClockGuard,

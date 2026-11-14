@@ -165,7 +165,8 @@ export class SnowBillboards {
       const sprite = entry.sprite;
       if (!sprite.visible || !sprite.material.visible || sprite.material.opacity <= 0) continue;
       const { x, y, z } = sprite.position;
-      const scale = Math.max(Math.abs(sprite.scale.x), Math.abs(sprite.scale.y), Math.abs(sprite.scale.z));
+      const stretchBound = entry.texture === 0 && sprite.userData.windStreak === true ? 1.4 : 1;
+      const scale = Math.max(Math.abs(sprite.scale.x), Math.abs(sprite.scale.y), Math.abs(sprite.scale.z)) * stretchBound;
       if (!(scale > 0)) continue;
       this.sphere.center.copy(sprite.position);
       // Same conservative sphere as THREE.Frustum.intersectsSprite, without
@@ -187,7 +188,23 @@ export class SnowBillboards {
     for (let i = 0; i < this.ordered.length; i++) {
       const { sprite, texture } = this.ordered[i]!;
       this.position.setXYZ(i, sprite.position.x, sprite.position.y, sprite.position.z);
-      this.sizeRotation.setXYZ(i, Math.abs(sprite.scale.x), Math.abs(sprite.scale.y), sprite.material.rotation);
+      let height = Math.abs(sprite.scale.y), rotation = sprite.material.rotation;
+      // Slight crystal streaks follow projected WORLD motion. Reproject here for
+      // every view (Follow/Orbit/FP/Drone), never bake screen-space wind into the
+      // simulation or rotate the shared opacity-bucket materials.
+      if (texture === 0 && sprite.userData.windStreak === true) {
+        const vx = Number(sprite.userData.windVelocityX) || 0;
+        const vy = -(Number(sprite.userData.speed) || 0);
+        const vz = Number(sprite.userData.windVelocityZ) || 0;
+        const screenX = view[0] * vx + view[4] * vy + view[8] * vz;
+        const screenY = view[1] * vx + view[5] * vy + view[9] * vz;
+        const speed = Math.hypot(screenX, screenY);
+        if (Number.isFinite(speed) && speed > 1e-6) {
+          height *= 1 + Math.min(0.4, speed * 0.04);
+          rotation = Math.atan2(-screenX, screenY);
+        }
+      }
+      this.sizeRotation.setXYZ(i, Math.abs(sprite.scale.x), height, rotation);
       this.center.setXY(i, sprite.center.x, sprite.center.y);
       this.color.setXYZW(i, sprite.material.color.r, sprite.material.color.g, sprite.material.color.b, sprite.material.opacity);
       this.texture.setX(i, texture);

@@ -52,6 +52,16 @@ async function main() {
   const neg = windFieldAt(2, negCfg);
   check('field: negative base/range clamp to 0 (magnitude 0, strength 0)', neg.magnitude === 0 && neg.strength === 0);
 
+  const breeze = windFieldAt(2, { ...cfg, baseStrength: 0.1, gustRange: 0 });
+  const strong = windFieldAt(2, { ...cfg, baseStrength: 7.2, gustRange: 0 });
+  check('a tiny steady breeze cannot drive full-strength trees/audio', breeze.strength < 0.02 && strong.strength === 1);
+  check('steady air has no fictitious gust oscillation', breeze.gust === 0 && strong.gust === 0);
+  for (const invalid of [NaN, Infinity, -Infinity, Number.MAX_VALUE]) {
+    const bad = Object.fromEntries(Object.keys(cfg).map(key => [key, invalid]));
+    const sample = windFieldAt(invalid, /** @type {import('../src/wind.js').WindConfig} */ (/** @type {unknown} */ (bad)));
+    check(`all tuning fields remain finite for ${invalid}`, Object.values(sample).every(Number.isFinite));
+  }
+
   // --- stateful singleton ------------------------------------------------------
   Wind.reset();
   const atZero = Wind.sample();
@@ -72,6 +82,13 @@ async function main() {
 
   Wind.update(-2); // negative dt must not rewind
   check('singleton: negative dt is ignored (no rewind)', approx(Wind.gust(), windFieldAt(3.5, cfg).gust));
+
+  const frameSamples = [30, 60, 144].map(fps => {
+    Wind.reset();
+    for (let i = 0; i < fps * 4; i++) Wind.update(1 / fps);
+    return Wind.sample();
+  });
+  check('same four-second field at 30/60/144 Hz', frameSamples.every(s => approx(s.x, frameSamples[0].x) && approx(s.z, frameSamples[0].z)));
 
   // --- configure() -------------------------------------------------------------
   Wind.reset();

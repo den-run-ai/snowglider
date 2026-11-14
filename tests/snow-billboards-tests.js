@@ -31,6 +31,7 @@ async function main() {
   camera.updateMatrixWorld(true);
   for (const flake of flakes) flake.visible = false;
   const far = flakes[0], near = splash.particles[0], middle = splash.particles[1];
+  far.userData.windStreak = false; // stock-Sprite parity fixture; wind projection is checked below
   for (const [p, z] of [[far, -30], [middle, -20], [near, -10]]) {
     const sprite = /** @type {import('three').Sprite} */ (p);
     sprite.visible = true;
@@ -110,6 +111,19 @@ async function main() {
   packedCenter.y += packedAligned.y;
   assert.ok(referenceNdc.distanceTo(packedCenter.applyMatrix4(camera.projectionMatrix)) < 1e-6,
     'billboard corners retain Sprite size, alignment, rotation and perspective');
+
+  // Snow stretch follows camera-projected velocity, independently of bucket material.
+  far.userData.windStreak = true;
+  far.userData.windVelocityX = 5;
+  far.userData.windVelocityZ = 0;
+  far.userData.speed = 5;
+  batch.sync(camera);
+  assert.ok(Math.abs(sizes.getZ(0) - Math.atan2(-5, -5)) < 1e-6,
+    'a crosswind streak points along projected fall + wind');
+  assert.ok(sizes.getY(0) > 1.5 && sizes.getY(0) <= 1.5 * 1.4,
+    'snow stretch stays subtle rather than rain-like');
+  assert.equal(far.material.rotation, 0.63, 'shared flake material is never rotated');
+  far.userData.windStreak = false;
 
   // Moving/turning the camera must repack THIS render, not lag by one frame.
   camera.position.z = -40;

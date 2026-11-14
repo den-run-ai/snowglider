@@ -439,7 +439,7 @@ async function main() {
       state,
       player,
       scene: { children: [], add() {}, remove() {} },
-      camera: { position: { x: 0, y: 0, z: 0 }, fov: 75, updateProjectionMatrix() {} },
+      camera: { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, fov: 75, updateProjectionMatrix() {} },
       renderer: { render() {}, setSize() {} },
       cameraManager: { update() {}, handleResize() {} },
       directionalLight: { position: { set() {}, copy() {} },
