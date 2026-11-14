@@ -23,6 +23,7 @@ import { readLocalBest, safeSetItem } from '../offline/offline-store.js';
 import { announceGameStatus, closeOverlayFocus, openOverlayFocus } from './accessibility.js';
 import { setPanelCollapsed } from './collapsible-panel.js';
 import { mountLeaderboardPanel, type LeaderboardPanel } from './leaderboard-panel.js';
+import { buildDifficultyPicker } from './difficulty-picker.js';
 import { createResultSaveControls, type ResultSaveControls } from './result-save.js';
 import type { ScoreSaveResult } from '../scores.js';
 import { getDailyChallenge } from '../daily-session.js';
@@ -123,11 +124,12 @@ export interface ResultOverlayDeps {
   // The run's difficulty tier, so the score/best-time/leaderboard go to that tier.
   // Omitted => falls back to the persisted pick (readStoredDifficulty).
   getDifficulty?: () => Difficulty;
-  // Optional finish-screen difficulty picker (lets the player switch tier and replay
-  // without reloading). When present, showGameOver keeps it positioned directly above
-  // the restart button — the result panel/leaderboard get inserted above it during the
-  // call — and reflects the tier just played via setPickerTier.
+  // Optional finish-screen difficulty picker. The result screen owns its controls
+  // so both level selectors choose the same next run before the terrain rebuild.
   finishDifficultyPicker?: HTMLElement;
+  /** Apply next-run intent without changing this result's captured score/save tier. */
+  onReplayDifficultyChange?: (tier: Difficulty) => void;
+  /** Optional observer for callers that mirror the displayed picker tier. */
   setPickerTier?: (tier: Difficulty) => void;
 }
 
@@ -157,6 +159,20 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
   const actions = replayActions;
   let saveControls: ResultSaveControls | null = null;
   let leaderboardPanel: LeaderboardPanel | null = null;
+  const finishPicker = finishDifficultyPicker ? buildDifficultyPicker(finishDifficultyPicker, {
+    initial: getDifficulty ? getDifficulty() : readStoredDifficulty(),
+    heading: 'Play again on',
+    onChange: (tier) => {
+      selectReplayDifficulty(tier);
+      leaderboardPanel?.setTier(tier);
+    },
+  }) : null;
+
+  function selectReplayDifficulty(tier: Difficulty): void {
+    deps.onReplayDifficultyChange?.(tier);
+    finishPicker?.setSelected(tier);
+    setPickerTier?.(tier);
+  }
 
   return function showGameOver(reason: string) {
     // The tier this run was played on; routes the score/best/leaderboard per tier.
@@ -404,7 +420,8 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     if (leaderboardElement) {
       if (tierRanked) {
         content.appendChild(leaderboardElement);
-        leaderboardPanel = mountLeaderboardPanel(leaderboardElement, tier);
+        leaderboardPanel = mountLeaderboardPanel(leaderboardElement, tier,
+          deps.onReplayDifficultyChange ? selectReplayDifficulty : undefined);
       } else {
         leaderboardElement.style.display = 'none';
       }
@@ -441,6 +458,7 @@ export function createShowGameOver(deps: ResultOverlayDeps): (reason: string) =>
     // were just inserted before the button above) and reflecting the tier just played,
     // so "Play again on" defaults to the current tier and the player can switch + replay.
     if (finishDifficultyPicker) {
+      finishPicker?.setSelected(tier);
       if (setPickerTier) setPickerTier(tier);
       actions.insertBefore(finishDifficultyPicker, restartButton);
     }

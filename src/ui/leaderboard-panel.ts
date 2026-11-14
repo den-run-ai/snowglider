@@ -1,5 +1,5 @@
-// One leaderboard view for the start menu and run results. Switching the viewed
-// level never changes the level selected for the next run.
+// One leaderboard view for the start menu and run results. Result screens can
+// couple user level choices to replay; start-menu board browsing stays independent.
 import { DIFFICULTIES, getDifficultyConfig, type Difficulty } from '../difficulty.js';
 import { readLocalBest } from '../offline/offline-store.js';
 import { isOnline } from '../offline/offline-state.js';
@@ -11,7 +11,13 @@ export interface LeaderboardPanel {
   dispose(): void;
 }
 
-const panels = new WeakMap<HTMLElement, LeaderboardPanel>();
+interface MountedPanel {
+  panel: LeaderboardPanel;
+  onTierSelect: ((tier: Difficulty) => void) | undefined;
+  help: HTMLParagraphElement;
+}
+
+const panels = new WeakMap<HTMLElement, MountedPanel>();
 
 /** Reveal the existing account controls; the provider button owns its popup gesture. */
 export function openScoreSignIn(): void {
@@ -27,13 +33,22 @@ export function openScoreSignIn(): void {
 }
 
 /** Idempotently mount an independently selectable, stale-request-safe board. */
-export function mountLeaderboardPanel(container: HTMLElement, initialTier: Difficulty): LeaderboardPanel {
+export function mountLeaderboardPanel(
+  container: HTMLElement,
+  initialTier: Difficulty,
+  onTierSelect?: (tier: Difficulty) => void,
+): LeaderboardPanel {
+  const helpText = onTierSelect
+    ? 'Choose a level to view its top 10 and play your next run.'
+    : 'Fastest finishes. A separate top 10 for every level.';
   const existing = panels.get(container);
   if (existing && container.querySelector('.leaderboard-levels')) {
-    existing.setTier(initialTier);
-    return existing;
+    existing.onTierSelect = onTierSelect;
+    existing.help.textContent = helpText;
+    existing.panel.setTier(initialTier);
+    return existing.panel;
   }
-  existing?.dispose();
+  existing?.panel.dispose();
   const doc = container.ownerDocument;
   let tier = initialTier;
   let epoch = 0;
@@ -42,7 +57,7 @@ export function mountLeaderboardPanel(container: HTMLElement, initialTier: Diffi
   heading.textContent = '🏆 Leaderboards';
   const help = doc.createElement('p');
   help.className = 'leaderboard-help';
-  help.textContent = 'Fastest finishes. A separate top 10 for every level.';
+  help.textContent = helpText;
   const tabs = doc.createElement('div');
   tabs.className = 'leaderboard-levels';
   tabs.setAttribute('role', 'group');
@@ -59,7 +74,11 @@ export function mountLeaderboardPanel(container: HTMLElement, initialTier: Diffi
     button.type = 'button';
     button.dataset.leaderboardTier = cfg.id;
     button.textContent = cfg.label;
-    button.addEventListener('click', () => handle.setTier(cfg.id));
+    button.addEventListener('click', () => {
+      if (disposed) return;
+      handle.setTier(cfg.id);
+      mounted.onTierSelect?.(cfg.id);
+    });
     tabs.appendChild(button);
     buttons.set(cfg.id, button);
   }
@@ -177,10 +196,11 @@ export function mountLeaderboardPanel(container: HTMLElement, initialTier: Diffi
     dispose() {
       disposed = true;
       epoch++;
-      if (panels.get(container) === handle) panels.delete(container);
+      if (panels.get(container)?.panel === handle) panels.delete(container);
     },
   };
-  panels.set(container, handle);
+  const mounted: MountedPanel = { panel: handle, onTierSelect, help };
+  panels.set(container, mounted);
   refresh();
   return handle;
 }
