@@ -10,7 +10,7 @@ Evidence-only branch for https://github.com/den-run-ai/snowglider/pull/483. Do n
 
 ## Visuals
 
-The desktop follow and orbit boards compare actual production WebGL renders, with unchanged seed, prescribed replay, quality and camera inputs. They add external labels and WebP compression only. The phone image is Chromium viewport/touch emulation. All scenes use actual EZ trees (201 branch batches), low graphics tier and default shared wind. These are rendering fixtures, not proof of a completed autonomous ski run or physical-phone performance.
+The desktop follow and orbit boards compare actual production WebGL renders, with unchanged seed, prescribed replay, quality and camera inputs. They add external labels and WebP compression only. The phone image is Chromium viewport/touch emulation. All scenes use actual EZ trees (201 branch instances), low graphics tier and default shared wind. These are rendering fixtures, not proof of a completed autonomous ski run or physical-phone performance.
 
 - [Desktop follow](wind-evidence/desktop-follow-before-after.webp)
 - [Crosswind orbit](wind-evidence/crosswind-detail-before-after.webp)
