@@ -1,0 +1,103 @@
+{
+  "source": "Committed tests/e2e/wind-rendering.spec.ts actual WebGL2 transform feedback regression",
+  "runtimeRevision": "9660fc069c86b4a777f978a4b33e030c93922e8f",
+  "testRevision": "2cb650ea898c6ba6af8b606061fe9e83590c7248",
+  "browser": "Chromium headless shell 152 with SwiftShader",
+  "status": "passed",
+  "durationMs": 2093,
+  "materialVariants": 11,
+  "maxNormalErrorDegrees": 0.05853235243253539,
+  "maxUndeformedNormalErrorDegrees": 1.2455103838619421,
+  "finite": true,
+  "glError": 0,
+  "variants": [
+    {
+      "key": "tree-wind-sway-rooted-h39.46-flex-v6",
+      "part": "ezBranches",
+      "normalErrorDegrees": 0.04786198429702214,
+      "unbentErrorDegrees": 1.2455103838619421,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-flutter-h39.46-flex-v6",
+      "part": "ezLeaves",
+      "normalErrorDegrees": 0.05853235243253539,
+      "unbentErrorDegrees": 0.8801174116088741,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-rooted-h49.92-flex-v6",
+      "part": "ezBranches",
+      "normalErrorDegrees": 0.02743894824357135,
+      "unbentErrorDegrees": 0.9832512549625142,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-flutter-h49.92-flex-v6",
+      "part": "ezLeaves",
+      "normalErrorDegrees": 0.02500108953922984,
+      "unbentErrorDegrees": 0.6749911306841396,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-rooted-h65.12-flex-v6",
+      "part": "ezBranches",
+      "normalErrorDegrees": 0.03909216316861131,
+      "unbentErrorDegrees": 0.7779421960471564,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-flutter-h65.12-flex-v6",
+      "part": "ezLeaves",
+      "normalErrorDegrees": 0.010990726256058908,
+      "unbentErrorDegrees": 0.5407000331926328,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-rooted-h49.93-flex-v6",
+      "part": "ezBranches",
+      "normalErrorDegrees": 0.0266430454972978,
+      "unbentErrorDegrees": 0.9810873867520598,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-flutter-h49.93-flex-v6",
+      "part": "ezLeaves",
+      "normalErrorDegrees": 0.026981478402636244,
+      "unbentErrorDegrees": 0.6728641232642194,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-rooted-h65.16-flex-v6",
+      "part": "ezBranches",
+      "normalErrorDegrees": 0.04483584187215225,
+      "unbentErrorDegrees": 0.7832937347704273,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-flutter-h65.16-flex-v6",
+      "part": "ezLeaves",
+      "normalErrorDegrees": 0.011262702046134684,
+      "unbentErrorDegrees": 0.5407000331926328,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "key": "tree-wind-sway-anchored-shrink-v6",
+      "part": "ezSnowPatch",
+      "normalErrorDegrees": 0.04492503630189533,
+      "unbentErrorDegrees": 0.04492552256827667,
+      "finite": true,
+      "glError": 0
+    }
+  ]
+}

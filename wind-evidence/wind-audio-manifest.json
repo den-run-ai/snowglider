@@ -1,0 +1,63 @@
+{
+  "provenance": {
+    "before": {
+      "commit": "5738d94e8b3c6214e3c005256b802570c56cdbec",
+      "source": "src/sfx.ts",
+      "sha256": "a9526f06abbed396dc92820ada49e3b923b46183095f3633c2751d2d913d9538"
+    },
+    "after": {
+      "commit": "9660fc069c86b4a777f978a4b33e030c93922e8f",
+      "source": "src/sfx.ts",
+      "sha256": "2af88294e3a32fa487e3e6dc27c5a5a65b60c40899b54f3a8bf7036b05a5bb24"
+    },
+    "capturedAt": "2026-11-14T22:57:45.933Z",
+    "engine": "Chromium 152.0.7977.75 OfflineAudioContext",
+    "method": "Production Sfx module, controlled read-only wind/velocity/camera inputs; no music or microphone",
+    "signals": "0\u20133s calm; 3\u20136s open gust; 6\u201310s headwind; 10\u201314s tailwind; 14\u201318s forest left; 18\u201322s camera reversal; 22\u201324s mute",
+    "measurement": "Float audio samples before PCM16 conversion. Segment metrics exclude the first 1s and final 0.1s; global metrics cover the complete 24s."
+  },
+  "artifacts": {
+    "wind-audio-before.wav": {
+      "bytes": 2304044,
+      "sha256": "71b7b9d4567cac4cd51fdcc515bd8614cba7af0ce8c817ef02fb978fb2d57517"
+    },
+    "wind-audio-after.wav": {
+      "bytes": 2304044,
+      "sha256": "161988167478be773f61a5fab61cdd708852f34133879d68eda23a98241d9d03"
+    },
+    "wind-audio-comparison.png": {
+      "bytes": 1334172,
+      "sha256": "c8aa84ce190b1ab7636c5401ada055c9fa47ddc631dce18c017f3402ff34b7de"
+    },
+    "wind-audio-comparison.webp": {
+      "bytes": 248466,
+      "sha256": "867cb254cb560d08d1a4b2f1a8f1574dd1b6a10283d3718728147a1c538aab8f"
+    },
+    "wind-audio-after.mp4": {
+      "bytes": 773842,
+      "sha256": "3cbe56424e35382f299c89c635e84473120a457af7c822f125eb2e9f177be69e"
+    },
+    "wind-audio-metrics.json": {
+      "bytes": 4714,
+      "sha256": "7cdfd654127778840dd1ddf1c0deb7478f3fe394a643da5d03a5f1b1d0e30585"
+    },
+    "capture-wind-audio.cjs": {
+      "bytes": 9014,
+      "sha256": "3b4cf094e38ce9fc415d04a0f9a3566d599b8b2deb1a40c7c5cb80da17f70b71"
+    },
+    "plot-wind-audio.py": {
+      "bytes": 3665,
+      "sha256": "df868e63ab4a7b3ce5dcee0d9831b6e7a82f6a1db0ab0e6eec6c2537178bb75a"
+    },
+    "wind-audio-before.m4a": {
+      "bytes": 346476,
+      "sha256": "be4779dfa8fabbc1a7d37d1464cb97957cc0dc614ec201fc4c639298cc16ced2",
+      "encoding": "Stereo AAC, 128 kbps target, 24 kHz, 24 seconds; derived from the matching PCM WAV"
+    },
+    "wind-audio-after.m4a": {
+      "bytes": 353137,
+      "sha256": "d0115b4235534141f63d33e9c211f21223f1d86f50bb65b91039a94505bdf4b6",
+      "encoding": "Stereo AAC, 128 kbps target, 24 kHz, 24 seconds; derived from the matching PCM WAV"
+    }
+  }
+}

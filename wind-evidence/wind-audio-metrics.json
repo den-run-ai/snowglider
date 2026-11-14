@@ -1,0 +1,169 @@
+{
+  "provenance": {
+    "before": {
+      "commit": "5738d94e8b3c6214e3c005256b802570c56cdbec",
+      "source": "src/sfx.ts",
+      "sha256": "a9526f06abbed396dc92820ada49e3b923b46183095f3633c2751d2d913d9538"
+    },
+    "after": {
+      "commit": "9660fc069c86b4a777f978a4b33e030c93922e8f",
+      "source": "src/sfx.ts",
+      "sha256": "2af88294e3a32fa487e3e6dc27c5a5a65b60c40899b54f3a8bf7036b05a5bb24"
+    },
+    "capturedAt": "2026-11-14T22:57:45.933Z",
+    "engine": "Chromium 152.0.7977.75 OfflineAudioContext",
+    "method": "Production Sfx module, controlled read-only wind/velocity/camera inputs; no music or microphone",
+    "signals": "0–3s calm; 3–6s open gust; 6–10s headwind; 10–14s tailwind; 14–18s forest left; 18–22s camera reversal; 22–24s mute",
+    "measurement": "Float audio samples before PCM16 conversion. Segment metrics exclude the first 1s and final 0.1s; global metrics cover the complete 24s."
+  },
+  "before": {
+    "metrics": [
+      {
+        "name": "Calm at rest",
+        "start": 0,
+        "end": 3,
+        "rmsLeft": 0.005030606750996885,
+        "rmsRight": 0.005030606750996885,
+        "peak": 0.01828068308532238,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Gust across open slope",
+        "start": 3,
+        "end": 6,
+        "rmsLeft": 0.021685795108545947,
+        "rmsRight": 0.021685795108545947,
+        "peak": 0.08220859616994858,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Skiing into headwind",
+        "start": 6,
+        "end": 10,
+        "rmsLeft": 0.06169154822099408,
+        "rmsRight": 0.06169154822099408,
+        "peak": 0.24170050024986267,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Skiing with tailwind",
+        "start": 10,
+        "end": 14,
+        "rmsLeft": 0.06169154822099408,
+        "rmsRight": 0.06169154822099408,
+        "peak": 0.24170050024986267,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Forest wind from left",
+        "start": 14,
+        "end": 18,
+        "rmsLeft": 0.03484528899964115,
+        "rmsRight": 0.03484528899964115,
+        "peak": 0.13560809195041656,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Camera turns: wind from right",
+        "start": 18,
+        "end": 22,
+        "rmsLeft": 0.0348450440142635,
+        "rmsRight": 0.0348450440142635,
+        "peak": 0.13560809195041656,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Sound muted",
+        "start": 22,
+        "end": 24,
+        "rmsLeft": 0,
+        "rmsRight": 0,
+        "peak": 0,
+        "clippedSamples": 0
+      }
+    ],
+    "global": {
+      "rmsLeft": 0.041334058387317525,
+      "rmsRight": 0.041334058387317525,
+      "peak": 0.24170050024986267,
+      "clippedSamples": 0
+    },
+    "sampleRate": 24000,
+    "seconds": 24
+  },
+  "after": {
+    "metrics": [
+      {
+        "name": "Calm at rest",
+        "start": 0,
+        "end": 3,
+        "rmsLeft": 0.0036280675263185643,
+        "rmsRight": 0.0036280675263185643,
+        "peak": 0.0144650898873806,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Gust across open slope",
+        "start": 3,
+        "end": 6,
+        "rmsLeft": 0.036827761363327036,
+        "rmsRight": 0.028065378632836056,
+        "peak": 0.15144196152687073,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Skiing into headwind",
+        "start": 6,
+        "end": 10,
+        "rmsLeft": 0.06465856066314099,
+        "rmsRight": 0.064645666232274,
+        "peak": 0.2458634376525879,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Skiing with tailwind",
+        "start": 10,
+        "end": 14,
+        "rmsLeft": 0.026900818720876497,
+        "rmsRight": 0.026900818720876497,
+        "peak": 0.10998503863811493,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Forest wind from left",
+        "start": 14,
+        "end": 18,
+        "rmsLeft": 0.04570589869159469,
+        "rmsRight": 0.030970375368147552,
+        "peak": 0.18784204125404358,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Camera turns: wind from right",
+        "start": 18,
+        "end": 22,
+        "rmsLeft": 0.03088581573806075,
+        "rmsRight": 0.04553306519133779,
+        "peak": 0.18382368981838226,
+        "clippedSamples": 0
+      },
+      {
+        "name": "Sound muted",
+        "start": 22,
+        "end": 24,
+        "rmsLeft": 0,
+        "rmsRight": 0,
+        "peak": 0,
+        "clippedSamples": 0
+      }
+    ],
+    "global": {
+      "rmsLeft": 0.03776894032085297,
+      "rmsRight": 0.03687520664590747,
+      "peak": 0.2458634376525879,
+      "clippedSamples": 0
+    },
+    "sampleRate": 24000,
+    "seconds": 24
+  }
+}

@@ -1,191 +1,41 @@
-# ❄️ SnowGlider ❄️
+# SnowGlider PR #483 evidence
 
-[![CI/CD](https://github.com/den-run-ai/snowglider/actions/workflows/ci.yml/badge.svg)](https://github.com/den-run-ai/snowglider/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/den-run-ai/snowglider/branch/main/graph/badge.svg)](https://codecov.io/gh/den-run-ai/snowglider)
+Evidence-only branch for https://github.com/den-run-ai/snowglider/pull/483. Do not merge this branch into main. These media files do not ship in the game.
 
-A cheerful snowman shredding mountain snow powder in a playful Three.js animation. ⛄️🎿
+## Revisions
 
-www.snowglider.ai
+- BASE: 5738d94e8b3c6214e3c005256b802570c56cdbec
+- Production runtime: 9660fc069c86b4a777f978a4b33e030c93922e8f
+- Captured/tested checkout: 2cb650ea898c6ba6af8b606061fe9e83590c7248; intervening changes are tests only.
 
+## Visuals
 
+The desktop follow and orbit boards compare actual production WebGL renders, with unchanged seed, prescribed replay, quality and camera inputs. They add external labels and WebP compression only. The phone image is Chromium viewport/touch emulation. All scenes use actual EZ trees (201 branch batches), low graphics tier and default shared wind. These are rendering fixtures, not proof of a completed autonomous ski run or physical-phone performance.
 
-https://github.com/user-attachments/assets/6eed3feb-0352-42bc-9768-91654e93b5e1
+- [Desktop follow](wind-evidence/desktop-follow-before-after.webp)
+- [Crosswind orbit](wind-evidence/crosswind-detail-before-after.webp)
+- [Phone follow](wind-evidence/phone-follow-after.webp)
+- [Capture provenance and original-image hashes](wind-evidence/visual-capture-manifest.json)
 
+The optional full-scene animation was stopped after the local software GPU exited with code 9. No animation result is claimed. Original-image hashes refer to source captures; compact boards are the committed visual deliverables. The PR's Rendering review workflow retains the full pinned-browser BASE/HEAD evidence separately.
 
+## Sound
 
+The recordings use the actual production Sfx modules in Chromium OfflineAudioContext. Timeline: 0–3s calm, 3–6s open gust, 6–10s headwind, 10–14s tailwind, 14–18s forest from left, 18–22s camera reversed, 22–24s mute. No music or microphone input.
 
-## Overview
-SnowGlider is a Three.js-based skiing game featuring a snowman gliding down a procedurally generated mountain. The game includes realistic physics, terrain generation, tree obstacles, and specialized camera tracking.
+- [Before audio](wind-evidence/wind-audio-before.m4a)
+- [After audio](wind-evidence/wind-audio-after.m4a)
+- [After audio with visual timeline](wind-evidence/wind-audio-after.mp4)
+- [Spectrogram and RMS comparison](wind-evidence/wind-audio-comparison.webp)
+- [Exact source provenance and metrics](wind-evidence/wind-audio-metrics.json)
+- [Audio artifact hashes](wind-evidence/wind-audio-manifest.json)
 
-## Features
-- Smooth snowman skiing with realistic physics and terrain interaction
-- Procedurally generated backcountry mountain terrain with natural features
-- Tree and exposed-rock obstacle detection with collision physics
-- **Avalanche system** - triggered when player travels far enough downhill, with tumbling snow boulders that can bury the player (game over)
-- Snow particle effects that respond to speed and turning
-- Cinematic intro fly-over of the mountain at game start (skippable)
-- Tracking camera that follows the snowman's movements
-- Background music: “Bad Cat [Master Version]” by Skullbeatz (see [third-party notices](THIRD_PARTY_NOTICES.md) and the audio history in [`CHANGELOG.md`](docs/CHANGELOG.md))
-- Timer with best time tracking
-- In-game feedback form — send a feature request or bug report straight from the start screen; it opens a prefilled GitHub issue (you submit under your own account) and logs an anonymous Firebase Analytics event
-- Comprehensive test suite for verifying game mechanics
+The headwind/tailwind segments differ by 7.6 dB RMS; camera rotation reverses the stereo bias; peak amplitude is 0.246, with zero clipped samples and exact silence while muted. This does not establish physical iPhone/Android audio acceptance (#249). The audio manifest also records the source WAV and full-resolution plot hashes used to make the committed compressed previews.
 
-## Roadmap
-[`ROADMAP.md`](docs/ROADMAP.md) tracks the feature roadmap and gap analysis — a phased P0–P3 plan mapped to the open [GitHub issues](https://github.com/den-run-ai/snowglider/issues). The **P0 "skill & structure" layer** (checkpoint gates + finish line, split timing, a result screen, ghost racing, an avalanche warning UI, and a first ski-technique pass) shipped in [#56](https://github.com/den-run-ai/snowglider/pull/56); see [`CHANGELOG.md`](docs/CHANGELOG.md) for that work.
+## GPU qualification
 
-## Documentation
-- [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module system, load order, the per-frame game loop, and the Firebase/scoring subsystem
-- [`UI_PATTERNS.md`](docs/UI_PATTERNS.md) — responsive menus, disclosures, account/sharing interactions, and release checks
-- [`PHYSICS.md`](docs/PHYSICS.md) — terrain, skiing, jumps, collisions, and the avalanche model, with a constants reference
-- [`CHANGELOG.md`](docs/CHANGELOG.md) — notable changes, including the skill/structure layer (#56) and the full audio history
-- [`tests/README.md`](tests/README.md) — test types, commands, and the verification harness
-- [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — diagnostics, debug overlays, and logging for local/production issues
-- [`ROADMAP.md`](docs/ROADMAP.md) — feature roadmap and gap analysis (incl. the now-shipped R2/R3 refactor stages)
+The permanent test in tests/e2e/wind-rendering.spec.ts executes actual production tree GLSL using WebGL2 transform feedback. Eleven material variants pass; maximum normal error against independently sampled deformed geometry is 0.058532 degrees, compared with 1.245510 degrees using the old undeformed normal. All outputs are finite and gl.getError() is zero.
 
-> The application TypeScript/ES-module migration and the three.js r134→0.184
-> upgrade are complete. See [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the module
-> map and [`TYPE_SAFETY.md`](docs/TYPE_SAFETY.md) for compiler coverage, SDK contracts
-> and the remaining legacy test exceptions.
+[GPU metrics](wind-evidence/tree-wind-gpu-metrics.json) · [Raw Playwright report](wind-evidence/gpu-test-report.json)
 
-## Project Structure
-- `index.html` / `auth.html` - Entry points (load the Vite bundle `src/main.ts`)
-- `styles/` - Page-level CSS for the static site shell
-- `src/` - Application TypeScript ES modules, bundled by Vite (game loop, terrain,
-  snowman + physics, camera, controls, audio, auth, scores, UI). See
-  [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full, maintained module map.
-- `src/boot/` - Classic-script auth fallback + Firebase bootstrap + startup driver
-- `assets/` - Media assets. The existing background track is a regular Git blob;
-  the repository does not currently use Git LFS.
-- `tests/`, `tests/verification/` - Node/browser/e2e suites and headless harnesses
-- `docs/` - `ARCHITECTURE.md`, `PHYSICS.md`, `CHANGELOG.md`, `ROADMAP.md`, `TROUBLESHOOTING.md` (see [Documentation](#documentation))
-
-## Controls
-
-### Keyboard Controls (Desktop)
-- **Arrow Keys / WASD**: Control snowman direction
-  - **Left Arrow / A**: Turn left
-  - **Right Arrow / D**: Turn right
-  - **Up Arrow / W**: Increase speed
-  - **Down Arrow / S**: Slow down
-- **Space**: Jump over obstacles
-- **V**: Toggle camera view
-- **Reset Button**: Start a new run
-
-### Ski Techniques
-Steering isn't just turning — how you work the edges changes your speed (see [`PHYSICS.md`](docs/PHYSICS.md) §3 for the model):
-- **Parallel turn (skidded)**: the default steered turn — quick or abrupt steering brushes the skis sideways, **scrubbing speed for a tighter turn**. Your speed-control tool.
-- **Carve**: hold a *smooth, committed* turn (←/→ steadily in one direction) and the skis roll onto their edges while the snowman leans hard into the arc — **holding your speed through a wide line**. The mastery turn above a parallel (it commits over ~0.4 s).
-- **Snowplow / "pizza"**: hold Brake (↓/S) to wedge the **ski tips together** (tails apart) and scrub speed or stop.
-- **Tuck**: hold Accelerate (↑/W) with no steering to straight-line for maximum speed.
-- **Hop turn**: Jump (Space) **while** steering (←/→) for a quick edge-set pivot on tight, steep terrain.
-
-### Touch Controls (Mobile)
-- **Left Side of Screen**: Turn left
-- **Right Side of Screen**: Turn right
-- **Top of Screen**: Increase speed
-- **Bottom of Screen**: Slow down
-- **Center of Screen**: Jump
-- **Camera Toggle Button**: Switch camera view
-- **Audio Button**: Toggle music on/off
-- **Reset Button**: Start a new run
-
-The game automatically detects mobile devices and enables touch controls with visual indicators for easier gameplay.
-
-## Testing
-Run the Node suite with `npm test`; in-browser suites load via `?test=…` URL parameters. See [`tests/README.md`](tests/README.md) for the full test matrix, the browser parameters, the verification harness, and per-suite details.
-
-Coverage is reported to Codecov against the entire `src/` tree and is
-intentionally non-gating in CI. It combines two passes: `npm run test:coverage`
-measures the Node + verification suites with c8 (`--all --src src`), and the
-browser suite collects Chromium V8 coverage that is mapped back to `src/*.ts` and
-line-merged into the same `coverage/lcov.info`. Run the whole pipeline locally
-with `npm run test:coverage:all`. Browser-only modules are therefore counted, not
-shown as `0%`; remaining gaps reflect untested code rather than uninstrumented
-files.
-
-## Development
-
-### Local Development Setup
-**Prerequisite:** Node.js 22.18+ (CI uses the latest Node 22). The Node test suite
-runs TypeScript sources through [native type stripping](https://nodejs.org/api/typescript.html),
-enabled by default in 22.18. This also meets
-[Puppeteer 25's Node 22.12+ requirement](https://pptr.dev/guides/system-requirements).
-Linux browser downloads also require `unzip` on `PATH`.
-
-1. Clone the repository
-2. Install dependencies with `npm ci`
-3. Run locally using one of these options:
-   - **Option 1:** `npm run dev` — Vite dev server (full features)
-   - **Option 2:** `npm start` — the same Vite dev server, pinned to port 8080 (full features)
-   - Direct `file://` opens are not supported after the ES-module migration.
-4. Before pushing, run the same checks CI does: `npm run lint`, `npm run typecheck`,
-   `npm test`, and `npm run build`.
-
-#### Local Development Notes
-- **Server mode (`npm run dev` or `npm start`):**
-  - Runs on `localhost` with HTTP protocol
-  - Firebase Authentication works, but Firestore service is automatically disabled to prevent connection errors
-  - A "Local Dev Mode: Firestore disabled" indicator will be displayed in the bottom-right corner
-  - Best times are stored in localStorage and can be synced to Firebase when online
-
-- **Direct browser mode (opening `index.html` directly):**
-  - Not supported. Browser module graphs and the import map do not load reliably from a `file://` origin.
-  - Use `npm run dev`, `npm start`, or `npm run build` plus a static server.
-
-### Firebase Setup and Deployment
-
-#### Firebase Configuration
-1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com/)
-2. Enable the sign-in providers you want in the Firebase console. SnowGlider wires
-   buttons for Google, GitHub, Apple, and Anonymous ("Play as Guest"):
-   - **Google** / **Anonymous** — enable in Authentication → Sign-in method (no extra setup).
-   - **GitHub** — register a GitHub OAuth app and paste its client ID/secret into Firebase.
-   - **Apple** — requires a paid Apple Developer account and an Apple Service ID.
-   A provider button whose backend isn't enabled simply errors on click; `auth.ts`
-   skips any button absent from the DOM, so you can ship buttons incrementally. Guests
-   are anonymous: their best time stays local and is backfilled to the leaderboard only
-   if they later upgrade to a real provider (same uid, via account linking).
-3. Create a Firestore database in the Firebase console
-4. Register your web app in Firebase to get configuration keys
-5. Update the Firebase configuration in `src/boot/firebase-bootstrap.js`:
-
-```javascript
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID",
-  measurementId: "YOUR_MEASUREMENT_ID"
-};
-```
-
-#### Firestore Database Structure
-The application uses the following Firestore collections:
-- `users` - User profiles and best times
-- `leaderboard` - Global leaderboard entries
-
-Firestore Security Rules are tracked in `firestore.rules`. Run
-`npm run test:firebase` to validate the rules against the Firebase emulator
-(requires a local Java runtime).
-
-#### GitHub Pages Deployment
-1. Push your changes to GitHub repository
-2. Enable GitHub Pages in repository settings
-3. Make sure to add your GitHub Pages domain to the authorized domains in Firebase Authentication settings
-4. The CI workflow runs the Node/browser, PWA, and cross-browser Playwright gates,
-   builds the Vite static artifact with `npm run build`, and deploys `dist/` to
-   GitHub Pages only after every production gate succeeds
-5. Your game will be accessible at `https://[your-username].github.io/[repo-name]/`
-
-## Troubleshooting
-Diagnostics, debug overlays (e.g. `?debug=auth`), and logging guidance for
-Firebase connection issues, mobile authentication, CORS, and GitHub Pages
-deployment now live in [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
-
-## License and credits
-
-SnowGlider's source code and original assets are available under the [MIT
-License](LICENSE). Bundled third-party material is excluded from that grant; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and its license.
+Capture/plot scripts are included for provenance. Their absolute checkout paths and installed browser path record this capture environment; update those paths to reproduce using the exact revisions above.

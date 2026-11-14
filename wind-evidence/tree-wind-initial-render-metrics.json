@@ -1,0 +1,41 @@
+{
+  "errors": [],
+  "shaderErrors": [],
+  "materialKeys": [
+    "tree-wind-sway-canopy-shrink-v6",
+    "tree-wind-sway-rooted-h39.46-flex-v6",
+    "tree-wind-sway-flutter-h39.46-flex-v6",
+    "tree-wind-sway-rooted-h49.92-flex-v6",
+    "tree-wind-sway-flutter-h49.92-flex-v6",
+    "tree-wind-sway-rooted-h65.12-flex-v6",
+    "tree-wind-sway-flutter-h65.12-flex-v6",
+    "tree-wind-sway-rooted-h49.93-flex-v6",
+    "tree-wind-sway-flutter-h49.93-flex-v6",
+    "tree-wind-sway-rooted-h65.16-flex-v6",
+    "tree-wind-sway-flutter-h65.16-flex-v6",
+    "tree-wind-sway-anchored-shrink-v6"
+  ],
+  "shaderPrograms": 22,
+  "drawCalls": 142,
+  "normals": [
+    {
+      "part": "ezBranches",
+      "normalAngularErrorDegrees": 0.047861984281792315,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "part": "ezLeaves",
+      "normalAngularErrorDegrees": 0.05853235242630868,
+      "finite": true,
+      "glError": 0
+    },
+    {
+      "part": "ezSnowPatch",
+      "normalAngularErrorDegrees": 0.04492503630189533,
+      "finite": true,
+      "glError": 0
+    }
+  ],
+  "qualification": "Isolated full material/depth render qualification; these draw/program counts are diagnostic, not full-player performance metrics."
+}

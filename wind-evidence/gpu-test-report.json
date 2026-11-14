@@ -1,0 +1,127 @@
+{
+  "config": {
+    "argv": [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+      "/workspace/scratch/a21195a756ba/snowglider/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "/workspace/scratch/a21195a756ba/wind-evidence/playwright-wind.config.ts",
+      "--reporter=json"
+    ],
+    "configFile": "/workspace/scratch/a21195a756ba/wind-evidence/playwright-wind.config.ts",
+    "rootDir": "/workspace/scratch/a21195a756ba/snowglider/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/workspace/scratch/a21195a756ba/wind-evidence/gpu-test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/workspace/scratch/a21195a756ba/snowglider/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "wind-rendering.spec.ts"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.0",
+    "workers": 1,
+    "webServer": {
+      "command": "node node_modules/vite/bin/vite.js --config /workspace/scratch/a21195a756ba/wind-evidence/vite-gpu.mjs --port 8099 --strictPort --host 127.0.0.1",
+      "cwd": "/workspace/scratch/a21195a756ba/snowglider",
+      "url": "http://127.0.0.1:8099/@vite/client",
+      "reuseExistingServer": false,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "wind-rendering.spec.ts",
+      "file": "wind-rendering.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "wind-deformed trees keep lighting normals on the actual bent surface",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2093,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-14T23:02:46.368Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "tree-wind-gpu-normals",
+                      "contentType": "application/json",
+                      "body": "WwogIHsKICAgICJrZXkiOiAidHJlZS13aW5kLXN3YXktcm9vdGVkLWgzOS40Ni1mbGV4LXY2IiwKICAgICJwYXJ0IjogImV6QnJhbmNoZXMiLAogICAgIm5vcm1hbEVycm9yRGVncmVlcyI6IDAuMDQ3ODYxOTg0Mjk3MDIyMTQsCiAgICAidW5iZW50RXJyb3JEZWdyZWVzIjogMS4yNDU1MTAzODM4NjE5NDIxLAogICAgImZpbml0ZSI6IHRydWUsCiAgICAiZ2xFcnJvciI6IDAKICB9LAogIHsKICAgICJrZXkiOiAidHJlZS13aW5kLXN3YXktZmx1dHRlci1oMzkuNDYtZmxleC12NiIsCiAgICAicGFydCI6ICJlekxlYXZlcyIsCiAgICAibm9ybWFsRXJyb3JEZWdyZWVzIjogMC4wNTg1MzIzNTI0MzI1MzUzOSwKICAgICJ1bmJlbnRFcnJvckRlZ3JlZXMiOiAwLjg4MDExNzQxMTYwODg3NDEsCiAgICAiZmluaXRlIjogdHJ1ZSwKICAgICJnbEVycm9yIjogMAogIH0sCiAgewogICAgImtleSI6ICJ0cmVlLXdpbmQtc3dheS1yb290ZWQtaDQ5LjkyLWZsZXgtdjYiLAogICAgInBhcnQiOiAiZXpCcmFuY2hlcyIsCiAgICAibm9ybWFsRXJyb3JEZWdyZWVzIjogMC4wMjc0Mzg5NDgyNDM1NzEzNSwKICAgICJ1bmJlbnRFcnJvckRlZ3JlZXMiOiAwLjk4MzI1MTI1NDk2MjUxNDIsCiAgICAiZmluaXRlIjogdHJ1ZSwKICAgICJnbEVycm9yIjogMAogIH0sCiAgewogICAgImtleSI6ICJ0cmVlLXdpbmQtc3dheS1mbHV0dGVyLWg0OS45Mi1mbGV4LXY2IiwKICAgICJwYXJ0IjogImV6TGVhdmVzIiwKICAgICJub3JtYWxFcnJvckRlZ3JlZXMiOiAwLjAyNTAwMTA4OTUzOTIyOTg0LAogICAgInVuYmVudEVycm9yRGVncmVlcyI6IDAuNjc0OTkxMTMwNjg0MTM5NiwKICAgICJmaW5pdGUiOiB0cnVlLAogICAgImdsRXJyb3IiOiAwCiAgfSwKICB7CiAgICAia2V5IjogInRyZWUtd2luZC1zd2F5LXJvb3RlZC1oNjUuMTItZmxleC12NiIsCiAgICAicGFydCI6ICJlekJyYW5jaGVzIiwKICAgICJub3JtYWxFcnJvckRlZ3JlZXMiOiAwLjAzOTA5MjE2MzE2ODYxMTMxLAogICAgInVuYmVudEVycm9yRGVncmVlcyI6IDAuNzc3OTQyMTk2MDQ3MTU2NCwKICAgICJmaW5pdGUiOiB0cnVlLAogICAgImdsRXJyb3IiOiAwCiAgfSwKICB7CiAgICAia2V5IjogInRyZWUtd2luZC1zd2F5LWZsdXR0ZXItaDY1LjEyLWZsZXgtdjYiLAogICAgInBhcnQiOiAiZXpMZWF2ZXMiLAogICAgIm5vcm1hbEVycm9yRGVncmVlcyI6IDAuMDEwOTkwNzI2MjU2MDU4OTA4LAogICAgInVuYmVudEVycm9yRGVncmVlcyI6IDAuNTQwNzAwMDMzMTkyNjMyOCwKICAgICJmaW5pdGUiOiB0cnVlLAogICAgImdsRXJyb3IiOiAwCiAgfSwKICB7CiAgICAia2V5IjogInRyZWUtd2luZC1zd2F5LXJvb3RlZC1oNDkuOTMtZmxleC12NiIsCiAgICAicGFydCI6ICJlekJyYW5jaGVzIiwKICAgICJub3JtYWxFcnJvckRlZ3JlZXMiOiAwLjAyNjY0MzA0NTQ5NzI5NzgsCiAgICAidW5iZW50RXJyb3JEZWdyZWVzIjogMC45ODEwODczODY3NTIwNTk4LAogICAgImZpbml0ZSI6IHRydWUsCiAgICAiZ2xFcnJvciI6IDAKICB9LAogIHsKICAgICJrZXkiOiAidHJlZS13aW5kLXN3YXktZmx1dHRlci1oNDkuOTMtZmxleC12NiIsCiAgICAicGFydCI6ICJlekxlYXZlcyIsCiAgICAibm9ybWFsRXJyb3JEZWdyZWVzIjogMC4wMjY5ODE0Nzg0MDI2MzYyNDQsCiAgICAidW5iZW50RXJyb3JEZWdyZWVzIjogMC42NzI4NjQxMjMyNjQyMTk0LAogICAgImZpbml0ZSI6IHRydWUsCiAgICAiZ2xFcnJvciI6IDAKICB9LAogIHsKICAgICJrZXkiOiAidHJlZS13aW5kLXN3YXktcm9vdGVkLWg2NS4xNi1mbGV4LXY2IiwKICAgICJwYXJ0IjogImV6QnJhbmNoZXMiLAogICAgIm5vcm1hbEVycm9yRGVncmVlcyI6IDAuMDQ0ODM1ODQxODcyMTUyMjUsCiAgICAidW5iZW50RXJyb3JEZWdyZWVzIjogMC43ODMyOTM3MzQ3NzA0MjczLAogICAgImZpbml0ZSI6IHRydWUsCiAgICAiZ2xFcnJvciI6IDAKICB9LAogIHsKICAgICJrZXkiOiAidHJlZS13aW5kLXN3YXktZmx1dHRlci1oNjUuMTYtZmxleC12NiIsCiAgICAicGFydCI6ICJlekxlYXZlcyIsCiAgICAibm9ybWFsRXJyb3JEZWdyZWVzIjogMC4wMTEyNjI3MDIwNDYxMzQ2ODQsCiAgICAidW5iZW50RXJyb3JEZWdyZWVzIjogMC41NDA3MDAwMzMxOTI2MzI4LAogICAgImZpbml0ZSI6IHRydWUsCiAgICAiZ2xFcnJvciI6IDAKICB9LAogIHsKICAgICJrZXkiOiAidHJlZS13aW5kLXN3YXktYW5jaG9yZWQtc2hyaW5rLXY2IiwKICAgICJwYXJ0IjogImV6U25vd1BhdGNoIiwKICAgICJub3JtYWxFcnJvckRlZ3JlZXMiOiAwLjA0NDkyNTAzNjMwMTg5NTMzLAogICAgInVuYmVudEVycm9yRGVncmVlcyI6IDAuMDQ0OTI1NTIyNTY4Mjc2NjcsCiAgICAiZmluaXRlIjogdHJ1ZSwKICAgICJnbEVycm9yIjogMAogIH0KXQ=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "faa0730e83c6b90fa117-4c76806a77494add60c3",
+          "file": "wind-rendering.spec.ts",
+          "line": 4,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-14T23:02:44.259Z",
+    "duration": 4508.875,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

@@ -1,0 +1,233 @@
+{
+  "capturedAt": "2026-11-14T22:59:06.983Z",
+  "seed": 1393582293,
+  "description": "Production bundles, explicit low quality (512px shadow maps), default shared wind. Real EZ-Tree player scene; scripted render clock with actual physics/rendering. No music/audio. Identical prescribed wind/camera inputs on BASE and HEAD.",
+  "revisions": [
+    {
+      "name": "before",
+      "cwd": "/workspace/scratch/b943da49f5fb/snowglider",
+      "port": 8097,
+      "commit": "5738d94e8b3c6214e3c005256b802570c56cdbec",
+      "workingChanges": ""
+    },
+    {
+      "name": "after",
+      "cwd": "/workspace/scratch/a21195a756ba/snowglider",
+      "port": 8098,
+      "commit": "2cb650ea898c6ba6af8b606061fe9e83590c7248",
+      "workingChanges": ""
+    }
+  ],
+  "captures": [
+    {
+      "revision": "before",
+      "device": "desktop",
+      "file": "before-desktop-follow.png",
+      "ezBranches": 201,
+      "mode": "follow",
+      "position": {
+        "x": 0.011403549323941426,
+        "z": -66.49451186083527,
+        "y": 3.512855060969887
+      },
+      "calls": 224,
+      "programs": 46,
+      "geometries": 307,
+      "textures": 22,
+      "errors": []
+    },
+    {
+      "revision": "before",
+      "device": "desktop",
+      "file": "before-desktop-crosswind-detail.png",
+      "view": "player orbit closeup",
+      "errors": []
+    },
+    {
+      "revision": "before",
+      "device": "phone",
+      "file": "before-phone-follow.png",
+      "ezBranches": 201,
+      "mode": "follow",
+      "position": {
+        "x": 0.011403549323941426,
+        "z": -66.49451186083527,
+        "y": 3.512855060969887
+      },
+      "calls": 160,
+      "programs": 45,
+      "geometries": 249,
+      "textures": 22,
+      "errors": []
+    },
+    {
+      "revision": "after",
+      "device": "desktop",
+      "file": "after-desktop-follow.png",
+      "ezBranches": 201,
+      "mode": "follow",
+      "position": {
+        "x": 0.011403549323941426,
+        "z": -66.49451186083527,
+        "y": 3.512855060969887
+      },
+      "calls": 224,
+      "programs": 46,
+      "geometries": 307,
+      "textures": 22,
+      "errors": []
+    },
+    {
+      "revision": "after",
+      "device": "desktop",
+      "file": "after-desktop-crosswind-detail.png",
+      "view": "player orbit closeup",
+      "errors": []
+    },
+    {
+      "revision": "after",
+      "device": "phone",
+      "file": "after-phone-follow.png",
+      "ezBranches": 201,
+      "mode": "follow",
+      "position": {
+        "x": 0.011403549323941426,
+        "z": -66.49451186083527,
+        "y": 3.512855060969887
+      },
+      "calls": 160,
+      "programs": 45,
+      "geometries": 249,
+      "textures": 22,
+      "errors": []
+    }
+  ],
+  "capturedAtEnd": "2026-11-14T23:02:16.161Z",
+  "runtimeRevision": "9660fc069c86b4a777f978a4b33e030c93922e8f",
+  "headRevision": "2cb650ea898c6ba6af8b606061fe9e83590c7248",
+  "revisionExplanation": "Production dist built from 9660fc0; captured with working tree at 2cb650ea. Git diff confirms intervening changes are six test files only, with no runtime source changes.",
+  "devices": {
+    "desktop": {
+      "width": 960,
+      "height": 540,
+      "deviceScaleFactor": 1
+    },
+    "phone": {
+      "width": 390,
+      "height": 844,
+      "deviceScaleFactor": 1,
+      "isMobile": true,
+      "hasTouch": true,
+      "qualification": "Chromium viewport/touch emulation; not a physical-phone performance test."
+    }
+  },
+  "cameraExplanation": "Follow: prescribed downhill replay, 8 physics/render steps followed by 2 follow-camera settling steps. Orbit: same replay followed by yaw 0.65, zoom multiplier 0.6, and 2 further steps.",
+  "animation": {
+    "status": "not delivered",
+    "reason": "Optional full-scene animation capture was stopped after the software GPU process was killed (exit 9); no animation result or hardware-performance claim is made."
+  },
+  "boards": [
+    {
+      "file": "desktop-follow-before-after.webp",
+      "width": 1968,
+      "height": 704,
+      "webpQuality": 88,
+      "bytes": 208740,
+      "sourceImages": [
+        "before-desktop-follow.png",
+        "after-desktop-follow.png"
+      ],
+      "processing": "Original screenshots pasted at native resolution; external labels and lossy WebP encoding only."
+    },
+    {
+      "file": "crosswind-detail-before-after.webp",
+      "width": 1968,
+      "height": 704,
+      "webpQuality": 88,
+      "bytes": 139900,
+      "sourceImages": [
+        "before-desktop-crosswind-detail.png",
+        "after-desktop-crosswind-detail.png"
+      ],
+      "processing": "Original screenshots pasted at native resolution; external labels and lossy WebP encoding only."
+    },
+    {
+      "file": "phone-follow-after.webp",
+      "width": 390,
+      "height": 844,
+      "webpQuality": 92,
+      "bytes": 32616,
+      "sourceImages": [
+        "after-phone-follow.png"
+      ],
+      "processing": "Original full screenshot at native resolution; WebP encoding only."
+    }
+  ],
+  "artifacts": [
+    {
+      "file": "before-desktop-crosswind-detail.png",
+      "bytes": 758045,
+      "sha256": "7381fb564f7644f397e49e71fb52aa5c5880b0a4a9da29870376a44cc47e3e7d"
+    },
+    {
+      "file": "before-desktop-follow.png",
+      "bytes": 886339,
+      "sha256": "d3bc782da9ba30d36b8400784b6579142dc8c310e79842fea1bd84329a1d56bd"
+    },
+    {
+      "file": "before-desktop-player-ui.png",
+      "bytes": 573044,
+      "sha256": "4afb3f2f0599b9326c078484755e5cca0717e794ee60042eeedf8df9c5fbb77c"
+    },
+    {
+      "file": "before-phone-follow.png",
+      "bytes": 394816,
+      "sha256": "6d6e21478788b5fc1b2248a8a23c113d477b047546b127da9e4670eb6ecedaf3"
+    },
+    {
+      "file": "before-phone-player-ui.png",
+      "bytes": 251185,
+      "sha256": "a3a1a9c65fac7b5936c77d9484133d29fcf8ab6dbc6ed6dca88e04e0dce49413"
+    },
+    {
+      "file": "after-desktop-crosswind-detail.png",
+      "bytes": 753535,
+      "sha256": "180a50e6186db0783979558bb153afb8046febf4f60cf098c7753e0d5f3e404c"
+    },
+    {
+      "file": "after-desktop-follow.png",
+      "bytes": 882352,
+      "sha256": "885749d26f94c5415583636cf73f8558af5571139bceb1a77dfda3698289d7f5"
+    },
+    {
+      "file": "after-desktop-player-ui.png",
+      "bytes": 571460,
+      "sha256": "8a1a2ebb69f962ada0d1be1c973f4579f31f2dcc299f848ae70a881759949006"
+    },
+    {
+      "file": "after-phone-follow.png",
+      "bytes": 393275,
+      "sha256": "9868d443431af7b00ba76862c607187c7f63f58f7826e75dac33f482c44764bb"
+    },
+    {
+      "file": "after-phone-player-ui.png",
+      "bytes": 249900,
+      "sha256": "614bb8941b6337348aa46e913ac624db54e454e8497240b1f2a087a22a1627c8"
+    },
+    {
+      "file": "desktop-follow-before-after.webp",
+      "bytes": 208740,
+      "sha256": "07ed7caa6980bd29d22ffc51d3f2bcb4405300c13f71c50c8099b7ab113e644c"
+    },
+    {
+      "file": "crosswind-detail-before-after.webp",
+      "bytes": 139900,
+      "sha256": "aedd61672a9b73ae3778684fe1a58359ff9d1c576314e310e8d39d4b1f2a645d"
+    },
+    {
+      "file": "phone-follow-after.webp",
+      "bytes": 32616,
+      "sha256": "42b513748979f2bedaaa95fab688c865cf602a4f1f568bbcd882e77335a669a2"
+    }
+  ]
+}
