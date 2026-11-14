@@ -149,6 +149,54 @@ test.describe('start and replay audio gestures', () => {
     expect(errors).toEqual([]);
   });
 
+  test('both result level selectors stay synchronized through native input and replay', async ({ page, hasTouch, baseURL }) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    let navigations = 0;
+    page.on('domcontentloaded', () => { navigations++; });
+    // This checks selection and replay, not renderer speed. Keep a real short
+    // playable run eligible even on a slow software GPU, without clearing the
+    // timing-integrity flag or changing the game's RAF/physics implementation.
+    await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+    await mockFirebase(page, baseURL);
+    await gotoGame(page, '?intro=off');
+    await expect(page.locator('#startLoadingStatus')).toHaveAttribute('data-stage', 'ready');
+    const now = await page.evaluate(() => Date.now());
+    await page.clock.pauseAt(new Date(now + 1000));
+    await activate(page.locator('#startGameButton'), hasTouch);
+    await page.clock.runFor(50);
+    expect(await page.evaluate(() => (window as GameWindow).gameActive)).toBe(true);
+    expect(await page.evaluate(() => (window as TelemetryWindow).simElapsed ?? 0)).toBeGreaterThan(0);
+    await showResult(page, 'blue');
+
+    for (const tier of ['bunny', 'black', 'expert', 'blue']) {
+      await activate(page.locator(`#leaderboard [data-leaderboard-tier="${tier}"]`), hasTouch);
+      await expect(page.locator(`#finishDifficultyPicker [data-difficulty="${tier}"]`))
+        .toHaveAttribute('aria-checked', 'true');
+      await expect(page.locator(`#leaderboard [data-leaderboard-tier="${tier}"]`))
+        .toHaveAttribute('aria-pressed', 'true');
+    }
+    for (const tier of ['expert', 'bunny', 'black', 'blue']) {
+      await activate(page.locator(`#finishDifficultyPicker [data-difficulty="${tier}"]`), hasTouch);
+      await expect(page.locator(`#leaderboard [data-leaderboard-tier="${tier}"]`))
+        .toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator(`#finishDifficultyPicker [data-difficulty="${tier}"]`))
+        .toHaveAttribute('aria-checked', 'true');
+    }
+
+    await activate(page.locator('#restartButton'), hasTouch);
+    await page.clock.runFor(50);
+    await expect(page.locator('#gameOverOverlay')).toBeHidden();
+    expect(await page.evaluate(() => (window as GameWindow).gameActive)).toBe(true);
+    expect(await page.evaluate(() => (window as TelemetryWindow).simElapsed ?? 0)).toBeGreaterThan(0);
+    await expect(page.locator('#levelValue')).toContainText('Blue');
+    expect(navigations, 'returning to the current tier keeps replay in the same scene').toBe(1);
+    await showResult(page, 'blue');
+    await expect(page.locator('#leaderboard [data-leaderboard-tier="blue"]'))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(errors).toEqual([]);
+  });
+
   test('blocked storage preserves a requested tier and refreshing cannot replay stale intent', async ({ page, hasTouch }) => {
     await page.addInitScript(() => {
       Storage.prototype.getItem = () => { throw new DOMException('Storage blocked', 'SecurityError'); };
