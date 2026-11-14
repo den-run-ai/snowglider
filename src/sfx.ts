@@ -8,8 +8,8 @@
 //   - avalanche .......... a low rumble that crescendos as the slide closes in
 //   - snowing / wind / nature  the always-on ambient wind bed (loud = fast or gusty, soft
 //                              = idle on a calm slope; coupled to the shared Wind field),
-//                              plus a resonant gust "howl" that whistles when the wind
-//                              blows hard and sweeps its pitch with the gusts
+//                              plus a broad, low gust wash; both arrive from the wind's
+//                              source relative to the current camera view
 //   - forest ............. a needle-rustle bed that rises when the wind blows through
 //                          trees NEAR the player (issue #253 Phase B), and a soft
 //                          "whump" when a gust dumps a laden tree's snow close by
@@ -56,21 +56,20 @@ const AVAL_FAR = 80;             // distance beyond which the slide is inaudible
 const AVAL_MAX_GAIN = 0.6;       // loudest the avalanche bed gets
 const MASTER_GAIN = 0.85;        // overall SFX headroom (leaves room for the music)
 const RAMP_TAU = 0.08;           // s; smoothing time-constant for continuous beds
+const WIND_RAMP_TAU = 0.22;      // gentler gust/pan changes through camera switches
 
-// Wind "howl" (#253): a resonant whistle layered on the ambient bed that emerges only when
-// the shared Wind field blows hard, and sweeps its pitch with each gust. Distinct from the
-// broadband wind bed above — this is the tonal, high-Q resonance you hear in a strong wind.
+// Wind gust wash (#253): a broad low band layered under the rushing air. A narrow
+// high-Q whistle sounded like a sustained synthesizer rather than wind in open snow.
 // Keyed on Wind.strength() with a knee, so a light breeze / dead-calm field stays silent
 // (the pre-#253 sound).
-const HOWL_KNEE = 0.5;           // Wind.strength() at/below this = no whistle (a breeze doesn't howl)
-const HOWL_MAX_GAIN = 0.11;      // loudest the whistle gets (sits under the wind bed + music)
-const HOWL_Q = 8;                // bandpass resonance: narrow = tonal, whistling
-const HOWL_FREQ_LO = 600;        // whistle pitch in a lull (Hz)
-const HOWL_FREQ_HI = 1200;       // whistle pitch at a full gust (Hz)
+const HOWL_KNEE = 0.5;           // a light breeze does not produce a strong gust wash
+const HOWL_MAX_GAIN = 0.10;      // gust wash stays below the rushing air + music
+const HOWL_Q = 0.65;             // broad turbulence, without a musical resonance
+const HOWL_FREQ_LO = 240;        // low turbulent wash in a lull (Hz)
+const HOWL_FREQ_HI = 560;        // a gust opens the spectrum (Hz)
 
 // Forest (#253 Phase B): the broadband needle rustle you hear when wind moves through
-// conifers — distinct from the low wind bed (this sits high, ~3 kHz) and the tonal
-// howl. Gated on BOTH the wind and how much forest actually surrounds the player
+// conifers — distinct from the low wind bed and gust wash (this sits high, ~3 kHz). Gated on BOTH the wind and how much forest actually surrounds the player
 // (forestProximityAt in tree-shed.ts), so an open bowl stays quiet at any wind.
 const RUSTLE_KNEE = 0.2;         // Wind.strength() at/below this = needles stay quiet
 const RUSTLE_MAX_GAIN = 0.13;    // loudest the rustle gets (full wind, deep in trees)
@@ -95,7 +94,48 @@ function techniqueEdge(technique: string): number {
   }
 }
 
-const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
+const clamp01 = (n: number): number => (n > 0 ? Math.min(n, 1) : 0);
+const finite = (n: number): number => Number.isFinite(n) ? n : 0;
+const safePan = (n: number): number => Math.max(-1, Math.min(1, finite(n)));
+
+/** Read-only world motion and the camera's horizontal right basis. Wind flows
+ *  toward (windX, windZ); sound arrives from the opposite, upwind direction. */
+export interface WindAudioMotion {
+  windX: number;
+  windZ: number;
+  velocityX: number;
+  velocityZ: number;
+  cameraRightX: number;
+  cameraRightZ: number;
+}
+
+/** The sound of air relative to the skier, with gentle camera-relative stereo.
+ *  A following wind reduces the rush; a headwind raises it. Environment and skier
+ *  motion have separate pans so orbiting the camera never relocates the forest
+ *  breeze to the player's yaw. Inputs are bounded before subtraction/dot products
+ *  to keep malformed debug values out of AudioParams. */
+export function windAudioForMotion(motion: WindAudioMotion, strength: number): {
+  apparentSpeed: number; gain: number; frequency: number; pan: number; environmentalPan: number;
+} {
+  const bounded = (n: number) => Math.max(-1000, Math.min(1000, finite(n)));
+  const wx = bounded(motion.windX), wz = bounded(motion.windZ);
+  const ax = wx - bounded(motion.velocityX), az = wz - bounded(motion.velocityZ);
+  const rightX = bounded(motion.cameraRightX), rightZ = bounded(motion.cameraRightZ);
+  const rightLength = Math.hypot(rightX, rightZ);
+  const apparentSpeed = Math.hypot(ax, az);
+  const magnitude = Math.hypot(wx, wz);
+  const panFrom = (x: number, z: number, length: number, width: number): number =>
+    length > 1e-6 && rightLength > 1e-6
+      ? safePan(-(x * rightX + z * rightZ) / (length * rightLength)) * width : 0;
+  const st = clamp01(finite(strength));
+  return {
+    apparentSpeed,
+    gain: windGainForField(apparentSpeed, st),
+    frequency: 300 + clamp01(apparentSpeed / SPEED_REF) * 700 + st * 180,
+    pan: panFrom(ax, az, apparentSpeed, 0.16),
+    environmentalPan: panFrom(wx, wz, magnitude, 0.45),
+  };
+}
 
 /** Motion-whoosh wind gain from the skier's own speed (0..~0.45): the air rushing past.
  *  This is the calm-field baseline — {@link windGainForField} reduces to exactly this when
@@ -142,21 +182,20 @@ export function landGainForForce(force: number): number {
   return 0.18 + clamp01(f / 1.2) * 0.52;
 }
 
-/** Wind-howl whistle gain (0..HOWL_MAX_GAIN) from the shared field's normalized strength
- *  (Wind.strength(), 0..1). Silent at/below HOWL_KNEE so a light breeze doesn't whistle,
+/** Broad gust-wash gain (0..HOWL_MAX_GAIN) from the shared field's normalized strength
+ *  (Wind.strength(), 0..1). Silent at/below HOWL_KNEE so a light breeze stays gentle,
  *  then ramps up as the wind builds. Because strength already pulses with the gust cycle,
- *  the howl naturally swells and eases with the gusts. Keyed on strength (NOT the raw gust,
+ *  the wash naturally swells and eases with the gusts. Keyed on strength (NOT the raw gust,
  *  which keeps oscillating in a dead-calm field) so strength 0 → exactly 0: an unwindy run
- *  has no whistle, matching the pre-#253 sound. NaN/negative-safe (treated as calm). */
+ *  has no gust wash, matching the pre-#253 sound. NaN/negative-safe (treated as calm). */
 export function howlGainForWind(windStrength: number): number {
   const st = clamp01(Number.isFinite(windStrength) ? windStrength : 0);
   if (st <= HOWL_KNEE) return 0;
   return ((st - HOWL_KNEE) / (1 - HOWL_KNEE)) * HOWL_MAX_GAIN;
 }
 
-/** Whistle centre-frequency (Hz) from the instantaneous gust factor (Wind.gust(), 0..1):
- *  the pitch rises on a gust and falls back in the lull, which is what makes it read as a
- *  wavering "howl" rather than a static tone. NaN/negative-safe (treated as a lull). */
+/** Gust-wash centre frequency (Hz) from Wind.gust(): stronger gusts open the
+ *  broad low band. The historical howl API name remains for compatibility. */
 export function howlFreqForGust(gust: number): number {
   const g = clamp01(Number.isFinite(gust) ? gust : 0);
   return HOWL_FREQ_LO + g * (HOWL_FREQ_HI - HOWL_FREQ_LO);
@@ -193,8 +232,10 @@ export function shedGainForDistance(distance: number): number {
 // Everything below is the live engine; it is entirely inert without an AudioContext.
 
 interface NoiseBed {
+  source: AudioBufferSourceNode;
   filter: BiquadFilterNode;
   gain: GainNode;
+  panner: StereoPannerNode | null;
 }
 
 type WebAudioCtor = typeof AudioContext;
@@ -242,18 +283,28 @@ export const Sfx = (function() {
     return true;
   }
 
-  function makeNoiseBuffer(context: AudioContext, seconds = 2): AudioBuffer {
+  function makeNoiseBuffer(context: AudioContext, seconds = 6): AudioBuffer {
     const len = Math.floor(context.sampleRate * seconds);
     const buf = context.createBuffer(1, len, context.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    // Audio initialization must not advance a seeded world/physics RNG. Each bed
+    // starts at its own offset in this private six-second loop, avoiding correlated
+    // filtering of one identical noise phase and an obvious two-second repeat.
+    let state = 0x61756469;
+    for (let i = 0; i < len; i++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      data[i] = (state >>> 0) / 0x80000000 - 1;
+    }
     return buf;
   }
 
   // A looping filtered-noise bed whose gain we modulate per frame. Started once at
   // unlock and left running (gain at 0 = silent), so there is no start/stop latency.
   function makeBed(context: AudioContext, buf: AudioBuffer, dest: AudioNode,
-                   type: BiquadFilterType, freq: number, q: number): NoiseBed {
+                   type: BiquadFilterType, freq: number, q: number,
+                   offset = 0, stereo = false): NoiseBed {
     const src = context.createBufferSource();
     src.buffer = buf;
     src.loop = true;
@@ -265,9 +316,19 @@ export const Sfx = (function() {
     gain.gain.value = 0;
     src.connect(filter);
     filter.connect(gain);
-    gain.connect(dest);
-    src.start();
-    return { filter, gain };
+    // StereoPannerNode is optional: older/Web Audio shims still get the full mono
+    // mix. No positional-distance attenuation: this is air surrounding the rider.
+    let panner: StereoPannerNode | null = null;
+    if (stereo && typeof context.createStereoPanner === 'function') {
+      panner = context.createStereoPanner();
+      panner.pan.value = 0;
+      gain.connect(panner);
+      panner.connect(dest);
+    } else {
+      gain.connect(dest);
+    }
+    src.start(0, offset);
+    return { source: src, filter, gain, panner };
   }
 
   function buildGraph(context: AudioContext) {
@@ -276,20 +337,38 @@ export const Sfx = (function() {
     master.connect(context.destination);
 
     noiseBuffer = makeNoiseBuffer(context);
-    wind = makeBed(context, noiseBuffer, master, 'lowpass', 500, 0.7);
-    carve = makeBed(context, noiseBuffer, master, 'bandpass', 2500, 0.8);
-    avalanche = makeBed(context, noiseBuffer, master, 'lowpass', 110, 0.6);
-    // The howl: a narrow, high-Q bandpass on the same noise → a tonal whistle whose gain
-    // and pitch are driven per frame from the shared Wind field (see updateWindHowl).
-    howl = makeBed(context, noiseBuffer, master, 'bandpass', HOWL_FREQ_LO, HOWL_Q);
+    wind = makeBed(context, noiseBuffer, master, 'lowpass', 500, 0.7, 0, true);
+    carve = makeBed(context, noiseBuffer, master, 'bandpass', 2500, 0.8, 0.79);
+    avalanche = makeBed(context, noiseBuffer, master, 'lowpass', 110, 0.6, 1.67);
+    howl = makeBed(context, noiseBuffer, master, 'bandpass', HOWL_FREQ_LO, HOWL_Q, 2.91, true);
     // The forest rustle: a broad, bright bandpass → the needle hiss of wind through
     // conifers, gained by wind × forest proximity per frame (see updateForest).
-    rustle = makeBed(context, noiseBuffer, master, 'bandpass', RUSTLE_FREQ_LO, 0.9);
+    rustle = makeBed(context, noiseBuffer, master, 'bandpass', RUSTLE_FREQ_LO, 0.9, 4.37, true);
   }
 
-  function rampTo(param: AudioParam, value: number) {
+  function rampTo(param: AudioParam, value: number, tau = RAMP_TAU) {
     if (!ctx) return;
-    param.setTargetAtTime(value, ctx.currentTime, RAMP_TAU);
+    param.setTargetAtTime(finite(value), ctx.currentTime, tau);
+  }
+
+  function clearGraph() {
+    for (const bed of [wind, carve, avalanche, howl, rustle]) {
+      if (!bed) continue;
+      try { bed.source.stop(); } catch { /* already stopped */ }
+      // Close still releases the graph if an older test shim lacks disconnect().
+      for (const node of [bed.source, bed.filter, bed.gain, bed.panner]) {
+        try { node?.disconnect(); } catch { /* unsupported shim */ }
+      }
+    }
+    try { master?.disconnect(); } catch { /* unsupported shim */ }
+    if (ctx) {
+      try { ctx.close().catch(() => {}); } catch { /* already closed / unsupported */ }
+    }
+    ctx = null;
+    master = null;
+    noiseBuffer = null;
+    wind = carve = avalanche = howl = rustle = null;
+    running = false;
   }
 
   // --- one-shot helpers --------------------------------------------------------
@@ -356,26 +435,34 @@ export const Sfx = (function() {
           buildGraph(ctx);
         }
         if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        if (!running) {
+          // A replay starts centered even when the previous view was orbiting.
+          for (const bed of [wind, howl, rustle]) {
+            if (bed?.panner) rampTo(bed.panner.pan, 0, WIND_RAMP_TAU);
+          }
+        }
         running = true;
         // Bring the ambient wind bed up to its idle floor.
         if (wind) rampTo(wind.gain.gain, windGainForSpeed(0));
       } catch (e) {
         console.warn('[Sfx] unlock failed:', (e as Error).message);
-        ctx = null;
+        clearGraph();
       }
     },
 
-    // Per-frame continuous skiing bed: wind scales with the skier's speed AND the shared
-    // Wind field (#253 PR5) so a gusty slope hisses even at a standstill; edge swish with
-    // the active technique. No-op until unlocked. `isInAir` silences the ground edge.
-    // `windStrength` is Wind.strength() (0..1); it defaults to 0 so direct callers and the
-    // ?test= suites stay on the exact pre-#253 calm-field path.
-    updateSkiing: function(speed: number, technique: string, isInAir: boolean, windStrength = 0) {
-      if (!running || !ctx || muted) return;
+    // Continuous skiing bed: apparent airflow when motion is provided, otherwise
+    // the legacy speed/field mapping. `isInAir` silences the ground edge. Updating
+    // muted beds is intentional: the master is silent, and unmute gets fresh wind.
+    // Wind strength defaults to zero for existing callers.
+    updateSkiing: function(speed: number, technique: string, isInAir: boolean,
+                          windStrength = 0, motion?: WindAudioMotion) {
+      if (!running || !ctx) return;
       if (wind) {
-        rampTo(wind.gain.gain, windGainForField(speed, windStrength));
-        // A faster glide — or a stronger wind — brightens the wind (rising whoosh / whistle).
-        rampTo(wind.filter.frequency, 300 + clamp01(speed / SPEED_REF) * 700 + clamp01(windStrength) * 180);
+        const sound = motion ? windAudioForMotion(motion, windStrength) : null;
+        rampTo(wind.gain.gain, sound?.gain ?? windGainForField(speed, windStrength), WIND_RAMP_TAU);
+        rampTo(wind.filter.frequency, sound?.frequency ??
+          (300 + clamp01(finite(speed) / SPEED_REF) * 700 + clamp01(finite(windStrength)) * 180), WIND_RAMP_TAU);
+        if (wind.panner) rampTo(wind.panner.pan, sound?.pan ?? 0, WIND_RAMP_TAU);
       }
       if (carve) {
         const g = isInAir ? 0 : carveGainForTechnique(technique, speed);
@@ -386,20 +473,17 @@ export const Sfx = (function() {
     // Per-frame avalanche rumble. Pass the same (active, closestDistance) the effects
     // banner uses. No-op until unlocked.
     setAvalanche: function(active: boolean, distance: number) {
-      if (!running || !ctx || muted) return;
+      if (!running || !ctx) return;
       if (avalanche) rampTo(avalanche.gain.gain, avalancheGainForDistance(active, distance));
     },
 
-    // Per-frame wind "howl": a resonant whistle layered on the ambient bed, driven by the
-    // shared Wind field (#253). `strength` (Wind.strength(), 0..1) sets how loud it howls —
-    // silent on a calm slope, rising as the wind builds and swelling with each gust; `gust`
-    // (Wind.gust(), 0..1) sweeps the whistle's pitch so it wavers like real wind. Reads the
-    // field only (never pos/velocity) so it is invariant-safe; no-op until unlocked. Driven
-    // from the render loop after Wind.update(), independent of the physics-step skiing bed.
-    updateWindHowl: function(strength: number, gust: number) {
-      if (!running || !ctx || muted || !howl) return;
-      rampTo(howl.gain.gain, howlGainForWind(strength));
-      rampTo(howl.filter.frequency, howlFreqForGust(gust));
+    // Broad gust turbulence: shared-field strength sets its gain and gust opens
+    // the low band. Stereo follows the upwind source in the current camera frame.
+    updateWindHowl: function(strength: number, gust: number, pan = 0) {
+      if (!running || !ctx || !howl) return;
+      rampTo(howl.gain.gain, howlGainForWind(strength), WIND_RAMP_TAU);
+      rampTo(howl.filter.frequency, howlFreqForGust(gust), WIND_RAMP_TAU);
+      if (howl.panner) rampTo(howl.panner.pan, safePan(pan), WIND_RAMP_TAU);
     },
 
     // Per-frame forest rustle (#253 Phase B): the needle hiss of wind moving through
@@ -408,10 +492,11 @@ export const Sfx = (function() {
     // product gating keeps an open bowl silent at any wind and a glade silent in a
     // calm. Reads the field + positions only (never pos/velocity); no-op until
     // unlocked, like every bed.
-    updateForest: function(strength: number, gust: number, proximity: number) {
-      if (!running || !ctx || muted || !rustle) return;
-      rampTo(rustle.gain.gain, rustleGainForForest(strength, proximity));
-      rampTo(rustle.filter.frequency, rustleFreqForGust(gust));
+    updateForest: function(strength: number, gust: number, proximity: number, pan = 0) {
+      if (!running || !ctx || !rustle) return;
+      rampTo(rustle.gain.gain, rustleGainForForest(strength, proximity), WIND_RAMP_TAU);
+      rampTo(rustle.filter.frequency, rustleFreqForGust(gust), WIND_RAMP_TAU);
+      if (rustle.panner) rampTo(rustle.panner.pan, safePan(pan), WIND_RAMP_TAU);
     },
 
     // One-shot: a gust just dumped a laden tree's snow nearby (tree-shed.ts). A soft
@@ -491,14 +576,7 @@ export const Sfx = (function() {
     // context; dropping the node handles lets a later unlock() rebuild the graph on a
     // fresh context. Idempotent and inert if never unlocked.
     teardown: function() {
-      running = false;
-      if (ctx) {
-        // close() returns a Promise; swallow async rejection and any sync throw.
-        try { ctx.close().catch(() => {}); } catch { /* already closed / unsupported */ }
-        ctx = null;
-      }
-      master = null;
-      wind = carve = avalanche = howl = rustle = null;
+      clearGraph();
     },
 
     // For tests / diagnostics. `active` reflects whether the context is live.

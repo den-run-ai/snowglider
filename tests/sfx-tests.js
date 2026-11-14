@@ -79,8 +79,8 @@ async function main() {
   check('howl: NaN strength treated as calm', howlGainForWind(NaN) === 0);
   // Pitch sweeps up with the gust so the tone wavers (a "howl", not a static whistle).
   check('howl: pitch rises on a gust', howlFreqForGust(1) > howlFreqForGust(0));
-  check('howl: lull pitch is the low end', approx(howlFreqForGust(0), 600));
-  check('howl: full-gust pitch is the high end', approx(howlFreqForGust(1), 1200));
+  check('howl: lull pitch is the low end', approx(howlFreqForGust(0), 240));
+  check('howl: full-gust pitch is the high end', approx(howlFreqForGust(1), 560));
   check('howl: gust clamped past 1', approx(howlFreqForGust(9), howlFreqForGust(1)));
   check('howl: NaN gust treated as a lull', howlFreqForGust(NaN) === howlFreqForGust(0));
 

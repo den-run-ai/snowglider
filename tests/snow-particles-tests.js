@@ -12,10 +12,8 @@
 //      a radially symmetric texture). The splash pool keeps per-sprite materials by
 //      design (its per-particle lifetime fade animates material.opacity, which sprites
 //      cannot express per-instance) but shares its two textures.
-//   3. FRAME-RATE INDEPENDENCE — the sideways wobble is delta-scaled: total wobble
-//      displacement over one simulated second matches between dt=1/60 and dt=1/120 and
-//      matches the analytic integral of the wobble term (#209 bug class, which
-//      previously survived in the visuals: 120 Hz drifted sideways twice as fast).
+//   3. FRAME-RATE INDEPENDENCE — bounded flutter and air-drag displacement agree
+//      after equal elapsed time; the shared wind remains visible through flutter.
 //   4. TEARDOWN — with shared materials, teardownSnowflakes disposes each UNIQUE
 //      material/texture exactly once (Set-based dedup), stays idempotent, and detaches
 //      every sprite.
@@ -84,7 +82,7 @@ async function main() {
     // Pin every flake to a controlled state: no fall, no wind coupling, and a slow
     // wobble phase so the discretization error of the two step sizes stays far below
     // the tolerance while the old per-frame bug would show up as a clean 2x.
-    const WOBBLE = 0.1, WSPEED = 0.01, PHASE = Math.PI / 2;
+    const WOBBLE = 0.1, WSPEED = 1.3, PHASE = 0.3;
     const setup = () => {
       for (const f of flakes) {
         f.position.set(0, 1000, -40);
@@ -93,6 +91,7 @@ async function main() {
         f.userData.wobble = WOBBLE;
         f.userData.wobbleSpeed = WSPEED;
         f.userData.wobblePos = PHASE;
+        f.userData.windVelocityX = f.userData.windVelocityZ = 0;
       }
     };
 
@@ -105,19 +104,34 @@ async function main() {
     const d60 = run(1 / 60, 60);   // one simulated second at 60 Hz
     const d120 = run(1 / 120, 120); // one simulated second at 120 Hz
 
-    // Analytic integral of the x wobble term: ∫0..1 WOBBLE*60*sin(PHASE + WSPEED*t) dt.
-    const analyticX = (WOBBLE * 60 / WSPEED) * (Math.cos(PHASE) - Math.cos(PHASE + WSPEED));
+    const analyticX = WOBBLE * (Math.sin(PHASE + WSPEED) - Math.sin(PHASE));
     check(`x wobble displacement matches across 60/120 Hz (|${d60.x.toFixed(6)} - ${d120.x.toFixed(6)}| < 1e-3)`,
       Math.abs(d60.x - d120.x) < 1e-3);
-    check('x wobble displacement matches the analytic integral at 60 Hz',
-      Math.abs(d60.x - analyticX) < 5e-2);
-    check('x wobble displacement matches the analytic integral at 120 Hz',
-      Math.abs(d120.x - analyticX) < 5e-2);
+    check('x flutter matches the bounded displacement at 60 Hz', Math.abs(d60.x - analyticX) < 1e-10);
+    check('x flutter matches the bounded displacement at 120 Hz', Math.abs(d120.x - analyticX) < 1e-10);
     check('z wobble displacement matches across 60/120 Hz',
       Math.abs(d60.z - d120.z) < 1e-3);
-    // The old per-frame accumulation would have doubled displacement at 120 Hz.
-    check('120 Hz displacement is nowhere near the old 2x per-frame bug',
-      Math.abs(d120.x) < Math.abs(analyticX) * 1.5);
+    check('flutter remains inside twice its physical amplitude over a minute', Math.abs(run(1 / 30, 1800).x) <= 2 * WOBBLE);
+
+    const { Wind, DEFAULT_WIND_CONFIG } = await import('../src/wind.js');
+    Wind.configure({ baseStrength: 6, gustRange: 0, prevailingAngle: 0, dirWander: 0 });
+    const advect = (fps) => {
+      setup();
+      for (const f of flakes) { f.userData.windFactor = 0.8; f.userData.wobble = 0; }
+      for (let i = 0; i < fps; i++) Snow.updateSnowflakes(1 / fps, player, scene);
+      return { x: flakes[0].position.x, z: flakes[0].position.z, v: flakes[0].userData.windVelocityX };
+    };
+    const drift = [30, 60, 144].map(advect);
+    check('wind drag agrees at 30/60/144 Hz', drift.every(d => Math.abs(d.x - drift[0].x) < 1e-9 && Math.abs(d.v - drift[0].v) < 1e-9));
+    check('snow moves downwind with inertia and without sideways bias', drift[0].x > 3 && drift[0].x < 4.8 && drift[0].z === -40);
+    const originalWindow = globalThis.window;
+    globalThis.window = /** @type {any} */ ({ matchMedia: () => ({ matches: true }) });
+    const calm = advect(60);
+    check('reduced motion removes drift, flutter and streaking', calm.x === 0 && calm.z === -40 && flakes[0].userData.windStreak === false);
+    if (originalWindow === undefined) delete /** @type {any} */ (globalThis).window;
+    else globalThis.window = originalWindow;
+    Wind.configure(DEFAULT_WIND_CONFIG);
+    Wind.reset();
   }
 
   // ---- snowflakes: teardown disposes each unique resource exactly once --------

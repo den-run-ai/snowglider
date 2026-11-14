@@ -359,9 +359,9 @@ function getSnowMaterial(): THREE.MeshStandardMaterial {
 // The forest leans and flutters in the shared, deterministic wind field (src/wind.ts) —
 // the same field that drifts the snowfall and streams the scarf. This is a GPU vertex
 // sway (an `onBeforeCompile` injection on the instanced tree materials), NOT a per-frame
-// CPU walk of the hundreds of instances: the shader displaces each vertex downwind in
-// the material-space that sits between the instance transform and the view transform, so
-// the whole forest sways for the cost of three uniform writes per frame.
+// CPU walk of the hundreds of instances: the shader converts world-space downwind
+// displacement back through each instance TRS, then bends position and normals together.
+// The whole forest sways for the cost of three uniform writes per frame.
 //
 // Cosmetic only: it moves vertices in the shader and never touches any position/collision
 // data (`treePositions` is unchanged), so the physics invariant stays byte-identical.
@@ -378,7 +378,7 @@ function getSnowMaterial(): THREE.MeshStandardMaterial {
 // coherently. One shared uniform set drives every material.
 // NOTE: tests/ez-sway-deformation-tests.js mirrors the lean/flutter formula below
 // in JS to bound intra-tree deformation on the real EZ archetypes — update that
-// mirror in lockstep with any change to TREE_SWAY_PROJECT_VERTEX.
+// mirror in lockstep with any change to TREE_SWAY_FUNCTIONS.
 const treeWindUniforms = {
   uWindDir: { value: new THREE.Vector2(1, 0) }, // unit downwind direction (world x, z)
   uWindAmp: { value: 0 },                        // world-unit lean at full weight; 0 = calm
@@ -434,90 +434,113 @@ const TREE_SWAY_HEAD_BASE = `#include <common>
   #define TREE_LOAD_DROOP 0.6
   #define TREE_SNOW_SHRINK_MIN 0.3`;
 
-// Expanded default three r0.184 `<project_vertex>` with the sway applied in model space —
-// after `instanceMatrix`, before `modelViewMatrix`. The forest InstancedMeshes have an
-// identity model matrix, so model space is world space here and the lean is added to the
-// world x/z. Rooted (trunk) vs. uniform (canopy) is selected by `TREE_SWAY_ROOTED`,
-// while `TREE_SWAY_FLUTTER` adds live-needle crosswind motion. Pinned to the stock
-// chunk; if a three upgrade rewrites `<project_vertex>` this replace must be revisited
-// (docs/THREEJS_UPGRADE.md).
-const TREE_SWAY_PROJECT_VERTEX = `vec4 mvPosition = vec4( transformed, 1.0 );
-#ifdef USE_BATCHING
-  mvPosition = batchingMatrix * mvPosition;
-#endif
+// Compute displacement and its analytic derivatives once per vertex. Keeping the
+// deformation in `transformed` (before the stock projection/world-position chunks)
+// makes visible geometry, shadow receivers, fog and depth casters agree. The old
+// project_vertex-only edit bent the silhouette but left lighting normals and
+// world-space shadow coordinates at the undeformed location.
+const TREE_SWAY_FUNCTIONS = `
 #ifdef USE_INSTANCING
-  #ifdef TREE_SNOW_LOAD
-    float snowLoad = clamp( aSnowLoad, 0.0, 1.0 );
-  #else
-    float snowLoad = 0.0;
-  #endif
-  #ifdef TREE_SNOW_SHRINK
-    mvPosition.xyz *= mix( TREE_SNOW_SHRINK_MIN, 1.0, clamp( aSnowRatio, 0.0, 1.0 ) );
-  #endif
-  mvPosition = instanceMatrix * mvPosition;
-  {
+  struct TreeWindDeformation {
+    vec3 offset;
+    vec3 gradientX;
+    vec3 gradientY;
+  };
+  // Inverse of this forest's orthogonal TRS basis, matching three's own instanced
+  // normal transform. This preserves WORLD wind direction through arbitrary tree
+  // yaw/nonuniform scale without a per-vertex general matrix inverse.
+  vec3 treeLocalVector( vec3 worldVector ) {
+    mat3 basis = mat3( instanceMatrix );
+    return vec3( dot( basis[0], worldVector ), dot( basis[1], worldVector ), dot( basis[2], worldVector ) )
+      / max( vec3( dot( basis[0], basis[0] ), dot( basis[1], basis[1] ), dot( basis[2], basis[2] ) ), vec3( 0.000001 ) );
+  }
+  TreeWindDeformation treeWindAt( vec3 vertex ) {
+    #ifdef TREE_SNOW_LOAD
+      float snowLoad = clamp( aSnowLoad, 0.0, 1.0 );
+    #else
+      float snowLoad = 0.0;
+    #endif
+    float weightDerivative = 0.0;
     #if defined( TREE_SWAY_INSTANCE_WEIGHT )
       float swayWeight = aSwayWeight;
     #elif defined( TREE_SWAY_ROOT_HEIGHT )
-      float swayWeight = clamp( position.y / TREE_SWAY_ROOT_HEIGHT, 0.0, 1.0 );
+      float swayWeight = clamp( vertex.y / TREE_SWAY_ROOT_HEIGHT, 0.0, 1.0 );
+      if ( vertex.y > 0.0 && vertex.y < TREE_SWAY_ROOT_HEIGHT ) weightDerivative = 1.0 / TREE_SWAY_ROOT_HEIGHT;
     #elif defined( TREE_SWAY_ROOTED )
-      float swayWeight = clamp( ( position.y + TREE_TRUNK_HALF ) / ( 2.0 * TREE_TRUNK_HALF ), 0.0, 1.0 );
+      float swayWeight = clamp( ( vertex.y + TREE_TRUNK_HALF ) / ( 2.0 * TREE_TRUNK_HALF ), 0.0, 1.0 );
+      if ( abs( vertex.y ) < TREE_TRUNK_HALF ) weightDerivative = 1.0 / ( 2.0 * TREE_TRUNK_HALF );
     #else
       float swayWeight = 1.0;
     #endif
-    // Per-INSTANCE phase — the tree's planted origin, NOT the vertex's own world
-    // position. The phase exists to desynchronize NEIGHBOURING trees; deriving it
-    // per vertex made different parts of ONE tree lean at different magnitudes and
-    // phases — the lean factor stays positive (always downwind), but ampVar's world
-    // period is ~2.5u, smaller than a canopy, so the spread reached most of the
-    // full amplitude. That was invisible at the original 0.35u amplitude, but the
-    // widened 0.9u band (#253 sway-visibility follow-up) crumpled the EZ
-    // archetypes' needle cards and branch tubes into diagonal scraggle — the
-    // "realistic trees disappeared from the foreground" regression. With the phase
-    // anchored to instanceMatrix's translation every vertex of a tree swings
-    // coherently, and the only intra-tree variation left is the height-rooted
-    // swayWeight — the natural base-anchored bend.
-    float swayPhase = dot( instanceMatrix[3].xz, vec2( 0.35, 0.27 ) );
+    // All parts of an EZ tree use its planted root, including separately placed
+    // snow shelves. A shelf's translated anchor is NOT a separate wind phase.
+    #ifdef TREE_SWAY_INSTANCE_WEIGHT
+      float swayPhase = dot( aSwayOrigin, vec2( 0.35, 0.27 ) );
+    #else
+      float swayPhase = dot( instanceMatrix[3].xz, vec2( 0.35, 0.27 ) );
+    #endif
     float swayOsc = sin( uWindSwayTime * TREE_SWAY_RATE + swayPhase )
                   + 0.3 * sin( uWindSwayTime * TREE_SWAY_RATE * 2.1 + swayPhase * 1.7 );
     float ampVar = 0.82 + 0.18 * sin( swayPhase * 5.7 + 2.1 );
     float loadEase = 1.0 - TREE_LOAD_DAMP * snowLoad;
-    // 0.6 static downwind lean + 0.4 oscillation: more of the bend is animated swing than
-    // the old 0.75/0.25 split (which read as a near-fixed tilt), so the canopy visibly
-    // pulses with the gust cycle while always leaning downwind (the factor stays > 0).
-    float lean = uWindAmp * ampVar * swayWeight * loadEase * ( 0.6 + 0.4 * swayOsc );
-    mvPosition.x += uWindDir.x * lean;
-    mvPosition.z += uWindDir.y * lean;
-    mvPosition.y -= TREE_LOAD_DROOP * snowLoad * swayWeight;
+    float leanSlope = uWindAmp * ampVar * loadEase * ( 0.6 + 0.4 * swayOsc );
+    float lean = leanSlope * swayWeight;
+    TreeWindDeformation result;
+    result.offset = vec3( uWindDir.x * lean, -TREE_LOAD_DROOP * snowLoad * swayWeight, uWindDir.y * lean );
+    result.gradientX = vec3( 0.0 );
+    result.gradientY = vec3( uWindDir.x * leanSlope, -TREE_LOAD_DROOP * snowLoad, uWindDir.y * leanSlope ) * weightDerivative;
     #ifdef TREE_SWAY_FLUTTER
-      // Needle shimmer. On height-rooted geometry the along-tree variation keys off
-      // the SCALE-INDEPENDENT swayWeight (0 at the base, 1 at the crown) instead of
-      // the raw LOCAL vertex position: the EZ archetype geometries are ~5x their
-      // world size in local units (a ~10u tree spans local y 0..65), so the old
-      // position.y*2.0 / position.x*3.0 frequencies — tuned for the small stylized
-      // cones — flipped sign every ~0.3 world units and shredded each needle card
-      // into its own phase (per-card crumple, same regression as the lean above).
-      // The classic fallback foliage carries no root height (swayWeight is a
-      // constant 1.0 there), so it keeps the original local-space frequencies —
-      // safe on its ~1-4 local-unit cones and what preserves its within-cone
-      // shimmer instead of a rigid per-cone shift.
+      // Normalize frequencies to tree height on EZ geometry. Raw local units
+      // crumpled large archetype needle cards in the earlier #394 regression.
       #if defined( TREE_SWAY_ROOT_HEIGHT ) || defined( TREE_SWAY_INSTANCE_WEIGHT )
         float flutterAlong = swayWeight * 6.0;
         float flutterAcross = swayWeight * 11.0;
+        vec2 flutterDerivativeX = vec2( 0.0 );
+        vec2 flutterDerivativeY = vec2( 6.0, 11.0 ) * weightDerivative;
       #else
-        float flutterAlong = position.y * 2.0;
-        float flutterAcross = position.x * 3.0;
+        float flutterAlong = vertex.y * 2.0;
+        float flutterAcross = vertex.x * 3.0;
+        vec2 flutterDerivativeX = vec2( 0.0, 3.0 );
+        vec2 flutterDerivativeY = vec2( 2.0, 0.0 );
       #endif
-      float flutter = uWindAmp * swayWeight * loadEase
-                    * ( 0.10 * sin( uWindSwayTime * 5.3 + swayPhase * 3.9 + flutterAlong )
-                      + 0.06 * sin( uWindSwayTime * 8.9 + swayPhase * 7.1 + flutterAcross ) );
-      mvPosition.x -= uWindDir.y * flutter;
-      mvPosition.z += uWindDir.x * flutter;
+      vec2 flutterPhase = vec2( uWindSwayTime * 5.3 + swayPhase * 3.9 + flutterAlong,
+                               uWindSwayTime * 8.9 + swayPhase * 7.1 + flutterAcross );
+      vec2 flutterScale = vec2( 0.10, 0.06 );
+      float flutterWave = dot( flutterScale, sin( flutterPhase ) );
+      vec2 flutterSlope = flutterScale * cos( flutterPhase );
+      float flutter = uWindAmp * swayWeight * loadEase * flutterWave;
+      vec3 acrossWind = vec3( -uWindDir.y, 0.0, uWindDir.x );
+      result.offset += acrossWind * flutter;
+      result.gradientX += acrossWind * uWindAmp * loadEase * swayWeight * dot( flutterSlope, flutterDerivativeX );
+      result.gradientY += acrossWind * uWindAmp * loadEase *
+        ( weightDerivative * flutterWave + swayWeight * dot( flutterSlope, flutterDerivativeY ) );
     #endif
+    return result;
   }
-#endif
-mvPosition = modelViewMatrix * mvPosition;
-gl_Position = projectionMatrix * mvPosition;`;
+#endif`;
+
+const TREE_SWAY_BEGIN_VERTEX = `#include <begin_vertex>
+#ifdef USE_INSTANCING
+  #ifdef TREE_SNOW_SHRINK
+    transformed *= mix( TREE_SNOW_SHRINK_MIN, 1.0, clamp( aSnowRatio, 0.0, 1.0 ) );
+  #endif
+  transformed += treeLocalVector( treeWind.offset );
+#endif`;
+
+// Cofactor(J) is proportional to inverse-transpose(J). Transform normals with
+// that instead of bending their positions only; this keeps bark/needles lit from
+// their CURRENT orientation. Tangents use J itself. Uniform snow shrink does not
+// change normals, and anchored snow has zero deformation derivatives.
+const TREE_SWAY_BEGIN_NORMAL = `#include <beginnormal_vertex>
+#ifdef USE_INSTANCING
+  vec3 treeDx = vec3( 1.0, 0.0, 0.0 ) + treeLocalVector( treeWind.gradientX );
+  vec3 treeDy = vec3( 0.0, 1.0, 0.0 ) + treeLocalVector( treeWind.gradientY );
+  vec3 treeDz = vec3( 0.0, 0.0, 1.0 );
+  objectNormal = mat3( cross( treeDy, treeDz ), cross( treeDz, treeDx ), cross( treeDx, treeDy ) ) * objectNormal;
+  #ifdef USE_TANGENT
+    objectTangent = mat3( treeDx, treeDy, treeDz ) * objectTangent;
+  #endif
+#endif`;
 
 /** Per-instance snow-load response a material opts into (issue #253, Phase B):
  *  'flex' parts (foliage cones/branches, EZ needles) read `aSnowLoad` (the tree's
@@ -538,7 +561,7 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeigh
   if (profile === 'flutter') head += '\n  #define TREE_SWAY_FLUTTER';
   if (profile === 'anchored') {
     // Per-instance weight (three transpiles `attribute` -> `in` under WebGL2).
-    head += '\n  #define TREE_SWAY_INSTANCE_WEIGHT\n  attribute float aSwayWeight;';
+    head += '\n  #define TREE_SWAY_INSTANCE_WEIGHT\n  attribute float aSwayWeight;\n  attribute vec2 aSwayOrigin;';
   }
   if (rootHeight !== undefined && rootHeight > 0) {
     head += `\n  #define TREE_SWAY_ROOT_HEIGHT ${rootHeight.toFixed(2)}`;
@@ -552,15 +575,20 @@ function applyTreeSway(material: THREE.Material, profile: SwayProfile, rootHeigh
     shader.uniforms.uWindAmp = treeWindUniforms.uWindAmp;
     shader.uniforms.uWindSwayTime = treeWindUniforms.uWindSwayTime;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', head)
-      .replace('#include <project_vertex>', TREE_SWAY_PROJECT_VERTEX);
+      .replace('#include <common>', head + TREE_SWAY_FUNCTIONS)
+      .replace(/void main\s*\(\s*\)\s*\{/, `void main() {
+#ifdef USE_INSTANCING
+  TreeWindDeformation treeWind = treeWindAt( position );
+#endif`)
+      .replace('#include <beginnormal_vertex>', TREE_SWAY_BEGIN_NORMAL)
+      .replace('#include <begin_vertex>', TREE_SWAY_BEGIN_VERTEX);
   };
   // onBeforeCompile edits are not part of three's default program cache key; a stable key
   // (varied by profile + root height + load mode) keeps the swayed program from colliding
   // with an unswayed build or a differently-rooted/loaded variant.
   const heightTag = rootHeight !== undefined && rootHeight > 0 ? `-h${rootHeight.toFixed(2)}` : '';
   const loadTag = loadMode ? `-${loadMode}` : '';
-  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}${loadTag}-v5`;
+  material.customProgramCacheKey = () => `tree-wind-sway-${profile}${heightTag}${loadTag}-v6`;
 }
 
 /** Advance the forest's wind sway one render frame. Reads the shared Wind field (downwind
@@ -834,6 +862,8 @@ interface EzPlacement {
 interface EzSnowDesc {
   matrix: THREE.Matrix4;
   weight: number;
+  originX: number;
+  originZ: number;
   load: number;
   treeIndex: number;
 }
@@ -881,7 +911,7 @@ function getEzMaterialSets(archetypes: EzArchetype[]): EzMaterialSet[] {
         normalMap: getBarkNormal(),
         normalScale: new THREE.Vector2(0.8, 0.8)
       });
-      applyTreeSway(bark, 'rooted', a.height);
+      applyTreeSway(bark, 'rooted', a.height, 'flex');
       const leavesParams: THREE.MeshStandardMaterialParameters = {
         color: 0xffffff,
         roughness: 0.85,
@@ -1172,19 +1202,26 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     if (list.length === 0) return;
     const branches = new THREE.InstancedMesh(a.branches, sets[i]!.bark, list.length);
     branches.castShadow = true;
-    branches.customDepthMaterial = getSwayDepthMaterial('rooted', { rootHeight: a.height });
+    branches.customDepthMaterial = getSwayDepthMaterial('rooted', { rootHeight: a.height, loadMode: 'flex' });
     branches.name = 'forestInstanced';
     branches.userData.forestPart = 'ezBranches';
     branches.userData.ezArchetype = i;
-    // The needle cards carry the per-instance snow load ('flex': damped sway + droop),
+    // Branches and needle cards share the snow-load response, so the canopy stays
+    // attached while a loaded tree bends and springs back after shedding.
     // and instanced attributes live on the geometry — clone the shared archetype
     // buffer per build (ownsGeometry ⇒ the re-init sweep disposes it). RNG-neutral
     // like the stylized clones: a clone's uuid must not advance a seeded stream.
     const savedRandom = Math.random;
     Math.random = depthUuidRandom;
+    let branchesGeometry: THREE.BufferGeometry;
+    let branchLoadAttr: THREE.InstancedBufferAttribute;
     let leavesGeometry: THREE.BufferGeometry;
     let leafLoadAttr: THREE.InstancedBufferAttribute;
     try {
+      branchesGeometry = a.branches.clone();
+      branchLoadAttr = new THREE.InstancedBufferAttribute(new Float32Array(list.length), 1);
+      branchLoadAttr.setUsage(THREE.DynamicDrawUsage);
+      branchesGeometry.setAttribute('aSnowLoad', branchLoadAttr);
       leavesGeometry = a.leaves.clone();
       leafLoadAttr = new THREE.InstancedBufferAttribute(new Float32Array(list.length), 1);
       leafLoadAttr.setUsage(THREE.DynamicDrawUsage);
@@ -1192,6 +1229,8 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     } finally {
       Math.random = savedRandom;
     }
+    branches.geometry = branchesGeometry;
+    branches.userData.ownsGeometry = true;
     const leaves = new THREE.InstancedMesh(leavesGeometry, sets[i]!.leaves, list.length);
     leaves.castShadow = true;
     leaves.customDepthMaterial = getSwayDepthMaterial('flutter', {
@@ -1215,6 +1254,7 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
       // Base snow load: deterministic from the same hash that sizes the snow below,
       // registered so the shed system can retune this tree at runtime.
       const load = ezLoadFromHash(h);
+      (branchLoadAttr.array as Float32Array)[j] = load;
       (leafLoadAttr.array as Float32Array)[j] = load;
       leafRanges[p.index] = [j, 1];
       treeBaseLoads[p.index] = load;
@@ -1230,6 +1270,7 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
         matrix: new THREE.Matrix4().compose(
           anchorPos, snowQuat.identity(), snowScale.set(capR, capR * 0.5, capR)),
         weight: 1, // crown tip: full canopy lean
+        originX: p.x, originZ: p.z,
         load,
         treeIndex: p.index
       });
@@ -1250,6 +1291,7 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
             matrix: new THREE.Matrix4().compose(
               anchorPos, snowQuat, snowScale.set(shelfR, shelfR * 0.35, shelfR)),
             weight: Math.min(1, Math.max(0, anchor.y / a.height)),
+            originX: p.x, originZ: p.z,
             load,
             treeIndex: p.index
           });
@@ -1259,12 +1301,14 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     });
     branches.instanceMatrix.needsUpdate = true;
     leaves.instanceMatrix.needsUpdate = true;
+    branchLoadAttr.needsUpdate = true;
     leafLoadAttr.needsUpdate = true;
     if (branches.instanceColor) branches.instanceColor.needsUpdate = true;
     if (leaves.instanceColor) leaves.instanceColor.needsUpdate = true;
     scene.add(branches);
     scene.add(leaves);
     built.push(branches, leaves);
+    treeLoadBindings.push({ load: branchLoadAttr, ratio: null, ranges: leafRanges });
     treeLoadBindings.push({ load: leafLoadAttr, ratio: null, ranges: leafRanges });
   });
 
@@ -1283,7 +1327,12 @@ function buildEzForest(scene: THREE.Scene, placements: EzPlacement[], archetypes
     const geometry = pooledGeometry.clone();
     const weights = new Float32Array(descs.length);
     const loads = new Float32Array(descs.length);
-    descs.forEach((d, j) => { weights[j] = d.weight; loads[j] = d.load; });
+    const origins = new Float32Array(descs.length * 2);
+    descs.forEach((d, j) => {
+      weights[j] = d.weight; loads[j] = d.load;
+      origins[j * 2] = d.originX; origins[j * 2 + 1] = d.originZ;
+    });
+    geometry.setAttribute('aSwayOrigin', new THREE.InstancedBufferAttribute(origins, 2));
     geometry.setAttribute('aSwayWeight', new THREE.InstancedBufferAttribute(weights, 1));
     // The 'shrink' load pair: caps/shelves follow the laden crown's droop (aSnowLoad)
     // and scale with the tree's remaining load (aSnowRatio; placed size = ratio 1).

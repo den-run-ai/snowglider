@@ -141,8 +141,11 @@ function update(snowman: THREE.Object3D, dt: number, m: FlexMotion): void {
   // pass wind leaves the scarf/brace byte-identical to before.
   const swayIn = clamp(finite(m.windSway ?? 0), -1, 1);
   const streamIn = clamp(finite(m.windStream ?? 0), -1, 1);
-  fs.windSwayS += (swayIn - fs.windSwayS) * clamp(dt * WIND_SMOOTH, 0, 1);
-  fs.windStreamS += (streamIn - fs.windStreamS) * clamp(dt * WIND_SMOOTH, 0, 1);
+  // Exact exponential relaxation: the scarf reaches the same pose after equal
+  // elapsed time at 30/60/144 Hz, including a slow frame without a cloth snap.
+  const windEase = -Math.expm1(-dt * WIND_SMOOTH);
+  fs.windSwayS += (swayIn - fs.windSwayS) * windEase;
+  fs.windStreamS += (streamIn - fs.windStreamS) * windEase;
   fs.windSwayS = finite(fs.windSwayS); fs.windStreamS = finite(fs.windStreamS);
 
   fs.t += dt;

@@ -31,6 +31,7 @@ async function main() {
   camera.updateMatrixWorld(true);
   for (const flake of flakes) flake.visible = false;
   const far = flakes[0], near = splash.particles[0], middle = splash.particles[1];
+  far.userData.windStreak = false; // stock-Sprite parity fixture; wind projection is checked below
   for (const [p, z] of [[far, -30], [middle, -20], [near, -10]]) {
     const sprite = /** @type {import('three').Sprite} */ (p);
     sprite.visible = true;
@@ -111,6 +112,19 @@ async function main() {
   assert.ok(referenceNdc.distanceTo(packedCenter.applyMatrix4(camera.projectionMatrix)) < 1e-6,
     'billboard corners retain Sprite size, alignment, rotation and perspective');
 
+  // Snow stretch follows camera-projected velocity, independently of bucket material.
+  far.userData.windStreak = true;
+  far.userData.windVelocityX = 5;
+  far.userData.windVelocityZ = 0;
+  far.userData.speed = 5;
+  batch.sync(camera);
+  assert.ok(Math.abs(sizes.getZ(0) - Math.atan2(-5, -5)) < 1e-6,
+    'a crosswind streak points along projected fall + wind');
+  assert.ok(sizes.getY(0) > 1.5 && sizes.getY(0) <= 1.5 * 1.4,
+    'snow stretch stays subtle rather than rain-like');
+  assert.equal(far.material.rotation, 0.63, 'shared flake material is never rotated');
+  far.userData.windStreak = false;
+
   // Moving/turning the camera must repack THIS render, not lag by one frame.
   camera.position.z = -40;
   camera.lookAt(0, 0, 0);
@@ -124,6 +138,41 @@ async function main() {
   far.scale.set(0, 0, 0);
   batch.sync(camera);
   assert.equal(batch.mesh.geometry.instanceCount, 0, 'no zero-area/inactive GPU instances');
+
+  // A stretched corner can enter the view while the original Sprite sphere is
+  // wholly outside it. Exercise real frustum math, not only the uploaded size.
+  const edgeScene = new THREE.Scene();
+  const edgeBatch = snowBillboardsFor(edgeScene);
+  const edgeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+  edgeCamera.updateMatrixWorld(true);
+  const edgeMaterial = new THREE.SpriteMaterial();
+  const edgeFlake = new THREE.Sprite(edgeMaterial);
+  edgeFlake.position.set(0, 1.8, -5);
+  edgeFlake.userData = { windStreak: true, windVelocityX: 8, windVelocityZ: 0, speed: 8 };
+  edgeBatch.add([edgeFlake], () => 0);
+  const stretchedCorner = new THREE.Vector2(0.5, 0.7).rotateAround(new THREE.Vector2(), Math.atan2(-8, -8));
+  const visibleCorner = new THREE.Vector3(stretchedCorner.x, 1.8 + stretchedCorner.y, -5).project(edgeCamera);
+  assert.ok(Math.abs(visibleCorner.x) < 1 && Math.abs(visibleCorner.y) < 1,
+    'fixture really has a stretched corner inside the viewport');
+  edgeBatch.sync(edgeCamera);
+  assert.equal(edgeBatch.mesh.geometry.instanceCount, 1,
+    'wind-stretched snow must survive culling when its visible tip enters the frame');
+  edgeFlake.userData.windStreak = false;
+  edgeBatch.sync(edgeCamera);
+  assert.equal(edgeBatch.mesh.geometry.instanceCount, 0,
+    'the same unstretched flake is wholly outside the original bound');
+  edgeFlake.userData.windStreak = true;
+  edgeCamera.position.z = -10;
+  edgeCamera.lookAt(0, 0, 0);
+  edgeCamera.updateMatrixWorld(true);
+  edgeBatch.sync(edgeCamera);
+  const edgeSizes = edgeBatch.mesh.geometry.getAttribute('aParticleSizeRotation');
+  assert.equal(edgeBatch.mesh.geometry.instanceCount, 1);
+  assert.ok(Math.abs(edgeSizes.getZ(0) - Math.atan2(8, -8)) < 1e-6,
+    'opposite camera view reprojects the streak direction in this render');
+  assert.equal(edgeMaterial.rotation, 0, 'camera reversal never rotates a shared source material');
+  edgeBatch.dispose();
+  edgeMaterial.dispose();
 
   // CPU state sampling/upload must not consume gameplay OR cosmetic randomness.
   const savedRandom = Math.random;

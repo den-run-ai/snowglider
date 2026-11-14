@@ -30,7 +30,7 @@ import { Flex } from '../snowman-flex.js';
 import { Expression } from '../snowman-expression.js';
 import { CourseModule } from '../course.js';
 import { AudioModule } from '../audio.js';
-import { Sfx } from '../sfx.js';
+import { Sfx, windAudioForMotion, type WindAudioMotion } from '../sfx.js';
 import { Diag } from '../diagnostics.js';
 import { EffectsModule, type ShakeOffset } from '../effects.js';
 import { Physics, type PlayerState } from '../player-state.js';
@@ -453,20 +453,33 @@ export function createMainLoop(deps: MainLoopDeps) {
       avalancheDistance: exprAvalancheDist,
     });
 
-    // Sound effects (issue #158): a takeoff whoosh on the ground->air transition, a
-    // touchdown thump scaled by air time, and the continuous wind + ski-edge bed. The wind
-    // bed also reads the shared Wind field (#253 PR5) so a gusty slope hisses even at a
-    // standstill. Wind.strength() returns this frame's cached normalized magnitude — the
-    // SAME pre-Wind.update() sample the scarf reads above, so audio and the visible wind
-    // agree on the same gust (Wind.update() advances the clock after these observers; the
-    // one-frame lag is imperceptible and smoothed by the bed's ramp). Reads the per-frame
-    // result/events + wind only — never pos/velocity — so the harness is unaffected, and
-    // every call is a no-op until the SFX context is unlocked.
+    // Event sounds belong to this frame's aggregated physics outcomes. Continuous
+    // wind/edge beds update after camera framing so stereo uses the actual view.
     if (ev.tookOff) Sfx.jump();
     // Grade-keyed touchdown (JP-5): a graded manual-jump landing colors the thump
     // (CLEAN ping / SKETCHY skid-wash); null (auto-jump/hop) keeps the plain thump.
     if (ev.justLanded) Sfx.land(ev.landingForce, ev.landingQuality);
-    Sfx.updateSkiing(result.currentSpeed, result.technique, result.isInAir, Wind.strength());
+  }
+
+  const audioRight = new THREE.Vector3();
+  const audioMotion: WindAudioMotion = {
+    windX: 0, windZ: 0, velocityX: 0, velocityZ: 0, cameraRightX: 1, cameraRightZ: 0,
+  };
+
+  function updateWindAudio(result: UpdateResult): void {
+    const field = Wind.sample();
+    audioRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+    audioMotion.windX = field.x;
+    audioMotion.windZ = field.z;
+    audioMotion.velocityX = velocity.x;
+    audioMotion.velocityZ = velocity.z;
+    audioMotion.cameraRightX = audioRight.x;
+    audioMotion.cameraRightZ = audioRight.z;
+    const pan = windAudioForMotion(audioMotion, field.strength).environmentalPan;
+    Sfx.updateSkiing(result.currentSpeed, result.technique, result.isInAir, field.strength, audioMotion);
+    Sfx.updateWindHowl(field.strength, field.gust, pan);
+    const trees = Trees.treeCollidersReady() ? treePositions : NO_TREE_COLLIDERS;
+    Sfx.updateForest(field.strength, field.gust, forestProximityAt(trees, pos.x, pos.z), pan);
   }
 
   // --- Update Snowman: ONE physics step + its observers (legacy / test seam) -------
@@ -494,6 +507,7 @@ export function createMainLoop(deps: MainLoopDeps) {
     const ev = newFrameEvents();
     aggregateEvents(ev, result);
     renderObservers(delta, result, ev);
+    if (state.gameActive) updateWindAudio(result);
     // One step == one record here, at the caller's real delta; let diagnostics derive the
     // step from the previous position (no fixed-substep split in this single-call path).
     recordDiag(delta, result);
@@ -730,6 +744,10 @@ export function createMainLoop(deps: MainLoopDeps) {
       const alpha = accumulator / FIXED_DT;
       if (result) lastResult = result;
 
+      // Advance once BEFORE every visual/audio observer. Scarf, snowfall, forest,
+      // shedding and sound now read the same gust, including on >60 Hz frames.
+      Wind.update(frameDelta);
+
       // Per-render-frame observers + telemetry — once per frame on the REAL delta.
       // `result` is null only before the very first physics step has ever run; on a
       // no-step (>60 Hz) frame it is the retained last result, so the FPS/clamped signal
@@ -746,14 +764,8 @@ export function createMainLoop(deps: MainLoopDeps) {
       // Advance the shared wind field (issue #253). Deterministic and cosmetic-only —
       // every wind consumer (snow drift, scarf, tree sway, audio bed) reads this one
       // clock-advanced sample, so they all agree on the same gust at the same instant.
-      Wind.update(frameDelta);
       // Push the wind into the instanced forest's vertex sway (GPU; a few uniform writes).
       Snow.updateTreeWind(frameDelta);
-      // Drive the wind "howl" (#253): a resonant whistle that swells with the field's
-      // strength and sweeps its pitch with each gust. Reads the freshly-advanced sample
-      // (audio can lag a frame imperceptibly, unlike the scarf which reads the pre-update
-      // sample); a no-op until the SFX context is unlocked and silent on a calm slope.
-      Sfx.updateWindHowl(Wind.strength(), Wind.gust());
       // Dynamic snow load (#253 Phase B): a strong gust dumps the snow off the most
       // laden trees near the player — a powder puff bursts, the shelves shrink, the
       // branches spring back — and each shed is voiced by its distance. The collider-
@@ -763,9 +775,6 @@ export function createMainLoop(deps: MainLoopDeps) {
       for (const shed of TreeShed.update(frameDelta, snowman.position, shedTrees, scene)) {
         Sfx.treeShed(shed.distance);
       }
-      // The needle-rustle bed: wind moving through the trees AROUND the player.
-      Sfx.updateForest(Wind.strength(), Wind.gust(), forestProximityAt(shedTrees, pos.x, pos.z));
-
       Snow.updateSnowflakes(frameDelta, pos, scene);
 
       // Dynamic ski trails / snow accumulation (#17): carve fading grooves behind the
@@ -790,6 +799,8 @@ export function createMainLoop(deps: MainLoopDeps) {
       state.scenery?.update(frameDelta, snowman.position, {
         windStrength: Wind.strength(),
         windGust: Wind.gust(),
+        windX: Wind.sample().x,
+        windZ: Wind.sample().z,
       });
 
       // --- Avalanche warning UI + audio — render frame only (#403 review) -------
@@ -849,6 +860,7 @@ export function createMainLoop(deps: MainLoopDeps) {
       compensateShadowBiasForElevation(directionalLight, sunDirScratch.y, Sky.getMiddaySunElevationSin());
 
       updateCamera(frameDelta);
+      if (result) updateWindAudio(result);
       updateTimerDisplay(state.gameActive, state.simElapsed, CourseModule.getAirScore()); // Same simulation clock and banked points as the finish result.
 
       // Camera juice: speed-based FOV + shake. Apply for the render only, then revert

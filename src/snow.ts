@@ -45,6 +45,11 @@ interface FlakeState {
   /** Wind susceptibility (#253); optional so flakes created before the field existed
    *  fall back to 1 (defensive). */
   windFactor?: number;
+  /** Air drag preserves momentum through a changing gust (world units/second). */
+  windVelocityX?: number;
+  windVelocityZ?: number;
+  /** The billboard projects this motion into each camera's plane. */
+  windStreak?: boolean;
 }
 
 interface FlakeSprite extends THREE.Sprite {
@@ -112,11 +117,8 @@ function windDrift(): { x: number; z: number } {
 
 // Snowman code moved to snowman.js
 
-// Per-frame wobble rate multiplier: the sideways wobble was tuned as a per-FRAME
-// displacement at 60 fps; ×60 converts that tuned look into a per-SECOND rate so
-// `* delta` makes it frame-rate independent (the #209 bug class, still alive in the
-// visuals until this fix: at 120 Hz flakes drifted sideways twice as fast as at 60 Hz).
-const WOBBLE_RATE = 60;
+// Flutter is a bounded displacement about the wind-carried trajectory. Treating
+// its amplitude as a 60 Hz velocity used to overwhelm the actual wind direction.
 
 // Shared flake materials, bucketed by opacity. Snow is a diffuse scatterer, not an
 // emitter: NormalBlending keeps flakes readable *against* the bright sky/snow (slightly
@@ -164,9 +166,7 @@ function createSnowflakes(scene: THREE.Scene): readonly THREE.Sprite[] {
     const size = 0.1 + cosmeticRandom('snowParticles') * 0.4; // Wider range for more varied flakes
     snowflake.scale.set(size, size, size);
 
-    // Wind susceptibility (issue #253): lighter (smaller) flakes are carried further by
-    // the wind, so the snowfall slants instead of falling rigidly straight. sizeNorm 0
-    // (smallest) => 0.40, sizeNorm 1 (largest) => 0.12.
+    // Small crystals follow the air more closely; heavier clumps lag behind it.
     const sizeNorm = (size - 0.1) / 0.4; // 0..1 across the size range
 
     // Random positions in a box above the player
@@ -178,7 +178,10 @@ function createSnowflakes(scene: THREE.Scene): readonly THREE.Sprite[] {
       wobble: 0.05 + cosmeticRandom('snowParticles') * 0.15,      // More natural wobble
       wobbleSpeed: 0.3 + cosmeticRandom('snowParticles') * 2.0,   // Varied wobble speeds
       wobblePos: cosmeticRandom('snowParticles') * Math.PI * 2,
-      windFactor: 0.12 + 0.28 * (1 - sizeNorm)
+      windFactor: 0.45 + 0.45 * (1 - sizeNorm),
+      windVelocityX: 0,
+      windVelocityZ: 0,
+      windStreak: true,
     };
     const typedSnowflake: FlakeSprite = Object.assign(snowflake, { userData: flake });
 
@@ -226,28 +229,40 @@ function resetSnowflakePosition(snowflake: THREE.Sprite, playerPos: Vec3Like) {
 }
 
 function updateSnowflakes(delta: number, playerPos: Vec3Like, _scene: THREE.Scene) {
+  if (!Number.isFinite(delta) || delta <= 0) return;
   // Sample the shared wind once per frame (zero under reduced motion); each flake drifts
   // by it scaled by its own wind factor, so the whole snowfall leans the same way (#253).
   const wind = windDrift();
+  const reducedMotion = prefersReducedMotion();
   snowflakes.forEach(snowflake => {
     const flake = snowflake.userData;
     // Apply falling movement
     snowflake.position.y -= flake.speed * delta;
 
-    // Add some gentle sideways wobble for realism. Delta-scaled (× WOBBLE_RATE to keep
-    // the tuned 60 fps amplitude) so the drift rate is frame-rate independent — the
-    // fall/wind/phase terms already were, but the displacement itself accumulated per
-    // FRAME, doubling the sideways speed at 120 Hz (#209 bug class).
+    const phase = flake.wobblePos;
     flake.wobblePos += flake.wobbleSpeed * delta;
-    snowflake.position.x += Math.sin(flake.wobblePos) * flake.wobble * delta * WOBBLE_RATE;
-    // Add slight z-axis wobble too for more 3D movement
-    snowflake.position.z += Math.cos(flake.wobblePos * 0.7) * flake.wobble * 0.5 * delta * WOBBLE_RATE;
+    if (!reducedMotion) {
+      // Difference of offsets, not an accumulated velocity: bounded at every FPS.
+      snowflake.position.x += (Math.sin(flake.wobblePos) - Math.sin(phase)) * flake.wobble;
+      snowflake.position.z += (Math.cos(flake.wobblePos * 0.7) - Math.cos(phase * 0.7)) * flake.wobble * 0.5;
+    }
 
-    // Wind drift: blow the flake downwind, lighter flakes further (windFactor).
     const windFactor = flake.windFactor ?? 1;
-    snowflake.position.x += wind.x * windFactor * delta;
-    snowflake.position.z += wind.z * windFactor * delta;
-
+    flake.windStreak = !reducedMotion;
+    if (reducedMotion || windFactor === 0) {
+      flake.windVelocityX = flake.windVelocityZ = 0;
+    } else {
+      // Integrate dv/dt = response * (airVelocity - v) analytically for this
+      // sample. Both distance and terminal velocity agree across frame rates.
+      const response = 2.5 + windFactor * 2.5;
+      const ease = -Math.expm1(-response * delta);
+      const vx = flake.windVelocityX ?? 0, vz = flake.windVelocityZ ?? 0;
+      const tx = wind.x * windFactor, tz = wind.z * windFactor;
+      snowflake.position.x += tx * delta + (vx - tx) * ease / response;
+      snowflake.position.z += tz * delta + (vz - tz) * ease / response;
+      flake.windVelocityX = vx + (tx - vx) * ease;
+      flake.windVelocityZ = vz + (tz - vz) * ease;
+    }
 
     // Check if snowflake has fallen below the terrain or is too far from player
     // Cache-NEUTRAL sampler (#401): up to 1000 falling flakes query moving ad-hoc

@@ -7,8 +7,8 @@
 // MOTION SAFETY:
 //   * prefers-reduced-motion — under the OS "reduce motion" setting the whole layer FREEZES at
 //     its deterministic initial layout (mirrors the sun cycle in sky.ts). No animation at all.
-//   * cosmetic-only — update() reads dt + the wind strength and writes ONLY its own instance
-//     matrices; it never touches pos/velocity/terrain/course/collision. It advances off its OWN
+//   * cosmetic-only — update() reads dt + the shared wind vector and writes ONLY its own
+//     instance matrices and powder opacity; it never touches pos/velocity/terrain/course/collision. It advances off its OWN
 //     accumulated time (not wall-clock), so it can't perturb the deterministic sim, and the
 //     physics-invariant harness never runs this render-frame code anyway.
 //
@@ -19,6 +19,7 @@
 // so the layer adds a fixed, tiny geometry count. Teardown falls out of the scenery group sweep.
 
 import * as THREE from 'three';
+import { DEFAULT_WIND_CONFIG, WIND_REFERENCE_SPEED } from '../wind.js';
 import { withPrivateThreeRandom } from './scenery-rng.js';
 import type { SceneryBudget } from './scenery-budget.js';
 
@@ -30,12 +31,13 @@ function prefersReducedMotion(): boolean {
 /** The live ambient-life layer: its group plus a cosmetic per-frame tick. */
 export interface AmbientLifeSystem {
   group: THREE.Group;
-  update(dt: number, playerPosition: THREE.Vector3, windStrength: number): void;
+  update(dt: number, playerPosition: THREE.Vector3, windStrength: number, windX?: number, windZ?: number): void;
   reset(): void;
 }
 
-// Prevailing drift direction for clouds + spindrift (unit-ish), scaled by wind strength.
-const DRIFT_X = 0.92, DRIFT_Z = -0.39;
+const DRIFT_HALF_X = 140;
+const DRIFT_HALF_Z = 188;
+const WIND_REFERENCE = WIND_REFERENCE_SPEED;
 
 /** A shallow double-wing "bird" silhouette, made DOUBLE-FACED in the geometry (front + reversed
  *  winding) so it reads from any angle WITHOUT `side: DoubleSide` — which would set the
@@ -56,20 +58,34 @@ function birdGeometry(): THREE.BufferGeometry {
   return geo;
 }
 
-/** A double-faced flat quad (two triangles + their reverse) for spindrift wisps, so they read
- *  from both sides on a FrontSide material (again avoiding the DOUBLE_SIDED program). Unit width,
- *  0.28 tall, centred at the origin in the XY plane. */
+/** Tapered, overlapping powder ribbons. Three faint nested silhouettes soften the edge
+ *  through ordinary alpha blending, without a texture or another shader variant. The two
+ *  crossed ribbons keep a wisp visible from both low chase and overhead camera views;
+ *  reverse-wound faces retain the shared FrontSide program. */
 function wispGeometry(): THREE.BufferGeometry {
-  const hw = 0.5, hh = 0.14;
-  const positions = [-hw, -hh, 0, hw, -hh, 0, hw, hh, 0, -hw, hh, 0];
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const contour: ReadonlyArray<readonly [number, number]> = [[-0.5, 0], [-0.26, -0.07], [0.2, -0.05], [0.5, 0], [0.24, 0.045], [-0.2, 0.06]];
+  for (const angle of [-0.55, 0.55]) {
+    for (const scale of [1, 0.76, 0.5]) {
+      const start = positions.length / 3;
+      for (const [x, y] of contour) positions.push(x * scale, y * scale * Math.cos(angle), y * scale * Math.sin(angle));
+      for (let j = 1; j < contour.length - 1; j++) {
+        indices.push(start, start + j, start + j + 1, start, start + j + 1, start + j);
+      }
+    }
+  }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setIndex([0, 1, 2, 0, 2, 3, /* back */ 0, 2, 1, 0, 3, 2]);
+  geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
 }
 
-export function buildAmbientLife(rng: () => number, budget: SceneryBudget): AmbientLifeSystem {
+export function buildAmbientLife(
+  rng: () => number, budget: SceneryBudget,
+  getTerrainHeight: (x: number, z: number) => number = () => 0,
+): AmbientLifeSystem {
   const ae = Math.floor(budget.ambientEmitters);
   const cloudCount = Math.max(4, Math.min(10, Math.round(ae * 0.7)));
   const birdCount = Math.max(6, Math.min(16, ae));
@@ -105,20 +121,18 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
     bird.ang[i] = rng() * Math.PI * 2;
     bird.scl[i] = 2.4 + rng() * 1.8;
   }
-  // Spindrift: wisps of blown snow over the upper slope, streaming with the wind and recycling.
+  // Spindrift stays on the rendered slope. y is a small ground clearance, not world altitude.
   const drift = {
     x: new Array<number>(driftCount), y: new Array<number>(driftCount), z: new Array<number>(driftCount),
-    spd: new Array<number>(driftCount), scl: new Array<number>(driftCount), rot: new Array<number>(driftCount),
+    spd: new Array<number>(driftCount), scl: new Array<number>(driftCount), phase: new Array<number>(driftCount),
   };
   for (let i = 0; i < driftCount; i++) {
-    drift.x[i] = -170 + rng() * 340;
-    drift.y[i] = 26 + rng() * 60;
-    drift.z[i] = -200 + rng() * 220;
-    drift.spd[i] = 14 + rng() * 22;
-    // Kept modest: a large flat quad reads as a floating plate even when faint, so cap the top
-    // end. Combined with the low-opacity material above, wisps stay small thin streaks of haze.
-    drift.scl[i] = 1.6 + rng() * 2.4;
-    drift.rot[i] = rng() * Math.PI * 2;
+    drift.x[i] = -130 + rng() * 260;
+    drift.y[i] = 0.28 + rng() * 0.34;
+    drift.z[i] = -178 + rng() * 356;
+    drift.spd[i] = 0.5 + rng() * 0.5;
+    drift.scl[i] = 2.4 + rng() * 2.4;
+    drift.phase[i] = rng() * Math.PI * 2;
   }
 
   const reduced = prefersReducedMotion();
@@ -127,7 +141,9 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
   // advanced by `dt * wind` each frame. Integrating the drift (rather than multiplying the
   // CURRENT wind sample by total elapsed time) means a gust only affects FUTURE motion — with
   // `wind * time` a strength change re-evaluated all prior history and teleported the instances.
-  let windDrift = 0;
+  let windDriftX = 0;
+  let windDriftZ = 0;
+  let driftYaw = -DEFAULT_WIND_CONFIG.prevailingAngle;
 
   // Scratch (reused each frame; no per-frame allocation).
   const m = new THREE.Matrix4();
@@ -162,19 +178,15 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
     );
     birds.name = 'ambient-birds';
 
-    // Faint, pale wisps. The wisp is a flat untextured quad, so a FULLY OPAQUE material drew a
-    // hard-edged white "plate" hanging in the sky — very visible at far camera zoom (issue: big
-    // floating snow plates). transparent + low opacity + depthWrite:false turns each quad into
-    // thin blowing-snow haze instead. `transparent`/`opacity`/`depthWrite` are RENDER STATE, not
-    // shader-program defines (see the block comment above), so this stays program-neutral: all
-    // three ambient materials remain unlit MeshBasicMaterial + fog + FrontSide and share ONE
-    // program (only `map`/`side:DoubleSide` would fork it — hence the double-faced wisp geometry).
+    // Faint cool powder, faded in by actual wind speed. Layered tapered geometry softens
+    // the silhouette without a new map/alpha/shader variant or opaque floating plates.
     const spindrift = new THREE.InstancedMesh(
       wispGeometry(),
-      new THREE.MeshBasicMaterial({ color: 0xeaf2fb, fog: true, transparent: true, opacity: 0.2, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0xe5edf6, fog: true, transparent: true, opacity: 0, depthWrite: false }),
       driftCount,
     );
     spindrift.name = 'ambient-spindrift';
+    spindrift.visible = false;
 
     for (const mesh of [clouds, birds, spindrift]) {
       mesh.castShadow = false;
@@ -193,12 +205,12 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
     return ((((v + half) % span) + span) % span) - half;
   };
 
-  function writeFrame(): void {
+  function writeFrame(forcePowder = false): void {
     // Clouds — drift along the prevailing wind, wrapped over a wide span. Offset is the
     // ACCUMULATED wind-drift (integrated in update), so a gust never re-evaluates past motion.
     for (let i = 0; i < cloudCount; i++) {
-      const cx = wrap((cloud.x[i] as number) + DRIFT_X * 2.2 * windDrift, 460);
-      const cz = wrap((cloud.z[i] as number) + DRIFT_Z * 2.2 * windDrift, 460);
+      const cx = wrap((cloud.x[i] as number) + 0.42 * windDriftX, 460);
+      const cz = wrap((cloud.z[i] as number) + 0.42 * windDriftZ, 460);
       p.set(cx, cloud.y[i] as number, cz);
       q.identity();
       s.set(cloud.sx[i] as number, cloud.sy[i] as number, cloud.sz[i] as number);
@@ -222,18 +234,30 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
       birds.setMatrixAt(i, m);
     }
     birds.instanceMatrix.needsUpdate = true;
-    // Spindrift — stream with the wind over the slope, recycling across the span. Per-wisp
-    // speed scales the shared accumulated wind-drift (so gusts only push future motion).
+    // Calm/reduced-motion powder is invisible: skip all terrain samples and GPU writes.
+    if (!forcePowder && !spindrift.visible) return;
+    // Ribbons follow the local terrain tangent and hover less than a metre above it.
+    // All samples are read-only, and every scratch object is reused. Taper at the field
+    // boundary before recycling so a wrap cannot flash a large streak across the view.
+    const alongX = Math.cos(driftYaw);
+    const alongZ = -Math.sin(driftYaw);
     for (let i = 0; i < driftCount; i++) {
       const spd = drift.spd[i] as number;
-      const dx = wrap((drift.x[i] as number) + DRIFT_X * spd * windDrift, 190);
-      const dz = wrap((drift.z[i] as number) + DRIFT_Z * spd * windDrift, 190);
-      const dy = (drift.y[i] as number) + Math.sin(time * 0.6 + i) * 1.5;
-      p.set(dx, dy, dz);
-      e.set(0, (drift.rot[i] as number), 0);
-      q.setFromEuler(e);
+      const dx = wrap((drift.x[i] as number) + spd * windDriftX, DRIFT_HALF_X);
+      const dz = wrap((drift.z[i] as number) + spd * windDriftZ, DRIFT_HALF_Z);
+      const ground = getTerrainHeight(dx, dz);
+      const dy = (Number.isFinite(ground) ? ground : 0) + (drift.y[i] as number)
+        + 0.06 * Math.sin(time * 1.2 + (drift.phase[i] as number));
       const sc = drift.scl[i] as number;
-      s.set(sc, sc * 0.6, sc);
+      const halfLength = sc * 0.5;
+      const h0 = getTerrainHeight(dx - alongX * halfLength, dz - alongZ * halfLength);
+      const h1 = getTerrainHeight(dx + alongX * halfLength, dz + alongZ * halfLength);
+      const pitch = Number.isFinite(h0) && Number.isFinite(h1) ? Math.atan2(h1 - h0, sc) : 0;
+      p.set(dx, dy, dz);
+      e.set(0, driftYaw, pitch, 'YXZ');
+      q.setFromEuler(e);
+      const edge = Math.min(1, (DRIFT_HALF_X - Math.abs(dx)) / 8, (DRIFT_HALF_Z - Math.abs(dz)) / 8);
+      s.set(sc * edge, sc * 0.55 * edge, sc * 0.55 * edge);
       m.compose(p, q, s);
       spindrift.setMatrixAt(i, m);
     }
@@ -241,21 +265,41 @@ export function buildAmbientLife(rng: () => number, budget: SceneryBudget): Ambi
   }
 
   // Seed the static initial frame (also the frozen frame under reduced motion).
-  writeFrame();
+  writeFrame(true);
 
-  function update(dt: number, _playerPosition: THREE.Vector3, windStrength: number): void {
+  function update(dt: number, _playerPosition: THREE.Vector3, windStrength: number, windX?: number, windZ?: number): void {
     if (reduced) return;            // frozen under prefers-reduced-motion
-    if (!(dt > 0)) return;          // no-op on a zero/negative delta
-    time += dt;
-    // Integrate wind drift: gentle even in calm, faster in gusts. Only future motion is affected.
-    windDrift += dt * (0.4 + windStrength * 1.6);
+    if (!(dt > 0) || !Number.isFinite(dt)) return;
+    const delta = Math.min(dt, 0.25); // bound resume gaps without ever integrating Infinity
+    time += delta;
+    // Older callers only supplied strength: use the field's prevailing direction for
+    // that compatibility path. A supplied vector is authoritative, including exact calm.
+    const strength = Number.isFinite(windStrength) ? Math.max(0, Math.min(1, windStrength)) : 0;
+    const wx = windX === undefined ? Math.cos(DEFAULT_WIND_CONFIG.prevailingAngle) * strength * WIND_REFERENCE :
+      (Number.isFinite(windX) ? Math.max(-30, Math.min(30, windX)) : 0);
+    const wz = windZ === undefined ? Math.sin(DEFAULT_WIND_CONFIG.prevailingAngle) * strength * WIND_REFERENCE :
+      (Number.isFinite(windZ) ? Math.max(-30, Math.min(30, windZ)) : 0);
+    windDriftX += delta * wx;
+    windDriftZ += delta * wz;
+    const speed = Math.hypot(wx, wz);
+    if (speed > 0.01) {
+      const targetYaw = -Math.atan2(wz, wx);
+      const angle = Math.atan2(Math.sin(targetYaw - driftYaw), Math.cos(targetYaw - driftYaw));
+      driftYaw += angle * (1 - Math.exp(-4 * delta));
+    }
+    const opacity = 0.045 * Math.max(0, Math.min(1, (speed - 0.6) / 5.4));
+    spindrift.material.opacity += (opacity - spindrift.material.opacity) * (1 - Math.exp(-5 * delta));
+    spindrift.visible = spindrift.material.opacity > 0.001;
     writeFrame();
   }
 
   function reset(): void {
     time = 0;
-    windDrift = 0;
-    writeFrame();
+    windDriftX = windDriftZ = 0;
+    driftYaw = -DEFAULT_WIND_CONFIG.prevailingAngle;
+    spindrift.material.opacity = 0;
+    spindrift.visible = false;
+    writeFrame(true);
   }
 
   return { group, update, reset };

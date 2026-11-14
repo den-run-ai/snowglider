@@ -11,6 +11,22 @@ diagnostic history. For the current design see [`ARCHITECTURE.md`](ARCHITECTURE.
 
 ---
 
+## Coherent wind, snow and sound — 2026-11-14
+
+- Calibrate wind strength against a fixed 7.2-unit reference and sanitize tuning;
+  a tiny steady breeze no longer drives full-strength trees and audio.
+- Carry falling snow with gradual air drag and bounded flutter. Project restrained
+  crystal streaks into each camera view and keep reduced-motion snowfall vertical.
+- Deform tree lighting normals, world positions and shadow geometry together.
+  EZ branches, needles and snow shelves share the host tree's bend/load response.
+- Align clouds and terrain-hugging tapered powder wisps with the actual wind,
+  integrate direction changes continuously and fade powder out in calm air.
+- Replace the repetitive high-pitched whistle with broad gust turbulence;
+  use apparent airflow for headwind/tailwind rush and camera-relative stereo.
+  Six-second seeded noise keeps audio initialization out of gameplay RNG streams.
+- Preserve gesture-based audio activation, mute, replay, physics, colliders and
+  ranked records. Physical-phone audio acceptance remains in #249. See [WIND.md](WIND.md).
+
 ## Leaderboards and saved runs — 2026-11-08
 
 - Rank Bunny, Blue, Black and Expert separately with one shared start/result

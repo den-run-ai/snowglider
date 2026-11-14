@@ -57,6 +57,9 @@ export interface SceneryUpdateContext {
   windStrength?: number;
   /** Instantaneous gust factor 0..1 (Wind.gust()). */
   windGust?: number;
+  /** Shared horizontal wind velocity in world units/s; an explicit zero vector is calm. */
+  windX?: number;
+  windZ?: number;
 }
 
 /**
@@ -134,7 +137,7 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   // --- Layer: ambient life (PR 7) ---
   // Drifting clouds, circling birds, blowing spindrift — the first ANIMATED layer. Ticked in
   // update() below (cosmetic-only); frozen under prefers-reduced-motion.
-  const ambient = buildAmbientLife(rng, budget);
+  const ambient = buildAmbientLife(rng, budget, ctx.getTerrainHeight);
   group.add(ambient.group);
 
   let disposed = false;
@@ -142,7 +145,7 @@ export function createScenery(scene: THREE.Scene, ctx: SceneryContext): SceneryS
   function update(dt: number, playerPosition: THREE.Vector3, ctx?: SceneryUpdateContext): void {
     // Cosmetic-only: advances the ambient-life animation from the render delta + wind signal.
     // Writes only ambient instance matrices — never pos/velocity/terrain/course/collision.
-    if (!disposed) ambient.update(dt, playerPosition, ctx?.windStrength ?? 0);
+    if (!disposed) ambient.update(dt, playerPosition, ctx?.windStrength ?? 0, ctx?.windX, ctx?.windZ);
   }
 
   function reset(): void {

@@ -41,7 +41,7 @@ export function livePhysicsLoop({ snowman, pos, velocity, treePositions, rockPos
     state, player, snowman, treePositions, rockPositions, snowSplash: null,
     scene: { children: [] },
     renderer: { render() {}, setSize() {}, domElement: env.document.createElement('canvas') },
-    camera: { position: { x: 0, y: 0, z: 0 }, fov: 75, updateProjectionMatrix() {} },
+    camera: { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 }, fov: 75, updateProjectionMatrix() {} },
     cameraManager: { update() {}, handleResize() {} },
     directionalLight: { position: { set() {}, copy() {} },
       target: { position: { set() {} }, updateMatrixWorld() {} }, shadow: { normalBias: 0 } },

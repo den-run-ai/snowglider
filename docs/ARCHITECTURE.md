@@ -233,11 +233,11 @@ while accumulator >= FIXED_DT && substeps < MAX_SUBSTEPS && gameActive:   // FIX
     accumulator -= FIXED_DT
 alpha = accumulator / FIXED_DT                    // 0..1 leftover for render interpolation
                                                   // --- once per RENDER frame (cosmetic) ---
-renderObservers(frameDelta, latestResult, events)   // HUD stats, Flex.update, Sfx jump/land/skiing
+Wind.update(frameDelta)                          // one fresh sample BEFORE all wind consumers
+renderObservers(frameDelta, latestResult, events)   // HUD stats, Flex.update, Sfx jump/land
 Diag.record(frameDelta, …, step=maxSubstepStep)  // telemetry: REAL frame dt (FPS/clamped) + substep step (tunnelRisk)
-Wind.update(frameDelta)                          // advance the shared wind field (deterministic, cosmetic)
+Snow.updateTreeWind(frameDelta)                  // shared GPU bend + normal/depth deformation
 TreeShed.update(frameDelta, pos, trees, scene)   // gust fronts shed laden trees (puffs + load writes) → Sfx.treeShed per event
-Sfx.updateForest(strength, gust, proximity)      // needle-rustle bed: wind × forest around the player
 Snow.updateSnowflakes(...)                        // flakes drift downwind by Wind.vector()
 snowTrails.update(frameDelta, snowman, isInAir)  // carve/fade ski grooves (cosmetic, reads pos only)
 Sky.update(frameDelta)                           // golden-hour↔midday sun cycle
@@ -246,12 +246,17 @@ avalanche.hasPassed/reset                        // + EffectsModule.updateAvalan
 Snow.updateSnowSplash(...)  (position restored after, so particles can't move player)
 snowman.position = lerp(prevState, curState, alpha)      // render at interpolated pos (anti-alias non-60 panels)
 updateCamera()                                   // cameraManager follows the interpolated snowman
+updateWindAudio(latestResult)                     // apparent airflow, camera-relative wind/forest stereo
 updateTimerDisplay()
 shake = EffectsModule.tickCamera(camera, frameDelta, speed)   // FOV + shake offset
 renderer.render(scene, camera)
 camera.position -= shake                          // revert so smoothing stays clean
 snowman.position = curState                       // restore authoritative physics pos
 ```
+
+The wind contracts, tree deformation, snow transport and sound mapping are detailed
+in [WIND.md](WIND.md). Wind never writes gameplay state; all consumers share the
+same clock sample, and continuous sound reads the finalized camera orientation.
 
 `camera-terrain.ts` seats every camera mode on initialization, mode reentry, and
 after position/look-target smoothing. It preserves clear views and raises blocked
