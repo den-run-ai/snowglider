@@ -47,7 +47,7 @@ export async function measureTreeWindNormals(page: Page) {
           if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(`${key}: ${gl.getShaderInfoLog(sh)}`);
           return sh;
         };
-        const program = gl.createProgram()!;
+        const program = gl.createProgram();
         const vs = compile(gl.VERTEX_SHADER, src);
         const fs = compile(gl.FRAGMENT_SHADER, '#version 300 es\nprecision highp float; out vec4 color; void main(){color=vec4(1); }');
         gl.attachShader(program, vs); gl.attachShader(program, fs);

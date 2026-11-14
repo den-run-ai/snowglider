@@ -38,6 +38,8 @@ async function main() {
   const { Snow } = await import('../src/snow.ts');
   const { EffectsModule } = await import('../src/effects.ts');
   const { Sfx } = await import('../src/sfx.ts');
+  const { Wind, DEFAULT_WIND_CONFIG } = await import('../src/wind.ts');
+  const { Flex } = await import('../src/snowman-flex.ts');
   const { AudioModule } = await import('../src/audio.ts');
   const { createLifecycle } = await import('../src/game/lifecycle.ts');
 
@@ -130,11 +132,11 @@ async function main() {
       state,
       player,
       scene: { children: [], add() {}, remove() {} },
-      camera: { position: { x: 0, y: 0, z: 0 }, quaternion: new Quaternion(), fov: 75, updateProjectionMatrix() {} },
+      camera: overrides.camera ?? { position: { x: 0, y: 0, z: 0 }, quaternion: new Quaternion(), fov: 75, updateProjectionMatrix() {} },
       renderer: overrides.renderer ?? { render() {}, setSize() {} },
       renderQuality: overrides.renderQuality,
       runClockGuard: overrides.runClockGuard,
-      cameraManager: { update() {}, handleResize() {} },
+      cameraManager: overrides.cameraManager ?? { update() {}, handleResize() {} },
       directionalLight: overrides.directionalLight ?? {
         position: { set() {}, copy() {} },
         target: { position: { set() {} }, updateMatrixWorld() {} },
@@ -324,6 +326,76 @@ async function main() {
     check('no avalanche outcome resolves once the run is over', h.gameOverReasons.length === 0);
   }
 
+  console.log('--- Wind observers share the fresh field and current camera ---');
+  {
+    const saved = {
+      update: Wind.update, flex: Flex.update, snow: Snow.updateSnowflakes,
+      skiing: Sfx.updateSkiing, howl: Sfx.updateWindHowl, forest: Sfx.updateForest,
+    };
+    /** @type {string[]} */
+    const operations = [];
+    /** @type {import('../src/wind.js').WindSample[]} */
+    const samples = [];
+    /** @type {number[]} */
+    const cameraRights = [];
+    /** @type {number[]} */
+    const pans = [];
+    const camera = { position: { x: 0, y: 0, z: 0 }, quaternion: new Quaternion(), fov: 75, updateProjectionMatrix() {} };
+    let reverseView = true;
+    try {
+      Wind.configure({ ...DEFAULT_WIND_CONFIG, prevailingAngle: 0, dirWander: 0 });
+      Wind.update = dt => { saved.update(dt); operations.push('wind'); };
+      Flex.update = () => { operations.push('scarf'); samples.push(Wind.sample()); };
+      Snow.updateSnowflakes = () => { operations.push('snow'); samples.push(Wind.sample()); };
+      Sfx.updateSkiing = (_speed, _technique, _air, _strength, motion) => {
+        operations.push('audio'); samples.push(Wind.sample()); cameraRights.push(motion?.cameraRightX ?? NaN);
+      };
+      Sfx.updateWindHowl = (_strength, _gust, pan) => { pans.push(pan ?? 0); };
+      Sfx.updateForest = () => {};
+      const h = makeLoop({
+        camera,
+        cameraManager: {
+          update() {
+            operations.push('camera');
+            camera.quaternion.set(0, reverseView ? 1 : 0, 0, reverseView ? 0 : 1);
+          },
+          handleResize() {},
+        },
+      });
+      h.loop.resetLoopState();
+      const initial = Wind.sample();
+      h.loop.animate(17);
+      check('wind advances before scarf and snowfall read the frame',
+        operations.indexOf('wind') < operations.indexOf('scarf') && operations.indexOf('wind') < operations.indexOf('snow'));
+      check('scarf, snowfall and audio read the same freshly advanced gust',
+        samples.length === 3 && samples.every(sample => sample === Wind.sample()) && samples[0] !== initial);
+      check('wind stereo uses the camera orientation updated in this frame',
+        operations.indexOf('camera') < operations.indexOf('audio') && cameraRights[0] < -0.99 && pans[0] > 0.44);
+
+      const elapsed = h.state.simElapsed;
+      const firstGust = Wind.sample();
+      operations.length = 0;
+      samples.length = 0;
+      reverseView = false;
+      h.loop.animate(25); // 8 ms: render again without a second fixed physics step.
+      check('a no-physics-step frame still advances one coherent wind sample',
+        h.state.simElapsed === elapsed && Wind.sample() !== firstGust && samples.length === 3 && samples.every(sample => sample === Wind.sample()));
+      check('camera pan changes on no-physics-step frames without waiting for physics',
+        cameraRights.length === 2 && cameraRights[1] > 0.99 && pans[1] < -0.44);
+      h.loop.resetLoopState();
+      check('run reset rewinds the wind after the rendered frames', Wind.sample().gust === initial.gust);
+    } finally {
+      Wind.update = saved.update;
+      Flex.update = saved.flex;
+      Snow.updateSnowflakes = saved.snow;
+      Sfx.updateSkiing = saved.skiing;
+      Sfx.updateWindHowl = saved.howl;
+      Sfx.updateForest = saved.forest;
+      Wind.configure(DEFAULT_WIND_CONFIG);
+      Wind.reset();
+    }
+  }
+
   console.log('--- Adaptive quality transition presents a completed frame ---');
 
   // Terminal substeps must not re-enable the warning/audio cleared by the
@@ -333,10 +405,17 @@ async function main() {
     let renders = 0;
     let warnings = 0;
     let rumble = 0;
+    let windBeds = 0;
     const savedWarning = EffectsModule.updateAvalanche;
     const savedRumble = Sfx.setAvalanche;
+    const savedSkiing = Sfx.updateSkiing;
+    const savedHowl = Sfx.updateWindHowl;
+    const savedForest = Sfx.updateForest;
     EffectsModule.updateAvalanche = () => { warnings++; };
     Sfx.setAvalanche = () => { rumble++; };
+    Sfx.updateSkiing = () => { windBeds++; };
+    Sfx.updateWindHowl = () => { windBeds++; };
+    Sfx.updateForest = () => { windBeds++; };
     const h = makeLoop({
       avalanche: { checkBurial: () => outcome === 'burial' },
       renderer: { render() { renders++; }, setSize() {} },
@@ -348,13 +427,14 @@ async function main() {
     };
     h.loop.startLoop();
     if (outcome === 'finish') h.player.pos.z = -196;
-    const before = { renders, warnings, rumble };
+    const before = { renders, warnings, rumble, windBeds };
     const t0 = performance.now();
     h.loop.animate(t0 + 100);
     check(`${outcome} ends exactly once inside the physics frame`,
       h.gameOverReasons.length === 1 && !h.state.gameActive);
     check(`${outcome} does not revive avalanche warnings or audio`,
       warnings === before.warnings && rumble === before.rumble);
+    check(`${outcome} does not revive any wind, skiing or forest bed`, windBeds === before.windBeds);
     check(`${outcome} preserves the last completed render`, renders === before.renders);
     // A queued frame still exists. Restart may happen before it runs, so do
     // not clear animationRunning early and accidentally start a second chain.
@@ -363,6 +443,9 @@ async function main() {
     check(`${outcome} queued frame releases loop ownership`, !h.state.animationRunning);
     EffectsModule.updateAvalanche = savedWarning;
     Sfx.setAvalanche = savedRumble;
+    Sfx.updateSkiing = savedSkiing;
+    Sfx.updateWindHowl = savedHowl;
+    Sfx.updateForest = savedForest;
   }
 
   {
