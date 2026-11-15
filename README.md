@@ -39,3 +39,17 @@ The permanent test in tests/e2e/wind-rendering.spec.ts executes actual productio
 [GPU metrics](wind-evidence/tree-wind-gpu-metrics.json) · [Raw Playwright report](wind-evidence/gpu-test-report.json)
 
 Capture/plot scripts are included for provenance. Their absolute checkout paths and installed browser path record this capture environment; update those paths to reproduce using the exact revisions above.
+
+## Production release verification
+
+PR #483 merged as `778f9ef54c3761081d1f223d2c981b2c7a5a6294` and the [production workflow](https://github.com/den-run-ai/snowglider/actions/runs/43654403648) completed successfully. GitHub Pages publication succeeded at 2026-11-15 00:20:43 UTC, after Firestore rules and the Pages build.
+
+The live homepage loads the tested `/assets/index-nkm_IA9q.js` entry. All eight emitted game JavaScript/CSS bundles and eight affected source modules returned HTTP 200 with correct MIME types and SHA-256 hashes matching the tested build. The live build identifier is `2026-11-14 23:46 UTC`.
+
+- [Live production verification](wind-evidence/production-verification.json)
+- [Expected file hashes](wind-evidence/production-expected-hashes.json)
+- [Reproducible HTTPS verifier](wind-evidence/verify-live-production.py)
+- [Workflow, job ordering and test outcomes](wind-evidence/deployment-workflow.json)
+- [Merged PR with its visual evidence](wind-evidence/pr-published-evidence.jpg)
+
+Main CI finished with 195 browser/HUD cases passed and 16 intentionally skipped. All six performance-capture cases passed without retries. Renderer budgets passed after one configured retry for a desktop scene-ready timeout; no budget assertion failed. Physical-device audio acceptance remains tracked in #249.

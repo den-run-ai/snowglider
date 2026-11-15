@@ -1,0 +1,140 @@
+{
+  "workflowId": 43654403648,
+  "url": "https://github.com/den-run-ai/snowglider/actions/runs/43654403648",
+  "mergeCommit": "778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+  "status": "completed",
+  "conclusion": "success",
+  "completedAt": "2026-11-15T00:20:44Z",
+  "environment": "https://snowglider.ai/",
+  "jobs": [
+    {
+      "id": 132629656230,
+      "name": "Playwright E2E (cross-browser)",
+      "conclusion": "success",
+      "startedAt": "2026-11-14T23:40:28Z",
+      "completedAt": "2026-11-15T00:20:31Z",
+      "url": "https://github.com/den-run-ai/snowglider/actions/runs/43654403648/job/132629656230"
+    },
+    {
+      "id": 132629656329,
+      "name": "PWA offline acceptance (production build)",
+      "conclusion": "success",
+      "startedAt": "2026-11-14T23:40:28Z",
+      "completedAt": "2026-11-14T23:42:44Z",
+      "url": "https://github.com/den-run-ai/snowglider/actions/runs/43654403648/job/132629656329"
+    },
+    {
+      "id": 132629656405,
+      "name": "Test",
+      "conclusion": "success",
+      "startedAt": "2026-11-14T23:40:28Z",
+      "completedAt": "2026-11-14T23:45:00Z",
+      "url": "https://github.com/den-run-ai/snowglider/actions/runs/43654403648/job/132629656405"
+    },
+    {
+      "id": 132630792915,
+      "name": "Deploy Firestore rules",
+      "conclusion": "success",
+      "startedAt": "2026-11-14T23:45:02Z",
+      "completedAt": "2026-11-14T23:45:08Z",
+      "url": "https://github.com/den-run-ai/snowglider/actions/runs/43654403648/job/132630792915"
+    },
+    {
+      "id": 132630827975,
+      "name": "Build GitHub Pages artifact",
+      "conclusion": "success",
+      "startedAt": "2026-11-14T23:45:11Z",
+      "completedAt": "2026-11-14T23:46:17Z",
+      "url": "https://github.com/den-run-ai/snowglider/actions/runs/43654403648/job/132630827975"
+    },
+    {
+      "id": 132639780977,
+      "name": "Deploy GitHub Pages",
+      "conclusion": "success",
+      "startedAt": "2026-11-15T00:20:35Z",
+      "completedAt": "2026-11-15T00:20:43Z",
+      "url": "https://github.com/den-run-ai/snowglider/actions/runs/43654403648/job/132639780977"
+    }
+  ],
+  "checks": [
+    {
+      "name": "Deploy GitHub Pages",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Build GitHub Pages artifact",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Deploy Firestore rules",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Analyze (actions)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Analyze (javascript-typescript)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Test",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "PWA offline acceptance (production build)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Playwright E2E (cross-browser)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "browserMatrix": {
+    "passed": 195,
+    "skipped": 16,
+    "failed": 0,
+    "retriesObserved": 0,
+    "durationMinutes": 26.2,
+    "jobId": 132629656230
+  },
+  "performanceCapture": {
+    "passed": 6,
+    "skipped": 0,
+    "errors": 0,
+    "retries": 0,
+    "artifactId": 14138080099
+  },
+  "rendererBudgets": {
+    "passed": 4,
+    "flaky": 1,
+    "unexpected": 0,
+    "artifactId": 14136839145,
+    "retryReason": "Desktop initial scene-ready wait exceeded 30 seconds; configured retry passed; no failed budget assertion."
+  },
+  "releaseOrdering": {
+    "rulesLiveAt": "2026-11-14T23:45:06.9465805Z",
+    "pagesBuildStartedAt": "2026-11-14T23:45:11Z",
+    "pagesPublicationStartedAt": "2026-11-15T00:20:37Z",
+    "pagesPublicationSucceededAt": "2026-11-15T00:20:43.1213898Z"
+  },
+  "postDeploymentVerification": {
+    "verifiedAt": "2026-11-15T00:21:44.828192+00:00",
+    "files": 16,
+    "allHashesMatch": true,
+    "allFilesHTTP200": true,
+    "htmlEntryMatches": true,
+    "buildId": [
+      "2026-11-14 23:46 UTC"
+    ],
+    "initialProbe": "The initial homepage verification request returned HTTP 503. Subsequent canonical and revision-keyed homepage requests returned HTTP 200, followed by the successful full 16-file verification."
+  }
+}

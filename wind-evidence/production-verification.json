@@ -1,0 +1,202 @@
+{
+  "verifiedAt": "2026-11-15T00:21:44.828192+00:00",
+  "mergeCommit": "778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+  "testedHead": "2cb650ea898c6ba6af8b606061fe9e83590c7248",
+  "runtimeCommit": "9660fc069c86b4a777f978a4b33e030c93922e8f",
+  "workflow": "https://github.com/den-run-ai/snowglider/actions/runs/43654403648",
+  "method": "HTTPS fetch with revision cache key; homepage entry URL and SHA-256 of all emitted game JS/CSS bundles plus eight affected source modules compared with the tested production build. Git confirms identical runtime trees between tested head and merge. Build timestamp is injected only into HTML, outside these file hashes.",
+  "home": {
+    "path": "",
+    "url": "https://snowglider.ai/?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+    "status": 200,
+    "contentType": "text/html; charset=utf-8",
+    "bytes": 29517,
+    "sha256": "9232f7cf4fc34a11360decca7a65446ccef9b3b9d2218df1c7fd3ba8af486c7a",
+    "buildId": [
+      "2026-11-14 23:46 UTC"
+    ],
+    "entryModules": [
+      "/assets/index-nkm_IA9q.js"
+    ],
+    "entryMatchesTestedBuild": true
+  },
+  "files": [
+    {
+      "path": "src/wind.js",
+      "url": "https://snowglider.ai/src/wind.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 6146,
+      "sha256": "d5b8dad21bd5e3165e8813616c793e0bab29b602cb580a840bfef6dd21fb7cd3",
+      "expectedSha256": "d5b8dad21bd5e3165e8813616c793e0bab29b602cb580a840bfef6dd21fb7cd3",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "src/sfx.js",
+      "url": "https://snowglider.ai/src/sfx.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 29656,
+      "sha256": "c7a25419655eda68be531284d686ba48449fffc30e2e89e7f7ba68d3030a8261",
+      "expectedSha256": "c7a25419655eda68be531284d686ba48449fffc30e2e89e7f7ba68d3030a8261",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "src/mountains/trees.js",
+      "url": "https://snowglider.ai/src/mountains/trees.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 102873,
+      "sha256": "1df3af98577948660d8f86755c48b12db797b700a72f59033d9516e1448d966e",
+      "expectedSha256": "1df3af98577948660d8f86755c48b12db797b700a72f59033d9516e1448d966e",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "src/snow.js",
+      "url": "https://snowglider.ai/src/snow.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 30426,
+      "sha256": "b9c4dc2bf5a38eccf1fae2d7d3ddbaf37f0033c81244bf76429a3ad9ef44bcb0",
+      "expectedSha256": "b9c4dc2bf5a38eccf1fae2d7d3ddbaf37f0033c81244bf76429a3ad9ef44bcb0",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "src/snow-billboards.js",
+      "url": "https://snowglider.ai/src/snow-billboards.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 12485,
+      "sha256": "c53ca2858a09cd8fc1e1ec689e6431c681d4b0d981294fcea9ffb41afd4df721",
+      "expectedSha256": "c53ca2858a09cd8fc1e1ec689e6431c681d4b0d981294fcea9ffb41afd4df721",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "src/snowman-flex.js",
+      "url": "https://snowglider.ai/src/snowman-flex.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 12660,
+      "sha256": "8db75a44a3bcf8b389fd69d4144f219359e1c321a4feb37513fc1b07e4f05b76",
+      "expectedSha256": "8db75a44a3bcf8b389fd69d4144f219359e1c321a4feb37513fc1b07e4f05b76",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "src/scenery/ambient-life.js",
+      "url": "https://snowglider.ai/src/scenery/ambient-life.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 14721,
+      "sha256": "c4d6ca251d2db3d85e205c34fbc5100f322f3df325957e0eb6895c0e2208697a",
+      "expectedSha256": "c4d6ca251d2db3d85e205c34fbc5100f322f3df325957e0eb6895c0e2208697a",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "src/game/main-loop.js",
+      "url": "https://snowglider.ai/src/game/main-loop.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 57565,
+      "sha256": "abfebe1855fd284b54983f33b88b53ed569c8892214e1394d36d4696eaa52cb6",
+      "expectedSha256": "abfebe1855fd284b54983f33b88b53ed569c8892214e1394d36d4696eaa52cb6",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "assets/ez-tree.es-DYvlwWCs.js",
+      "url": "https://snowglider.ai/assets/ez-tree.es-DYvlwWCs.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 3997487,
+      "sha256": "7070b6e798d551627f76c514d57945e0244496718ad4c2e28582b4da5f6d4076",
+      "expectedSha256": "7070b6e798d551627f76c514d57945e0244496718ad4c2e28582b4da5f6d4076",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "assets/index-CQ7kOPA8.css",
+      "url": "https://snowglider.ai/assets/index-CQ7kOPA8.css?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "text/css; charset=utf-8",
+      "bytes": 35117,
+      "sha256": "4e0d2e6833856699e5336b07727c75df114cad1dc286cb88a4cb9b4730f3ff5f",
+      "expectedSha256": "4e0d2e6833856699e5336b07727c75df114cad1dc286cb88a4cb9b4730f3ff5f",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "assets/index-nkm_IA9q.js",
+      "url": "https://snowglider.ai/assets/index-nkm_IA9q.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 38464,
+      "sha256": "9ae29e6d66c2904b956c6bf4b1c37f9846cb0c9b869f8837821d418b6c638691",
+      "expectedSha256": "9ae29e6d66c2904b956c6bf4b1c37f9846cb0c9b869f8837821d418b6c638691",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "assets/rock-gallery-DHsX-sQ7.js",
+      "url": "https://snowglider.ai/assets/rock-gallery-DHsX-sQ7.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 3509,
+      "sha256": "d3da37b6c674eb179c62a695b1f9eb016146f5c86de4dad59e49c2c83d97c154",
+      "expectedSha256": "d3da37b6c674eb179c62a695b1f9eb016146f5c86de4dad59e49c2c83d97c154",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "assets/run-transition-D3MrlJjM.js",
+      "url": "https://snowglider.ai/assets/run-transition-D3MrlJjM.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 530823,
+      "sha256": "03ca07e852103ca225a3c3bb17a98b90939d2f4a33cc5c495ab1bfc065ade038",
+      "expectedSha256": "03ca07e852103ca225a3c3bb17a98b90939d2f4a33cc5c495ab1bfc065ade038",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "assets/scene-setup-CSRnMPPb.js",
+      "url": "https://snowglider.ai/assets/scene-setup-CSRnMPPb.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 38347,
+      "sha256": "8d9fe2b0569be2cdac61be588fa0c3aa249a715b5a534c11f7528e10c0ce27d5",
+      "expectedSha256": "8d9fe2b0569be2cdac61be588fa0c3aa249a715b5a534c11f7528e10c0ce27d5",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "assets/snowglider-DWuVEa5a.js",
+      "url": "https://snowglider.ai/assets/snowglider-DWuVEa5a.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 96186,
+      "sha256": "bc3335c4a6ab62d29226d756e7008ad13fcdadbae5d4faca49081264a6a75e2e",
+      "expectedSha256": "bc3335c4a6ab62d29226d756e7008ad13fcdadbae5d4faca49081264a6a75e2e",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    },
+    {
+      "path": "assets/three.core-CF8j-Y1D.js",
+      "url": "https://snowglider.ai/assets/three.core-CF8j-Y1D.js?verify=778f9ef54c3761081d1f223d2c981b2c7a5a6294",
+      "status": 200,
+      "contentType": "application/javascript; charset=utf-8",
+      "bytes": 203617,
+      "sha256": "7489fda2e3e633264bdcf0cb7e80c21e9096932fb77623f74afb6e12b322aede",
+      "expectedSha256": "7489fda2e3e633264bdcf0cb7e80c21e9096932fb77623f74afb6e12b322aede",
+      "hashMatchesTestedBuild": true,
+      "validMime": true
+    }
+  ],
+  "success": true
+}
